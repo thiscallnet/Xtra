@@ -41,6 +41,7 @@ import com.github.andreyasadchy.xtra.model.ui.ChannelPointRedemptionResult
 import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
 import com.github.andreyasadchy.xtra.model.ui.WatchStreak
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakReward
+import com.github.andreyasadchy.xtra.model.ui.WatchStreakShareResult
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
@@ -171,6 +172,8 @@ class ChatViewModel(
     val watchStreak = MutableStateFlow<WatchStreak?>(null)
     private val channelPointRedemptionEvents = Channel<ChannelPointRedemptionResult>(Channel.BUFFERED)
     val channelPointRedemption: Flow<ChannelPointRedemptionResult> = channelPointRedemptionEvents.receiveAsFlow()
+    private val watchStreakShareEvents = Channel<WatchStreakShareResult>(Channel.BUFFERED)
+    val watchStreakShare: Flow<WatchStreakShareResult> = watchStreakShareEvents.receiveAsFlow()
 
     val reloadMessages = MutableStateFlow(false)
     val hideRaid = MutableStateFlow(false)
@@ -1188,6 +1191,8 @@ class ChatViewModel(
                 nextMilestone = previous?.nextMilestone,
                 rewardPoints = previous?.rewardPoints,
                 pointsAwarded = pointsAwarded,
+                milestoneId = previous?.milestoneId,
+                shareStatus = previous?.shareStatus,
             )
         }
     }
@@ -1196,11 +1201,14 @@ class ChatViewModel(
 
     private fun updateWatchStreakStatus(response: WatchStreakResponse) {
         val milestone = response.data?.channel?.self?.watchStreakMilestone ?: return
-        val streakCount = milestone.watchStreakMilestone?.value.toIntOrNull() ?: return
+        val milestoneValue = milestone.watchStreakMilestone ?: return
+        val streakCount = milestoneValue.value.toIntOrNull() ?: return
         watchStreak.value = WatchStreak(
             streakCount = streakCount,
             nextMilestone = milestone.watchStreakThreshold.toIntOrNull(),
             rewardPoints = milestone.watchStreakCopoBonus.toIntOrNull(),
+            milestoneId = milestoneValue.id,
+            shareStatus = milestoneValue.shareStatus,
         )
     }
 
@@ -1324,6 +1332,69 @@ class ChatViewModel(
                     channelPointRedemptionEvents.send(
                         ChannelPointRedemptionResult(
                             reward.title,
+                            success = false,
+                            message = e.message ?: "Request failed",
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun shareWatchStreak(streak: WatchStreak, message: String?) {
+        val channelId = activeChannelId
+        val milestoneId = streak.milestoneId
+        if (channelId.isNullOrBlank() || milestoneId.isNullOrBlank()) {
+            watchStreakShareEvents.trySend(
+                WatchStreakShareResult(
+                    success = false,
+                    message = applicationContext.getString(R.string.channel_points_streak_share_unavailable),
+                ),
+            )
+            return
+        }
+        val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
+        if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+            watchStreakShareEvents.trySend(
+                WatchStreakShareResult(success = false, message = "Login is required"),
+            )
+            return
+        }
+        val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        viewModelScope.launch {
+            try {
+                val response = graphQLRepository.shareWatchStreak(
+                    networkLibrary = networkLibrary,
+                    headers = gqlHeaders,
+                    channelId = channelId,
+                    milestoneId = milestoneId,
+                    message = message?.takeIf { it.isNotBlank() },
+                )
+                if (activeChannelId != channelId) {
+                    return@launch
+                }
+                val error = response.errors?.firstOrNull()?.message
+                    ?: response.data?.errorCode()
+                if (error != null || response.data?.hasPayload() != true) {
+                    watchStreakShareEvents.send(
+                        WatchStreakShareResult(
+                            success = false,
+                            message = error ?: "Request failed",
+                        ),
+                    )
+                } else {
+                    watchStreak.value?.takeIf { it.milestoneId == milestoneId }?.let {
+                        watchStreak.value = it.copy(shareStatus = WatchStreak.SHARE_STATUS_SHARED)
+                    }
+                    watchStreakShareEvents.send(WatchStreakShareResult(success = true))
+                    loadWatchStreak(networkLibrary, gqlHeaders, channelId)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (activeChannelId == channelId) {
+                    watchStreakShareEvents.send(
+                        WatchStreakShareResult(
                             success = false,
                             message = e.message ?: "Request failed",
                         ),
