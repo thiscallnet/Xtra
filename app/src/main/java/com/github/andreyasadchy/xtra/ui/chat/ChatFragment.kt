@@ -100,6 +100,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var composerOverlayState: ComposerOverlayState? = null
     private var pendingComposerText: String? = null
     private var composerSubmissionInProgress = false
+    private var composerTextBeforeOverlay: String? = null
+    private var composerSelectionBeforeOverlay: Int? = null
+    private var messageViewWasVisibleBeforeOverlay: Boolean? = null
 
     private var autoCompleteAdapter: AutoCompleteAdapter<Any>? = null
 
@@ -1047,11 +1050,19 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     private fun showComposerOverlay(state: ComposerOverlayState) {
+        if (composerOverlayState == null) {
+            composerTextBeforeOverlay = binding.editText.text.toString()
+            composerSelectionBeforeOverlay = binding.editText.selectionStart.takeIf { it >= 0 }
+            messageViewWasVisibleBeforeOverlay = binding.messageView.isVisible
+        }
         composerOverlayState = state
         pendingComposerText = null
         composerSubmissionInProgress = false
         with(binding) {
             resetMessageComposerAction()
+            toggleEmoteMenu(false)
+            messageView.isVisible = true
+            editText.text.clear()
             channelPointRewardOverlay.isVisible = true
             when (state) {
                 is ComposerOverlayState.Reward -> {
@@ -1100,10 +1111,23 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     private fun cancelComposerOverlay() {
+        val textBeforeOverlay = composerTextBeforeOverlay
+        val selectionBeforeOverlay = composerSelectionBeforeOverlay
+        val messageViewWasVisible = messageViewWasVisibleBeforeOverlay
         composerOverlayState = null
         pendingComposerText = null
         composerSubmissionInProgress = false
+        composerTextBeforeOverlay = null
+        composerSelectionBeforeOverlay = null
+        messageViewWasVisibleBeforeOverlay = null
         binding.channelPointRewardOverlay.isGone = true
+        textBeforeOverlay?.let { text ->
+            binding.editText.setText(text)
+            binding.editText.setSelection(
+                (selectionBeforeOverlay ?: binding.editText.length()).coerceIn(0, binding.editText.length()),
+            )
+        }
+        messageViewWasVisible?.let { binding.messageView.isVisible = it }
         updateComposerButtons()
     }
 
@@ -1119,7 +1143,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private fun handleChannelPointRedemption(result: ChannelPointRedemptionResult) {
         val overlay = composerOverlayState
-        if (overlay is ComposerOverlayState.Reward && overlay.reward.title == result.rewardTitle) {
+        if (overlay is ComposerOverlayState.Reward && overlay.reward.id == result.rewardId) {
             if (result.success) {
                 cancelComposerOverlay()
             } else {
@@ -1135,7 +1159,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     private fun handleWatchStreakShare(result: WatchStreakShareResult) {
-        if (composerOverlayState is ComposerOverlayState.StreakShare) {
+        val overlay = composerOverlayState
+        if (overlay is ComposerOverlayState.StreakShare && overlay.streak.milestoneId == result.milestoneId) {
             if (result.success) {
                 cancelComposerOverlay()
             } else {
@@ -1457,6 +1482,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         composerOverlayState = null
         pendingComposerText = null
         composerSubmissionInProgress = false
+        composerTextBeforeOverlay = null
+        composerSelectionBeforeOverlay = null
+        messageViewWasVisibleBeforeOverlay = null
         super.onDestroyView()
         _binding = null
     }

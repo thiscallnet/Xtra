@@ -37,6 +37,7 @@ data class ChannelPointRedemptionResult(
     val rewardTitle: String,
     val success: Boolean,
     val message: String? = null,
+    val rewardId: String? = null,
 )
 
 data class WatchStreakReward(
@@ -61,4 +62,5 @@ data class WatchStreak(
 data class WatchStreakShareResult(
     val success: Boolean,
     val message: String? = null,
+    val milestoneId: String? = null,
 )

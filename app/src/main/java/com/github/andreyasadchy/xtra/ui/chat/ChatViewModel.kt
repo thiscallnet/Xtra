@@ -1186,13 +1186,15 @@ class ChatViewModel(
     private fun updateWatchStreak(streakCount: Int?, pointsAwarded: Int? = null) {
         if (streakCount != null && streakCount > 0) {
             val previous = watchStreak.value
+            val milestoneChanged = pointsAwarded != null ||
+                    previous?.nextMilestone?.let { streakCount >= it } == true
             watchStreak.value = WatchStreak(
                 streakCount = streakCount,
                 nextMilestone = previous?.nextMilestone,
                 rewardPoints = previous?.rewardPoints,
                 pointsAwarded = pointsAwarded,
-                milestoneId = previous?.milestoneId,
-                shareStatus = previous?.shareStatus,
+                milestoneId = previous?.milestoneId?.takeUnless { milestoneChanged },
+                shareStatus = previous?.shareStatus?.takeUnless { milestoneChanged },
             )
         }
     }
@@ -1220,10 +1222,16 @@ class ChatViewModel(
         if (channelId.isNullOrBlank() || gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             return
         }
+        val expectedChannelId = channelId
+        val expectedChannelLogin = activeChannelLogin
         watchStreakJob?.cancel()
         watchStreakJob = viewModelScope.launch {
             try {
-                updateWatchStreakStatus(graphQLRepository.loadWatchStreak(networkLibrary, gqlHeaders, channelId))
+                val response = graphQLRepository.loadWatchStreak(networkLibrary, gqlHeaders, channelId)
+                if (activeChannelId != expectedChannelId || activeChannelLogin != expectedChannelLogin) {
+                    return@launch
+                }
+                updateWatchStreakStatus(response)
             } catch (_: Exception) {
             }
         }
@@ -1261,7 +1269,12 @@ class ChatViewModel(
         val channelLogin = activeChannelLogin
         if (channelId.isNullOrBlank() || channelLogin.isNullOrBlank()) {
             channelPointRedemptionEvents.trySend(
-                ChannelPointRedemptionResult(reward.title, success = false, message = "Chat is not connected"),
+                ChannelPointRedemptionResult(
+                    reward.title,
+                    success = false,
+                    message = "Chat is not connected",
+                    rewardId = reward.id,
+                ),
             )
             return
         }
@@ -1271,6 +1284,7 @@ class ChatViewModel(
                     reward.title,
                     success = false,
                     message = applicationContext.getString(R.string.channel_points_reward_input_required),
+                    rewardId = reward.id,
                 ),
             )
             return
@@ -1281,6 +1295,7 @@ class ChatViewModel(
                     reward.title,
                     success = false,
                     message = applicationContext.getString(R.string.channel_points_reward_input_required),
+                    rewardId = reward.id,
                 ),
             )
             return
@@ -1288,7 +1303,12 @@ class ChatViewModel(
         val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
         if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             channelPointRedemptionEvents.trySend(
-                ChannelPointRedemptionResult(reward.title, success = false, message = "Login is required"),
+                ChannelPointRedemptionResult(
+                    reward.title,
+                    success = false,
+                    message = "Login is required",
+                    rewardId = reward.id,
+                ),
             )
             return
         }
@@ -1319,10 +1339,17 @@ class ChatViewModel(
                             reward.title,
                             success = false,
                             message = error ?: "Request failed",
+                            rewardId = reward.id,
                         ),
                     )
                 } else {
-                    channelPointRedemptionEvents.send(ChannelPointRedemptionResult(reward.title, success = true))
+                    channelPointRedemptionEvents.send(
+                        ChannelPointRedemptionResult(
+                            reward.title,
+                            success = true,
+                            rewardId = reward.id,
+                        ),
+                    )
                     loadChannelPoints(networkLibrary, gqlHeaders, channelLogin, enableIntegrity)
                 }
             } catch (e: CancellationException) {
@@ -1334,6 +1361,7 @@ class ChatViewModel(
                             reward.title,
                             success = false,
                             message = e.message ?: "Request failed",
+                            rewardId = reward.id,
                         ),
                     )
                 }
@@ -1349,6 +1377,7 @@ class ChatViewModel(
                 WatchStreakShareResult(
                     success = false,
                     message = applicationContext.getString(R.string.channel_points_streak_share_unavailable),
+                    milestoneId = milestoneId,
                 ),
             )
             return
@@ -1356,11 +1385,16 @@ class ChatViewModel(
         val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
         if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             watchStreakShareEvents.trySend(
-                WatchStreakShareResult(success = false, message = "Login is required"),
+                WatchStreakShareResult(
+                    success = false,
+                    message = "Login is required",
+                    milestoneId = milestoneId,
+                ),
             )
             return
         }
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        val channelLogin = activeChannelLogin
         viewModelScope.launch {
             try {
                 val response = graphQLRepository.shareWatchStreak(
@@ -1370,7 +1404,7 @@ class ChatViewModel(
                     milestoneId = milestoneId,
                     message = message?.takeIf { it.isNotBlank() },
                 )
-                if (activeChannelId != channelId) {
+                if (activeChannelId != channelId || activeChannelLogin != channelLogin) {
                     return@launch
                 }
                 val error = response.errors?.firstOrNull()?.message
@@ -1380,23 +1414,30 @@ class ChatViewModel(
                         WatchStreakShareResult(
                             success = false,
                             message = error ?: "Request failed",
+                            milestoneId = milestoneId,
                         ),
                     )
                 } else {
                     watchStreak.value?.takeIf { it.milestoneId == milestoneId }?.let {
                         watchStreak.value = it.copy(shareStatus = WatchStreak.SHARE_STATUS_SHARED)
                     }
-                    watchStreakShareEvents.send(WatchStreakShareResult(success = true))
+                    watchStreakShareEvents.send(
+                        WatchStreakShareResult(
+                            success = true,
+                            milestoneId = milestoneId,
+                        ),
+                    )
                     loadWatchStreak(networkLibrary, gqlHeaders, channelId)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (activeChannelId == channelId) {
+                if (activeChannelId == channelId && activeChannelLogin == channelLogin) {
                     watchStreakShareEvents.send(
                         WatchStreakShareResult(
                             success = false,
                             message = e.message ?: "Request failed",
+                            milestoneId = milestoneId,
                         ),
                     )
                 }
