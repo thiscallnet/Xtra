@@ -21,6 +21,17 @@ fun Context.prefs(): SharedPreferences = PreferenceManager.getDefaultSharedPrefe
 
 fun Context.tokenPrefs(): SharedPreferences = getSharedPreferences("prefs2", Context.MODE_PRIVATE)
 
+/**
+ * Enables ad handling for new installs while preserving an explicit opt-out
+ * from either of the legacy ad switches.
+ */
+fun SharedPreferences.shouldAvoidTwitchAds(): Boolean {
+    if (!contains(C.PLAYER_AVOID_ADS) && !contains(C.PLAYER_HIDE_ADS)) {
+        return true
+    }
+    return getBoolean(C.PLAYER_AVOID_ADS, false) || getBoolean(C.PLAYER_HIDE_ADS, false)
+}
+
 fun Activity.applyTheme() {
     // On Android 15, wrong language is used when multiple languages are set in device settings
     if (Build.VERSION.SDK_INT == Build.VERSION_CODES.VANILLA_ICE_CREAM) {
@@ -35,11 +46,11 @@ fun Activity.applyTheme() {
     }
     val theme = if (prefs().getBoolean(C.UI_THEME_FOLLOW_SYSTEM, false)) {
         when (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) {
-            Configuration.UI_MODE_NIGHT_YES -> prefs().getString(C.UI_THEME_DARK_ON, "0") ?: "0"
+            Configuration.UI_MODE_NIGHT_YES -> prefs().getString(C.UI_THEME_DARK_ON, C.THEME_MODERN) ?: C.THEME_MODERN
             else -> prefs().getString(C.UI_THEME_DARK_OFF, "2") ?: "2"
         }
     } else {
-        prefs().getString(C.THEME, "0") ?: "0"
+        prefs().getString(C.THEME, C.THEME_MODERN) ?: C.THEME_MODERN
     }
     val material3 = prefs().getBoolean(C.UI_THEME_MATERIAL3, true)
     if (material3 && (theme == C.THEME_MODERN || theme == C.THEME_MODERN_AMOLED)) {

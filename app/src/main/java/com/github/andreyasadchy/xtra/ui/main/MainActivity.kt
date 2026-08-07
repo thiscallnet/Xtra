@@ -1273,8 +1273,8 @@ class MainActivity : AppCompatActivity() {
                     putString(C.PORTRAIT_COLUMN_COUNT, "2")
                     putString(C.LANDSCAPE_COLUMN_COUNT, "3")
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    putString(C.THEME, "4")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !prefs.contains(C.THEME)) {
+                    putString(C.THEME, C.THEME_MODERN)
                 }
             }
         }
