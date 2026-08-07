@@ -26,10 +26,14 @@ fun Context.tokenPrefs(): SharedPreferences = getSharedPreferences("prefs2", Con
  * from either of the legacy ad switches.
  */
 fun SharedPreferences.shouldAvoidTwitchAds(): Boolean {
-    if (!contains(C.PLAYER_AVOID_ADS) && !contains(C.PLAYER_HIDE_ADS)) {
-        return true
+    val hasAvoidAds = contains(C.PLAYER_AVOID_ADS)
+    val hasHideAds = contains(C.PLAYER_HIDE_ADS)
+    return when {
+        !hasAvoidAds && !hasHideAds -> true
+        hasAvoidAds && !hasHideAds -> getBoolean(C.PLAYER_AVOID_ADS, false)
+        !hasAvoidAds && hasHideAds -> getBoolean(C.PLAYER_HIDE_ADS, false)
+        else -> getBoolean(C.PLAYER_AVOID_ADS, false) || getBoolean(C.PLAYER_HIDE_ADS, false)
     }
-    return getBoolean(C.PLAYER_AVOID_ADS, false) || getBoolean(C.PLAYER_HIDE_ADS, false)
 }
 
 fun Activity.applyTheme() {

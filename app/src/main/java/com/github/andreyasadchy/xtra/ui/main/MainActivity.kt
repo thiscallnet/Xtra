@@ -1412,5 +1412,18 @@ class MainActivity : AppCompatActivity() {
                 putInt(C.SETTINGS_VERSION, 13)
             }
         }
+        if (version < 14) {
+            prefs.edit {
+                when {
+                    prefs.contains(C.PLAYER_AVOID_ADS) && !prefs.contains(C.PLAYER_HIDE_ADS) -> {
+                        putBoolean(C.PLAYER_HIDE_ADS, prefs.getBoolean(C.PLAYER_AVOID_ADS, false))
+                    }
+                    !prefs.contains(C.PLAYER_AVOID_ADS) && prefs.contains(C.PLAYER_HIDE_ADS) -> {
+                        putBoolean(C.PLAYER_AVOID_ADS, prefs.getBoolean(C.PLAYER_HIDE_ADS, false))
+                    }
+                }
+                putInt(C.SETTINGS_VERSION, 14)
+            }
+        }
     }
 }
