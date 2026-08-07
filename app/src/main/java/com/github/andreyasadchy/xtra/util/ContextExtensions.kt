@@ -41,7 +41,9 @@ fun Activity.applyTheme() {
     } else {
         prefs().getString(C.THEME, "0") ?: "0"
     }
-    if (prefs().getBoolean(C.UI_THEME_MATERIAL3, true)) {
+    if (prefs().getBoolean(C.UI_THEME_MATERIAL3, true) && (theme == "7" || theme == "8")) {
+        setTheme(if (theme == "8") R.style.ModernAmoledTheme else R.style.ModernTheme)
+    } else if (prefs().getBoolean(C.UI_THEME_MATERIAL3, true)) {
         val reducedPadding = prefs().getBoolean(C.UI_THEME_REDUCED_PADDING, false)
         val compactText = prefs().getBoolean(C.UI_THEME_COMPACT_TEXT, false)
         when (prefs().getString(C.UI_THEME_ROUNDED_CORNERS, "0")) {
