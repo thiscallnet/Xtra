@@ -146,6 +146,7 @@
     <string name="settings_chat_emotes">Emotes &amp; badges</string>
     <string name="settings_chat_system">System messages</string>
     <string name="settings_player_quick_actions">Quick actions</string>
+    <string name="settings_player_sleep">Sleep timer</string>
     <string name="settings_player_controls">Playback controls</string>
     <string name="settings_player_information">Player information</string>
     <string name="settings_player_menu_playback">Playback</string>
@@ -315,7 +316,7 @@
     <string name="use_followpager">Use tabs for \"Following\" page</string>
     <string name="sleep_timer_lock">Lock screen after</string>
     <string name="sleep_timer_lock_permissions">Lock screen after (requires device admin permissions)</string>
-    <string name="admin_settings">Enable/disable as device admin app</string>
+    <string name="admin_settings">Manage device admin access</string>
     <string name="disable_chat">Disable chat</string>
     <string name="disconnected">Disconnected</string>
     <string name="other">Other</string>
