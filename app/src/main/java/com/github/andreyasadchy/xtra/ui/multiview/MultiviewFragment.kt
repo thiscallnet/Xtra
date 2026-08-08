@@ -13,6 +13,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.annotation.OptIn
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
@@ -53,7 +54,7 @@ import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-@UnstableApi
+@OptIn(UnstableApi::class)
 class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
 
     private var _binding: FragmentMultiviewBinding? = null
