@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <navigation xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/settings_nav_graph"
     app:startDestination="@id/settingsHomeFragment">
 
@@ -16,6 +17,32 @@
     <action
         android:id="@+id/action_global_settingsFragment"
         app:destination="@id/settingsFragment" />
+    <fragment
+        android:id="@+id/liveNotificationSettingsFragment"
+        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment"
+        android:label="@string/settings_general_notifications"
+        tools:layout="@xml/live_notification_preferences">
+        <argument
+            android:name="settings_screen"
+            android:defaultValue="live_notifications"
+            app:argType="string" />
+    </fragment>
+    <action
+        android:id="@+id/action_global_liveNotificationSettingsFragment"
+        app:destination="@id/liveNotificationSettingsFragment" />
+    <fragment
+        android:id="@+id/updateSettingsFragment"
+        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment"
+        android:label="@string/settings_general_updates"
+        tools:layout="@xml/update_preferences">
+        <argument
+            android:name="settings_screen"
+            android:defaultValue="updates"
+            app:argType="string" />
+    </fragment>
+    <action
+        android:id="@+id/action_global_updateSettingsFragment"
+        app:destination="@id/updateSettingsFragment" />
     <fragment
         android:id="@+id/themeSettingsFragment"
         android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$ThemeSettingsFragment"

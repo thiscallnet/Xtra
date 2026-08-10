@@ -10,6 +10,9 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.util.C
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlin.time.Instant
 
@@ -28,6 +31,7 @@ class NotificationsRepository(
         includeFollowedStreams: Boolean = true,
         preferHelix: Boolean = false,
         enqueueNotificationEvents: Boolean = false,
+        onHelixRateLimit: ((HelixRateLimit) -> Unit)? = null,
     ): List<Stream> = withContext(Dispatchers.IO) {
         val list = mutableListOf<Stream>()
         val notificationIds = notificationUsersDao.getAll().map { it.channelId }
@@ -40,7 +44,7 @@ class NotificationsRepository(
         if (notificationIds.isNotEmpty()) {
             val localStreams = if (preferHelix && !helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                 try {
-                    helixLocal(networkLibrary, helixHeaders, notificationIds)
+                    helixLocal(networkLibrary, helixHeaders, notificationIds, onHelixRateLimit)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (helixException: Exception) {
@@ -58,10 +62,10 @@ class NotificationsRepository(
                     if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         throw gqlException
                     }
-                    helixLocal(networkLibrary, helixHeaders, notificationIds)
+                    helixLocal(networkLibrary, helixHeaders, notificationIds, onHelixRateLimit)
                 }
             } else {
-                helixLocal(networkLibrary, helixHeaders, notificationIds)
+                helixLocal(networkLibrary, helixHeaders, notificationIds, onHelixRateLimit)
             }
             list.addAll(localStreams)
         }
@@ -218,13 +222,23 @@ class NotificationsRepository(
         }
     }
 
-    private suspend fun helixLocal(networkLibrary: String?, helixHeaders: Map<String, String>, ids: List<String>): List<Stream> {
-        val items = ids.chunked(100).map {
-            helixRepository.getStreams(
-                networkLibrary = networkLibrary,
-                headers = helixHeaders,
-                ids = it,
-            )
+    private suspend fun helixLocal(
+        networkLibrary: String?,
+        helixHeaders: Map<String, String>,
+        ids: List<String>,
+        onHelixRateLimit: ((HelixRateLimit) -> Unit)?,
+    ): List<Stream> {
+        val items = coroutineScope {
+            ids.chunked(100).map { chunk ->
+                async {
+                    helixRepository.getStreams(
+                        networkLibrary = networkLibrary,
+                        headers = helixHeaders,
+                        ids = chunk,
+                        rateLimitListener = onHelixRateLimit,
+                    )
+                }
+            }.awaitAll()
         }.flatMap { it.data }
         return items.mapNotNull {
             if (it.viewerCount != null) {

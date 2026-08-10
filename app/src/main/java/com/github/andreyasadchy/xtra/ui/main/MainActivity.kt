@@ -34,6 +34,7 @@ import androidx.annotation.OptIn
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.appcompat.widget.Toolbar
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.content.res.use
@@ -86,7 +87,10 @@ import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.UpdateInfo
+import com.github.andreyasadchy.xtra.util.UpdateState
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
@@ -127,6 +131,7 @@ class MainActivity : AppCompatActivity() {
     private var updateDownloadDialogBinding: DialogUpdateDownloadBinding? = null
     private var updateDownloadDialog: AlertDialog? = null
     private var networkSnackbar: Snackbar? = null
+    private var fragmentLifecycleCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
 
     //Lifecycle methods
 
@@ -134,11 +139,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         prefs = prefs()
         migrateSettings()
-        if (tokenPrefs().getLong(C.UPDATE_LAST_CHECKED, 0) <= 0L) {
-            tokenPrefs().edit {
-                putLong(C.UPDATE_LAST_CHECKED, System.currentTimeMillis())
-            }
-        }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.integrity.collect {
@@ -151,6 +151,20 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        fragmentLifecycleCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
+            override fun onFragmentViewCreated(
+                fragmentManager: FragmentManager,
+                fragment: Fragment,
+                view: View,
+                savedInstanceState: Bundle?,
+            ) {
+                view.findViewById<Toolbar>(R.id.toolbar)?.let {
+                    SettingsUpdateIndicator.update(it, this@MainActivity)
+                }
+            }
+        }.also {
+            supportFragmentManager.registerFragmentLifecycleCallbacks(it, true)
+        }
         setNavBarColor(resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
         val ignoreCutouts = prefs.getBoolean(C.UI_DRAW_BEHIND_CUTOUTS, false)
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
@@ -228,16 +242,7 @@ class MainActivity : AppCompatActivity() {
                                         this@MainActivity
                                     )
                                 }
-                                if (!TwitchApiHelper.checkedUpdates &&
-                                    prefs.getBoolean(C.UPDATE_CHECK_ENABLED, false) &&
-                                    (prefs.getString(C.UPDATE_CHECK_FREQUENCY, "7")?.toIntOrNull() ?: 7) * 86400000 + tokenPrefs().getLong(C.UPDATE_LAST_CHECKED, 0) < System.currentTimeMillis()
-                                ) {
-                                    viewModel.checkUpdates(
-                                        prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                        prefs.getString(C.UPDATE_URL, null)?.takeUnless { it == C.LEGACY_UPDATE_URL } ?: C.DEFAULT_UPDATE_URL,
-                                        tokenPrefs().getLong(C.UPDATE_LAST_CHECKED, 0)
-                                    )
-                                }
+                                checkUpdatesIfDue()
                             }
                         }
                         viewModel.checkNetworkStatus.value = false
@@ -320,57 +325,10 @@ class MainActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.updateUrl.collectLatest {
+                viewModel.updateInfo.collectLatest {
+                    updateSettingsIndicator()
                     if (it != null) {
-                        getAlertDialogBuilder()
-                            .setTitle(getString(R.string.update_available))
-                            .setMessage(getString(R.string.update_message))
-                            .setPositiveButton(getString(R.string.yes)) { _, _ ->
-                                if (prefs.getBoolean(C.UPDATE_USE_BROWSER, false)) {
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW, it.toUri()).apply {
-                                            addCategory(Intent.CATEGORY_BROWSABLE)
-                                        }
-                                        startActivity(intent)
-                                        tokenPrefs().edit {
-                                            putLong(C.UPDATE_LAST_CHECKED, System.currentTimeMillis())
-                                        }
-                                    } catch (e: ActivityNotFoundException) {
-                                        Toast.makeText(this@MainActivity, R.string.no_browser_found, Toast.LENGTH_LONG).show()
-                                    }
-                                } else {
-                                    val binding = DialogUpdateDownloadBinding.inflate(layoutInflater)
-                                    updateDownloadDialogBinding = binding
-                                    val size = viewModel.updateSize
-                                    if (size != null) {
-                                        binding.textView.text = getString(
-                                            R.string.downloading_update_progress,
-                                            Formatter.formatFileSize(this@MainActivity, 0),
-                                            Formatter.formatFileSize(this@MainActivity, size),
-                                        )
-                                    } else {
-                                        binding.textView.text = getString(R.string.downloading_update)
-                                        binding.progressBar.visibility = View.GONE
-                                    }
-                                    viewModel.downloadUpdate(prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP), it)
-                                    val dialog = getAlertDialogBuilder()
-                                        .setView(binding.root)
-                                        .setNegativeButton(getString(android.R.string.cancel), null)
-                                        .setOnDismissListener {
-                                            viewModel.updateJob?.cancel()
-                                            updateDownloadDialogBinding = null
-                                            updateDownloadDialog = null
-                                        }
-                                        .show()
-                                    updateDownloadDialog = dialog
-                                }
-                            }
-                            .setNegativeButton(getString(R.string.no)) { _, _ ->
-                                tokenPrefs().edit {
-                                    putLong(C.UPDATE_LAST_CHECKED, System.currentTimeMillis())
-                                }
-                            }
-                            .show()
+                        showUpdateDialog(it)
                     }
                 }
             }
@@ -396,6 +354,7 @@ class MainActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.closeUpdateDialog.collectLatest {
                     updateDownloadDialog?.dismiss()
+                    updateSettingsIndicator()
                 }
             }
         }
@@ -606,6 +565,91 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showUpdateDialog(info: UpdateInfo) {
+        val releaseNotes = buildString {
+            if (info.title.isNotBlank() && !info.title.equals(info.version, true)) {
+                append(info.title)
+                append("\n")
+            }
+            append(info.version)
+            if (info.body.isNotBlank()) {
+                append("\n\n")
+                append(info.body)
+            }
+            append("\n\n")
+            append(getString(R.string.update_message))
+        }
+        getAlertDialogBuilder()
+            .setTitle(getString(R.string.update_available_version, info.version))
+            .setMessage(releaseNotes)
+            .setPositiveButton(getString(R.string.yes)) { _, _ ->
+                if (prefs.getBoolean(C.UPDATE_USE_BROWSER, false)) {
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, info.releaseUrl.toUri()).apply {
+                            addCategory(Intent.CATEGORY_BROWSABLE)
+                        }
+                        startActivity(intent)
+                    } catch (_: ActivityNotFoundException) {
+                        Toast.makeText(this, R.string.no_browser_found, Toast.LENGTH_LONG).show()
+                    }
+                } else {
+                    val binding = DialogUpdateDownloadBinding.inflate(layoutInflater)
+                    updateDownloadDialogBinding = binding
+                    val size = info.size
+                    if (size != null) {
+                        binding.textView.text = getString(
+                            R.string.downloading_update_progress,
+                            Formatter.formatFileSize(this, 0),
+                            Formatter.formatFileSize(this, size),
+                        )
+                    } else {
+                        binding.textView.text = getString(R.string.downloading_update)
+                        binding.progressBar.visibility = View.GONE
+                    }
+                    viewModel.downloadUpdate(prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP), info)
+                    val dialog = getAlertDialogBuilder()
+                        .setView(binding.root)
+                        .setNegativeButton(getString(android.R.string.cancel), null)
+                        .setOnDismissListener {
+                            viewModel.updateJob?.cancel()
+                            updateDownloadDialogBinding = null
+                            updateDownloadDialog = null
+                        }
+                        .show()
+                    updateDownloadDialog = dialog
+                }
+            }
+            .setNeutralButton(getString(R.string.ignore_update)) { _, _ ->
+                UpdateState.ignore(this)
+                updateSettingsIndicator()
+            }
+            .setNegativeButton(getString(R.string.update_later), null)
+            .show()
+    }
+
+    private fun checkUpdatesIfDue() {
+        if (!prefs.getBoolean(C.UPDATE_CHECK_ENABLED, false) || !UpdateState.isDue(this)) {
+            return
+        }
+        val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+        if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) != true ||
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) != true
+        ) {
+            return
+        }
+        viewModel.checkUpdates(
+            prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
+            prefs.getString(C.UPDATE_URL, null)?.takeUnless { it == C.LEGACY_UPDATE_URL } ?: C.DEFAULT_UPDATE_URL,
+        )
+    }
+
+    private fun updateSettingsIndicator() {
+        findViewById<Toolbar>(R.id.toolbar)?.let {
+            SettingsUpdateIndicator.update(it, this)
+        }
+    }
+
     private fun setNavBarColor(isPortrait: Boolean) {
         when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
@@ -649,6 +693,8 @@ class MainActivity : AppCompatActivity() {
             prefs.edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
             LiveNotificationScheduler.disable(this)
         }
+        checkUpdatesIfDue()
+        updateSettingsIndicator()
         restorePlayerFragment()
     }
 
@@ -660,6 +706,9 @@ class MainActivity : AppCompatActivity() {
             connectivityManager.unregisterNetworkCallback(it)
         }
         pipActionReceiver?.let { unregisterReceiver(it) }
+        fragmentLifecycleCallbacks?.let {
+            supportFragmentManager.unregisterFragmentLifecycleCallbacks(it)
+        }
         if (isFinishing) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
         }

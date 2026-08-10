@@ -42,8 +42,16 @@ import java.util.concurrent.ExecutorService
 class TwitchApiException(
     val statusCode: Int,
     val rateLimitResetEpochSeconds: Long?,
+    val rateLimitLimit: Long? = null,
+    val rateLimitRemaining: Long? = null,
     message: String,
 ) : IOException(message)
+
+data class HelixRateLimit(
+    val limit: Long?,
+    val remaining: Long?,
+    val resetEpochSeconds: Long?,
+)
 
 class HelixRepository(
     private val httpEngine: Lazy<HttpEngine?>,
@@ -163,7 +171,7 @@ class HelixRepository(
         }
     }
 
-    suspend fun getStreams(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null, gameId: String? = null, languages: List<String>? = null, limit: Int? = null, offset: String? = null): StreamsResponse = withContext(Dispatchers.IO) {
+    suspend fun getStreams(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null, gameId: String? = null, languages: List<String>? = null, limit: Int? = null, offset: String? = null, rateLimitListener: ((HelixRateLimit) -> Unit)? = null): StreamsResponse = withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/streams".toUri().buildUpon().apply {
             ids?.forEach { appendQueryParameter("user_id", it) }
             logins?.forEach { appendQueryParameter("user_login", it) }
@@ -191,7 +199,9 @@ class HelixRepository(
                     }
                 }
                 val body = response.body.decodeToString()
-                ensureHelixSuccess(response.info.httpStatusCode, rateLimitReset(response.info.headers.asMap), body)
+                val rateLimit = rateLimit(response.info.headers.asMap)
+                rateLimitListener?.invoke(rateLimit)
+                ensureHelixSuccess(response.info.httpStatusCode, rateLimit, body)
                 json.decodeFromString<StreamsResponse>(body)
             }
             networkLibrary == C.CRONET && cronetEngine.value != null -> {
@@ -212,7 +222,9 @@ class HelixRepository(
                     }
                 }
                 val body = response.body.decodeToString()
-                ensureHelixSuccess(response.info.httpStatusCode, rateLimitReset(response.info.allHeaders), body)
+                val rateLimit = rateLimit(response.info.allHeaders)
+                rateLimitListener?.invoke(rateLimit)
+                ensureHelixSuccess(response.info.httpStatusCode, rateLimit, body)
                 json.decodeFromString<StreamsResponse>(body)
             }
             else -> {
@@ -221,25 +233,38 @@ class HelixRepository(
                     headers(headers.toHeaders())
                 }.build()).executeAsync().use { response ->
                     val body = response.body.string()
-                    ensureHelixSuccess(response.code, response.header("Ratelimit-Reset")?.toLongOrNull(), body)
+                    val rateLimit = HelixRateLimit(
+                        limit = response.header("Ratelimit-Limit")?.toLongOrNull(),
+                        remaining = response.header("Ratelimit-Remaining")?.toLongOrNull(),
+                        resetEpochSeconds = response.header("Ratelimit-Reset")?.toLongOrNull(),
+                    )
+                    rateLimitListener?.invoke(rateLimit)
+                    ensureHelixSuccess(response.code, rateLimit, body)
                     json.decodeFromString<StreamsResponse>(body)
                 }
             }
         }
     }
 
-    private fun rateLimitReset(headers: Map<String, List<String>>): Long? =
+    private fun rateLimit(headers: Map<String, List<String>>): HelixRateLimit = HelixRateLimit(
+        limit = headerValue(headers, "Ratelimit-Limit")?.toLongOrNull(),
+        remaining = headerValue(headers, "Ratelimit-Remaining")?.toLongOrNull(),
+        resetEpochSeconds = headerValue(headers, "Ratelimit-Reset")?.toLongOrNull(),
+    )
+
+    private fun headerValue(headers: Map<String, List<String>>, name: String): String? =
         headers.entries
-            .firstOrNull { it.key.equals("Ratelimit-Reset", ignoreCase = true) }
+            .firstOrNull { it.key.equals(name, ignoreCase = true) }
             ?.value
             ?.firstOrNull()
-            ?.toLongOrNull()
 
-    private fun ensureHelixSuccess(statusCode: Int, rateLimitResetEpochSeconds: Long?, body: String) {
+    private fun ensureHelixSuccess(statusCode: Int, rateLimit: HelixRateLimit, body: String) {
         if (statusCode !in 200..299) {
             throw TwitchApiException(
                 statusCode = statusCode,
-                rateLimitResetEpochSeconds = rateLimitResetEpochSeconds,
+                rateLimitResetEpochSeconds = rateLimit.resetEpochSeconds,
+                rateLimitLimit = rateLimit.limit,
+                rateLimitRemaining = rateLimit.remaining,
                 message = "Twitch Helix request failed with HTTP $statusCode: ${body.take(240)}",
             )
         }

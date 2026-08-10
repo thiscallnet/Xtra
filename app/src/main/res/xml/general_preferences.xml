@@ -22,52 +22,6 @@
         app:iconSpaceReserved="false"
         app:singleLineTitle="false" />
 
-    <SwitchPreferenceCompat
-        android:defaultValue="false"
-        android:key="live_notifications_enabled"
-        android:title="@string/live_notifications"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <PreferenceCategory
-        android:title="@string/settings_general_updates"
-        app:iconSpaceReserved="false" />
-
-    <Preference
-        android:key="check_updates"
-        android:title="@string/check_updates"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <SwitchPreferenceCompat
-        android:defaultValue="false"
-        android:key="update_check_enabled"
-        android:title="@string/auto_check_updates"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <EditTextPreference
-        android:defaultValue="7"
-        android:key="update_check_frequency"
-        android:title="@string/update_check_frequency"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <SwitchPreferenceCompat
-        android:defaultValue="false"
-        android:key="update_use_browser"
-        android:title="@string/update_using_browser"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <EditTextPreference
-        android:defaultValue="https://api.github.com/repos/thiscallnet/xtra/releases/tags/latest"
-        android:key="update_url"
-        android:title="@string/update_url"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false"
-        app:useSimpleSummaryProvider="true" />
-
     <PreferenceCategory
         android:title="@string/settings_general_data"
         app:iconSpaceReserved="false" />
@@ -106,13 +60,6 @@
         android:key="app_package"
         android:selectable="false"
         android:title="@string/app_package"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <Preference
-        android:key="last_update_check"
-        android:selectable="false"
-        android:title="@string/last_update_check"
         app:iconSpaceReserved="false"
         app:singleLineTitle="false" />
 

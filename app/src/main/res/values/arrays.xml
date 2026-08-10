@@ -228,6 +228,16 @@
         <item>@string/never</item>
     </string-array>
 
+    <string-array name="liveNotificationModeEntries">
+        <item>@string/live_notifications_mode_realtime_entry</item>
+        <item>@string/live_notifications_mode_battery_entry</item>
+    </string-array>
+
+    <string-array name="liveNotificationModeValues">
+        <item>realtime</item>
+        <item>battery</item>
+    </string-array>
+
     <string-array name="chatFirstMsgEntries">
         <item>@string/chatFirstMsgEntries1</item>
         <item>@string/chatFirstMsgEntries2</item>

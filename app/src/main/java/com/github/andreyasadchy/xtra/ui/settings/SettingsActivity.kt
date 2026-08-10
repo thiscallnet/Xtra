@@ -10,10 +10,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.os.ext.SdkExtensions
 import android.provider.Settings
 import android.text.InputType
+import android.text.SpannableString
+import android.text.Spanned
 import android.text.format.Formatter
+import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
@@ -74,6 +78,8 @@ import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.SettingsViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.UpdateInfo
+import com.github.andreyasadchy.xtra.util.UpdateState
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
@@ -344,6 +350,12 @@ class SettingsActivity : AppCompatActivity() {
             SettingsItem(R.string.general_settings, R.drawable.ic_settings_data, R.string.settings_home_general_summary) {
                 navigate(SettingsNavGraphDirections.actionGlobalSettingsFragment())
             },
+            SettingsItem(R.string.settings_general_notifications, R.drawable.ic_settings_notifications, R.string.settings_home_notifications_summary) {
+                navigate(SettingsNavGraphDirections.actionGlobalLiveNotificationSettingsFragment())
+            },
+            SettingsItem(R.string.settings_general_updates, R.drawable.ic_settings_updates, R.string.settings_home_updates_summary) {
+                navigate(SettingsNavGraphDirections.actionGlobalUpdateSettingsFragment())
+            },
             SettingsItem(R.string.settings_section_appearance, R.drawable.ic_settings_appearance, R.string.settings_home_appearance_summary) {
                 navigate(SettingsNavGraphDirections.actionGlobalThemeSettingsFragment())
             },
@@ -386,6 +398,9 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     class SettingsFragment : MaterialPreferenceFragment() {
+
+        private val settingsScreen: String?
+            get() = arguments?.getString(ARG_SETTINGS_SCREEN)
 
         private val viewModel: SettingsViewModel by activityViewModels { SettingsViewModelFactory }
         private var backupResultLauncher: ActivityResultLauncher<Intent>? = null
@@ -453,8 +468,28 @@ class SettingsActivity : AppCompatActivity() {
             preference.summary = when {
                 !permissionGranted -> getString(R.string.live_notifications_permission_required)
                 !LiveNotificationScheduler.canPostNotifications(requireContext()) -> getString(R.string.live_notifications_blocked)
-                else -> getString(R.string.settings_item_notifications_summary)
+                else -> getString(R.string.live_notifications_summary)
             }
+            val realtime = LiveNotificationScheduler.isRealtime(requireContext())
+            findPreference<ListPreference>(C.LIVE_NOTIFICATIONS_MODE)?.summary = getString(
+                if (realtime) R.string.live_notifications_realtime_summary else R.string.live_notifications_battery_summary
+            )
+            findPreference<Preference>("live_notifications_battery_optimization")?.apply {
+                isVisible = realtime && preference.isChecked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                summary = if (isBatteryOptimizationIgnored()) {
+                    getString(R.string.live_notifications_battery_optimization_enabled)
+                } else {
+                    getString(R.string.live_notifications_battery_optimization_disabled)
+                }
+            }
+        }
+
+        private fun isBatteryOptimizationIgnored(): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                return true
+            }
+            val powerManager = requireContext().getSystemService(PowerManager::class.java)
+            return powerManager?.isIgnoringBatteryOptimizations(requireContext().packageName) == true
         }
 
         private fun openNotificationSettings() {
@@ -468,7 +503,14 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-            setPreferencesFromResource(R.xml.general_preferences, rootKey)
+            setPreferencesFromResource(
+                when (settingsScreen) {
+                    SCREEN_LIVE_NOTIFICATIONS -> R.xml.live_notification_preferences
+                    SCREEN_UPDATES -> R.xml.update_preferences
+                    else -> R.xml.general_preferences
+                },
+                rootKey,
+            )
             findPreference<ListPreference>(C.UI_LANGUAGE)?.apply {
                 val lang = AppCompatDelegate.getApplicationLocales()
                 if (lang.isEmpty) {
@@ -538,13 +580,60 @@ class SettingsActivity : AppCompatActivity() {
                     true
                 }
             }
+            findPreference<ListPreference>(C.LIVE_NOTIFICATIONS_MODE)?.setOnPreferenceChangeListener { _, newValue ->
+                requireContext().prefs().edit {
+                    putString(C.LIVE_NOTIFICATIONS_MODE, newValue.toString())
+                }
+                if (findPreference<SwitchPreferenceCompat>(C.LIVE_NOTIFICATIONS_ENABLED)?.isChecked == true) {
+                    LiveNotificationScheduler.refresh(requireContext())
+                }
+                updateLiveNotificationsSummary()
+                true
+            }
+            findPreference<Preference>("live_notifications_battery_optimization")?.setOnPreferenceClickListener {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                "package:${requireContext().packageName}".toUri(),
+                            )
+                        )
+                    }
+                } catch (_: ActivityNotFoundException) {
+                    try {
+                        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    } catch (_: ActivityNotFoundException) {
+                        // The status summary remains useful on devices without this screen.
+                    }
+                } catch (_: SecurityException) {
+                    // Some OEMs reject the app-specific request; fall back to the system list.
+                    try {
+                        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    } catch (_: ActivityNotFoundException) {
+                        // The status summary remains useful on devices without this screen.
+                    }
+                }
+                true
+            }
             updateLiveNotificationsSummary()
             findPreference<Preference>("check_updates")?.setOnPreferenceClickListener {
                 viewModel.checkUpdates(
                     requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                     requireContext().prefs().getString(C.UPDATE_URL, null)?.takeUnless { it == C.LEGACY_UPDATE_URL } ?: C.DEFAULT_UPDATE_URL,
-                    requireContext().tokenPrefs().getLong(C.UPDATE_LAST_CHECKED, 0)
+                    notifyNoUpdates = true,
                 )
+                true
+            }
+            findPreference<Preference>("update_available_details")?.setOnPreferenceClickListener {
+                if (UpdateState.isPending(requireContext())) {
+                    UpdateState.read(requireContext())?.let(::showUpdateDialog)
+                }
+                true
+            }
+            findPreference<Preference>("ignore_update")?.setOnPreferenceClickListener {
+                UpdateState.ignore(requireContext())
+                updateUpdatePreferences()
                 true
             }
             findPreference<Preference>("backup_settings")?.setOnPreferenceClickListener {
@@ -594,9 +683,15 @@ class SettingsActivity : AppCompatActivity() {
                 true
             }
             findPreference<EditTextPreference>("update_check_frequency")?.apply {
-                summary = getString(R.string.update_check_frequency_summary, text)
+                summary = getString(
+                    R.string.update_check_frequency_summary,
+                    text?.toIntOrNull()?.coerceAtLeast(1) ?: UpdateState.DEFAULT_FREQUENCY_DAYS,
+                )
                 setOnPreferenceChangeListener { _, newValue ->
-                    summary = getString(R.string.update_check_frequency_summary, newValue)
+                    summary = getString(
+                        R.string.update_check_frequency_summary,
+                        newValue.toString().toIntOrNull()?.coerceAtLeast(1) ?: UpdateState.DEFAULT_FREQUENCY_DAYS,
+                    )
                     true
                 }
             }
@@ -621,6 +716,125 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
+        private fun updateUpdatePreferences() {
+            val info = UpdateState.read(requireContext())
+            val pending = UpdateState.isPending(requireContext())
+            findPreference<PreferenceCategory>("updates_category")?.let { category ->
+                val title = getString(R.string.settings_general_updates)
+                category.title = if (pending) {
+                    SpannableString("• $title").apply {
+                        setSpan(
+                            ForegroundColorSpan(
+                                requireContext().getColor(android.R.color.holo_red_light)
+                            ),
+                            0,
+                            length,
+                            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                        )
+                    }
+                } else {
+                    title
+                }
+            }
+            findPreference<Preference>("update_available_details")?.apply {
+                isVisible = info != null
+                if (info != null) {
+                    title = getString(R.string.update_available_version, info.version)
+                    summary = info.body.ifBlank { getString(R.string.update_no_release_notes) }
+                }
+            }
+            findPreference<Preference>("ignore_update")?.apply {
+                isVisible = pending
+                summary = info?.let { getString(R.string.ignore_update_summary, it.version) }
+            }
+            findPreference<Preference>("check_updates")?.summary = when {
+                pending && info != null -> getString(R.string.update_pending_summary, info.version)
+                UpdateState.isIgnored(requireContext()) && info != null -> getString(R.string.update_ignored_summary, info.version)
+                UpdateState.isDownloaded(requireContext()) && info != null -> getString(R.string.update_downloaded_summary, info.version)
+                else -> getString(R.string.check_updates_summary)
+            }
+            findPreference<Preference>("last_update_check")?.summary = requireContext().tokenPrefs()
+                .getLong(C.UPDATE_LAST_CHECKED, 0L)
+                .takeIf { it > 0L }
+                ?.let { DateFormat.getDateTimeInstance().format(Date(it)) }
+                ?: getString(R.string.never)
+        }
+
+        private fun showUpdateDialog(info: UpdateInfo) {
+            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                !requireContext().prefs().getBoolean(C.UPDATE_USE_BROWSER, false) &&
+                !requireContext().packageManager.canRequestPackageInstalls()
+            ) {
+                try {
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            "package:${requireContext().packageName}".toUri()
+                        )
+                    )
+                } catch (_: ActivityNotFoundException) {
+                }
+            }
+            val releaseNotes = buildString {
+                if (info.title.isNotBlank() && !info.title.equals(info.version, true)) {
+                    append(info.title)
+                    append("\n")
+                }
+                append(info.version)
+                if (info.body.isNotBlank()) {
+                    append("\n\n")
+                    append(info.body)
+                }
+                append("\n\n")
+                append(getString(R.string.update_message))
+            }
+            requireActivity().getAlertDialogBuilder()
+                .setTitle(getString(R.string.update_available_version, info.version))
+                .setMessage(releaseNotes)
+                .setPositiveButton(getString(R.string.yes)) { _, _ ->
+                    if (requireContext().prefs().getBoolean(C.UPDATE_USE_BROWSER, false)) {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, info.releaseUrl.toUri()).apply {
+                                addCategory(Intent.CATEGORY_BROWSABLE)
+                            })
+                        } catch (_: ActivityNotFoundException) {
+                            Toast.makeText(requireContext(), R.string.no_browser_found, Toast.LENGTH_LONG).show()
+                        }
+                    } else {
+                        val binding = DialogUpdateDownloadBinding.inflate(layoutInflater)
+                        updateDownloadDialogBinding = binding
+                        val size = info.size
+                        if (size != null) {
+                            binding.textView.text = getString(
+                                R.string.downloading_update_progress,
+                                Formatter.formatFileSize(requireContext(), 0),
+                                Formatter.formatFileSize(requireContext(), size),
+                            )
+                        } else {
+                            binding.textView.text = getString(R.string.downloading_update)
+                            binding.progressBar.visibility = View.GONE
+                        }
+                        viewModel.downloadUpdate(requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP), info)
+                        val dialog = requireActivity().getAlertDialogBuilder()
+                            .setView(binding.root)
+                            .setNegativeButton(getString(android.R.string.cancel), null)
+                            .setOnDismissListener {
+                                viewModel.updateJob?.cancel()
+                                updateDownloadDialogBinding = null
+                                updateDownloadDialog = null
+                            }
+                            .show()
+                        updateDownloadDialog = dialog
+                    }
+                }
+                .setNeutralButton(getString(R.string.ignore_update)) { _, _ ->
+                    UpdateState.ignore(requireContext())
+                    updateUpdatePreferences()
+                }
+                .setNegativeButton(getString(R.string.update_later), null)
+                .show()
+        }
+
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
             viewLifecycleOwner.lifecycleScope.launch {
@@ -636,68 +850,18 @@ class SettingsActivity : AppCompatActivity() {
             }
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.updateUrl.collectLatest {
+                    viewModel.updateInfo.collectLatest {
                         if (it != null) {
-                            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-                                !requireContext().prefs().getBoolean(C.UPDATE_USE_BROWSER, false) &&
-                                !requireContext().packageManager.canRequestPackageInstalls()
-                            ) {
-                                try {
-                                    val intent = Intent(
-                                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                        "package:${requireContext().packageName}".toUri()
-                                    )
-                                    startActivity(intent)
-                                } catch (e: ActivityNotFoundException) {
-
-                                }
-                            }
-                            requireActivity().getAlertDialogBuilder()
-                                .setTitle(getString(R.string.update_available))
-                                .setMessage(getString(R.string.update_message))
-                                .setPositiveButton(getString(R.string.yes)) { _, _ ->
-                                    if (requireContext().prefs().getBoolean(C.UPDATE_USE_BROWSER, false)) {
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW, it.toUri()).apply {
-                                                addCategory(Intent.CATEGORY_BROWSABLE)
-                                            }
-                                            startActivity(intent)
-                                            requireContext().tokenPrefs().edit {
-                                                putLong(C.UPDATE_LAST_CHECKED, System.currentTimeMillis())
-                                            }
-                                        } catch (e: ActivityNotFoundException) {
-                                            Toast.makeText(requireContext(), R.string.no_browser_found, Toast.LENGTH_LONG).show()
-                                        }
-                                    } else {
-                                        val binding = DialogUpdateDownloadBinding.inflate(layoutInflater)
-                                        updateDownloadDialogBinding = binding
-                                        val size = viewModel.updateSize
-                                        if (size != null) {
-                                            binding.textView.text = getString(
-                                                R.string.downloading_update_progress,
-                                                Formatter.formatFileSize(requireContext(), 0),
-                                                Formatter.formatFileSize(requireContext(), size),
-                                            )
-                                        } else {
-                                            binding.textView.text = getString(R.string.downloading_update)
-                                            binding.progressBar.visibility = View.GONE
-                                        }
-                                        viewModel.downloadUpdate(requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP), it)
-                                        val dialog = requireActivity().getAlertDialogBuilder()
-                                            .setView(binding.root)
-                                            .setNegativeButton(getString(android.R.string.cancel), null)
-                                            .setOnDismissListener {
-                                                viewModel.updateJob?.cancel()
-                                                updateDownloadDialogBinding = null
-                                                updateDownloadDialog = null
-                                            }
-                                            .show()
-                                        updateDownloadDialog = dialog
-                                    }
-                                }
-                                .setNegativeButton(getString(R.string.no), null)
-                                .show()
-                        } else {
+                            showUpdateDialog(it)
+                        }
+                    }
+                }
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.updateCheckFinished.collectLatest { found ->
+                        updateUpdatePreferences()
+                        if (!found) {
                             Toast.makeText(requireContext(), R.string.no_updates_found, Toast.LENGTH_LONG).show()
                         }
                     }
@@ -727,6 +891,7 @@ class SettingsActivity : AppCompatActivity() {
                     }
                 }
             }
+            updateUpdatePreferences()
         }
 
         override fun onResume() {
@@ -737,6 +902,13 @@ class SettingsActivity : AppCompatActivity() {
                 toggleLiveNotifications(false)
             }
             updateLiveNotificationsSummary()
+            updateUpdatePreferences()
+        }
+
+        private companion object {
+            const val ARG_SETTINGS_SCREEN = "settings_screen"
+            const val SCREEN_LIVE_NOTIFICATIONS = "live_notifications"
+            const val SCREEN_UPDATES = "updates"
         }
     }
 
@@ -1348,6 +1520,8 @@ class SettingsActivity : AppCompatActivity() {
                 val preferenceManager = PreferenceManager(requireContext())
                 listOf(
                     Triple(R.xml.general_preferences, SettingsNavGraphDirections.actionGlobalSettingsFragment(), getString(R.string.general_settings)),
+                    Triple(R.xml.live_notification_preferences, SettingsNavGraphDirections.actionGlobalLiveNotificationSettingsFragment(), getString(R.string.settings_general_notifications)),
+                    Triple(R.xml.update_preferences, SettingsNavGraphDirections.actionGlobalUpdateSettingsFragment(), getString(R.string.settings_general_updates)),
                     Triple(R.xml.theme_preferences, SettingsNavGraphDirections.actionGlobalThemeSettingsFragment(), getString(R.string.settings_section_appearance)),
                     Triple(R.xml.ui_preferences, SettingsNavGraphDirections.actionGlobalUiSettingsFragment(), getString(R.string.settings_home_browsing)),
                     Triple(R.xml.playback_preferences, SettingsNavGraphDirections.actionGlobalPlayerSettingsFragment(), getString(R.string.settings_section_playback)),
