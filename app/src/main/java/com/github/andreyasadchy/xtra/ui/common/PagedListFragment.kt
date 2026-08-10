@@ -104,10 +104,15 @@ abstract class PagedListFragment : BaseNetworkFragment(), IntegrityDialog.Listen
         val location = IntArray(2)
         binding.root.getLocationInWindow(location)
         val guardHeight = (topInset - location[1]).coerceAtLeast(0)
-        binding.topInsetGuard.updateLayoutParams<ViewGroup.LayoutParams> {
-            height = guardHeight
+        if (binding.topInsetGuard.layoutParams.height != guardHeight) {
+            binding.topInsetGuard.updateLayoutParams<ViewGroup.LayoutParams> {
+                height = guardHeight
+            }
         }
-        binding.topInsetGuard.isVisible = guardHeight > 0
+        val shouldShowGuard = guardHeight > 0
+        if (binding.topInsetGuard.isVisible != shouldShowGuard) {
+            binding.topInsetGuard.isVisible = shouldShowGuard
+        }
     }
 
     protected fun <T : Any, VH : RecyclerView.ViewHolder> setupPagingControls(

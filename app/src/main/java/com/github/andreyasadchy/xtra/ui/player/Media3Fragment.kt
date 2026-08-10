@@ -427,6 +427,17 @@ class Media3Fragment : Media3PlayerFragment() {
                                 }, ContextCompat.getMainExecutor(requireContext()))
                             }
                         }
+                        else -> {
+                            showPlayerError(R.string.player_error) {
+                                player?.let {
+                                    try {
+                                        it.prepare()
+                                        it.playWhenReady = true
+                                    } catch (_: Exception) {
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
