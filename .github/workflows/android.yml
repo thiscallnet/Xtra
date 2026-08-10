@@ -7,6 +7,10 @@ on:
     branches: [ master ]
   workflow_dispatch:
 
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -28,8 +32,33 @@ jobs:
       uses: gradle/actions/setup-gradle@v6
       with:
         cache-provider: 'basic'
+    - name: Determine application version
+      id: version
+      shell: bash
+      run: |
+        set -euo pipefail
+        read -r version base_version_code <<< "$(./gradlew -q :app:printVersionInfo)"
+        if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+          echo "Unexpected application version: $version" >&2
+          exit 1
+        fi
+        if [[ ! "$base_version_code" =~ ^[0-9]+$ ]]; then
+          echo "Unexpected versionCode base: $base_version_code" >&2
+          exit 1
+        fi
+
+        version_code=$((base_version_code + GITHUB_RUN_NUMBER))
+        if (( version_code <= base_version_code || version_code > 2100000000 )); then
+          echo "Generated versionCode is outside the supported range: $version_code" >&2
+          exit 1
+        fi
+
+        {
+          echo "name=$version"
+          echo "code=$version_code"
+        } >> "$GITHUB_OUTPUT"
     - name: Build with Gradle
-      run: ./gradlew assembleRelease
+      run: ./gradlew assembleRelease "-PciVersionCode=${{ steps.version.outputs.code }}"
 
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v7
@@ -39,28 +68,103 @@ jobs:
 
     - name: Generate release notes
       if: github.event_name != 'pull_request'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
       run: |
-        if git rev-parse --verify refs/tags/latest >/dev/null 2>&1; then
-          git log refs/tags/latest..HEAD --oneline --decorate=no > notes.txt
+        set -euo pipefail
+        previous_tag="$(gh release view --json tagName --jq '.tagName' 2>/dev/null || true)"
+        previous_ref=""
+        if [[ -n "$previous_tag" ]] && git fetch --no-tags origin "refs/tags/${previous_tag}" >/dev/null 2>&1; then
+          previous_ref=FETCH_HEAD
+        fi
+        if [[ -n "$previous_ref" ]] && git rev-parse --verify "${previous_ref}^{commit}" >/dev/null 2>&1; then
+          git log "${previous_ref}..HEAD" --oneline --decorate=no > notes.txt
         else
           git log --oneline --decorate=no > notes.txt
         fi
 
-    - name: Update tag
+    - name: Create immutable build release
       if: github.event_name != 'pull_request'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ steps.version.outputs.name }}
+      shell: bash
       run: |
-        git tag -f latest
-        git push -f origin tag latest
+        set -euo pipefail
+        tag="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
 
-    - name: Delete release
+        if git ls-remote --exit-code --refs origin "refs/tags/${tag}" >/dev/null 2>&1; then
+          echo "Release tag already exists: ${tag}" >&2
+          exit 1
+        fi
+        if gh release view "$tag" >/dev/null 2>&1; then
+          echo "Release already exists: ${tag}" >&2
+          exit 1
+        fi
+
+        # Create the release tag without force so a collision fails safely.
+        git tag "$tag" "$GITHUB_SHA"
+        git push origin "refs/tags/${tag}"
+
+        shopt -s nullglob
+        assets=(app/build/outputs/apk/release/*.apk)
+        if (( ${#assets[@]} == 0 )); then
+          echo "No release APK was produced" >&2
+          exit 1
+        fi
+
+        gh release create "$tag" \
+          --verify-tag \
+          --title "Xtra ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
+          --notes-file notes.txt \
+          --latest \
+          "${assets[@]}"
+
+    # Keep the historical latest URL working for existing external instances.
+    # The build tag above is the immutable release tag; only this compatibility
+    # alias is moved, and its release is never deleted.
+    - name: Update latest compatibility alias
       if: github.event_name != 'pull_request'
-      continue-on-error: true
       env:
         GH_TOKEN: ${{ github.token }}
-      run: gh release delete latest -y
+        VERSION: ${{ steps.version.outputs.name }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        alias_tag=latest
 
-    - name: Create release
-      if: github.event_name != 'pull_request'
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: gh release create latest --title "Latest" --notes-file notes.txt --latest=true 'app/build/outputs/apk/release/*.apk'
+        if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${alias_tag}" >/dev/null 2>&1; then
+          gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/git/refs/tags/${alias_tag}" \
+            -f "sha=${GITHUB_SHA}" \
+            -F force=true >/dev/null
+        else
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/${alias_tag}" \
+            -f "sha=${GITHUB_SHA}" >/dev/null
+        fi
+
+        shopt -s nullglob
+        assets=(app/build/outputs/apk/release/*.apk)
+        if (( ${#assets[@]} == 0 )); then
+          echo "No release APK was produced" >&2
+          exit 1
+        fi
+
+        if gh release view "$alias_tag" >/dev/null 2>&1; then
+          gh release upload "$alias_tag" --clobber "${assets[@]}"
+          gh release edit "$alias_tag" \
+            --title "Xtra ${VERSION} (build ${GITHUB_RUN_NUMBER}) [latest compatibility alias]" \
+            --notes-file notes.txt \
+            --target "$GITHUB_SHA" \
+            --latest=false
+        else
+          gh release create "$alias_tag" \
+            --verify-tag \
+            --title "Xtra ${VERSION} (build ${GITHUB_RUN_NUMBER}) [latest compatibility alias]" \
+            --notes-file notes.txt \
+            --latest=false \
+            "${assets[@]}"
+        fi

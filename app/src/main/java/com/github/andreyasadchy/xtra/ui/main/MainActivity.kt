@@ -648,7 +648,9 @@ class MainActivity : AppCompatActivity() {
         }
         viewModel.checkUpdates(
             prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-            prefs.getString(C.UPDATE_URL, null)?.takeUnless { it == C.LEGACY_UPDATE_URL } ?: C.DEFAULT_UPDATE_URL,
+            prefs.getString(C.UPDATE_URL, null)?.takeUnless {
+                it == C.LEGACY_UPDATE_URL || it == C.LEGACY_LATEST_TAG_UPDATE_URL
+            } ?: C.DEFAULT_UPDATE_URL,
         )
     }
 
@@ -1330,7 +1332,9 @@ class MainActivity : AppCompatActivity() {
 
     @OptIn(UnstableApi::class)
     private fun migrateSettings() {
-        if (prefs.getString(C.UPDATE_URL, null) == C.LEGACY_UPDATE_URL) {
+        if (prefs.getString(C.UPDATE_URL, null)?.let {
+                it == C.LEGACY_UPDATE_URL || it == C.LEGACY_LATEST_TAG_UPDATE_URL
+            } == true) {
             prefs.edit { putString(C.UPDATE_URL, C.DEFAULT_UPDATE_URL) }
         }
         val version = prefs.getInt(C.SETTINGS_VERSION, 0).let {

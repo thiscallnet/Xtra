@@ -24,6 +24,7 @@ object UpdateState {
     const val DEFAULT_FREQUENCY_DAYS = 1
     private const val DAY_MILLIS = 86_400_000L
     private val versionRegex = Regex("\\d+(?:\\.\\d+)+")
+    private val buildTagRegex = Regex("(?:^|-)build\\.(\\d+)$", RegexOption.IGNORE_CASE)
 
     fun fromResponse(response: JsonObject, fallbackUrl: String): UpdateInfo? {
         val asset = response["assets"]?.jsonArray?.firstOrNull { asset ->
@@ -143,6 +144,11 @@ object UpdateState {
                 if (remotePart != installedPart) {
                     return remotePart > installedPart
                 }
+            }
+            val buildNumber = buildTagRegex.find(version)?.groupValues?.getOrNull(1)?.toLongOrNull()
+            if (buildNumber != null) {
+                val remoteVersionCode = BuildConfig.CI_VERSION_CODE_BASE.toLong() + buildNumber
+                return remoteVersionCode > BuildConfig.VERSION_CODE.toLong()
             }
             return false
         }

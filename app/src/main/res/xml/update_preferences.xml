@@ -50,7 +50,7 @@
         app:singleLineTitle="false" />
 
     <EditTextPreference
-        android:defaultValue="https://api.github.com/repos/thiscallnet/xtra/releases/tags/latest"
+        android:defaultValue="https://api.github.com/repos/thiscallnet/xtra/releases/latest"
         android:key="update_url"
         android:title="@string/update_url"
         app:iconSpaceReserved="false"

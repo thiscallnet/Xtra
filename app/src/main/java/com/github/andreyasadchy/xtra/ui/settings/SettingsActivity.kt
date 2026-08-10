@@ -577,7 +577,9 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<Preference>("check_updates")?.setOnPreferenceClickListener {
                 viewModel.checkUpdates(
                     requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    requireContext().prefs().getString(C.UPDATE_URL, null)?.takeUnless { it == C.LEGACY_UPDATE_URL } ?: C.DEFAULT_UPDATE_URL,
+                    requireContext().prefs().getString(C.UPDATE_URL, null)?.takeUnless {
+                        it == C.LEGACY_UPDATE_URL || it == C.LEGACY_LATEST_TAG_UPDATE_URL
+                    } ?: C.DEFAULT_UPDATE_URL,
                     notifyNoUpdates = true,
                 )
                 true

@@ -7,6 +7,17 @@ plugins {
     alias(libs.plugins.apollo)
 }
 
+val defaultVersionCode = 121
+val applicationVersionName = "2.58.5"
+val applicationVersionCode = providers.gradleProperty("ciVersionCode")
+    .orNull
+    ?.toInt()
+    ?: defaultVersionCode
+
+require(applicationVersionCode in 1..2_100_000_000) {
+    "versionCode must be between 1 and 2,100,000,000"
+}
+
 kotlin {
     jvmToolchain(21)
 }
@@ -27,8 +38,9 @@ android {
         applicationId = "com.github.andreyasadchy.xtra"
         minSdk = 23
         targetSdk = 37
-        versionCode = 121
-        versionName = "2.58.5"
+        versionCode = applicationVersionCode
+        versionName = applicationVersionName
+        buildConfigField("int", "CI_VERSION_CODE_BASE", defaultVersionCode.toString())
     }
 
     buildTypes {
@@ -62,6 +74,12 @@ android {
         "lib/armeabi-v7a/libtranslate_jni.so",
         "lib/armeabi-v7a/liblanguage_id_l2c_jni.so",
     ))
+}
+
+tasks.register("printVersionInfo") {
+    doLast {
+        println("$applicationVersionName $defaultVersionCode")
+    }
 }
 
 dependencies {

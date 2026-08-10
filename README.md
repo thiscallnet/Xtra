@@ -46,7 +46,7 @@ The optional **VAFT ad avoidance** setting uses alternate Twitch playback source
 
 ## Download
 
-You can find released APKs [here](https://github.com/thiscallnet/Xtra/releases/tag/latest).
+You can find released APKs [here](https://github.com/thiscallnet/Xtra/releases/latest).
 
 [![Join the Xtra community on Discord](https://img.shields.io/badge/Join%20the%20community-Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/2cKy8DNgPX)
 
