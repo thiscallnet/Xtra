@@ -664,6 +664,8 @@ class Media3Fragment : Media3PlayerFragment() {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
+                    viewModel.usingAlternateStream = false
+                    setQualityText()
                     fallbackFromAd(useProxy, suppressAds = true)
                 }
             } else {

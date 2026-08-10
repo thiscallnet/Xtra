@@ -837,6 +837,8 @@ class ExoPlayerService : BasePlaybackService() {
                     throw e
                 } catch (e: Exception) {
                     logAd("alternate stream load failed channel=$channelLogin playerType=${candidate.playerType} error=${e.javaClass.simpleName}")
+                    usingAlternateStream = false
+                    serviceListener?.updateQualityStatus()
                     fallbackFromAd(useProxy, suppressAds = true)
                 }
             } else {
