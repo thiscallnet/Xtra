@@ -16,7 +16,7 @@ import androidx.core.content.edit
 /**
  * Runs one notification reconciliation against the durable Room-backed queue.
  *
- * Both WorkManager and the real-time service use this class so they cannot
+ * Both WorkManager and the opportunistic EventSub engine use this class so they cannot
  * race while updating the live-state and pending-event tables.
  */
 class LiveNotificationMonitor(context: Context) {
@@ -55,14 +55,18 @@ class LiveNotificationMonitor(context: Context) {
             }
         }
 
+        val effectiveBaselineOnly = baselineOnly &&
+            !prefs.getBoolean(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED, false)
+        var apiUsed = "none"
         repository.getNewStreams(
             networkLibrary = networkLibrary,
             gqlHeaders = gqlHeaders,
             helixHeaders = helixHeaders,
             includeFollowedStreams = false,
             preferHelix = true,
-            enqueueNotificationEvents = !baselineOnly,
+            enqueueNotificationEvents = !effectiveBaselineOnly,
             onHelixRateLimit = onHelixRateLimit,
+            onApiUsed = { apiUsed = it },
         )
         if (!prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) || !notifier.canPostNotifications()) {
             repository.clearPendingNotificationEvents()
@@ -70,7 +74,20 @@ class LiveNotificationMonitor(context: Context) {
             return@withLock PollResult(0, 0, "notifications_disabled")
         }
         val delivered = notifier.deliverPending(repository)
-        PollResult(delivered, repository.getNotificationUserIds().size, "helix")
+        if (effectiveBaselineOnly) {
+            prefs.edit { putBoolean(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED, true) }
+        }
+        PollResult(delivered, repository.getNotificationUserIds().size, apiUsed)
+    }
+
+    suspend fun handleStreamOnline(event: LiveStreamOnlineEvent): Int = mutex.withLock {
+        val prefs = context.prefs()
+        val repository = xtraApp.xtraModule.notificationsRepository
+        if (!prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) || !notifier.canPostNotifications()) {
+            return@withLock 0
+        }
+        repository.enqueueStreamOnline(event) ?: return@withLock 0
+        notifier.deliverPending(repository)
     }
 
     private fun shouldSyncNotificationUsers(): Boolean {

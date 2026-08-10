@@ -70,6 +70,7 @@ object UpdateState {
     }
 
     fun save(context: Context, info: UpdateInfo) {
+        val downloadedVersion = context.tokenPrefs().getString(C.UPDATE_DOWNLOADED_VERSION, null)
         context.tokenPrefs().edit {
             putString(C.UPDATE_AVAILABLE_VERSION, info.version)
             putString(C.UPDATE_AVAILABLE_TITLE, info.title)
@@ -81,7 +82,9 @@ object UpdateState {
             } else {
                 remove(C.UPDATE_AVAILABLE_SIZE)
             }
-            remove(C.UPDATE_DOWNLOADED_VERSION)
+            if (downloadedVersion != info.version) {
+                remove(C.UPDATE_DOWNLOADED_VERSION)
+            }
         }
     }
 
@@ -159,6 +162,12 @@ object UpdateState {
     fun markChecked(context: Context, now: Long = System.currentTimeMillis()) {
         context.tokenPrefs().edit {
             putLong(C.UPDATE_LAST_CHECKED, now)
+        }
+    }
+
+    fun markAttempted(context: Context, now: Long = System.currentTimeMillis()) {
+        context.tokenPrefs().edit {
+            putLong(C.UPDATE_LAST_ATTEMPTED, now)
         }
     }
 }

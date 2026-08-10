@@ -44,14 +44,29 @@ class LiveNotificationEventSubProtocolTest {
         val message = LiveNotificationEventSubProtocol.parse(
             """
             {
-              "metadata": {"message_type": "notification", "subscription_type": "stream.online"},
-              "payload": {"event": {"broadcaster_user_id": "42"}}
+              "metadata": {"message_type": "notification", "message_id": "event-1"},
+              "payload": {
+                "subscription": {"type": "stream.online"},
+                "event": {
+                  "id": "stream-1",
+                  "broadcaster_user_id": "42",
+                  "broadcaster_user_login": "channel_login",
+                  "broadcaster_user_name": "Channel Name",
+                  "started_at": "2025-01-02T03:04:05Z"
+                }
+              }
             }
             """.trimIndent()
         )
 
         assertEquals("notification", message?.messageType)
         assertEquals("stream.online", message?.subscriptionType)
+        assertEquals("event-1", message?.messageId)
+        assertEquals("stream-1", message?.streamOnlineEvent?.eventId)
+        assertEquals("42", message?.streamOnlineEvent?.broadcasterUserId)
+        assertEquals("channel_login", message?.streamOnlineEvent?.broadcasterUserLogin)
+        assertEquals("Channel Name", message?.streamOnlineEvent?.broadcasterUserName)
+        assertEquals("2025-01-02T03:04:05Z", message?.streamOnlineEvent?.startedAt)
     }
 
     @Test

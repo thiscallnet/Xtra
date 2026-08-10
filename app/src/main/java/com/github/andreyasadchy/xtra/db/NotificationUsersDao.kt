@@ -11,7 +11,7 @@ import com.github.andreyasadchy.xtra.model.NotificationUser
 @Dao
 interface NotificationUsersDao {
 
-    @Query("SELECT * FROM notifications")
+    @Query("SELECT * FROM notifications ORDER BY channelId ASC")
     fun getAll(): List<NotificationUser>
 
     @Query("SELECT * FROM notifications WHERE channelId = :id")

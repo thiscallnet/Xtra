@@ -7,13 +7,17 @@ import com.github.andreyasadchy.xtra.model.NotificationEvent
 import com.github.andreyasadchy.xtra.model.NotificationUser
 import com.github.andreyasadchy.xtra.model.ShownNotification
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.ui.main.LiveStreamOnlineEvent
 import com.github.andreyasadchy.xtra.util.C
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import java.util.Collections
 import kotlin.time.Instant
 
 class NotificationsRepository(
@@ -32,8 +36,10 @@ class NotificationsRepository(
         preferHelix: Boolean = false,
         enqueueNotificationEvents: Boolean = false,
         onHelixRateLimit: ((HelixRateLimit) -> Unit)? = null,
+        onApiUsed: ((String) -> Unit)? = null,
     ): List<Stream> = withContext(Dispatchers.IO) {
         val list = mutableListOf<Stream>()
+        var apiUsed = "none"
         val notificationIds = notificationUsersDao.getAll().map { it.channelId }
         if (notificationIds.isNotEmpty() &&
             gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() &&
@@ -44,6 +50,7 @@ class NotificationsRepository(
         if (notificationIds.isNotEmpty()) {
             val localStreams = if (preferHelix && !helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                 try {
+                    apiUsed = C.HELIX
                     helixLocal(networkLibrary, helixHeaders, notificationIds, onHelixRateLimit)
                 } catch (e: CancellationException) {
                     throw e
@@ -51,10 +58,12 @@ class NotificationsRepository(
                     if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         throw helixException
                     }
+                    apiUsed = C.GQL
                     gqlQueryLocal(networkLibrary, gqlHeaders, notificationIds)
                 }
             } else if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                 try {
+                    apiUsed = C.GQL
                     gqlQueryLocal(networkLibrary, gqlHeaders, notificationIds)
                 } catch (e: CancellationException) {
                     throw e
@@ -62,15 +71,20 @@ class NotificationsRepository(
                     if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         throw gqlException
                     }
+                    apiUsed = C.HELIX
                     helixLocal(networkLibrary, helixHeaders, notificationIds, onHelixRateLimit)
                 }
             } else {
+                apiUsed = C.HELIX
                 helixLocal(networkLibrary, helixHeaders, notificationIds, onHelixRateLimit)
             }
             list.addAll(localStreams)
         }
         if (includeFollowedStreams && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             try {
+                if (apiUsed == "none") {
+                    apiUsed = C.GQL
+                }
                 gqlQueryLoad(networkLibrary, gqlHeaders)
                     .filterNot { item -> list.any { it.channelId == item.channelId } }
                     .let(list::addAll)
@@ -106,6 +120,7 @@ class NotificationsRepository(
             }.let(notificationEventsDao::insertList)
         }
         shownNotificationsDao.insertList(liveList)
+        onApiUsed?.invoke(apiUsed)
         newStreams
     }
 
@@ -142,6 +157,30 @@ class NotificationsRepository(
     suspend fun enqueueNotification(stream: Stream, startedAt: Long? = null): String? = withContext(Dispatchers.IO) {
         val start = startedAt ?: stream.startedAtMillis() ?: return@withContext null
         NotificationEvent.fromStream(stream, start)?.also { notificationEventsDao.insert(it) }?.eventId
+    }
+
+    suspend fun enqueueStreamOnline(event: LiveStreamOnlineEvent): String? = withContext(Dispatchers.IO) {
+        val channelId = event.broadcasterUserId.takeIf { it.isNotBlank() } ?: return@withContext null
+        val startedAt = Instant.parseOrNull(event.startedAt)?.toEpochMilliseconds()?.takeIf { it > 0L }
+            ?: return@withContext null
+        val notification = NotificationEvent(
+            eventId = "$channelId:$startedAt",
+            channelId = channelId,
+            streamId = event.eventId,
+            channelLogin = event.broadcasterUserLogin,
+            channelName = event.broadcasterUserName ?: event.broadcasterUserLogin,
+            channelImageURL = null,
+            gameName = null,
+            title = null,
+            thumbnailURL = null,
+            createdAt = event.startedAt,
+            viewerCount = null,
+            startedAt = startedAt,
+            queuedAt = System.currentTimeMillis(),
+        )
+        notificationEventsDao.insert(notification)
+        shownNotificationsDao.insertList(listOf(ShownNotification(channelId, startedAt)))
+        notification.eventId
     }
 
     suspend fun getPendingNotificationEvents(): List<NotificationEvent> = withContext(Dispatchers.IO) {
@@ -228,18 +267,35 @@ class NotificationsRepository(
         ids: List<String>,
         onHelixRateLimit: ((HelixRateLimit) -> Unit)?,
     ): List<Stream> {
+        val rateLimits = Collections.synchronizedList(mutableListOf<HelixRateLimit>())
+        val semaphore = Semaphore(4)
         val items = coroutineScope {
             ids.chunked(100).map { chunk ->
                 async {
-                    helixRepository.getStreams(
-                        networkLibrary = networkLibrary,
-                        headers = helixHeaders,
-                        ids = chunk,
-                        rateLimitListener = onHelixRateLimit,
-                    )
+                    semaphore.withPermit {
+                        helixRepository.getStreams(
+                            networkLibrary = networkLibrary,
+                            headers = helixHeaders,
+                            ids = chunk,
+                            rateLimitListener = { rateLimits.add(it) },
+                        )
+                    }
                 }
             }.awaitAll()
         }.flatMap { it.data }
+        onHelixRateLimit?.let { callback ->
+            synchronized(rateLimits) {
+                rateLimits.toList()
+            }.takeIf { it.isNotEmpty() }?.let { limits ->
+                callback(
+                    HelixRateLimit(
+                        limit = limits.mapNotNull { it.limit }.minOrNull(),
+                        remaining = limits.mapNotNull { it.remaining }.minOrNull(),
+                        resetEpochSeconds = limits.mapNotNull { it.resetEpochSeconds }.maxOrNull(),
+                    )
+                )
+            }
+        }
         return items.mapNotNull {
             if (it.viewerCount != null) {
                 Stream(

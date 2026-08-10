@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.main
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import androidx.core.content.edit
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.Data
@@ -13,10 +14,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.core.content.ContextCompat
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
-import android.content.Intent
 import java.util.concurrent.TimeUnit
 
 object LiveNotificationScheduler {
@@ -35,12 +34,11 @@ object LiveNotificationScheduler {
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build(),
         )
+        enqueueImmediateWork(context, baselineOnly)
         if (isRealtime(context)) {
-            workManager.cancelUniqueWork(IMMEDIATE_WORK_NAME)
-            startRealtimeService(context, baselineOnly)
+            LiveNotificationRealtimeEngine.start(context)
         } else {
-            context.stopService(Intent(context, LiveNotificationService::class.java))
-            enqueueImmediateWork(context, baselineOnly)
+            LiveNotificationRealtimeEngine.stop()
         }
         clearLegacyConnectionNotification(context)
     }
@@ -49,7 +47,8 @@ object LiveNotificationScheduler {
         val workManager = WorkManager.getInstance(context)
         workManager.cancelUniqueWork(PERIODIC_WORK_NAME)
         workManager.cancelUniqueWork(IMMEDIATE_WORK_NAME)
-        context.stopService(Intent(context, LiveNotificationService::class.java))
+        LiveNotificationRealtimeEngine.stop()
+        context.prefs().edit { remove(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED) }
         LiveNotificationNotifier(context).cancelLiveNotifications()
         clearLegacyConnectionNotification(context)
     }
@@ -57,7 +56,7 @@ object LiveNotificationScheduler {
     fun refresh(context: Context) {
         clearLegacyConnectionNotification(context)
         if (context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) && canPostNotifications(context)) {
-            enable(context, baselineOnly = true)
+            enable(context, baselineOnly = false)
         } else {
             disable(context)
         }
@@ -66,24 +65,13 @@ object LiveNotificationScheduler {
     fun canPostNotifications(context: Context): Boolean = LiveNotificationNotifier(context).canPostNotifications()
 
     fun isRealtime(context: Context): Boolean =
-        context.prefs().getString(C.LIVE_NOTIFICATIONS_MODE, C.LIVE_NOTIFICATIONS_MODE_BATTERY) == C.LIVE_NOTIFICATIONS_MODE_REALTIME
+        context.prefs().getString(
+            C.LIVE_NOTIFICATIONS_MODE,
+            C.LIVE_NOTIFICATIONS_MODE_BATTERY,
+        ) == C.LIVE_NOTIFICATIONS_MODE_REALTIME
 
     fun enqueueImmediateFallback(context: Context, baselineOnly: Boolean) {
         enqueueImmediateWork(context, baselineOnly)
-    }
-
-    private fun startRealtimeService(context: Context, baselineOnly: Boolean) {
-        val intent = Intent(context, LiveNotificationService::class.java).apply {
-            action = LiveNotificationService.ACTION_POLL_NOW
-            putExtra(LiveNotificationService.EXTRA_BASELINE_ONLY, baselineOnly)
-        }
-        try {
-            ContextCompat.startForegroundService(context, intent)
-        } catch (e: Exception) {
-            // A background-start restriction or a device-specific FGS rule should
-            // not disable alerts; the existing WorkManager path remains a fallback.
-            enqueueImmediateWork(context, baselineOnly)
-        }
     }
 
     private fun enqueueImmediateWork(context: Context, baselineOnly: Boolean) {

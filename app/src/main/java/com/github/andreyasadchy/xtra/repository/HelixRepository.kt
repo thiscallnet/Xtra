@@ -53,6 +53,14 @@ data class HelixRateLimit(
     val resetEpochSeconds: Long?,
 )
 
+data class EventSubSubscriptionResult(
+    val success: Boolean,
+    val errorMessage: String? = null,
+    val cost: Int? = null,
+    val totalCost: Int? = null,
+    val maxTotalCost: Int? = null,
+)
+
 class HelixRepository(
     private val httpEngine: Lazy<HttpEngine?>,
     private val cronetEngine: Lazy<CronetEngine?>,
@@ -1057,7 +1065,19 @@ class HelixRepository(
         }
     }
 
-    suspend fun createEventSubSubscription(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, type: String?, sessionId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun createEventSubSubscription(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, type: String?, sessionId: String?): String? =
+        createEventSubSubscriptionResult(networkLibrary, headers, userId, channelId, type, sessionId)
+            .takeUnless { it.success }
+            ?.errorMessage
+
+    suspend fun createEventSubSubscriptionResult(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        userId: String?,
+        channelId: String?,
+        type: String?,
+        sessionId: String?,
+    ): EventSubSubscriptionResult = withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/eventsub/subscriptions"
         val body = buildJsonObject {
             put("type", type)
@@ -1093,11 +1113,7 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                if (response.info.httpStatusCode in 200..299) {
-                    null
-                } else {
-                    response.body.decodeToString()
-                }
+                parseEventSubSubscriptionResponse(response.info.httpStatusCode, response.body.decodeToString())
             }
             networkLibrary == C.CRONET && cronetEngine.value != null -> {
                 val response = suspendCancellableCoroutine { continuation ->
@@ -1118,11 +1134,7 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                if (response.info.httpStatusCode in 200..299) {
-                    null
-                } else {
-                    response.body.decodeToString()
-                }
+                parseEventSubSubscriptionResponse(response.info.httpStatusCode, response.body.decodeToString())
             }
             else -> {
                 okHttpClient.value.newCall(Request.Builder().apply {
@@ -1131,14 +1143,28 @@ class HelixRepository(
                     header("Content-Type", "application/json")
                     post(body.toRequestBody())
                 }.build()).executeAsync().use { response ->
-                    if (response.isSuccessful) {
-                        null
-                    } else {
-                        response.body.string()
+                    response.use {
+                        parseEventSubSubscriptionResponse(it.code, it.body.string())
                     }
                 }
             }
         }
+    }
+
+    private fun parseEventSubSubscriptionResponse(statusCode: Int, body: String): EventSubSubscriptionResult {
+        val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
+        val number = { key: String ->
+            root?.get(key)?.jsonPrimitive?.content?.toIntOrNull()
+        }
+        return EventSubSubscriptionResult(
+            success = statusCode in 200..299,
+            errorMessage = if (statusCode in 200..299) null else {
+                root?.get("message")?.jsonPrimitive?.contentOrNull ?: body.take(500)
+            },
+            cost = number("cost"),
+            totalCost = number("total_cost"),
+            maxTotalCost = number("max_total_cost"),
+        )
     }
 
     suspend fun sendMessage(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, message: String?, replyId: String?): String? = withContext(Dispatchers.IO) {

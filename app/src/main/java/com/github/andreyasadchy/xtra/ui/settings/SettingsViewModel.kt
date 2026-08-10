@@ -51,6 +51,7 @@ import org.chromium.net.CronetEngine
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.concurrent.ExecutorService
 import kotlin.math.max
 import kotlin.system.exitProcess
@@ -76,6 +77,7 @@ class SettingsViewModel(
     private var checkingUpdates = false
     val updateProgress = MutableSharedFlow<Int>()
     val closeUpdateDialog = MutableSharedFlow<Boolean>()
+    val updateDownloadFailed = MutableSharedFlow<Unit>()
     val liveNotificationResult = MutableSharedFlow<LiveNotificationResult>()
 
     fun deletePositions() {
@@ -267,7 +269,7 @@ class SettingsViewModel(
     fun checkUpdates(networkLibrary: String?, url: String, notifyNoUpdates: Boolean = false) {
         if (checkingUpdates) return
         checkingUpdates = true
-        UpdateState.markChecked(applicationContext)
+        UpdateState.markAttempted(applicationContext)
         viewModelScope.launch(Dispatchers.IO) {
             var responseSucceeded = false
             try {
@@ -287,6 +289,9 @@ class SettingsViewModel(
                                 timeout.stop()
                             }
                         }
+                        if (response.info.httpStatusCode !in 200..299) {
+                            throw IOException("Update check failed with HTTP ${response.info.httpStatusCode}")
+                        }
                         json.decodeFromString<JsonObject>(response.body.decodeToString())
                     }
                     networkLibrary == C.CRONET && cronetEngine.value != null -> {
@@ -304,15 +309,22 @@ class SettingsViewModel(
                                 timeout.stop()
                             }
                         }
+                        if (response.info.httpStatusCode !in 200..299) {
+                            throw IOException("Update check failed with HTTP ${response.info.httpStatusCode}")
+                        }
                         json.decodeFromString<JsonObject>(response.body.decodeToString())
                     }
                     else -> {
                         okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
+                            if (!response.isSuccessful) {
+                                throw IOException("Update check failed with HTTP ${response.code}")
+                            }
                             json.decodeFromString<JsonObject>(response.body.string())
                         }
                     }
                 }
                 responseSucceeded = true
+                UpdateState.markChecked(applicationContext)
                 val info = UpdateState.fromResponse(response, url)?.takeIf {
                     UpdateState.isNewerThanInstalled(it.version)
                 }
@@ -328,7 +340,7 @@ class SettingsViewModel(
             } finally {
                 val visible = UpdateState.isPending(applicationContext)
                 updateInfo.emit(if (responseSucceeded && visible) UpdateState.read(applicationContext) else null)
-                if (notifyNoUpdates) {
+                if (notifyNoUpdates && responseSucceeded) {
                     updateCheckFinished.emit(responseSucceeded && visible)
                 }
                 checkingUpdates = false
@@ -344,8 +356,15 @@ class SettingsViewModel(
                         updateProgress.emit(bytesRead)
                     }
                 }
-                val response = when {
-                    networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
+                val packageInstaller = applicationContext.packageManager.packageInstaller
+                val sessionId = packageInstaller.createSession(
+                    PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+                )
+                val session = packageInstaller.openSession(sessionId)
+                try {
+                    var bytesWritten = 0L
+                    when {
+                        networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
                         val response = suspendCancellableCoroutine { continuation ->
                             val timeout = NetworkUtils.HttpEngineTimeout()
                             val request = httpEngine.value!!.newUrlRequestBuilder(
@@ -360,9 +379,16 @@ class SettingsViewModel(
                                 timeout.stop()
                             }
                         }
-                        if (response.info.httpStatusCode in 200..299) {
-                            response.body
-                        } else null
+                        if (response.info.httpStatusCode !in 200..299) {
+                            throw IOException("Update download failed with HTTP ${response.info.httpStatusCode}")
+                        }
+                        if (response.body.isEmpty()) {
+                            throw IOException("Update download returned an empty APK")
+                        }
+                        session.openWrite("package", 0, response.body.size.toLong()).use {
+                            it.write(response.body)
+                        }
+                        bytesWritten = response.body.size.toLong()
                     }
                     networkLibrary == C.CRONET && cronetEngine.value != null -> {
                         val response = suspendCancellableCoroutine { continuation ->
@@ -379,28 +405,40 @@ class SettingsViewModel(
                                 timeout.stop()
                             }
                         }
-                        if (response.info.httpStatusCode in 200..299) {
-                            response.body
-                        } else null
+                        if (response.info.httpStatusCode !in 200..299) {
+                            throw IOException("Update download failed with HTTP ${response.info.httpStatusCode}")
+                        }
+                        if (response.body.isEmpty()) {
+                            throw IOException("Update download returned an empty APK")
+                        }
+                        session.openWrite("package", 0, response.body.size.toLong()).use {
+                            it.write(response.body)
+                        }
+                        bytesWritten = response.body.size.toLong()
                     }
                     else -> {
-                        okHttpClient.value.newBuilder().apply {
-                            addNetworkInterceptor(NetworkUtils.ProgressInterceptor(progressListener))
-                        }.build().newCall(Request.Builder().url(info.downloadUrl).build()).executeAsync().use { response ->
-                            if (response.isSuccessful) {
-                                response.body.bytes()
-                            } else null
+                        okHttpClient.value.newCall(Request.Builder().url(info.downloadUrl).build()).executeAsync().use { response ->
+                            if (!response.isSuccessful) {
+                                throw IOException("Update download failed with HTTP ${response.code}")
+                            }
+                            val body = response.body
+                            val length = body.contentLength()
+                            body.byteStream().use { input ->
+                                session.openWrite("package", 0, length).use { output ->
+                                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                    var read: Int
+                                    while (input.read(buffer).also { read = it } != -1) {
+                                        output.write(buffer, 0, read)
+                                        bytesWritten += read
+                                        progressListener.update(bytesWritten.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+                                    }
+                                }
+                            }
                         }
                     }
-                }
-                if (response != null && response.isNotEmpty()) {
-                    val packageInstaller = applicationContext.packageManager.packageInstaller
-                    val sessionId = packageInstaller.createSession(
-                        PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-                    )
-                    val session = packageInstaller.openSession(sessionId)
-                    session.openWrite("package", 0, response.size.toLong()).use {
-                        it.write(response)
+                    }
+                    if (bytesWritten <= 0L) {
+                        throw IOException("Update download returned an empty APK")
                     }
                     session.commit(
                         PendingIntent.getActivity(
@@ -408,17 +446,24 @@ class SettingsViewModel(
                             0,
                             Intent(applicationContext, MainActivity::class.java).apply {
                                 setAction(MainActivity.INTENT_INSTALL_UPDATE)
+                                putExtra(MainActivity.EXTRA_UPDATE_VERSION, info.version)
                             },
                             PendingIntent.FLAG_MUTABLE
                         ).intentSender
                     )
+                } catch (e: Exception) {
+                    runCatching { session.abandon() }
+                    throw e
+                } finally {
                     session.close()
-                    UpdateState.markDownloaded(applicationContext, info.version)
                 }
-            } catch (e: Exception) {
-
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                updateDownloadFailed.emit(Unit)
+            } finally {
+                closeUpdateDialog.emit(true)
             }
-            closeUpdateDialog.emit(true)
         }
     }
 
@@ -529,7 +574,10 @@ class SettingsViewModel(
             }
 
             if (prepared) {
-                applicationContext.prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, true) }
+                applicationContext.prefs().edit {
+                    putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, true)
+                    putBoolean(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED, true)
+                }
                 LiveNotificationScheduler.enable(applicationContext, baselineOnly = true)
                 liveNotificationResult.emit(LiveNotificationResult(enabled = true, failed = false))
             } else {

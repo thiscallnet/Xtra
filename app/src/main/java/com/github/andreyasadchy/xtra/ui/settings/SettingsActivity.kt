@@ -10,7 +10,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.os.ext.SdkExtensions
 import android.provider.Settings
 import android.text.InputType
@@ -474,22 +473,6 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<ListPreference>(C.LIVE_NOTIFICATIONS_MODE)?.summary = getString(
                 if (realtime) R.string.live_notifications_realtime_summary else R.string.live_notifications_battery_summary
             )
-            findPreference<Preference>("live_notifications_battery_optimization")?.apply {
-                isVisible = realtime && preference.isChecked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                summary = if (isBatteryOptimizationIgnored()) {
-                    getString(R.string.live_notifications_battery_optimization_enabled)
-                } else {
-                    getString(R.string.live_notifications_battery_optimization_disabled)
-                }
-            }
-        }
-
-        private fun isBatteryOptimizationIgnored(): Boolean {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-                return true
-            }
-            val powerManager = requireContext().getSystemService(PowerManager::class.java)
-            return powerManager?.isIgnoringBatteryOptimizations(requireContext().packageName) == true
         }
 
         private fun openNotificationSettings() {
@@ -588,32 +571,6 @@ class SettingsActivity : AppCompatActivity() {
                     LiveNotificationScheduler.refresh(requireContext())
                 }
                 updateLiveNotificationsSummary()
-                true
-            }
-            findPreference<Preference>("live_notifications_battery_optimization")?.setOnPreferenceClickListener {
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        startActivity(
-                            Intent(
-                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                                "package:${requireContext().packageName}".toUri(),
-                            )
-                        )
-                    }
-                } catch (_: ActivityNotFoundException) {
-                    try {
-                        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                    } catch (_: ActivityNotFoundException) {
-                        // The status summary remains useful on devices without this screen.
-                    }
-                } catch (_: SecurityException) {
-                    // Some OEMs reject the app-specific request; fall back to the system list.
-                    try {
-                        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                    } catch (_: ActivityNotFoundException) {
-                        // The status summary remains useful on devices without this screen.
-                    }
-                }
                 true
             }
             updateLiveNotificationsSummary()
@@ -888,6 +845,13 @@ class SettingsActivity : AppCompatActivity() {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     viewModel.closeUpdateDialog.collectLatest {
                         updateDownloadDialog?.dismiss()
+                    }
+                }
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.updateDownloadFailed.collectLatest {
+                        Toast.makeText(requireContext(), R.string.update_download_failed, Toast.LENGTH_LONG).show()
                     }
                 }
             }

@@ -109,6 +109,7 @@ class MainActivity : AppCompatActivity() {
         const val KEY_VIDEO = "video"
 
         const val INTENT_INSTALL_UPDATE = "com.github.andreyasadchy.xtra.INSTALL_UPDATE"
+        const val EXTRA_UPDATE_VERSION = "update_version"
         const val INTENT_LIVE_NOTIFICATION = "com.github.andreyasadchy.xtra.LIVE_NOTIFICATION"
         const val INTENT_OPEN_DOWNLOADS_TAB = "com.github.andreyasadchy.xtra.OPEN_DOWNLOADS_TAB"
         const val INTENT_OPEN_DOWNLOADED_VIDEO = "com.github.andreyasadchy.xtra.OPEN_DOWNLOADED_VIDEO"
@@ -355,6 +356,13 @@ class MainActivity : AppCompatActivity() {
                 viewModel.closeUpdateDialog.collectLatest {
                     updateDownloadDialog?.dismiss()
                     updateSettingsIndicator()
+                }
+            }
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.updateDownloadFailed.collectLatest {
+                    Toast.makeText(this@MainActivity, R.string.update_download_failed, Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -900,18 +908,26 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             INTENT_INSTALL_UPDATE -> {
-                val extras = intent.extras
-                if (extras?.getInt(PackageInstaller.EXTRA_STATUS) == PackageInstaller.STATUS_PENDING_USER_ACTION) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        extras.getParcelable(Intent.EXTRA_INTENT, Intent::class.java)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        extras.getParcelable(Intent.EXTRA_INTENT)
-                    }?.let {
-                        tokenPrefs().edit {
-                            putLong(C.UPDATE_LAST_CHECKED, System.currentTimeMillis())
+                val extras = intent.extras ?: return
+                when (extras.getInt(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
+                    PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            extras.getParcelable(Intent.EXTRA_INTENT, Intent::class.java)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            extras.getParcelable(Intent.EXTRA_INTENT)
+                        }?.let {
+                            startActivity(it)
                         }
-                        startActivity(it)
+                    }
+                    PackageInstaller.STATUS_SUCCESS -> {
+                        val version = extras.getString(EXTRA_UPDATE_VERSION)
+                            ?: UpdateState.read(this)?.version
+                        version?.let { UpdateState.markDownloaded(this, it) }
+                        updateSettingsIndicator()
+                    }
+                    else -> {
+                        Toast.makeText(this, R.string.update_download_failed, Toast.LENGTH_LONG).show()
                     }
                 }
             }
