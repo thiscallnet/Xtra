@@ -60,6 +60,7 @@ import com.github.andreyasadchy.xtra.util.chat.PollCache
 import com.github.andreyasadchy.xtra.util.chat.PollState
 import com.github.andreyasadchy.xtra.util.chat.PredictionCache
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
+import com.github.andreyasadchy.xtra.util.chat.PredictionStateStore
 import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
 import com.github.andreyasadchy.xtra.util.chat.STVEventApiUtils
 import com.github.andreyasadchy.xtra.util.chat.STVEventApiWebSocket
@@ -178,6 +179,7 @@ class ChatViewModel(
     val bettablePrediction = MutableStateFlow<Prediction?>(null)
     val predictionSecondsLeft = MutableStateFlow<Int?>(null)
     var predictionTimer: Timer? = null
+    private val predictionStateStore = PredictionStateStore()
     private val predictionBetEvents = Channel<PredictionBetResult>(Channel.BUFFERED)
     val predictionBetResults: Flow<PredictionBetResult> = predictionBetEvents.receiveAsFlow()
     val predictionBetInFlight = MutableStateFlow(false)
@@ -273,8 +275,6 @@ class ChatViewModel(
         stopReplayChat()
         pollSecondsLeft.value = null
         pollTimer?.cancel()
-        predictionSecondsLeft.value = null
-        predictionTimer?.cancel()
         super.onCleared()
     }
 
@@ -1531,10 +1531,7 @@ class ChatViewModel(
         }
         if (showPredictions && !channelId.isNullOrBlank()) {
             PredictionCache.load(applicationContext.prefs(), channelId, broadcastId = streamId)?.let { cached ->
-                prediction.value = cached
-                ongoingPrediction.value = cached.takeIf { PredictionState.isOngoing(it) }
-                bettablePrediction.value = cached.takeIf { PredictionState.isBettingOpen(it) }
-                updatePredictionTimer(cached)
+                predictionStateStore.restore(cached, ::publishPrediction)
             }
         }
         if (isLoggedIn) {
@@ -1669,11 +1666,7 @@ class ChatViewModel(
         pollTimer?.cancel()
         pollTimeoutJob?.cancel()
         usedPollId = null
-        prediction.value = null
-        ongoingPrediction.value = null
-        bettablePrediction.value = null
-        predictionSecondsLeft.value = null
-        predictionTimer?.cancel()
+        predictionStateStore.reset(::clearPredictionState)
         predictionBetJob?.cancel()
         predictionBetJob = null
         predictionBetInFlight.value = false
@@ -1732,8 +1725,6 @@ class ChatViewModel(
         pollClosed = true
         pollSecondsLeft.value = null
         pollTimer?.cancel()
-        predictionSecondsLeft.value = null
-        predictionTimer?.cancel()
         viewModelScope.launch {
             synchronized(chatMessages) {
                 val size = chatMessages.size
@@ -1932,64 +1923,86 @@ class ChatViewModel(
         }
     }
 
-    private fun updatePrediction(value: Prediction) {
-        val normalized = PredictionState.normalizeForNow(value)
-        val merged = PredictionState.merge(prediction.value, normalized) ?: return
-        prediction.value = merged
-        ongoingPrediction.value = merged.takeIf { PredictionState.isOngoing(it) }
-        bettablePrediction.value = merged.takeIf { PredictionState.isBettingOpen(it) }
-        updatePredictionTimer(merged)
+    private fun updatePrediction(value: Prediction, sourceChannelId: String? = activeChannelId) {
+        predictionStateStore.withLock {
+            if (sourceChannelId != null && sourceChannelId != activeChannelId) return@withLock
+            predictionStateStore.update(
+                incoming = value,
+                normalize = PredictionState::normalizeLive,
+                apply = ::publishPrediction,
+            )
+        }
+    }
+
+    private fun publishPrediction(value: Prediction) {
+        prediction.value = value
+        ongoingPrediction.value = value.takeIf { PredictionState.isOngoing(it) }
+        bettablePrediction.value = value.takeIf { PredictionState.isBettingOpen(it) }
+        updatePredictionTimer(value)
         activeChannelId?.let { channelId ->
             PredictionCache.save(
                 preferences = applicationContext.prefs(),
                 channelId = channelId,
-                prediction = merged,
+                prediction = value,
                 broadcastId = streamId,
             )
         }
     }
 
+    private fun clearPredictionState() {
+        prediction.value = null
+        ongoingPrediction.value = null
+        bettablePrediction.value = null
+        predictionSecondsLeft.value = null
+        predictionTimer?.cancel()
+        predictionTimer = null
+    }
+
     private fun updatePredictionTimer(value: Prediction) {
         predictionTimer?.cancel()
+        predictionTimer = null
         if (!PredictionState.isBettingOpen(value)) {
             predictionSecondsLeft.value = null
             return
         }
         val start = value.startedAt ?: value.createdAt
         val duration = value.predictionWindowSeconds
-        val endsAt = value.lockedAt ?: start?.let { duration?.let { seconds -> it + seconds * 1_000L } }
+        val endsAt = value.lockedAt ?: value.locksAt
+            ?: start?.let { duration?.let { seconds -> it + seconds * 1_000L } }
         val secondsLeft = endsAt?.let {
             ((it - System.currentTimeMillis()) / 1_000L).toInt().coerceAtLeast(0)
         }
         predictionSecondsLeft.value = secondsLeft
         if (secondsLeft != null && secondsLeft > 0) {
-            predictionTimer = Timer().apply {
-                scheduleAtFixedRate(1_000, 1_000) {
-                    val seconds = predictionSecondsLeft.value ?: run {
-                        cancel()
-                        return@scheduleAtFixedRate
-                    }
-                    if (seconds <= 1) {
+            val timer = Timer()
+            predictionTimer = timer
+            timer.scheduleAtFixedRate(1_000, 1_000) {
+                var stopTimer = false
+                predictionStateStore.withLock { current ->
+                    val seconds = predictionSecondsLeft.value
+                    if (predictionTimer !== timer || seconds == null || current == null) {
+                        stopTimer = true
+                    } else if (seconds <= 1) {
                         predictionSecondsLeft.value = null
-                        transitionPredictionToLocked()
-                        cancel()
+                        transitionPredictionToLocked(current)
+                        stopTimer = true
                     } else {
                         predictionSecondsLeft.value = seconds - 1
                     }
                 }
+                if (stopTimer) cancel()
             }
         } else if (secondsLeft != null) {
             transitionPredictionToLocked()
         }
     }
 
-    private fun transitionPredictionToLocked() {
-        val current = prediction.value ?: return
+    private fun transitionPredictionToLocked(current: Prediction? = predictionStateStore.snapshot()) {
+        current ?: return
         if (!PredictionState.isOngoing(current) || PredictionState.status(current) != "ACTIVE") return
         updatePrediction(
             current.copy(
                 status = "LOCKED",
-                lockedAt = current.lockedAt ?: System.currentTimeMillis(),
                 observedAt = System.currentTimeMillis(),
             ),
         )
@@ -2030,7 +2043,7 @@ class ChatViewModel(
                 }
                 val current = event?.let { PubSubUtils.onPredictionUpdate(JSONObject().put("event", it)) }
                 if (current != null && activeChannelId == channelId) {
-                    updatePrediction(current)
+                    updatePrediction(current, sourceChannelId = channelId)
                 }
             } catch (e: Exception) {
                 // Hermes remains the live path; a snapshot failure is harmless.
@@ -2266,7 +2279,9 @@ class ChatViewModel(
 
         override suspend fun onPredictionUpdate(message: JSONObject) {
             if (showPredictions && channelId == activeChannelId) {
-                PubSubUtils.onPredictionUpdate(message)?.let(::updatePrediction)
+                PubSubUtils.onPredictionUpdate(message)?.let {
+                    updatePrediction(it, sourceChannelId = channelId)
+                }
             }
         }
 

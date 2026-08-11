@@ -70,7 +70,6 @@ object PredictionCache {
         broadcastId: String? = null,
     ): Boolean {
         if (!broadcastId.isNullOrBlank() &&
-            !prediction.broadcastId.isNullOrBlank() &&
             prediction.broadcastId != broadcastId &&
             !PredictionState.isFinal(prediction)
         ) {
@@ -79,7 +78,7 @@ object PredictionCache {
         val reference = if (PredictionState.isFinal(prediction)) {
             prediction.endedAt ?: prediction.observedAt ?: prediction.startedAt
         } else {
-            prediction.lockedAt ?: prediction.startedAt ?: prediction.createdAt ?: prediction.observedAt
+            prediction.lockedAt ?: prediction.locksAt ?: prediction.startedAt ?: prediction.createdAt ?: prediction.observedAt
         } ?: cacheTimestamp ?: return false
         val maxAge = if (PredictionState.isFinal(prediction)) {
             MAX_FINAL_AGE_MILLIS
@@ -93,6 +92,7 @@ object PredictionCache {
         putNullable("id", prediction.id)
         putNullable("created_at", prediction.createdAt)
         putNullable("started_at", prediction.startedAt)
+        putNullable("locks_at", prediction.locksAt)
         putNullable("locked_at", prediction.lockedAt)
         putNullable("ended_at", prediction.endedAt)
         putNullable("prediction_window_seconds", prediction.predictionWindowSeconds)
@@ -141,6 +141,7 @@ object PredictionCache {
             title = json.optionalString("title"),
             winningOutcomeId = json.optionalString("winning_outcome_id"),
             startedAt = json.optionalLong("started_at"),
+            locksAt = json.optionalLong("locks_at"),
             lockedAt = json.optionalLong("locked_at"),
             endedAt = json.optionalLong("ended_at"),
             observedAt = json.optionalLong("observed_at"),

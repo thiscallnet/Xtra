@@ -260,7 +260,8 @@ object PubSubUtils {
         return if (prediction != null) {
             val startedAt = prediction.timestamp("started_at")
             val createdAt = prediction.timestamp("created_at") ?: startedAt
-            val lockedAt = prediction.timestamp("locked_at") ?: prediction.timestamp("locks_at")
+            val locksAt = prediction.timestamp("locks_at")
+            val lockedAt = prediction.timestamp("locked_at")
             val endedAt = prediction.timestamp("ended_at")
             val eventStatus = prediction.optString("status").takeIf { it.isNotBlank() }?.uppercase()
             ?: when {
@@ -271,8 +272,8 @@ object PubSubUtils {
             }
             val predictionWindowSeconds = prediction.optionalInt("prediction_window_seconds")
                 ?: prediction.optionalInt("prediction_window")
-                ?: if (startedAt != null && lockedAt != null) {
-                    ((lockedAt - startedAt) / 1000L).toInt().takeIf { it > 0 }
+                ?: if (startedAt != null && locksAt != null) {
+                    ((locksAt - startedAt) / 1000L).toInt().takeIf { it > 0 }
                 } else null
             Prediction(
                 id = prediction.optionalString("id"),
@@ -283,6 +284,7 @@ object PubSubUtils {
                 title = prediction.optionalString("title"),
                 winningOutcomeId = prediction.optionalString("winning_outcome_id"),
                 startedAt = startedAt?.takeIf { it > 0 },
+                locksAt = locksAt?.takeIf { it > 0 },
                 lockedAt = lockedAt?.takeIf { it > 0 },
                 endedAt = endedAt?.takeIf { it > 0 } ?: if (PredictionState.isFinalStatus(eventStatus)) observedAt else null,
                 observedAt = observedAt,

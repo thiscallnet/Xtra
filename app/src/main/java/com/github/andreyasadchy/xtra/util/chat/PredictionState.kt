@@ -43,31 +43,23 @@ object PredictionState {
 
     fun isFinal(prediction: Prediction?): Boolean = isFinalStatus(status(prediction))
 
-    /**
-     * Converts a locally or cache-observed ACTIVE snapshot whose betting
-     * window has elapsed into a complete LOCKED snapshot instead of dropping
-     * it from the activity surface.
-     */
-    fun normalizeForNow(prediction: Prediction, now: Long = System.currentTimeMillis()): Prediction {
+    /** Normalizes an incoming live snapshot without guessing when timing is absent. */
+    fun normalizeLive(prediction: Prediction, now: Long = System.currentTimeMillis()): Prediction {
         if (status(prediction) != "ACTIVE") return prediction
         val locksAt = bettingEndsAt(prediction)
-        return when {
-            locksAt != null && locksAt <= now -> prediction.copy(
-                status = "LOCKED",
-                lockedAt = prediction.lockedAt ?: locksAt,
-            )
-            locksAt == null -> {
-                // A restored ACTIVE snapshot without timing cannot prove that
-                // it is still bettable. Keep its data, but fail closed.
-                prediction.copy(status = "LOCKED")
-            }
-            else -> prediction
-        }
+        return prediction.takeIf { locksAt == null || locksAt > now }
+            ?: prediction.copy(status = "LOCKED")
     }
 
-    /** Cached ACTIVE snapshots are normalized with the same lifecycle rules. */
+    /** Cached ACTIVE snapshots fail closed when their timing is incomplete. */
     fun normalizeCached(prediction: Prediction, now: Long = System.currentTimeMillis()): Prediction =
-        normalizeForNow(prediction, now)
+        normalizeLive(prediction, now).let { normalized ->
+            if (status(normalized) == "ACTIVE" && bettingEndsAt(normalized) == null) {
+                normalized.copy(status = "LOCKED")
+            } else {
+                normalized
+            }
+        }
 
     fun merge(current: Prediction?, incoming: Prediction?): Prediction? {
         if (incoming?.id.isNullOrBlank()) return current
@@ -89,6 +81,7 @@ object PredictionState {
             broadcastId = incoming.broadcastId ?: current.broadcastId,
             createdAt = incoming.createdAt ?: current.createdAt,
             startedAt = incoming.startedAt ?: current.startedAt,
+            locksAt = incoming.locksAt ?: current.locksAt,
             lockedAt = incoming.lockedAt ?: current.lockedAt,
             endedAt = incoming.endedAt ?: current.endedAt,
             title = incoming.title ?: current.title,
@@ -102,7 +95,7 @@ object PredictionState {
 
     private fun bettingEndsAt(prediction: Prediction?): Long? {
         if (prediction == null) return null
-        return prediction.lockedAt ?: run {
+        return prediction.lockedAt ?: prediction.locksAt ?: run {
             val start = prediction.startedAt ?: prediction.createdAt
             val duration = prediction.predictionWindowSeconds
             start?.let { duration?.let { seconds -> it + seconds * 1_000L } }
@@ -165,5 +158,43 @@ object PredictionState {
             current.observedAt != null -> false
             else -> true
         }
+    }
+}
+
+/**
+ * Serializes the prediction merge and every state-flow side effect that
+ * follows it. The apply callback is deliberately inside the monitor: a
+ * delayed callback cannot publish an older merge after a newer callback has
+ * already published its result.
+ */
+internal class PredictionStateStore {
+    private val lock = Any()
+    private var current: Prediction? = null
+
+    fun snapshot(): Prediction? = synchronized(lock) { current }
+
+    fun update(
+        incoming: Prediction,
+        normalize: (Prediction) -> Prediction,
+        apply: (Prediction) -> Unit,
+    ): Prediction? = synchronized(lock) {
+        val merged = PredictionState.merge(current, normalize(incoming)) ?: return@synchronized current
+        current = merged
+        apply(merged)
+        merged
+    }
+
+    fun restore(value: Prediction, apply: (Prediction) -> Unit) = synchronized(lock) {
+        current = value
+        apply(value)
+    }
+
+    fun reset(apply: () -> Unit) = synchronized(lock) {
+        current = null
+        apply()
+    }
+
+    fun <T> withLock(block: (Prediction?) -> T): T = synchronized(lock) {
+        block(current)
     }
 }

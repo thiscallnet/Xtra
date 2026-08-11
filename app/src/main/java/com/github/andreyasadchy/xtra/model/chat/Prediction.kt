@@ -9,6 +9,7 @@ data class Prediction(
     val title: String?,
     val winningOutcomeId: String?,
     val startedAt: Long? = createdAt,
+    val locksAt: Long? = null,
     val lockedAt: Long? = null,
     val endedAt: Long? = null,
     val observedAt: Long? = null,

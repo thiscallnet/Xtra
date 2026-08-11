@@ -4,9 +4,13 @@ import com.github.andreyasadchy.xtra.model.chat.Prediction
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class PredictionStateTest {
     @Test
@@ -31,7 +35,8 @@ class PredictionStateTest {
         assertEquals("BLUE", prediction?.outcomes?.first()?.color)
         assertEquals(2_800_000, prediction?.outcomes?.first()?.totalPoints)
         assertEquals(98, prediction?.outcomes?.first()?.totalUsers)
-        assertTrue(prediction?.lockedAt != null)
+        assertTrue(prediction?.locksAt != null)
+        assertNull(prediction?.lockedAt)
     }
 
     @Test
@@ -68,7 +73,7 @@ class PredictionStateTest {
             predictionWindowSeconds = 60,
         )
 
-        val locked = PredictionState.normalizeForNow(active, now = 70_000L)
+        val locked = PredictionState.normalizeLive(active, now = 70_000L)
 
         assertEquals("LOCKED", locked.status)
         assertTrue(PredictionState.isOngoing(locked))
@@ -85,6 +90,24 @@ class PredictionStateTest {
         assertEquals("LOCKED", merged?.status)
         assertEquals(11, merged?.outcomes?.first()?.totalPoints)
         assertTrue(PredictionState.isOngoing(merged))
+    }
+
+    @Test
+    fun incompleteLiveHermesActiveSnapshotRemainsActiveButCachedSnapshotFailsClosed() {
+        val active = PubSubUtils.onPredictionUpdate(
+            JSONObject(
+                """
+                {"data":{"event":{"id":"p1","title":"Incomplete timing","status":"ACTIVE",
+                "outcomes":[{"id":"a","title":"A"},{"id":"b","title":"B"}]}}}
+                """.trimIndent(),
+            ),
+            eventType = "channel.prediction.begin",
+            observedAt = 1_000L,
+        )
+
+        assertEquals("ACTIVE", active?.status)
+        assertEquals("ACTIVE", PredictionState.normalizeLive(active!!, now = 70_000L).status)
+        assertEquals("LOCKED", PredictionState.normalizeCached(active, now = 70_000L).status)
     }
 
     @Test
@@ -139,6 +162,7 @@ class PredictionStateTest {
     @Test
     fun cachedLockedPredictionRemainsVisibleOnReopen() {
         val source = prediction("p1", "LOCKED", 1_000L, 10).copy(
+            locksAt = 9_000L,
             lockedAt = 10_000L,
             broadcastId = "broadcast-1",
         )
@@ -182,6 +206,54 @@ class PredictionStateTest {
                 broadcastId = "new",
             ),
         )
+    }
+
+    @Test
+    fun knownNewBroadcastRejectsUnresolvedCacheWithoutBroadcastId() {
+        val locked = prediction("p1", "LOCKED", 1_000L, 10)
+
+        assertFalse(
+            PredictionCache.isFresh(
+                locked,
+                cacheTimestamp = 1_000L,
+                now = 2_000L,
+                broadcastId = "new",
+            ),
+        )
+    }
+
+    @Test
+    fun serializedUpdatesCannotPublishDelayedActiveOrLockedAfterResolved() {
+        listOf("ACTIVE", "LOCKED").forEach { delayedStatus ->
+            val store = PredictionStateStore()
+            val locked = prediction("p1", "LOCKED", 100L, 20)
+            val delayed = prediction("p1", delayedStatus, 200L, 5)
+            val resolved = prediction("p1", "RESOLVED", 300L, 25).copy(endedAt = 400L)
+            store.restore(locked) {}
+
+            val enteredApply = CountDownLatch(1)
+            val releaseApply = CountDownLatch(1)
+            val executor = Executors.newFixedThreadPool(2)
+            try {
+                val delayedFuture = executor.submit {
+                    store.update(delayed, normalize = { it }) {
+                        enteredApply.countDown()
+                        releaseApply.await(2, TimeUnit.SECONDS)
+                    }
+                }
+                assertTrue(enteredApply.await(2, TimeUnit.SECONDS))
+                val resolvedFuture = executor.submit {
+                    store.update(resolved, normalize = { it }) {}
+                }
+                releaseApply.countDown()
+                delayedFuture.get(2, TimeUnit.SECONDS)
+                resolvedFuture.get(2, TimeUnit.SECONDS)
+                assertEquals("RESOLVED", store.snapshot()?.status)
+            } finally {
+                releaseApply.countDown()
+                executor.shutdownNow()
+            }
+        }
     }
 
     @Test
