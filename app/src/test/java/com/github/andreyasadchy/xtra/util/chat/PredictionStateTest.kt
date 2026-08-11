@@ -81,6 +81,16 @@ class PredictionStateTest {
     }
 
     @Test
+    fun locksAtIsTheExactBettingDeadline() {
+        val active = prediction("p1", "ACTIVE", 1_000L, 10).copy(locksAt = 10_000L)
+
+        assertTrue(PredictionState.isBettingOpen(active, now = 9_999L))
+        assertFalse(PredictionState.isBettingOpen(active, now = 10_000L))
+        assertEquals("ACTIVE", PredictionState.normalizeLive(active, now = 9_999L).status)
+        assertEquals("LOCKED", PredictionState.normalizeLive(active, now = 10_000L).status)
+    }
+
+    @Test
     fun explicitLockedEventWinsOverActiveSnapshot() {
         val active = prediction("p1", "ACTIVE", 100L, 10)
         val locked = prediction("p1", "LOCKED", 90L, 11).copy(lockedAt = 200L)
@@ -204,6 +214,54 @@ class PredictionStateTest {
                 cacheTimestamp = 1_000L,
                 now = 2_000L,
                 broadcastId = "new",
+            ),
+        )
+    }
+
+    @Test
+    fun newBroadcastRejectsFinalCacheFromOlderBroadcast() {
+        val resolved = prediction("p1", "RESOLVED", 1_000L, 10).copy(
+            endedAt = 2_000L,
+            broadcastId = "old",
+        )
+
+        assertFalse(
+            PredictionCache.isFresh(
+                resolved,
+                cacheTimestamp = 1_000L,
+                now = 2_000L,
+                broadcastId = "new",
+            ),
+        )
+    }
+
+    @Test
+    fun newBroadcastRejectsFinalCacheWithoutBroadcastId() {
+        val canceled = prediction("p1", "CANCELED", 1_000L, 10).copy(endedAt = 2_000L)
+
+        assertFalse(
+            PredictionCache.isFresh(
+                canceled,
+                cacheTimestamp = 1_000L,
+                now = 2_000L,
+                broadcastId = "new",
+            ),
+        )
+    }
+
+    @Test
+    fun sameBroadcastKeepsFinalCacheAccepted() {
+        val resolved = prediction("p1", "RESOLVED", 1_000L, 10).copy(
+            endedAt = 2_000L,
+            broadcastId = "same",
+        )
+
+        assertTrue(
+            PredictionCache.isFresh(
+                resolved,
+                cacheTimestamp = 1_000L,
+                now = 2_000L,
+                broadcastId = "same",
             ),
         )
     }

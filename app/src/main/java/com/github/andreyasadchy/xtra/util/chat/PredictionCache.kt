@@ -10,7 +10,7 @@ object PredictionCache {
     private const val ENTRY_PREFIX = "latest_prediction_"
     private const val INDEX_KEY = "latest_prediction_index"
     private const val MAX_ENTRIES = 32
-    private const val MAX_FINAL_AGE_MILLIS = 90L * 24L * 60L * 60L * 1_000L
+    private const val MAX_FINAL_AGE_MILLIS = 24L * 60L * 60L * 1_000L
     private const val MAX_UNRESOLVED_AGE_MILLIS = 24L * 60L * 60L * 1_000L
 
     fun load(
@@ -69,10 +69,7 @@ object PredictionCache {
         now: Long,
         broadcastId: String? = null,
     ): Boolean {
-        if (!broadcastId.isNullOrBlank() &&
-            prediction.broadcastId != broadcastId &&
-            !PredictionState.isFinal(prediction)
-        ) {
+        if (!broadcastId.isNullOrBlank() && prediction.broadcastId != broadcastId) {
             return false
         }
         val reference = if (PredictionState.isFinal(prediction)) {

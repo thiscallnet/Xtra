@@ -1969,30 +1969,31 @@ class ChatViewModel(
         val duration = value.predictionWindowSeconds
         val endsAt = value.lockedAt ?: value.locksAt
             ?: start?.let { duration?.let { seconds -> it + seconds * 1_000L } }
-        val secondsLeft = endsAt?.let {
-            ((it - System.currentTimeMillis()) / 1_000L).toInt().coerceAtLeast(0)
+        val remainingMillis = endsAt?.minus(System.currentTimeMillis())
+        val secondsLeft = remainingMillis?.let { remaining ->
+            ((remaining + 999L) / 1_000L).toInt().coerceAtLeast(0)
         }
         predictionSecondsLeft.value = secondsLeft
-        if (secondsLeft != null && secondsLeft > 0) {
+        if (remainingMillis != null && remainingMillis > 0L) {
             val timer = Timer()
             predictionTimer = timer
             timer.scheduleAtFixedRate(1_000, 1_000) {
                 var stopTimer = false
                 predictionStateStore.withLock { current ->
-                    val seconds = predictionSecondsLeft.value
-                    if (predictionTimer !== timer || seconds == null || current == null) {
+                    val remaining = endsAt - System.currentTimeMillis()
+                    if (predictionTimer !== timer || current == null) {
                         stopTimer = true
-                    } else if (seconds <= 1) {
+                    } else if (remaining <= 0L) {
                         predictionSecondsLeft.value = null
                         transitionPredictionToLocked(current)
                         stopTimer = true
                     } else {
-                        predictionSecondsLeft.value = seconds - 1
+                        predictionSecondsLeft.value = ((remaining + 999L) / 1_000L).toInt()
                     }
                 }
                 if (stopTimer) cancel()
             }
-        } else if (secondsLeft != null) {
+        } else if (remainingMillis != null) {
             transitionPredictionToLocked()
         }
     }
