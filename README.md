@@ -13,7 +13,7 @@
 
 Compared with the upstream project, this fork currently includes:
 
-- More reliable live notifications with persisted follow IDs and Helix fallback.
+- More reliable live notifications with persisted follow IDs, Helix fallback, and an optional on-device real-time monitoring mode.
 - More reliable playback across background playback, picture-in-picture, and app task removal, with automatic recovery for interrupted live streams.
 - Channel Points in chat: balances, custom icons, watch streaks and streak sharing, text-input rewards, voting, and redemption, including web GQL login support.
 - Searchable emote pickers limited to emotes belonging to the active channel.
@@ -21,6 +21,20 @@ Compared with the upstream project, this fork currently includes:
 - Fork-hosted releases and update links for existing Xtra installs.
 - A clearer main screen with compact live cards
 - Accessibility improvements across cards, menus, chat actions, and dynamic player controls
+
+### Live notification timing
+
+Live notifications have three modes in Settings:
+
+- **Battery saving** uses periodic Android WorkManager checks. It uses the least battery, but Android may delay alerts.
+- **Fast** keeps a Twitch EventSub connection and performs frequent batched Helix reconciliation while Xtra's process is alive. It has no persistent notification; Android may pause monitoring after Xtra is backgrounded.
+- **Persistent real-time** runs the same monitoring through an Android foreground service for the strongest on-device background reliability. Android requires a quiet ongoing notification while it is enabled. Deep Doze can still pause network access; the live-notification settings include an optional battery-optimization shortcut for users who need the strongest idle behavior.
+
+WorkManager reconciliation remains scheduled as a slower fallback. Fast mode is best-effort while the process is alive; Persistent mode is the opt-in choice when continuous background monitoring matters most.
+
+### Update checks
+
+When enabled, Xtra checks for a new GitHub release whenever the app is opened or resumed, subject to the configured minimum interval. The default interval is one day. Available release notes are shown in the update dialog and in Settings, with a red settings indicator while an update is waiting. A release can be ignored locally; ignoring one version does not hide later releases.
 
 ### VAFT implementation
 
@@ -33,7 +47,7 @@ The optional **VAFT ad avoidance** setting uses alternate Twitch playback source
 
 ## Download
 
-You can find released APKs [here](https://github.com/thiscallnet/Xtra/releases/tag/latest).
+You can find released APKs [here](https://github.com/thiscallnet/Xtra/releases/latest).
 
 [![Join the Xtra community on Discord](https://img.shields.io/badge/Join%20the%20community-Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/2cKy8DNgPX)
 

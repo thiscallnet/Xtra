@@ -13,6 +13,9 @@ interface ShownNotificationsDao {
     @Query("SELECT * FROM shown_notifications")
     fun getAll(): List<ShownNotification>
 
+    @Query("SELECT * FROM shown_notifications WHERE channelId = :channelId")
+    fun getById(channelId: String): ShownNotification?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertList(items: List<ShownNotification>)
 
