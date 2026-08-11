@@ -67,7 +67,7 @@ jobs:
         path: app/build/outputs/apk/release/*.apk
 
     - name: Generate release notes
-      if: github.event_name != 'pull_request'
+      if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
       env:
         GH_TOKEN: ${{ github.token }}
       shell: bash
@@ -85,7 +85,7 @@ jobs:
         fi
 
     - name: Create immutable build release
-      if: github.event_name != 'pull_request'
+      if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
       env:
         GH_TOKEN: ${{ github.token }}
         VERSION: ${{ steps.version.outputs.name }}
@@ -94,19 +94,6 @@ jobs:
         set -euo pipefail
         tag="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
 
-        if git ls-remote --exit-code --refs origin "refs/tags/${tag}" >/dev/null 2>&1; then
-          echo "Release tag already exists: ${tag}" >&2
-          exit 1
-        fi
-        if gh release view "$tag" >/dev/null 2>&1; then
-          echo "Release already exists: ${tag}" >&2
-          exit 1
-        fi
-
-        # Create the release tag without force so a collision fails safely.
-        git tag "$tag" "$GITHUB_SHA"
-        git push origin "refs/tags/${tag}"
-
         shopt -s nullglob
         assets=(app/build/outputs/apk/release/*.apk)
         if (( ${#assets[@]} == 0 )); then
@@ -114,18 +101,43 @@ jobs:
           exit 1
         fi
 
-        gh release create "$tag" \
-          --verify-tag \
-          --title "Xtra ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
-          --notes-file notes.txt \
-          --latest \
-          "${assets[@]}"
+        existing_tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true)"
+        if [[ -z "$existing_tag_sha" ]]; then
+          echo "Creating release tag ${tag} at ${GITHUB_SHA}"
+          # This is intentionally a non-forced push. A concurrent collision fails safely.
+          git tag "$tag" "$GITHUB_SHA"
+          if ! git push origin "refs/tags/${tag}"; then
+            existing_tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true)"
+            if [[ "$existing_tag_sha" != "$GITHUB_SHA" ]]; then
+              echo "Unable to create release tag ${tag} at ${GITHUB_SHA}" >&2
+              exit 1
+            fi
+            echo "A concurrent retry created ${tag} at ${GITHUB_SHA}; continuing"
+          fi
+        elif [[ "$existing_tag_sha" != "$GITHUB_SHA" ]]; then
+          echo "Release tag ${tag} points to ${existing_tag_sha}, expected ${GITHUB_SHA}" >&2
+          exit 1
+        else
+          echo "Release tag ${tag} already points to ${GITHUB_SHA}; continuing retry"
+        fi
+
+        if gh release view "$tag" --json tagName >/dev/null 2>&1; then
+          echo "Release ${tag} already exists; continuing retry"
+        else
+          gh release create "$tag" \
+            --verify-tag \
+            --target "$GITHUB_SHA" \
+            --title "Xtra ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
+            --notes-file notes.txt \
+            --latest \
+            "${assets[@]}"
+        fi
 
     # Keep the historical latest URL working for existing external instances.
     # The build tag above is the immutable release tag; only this compatibility
     # alias is moved, and its release is never deleted.
     - name: Update latest compatibility alias
-      if: github.event_name != 'pull_request'
+      if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
       env:
         GH_TOKEN: ${{ github.token }}
         VERSION: ${{ steps.version.outputs.name }}
@@ -133,6 +145,13 @@ jobs:
       run: |
         set -euo pipefail
         alias_tag=latest
+
+        shopt -s nullglob
+        assets=(app/build/outputs/apk/release/*.apk)
+        if (( ${#assets[@]} == 0 )); then
+          echo "No release APK was produced" >&2
+          exit 1
+        fi
 
         if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${alias_tag}" >/dev/null 2>&1; then
           gh api --method PATCH \
@@ -144,13 +163,6 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/git/refs" \
             -f "ref=refs/tags/${alias_tag}" \
             -f "sha=${GITHUB_SHA}" >/dev/null
-        fi
-
-        shopt -s nullglob
-        assets=(app/build/outputs/apk/release/*.apk)
-        if (( ${#assets[@]} == 0 )); then
-          echo "No release APK was produced" >&2
-          exit 1
         fi
 
         if gh release view "$alias_tag" >/dev/null 2>&1; then
