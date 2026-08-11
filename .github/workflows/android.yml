@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -23,6 +23,7 @@ jobs:
       with:
         fetch-depth: 0
         filter: blob:none
+        persist-credentials: false
     - name: Setup Java
       uses: actions/setup-java@v5
       with:
@@ -84,15 +85,29 @@ jobs:
           git log --oneline --decorate=no > notes.txt
         fi
 
+    - name: Validate release token
+      if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+      env:
+        RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -z "${RELEASE_TOKEN:-}" ]]; then
+          echo "RELEASE_TOKEN repository secret is required for publishing releases" >&2
+          exit 1
+        fi
+
     - name: Create immutable build release
       if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
       env:
-        GH_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         VERSION: ${{ steps.version.outputs.name }}
       shell: bash
       run: |
         set -euo pipefail
         tag="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
+        repository_url="https://github.com/${GITHUB_REPOSITORY}.git"
 
         shopt -s nullglob
         assets=(app/build/outputs/apk/release/*.apk)
@@ -101,13 +116,49 @@ jobs:
           exit 1
         fi
 
-        existing_tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true)"
+        get_remote_tag_sha() {
+          local refs
+          if ! refs="$(git ls-remote origin "refs/tags/${tag}" "refs/tags/${tag}^{}")"; then
+            echo "Unable to inspect remote release tag ${tag}" >&2
+            return 1
+          fi
+
+          local resolved_sha=""
+          while IFS=$'\t' read -r candidate_sha candidate_ref; do
+            case "$candidate_ref" in
+              "refs/tags/${tag}^{}")
+                resolved_sha="$candidate_sha"
+                break
+                ;;
+              "refs/tags/${tag}")
+                if [[ -z "$resolved_sha" ]]; then
+                  resolved_sha="$candidate_sha"
+                fi
+                ;;
+            esac
+          done <<< "$refs"
+          printf '%s' "$resolved_sha"
+        }
+
+        existing_tag_sha="$(get_remote_tag_sha)"
         if [[ -z "$existing_tag_sha" ]]; then
           echo "Creating release tag ${tag} at ${GITHUB_SHA}"
-          # This is intentionally a non-forced push. A concurrent collision fails safely.
-          git tag "$tag" "$GITHUB_SHA"
-          if ! git push origin "refs/tags/${tag}"; then
-            existing_tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha' 2>/dev/null || true)"
+          if git show-ref --verify --quiet "refs/tags/${tag}"; then
+            local_tag_sha="$(git rev-parse "refs/tags/${tag}^{commit}")"
+            if [[ "$local_tag_sha" != "$GITHUB_SHA" ]]; then
+              echo "Local release tag ${tag} points to ${local_tag_sha}, expected ${GITHUB_SHA}" >&2
+              exit 1
+            fi
+          else
+            git tag "$tag" "$GITHUB_SHA"
+          fi
+
+          # Use RELEASE_TOKEN only for this tag mutation. This is deliberately
+          # a non-forced push: an immutable tag must never be moved.
+          auth_header="$(printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 | tr -d '\n')"
+          if ! git -c "http.extraHeader=Authorization: Basic ${auth_header}" \
+            push "$repository_url" "refs/tags/${tag}:refs/tags/${tag}"; then
+            existing_tag_sha="$(get_remote_tag_sha)"
             if [[ "$existing_tag_sha" != "$GITHUB_SHA" ]]; then
               echo "Unable to create release tag ${tag} at ${GITHUB_SHA}" >&2
               exit 1
@@ -130,7 +181,14 @@ jobs:
             --title "Xtra ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
             --notes-file notes.txt \
             --latest \
-            "${assets[@]}"
+            "${assets[@]}" || {
+              if gh release view "$tag" --json tagName >/dev/null 2>&1; then
+                echo "Release ${tag} was created concurrently; continuing retry"
+              else
+                echo "Unable to create immutable release ${tag}" >&2
+                exit 1
+              fi
+            }
         fi
 
     # Keep the historical latest URL working for existing external instances.
@@ -139,7 +197,7 @@ jobs:
     - name: Update latest compatibility alias
       if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
       env:
-        GH_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         VERSION: ${{ steps.version.outputs.name }}
       shell: bash
       run: |
