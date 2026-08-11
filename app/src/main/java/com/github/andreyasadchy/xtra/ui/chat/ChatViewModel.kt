@@ -56,6 +56,10 @@ import com.github.andreyasadchy.xtra.util.chat.ChatWriteWebSocket
 import com.github.andreyasadchy.xtra.util.chat.EventSubUtils
 import com.github.andreyasadchy.xtra.util.chat.EventSubWebSocket
 import com.github.andreyasadchy.xtra.util.chat.HermesWebSocket
+import com.github.andreyasadchy.xtra.util.chat.PollCache
+import com.github.andreyasadchy.xtra.util.chat.PollState
+import com.github.andreyasadchy.xtra.util.chat.PredictionCache
+import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
 import com.github.andreyasadchy.xtra.util.chat.STVEventApiUtils
 import com.github.andreyasadchy.xtra.util.chat.STVEventApiWebSocket
@@ -1502,9 +1506,32 @@ class ChatViewModel(
         val showUserNotice = applicationContext.prefs().getBoolean(C.CHAT_SHOW_USER_NOTICE, true)
         val showClearMsg = applicationContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_MSG, true)
         val showClearChat = applicationContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_CHAT, true)
+        val showPolls = applicationContext.prefs().getBoolean(C.CHAT_POLLS_SHOW, true)
+        val showPredictions = applicationContext.prefs().getBoolean(C.CHAT_PREDICTIONS_SHOW, true)
         val nameDisplay = applicationContext.prefs().getString(C.UI_NAME_DISPLAY, "0")
         val useApiChatMessages = applicationContext.prefs().getBoolean(C.DEBUG_API_CHAT_MESSAGES, true)
         val showWebSocketDebugInfo = applicationContext.prefs().getBoolean(C.DEBUG_WEBSOCKET_INFO, false)
+        val isOwnChannel = !channelId.isNullOrBlank() && channelId == accountId
+        if (showPolls && !channelId.isNullOrBlank()) {
+            PollCache.load(applicationContext.prefs(), channelId)?.let { cached ->
+                poll.value = cached
+                activePoll.value = cached.takeIf { PollState.isActive(it) }
+                usedPollId = cached.id
+                pollClosed = false
+                updatePollTimer(cached)
+            }
+        }
+        if (showPredictions && !channelId.isNullOrBlank()) {
+            PredictionCache.load(applicationContext.prefs(), channelId)?.let { cached ->
+                prediction.value = cached
+                activePrediction.value = cached.takeIf { PredictionState.isActive(it) }
+                usedPredictionId = cached.id
+                // Historical results belong in the activity dialog. Only a
+                // live Hermes/Helix update should briefly show the inline card.
+                predictionClosed = PredictionState.isTerminal(cached)
+                updatePredictionTimer(cached)
+            }
+        }
         if (isLoggedIn) {
             loadChannelPoints(networkLibrary, gqlHeaders, channelLogin, enableIntegrity)
             loadWatchStreak(networkLibrary, gqlHeaders, channelId)
@@ -1555,8 +1582,6 @@ class ChatViewModel(
             val gqlWebToken = applicationContext.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
             val notifyPoints = applicationContext.prefs().getBoolean(C.CHAT_POINTS_NOTIFY, false)
             val showRaids = applicationContext.prefs().getBoolean(C.CHAT_RAIDS_SHOW, true)
-            val showPolls = applicationContext.prefs().getBoolean(C.CHAT_POLLS_SHOW, true)
-            val showPredictions = applicationContext.prefs().getBoolean(C.CHAT_PREDICTIONS_SHOW, true)
             hermesWebSocket = HermesWebSocket(
                 channelId = channelId,
                 userId = accountId,
@@ -1575,12 +1600,23 @@ class ChatViewModel(
                 collectPoints = collectPoints,
                 listenForPoints = isLoggedIn,
                 showRaids = applicationContext.prefs().getBoolean(C.CHAT_RAIDS_SHOW, true),
-                showPolls = applicationContext.prefs().getBoolean(C.CHAT_POLLS_SHOW, true),
-                showPredictions = applicationContext.prefs().getBoolean(C.CHAT_PREDICTIONS_SHOW, true),
+                showPolls = showPolls,
+                showPredictions = showPredictions,
                 trustManager = trustManager,
                 listener = PubSubListener(channelLogin, collectPoints, notifyPoints, showRaids, showPolls, showPredictions, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId, enableIntegrity, showWebSocketDebugInfo)
             )
             pubSubJob = hermesWebSocket?.connect(viewModelScope)
+        }
+        // Get Polls/Predictions is broadcaster-scoped in Helix. Only reconcile
+        // the authenticated broadcaster's own channel; arbitrary channels use
+        // Hermes live events plus the persisted last-known poll.
+        if (isOwnChannel && !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !channelId.isNullOrBlank()) {
+            if (showPolls) {
+                loadLatestPoll(networkLibrary, helixHeaders, channelId)
+            }
+            if (showPredictions) {
+                loadLatestPrediction(networkLibrary, helixHeaders, channelId)
+            }
         }
         val showNamePaints = applicationContext.prefs().getBoolean(C.CHAT_SHOW_PAINTS, true)
         val showSTVBadges = applicationContext.prefs().getBoolean(C.CHAT_SHOW_STV_BADGES, true)
@@ -1622,8 +1658,18 @@ class ChatViewModel(
         watchStreakJob = null
         channelPoints.value = null
         watchStreak.value = null
+        poll.value = null
         activePoll.value = null
+        pollSecondsLeft.value = null
+        pollTimer?.cancel()
+        pollTimeoutJob?.cancel()
+        usedPollId = null
+        prediction.value = null
         activePrediction.value = null
+        predictionSecondsLeft.value = null
+        predictionTimer?.cancel()
+        predictionTimeoutJob?.cancel()
+        usedPredictionId = null
         if (started) {
             started = false
             if (chatReadIRCSocket != null) {
@@ -1837,6 +1883,140 @@ class ChatViewModel(
                     systemMsg = ContextCompat.getString(applicationContext, R.string.websocket_disconnected).format("Chat write socket", message),
                     fullMsg = fullMsg
                 ))
+            }
+        }
+    }
+
+    private fun updatePoll(value: Poll) {
+        val merged = PollState.merge(poll.value, value) ?: return
+        if (merged.id != usedPollId) {
+            usedPollId = merged.id
+            pollClosed = false
+        }
+        poll.value = merged
+        activePoll.value = merged.takeIf { PollState.isActive(it) }
+        updatePollTimer(merged)
+        activeChannelId?.let { channelId ->
+            PollCache.save(applicationContext.prefs(), channelId, merged)
+        }
+    }
+
+    private fun updatePollTimer(value: Poll) {
+        pollTimer?.cancel()
+        val remaining = when {
+            value.endsAt != null -> (value.endsAt - System.currentTimeMillis()).coerceAtLeast(0L)
+            else -> value.remainingMilliseconds
+        }
+        if (PollState.isActive(value) && remaining != null) {
+            val seconds = (remaining / 1000L).toInt().coerceAtLeast(0)
+            pollSecondsLeft.value = seconds
+            if (seconds > 0) {
+                pollTimer = Timer().apply {
+                    scheduleAtFixedRate(1000, 1000) {
+                        val current = pollSecondsLeft.value ?: run {
+                            cancel()
+                            return@scheduleAtFixedRate
+                        }
+                        pollSecondsLeft.value = (current - 1).coerceAtLeast(0)
+                        if (current <= 1) {
+                            activePoll.value = null
+                            cancel()
+                        }
+                    }
+                }
+            }
+        } else {
+            pollSecondsLeft.value = null
+        }
+    }
+
+    private fun updatePrediction(value: Prediction) {
+        val merged = PredictionState.merge(prediction.value, value) ?: return
+        if (merged.id != usedPredictionId) {
+            usedPredictionId = merged.id
+            predictionClosed = false
+            predictionTimeoutJob?.cancel()
+        } else if (value.observedAt != null || merged.status == "LOCKED" || merged.status == "CANCEL_PENDING" || merged.status == "RESOLVE_PENDING") {
+            predictionClosed = false
+        }
+        prediction.value = merged
+        activePrediction.value = merged.takeIf { PredictionState.isActive(it) }
+        updatePredictionTimer(merged)
+        activeChannelId?.let { channelId ->
+            PredictionCache.save(applicationContext.prefs(), channelId, merged)
+        }
+    }
+
+    private fun updatePredictionTimer(value: Prediction) {
+        predictionTimer?.cancel()
+        if (!PredictionState.isActive(value)) {
+            predictionSecondsLeft.value = null
+            return
+        }
+        val start = value.startedAt ?: value.createdAt
+        val duration = value.predictionWindowSeconds
+        val secondsLeft = if (start != null && duration != null) {
+            (((start + duration * 1_000L) - System.currentTimeMillis()) / 1_000L)
+                .toInt()
+                .coerceAtLeast(0)
+        } else null
+        predictionSecondsLeft.value = secondsLeft
+        if (secondsLeft != null && secondsLeft > 0) {
+            predictionTimer = Timer().apply {
+                scheduleAtFixedRate(1_000, 1_000) {
+                    val seconds = predictionSecondsLeft.value ?: run {
+                        cancel()
+                        return@scheduleAtFixedRate
+                    }
+                    predictionSecondsLeft.value = (seconds - 1).coerceAtLeast(0)
+                    if (seconds <= 1) {
+                        activePrediction.value = null
+                        cancel()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun loadLatestPoll(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        channelId: String,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val snapshotObservedAt = System.currentTimeMillis()
+                val body = helixRepository.getPolls(networkLibrary, headers, channelId)
+                val event = body?.let { response ->
+                    JSONObject(response).optJSONArray("data")?.optJSONObject(0)
+                }
+                val current = event?.let { PubSubUtils.onPollUpdate(it, observedAt = snapshotObservedAt) }
+                if (current != null && activeChannelId == channelId) {
+                    updatePoll(current)
+                }
+            } catch (e: Exception) {
+                // Hermes remains the live path; a snapshot failure is harmless.
+            }
+        }
+    }
+
+    private fun loadLatestPrediction(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        channelId: String,
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val body = helixRepository.getPredictions(networkLibrary, headers, channelId)
+                val event = body?.let { response ->
+                    JSONObject(response).optJSONArray("data")?.optJSONObject(0)
+                }
+                val current = event?.let { PubSubUtils.onPredictionUpdate(JSONObject().put("event", it)) }
+                if (current != null && activeChannelId == channelId) {
+                    updatePrediction(current)
+                }
+            } catch (e: Exception) {
+                // Hermes remains the live path; a snapshot failure is harmless.
             }
         }
     }
@@ -2062,74 +2242,14 @@ class ChatViewModel(
         }
 
         override suspend fun onPollUpdate(message: JSONObject) {
-            if (showPolls) {
-                PubSubUtils.onPollUpdate(message)?.let {
-                    if (it.id != usedPollId) {
-                        usedPollId = it.id
-                        pollClosed = false
-                        pollTimeoutJob?.cancel()
-                        if (it.remainingMilliseconds != null) {
-                            val secondsLeft = it.remainingMilliseconds / 1000
-                            if (secondsLeft > 0) {
-                                pollSecondsLeft.value = secondsLeft
-                                pollTimer?.cancel()
-                                pollTimer = Timer().apply {
-                                    scheduleAtFixedRate(1000, 1000) {
-                                        val seconds = pollSecondsLeft.value
-                                        if (seconds != null) {
-                                            pollSecondsLeft.value = seconds - 1
-                                            if (seconds <= 1) {
-                                                this@apply.cancel()
-                                            }
-                                        } else {
-                                            this@apply.cancel()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else if (it.status == "COMPLETED" || it.status == "TERMINATED") {
-                        pollClosed = false
-                    }
-                    activePoll.value = it.takeIf { poll -> poll.status == "ACTIVE" }
-                    poll.value = it
-                }
+            if (showPolls && channelId == activeChannelId) {
+                PubSubUtils.onPollUpdate(message)?.let(::updatePoll)
             }
         }
 
         override suspend fun onPredictionUpdate(message: JSONObject) {
-            if (showPredictions) {
-                PubSubUtils.onPredictionUpdate(message)?.let {
-                    if (it.id != usedPredictionId) {
-                        usedPredictionId = it.id
-                        predictionClosed = false
-                        predictionTimeoutJob?.cancel()
-                        if (it.createdAt != null && it.predictionWindowSeconds != null) {
-                            val secondsLeft = ((((it.createdAt + (it.predictionWindowSeconds * 1000)) - System.currentTimeMillis())) / 1000).toInt()
-                            if (secondsLeft > 0) {
-                                predictionSecondsLeft.value = secondsLeft
-                                predictionTimer?.cancel()
-                                predictionTimer = Timer().apply {
-                                    scheduleAtFixedRate(1000, 1000) {
-                                        val seconds = predictionSecondsLeft.value
-                                        if (seconds != null) {
-                                            predictionSecondsLeft.value = seconds - 1
-                                            if (seconds <= 1) {
-                                                this@apply.cancel()
-                                            }
-                                        } else {
-                                            this@apply.cancel()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else if (it.status == "LOCKED" || it.status == "CANCEL_PENDING" || it.status == "RESOLVE_PENDING") {
-                        predictionClosed = false
-                    }
-                    activePrediction.value = it.takeIf { prediction -> prediction.status == "ACTIVE" }
-                    prediction.value = it
-                }
+            if (showPredictions && channelId == activeChannelId) {
+                PubSubUtils.onPredictionUpdate(message)?.let(::updatePrediction)
             }
         }
 
@@ -2439,6 +2559,68 @@ class ChatViewModel(
                     }
                 } catch (e: Exception) {
 
+                }
+            }
+        }
+    }
+
+    /**
+     * Twitch poll votes are chat commands, not chat message API content. Only
+     * expose voting when a raw IRC/WebSocket writer exists, so a literal
+     * "/vote N" can never be sent through Helix/GQL as ordinary chat text.
+     */
+    fun canVotePoll(): Boolean = chatWriteIRCSocket != null || chatWriteWebSocket != null
+
+    fun votePoll(choiceIndex: Int) {
+        val current = activePoll.value ?: return
+        if (!PollState.isActive(current) || choiceIndex !in current.choices.orEmpty().indices) return
+        val command = "/vote ${choiceIndex + 1}"
+        viewModelScope.launch(Dispatchers.IO) {
+            chatWriteIRCSocket?.send(command, null) ?: chatWriteWebSocket?.send(command, null)
+        }
+    }
+
+    /**
+     * Viewer prediction betting uses Twitch's web GQL mutation. Do not send a
+     * slash command through chat: that would be transport-dependent and could
+     * post literal command text instead of placing the bet.
+     */
+    fun canBetPrediction(): Boolean {
+        val current = activePrediction.value ?: return false
+        if (!PredictionState.isActive(current) || current.id.isNullOrBlank()) return false
+        return !TwitchApiHelper.getGQLHeaders(applicationContext, true)[C.HEADER_TOKEN].isNullOrBlank()
+    }
+
+    fun betPrediction(outcomeId: String, points: Int) {
+        val current = activePrediction.value ?: return
+        val predictionId = current.id
+        val channelLogin = activeChannelLogin
+        val balance = channelPoints.value?.balance
+        if (!canBetPrediction() || predictionId.isNullOrBlank() || outcomeId.isBlank()) return
+        if (points !in MIN_PREDICTION_POINTS..MAX_PREDICTION_POINTS || (balance != null && points > balance)) return
+
+        val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        val headers = TwitchApiHelper.getGQLHeaders(applicationContext, true)
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                graphQLRepository.makePrediction(
+                    networkLibrary = networkLibrary,
+                    headers = headers,
+                    predictionId = predictionId,
+                    outcomeId = outcomeId,
+                    points = points,
+                )
+            }.onSuccess { response ->
+                if (response.errors.isNullOrEmpty() &&
+                    response.data?.hasPayload() == true &&
+                    response.data.errorCode().isNullOrBlank()
+                ) {
+                    loadChannelPoints(
+                        networkLibrary = networkLibrary,
+                        gqlHeaders = headers,
+                        channelLogin = channelLogin,
+                        enableIntegrity = applicationContext.prefs().getBoolean(C.ENABLE_INTEGRITY, false),
+                    )
                 }
             }
         }
@@ -3884,6 +4066,8 @@ class ChatViewModel(
         private const val METERED_CACHE_MAX_AGE_MS = 604_800_000L
         private const val MAX_BADGE_CACHE_FILES = 100
         private const val DEFAULT_REWARD_COLOR = "#9146FF"
+        private const val MIN_PREDICTION_POINTS = 10
+        private const val MAX_PREDICTION_POINTS = 250_000
         private var savedEmoteSets: List<String>? = null
         private val savedUserEmotes = mutableMapOf<String, List<TwitchEmote>>()
         private var savedGlobalBadges: List<TwitchBadge>? = null

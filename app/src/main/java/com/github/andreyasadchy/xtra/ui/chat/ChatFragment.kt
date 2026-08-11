@@ -60,6 +60,7 @@ import com.github.andreyasadchy.xtra.ui.player.PlayerFragment
 import com.github.andreyasadchy.xtra.ui.view.AutoCompleteAdapter
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.chat.PollState
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.reduceDragSensitivity
@@ -74,6 +75,7 @@ import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -130,9 +132,25 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun watchStreakFlow(): StateFlow<WatchStreak?> = viewModel.watchStreak
 
+    override fun pollFlow(): StateFlow<Poll?> = viewModel.poll
+
     override fun activePollFlow(): StateFlow<Poll?> = viewModel.activePoll
 
+    override fun pollSecondsLeftFlow(): StateFlow<Int?> = viewModel.pollSecondsLeft
+
+    override fun predictionFlow(): StateFlow<Prediction?> = viewModel.prediction
+
     override fun activePredictionFlow(): StateFlow<Prediction?> = viewModel.activePrediction
+
+    override fun predictionSecondsLeftFlow(): StateFlow<Int?> = viewModel.predictionSecondsLeft
+
+    override fun canVotePoll(): Boolean = viewModel.canVotePoll()
+
+    override fun votePoll(choiceIndex: Int) = viewModel.votePoll(choiceIndex)
+
+    override fun canBetPrediction(): Boolean = viewModel.canBetPrediction()
+
+    override fun betPrediction(outcomeId: String, points: Int) = viewModel.betPrediction(outcomeId, points)
 
     override fun channelName(): String? {
         return arguments?.getString(KEY_CHANNEL_NAME)?.takeIf { it.isNotBlank() }
@@ -198,6 +216,18 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             }
         }
         with(binding) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    combine(
+                        viewModel.activePoll,
+                        viewModel.pollSecondsLeft,
+                        viewModel.activePrediction,
+                        viewModel.predictionSecondsLeft,
+                    ) { poll, pollSeconds, prediction, predictionSeconds ->
+                        ActivityIndicatorState(poll, pollSeconds, prediction, predictionSeconds)
+                    }.collectLatest(::updateActivityIndicator)
+                }
+            }
             if (!requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)) {
                 val args = requireArguments()
                 val channelId = args.getString(KEY_CHANNEL_ID)
@@ -615,52 +645,53 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     viewLifecycleOwner.lifecycleScope.launch {
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
                             viewModel.poll.collectLatest { poll ->
-                                if (poll != null) {
-                                    if (!viewModel.pollClosed) {
-                                        when (poll.status) {
-                                            "ACTIVE" -> {
-                                                pollLayout.visibility = View.VISIBLE
-                                                pollTitle.text = getString(R.string.poll_title, poll.title)
-                                                pollChoices.text = poll.choices?.joinToString("\n") {
-                                                    getString(
-                                                        R.string.poll_choice,
-                                                        (((it.totalVotes ?: 0).toLong() * 100.0) / max((poll.totalVotes ?: 0), 1)).roundToInt(),
-                                                        it.totalVotes?.let { NumberFormat.getInstance().format(it) },
-                                                        it.title
-                                                    )
-                                                }
-                                                pollStatus.visibility = View.VISIBLE
+                                if (poll != null && !viewModel.pollClosed) {
+                                    val isActive = PollState.isActive(poll)
+                                    val isTerminal = PollState.isTerminal(poll) || (!isActive && poll.status == "ACTIVE")
+                                    when {
+                                        isActive -> {
+                                            pollLayout.visibility = View.VISIBLE
+                                            pollTitle.text = getString(R.string.poll_title, poll.title)
+                                            val totalVotes = (poll.totalVotes ?: poll.choices.orEmpty().sumOf { it.totalVotes ?: 0 }).coerceAtLeast(1)
+                                            pollChoices.text = poll.choices?.joinToString("\n") {
+                                                getString(
+                                                    R.string.poll_choice,
+                                                    (((it.totalVotes ?: 0).toLong() * 100.0) / totalVotes).roundToInt(),
+                                                    it.totalVotes?.let { count -> NumberFormat.getInstance().format(count) } ?: "—",
+                                                    it.title,
+                                                )
                                             }
-                                            "COMPLETED", "TERMINATED" -> {
-                                                pollLayout.visibility = View.VISIBLE
-                                                pollTitle.text = getString(R.string.poll_title, poll.title)
-                                                val winningTotal = poll.choices?.maxOfOrNull { it.totalVotes ?: 0 } ?: 0
-                                                pollChoices.text = poll.choices?.joinToString("\n") {
-                                                    getString(
-                                                        if (winningTotal == it.totalVotes) {
-                                                            R.string.poll_choice_winner
-                                                        } else {
-                                                            R.string.poll_choice
-                                                        },
-                                                        (((it.totalVotes ?: 0).toLong() * 100.0) / max((poll.totalVotes ?: 0), 1)).roundToInt(),
-                                                        it.totalVotes?.let { NumberFormat.getInstance().format(it) },
-                                                        it.title
-                                                    )
-                                                }
-                                                pollStatus.visibility = View.GONE
-                                                viewModel.pollSecondsLeft.value = null
-                                                viewModel.pollTimer?.cancel()
-                                                viewModel.startPollTimeout { pollLayout.visibility = View.GONE }
+                                            pollStatus.visibility = View.VISIBLE
+                                        }
+                                        isTerminal -> {
+                                            pollLayout.visibility = View.VISIBLE
+                                            pollTitle.text = getString(R.string.poll_title, poll.title)
+                                            val totalVotes = (poll.totalVotes ?: poll.choices.orEmpty().sumOf { it.totalVotes ?: 0 }).coerceAtLeast(1)
+                                            val winningTotal = poll.choices.orEmpty().mapNotNull { it.totalVotes }.maxOrNull()
+                                            pollChoices.text = poll.choices?.joinToString("\n") {
+                                                getString(
+                                                    if (winningTotal != null && winningTotal > 0 && it.totalVotes == winningTotal) {
+                                                        R.string.poll_choice_winner
+                                                    } else {
+                                                        R.string.poll_choice
+                                                    },
+                                                    (((it.totalVotes ?: 0).toLong() * 100.0) / totalVotes).roundToInt(),
+                                                    it.totalVotes?.let { count -> NumberFormat.getInstance().format(count) } ?: "—",
+                                                    it.title,
+                                                )
                                             }
-                                            else -> {
-                                                pollLayout.visibility = View.GONE
-                                                viewModel.pollSecondsLeft.value = null
-                                                viewModel.pollTimer?.cancel()
-                                                viewModel.pollClosed = true
-                                            }
+                                            pollStatus.visibility = View.GONE
+                                            viewModel.pollSecondsLeft.value = null
+                                            viewModel.pollTimer?.cancel()
+                                            viewModel.startPollTimeout { pollLayout.visibility = View.GONE }
+                                        }
+                                        else -> {
+                                            pollLayout.visibility = View.GONE
+                                            viewModel.pollSecondsLeft.value = null
+                                            viewModel.pollTimer?.cancel()
+                                            viewModel.pollClosed = true
                                         }
                                     }
-                                    viewModel.poll.value = null
                                 }
                             }
                         }
@@ -772,7 +803,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                             }
                                         }
                                     }
-                                    viewModel.prediction.value = null
                                 }
                             }
                         }
@@ -1092,6 +1122,52 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         binding.send.isVisible = !composerSubmissionInProgress && (hasText || canShareWithoutMessage)
         binding.clear.isVisible = !composerSubmissionInProgress && hasText
     }
+
+    private fun updateActivityIndicator(state: ActivityIndicatorState) {
+        if (_binding == null) return
+        val active = when {
+            state.poll != null -> {
+                val suffix = state.pollSeconds?.takeIf { it > 0 }?.let { DateUtils.formatElapsedTime(it.toLong()) }
+                getString(R.string.channel_points_poll_active) + (suffix?.let { " · $it" } ?: "")
+            }
+            state.prediction != null -> {
+                val suffix = state.predictionSeconds?.takeIf { it > 0 }?.let { DateUtils.formatElapsedTime(it.toLong()) }
+                getString(R.string.channel_points_prediction_active) + (suffix?.let { " · $it" } ?: "")
+            }
+            else -> null
+        }
+        val indicator = binding.activityIndicator
+        indicator.isVisible = active != null
+        indicator.text = active
+        if (active != null) {
+            val background = if (state.poll != null) {
+                MaterialColors.getColor(binding.channelPoints, com.google.android.material.R.attr.colorPrimaryContainer)
+            } else {
+                MaterialColors.getColor(binding.channelPoints, com.google.android.material.R.attr.colorSecondaryContainer)
+            }
+            val foreground = if (state.poll != null) {
+                MaterialColors.getColor(binding.channelPoints, com.google.android.material.R.attr.colorOnPrimaryContainer)
+            } else {
+                MaterialColors.getColor(binding.channelPoints, com.google.android.material.R.attr.colorOnSecondaryContainer)
+            }
+            binding.channelPoints.backgroundTintList = ColorStateList.valueOf(background)
+            binding.channelPointsIcon.imageTintList = ColorStateList.valueOf(foreground)
+            binding.channelPointsText.setTextColor(foreground)
+            indicator.setTextColor(foreground)
+        } else {
+            binding.channelPoints.backgroundTintList = null
+            val foreground = MaterialColors.getColor(binding.channelPoints, androidx.appcompat.R.attr.colorControlNormal)
+            binding.channelPointsIcon.imageTintList = ColorStateList.valueOf(foreground)
+            binding.channelPointsText.setTextColor(foreground)
+        }
+    }
+
+    private data class ActivityIndicatorState(
+        val poll: Poll?,
+        val pollSeconds: Int?,
+        val prediction: Prediction?,
+        val predictionSeconds: Int?,
+    )
 
     private fun updateComposerDensity() {
         if (_binding == null || binding.messageView.width <= 0) return

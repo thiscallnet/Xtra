@@ -1,6 +1,6 @@
 package com.github.andreyasadchy.xtra.model.chat
 
-class Prediction(
+data class Prediction(
     val id: String?,
     val createdAt: Long?,
     val outcomes: List<PredictionOutcome>?,
@@ -8,11 +8,16 @@ class Prediction(
     val status: String?,
     val title: String?,
     val winningOutcomeId: String?,
+    val startedAt: Long? = createdAt,
+    val lockedAt: Long? = null,
+    val endedAt: Long? = null,
+    val observedAt: Long? = null,
 ) {
-    class PredictionOutcome(
+    data class PredictionOutcome(
         val id: String?,
         val title: String?,
         val totalPoints: Int?,
         val totalUsers: Int?,
+        val color: String? = null,
     )
 }

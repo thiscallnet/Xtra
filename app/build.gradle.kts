@@ -84,6 +84,7 @@ tasks.register("printVersionInfo") {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 
     compileOnly("com.google.j2objc:j2objc-annotations:3.0.0") // OkHttpDataSource SettableFuture
     implementation("com.google.android.gms:play-services-cronet:18.1.0")

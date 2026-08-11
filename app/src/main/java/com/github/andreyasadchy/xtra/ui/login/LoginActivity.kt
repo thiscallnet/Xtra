@@ -107,6 +107,8 @@ class LoginActivity : AppCompatActivity() {
                     putString(C.GQL_TOKEN_WEB, null)
                     putString(C.USER_ID, null)
                     putString(C.USERNAME, null)
+                    putString(C.PROFILE_IMAGE_URL, null)
+                    putString(C.PROFILE_IMAGE_USER_ID, null)
                 }
                 lifecycleScope.launch {
                     if (!helixClientId.isNullOrBlank() && !oldHelixToken.isNullOrBlank()) {
@@ -149,6 +151,8 @@ class LoginActivity : AppCompatActivity() {
                 "channel:manage:raids", // raids
                 "channel:manage:vips", // channels/vips
                 "channel:moderate",
+                "channel:read:polls", // own-channel Helix/EventSub activity; arbitrary channels use Hermes
+                "channel:read:predictions", // own-channel Helix/EventSub activity; arbitrary channels use Hermes
                 "chat:edit", // irc
                 "chat:read", // irc
                 "moderator:manage:announcements", // chat/announcements

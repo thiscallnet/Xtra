@@ -16,11 +16,14 @@ Compared with the upstream project, this fork currently includes:
 - More reliable live notifications with persisted follow IDs, Helix fallback, and an optional on-device real-time monitoring mode.
 - More reliable playback across background playback, picture-in-picture, and app task removal, with automatic recovery for interrupted live streams.
 - Channel Points in chat: balances, custom icons, watch streaks and streak sharing, text-input rewards, voting, and redemption, including web GQL login support.
+- Poll and prediction activity: active results appear in chat and the Channel Points dialog; the latest observed poll is retained per channel for the next visit. Hermes supplies arbitrary-channel live poll updates, while Helix snapshots are used only for the authenticated broadcaster's own channel.
 - Searchable emote pickers limited to emotes belonging to the active channel.
 - A reorganized settings experience with search, categorized pages, and clearer playback and background-playback controls.
 - Fork-hosted releases and update links for existing Xtra installs.
 - A clearer main screen with compact live cards
 - Accessibility improvements across cards, menus, chat actions, and dynamic player controls
+
+For arbitrary channels, Twitch's official API does not provide a viewer snapshot of a poll that Xtra never observed live. If a poll starts and finishes while Xtra is closed, its result cannot be reconstructed; once observed, it remains available from Xtra's local cache.
 
 ### Live notification timing
 

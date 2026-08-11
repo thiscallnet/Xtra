@@ -86,67 +86,206 @@ object PubSubUtils {
         } else null
     }
 
-    fun onPollUpdate(message: JSONObject): Poll? {
+    /**
+     * Parses the three shapes used by Xtra's poll transports:
+     * Hermes/EventSub nested snapshots and Helix's flat Get Polls response.
+     * Missing numbers stay null; zero is a real Twitch value and must not be
+     * confused with a missing field.
+     */
+    fun onPollUpdate(
+        message: JSONObject,
+        eventType: String? = null,
+        observedAt: Long? = System.currentTimeMillis(),
+    ): Poll? {
         val messageData = message.optJSONObject("data")
         val poll = messageData?.optJSONObject("poll")
-        val choicesList = mutableListOf<Poll.PollChoice>()
-        val choices = poll?.optJSONArray("choices")
-        if (choices != null) {
-            for (i in 0 until choices.length()) {
-                val choice = choices.get(i) as? JSONObject
-                val title = if (choice?.isNull("title") == false) choice.optString("title").takeIf { it.isNotBlank() } else null
-                if (!title.isNullOrBlank()) {
-                    choicesList.add(
+            ?: messageData?.optJSONObject("event")
+            ?: message.optJSONObject("poll")
+            ?: message.optJSONObject("event")
+            ?: message.takeIf { it.has("choices") && it.has("title") }
+        if (poll == null) return null
+
+        val eventName = eventType ?: message.optionalString("type")
+        val status = poll.optionalString("status")?.uppercase()
+            ?: when {
+                eventName?.endsWith(".begin") == true || eventName?.endsWith(".progress") == true || eventName?.endsWith("_begin") == true || eventName?.endsWith("_progress") == true -> "ACTIVE"
+                eventName?.endsWith(".end") == true || eventName?.endsWith("_end") == true -> "COMPLETED"
+                else -> null
+            }
+        val startedAt = poll.timestamp("started_at")
+        val endsAt = poll.timestamp("ends_at")
+        val endedAt = poll.timestamp("ended_at")
+        val durationSeconds = poll.durationSeconds()
+            ?: if (startedAt != null && endsAt != null) ((endsAt - startedAt) / 1000L).toInt().takeIf { it >= 0 } else null
+        val effectiveEndsAt = endsAt ?: if (startedAt != null && durationSeconds != null) {
+            startedAt + durationSeconds * 1000L
+        } else null
+        val remainingMilliseconds = poll.optionalLong("remaining_duration_milliseconds")
+            ?: if (status == "ACTIVE" && effectiveEndsAt != null) {
+                (effectiveEndsAt - System.currentTimeMillis()).coerceAtLeast(0L)
+            } else null
+        val terminalEndedAt = endedAt ?: if (status in setOf("COMPLETED", "TERMINATED", "ARCHIVED", "MODERATED", "INVALID", "CANCELED")) {
+            effectiveEndsAt ?: observedAt
+        } else null
+
+        val choicesList = buildList {
+            poll.optJSONArray("choices")?.let { choices ->
+                for (index in 0 until choices.length()) {
+                    val choice = choices.optJSONObject(index) ?: continue
+                    val title = choice.optionalString("title") ?: continue
+                    val nestedVotes = choice.opt("votes") as? JSONObject
+                    val votes = choice.optionalInt("votes")
+                        ?: nestedVotes?.optionalInt("total")
+                        ?: choice.optionalInt("total_votes")
+                    val channelPointsVotes = choice.optionalInt("channel_points_votes")
+                        ?: nestedVotes?.optionalInt("channel_points_votes")
+                        ?: nestedVotes?.optionalInt("channel_points")
+                    val bitsVotes = choice.optionalInt("bits_votes")
+                        ?: nestedVotes?.optionalInt("bits_votes")
+                        ?: nestedVotes?.optionalInt("bits")
+                    add(
                         Poll.PollChoice(
+                            id = choice.optionalString("id"),
                             title = title,
-                            totalVotes = choice?.optJSONObject("votes")?.let { votes -> if (!votes.isNull("total")) votes.optInt("total") else null },
-                        )
+                            totalVotes = votes,
+                            channelPointsVotes = channelPointsVotes,
+                            bitsVotes = bitsVotes,
+                        ),
                     )
                 }
             }
         }
-        return if (poll != null) {
-            Poll(
-                id = if (!poll.isNull("poll_id")) poll.optString("poll_id").takeIf { it.isNotBlank() } else null,
-                title = if (!poll.isNull("title")) poll.optString("title").takeIf { it.isNotBlank() } else null,
-                status = if (!poll.isNull("status")) poll.optString("status").takeIf { it.isNotBlank() } else null,
-                choices = choicesList,
-                totalVotes = poll.optJSONObject("votes")?.let { votes -> if (!votes.isNull("total")) votes.optInt("total") else null },
-                remainingMilliseconds = if (!poll.isNull("remaining_duration_milliseconds")) poll.optInt("remaining_duration_milliseconds") else null,
-            )
-        } else null
+
+        val channelPointsVoting = poll.optJSONObject("channel_points_voting")
+        val bitsVoting = poll.optJSONObject("bits_voting")
+        val totalVotesObject = poll.opt("votes") as? JSONObject
+        val totalVotes = totalVotesObject?.optionalInt("total")
+            ?: poll.optionalInt("votes")
+            ?: poll.optionalInt("total_votes")
+            ?: choicesList.mapNotNull { it.totalVotes }.takeIf { it.size == choicesList.size }?.sum()
+
+        return Poll(
+            id = poll.optionalString("id") ?: poll.optionalString("poll_id"),
+            title = poll.optionalString("title"),
+            status = status,
+            choices = choicesList,
+            totalVotes = totalVotes,
+            remainingMilliseconds = remainingMilliseconds,
+            channelPointsVotingEnabled = channelPointsVoting?.optBoolean("is_enabled", false) == true ||
+                poll.optionalBoolean("channel_points_voting_enabled") == true,
+            channelPointsPerVote = channelPointsVoting?.optionalInt("amount_per_vote")
+                ?: poll.optionalInt("channel_points_per_vote"),
+            bitsVotingEnabled = bitsVoting?.optBoolean("is_enabled", false) == true ||
+                poll.optionalBoolean("bits_voting_enabled") == true,
+            bitsPerVote = bitsVoting?.optionalInt("amount_per_vote")
+                ?: poll.optionalInt("bits_per_vote"),
+            startedAt = startedAt,
+            endsAt = effectiveEndsAt,
+            endedAt = terminalEndedAt,
+            durationSeconds = durationSeconds,
+            observedAt = observedAt,
+        )
     }
 
-    fun onPredictionUpdate(message: JSONObject): Prediction? {
+    private fun JSONObject.optionalString(key: String): String? =
+        if (!has(key) || isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
+
+    private fun JSONObject.optionalInt(key: String): Int? {
+        if (!has(key) || isNull(key)) return null
+        return opt(key)?.toString()?.toDoubleOrNull()?.toInt()
+    }
+
+    private fun JSONObject.optionalLong(key: String): Long? {
+        if (!has(key) || isNull(key)) return null
+        return opt(key)?.toString()?.toDoubleOrNull()?.toLong()
+    }
+
+    private fun JSONObject.optionalBoolean(key: String): Boolean? =
+        if (!has(key) || isNull(key)) null else optBoolean(key)
+
+    private fun JSONObject.timestamp(key: String): Long? {
+        if (!has(key) || isNull(key)) return null
+        val value = opt(key)
+        return when {
+            value is Number -> value.toLong()
+            value == null -> null
+            else -> value.toString().toLongOrNull() ?: Instant.parseOrNull(value.toString())?.toEpochMilliseconds()
+        }
+    }
+
+    private fun JSONObject.durationSeconds(): Int? {
+        if (!has("duration") || isNull("duration")) return null
+        val value = opt("duration")
+        return when {
+            value is Number -> value.toInt()
+            value == null -> null
+            else -> value.toString().let { raw ->
+                raw.toIntOrNull() ?: Regex("^(\\d+)(?:\\.\\d+)?s$").matchEntire(raw)?.groupValues?.get(1)?.toIntOrNull()
+            }
+        }
+    }
+
+    fun onPredictionUpdate(
+        message: JSONObject,
+        eventType: String? = null,
+        observedAt: Long? = System.currentTimeMillis(),
+    ): Prediction? {
         val messageData = message.optJSONObject("data")
         val prediction = messageData?.optJSONObject("event")
+            ?: messageData?.optJSONObject("prediction")
+            ?: message.optJSONObject("event")
+            ?: message.optJSONObject("prediction")
+            ?: message.takeIf { it.has("outcomes") && it.has("title") }
         val outcomesList = mutableListOf<Prediction.PredictionOutcome>()
         val outcomes = prediction?.optJSONArray("outcomes")
         if (outcomes != null) {
             for (i in 0 until outcomes.length()) {
-                val outcome = outcomes.get(i) as? JSONObject
-                val title = if (outcome?.isNull("title") == false) outcome.optString("title").takeIf { it.isNotBlank() } else null
+                val outcome = outcomes.optJSONObject(i)
+                val title = outcome?.optionalString("title")
                 if (!title.isNullOrBlank()) {
                     outcomesList.add(
                         Prediction.PredictionOutcome(
-                            id = if (outcome?.isNull("id") == false) outcome.optString("id").takeIf { it.isNotBlank() } else null,
+                            id = outcome?.optionalString("id"),
                             title = title,
-                            totalPoints = if (outcome?.isNull("total_points") == false) outcome.optInt("total_points") else null,
-                            totalUsers = if (outcome?.isNull("total_users") == false) outcome.optInt("total_users") else null,
+                            totalPoints = outcome?.optionalInt("total_points")
+                                ?: outcome?.optionalInt("channel_points"),
+                            totalUsers = outcome?.optionalInt("total_users")
+                                ?: outcome?.optionalInt("users"),
+                            color = outcome?.optionalString("color")?.uppercase(),
                         )
                     )
                 }
             }
         }
         return if (prediction != null) {
+            val startedAt = prediction.timestamp("started_at")
+            val createdAt = prediction.timestamp("created_at") ?: startedAt
+            val lockedAt = prediction.timestamp("locked_at") ?: prediction.timestamp("locks_at")
+            val endedAt = prediction.timestamp("ended_at")
+            val eventStatus = prediction.optString("status").takeIf { it.isNotBlank() }?.uppercase()
+            ?: when {
+                eventType?.endsWith(".begin") == true || eventType?.endsWith(".progress") == true -> "ACTIVE"
+                eventType?.endsWith(".lock") == true -> "LOCKED"
+                eventType?.endsWith(".end") == true -> "RESOLVED"
+                else -> null
+            }
+            val predictionWindowSeconds = prediction.optionalInt("prediction_window_seconds")
+                ?: prediction.optionalInt("prediction_window")
+                ?: if (startedAt != null && lockedAt != null) {
+                    ((lockedAt - startedAt) / 1000L).toInt().takeIf { it > 0 }
+                } else null
             Prediction(
-                id = if (!prediction.isNull("id")) prediction.optString("id").takeIf { it.isNotBlank() } else null,
-                createdAt = if (!prediction.isNull("created_at")) prediction.optString("created_at").takeIf { it.isNotBlank() }?.let { Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } } else null,
+                id = prediction.optionalString("id"),
+                createdAt = createdAt?.takeIf { it > 0 },
                 outcomes = outcomesList,
-                predictionWindowSeconds = if (!prediction.isNull("prediction_window_seconds")) prediction.optInt("prediction_window_seconds") else null,
-                status = if (!prediction.isNull("status")) prediction.optString("status").takeIf { it.isNotBlank() } else null,
-                title = if (!prediction.isNull("title")) prediction.optString("title").takeIf { it.isNotBlank() } else null,
-                winningOutcomeId = if (!prediction.isNull("winning_outcome_id")) prediction.optString("winning_outcome_id").takeIf { it.isNotBlank() } else null,
+                predictionWindowSeconds = predictionWindowSeconds,
+                status = eventStatus,
+                title = prediction.optionalString("title"),
+                winningOutcomeId = prediction.optionalString("winning_outcome_id"),
+                startedAt = startedAt?.takeIf { it > 0 },
+                lockedAt = lockedAt?.takeIf { it > 0 },
+                endedAt = endedAt?.takeIf { it > 0 } ?: if (eventStatus in setOf("RESOLVED", "COMPLETED", "TERMINATED", "ARCHIVED", "CANCELED")) observedAt else null,
+                observedAt = observedAt,
             )
         } else null
     }

@@ -162,6 +162,7 @@ class MainActivity : AppCompatActivity() {
             ) {
                 view.findViewById<Toolbar>(R.id.toolbar)?.let {
                     SettingsUpdateIndicator.update(it, this@MainActivity)
+                    ProfileMenuBinder.bind(it, this@MainActivity)
                 }
             }
         }.also {
@@ -659,6 +660,24 @@ class MainActivity : AppCompatActivity() {
         findViewById<Toolbar>(R.id.toolbar)?.let {
             SettingsUpdateIndicator.update(it, this)
         }
+    }
+
+    fun openOwnProfile() {
+        val userId = tokenPrefs().getString(C.USER_ID, null)
+        val login = tokenPrefs().getString(C.USERNAME, null)
+        if (userId.isNullOrBlank() && login.isNullOrBlank()) {
+            return
+        }
+        (playerFragment as? Media3PlayerFragment)?.minimize()
+            ?: (playerFragment as? PlayerFragment)?.minimize()
+        navController.navigate(
+            ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                channelId = userId,
+                channelLogin = login,
+                channelName = login,
+                channelImage = tokenPrefs().getString(C.PROFILE_IMAGE_URL, null),
+            )
+        )
     }
 
     private fun setNavBarColor(isPortrait: Boolean) {

@@ -111,23 +111,14 @@
                     android:id="@+id/uptime"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:drawableStart="@drawable/ic_stream_uptime"
+                    android:drawableTint="?attr/colorControlNormal"
+                    android:drawablePadding="3dp"
                     android:textAppearance="?attr/textAppearanceBodyMedium"
                     android:visibility="gone"
                     tools:text="8:21:33"
                     tools:visibility="visible" />
 
-                <ImageButton
-                    android:id="@+id/multiview"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:background="?android:selectableItemBackgroundBorderless"
-                    android:contentDescription="@string/watch_in_multiview"
-                    android:minWidth="48dp"
-                    android:minHeight="48dp"
-                    android:src="@drawable/baseline_aspect_ratio_black_24"
-                    android:visibility="gone"
-                    app:tint="?attr/colorControlNormal"
-                    tools:visibility="visible" />
             </LinearLayout>
 
         </androidx.constraintlayout.widget.ConstraintLayout>
@@ -141,10 +132,35 @@
             android:layout_marginEnd="8dp"
             android:layout_marginBottom="5dp"
             android:visibility="gone"
-            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintBottom_toTopOf="@id/multiview"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/topLayout" />
+
+        <TextView
+            android:id="@+id/multiview"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginBottom="4dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:contentDescription="@string/watch_in_multiview"
+            android:drawableStart="@drawable/baseline_aspect_ratio_black_24"
+            android:drawableTint="?attr/colorControlNormal"
+            android:drawablePadding="4dp"
+            android:gravity="center"
+            android:minHeight="32dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:text="@string/multiview"
+            android:textColor="?attr/colorControlNormal"
+            android:textSize="12sp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tagsLayout"
+            tools:visibility="visible" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 </com.google.android.material.card.MaterialCardView>
