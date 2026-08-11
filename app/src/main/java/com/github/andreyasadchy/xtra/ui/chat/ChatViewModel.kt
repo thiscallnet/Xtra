@@ -76,6 +76,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -179,6 +180,8 @@ class ChatViewModel(
     val bettablePrediction = MutableStateFlow<Prediction?>(null)
     val predictionSecondsLeft = MutableStateFlow<Int?>(null)
     var predictionTimer: Timer? = null
+    private var predictionDeadlineJob: Job? = null
+    private var predictionDeadlineToken: Any? = null
     private val predictionStateStore = PredictionStateStore()
     private val predictionBetEvents = Channel<PredictionBetResult>(Channel.BUFFERED)
     val predictionBetResults: Flow<PredictionBetResult> = predictionBetEvents.receiveAsFlow()
@@ -1956,11 +1959,17 @@ class ChatViewModel(
         predictionSecondsLeft.value = null
         predictionTimer?.cancel()
         predictionTimer = null
+        predictionDeadlineJob?.cancel()
+        predictionDeadlineJob = null
+        predictionDeadlineToken = null
     }
 
     private fun updatePredictionTimer(value: Prediction) {
         predictionTimer?.cancel()
         predictionTimer = null
+        predictionDeadlineJob?.cancel()
+        predictionDeadlineJob = null
+        predictionDeadlineToken = null
         if (!PredictionState.isBettingOpen(value)) {
             predictionSecondsLeft.value = null
             return
@@ -1975,6 +1984,22 @@ class ChatViewModel(
         }
         predictionSecondsLeft.value = secondsLeft
         if (remainingMillis != null && remainingMillis > 0L) {
+            val deadlineToken = Any()
+            predictionDeadlineToken = deadlineToken
+            predictionDeadlineJob = viewModelScope.launch {
+                while (isActive) {
+                    val remaining = endsAt - System.currentTimeMillis()
+                    if (remaining <= 0L) {
+                        predictionStateStore.withLock { current ->
+                            if (predictionDeadlineToken === deadlineToken) {
+                                transitionPredictionToLocked(current)
+                            }
+                        }
+                        return@launch
+                    }
+                    delay(remaining)
+                }
+            }
             val timer = Timer()
             predictionTimer = timer
             timer.scheduleAtFixedRate(1_000, 1_000) {
