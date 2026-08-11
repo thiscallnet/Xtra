@@ -16,11 +16,14 @@ Compared with the upstream project, this fork currently includes:
 - More reliable live notifications with persisted follow IDs, Helix fallback, and an optional on-device real-time monitoring mode.
 - More reliable playback across background playback, picture-in-picture, and app task removal, with automatic recovery for interrupted live streams.
 - Channel Points in chat: balances, custom icons, watch streaks and streak sharing, text-input rewards, voting, and redemption, including web GQL login support.
+- Poll and prediction activity: active results appear in chat and the Channel Points dialog; the latest observed poll is retained per channel for the next visit. Hermes supplies arbitrary-channel live poll updates, while Helix snapshots are used only for the authenticated broadcaster's own channel.
 - Searchable emote pickers limited to emotes belonging to the active channel.
 - A reorganized settings experience with search, categorized pages, and clearer playback and background-playback controls.
 - Fork-hosted releases and update links for existing Xtra installs.
 - A clearer main screen with compact live cards
 - Accessibility improvements across cards, menus, chat actions, and dynamic player controls
+
+For arbitrary channels, Twitch's official API does not provide a viewer snapshot of a poll that Xtra never observed live. If a poll starts and finishes while Xtra is closed, its result cannot be reconstructed; once observed, it remains available from Xtra's local cache.
 
 ### Live notification timing
 
@@ -36,9 +39,9 @@ WorkManager reconciliation remains scheduled as a slower fallback. Fast mode is 
 
 When enabled, Xtra checks for a new GitHub release whenever the app is opened or resumed, subject to the configured minimum interval. The default interval is one day. Available release notes are shown in the update dialog and in Settings, with a red settings indicator while an update is waiting. A release can be ignored locally; ignoring one version does not hide later releases.
 
-### VAFT implementation
+### VAFT alternate streams
 
-The optional **VAFT ad avoidance** setting uses alternate Twitch playback sources when a live ad is detected, keeps playback hidden or muted while no clean source is available, and returns to the configured source once it is verified clean again.
+The optional **VAFT alternate streams** setting manages alternate Twitch playback sources when needed for playback continuity, then automatically returns to your preferred source when appropriate. It preserves the underlying source handoff and recovery behavior without changing your preferred playback settings.
 
 <p align="center">
   <img src="./docs/images/channel-points-rewards.jpg" width="320" alt="Channel Points rewards and watch streaks">

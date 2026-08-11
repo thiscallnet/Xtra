@@ -301,7 +301,7 @@
     <string name="enable_ffz">FFZ-Emotes aktivieren</string>
     <string name="user_id">Nutzer-ID</string>
     <string name="user_login">Nutzer Login</string>
-    <string name="waiting_ads">Werbung abwarten</string>
+    <string name="waiting_ads">Wiedergabequelle wird gewechselt…</string>
     <string name="show_playlist_tags">Playlist-Tags anzeigen</string>
     <string name="show_media_playlist_tags">Wiedergabe Playlist Tags anzeigen</string>
     <string name="show_multivariant_playlist_tags">Multivariante Playlist-Tags anzeigen</string>
@@ -320,7 +320,7 @@
     <string name="handle_audio_becoming_noisy">Pause, wenn Kopfhörer getrennt werden</string>
     <string name="proxy_playback_access_token">Proxy-Wiedergabe-Zugriffstoken</string>
     <string name="proxy_multivariant_playlist">Multivariante Proxy-Wiedergabeliste</string>
-    <string name="proxy_media_playlist">Proxy-Medienwiedergabeliste, wenn Werbung erkannt wird</string>
+    <string name="proxy_media_playlist">Medienwiedergabeliste für Wiedergabekontinuität per Proxy</string>
     <string name="proxy_host">Host</string>
     <string name="proxy_port">Port</string>
     <string name="proxy_user">Benutzername</string>
@@ -461,7 +461,7 @@
     <string name="stream_player_type">Stream-Player-Typ</string>
     <string name="video_player_type">Videoplayer-Typ</string>
     <string name="supported_codecs">Unterstützte Codecs</string>
-    <string name="hide_during_ads">Player während Werbung ausblenden</string>
+    <string name="hide_during_ads">Player während Quellenwechseln ausblenden</string>
     <string name="include_gql_token_stream">GQL-Token in Stream-Anfragen einbinden</string>
     <string name="include_gql_token_video">GQL-Token in Videoanfragen einschließen</string>
     <string name="min_buffer">Minimaler Puffer</string>

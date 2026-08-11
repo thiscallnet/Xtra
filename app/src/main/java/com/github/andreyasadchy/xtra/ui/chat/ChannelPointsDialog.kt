@@ -5,16 +5,20 @@ import android.content.Context
 import android.content.DialogInterface
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.core.widget.addTextChangedListener
 import androidx.fragment.app.DialogFragment
@@ -39,9 +43,13 @@ import com.github.andreyasadchy.xtra.model.ui.ChannelPointRewardRedemption
 import com.github.andreyasadchy.xtra.model.ui.WatchStreak
 import com.github.andreyasadchy.xtra.ui.view.GridAutofitLayoutManager
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.chat.PollState
+import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.MaterialColors
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -58,8 +66,17 @@ class ChannelPointsDialog : DialogFragment() {
     interface Listener {
         fun channelPointsFlow(): StateFlow<ChannelPoints?>
         fun watchStreakFlow(): StateFlow<WatchStreak?>
+        fun pollFlow(): StateFlow<Poll?>
         fun activePollFlow(): StateFlow<Poll?>
-        fun activePredictionFlow(): StateFlow<Prediction?>
+        fun pollSecondsLeftFlow(): StateFlow<Int?>
+        fun predictionFlow(): StateFlow<Prediction?>
+        fun ongoingPredictionFlow(): StateFlow<Prediction?>
+        fun predictionSecondsLeftFlow(): StateFlow<Int?>
+        fun predictionBetInFlightFlow(): StateFlow<Boolean>
+        fun canVotePoll(): Boolean
+        fun votePoll(choiceIndex: Int)
+        fun canBetPrediction(): Boolean
+        fun betPrediction(outcomeId: String, points: Int)
         fun channelName(): String?
         fun channelEmotePickerItems(): List<Emote>
         fun channelEmotePickerUpdates(): Flow<Unit>
@@ -73,6 +90,10 @@ class ChannelPointsDialog : DialogFragment() {
     companion object {
         const val TAG = "channelPointsDialog"
         private const val REWARD_COLUMNS = 3
+        private const val MIN_PREDICTION_POINTS = 10
+        private const val MAX_PREDICTION_POINTS = 250_000
+        private val BLUE_PREDICTION_COLOR = Color.rgb(70, 132, 255)
+        private val PINK_PREDICTION_COLOR = Color.rgb(238, 23, 153)
     }
 
     private var _binding: DialogChannelPointsBinding? = null
@@ -101,13 +122,35 @@ class ChannelPointsDialog : DialogFragment() {
             .create()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                combine(
+                val basicState = combine(
                     listener.channelPointsFlow(),
                     listener.watchStreakFlow(),
-                    listener.activePollFlow(),
-                    listener.activePredictionFlow(),
+                    listener.pollFlow(),
+                    listener.predictionFlow(),
                 ) { channelPoints, watchStreak, poll, prediction ->
-                    DialogState(channelPoints, watchStreak, poll, prediction)
+                    BasicDialogState(channelPoints, watchStreak, poll, prediction)
+                }
+                val activeState = combine(
+                    listener.activePollFlow(),
+                    listener.ongoingPredictionFlow(),
+                    listener.pollSecondsLeftFlow(),
+                    listener.predictionSecondsLeftFlow(),
+                    listener.predictionBetInFlightFlow(),
+                ) { activePoll, ongoingPrediction, pollSeconds, predictionSeconds, predictionBetInFlight ->
+                    ActiveDialogState(activePoll, ongoingPrediction, pollSeconds, predictionSeconds, predictionBetInFlight)
+                }
+                combine(basicState, activeState) { basic, active ->
+                    DialogState(
+                        channelPoints = basic.channelPoints,
+                        watchStreak = basic.watchStreak,
+                        poll = basic.poll,
+                        activePoll = active.activePoll,
+                        pollSecondsLeft = active.pollSecondsLeft,
+                        prediction = basic.prediction,
+                        ongoingPrediction = active.ongoingPrediction,
+                        predictionSecondsLeft = active.predictionSecondsLeft,
+                        predictionBetInFlight = active.predictionBetInFlight,
+                    )
                 }.collectLatest(::render)
             }
         }
@@ -140,9 +183,20 @@ class ChannelPointsDialog : DialogFragment() {
             MaterialColors.getColor(binding.balanceIcon, androidx.appcompat.R.attr.colorControlNormal),
         )
 
+        renderPrediction(
+            state.prediction,
+            state.ongoingPrediction,
+            state.predictionSecondsLeft,
+            state.predictionBetInFlight,
+            state.channelPoints,
+            numberFormat,
+        )
+        renderPoll(state.poll, state.activePoll, state.pollSecondsLeft, numberFormat)
         renderWatchStreak(state.watchStreak, points, numberFormat)
         renderRewards(points, numberFormat)
-        renderVoting(state.poll, state.prediction, numberFormat)
+        binding.votingTitle.isVisible = false
+        binding.votingList.isVisible = false
+        binding.votingList.removeAllViews()
     }
 
     private fun renderWatchStreak(
@@ -501,41 +555,329 @@ class ChannelPointsDialog : DialogFragment() {
         }
     }
 
-    private fun renderVoting(poll: Poll?, prediction: Prediction?, numberFormat: NumberFormat) {
-        binding.votingList.removeAllViews()
-        poll?.let {
-            addRow(binding.votingList, getString(R.string.channel_points_poll, it.title.orEmpty()))
-            val totalVotes = max(it.totalVotes ?: 0, 1)
-            it.choices.orEmpty().forEach { choice ->
-                addRow(
-                    binding.votingList,
-                    getString(
-                        R.string.poll_choice,
-                        (((choice.totalVotes ?: 0).toLong() * 100.0) / totalVotes).roundToInt(),
-                        numberFormat.format(choice.totalVotes ?: 0),
-                        choice.title,
-                    ),
+    private fun renderPoll(
+        poll: Poll?,
+        activePoll: Poll?,
+        pollSecondsLeft: Int?,
+        numberFormat: NumberFormat,
+    ) {
+        binding.pollCard.isVisible = poll != null
+        binding.pollChoices.removeAllViews()
+        if (poll == null) return
+
+        val status = poll.status.orEmpty().uppercase()
+        val isActive = activePoll != null && PollState.isActive(poll)
+        binding.pollCardTitle.text = getString(
+            if (isActive) R.string.channel_points_poll else R.string.channel_points_last_poll,
+            poll.title.orEmpty(),
+        )
+        val displayStatus = if (!isActive && status == "ACTIVE" && (poll.endsAt?.let { it <= System.currentTimeMillis() } == true || poll.remainingMilliseconds == 0L)) {
+            "COMPLETED"
+        } else status
+        val totalVotes = (poll.totalVotes ?: poll.choices.orEmpty().sumOf { it.totalVotes ?: 0 }).coerceAtLeast(0)
+        val statusText = if (isActive) {
+            getString(
+                R.string.channel_points_poll_active_with_time,
+                pollSecondsLeft?.let { android.text.format.DateUtils.formatElapsedTime(it.toLong()) } ?: "—",
+            )
+        } else if (displayStatus.isBlank()) {
+            getString(R.string.channel_points_poll_status_unknown)
+        } else {
+            getString(R.string.channel_points_poll_status, displayStatus)
+        }
+        val details = buildList {
+            add(statusText)
+            add(getString(R.string.channel_points_poll_total_votes, numberFormat.format(totalVotes)))
+            poll.channelPointsPerVote?.let { add(getString(R.string.channel_points_poll_channel_points, numberFormat.format(it))) }
+            poll.bitsPerVote?.let { add(getString(R.string.channel_points_poll_bits, numberFormat.format(it))) }
+            poll.startedAt?.let { add(getString(R.string.channel_points_poll_started, TwitchApiHelper.formatDate(requireContext(), it))) }
+            poll.endedAt?.let { add(getString(R.string.channel_points_poll_ended, TwitchApiHelper.formatDate(requireContext(), it))) }
+            poll.durationSeconds?.let { add(getString(R.string.channel_points_poll_duration, android.text.format.DateUtils.formatElapsedTime(it.toLong()))) }
+        }
+        binding.pollCardStatus.text = details.joinToString(" · ")
+        val maxVotes = poll.choices.orEmpty().mapNotNull { it.totalVotes }.maxOrNull()
+        val winners = poll.choices.orEmpty().filter { maxVotes != null && it.totalVotes == maxVotes }
+        val canVote = isActive && listener.canVotePoll()
+        poll.choices.orEmpty().forEachIndexed { index, choice ->
+            val percent = if (totalVotes > 0) {
+                (((choice.totalVotes ?: 0).toLong() * 100.0) / totalVotes).roundToInt()
+            } else 0
+            val prefix = if (!isActive && maxVotes != null && maxVotes > 0 && winners.contains(choice)) "🏆 " else ""
+            val voteDetails = buildList {
+                add(numberFormat.format(choice.totalVotes ?: 0))
+                choice.channelPointsVotes?.let { add("${numberFormat.format(it)} CP") }
+                choice.bitsVotes?.let { add("${numberFormat.format(it)} bits") }
+            }.joinToString(" · ")
+            val choiceText = "$prefix$percent% · $voteDetails · ${choice.title}"
+            if (canVote) {
+                binding.pollChoices.addView(
+                    MaterialButton(requireContext()).apply {
+                        this.text = choiceText
+                        isAllCaps = false
+                        gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                        setOnClickListener {
+                            listener.votePoll(index)
+                            isEnabled = false
+                        }
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        ).apply {
+                            bottomMargin = dp(4)
+                        }
+                    },
                 )
+            } else {
+                addRow(binding.pollChoices, choiceText)
             }
         }
-        prediction?.let {
-            addRow(binding.votingList, getString(R.string.channel_points_prediction, it.title.orEmpty()))
-            val totalPoints = max(it.outcomes.orEmpty().sumOf { outcome -> outcome.totalPoints ?: 0 }, 1)
-            it.outcomes.orEmpty().forEach { outcome ->
-                addRow(
-                    binding.votingList,
-                    getString(
-                        R.string.prediction_outcome,
-                        (((outcome.totalPoints ?: 0).toLong() * 100.0) / totalPoints).roundToInt(),
-                        numberFormat.format(outcome.totalPoints ?: 0),
-                        numberFormat.format(outcome.totalUsers ?: 0),
-                        outcome.title,
-                    ),
+    }
+
+    private fun renderPrediction(
+        prediction: Prediction?,
+        ongoingPrediction: Prediction?,
+        predictionSecondsLeft: Int?,
+        predictionBetInFlight: Boolean,
+        channelPoints: ChannelPoints?,
+        numberFormat: NumberFormat,
+    ) {
+        binding.predictionCard.isVisible = prediction != null
+        binding.predictionOutcomes.removeAllViews()
+        binding.predictionBetRow.isVisible = false
+        binding.predictionBetHint.isVisible = false
+        if (prediction == null) return
+
+        binding.predictionCardTitle.text = getString(R.string.channel_points_prediction, prediction.title.orEmpty())
+        val status = PredictionState.status(prediction)
+        val isBettingOpen = ongoingPrediction != null && PredictionState.isBettingOpen(prediction)
+        binding.predictionCardStatus.text = when {
+            isBettingOpen -> predictionSecondsLeft?.let {
+                getString(
+                    R.string.channel_points_prediction_active_with_time,
+                    android.text.format.DateUtils.formatElapsedTime(it.toLong()),
                 )
+            } ?: getString(R.string.channel_points_prediction_active)
+            status == "CANCEL_PENDING" -> getString(R.string.channel_points_prediction_cancel_pending)
+            PredictionState.isOngoing(prediction) -> getString(R.string.channel_points_prediction_locked)
+            PredictionState.isFinal(prediction) && status in setOf("CANCELED", "CANCELLED", "REFUNDED") -> getString(R.string.channel_points_prediction_canceled)
+            PredictionState.isFinal(prediction) -> getString(R.string.channel_points_prediction_resolved)
+            else -> getString(R.string.channel_points_prediction_closed)
+        }
+
+        val outcomes = prediction.outcomes.orEmpty()
+        val totalPoints = outcomes.mapNotNull { it.totalPoints }.sum().takeIf { it > 0 }
+        val totalUsers = outcomes.mapNotNull { it.totalUsers }.sum().takeIf { it > 0 }
+        binding.predictionCardMeta.text = buildList {
+            totalPoints?.let { add(getString(R.string.channel_points_prediction_total_points, numberFormat.format(it))) }
+            totalUsers?.let { add(getString(R.string.channel_points_prediction_total_users, numberFormat.format(it))) }
+            prediction.startedAt?.let {
+                val relative = android.text.format.DateUtils.getRelativeTimeSpanString(
+                    it,
+                    System.currentTimeMillis(),
+                    android.text.format.DateUtils.MINUTE_IN_MILLIS,
+                    android.text.format.DateUtils.FORMAT_ABBREV_RELATIVE,
+                )
+                add(getString(R.string.channel_points_prediction_started_ago, relative))
+            }
+            prediction.lockedAt?.let { add(getString(R.string.channel_points_prediction_locked_at, TwitchApiHelper.formatDate(requireContext(), it))) }
+            prediction.endedAt?.let { add(getString(R.string.channel_points_prediction_ended, TwitchApiHelper.formatDate(requireContext(), it))) }
+            prediction.startedAt?.let { started ->
+                val end = prediction.endedAt ?: prediction.lockedAt
+                if (end != null && end >= started) {
+                    add(getString(R.string.channel_points_prediction_duration, android.text.format.DateUtils.formatElapsedTime(((end - started) / 1_000L).coerceAtLeast(0L))))
+                }
+            }
+        }.joinToString(" · ")
+        binding.predictionCardMeta.isVisible = binding.predictionCardMeta.text.isNotBlank()
+
+        val twoOutcomePrediction = outcomes.size == 2 && outcomes.all { !it.id.isNullOrBlank() }
+        binding.predictionOutcomes.orientation = if (twoOutcomePrediction) {
+            LinearLayout.HORIZONTAL
+        } else {
+            LinearLayout.VERTICAL
+        }
+        outcomes.forEachIndexed { index, outcome ->
+            addPredictionOutcome(
+                container = binding.predictionOutcomes,
+                outcome = outcome,
+                index = index,
+                outcomeCount = outcomes.size,
+                totalPoints = totalPoints,
+                numberFormat = numberFormat,
+                winner = PredictionState.isFinal(prediction) && prediction.winningOutcomeId == outcome.id,
+                tie = status == "RESOLVED" && prediction.winningOutcomeId.isNullOrBlank() &&
+                    totalPoints != null && outcome.totalPoints == outcomes.mapNotNull { it.totalPoints }.maxOrNull(),
+            )
+        }
+
+        val canBet = isBettingOpen && !predictionBetInFlight && twoOutcomePrediction && listener.canBetPrediction()
+        binding.predictionBetRow.isVisible = canBet
+        binding.predictionBetHint.isVisible = isBettingOpen && !canBet
+        binding.predictionBetHint.text = when {
+            predictionBetInFlight -> getString(R.string.channel_points_prediction_bet_pending)
+            isBettingOpen && !listener.canBetPrediction() -> getString(R.string.channel_points_prediction_bet_login)
+            isBettingOpen && !twoOutcomePrediction -> getString(R.string.channel_points_prediction_bet_unavailable)
+            else -> null
+        }
+        if (canBet) {
+            binding.predictionBetAmount.apply {
+                inputType = InputType.TYPE_CLASS_NUMBER
+                if (text.isNullOrBlank() && !hasFocus()) setText(MIN_PREDICTION_POINTS.toString())
+                setSelectAllOnFocus(true)
+            }
+            binding.predictionBetLeft.text = outcomes[0].title
+            binding.predictionBetRight.text = outcomes[1].title
+            stylePredictionButton(binding.predictionBetLeft, BLUE_PREDICTION_COLOR)
+            stylePredictionButton(binding.predictionBetRight, PINK_PREDICTION_COLOR)
+            binding.predictionBetLeft.setOnClickListener {
+                placePredictionBet(binding.predictionBetAmount, outcomes[0].id)
+            }
+            binding.predictionBetRight.setOnClickListener {
+                placePredictionBet(binding.predictionBetAmount, outcomes[1].id)
+            }
+        } else if (isBettingOpen && channelPoints != null && channelPoints.balance < MIN_PREDICTION_POINTS) {
+            binding.predictionBetHint.text = getString(
+                R.string.channel_points_prediction_bet_balance,
+                numberFormat.format(channelPoints.balance),
+            )
+        }
+    }
+
+    private fun addPredictionOutcome(
+        container: LinearLayout,
+        outcome: Prediction.PredictionOutcome,
+        index: Int,
+        outcomeCount: Int,
+        totalPoints: Int?,
+        numberFormat: NumberFormat,
+        winner: Boolean,
+        tie: Boolean,
+    ) {
+        val color = when {
+            outcome.color.equals("PINK", true) -> PINK_PREDICTION_COLOR
+            outcome.color.equals("BLUE", true) -> BLUE_PREDICTION_COLOR
+            outcomeCount == 2 && index == 1 -> PINK_PREDICTION_COLOR
+            else -> BLUE_PREDICTION_COLOR
+        }
+        val percent = if (totalPoints != null && totalPoints > 0 && outcome.totalPoints != null) {
+            ((outcome.totalPoints.toLong() * 100.0) / totalPoints).roundToInt().coerceIn(0, 100)
+        } else null
+        val content = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            layoutParams = LinearLayout.LayoutParams(
+                if (outcomeCount == 2) 0 else LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                if (outcomeCount == 2) weight = 1f
+                bottomMargin = dp(4)
             }
         }
-        binding.votingTitle.isVisible = binding.votingList.childCount > 0
-        binding.votingList.isVisible = binding.votingList.childCount > 0
+        content.addView(TextView(requireContext()).apply {
+            text = outcome.title
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setTextColor(color)
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
+        if (winner || tie) {
+            content.addView(TextView(requireContext()).apply {
+                text = getString(if (winner) R.string.channel_points_prediction_winner else R.string.channel_points_prediction_tie)
+                gravity = Gravity.CENTER
+                setTextColor(MaterialColors.getColor(binding.predictionCard, androidx.appcompat.R.attr.colorControlNormal))
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+        }
+        content.addView(TextView(requireContext()).apply {
+            text = percent?.let { "$it%" } ?: "—"
+            gravity = Gravity.CENTER
+            setTextColor(color)
+            textSize = 24f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
+        if (outcomeCount == 2) {
+            val meter = FrameLayout(requireContext()).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(8),
+                ).apply { topMargin = dp(2) }
+            }
+            percent?.let { value ->
+                val fill = View(requireContext()).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(4).toFloat()
+                        setColor(color)
+                    }
+                    layoutParams = FrameLayout.LayoutParams(
+                        0,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ).apply {
+                        gravity = if (index == 0) Gravity.END else Gravity.START
+                    }
+                }
+                meter.addView(fill)
+                meter.doOnLayout {
+                    (fill.layoutParams as FrameLayout.LayoutParams).width =
+                        (meter.width * (value / 100f)).roundToInt()
+                    fill.requestLayout()
+                }
+            }
+            content.addView(meter)
+        } else {
+            content.addView(ProgressBar(requireContext(), null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+                progress = percent ?: 0
+                progressTintList = ColorStateList.valueOf(color)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(8),
+                ).apply { topMargin = dp(2) }
+            })
+        }
+        content.addView(TextView(requireContext()).apply {
+            text = buildList {
+                outcome.totalPoints?.let { add(numberFormat.format(it) + " points") }
+                outcome.totalUsers?.let { add(numberFormat.format(it) + " voters") }
+            }.ifEmpty { listOf(getString(R.string.channel_points_prediction_no_votes)) }.joinToString(" · ")
+            gravity = Gravity.CENTER
+            setTextColor(MaterialColors.getColor(binding.predictionCard, androidx.appcompat.R.attr.colorControlNormal))
+            textSize = 12f
+        })
+        container.addView(content)
+    }
+
+    private fun stylePredictionButton(button: MaterialButton, color: Int) {
+        button.setTextColor(Color.WHITE)
+        button.backgroundTintList = ColorStateList.valueOf(color)
+        button.isAllCaps = false
+        button.maxLines = 2
+        button.ellipsize = android.text.TextUtils.TruncateAt.END
+    }
+
+    private fun placePredictionBet(input: EditText, outcomeId: String?) {
+        val points = input.text.toString().toIntOrNull()
+        val balance = listener.channelPointsFlow().value?.balance
+        when {
+            outcomeId.isNullOrBlank() -> input.error = getString(R.string.channel_points_prediction_bet_unavailable)
+            points == null || points !in MIN_PREDICTION_POINTS..MAX_PREDICTION_POINTS -> input.error = getString(
+                R.string.channel_points_prediction_bet_range,
+                MIN_PREDICTION_POINTS,
+                MAX_PREDICTION_POINTS,
+            )
+            balance != null && points > balance -> input.error = getString(
+                R.string.channel_points_prediction_bet_balance,
+                NumberFormat.getInstance().format(balance),
+            )
+            else -> {
+                input.error = null
+                listener.betPrediction(outcomeId, points)
+            }
+        }
     }
 
     private fun addRow(container: LinearLayout, text: CharSequence) {
@@ -565,7 +907,27 @@ class ChannelPointsDialog : DialogFragment() {
         val channelPoints: ChannelPoints?,
         val watchStreak: WatchStreak?,
         val poll: Poll?,
+        val activePoll: Poll?,
+        val pollSecondsLeft: Int?,
         val prediction: Prediction?,
+        val ongoingPrediction: Prediction?,
+        val predictionSecondsLeft: Int?,
+        val predictionBetInFlight: Boolean,
+    )
+
+    private data class BasicDialogState(
+        val channelPoints: ChannelPoints?,
+        val watchStreak: WatchStreak?,
+        val poll: Poll?,
+        val prediction: Prediction?,
+    )
+
+    private data class ActiveDialogState(
+        val activePoll: Poll?,
+        val ongoingPrediction: Prediction?,
+        val pollSecondsLeft: Int?,
+        val predictionSecondsLeft: Int?,
+        val predictionBetInFlight: Boolean,
     )
 
 }

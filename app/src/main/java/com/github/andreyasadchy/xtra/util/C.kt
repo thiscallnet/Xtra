@@ -29,6 +29,8 @@ object C {
     const val TOKEN = "token"
     const val USERNAME = "username"
     const val USER_ID = "user_id"
+    const val PROFILE_IMAGE_URL = "profile_image_url"
+    const val PROFILE_IMAGE_USER_ID = "profile_image_user_id"
     const val DOWNLOAD_PLAYLIST_TO_FILE = "download_playlist_to_file"
     const val DOWNLOAD_WIFI_ONLY = "download_wifi_only"
     const val DOWNLOAD_LIMIT = "download_limit"

@@ -302,7 +302,7 @@
     <string name="enable_ffz">Enable FFZ emotes</string>
     <string name="user_id">User ID</string>
     <string name="user_login">User login</string>
-    <string name="waiting_ads">Waiting for ads to finish</string>
+    <string name="waiting_ads">Beralih sumber pemutaran…</string>
     <string name="show_playlist_tags">Show playlist tags</string>
     <string name="show_media_playlist_tags">Show media playlist tags</string>
     <string name="show_multivariant_playlist_tags">Show multivariant playlist tags</string>
@@ -321,7 +321,7 @@
     <string name="handle_audio_becoming_noisy">Pause when headphones are disconnected</string>
     <string name="proxy_playback_access_token">Proxy playback access token</string>
     <string name="proxy_multivariant_playlist">Proxy multivariant playlist</string>
-    <string name="proxy_media_playlist">Proxy media playlist if ads are detected</string>
+    <string name="proxy_media_playlist">Proxy daftar putar media untuk kelancaran pemutaran</string>
     <string name="proxy_host">Host</string>
     <string name="proxy_port">Port</string>
     <string name="proxy_user">Username</string>
@@ -462,7 +462,7 @@
     <string name="stream_player_type">Stream player type</string>
     <string name="video_player_type">Video player type</string>
     <string name="supported_codecs">Supported codecs</string>
-    <string name="hide_during_ads">Hide player during ads</string>
+    <string name="hide_during_ads">Sembunyikan pemutar saat sumber berganti</string>
     <string name="include_gql_token_stream">Include GQL token in stream requests</string>
     <string name="include_gql_token_video">Include GQL token in video requests</string>
     <string name="min_buffer">Minimum buffer</string>

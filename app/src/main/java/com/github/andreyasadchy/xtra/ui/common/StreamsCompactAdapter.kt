@@ -5,17 +5,15 @@ import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 import androidx.constraintlayout.helper.widget.Flow
 import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.core.content.res.use
-import androidx.core.widget.TextViewCompat
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import coil3.imageLoader
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.target
@@ -32,6 +30,7 @@ import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
+import com.google.android.material.chip.Chip
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -169,9 +168,36 @@ class StreamsCompactAdapter(
                     } else {
                         gameName.visibility = View.GONE
                     }
+                    if (item.thumbnailURL != null) {
+                        thumbnail.visibility = View.VISIBLE
+                        liveBadge.visibility = View.VISIBLE
+                        // Refresh thumbnails in the same five-minute buckets
+                        // as the normal live-card surface.
+                        val minutes = System.currentTimeMillis() / 60000L
+                        val lastMinute = minutes % 10
+                        val key = if (lastMinute < 5) minutes - lastMinute else minutes - (lastMinute - 5)
+                        fragment.requireContext().imageLoader.enqueue(
+                            ImageRequest.Builder(fragment.requireContext()).apply {
+                                data(item.thumbnail)
+                                memoryCacheKeyExtra("minutes", key.toString())
+                                diskCachePolicy(CachePolicy.DISABLED)
+                                crossfade(true)
+                                target(thumbnail)
+                                thumbnailState()
+                            }.build()
+                        )
+                    } else {
+                        thumbnail.visibility = View.GONE
+                        liveBadge.visibility = View.GONE
+                    }
                     if (item.viewerCount != null) {
                         viewers.visibility = View.VISIBLE
-                        viewers.text = TwitchApiHelper.formatCount(item.viewerCount ?: 0, context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true))
+                        val count = item.viewerCount ?: 0
+                        viewers.text = context.resources.getQuantityString(
+                            R.plurals.viewers,
+                            count,
+                            TwitchApiHelper.formatCount(count, context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true)),
+                        )
                     } else {
                         viewers.visibility = View.GONE
                     }
@@ -210,27 +236,34 @@ class StreamsCompactAdapter(
                         }
                         tagsLayout.addView(tagsFlowLayout)
                         val ids = mutableListOf<Int>()
+                        val chipHeight = TypedValue.applyDimension(
+                            TypedValue.COMPLEX_UNIT_DIP,
+                            26f,
+                            context.resources.displayMetrics,
+                        ).toInt()
+                        val chipPadding = TypedValue.applyDimension(
+                            TypedValue.COMPLEX_UNIT_DIP,
+                            5f,
+                            context.resources.displayMetrics,
+                        ).toInt()
                         for (tag in item.tags) {
-                            val text = TextView(context)
                             val id = View.generateViewId()
-                            text.id = id
                             ids.add(id)
-                            text.text = tag
-                            text.setMinHeight(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 48f, context.resources.displayMetrics).toInt())
-                            text.isFocusable = true
-                            context.obtainStyledAttributes(intArrayOf(com.google.android.material.R.attr.textAppearanceBodyMedium)).use {
-                                TextViewCompat.setTextAppearance(text, it.getResourceId(0, 0))
-                            }
-                            text.setOnClickListener {
-                                if (selectionMode) {
-                                    onStreamClick.invoke(item)
-                                } else {
-                                    selectTag(tag)
+                            Chip(context).apply {
+                                this.id = id
+                                text = tag
+                                textSize = 12f
+                                chipMinHeight = chipHeight.toFloat()
+                                setEnsureMinTouchTargetSize(false)
+                                setPadding(chipPadding, 0, chipPadding, 0)
+                                setOnClickListener {
+                                    if (selectionMode) {
+                                        onStreamClick.invoke(item)
+                                    } else {
+                                        selectTag(tag)
+                                    }
                                 }
-                            }
-                            val padding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 5f, context.resources.displayMetrics).toInt()
-                            text.setPadding(padding, 0, padding, 0)
-                            tagsLayout.addView(text)
+                            }.also { tagsLayout.addView(it) }
                         }
                         tagsFlowLayout.referencedIds = ids.toIntArray()
                     } else {

@@ -22,41 +22,10 @@
                 style="@style/Thumbnail"
                 android:importantForAccessibility="no"
                 android:visibility="gone"
+                app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
                 tools:src="@tools:sample/backgrounds/scenic"
-                tools:visibility="visible" />
-
-            <com.github.andreyasadchy.xtra.ui.view.TextWithShadow
-                android:id="@+id/viewers"
-                style="@style/ThumbnailItem"
-                android:layout_marginStart="5dp"
-                android:layout_marginBottom="5dp"
-                android:background="@drawable/bg_stream_overlay"
-                android:paddingStart="4dp"
-                android:paddingTop="2dp"
-                android:paddingEnd="4dp"
-                android:paddingBottom="2dp"
-                android:visibility="gone"
-                app:layout_constraintBottom_toBottomOf="@+id/thumbnail"
-                app:layout_constraintStart_toStartOf="parent"
-                tools:text="133769 viewers"
-                tools:visibility="visible" />
-
-            <com.github.andreyasadchy.xtra.ui.view.TextWithShadow
-                android:id="@+id/uptime"
-                style="@style/ThumbnailItem"
-                android:layout_marginEnd="5dp"
-                android:layout_marginBottom="5dp"
-                android:background="@drawable/bg_stream_overlay"
-                android:paddingStart="4dp"
-                android:paddingTop="2dp"
-                android:paddingEnd="4dp"
-                android:paddingBottom="2dp"
-                android:visibility="gone"
-                app:layout_constraintBottom_toBottomOf="@+id/thumbnail"
-                app:layout_constraintEnd_toEndOf="parent"
-                tools:text="8:21:33 uptime"
                 tools:visibility="visible" />
 
             <TextView
@@ -80,32 +49,65 @@
                 app:layout_constraintTop_toTopOf="@id/thumbnail"
                 tools:visibility="visible" />
 
+            <com.github.andreyasadchy.xtra.ui.view.TextWithShadow
+                android:id="@+id/uptime"
+                style="@style/ThumbnailItem"
+                android:layout_marginTop="6dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/bg_stream_overlay"
+                android:drawableStart="@drawable/ic_stream_uptime"
+                android:drawableTint="@android:color/white"
+                android:drawablePadding="3dp"
+                android:paddingStart="4dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="2dp"
+                android:visibility="gone"
+                app:layout_constraintEnd_toEndOf="@id/thumbnail"
+                app:layout_constraintTop_toTopOf="@id/thumbnail"
+                tools:text="4:39"
+                tools:visibility="visible" />
+
+            <com.github.andreyasadchy.xtra.ui.view.TextWithShadow
+                android:id="@+id/viewers"
+                style="@style/ThumbnailItem"
+                android:layout_marginStart="6dp"
+                android:layout_marginBottom="6dp"
+                android:background="@drawable/bg_stream_overlay"
+                android:paddingStart="4dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="4dp"
+                android:paddingBottom="2dp"
+                android:visibility="gone"
+                app:layout_constraintBottom_toBottomOf="@id/thumbnail"
+                app:layout_constraintStart_toStartOf="@id/thumbnail"
+                tools:text="6.7K viewers"
+                tools:visibility="visible" />
+
             <ImageButton
                 android:id="@+id/multiview"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginTop="5dp"
-                android:layout_marginEnd="5dp"
-                android:background="?android:selectableItemBackgroundBorderless"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="2dp"
+                android:layout_marginBottom="2dp"
+                android:background="@drawable/bg_stream_overlay"
                 android:contentDescription="@string/watch_in_multiview"
-                android:minWidth="48dp"
-                android:minHeight="48dp"
-                android:src="@drawable/baseline_aspect_ratio_black_24"
+                android:padding="12dp"
+                android:src="@drawable/ic_multiview"
                 android:visibility="gone"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintTop_toTopOf="parent"
-                app:tint="@android:color/white"
+                app:layout_constraintBottom_toBottomOf="@id/thumbnail"
+                app:layout_constraintEnd_toEndOf="@id/thumbnail"
                 tools:visibility="visible" />
 
             <ImageView
                 android:id="@+id/userImage"
                 style="@style/UserPicture"
-                android:contentDescription="@string/open_channel"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:layout_marginStart="8dp"
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="8dp"
+                android:contentDescription="@string/open_channel"
                 android:visibility="gone"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
@@ -118,9 +120,9 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
+                android:layout_marginTop="7dp"
                 android:layout_marginEnd="8dp"
-                android:layout_marginTop="6dp"
-                android:layout_marginBottom="6dp"
+                android:layout_marginBottom="7dp"
                 android:orientation="vertical"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
@@ -129,36 +131,40 @@
 
                 <TextView
                     android:id="@+id/title"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textAppearance="?attr/textAppearanceTitleMedium"
-                    android:visibility="gone"
                     android:ellipsize="end"
                     android:maxLines="2"
-                    tools:text="@sample/streams.json/streams/channel/status"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    tools:text="WHAT!! SAY SO NOT ! gasp shock disc..."
                     tools:visibility="visible" />
 
                 <TextView
                     android:id="@+id/username"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
                     android:textColor="?android:attr/textColorSecondary"
                     android:visibility="gone"
-                    tools:text="@sample/streams.json/streams/channel/name"
+                    tools:text="loltyler1"
                     tools:visibility="visible" />
 
                 <TextView
                     android:id="@+id/gameName"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
                     android:textColor="?android:attr/textColorSecondary"
                     android:visibility="gone"
-                    tools:text="@sample/games.json/top/game/name"
+                    tools:text="League of Legends"
                     tools:visibility="visible" />
             </LinearLayout>
-
         </androidx.constraintlayout.widget.ConstraintLayout>
 
         <androidx.constraintlayout.widget.ConstraintLayout
@@ -166,14 +172,15 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:layout_marginTop="5dp"
+            android:layout_marginTop="2dp"
             android:layout_marginEnd="8dp"
-            android:layout_marginBottom="5dp"
+            android:layout_marginBottom="6dp"
             android:visibility="gone"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/topLayout" />
+            app:layout_constraintTop_toBottomOf="@id/topLayout"
+            tools:visibility="visible" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 </com.google.android.material.card.MaterialCardView>

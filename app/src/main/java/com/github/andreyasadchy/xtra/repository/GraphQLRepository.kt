@@ -74,6 +74,7 @@ import com.github.andreyasadchy.xtra.model.gql.chat.ChannelPointContextResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.ChannelPointRedemptionResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.EmoteCardResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.GlobalCheerEmotesResponse
+import com.github.andreyasadchy.xtra.model.gql.chat.MakePredictionResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.ModeratorsResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.UserEmotesResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.VipsResponse
@@ -155,6 +156,18 @@ class GraphQLRepository(
         mutation RedeemCommunityPointsCustomReward(${'$'}input: RedeemCommunityPointsCustomRewardInput!) {
             redeemCommunityPointsCustomReward(input: ${'$'}input) {
                 error { code }
+            }
+        }
+    """.trimIndent()
+
+    // Twitch's web client uses this private mutation for viewer predictions.
+    // Keep it behind the existing GQL repository so it never falls back to
+    // posting a slash command as ordinary chat text.
+    private val makePredictionMutation = """
+        mutation MakePrediction(${'$'}input: MakePredictionInput!) {
+            makePrediction(input: ${'$'}input) {
+                error { code message }
+                prediction { id }
             }
         }
     """.trimIndent()
@@ -1637,6 +1650,28 @@ class GraphQLRepository(
             }
         }.toString()
         json.decodeFromString<ChannelPointRedemptionResponse>(sendPersistedQuery(networkLibrary, headers, body))
+    }
+
+    suspend fun makePrediction(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        predictionId: String,
+        outcomeId: String,
+        points: Int,
+    ): MakePredictionResponse = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("operationName", "MakePrediction")
+            put("query", makePredictionMutation)
+            putJsonObject("variables") {
+                putJsonObject("input") {
+                    put("eventID", predictionId)
+                    put("outcomeID", outcomeId)
+                    put("points", points)
+                    put("transactionID", Uuid.random().toString())
+                }
+            }
+        }.toString()
+        json.decodeFromString<MakePredictionResponse>(sendPersistedQuery(networkLibrary, headers, body))
     }
 
     suspend fun loadClaimPoints(networkLibrary: String?, headers: Map<String, String>, channelId: String?, claimId: String?): ErrorResponse = withContext(Dispatchers.IO) {

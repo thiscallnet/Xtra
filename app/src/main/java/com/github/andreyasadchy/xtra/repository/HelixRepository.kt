@@ -1145,6 +1145,140 @@ class HelixRepository(
             .takeUnless { it.success }
             ?.errorMessage
 
+    /**
+     * Returns the raw Get Predictions response. Twitch only permits this endpoint
+     * when broadcasterId matches the authenticated user; other channels use
+     * Xtra's Hermes live activity stream instead.
+     */
+    suspend fun getPredictions(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        broadcasterId: String?,
+    ): String? = withContext(Dispatchers.IO) {
+        if (broadcasterId.isNullOrBlank()) {
+            return@withContext null
+        }
+        val url = "https://api.twitch.tv/helix/predictions".toUri().buildUpon().apply {
+            appendQueryParameter("broadcaster_id", broadcasterId)
+            appendQueryParameter("first", "1")
+        }.build().toString()
+        when {
+            networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
+                val response = suspendCancellableCoroutine { continuation ->
+                    val timeout = NetworkUtils.HttpEngineTimeout()
+                    val request = httpEngine.value!!.newUrlRequestBuilder(
+                        url,
+                        cronetExecutor.value,
+                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
+                    ).apply {
+                        headers.forEach { addHeader(it.key, it.value) }
+                    }.build()
+                    timeout.start(request, continuation)
+                    request.start()
+                    continuation.invokeOnCancellation {
+                        request.cancel()
+                        timeout.stop()
+                    }
+                }
+                response.body.decodeToString().takeIf { response.info.httpStatusCode in 200..299 }
+            }
+            networkLibrary == C.CRONET && cronetEngine.value != null -> {
+                val response = suspendCancellableCoroutine { continuation ->
+                    val timeout = NetworkUtils.CronetTimeout()
+                    val request = cronetEngine.value!!.newUrlRequestBuilder(
+                        url,
+                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
+                        cronetExecutor.value,
+                    ).apply {
+                        headers.forEach { addHeader(it.key, it.value) }
+                    }.build()
+                    timeout.start(request, continuation)
+                    request.start()
+                    continuation.invokeOnCancellation {
+                        request.cancel()
+                        timeout.stop()
+                    }
+                }
+                response.body.decodeToString().takeIf { response.info.httpStatusCode in 200..299 }
+            }
+            else -> {
+                okHttpClient.value.newCall(Request.Builder().apply {
+                    url(url)
+                    headers(headers.toHeaders())
+                }.build()).executeAsync().use { response ->
+                    response.body.string().takeIf { response.isSuccessful }
+                }
+            }
+        }
+    }
+
+    /**
+     * Returns the raw Get Polls response. Twitch restricts this endpoint to
+     * the broadcaster represented by the user access token; arbitrary watched
+     * channels must use the live Hermes activity stream instead.
+     */
+    suspend fun getPolls(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        broadcasterId: String?,
+    ): String? = withContext(Dispatchers.IO) {
+        if (broadcasterId.isNullOrBlank()) {
+            return@withContext null
+        }
+        val url = "https://api.twitch.tv/helix/polls".toUri().buildUpon().apply {
+            appendQueryParameter("broadcaster_id", broadcasterId)
+            appendQueryParameter("first", "1")
+        }.build().toString()
+        when {
+            networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
+                val response = suspendCancellableCoroutine { continuation ->
+                    val timeout = NetworkUtils.HttpEngineTimeout()
+                    val request = httpEngine.value!!.newUrlRequestBuilder(
+                        url,
+                        cronetExecutor.value,
+                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
+                    ).apply {
+                        headers.forEach { addHeader(it.key, it.value) }
+                    }.build()
+                    timeout.start(request, continuation)
+                    request.start()
+                    continuation.invokeOnCancellation {
+                        request.cancel()
+                        timeout.stop()
+                    }
+                }
+                response.body.decodeToString().takeIf { response.info.httpStatusCode in 200..299 }
+            }
+            networkLibrary == C.CRONET && cronetEngine.value != null -> {
+                val response = suspendCancellableCoroutine { continuation ->
+                    val timeout = NetworkUtils.CronetTimeout()
+                    val request = cronetEngine.value!!.newUrlRequestBuilder(
+                        url,
+                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
+                        cronetExecutor.value,
+                    ).apply {
+                        headers.forEach { addHeader(it.key, it.value) }
+                    }.build()
+                    timeout.start(request, continuation)
+                    request.start()
+                    continuation.invokeOnCancellation {
+                        request.cancel()
+                        timeout.stop()
+                    }
+                }
+                response.body.decodeToString().takeIf { response.info.httpStatusCode in 200..299 }
+            }
+            else -> {
+                okHttpClient.value.newCall(Request.Builder().apply {
+                    url(url)
+                    headers(headers.toHeaders())
+                }.build()).executeAsync().use { response ->
+                    response.body.string().takeIf { response.isSuccessful }
+                }
+            }
+        }
+    }
+
     suspend fun createEventSubSubscriptionResult(
         networkLibrary: String?,
         headers: Map<String, String>,

@@ -302,7 +302,7 @@
     <string name="enable_ffz">FFZ ifadelerini etkinleştir</string>
     <string name="user_id">Kullanıcı Kimliği</string>
     <string name="user_login">Kullanıcı Girişi</string>
-    <string name="waiting_ads">Reklamların bitmesi bekleniyor</string>
+    <string name="waiting_ads">Oynatma kaynağı değiştiriliyor…</string>
     <string name="show_playlist_tags">Oynatma listesi etiketlerini göster</string>
     <string name="show_media_playlist_tags">Medya oynatma listesi etiketlerini göster</string>
     <string name="show_multivariant_playlist_tags">Çok değişkenli oynatma listesi etiketlerini göster</string>
@@ -321,7 +321,7 @@
     <string name="handle_audio_becoming_noisy">Kulaklık çıkarıldığında duraklat</string>
     <string name="proxy_playback_access_token">Oynatma erişim token\'ını proxy\'le</string>
     <string name="proxy_multivariant_playlist">Çok değişkenli oynatma listesini proxy\'le</string>
-    <string name="proxy_media_playlist">Reklam algılanırsa medya oynatma listesini proxy\'le</string>
+    <string name="proxy_media_playlist">Oynatma sürekliliği için medya oynatma listesini proxy\'le</string>
     <string name="proxy_host">Sunucu</string>
     <string name="proxy_port">Port</string>
     <string name="proxy_user">Kullanıcı adı</string>
@@ -462,7 +462,7 @@
     <string name="stream_player_type">Yayın oynatıcı türü</string>
     <string name="video_player_type">Video oynatıcı türü</string>
     <string name="supported_codecs">Desteklenen kodekler</string>
-    <string name="hide_during_ads">Reklamlar sırasında oynatıcıyı gizle</string>
+    <string name="hide_during_ads">Kaynak değişiklikleri sırasında oynatıcıyı gizle</string>
     <string name="include_gql_token_stream">Yayın isteklerine GQL token\'ı ekle</string>
     <string name="include_gql_token_video">Video isteklerine GQL token\'ı ekle</string>
     <string name="min_buffer">Minimum arabellek</string>

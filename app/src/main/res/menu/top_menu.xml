@@ -23,6 +23,11 @@
         app:iconTint="?attr/colorControlNormal"
         app:showAsAction="always" />
     <item
+        android:id="@+id/profile"
+        android:title="@string/view_profile"
+        android:visible="false"
+        app:showAsAction="always" />
+    <item
         android:id="@+id/login"
         android:title="@string/log_in"
         android:visible="false" />

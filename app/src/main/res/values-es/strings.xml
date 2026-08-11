@@ -306,7 +306,7 @@
     <string name="enable_ffz">Habilitar emotes de FFZ</string>
     <string name="user_id">ID de usuario</string>
     <string name="user_login">Inicio de sesión de usuario</string>
-    <string name="waiting_ads">Esperando a que terminen los anuncios</string>
+    <string name="waiting_ads">Cambiando la fuente de reproducción…</string>
     <string name="show_playlist_tags">Mostrar etiquetas de listas de reproducción</string>
     <string name="show_media_playlist_tags">Mostrar etiquetas de listas de reproducción multimedia</string>
     <string name="show_multivariant_playlist_tags">Mostrar etiquetas de listas de reproducción multivariantes</string>
@@ -325,7 +325,7 @@
     <string name="handle_audio_becoming_noisy">Pausa cuando se desconectan los auriculares</string>
     <string name="proxy_playback_access_token">Token de acceso a reproducción proxy</string>
     <string name="proxy_multivariant_playlist">Lista de reproducción multivariante proxy</string>
-    <string name="proxy_media_playlist">Lista de reproducción multimedia proxy si se detectan anuncios</string>
+    <string name="proxy_media_playlist">Usar proxy en la lista multimedia para mantener la reproducción</string>
     <string name="proxy_host">Host</string>
     <string name="proxy_port">Puerto</string>
     <string name="proxy_user">Nombre de usuario</string>
@@ -466,7 +466,7 @@
     <string name="stream_player_type">Tipo de reproductor de la transmisión</string>
     <string name="video_player_type">Tipo de reproductor de video</string>
     <string name="supported_codecs">Códecs soportados</string>
-    <string name="hide_during_ads">Ocultar el reproductor durante los anuncios</string>
+    <string name="hide_during_ads">Ocultar el reproductor durante los cambios de fuente</string>
     <string name="include_gql_token_stream">Incluir el token GQL en las solicitudes de transmisión</string>
     <string name="include_gql_token_video">Incluya el token GQL en las solicitudes de vídeo</string>
     <string name="min_buffer">Búfer mínimo</string>
