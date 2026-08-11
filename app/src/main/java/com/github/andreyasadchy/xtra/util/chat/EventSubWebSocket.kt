@@ -35,6 +35,7 @@ class EventSubWebSocket(
     ) {
         var job: Job? = null
         var pongTimer: Timer? = null
+        var welcomeWatchdogJob: Job? = null
         var welcomed = false
     }
 
@@ -47,6 +48,10 @@ class EventSubWebSocket(
     private var disconnecting = false
     private var timeout = 10000L
     private val handledMessageIds = mutableListOf<String>()
+
+    companion object {
+        private const val WELCOME_TIMEOUT_MILLIS = 12_000L
+    }
 
     fun connect(coroutineScope: CoroutineScope): Job {
         synchronized(lock) {
@@ -74,6 +79,7 @@ class EventSubWebSocket(
         job?.cancel()
         toClose.forEach { connection ->
             connection.pongTimer?.cancel()
+            connection.welcomeWatchdogJob?.cancel()
             connection.job?.cancel()
             connection.socket.disconnect()
         }
@@ -111,6 +117,45 @@ class EventSubWebSocket(
         }
     }
 
+    private fun startWelcomeWatchdog(connection: Connection) {
+        connection.welcomeWatchdogJob?.cancel()
+        val coroutineScope = scope ?: return
+        connection.welcomeWatchdogJob = coroutineScope.launch {
+            delay(WELCOME_TIMEOUT_MILLIS)
+            val shouldRestart = synchronized(lock) {
+                !disconnecting && connections.contains(connection) && !connection.welcomed &&
+                        (activeConnection === connection || handoffConnection === connection)
+            }
+            if (shouldRestart) {
+                restartAfterWelcomeTimeout(connection)
+            }
+        }
+    }
+
+    private suspend fun restartAfterWelcomeTimeout(failed: Connection) {
+        val toClose = synchronized(lock) {
+            if (disconnecting || !connections.contains(failed) || failed.welcomed) return
+            if (activeConnection !== failed && handoffConnection !== failed) return
+            // A handoff replacement that never welcomes invalidates the old
+            // session as well. Start one normal session so subscriptions are
+            // recreated exactly once by its welcome callback.
+            handoffTimeoutJob?.cancel()
+            handoffTimeoutJob = null
+            connections.toList().also {
+                connections.clear()
+                activeConnection = null
+                handoffConnection = null
+            }
+        }
+        toClose.forEach { connection ->
+            connection.pongTimer?.cancel()
+            connection.welcomeWatchdogJob?.cancel()
+            connection.job?.cancel()
+            connection.socket.disconnect()
+        }
+        startFreshConnection()
+    }
+
     private suspend fun startHandoff(old: Connection, reconnectUrl: String) {
         val replacement = synchronized(lock) {
             if (disconnecting || activeConnection !== old || handoffConnection != null) return
@@ -141,6 +186,7 @@ class EventSubWebSocket(
                 oldConnection?.let {
                     synchronized(lock) { connections.remove(it) }
                     it.pongTimer?.cancel()
+                    it.welcomeWatchdogJob?.cancel()
                     it.job?.cancel()
                     it.socket.disconnect()
                 }
@@ -162,6 +208,7 @@ class EventSubWebSocket(
         handoffTimeoutJob?.cancel()
         handoffTimeoutJob = null
         old?.pongTimer?.cancel()
+        old?.welcomeWatchdogJob?.cancel()
         old?.job?.cancel()
         old?.socket?.disconnect()
         // Twitch transferred the subscriptions. Do not call onWelcomeMessage.
@@ -196,6 +243,7 @@ class EventSubWebSocket(
     private inner class WebSocketListener : WebSocket.Listener {
         override suspend fun onConnect(webSocket: WebSocket) {
             val connection = connectionFor(webSocket) ?: return
+            startWelcomeWatchdog(connection)
             if (!connection.isHandoff) listener.onConnect()
         }
 
@@ -245,6 +293,8 @@ class EventSubWebSocket(
                             }
                         }
                         "session_welcome" -> {
+                            connection.welcomeWatchdogJob?.cancel()
+                            connection.welcomeWatchdogJob = null
                             val payload = json.optJSONObject("payload")
                             val session = payload?.optJSONObject("session")
                             session?.optInt("keepalive_timeout_seconds")?.takeIf { it > 0 }?.let {

@@ -39,9 +39,9 @@ WorkManager reconciliation remains scheduled as a slower fallback. Fast mode is 
 
 When enabled, Xtra checks for a new GitHub release whenever the app is opened or resumed, subject to the configured minimum interval. The default interval is one day. Available release notes are shown in the update dialog and in Settings, with a red settings indicator while an update is waiting. A release can be ignored locally; ignoring one version does not hide later releases.
 
-### VAFT implementation
+### VAFT alternate streams
 
-The optional **VAFT ad avoidance** setting uses alternate Twitch playback sources when a live ad is detected, keeps playback hidden or muted while no clean source is available, and returns to the configured source once it is verified clean again.
+The optional **VAFT alternate streams** setting manages alternate Twitch playback sources when needed for playback continuity, then automatically returns to your preferred source when appropriate. It preserves the underlying source handoff and recovery behavior without changing your preferred playback settings.
 
 <p align="center">
   <img src="./docs/images/channel-points-rewards.jpg" width="320" alt="Channel Points rewards and watch streaks">

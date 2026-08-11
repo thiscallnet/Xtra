@@ -301,7 +301,7 @@
     <string name="enable_ffz">Activar emoticonas FFZ</string>
     <string name="user_id">ID de usuario</string>
     <string name="user_login">Inicio de sesión do usuario</string>
-    <string name="waiting_ads">Agardando a que rematen os anuncios</string>
+    <string name="waiting_ads">Cambiando a fonte de reprodución…</string>
     <string name="show_playlist_tags">Amosar etiquetas da lista de reprodución</string>
     <string name="show_media_playlist_tags">Amosar etiquetas da lista de reprodución multimedia</string>
     <string name="show_multivariant_playlist_tags">Amosar etiquetas da lista de reprodución multivariante</string>
@@ -320,7 +320,7 @@
     <string name="handle_audio_becoming_noisy">Poñer en pausa cando se desconecten os auriculares</string>
     <string name="proxy_playback_access_token">Token de acceso á reprodución mediante proxy</string>
     <string name="proxy_multivariant_playlist">Lista de reprodución multivariante mediante proxy</string>
-    <string name="proxy_media_playlist">Lista de reprodución multimedia mediante proxy se se detectan anuncios</string>
+    <string name="proxy_media_playlist">Lista multimedia mediante proxy para a continuidade da reprodución</string>
     <string name="proxy_host">Servidor</string>
     <string name="proxy_port">Porto</string>
     <string name="proxy_user">Nome de usuario</string>
@@ -461,7 +461,7 @@
     <string name="stream_player_type">Tipo de reprodutor de transmisión</string>
     <string name="video_player_type">Tipo de reprodutor de vídeo</string>
     <string name="supported_codecs">Códecs compatibles</string>
-    <string name="hide_during_ads">Agochar o reprodutor durante os anuncios</string>
+    <string name="hide_during_ads">Agochar o reprodutor durante os cambios de fonte</string>
     <string name="include_gql_token_stream">Incluír token GQL nas solicitudes de transmisión</string>
     <string name="include_gql_token_video">Incluír token GQL nas solicitudes de vídeo</string>
     <string name="min_buffer">Búfer mínimo</string>

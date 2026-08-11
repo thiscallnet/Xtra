@@ -301,7 +301,7 @@
     <string name="enable_ffz">Включить смайлы FFZ</string>
     <string name="user_id">ИД аккаунта</string>
     <string name="user_login">Логин аккаунта</string>
-    <string name="waiting_ads">Ожидается завершение рекламы</string>
+    <string name="waiting_ads">Переключение источника воспроизведения…</string>
     <string name="show_playlist_tags">Показать метки плейлиста</string>
     <string name="show_media_playlist_tags">Показать метки плейлиста медиа</string>
     <string name="show_multivariant_playlist_tags">Показать многовариантные метки плейлиста</string>
@@ -320,7 +320,7 @@
     <string name="handle_audio_becoming_noisy">Пауза при отключении наушников</string>
     <string name="proxy_playback_access_token">Проксировать токен доступа проигрывания</string>
     <string name="proxy_multivariant_playlist">Проксировать многовариантный плейлист</string>
-    <string name="proxy_media_playlist">Проксировать плейлист медиа при обнаружении рекламы</string>
+    <string name="proxy_media_playlist">Проксировать медиаплейлист для стабильности воспроизведения</string>
     <string name="proxy_host">Хост</string>
     <string name="proxy_port">Порт</string>
     <string name="proxy_user">Имя пользователя</string>
@@ -461,7 +461,7 @@
     <string name="stream_player_type">Тип проигрывателя трансляции</string>
     <string name="video_player_type">Тип проигрывателя видео</string>
     <string name="supported_codecs">Поддерживаемые кодеки</string>
-    <string name="hide_during_ads">Скрывать проигрыватель на время рекламы</string>
+    <string name="hide_during_ads">Скрывать проигрыватель при смене источника</string>
     <string name="include_gql_token_stream">Включать токен GQL в запросы трансляции</string>
     <string name="include_gql_token_video">Включать токен GQL в запросы видео</string>
     <string name="min_buffer">Минимум буфера</string>

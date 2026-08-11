@@ -301,7 +301,7 @@
     <string name="enable_ffz">啟用 FFZ 表情符號</string>
     <string name="user_id">使用者 ID</string>
     <string name="user_login">使用者登入</string>
-    <string name="waiting_ads">等待廣告結束</string>
+    <string name="waiting_ads">正在切換播放來源…</string>
     <string name="show_playlist_tags">顯示播放清單標籤</string>
     <string name="show_media_playlist_tags">顯示媒體播放清單標籤</string>
     <string name="show_multivariant_playlist_tags">顯示多變數播放清單標籤</string>
@@ -320,7 +320,7 @@
     <string name="handle_audio_becoming_noisy">耳機連線斷開時暫停</string>
     <string name="proxy_playback_access_token">Proxy 播放存取權杖</string>
     <string name="proxy_multivariant_playlist">Proxy 多變數播放清單</string>
-    <string name="proxy_media_playlist">如果偵測到廣告則代理媒體播放清單</string>
+    <string name="proxy_media_playlist">使用代理媒體播放清單以維持播放連續性</string>
     <string name="proxy_host">主機</string>
     <string name="proxy_port">通訊埠</string>
     <string name="proxy_user">使用者名稱</string>
@@ -461,7 +461,7 @@
     <string name="stream_player_type">串流播放器類型</string>
     <string name="video_player_type">影片播放器類型</string>
     <string name="supported_codecs">支援的編解碼器</string>
-    <string name="hide_during_ads">在廣告期間隱藏播放器</string>
+    <string name="hide_during_ads">切換來源時隱藏播放器</string>
     <string name="include_gql_token_stream">在串流請求中包含的 GQL 權杖</string>
     <string name="include_gql_token_video">在影片請求中包含的 GQL 權杖</string>
     <string name="min_buffer">最小緩衝</string>

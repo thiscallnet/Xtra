@@ -301,7 +301,7 @@
     <string name="enable_ffz">FFZ スタンプを有効化</string>
     <string name="user_id">ユーザー ID</string>
     <string name="user_login">ユーザー名</string>
-    <string name="waiting_ads">広告の終了を待機中</string>
+    <string name="waiting_ads">再生ソースを切り替えています…</string>
     <string name="show_playlist_tags">プレイリストタグの表示</string>
     <string name="show_media_playlist_tags">メディアプレイリストのタグの表示</string>
     <string name="show_multivariant_playlist_tags">マルチバリアントプレイリストのタグの表示</string>
@@ -320,7 +320,7 @@
     <string name="handle_audio_becoming_noisy">ヘッドフォン切断時に一時停止</string>
     <string name="proxy_playback_access_token">再生アクセストークンをプロキシ</string>
     <string name="proxy_multivariant_playlist">マルチバリアントプレイリストをプロキシ</string>
-    <string name="proxy_media_playlist">広告検出時にメディアプレイリストをプロキシ</string>
+    <string name="proxy_media_playlist">再生の継続性のためメディアプレイリストをプロキシ</string>
     <string name="proxy_host">ホスト</string>
     <string name="proxy_port">ポート</string>
     <string name="proxy_user">ユーザー名</string>
@@ -461,7 +461,7 @@
     <string name="stream_player_type">配信プレーヤータイプ</string>
     <string name="video_player_type">動画プレーヤータイプ</string>
     <string name="supported_codecs">サポートされているコーデック</string>
-    <string name="hide_during_ads">広告中にプレーヤーを非表示</string>
+    <string name="hide_during_ads">ソース切り替え中にプレーヤーを非表示</string>
     <string name="include_gql_token_stream">ストリームリクエストにGQLトークンを含める</string>
     <string name="include_gql_token_video">ビデオリクエストにGQLトークンを含める</string>
     <string name="min_buffer">最小バッファ</string>

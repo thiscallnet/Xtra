@@ -284,7 +284,7 @@ object PubSubUtils {
                 winningOutcomeId = prediction.optionalString("winning_outcome_id"),
                 startedAt = startedAt?.takeIf { it > 0 },
                 lockedAt = lockedAt?.takeIf { it > 0 },
-                endedAt = endedAt?.takeIf { it > 0 } ?: if (eventStatus in setOf("RESOLVED", "COMPLETED", "TERMINATED", "ARCHIVED", "CANCELED")) observedAt else null,
+                endedAt = endedAt?.takeIf { it > 0 } ?: if (PredictionState.isFinalStatus(eventStatus)) observedAt else null,
                 observedAt = observedAt,
             )
         } else null

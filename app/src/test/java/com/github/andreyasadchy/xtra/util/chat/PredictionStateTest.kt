@@ -4,7 +4,6 @@ import com.github.andreyasadchy.xtra.model.chat.Prediction
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -57,49 +56,154 @@ class PredictionStateTest {
         assertEquals(100, completed?.outcomes?.single()?.totalPoints)
         assertEquals(2, completed?.outcomes?.single()?.totalUsers)
         assertEquals("yes", completed?.winningOutcomeId)
-        assertNull(incomplete?.outcomes?.single()?.totalPoints)
-        assertNull(incomplete?.outcomes?.single()?.totalUsers)
-        assertNull(incomplete?.predictionWindowSeconds)
+        assertTrue(incomplete?.outcomes?.single()?.totalPoints == null)
+        assertTrue(incomplete?.outcomes?.single()?.totalUsers == null)
+        assertTrue(incomplete?.predictionWindowSeconds == null)
     }
 
     @Test
-    fun terminalPredictionRejectsStaleProgress() {
-        val ended = prediction("p1", "RESOLVED", 200L, 10).copy(endedAt = 300L)
-        val stale = prediction("p1", "ACTIVE", 100L, 5)
-
-        assertSame(ended, PredictionState.merge(ended, stale))
-    }
-
-    @Test
-    fun newerPredictionReplacesPrevious() {
-        val old = prediction("old", "RESOLVED", 100L, 10).copy(startedAt = 1_000L)
-        val newer = prediction("new", "ACTIVE", 200L, 0).copy(startedAt = 2_000L)
-
-        assertEquals("new", PredictionState.merge(old, newer)?.id)
-    }
-
-    @Test
-    fun cachedActivePredictionBecomesLockedAfterWindow() {
-        val source = prediction("p1", "ACTIVE", 100L, 10).copy(
-            createdAt = 500L,
-            startedAt = 500L,
+    fun activeTimerExpirationDerivesLockedAndKeepsPredictionOngoing() {
+        val active = prediction("p1", "ACTIVE", observedAt = 1_000L, points = 10).copy(
+            startedAt = 10_000L,
             predictionWindowSeconds = 60,
         )
-        val restored = PredictionCache.decode(PredictionCache.encode(source))
-        val normalized = restored?.let { PredictionState.normalizeCached(it, now = 61_000L) }
 
-        assertEquals(source, restored)
-        assertEquals("LOCKED", normalized?.status)
-        assertFalse(PredictionState.isActive(normalized, now = 61_000L))
+        val locked = PredictionState.normalizeForNow(active, now = 70_000L)
+
+        assertEquals("LOCKED", locked.status)
+        assertTrue(PredictionState.isOngoing(locked))
+        assertFalse(PredictionState.isBettingOpen(locked, now = 70_000L))
     }
 
     @Test
-    fun cachedTerminalPredictionRemainsAvailable() {
-        val source = prediction("p1", "RESOLVED", 100L, 10)
+    fun explicitLockedEventWinsOverActiveSnapshot() {
+        val active = prediction("p1", "ACTIVE", 100L, 10)
+        val locked = prediction("p1", "LOCKED", 90L, 11).copy(lockedAt = 200L)
+
+        val merged = PredictionState.merge(active, locked)
+
+        assertEquals("LOCKED", merged?.status)
+        assertEquals(11, merged?.outcomes?.first()?.totalPoints)
+        assertTrue(PredictionState.isOngoing(merged))
+    }
+
+    @Test
+    fun delayedActiveCannotReopenLocked() {
+        val locked = prediction("p1", "LOCKED", 100L, 20)
+        val delayedActive = prediction("p1", "ACTIVE", 200L, 5)
+
+        val merged = PredictionState.merge(locked, delayedActive)
+
+        assertEquals("LOCKED", merged?.status)
+        assertFalse(PredictionState.isBettingOpen(merged, now = 1_000L))
+    }
+
+    @Test
+    fun lockedTransitionsToResolved() {
+        val locked = prediction("p1", "LOCKED", 100L, 20)
+        val resolved = prediction("p1", "RESOLVED", 90L, 22).copy(
+            endedAt = 300L,
+            winningOutcomeId = "a",
+        )
+
+        val merged = PredictionState.merge(locked, resolved)
+
+        assertEquals("RESOLVED", merged?.status)
+        assertTrue(PredictionState.isFinal(merged))
+        assertFalse(PredictionState.isOngoing(merged))
+        assertEquals("a", merged?.winningOutcomeId)
+    }
+
+    @Test
+    fun lockedTransitionsToCanceled() {
+        val locked = prediction("p1", "LOCKED", 100L, 20)
+        val canceled = prediction("p1", "CANCELED", 90L, 20).copy(endedAt = 300L)
+
+        val merged = PredictionState.merge(locked, canceled)
+
+        assertEquals("CANCELED", merged?.status)
+        assertTrue(PredictionState.isFinal(merged))
+        assertFalse(PredictionState.isOngoing(merged))
+    }
+
+    @Test
+    fun finalStateRejectsDelayedActiveAndLocked() {
+        val resolved = prediction("p1", "RESOLVED", 200L, 30).copy(endedAt = 300L)
+        val staleActive = prediction("p1", "ACTIVE", 400L, 5)
+        val staleLocked = prediction("p1", "LOCKED", 500L, 5)
+
+        assertSame(resolved, PredictionState.merge(resolved, staleActive))
+        assertSame(resolved, PredictionState.merge(resolved, staleLocked))
+    }
+
+    @Test
+    fun cachedLockedPredictionRemainsVisibleOnReopen() {
+        val source = prediction("p1", "LOCKED", 1_000L, 10).copy(
+            lockedAt = 10_000L,
+            broadcastId = "broadcast-1",
+        )
+
         val restored = PredictionCache.decode(PredictionCache.encode(source))
 
         assertEquals(source, restored)
-        assertFalse(PredictionState.isActive(restored, now = 10_000L))
+        assertTrue(PredictionState.isOngoing(restored))
+        assertFalse(PredictionState.isBettingOpen(restored, now = 20_000L))
+    }
+
+    @Test
+    fun unresolvedCacheExpiresAfterItsTwentyFourHourLifetime() {
+        val locked = prediction("p1", "LOCKED", 1_000L, 10).copy(lockedAt = 1_000L)
+
+        assertTrue(
+            PredictionCache.isFresh(
+                locked,
+                cacheTimestamp = 1_000L,
+                now = 1_000L + 23L * 60L * 60L * 1_000L,
+            ),
+        )
+        assertFalse(
+            PredictionCache.isFresh(
+                locked,
+                cacheTimestamp = 1_000L,
+                now = 1_000L + 24L * 60L * 60L * 1_000L + 1L,
+            ),
+        )
+    }
+
+    @Test
+    fun newBroadcastInvalidatesOlderUnresolvedCache() {
+        val locked = prediction("p1", "LOCKED", 1_000L, 10).copy(broadcastId = "old")
+
+        assertFalse(
+            PredictionCache.isFresh(
+                locked,
+                cacheTimestamp = 1_000L,
+                now = 2_000L,
+                broadcastId = "new",
+            ),
+        )
+    }
+
+    @Test
+    fun finalStateIsNotOngoingAndLockedStateIsNotFinal() {
+        val locked = prediction("p1", "LOCKED", 1_000L, 10)
+        val resolved = prediction("p1", "RESOLVED", 2_000L, 10)
+
+        assertTrue(PredictionState.isOngoing(locked))
+        assertFalse(PredictionState.isFinal(locked))
+        assertFalse(PredictionState.isOngoing(resolved))
+        assertTrue(PredictionState.isFinal(resolved))
+    }
+
+    @Test
+    fun pendingTransitionsRemainVisibleButCannotAcceptBets() {
+        listOf("CANCEL_PENDING", "RESOLVE_PENDING").forEach { status ->
+            val pending = prediction("p1", status, 1_000L, 10)
+
+            assertTrue(PredictionState.isOngoing(pending))
+            assertFalse(PredictionState.isBettingOpen(pending, now = 2_000L))
+            assertFalse(PredictionState.isFinal(pending))
+        }
     }
 
     private fun prediction(id: String, status: String, observedAt: Long, points: Int) = Prediction(

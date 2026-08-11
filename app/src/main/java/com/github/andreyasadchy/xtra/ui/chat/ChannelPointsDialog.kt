@@ -5,17 +5,20 @@ import android.content.Context
 import android.content.DialogInterface
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.core.widget.addTextChangedListener
 import androidx.fragment.app.DialogFragment
@@ -67,8 +70,9 @@ class ChannelPointsDialog : DialogFragment() {
         fun activePollFlow(): StateFlow<Poll?>
         fun pollSecondsLeftFlow(): StateFlow<Int?>
         fun predictionFlow(): StateFlow<Prediction?>
-        fun activePredictionFlow(): StateFlow<Prediction?>
+        fun ongoingPredictionFlow(): StateFlow<Prediction?>
         fun predictionSecondsLeftFlow(): StateFlow<Int?>
+        fun predictionBetInFlightFlow(): StateFlow<Boolean>
         fun canVotePoll(): Boolean
         fun votePoll(choiceIndex: Int)
         fun canBetPrediction(): Boolean
@@ -128,11 +132,12 @@ class ChannelPointsDialog : DialogFragment() {
                 }
                 val activeState = combine(
                     listener.activePollFlow(),
-                    listener.activePredictionFlow(),
+                    listener.ongoingPredictionFlow(),
                     listener.pollSecondsLeftFlow(),
                     listener.predictionSecondsLeftFlow(),
-                ) { activePoll, activePrediction, pollSeconds, predictionSeconds ->
-                    ActiveDialogState(activePoll, activePrediction, pollSeconds, predictionSeconds)
+                    listener.predictionBetInFlightFlow(),
+                ) { activePoll, ongoingPrediction, pollSeconds, predictionSeconds, predictionBetInFlight ->
+                    ActiveDialogState(activePoll, ongoingPrediction, pollSeconds, predictionSeconds, predictionBetInFlight)
                 }
                 combine(basicState, activeState) { basic, active ->
                     DialogState(
@@ -142,8 +147,9 @@ class ChannelPointsDialog : DialogFragment() {
                         activePoll = active.activePoll,
                         pollSecondsLeft = active.pollSecondsLeft,
                         prediction = basic.prediction,
-                        activePrediction = active.activePrediction,
+                        ongoingPrediction = active.ongoingPrediction,
                         predictionSecondsLeft = active.predictionSecondsLeft,
+                        predictionBetInFlight = active.predictionBetInFlight,
                     )
                 }.collectLatest(::render)
             }
@@ -179,8 +185,9 @@ class ChannelPointsDialog : DialogFragment() {
 
         renderPrediction(
             state.prediction,
-            state.activePrediction,
+            state.ongoingPrediction,
             state.predictionSecondsLeft,
+            state.predictionBetInFlight,
             state.channelPoints,
             numberFormat,
         )
@@ -628,8 +635,9 @@ class ChannelPointsDialog : DialogFragment() {
 
     private fun renderPrediction(
         prediction: Prediction?,
-        activePrediction: Prediction?,
+        ongoingPrediction: Prediction?,
         predictionSecondsLeft: Int?,
+        predictionBetInFlight: Boolean,
         channelPoints: ChannelPoints?,
         numberFormat: NumberFormat,
     ) {
@@ -640,18 +648,19 @@ class ChannelPointsDialog : DialogFragment() {
         if (prediction == null) return
 
         binding.predictionCardTitle.text = getString(R.string.channel_points_prediction, prediction.title.orEmpty())
-        val status = prediction.status.orEmpty().uppercase()
-        val isActive = activePrediction != null && PredictionState.isActive(prediction)
+        val status = PredictionState.status(prediction)
+        val isBettingOpen = ongoingPrediction != null && PredictionState.isBettingOpen(prediction)
         binding.predictionCardStatus.text = when {
-            isActive -> predictionSecondsLeft?.let {
+            isBettingOpen -> predictionSecondsLeft?.let {
                 getString(
                     R.string.channel_points_prediction_active_with_time,
                     android.text.format.DateUtils.formatElapsedTime(it.toLong()),
                 )
             } ?: getString(R.string.channel_points_prediction_active)
-            status == "ACTIVE" || status == "LOCKED" || status == "CANCEL_PENDING" || status == "RESOLVE_PENDING" -> getString(R.string.channel_points_prediction_locked)
-            status == "CANCELED" || status == "CANCELLED" || status == "REFUNDED" -> getString(R.string.channel_points_prediction_canceled)
-            status == "RESOLVED" || status == "COMPLETED" || status == "TERMINATED" || status == "ARCHIVED" -> getString(R.string.channel_points_prediction_resolved)
+            status == "CANCEL_PENDING" -> getString(R.string.channel_points_prediction_cancel_pending)
+            PredictionState.isOngoing(prediction) -> getString(R.string.channel_points_prediction_locked)
+            PredictionState.isFinal(prediction) && status in setOf("CANCELED", "CANCELLED", "REFUNDED") -> getString(R.string.channel_points_prediction_canceled)
+            PredictionState.isFinal(prediction) -> getString(R.string.channel_points_prediction_resolved)
             else -> getString(R.string.channel_points_prediction_closed)
         }
 
@@ -661,7 +670,15 @@ class ChannelPointsDialog : DialogFragment() {
         binding.predictionCardMeta.text = buildList {
             totalPoints?.let { add(getString(R.string.channel_points_prediction_total_points, numberFormat.format(it))) }
             totalUsers?.let { add(getString(R.string.channel_points_prediction_total_users, numberFormat.format(it))) }
-            prediction.startedAt?.let { add(getString(R.string.channel_points_prediction_started, TwitchApiHelper.formatDate(requireContext(), it))) }
+            prediction.startedAt?.let {
+                val relative = android.text.format.DateUtils.getRelativeTimeSpanString(
+                    it,
+                    System.currentTimeMillis(),
+                    android.text.format.DateUtils.MINUTE_IN_MILLIS,
+                    android.text.format.DateUtils.FORMAT_ABBREV_RELATIVE,
+                )
+                add(getString(R.string.channel_points_prediction_started_ago, relative))
+            }
             prediction.lockedAt?.let { add(getString(R.string.channel_points_prediction_locked_at, TwitchApiHelper.formatDate(requireContext(), it))) }
             prediction.endedAt?.let { add(getString(R.string.channel_points_prediction_ended, TwitchApiHelper.formatDate(requireContext(), it))) }
             prediction.startedAt?.let { started ->
@@ -687,18 +704,19 @@ class ChannelPointsDialog : DialogFragment() {
                 outcomeCount = outcomes.size,
                 totalPoints = totalPoints,
                 numberFormat = numberFormat,
-                winner = status == "RESOLVED" && prediction.winningOutcomeId == outcome.id,
+                winner = PredictionState.isFinal(prediction) && prediction.winningOutcomeId == outcome.id,
                 tie = status == "RESOLVED" && prediction.winningOutcomeId.isNullOrBlank() &&
                     totalPoints != null && outcome.totalPoints == outcomes.mapNotNull { it.totalPoints }.maxOrNull(),
             )
         }
 
-        val canBet = isActive && twoOutcomePrediction && listener.canBetPrediction()
+        val canBet = isBettingOpen && !predictionBetInFlight && twoOutcomePrediction && listener.canBetPrediction()
         binding.predictionBetRow.isVisible = canBet
-        binding.predictionBetHint.isVisible = isActive && !canBet
+        binding.predictionBetHint.isVisible = isBettingOpen && !canBet
         binding.predictionBetHint.text = when {
-            isActive && !listener.canBetPrediction() -> getString(R.string.channel_points_prediction_bet_login)
-            isActive && !twoOutcomePrediction -> getString(R.string.channel_points_prediction_bet_unavailable)
+            predictionBetInFlight -> getString(R.string.channel_points_prediction_bet_pending)
+            isBettingOpen && !listener.canBetPrediction() -> getString(R.string.channel_points_prediction_bet_login)
+            isBettingOpen && !twoOutcomePrediction -> getString(R.string.channel_points_prediction_bet_unavailable)
             else -> null
         }
         if (canBet) {
@@ -717,7 +735,7 @@ class ChannelPointsDialog : DialogFragment() {
             binding.predictionBetRight.setOnClickListener {
                 placePredictionBet(binding.predictionBetAmount, outcomes[1].id)
             }
-        } else if (isActive && channelPoints != null && channelPoints.balance < MIN_PREDICTION_POINTS) {
+        } else if (isBettingOpen && channelPoints != null && channelPoints.balance < MIN_PREDICTION_POINTS) {
             binding.predictionBetHint.text = getString(
                 R.string.channel_points_prediction_bet_balance,
                 numberFormat.format(channelPoints.balance),
@@ -781,15 +799,46 @@ class ChannelPointsDialog : DialogFragment() {
             textSize = 24f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         })
-        content.addView(ProgressBar(requireContext(), null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = percent ?: 0
-            progressTintList = ColorStateList.valueOf(color)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(8),
-            ).apply { topMargin = dp(2) }
-        })
+        if (outcomeCount == 2) {
+            val meter = FrameLayout(requireContext()).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(8),
+                ).apply { topMargin = dp(2) }
+            }
+            percent?.let { value ->
+                val fill = View(requireContext()).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp(4).toFloat()
+                        setColor(color)
+                    }
+                    layoutParams = FrameLayout.LayoutParams(
+                        0,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ).apply {
+                        gravity = if (index == 0) Gravity.END else Gravity.START
+                    }
+                }
+                meter.addView(fill)
+                meter.doOnLayout {
+                    (fill.layoutParams as FrameLayout.LayoutParams).width =
+                        (meter.width * (value / 100f)).roundToInt()
+                    fill.requestLayout()
+                }
+            }
+            content.addView(meter)
+        } else {
+            content.addView(ProgressBar(requireContext(), null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+                progress = percent ?: 0
+                progressTintList = ColorStateList.valueOf(color)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(8),
+                ).apply { topMargin = dp(2) }
+            })
+        }
         content.addView(TextView(requireContext()).apply {
             text = buildList {
                 outcome.totalPoints?.let { add(numberFormat.format(it) + " points") }
@@ -861,8 +910,9 @@ class ChannelPointsDialog : DialogFragment() {
         val activePoll: Poll?,
         val pollSecondsLeft: Int?,
         val prediction: Prediction?,
-        val activePrediction: Prediction?,
+        val ongoingPrediction: Prediction?,
         val predictionSecondsLeft: Int?,
+        val predictionBetInFlight: Boolean,
     )
 
     private data class BasicDialogState(
@@ -874,9 +924,10 @@ class ChannelPointsDialog : DialogFragment() {
 
     private data class ActiveDialogState(
         val activePoll: Poll?,
-        val activePrediction: Prediction?,
+        val ongoingPrediction: Prediction?,
         val pollSecondsLeft: Int?,
         val predictionSecondsLeft: Int?,
+        val predictionBetInFlight: Boolean,
     )
 
 }

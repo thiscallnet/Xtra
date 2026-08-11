@@ -61,6 +61,7 @@ import com.github.andreyasadchy.xtra.ui.view.AutoCompleteAdapter
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.chat.PollState
+import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.reduceDragSensitivity
@@ -140,9 +141,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun predictionFlow(): StateFlow<Prediction?> = viewModel.prediction
 
-    override fun activePredictionFlow(): StateFlow<Prediction?> = viewModel.activePrediction
+    override fun ongoingPredictionFlow(): StateFlow<Prediction?> = viewModel.ongoingPrediction
 
     override fun predictionSecondsLeftFlow(): StateFlow<Int?> = viewModel.predictionSecondsLeft
+
+    override fun predictionBetInFlightFlow(): StateFlow<Boolean> = viewModel.predictionBetInFlight
 
     override fun canVotePoll(): Boolean = viewModel.canVotePoll()
 
@@ -206,6 +209,17 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 launch {
                     viewModel.watchStreakShare.collectLatest(::handleWatchStreakShare)
                 }
+                launch {
+                    viewModel.predictionBetResults.collectLatest { result ->
+                        val suffix = result.message?.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
+                        val message = if (result.success) {
+                            getString(R.string.prediction_bet_success)
+                        } else {
+                            getString(R.string.prediction_bet_failed, suffix)
+                        }
+                        Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+                    }
+                }
             }
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -221,7 +235,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     combine(
                         viewModel.activePoll,
                         viewModel.pollSecondsLeft,
-                        viewModel.activePrediction,
+                        viewModel.ongoingPrediction,
                         viewModel.predictionSecondsLeft,
                     ) { poll, pollSeconds, prediction, predictionSeconds ->
                         ActivityIndicatorState(poll, pollSeconds, prediction, predictionSeconds)
@@ -710,117 +724,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     }
                     viewLifecycleOwner.lifecycleScope.launch {
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
-                            viewModel.hidePrediction.collectLatest {
-                                if (it) {
-                                    predictionLayout.visibility = View.GONE
-                                    viewModel.predictionSecondsLeft.value = null
-                                    viewModel.predictionTimer?.cancel()
-                                    viewModel.predictionClosed = true
-                                    viewModel.hidePrediction.value = false
-                                }
-                            }
-                        }
-                    }
-                    predictionClose.setOnClickListener {
-                        predictionLayout.visibility = View.GONE
-                        viewModel.predictionSecondsLeft.value = null
-                        viewModel.predictionTimer?.cancel()
-                        viewModel.predictionClosed = true
-                    }
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        repeatOnLifecycle(Lifecycle.State.STARTED) {
-                            viewModel.prediction.collectLatest { prediction ->
-                                if (prediction != null) {
-                                    if (!viewModel.predictionClosed) {
-                                        when (prediction.status) {
-                                            "ACTIVE" -> {
-                                                predictionLayout.visibility = View.VISIBLE
-                                                predictionTitle.text = getString(R.string.prediction_title, prediction.title)
-                                                val totalPoints = prediction.outcomes?.sumOf { it.totalPoints?.toLong() ?: 0 } ?: 0
-                                                predictionOutcomes.text = prediction.outcomes?.joinToString("\n") {
-                                                    getString(
-                                                        R.string.prediction_outcome,
-                                                        (((it.totalPoints ?: 0).toLong() * 100.0) / max(totalPoints, 1)).roundToInt(),
-                                                        it.totalPoints?.let { NumberFormat.getInstance().format(it) },
-                                                        it.totalUsers?.let { NumberFormat.getInstance().format(it) },
-                                                        it.title
-                                                    )
-                                                }
-                                                predictionStatus.visibility = View.VISIBLE
-                                            }
-                                            "LOCKED" -> {
-                                                predictionLayout.visibility = View.VISIBLE
-                                                predictionTitle.text = getString(R.string.prediction_title, prediction.title)
-                                                val totalPoints = prediction.outcomes?.sumOf { it.totalPoints?.toLong() ?: 0 } ?: 0
-                                                predictionOutcomes.text = prediction.outcomes?.joinToString("\n") {
-                                                    getString(
-                                                        R.string.prediction_outcome,
-                                                        (((it.totalPoints ?: 0).toLong() * 100.0) / max(totalPoints, 1)).roundToInt(),
-                                                        it.totalPoints?.let { NumberFormat.getInstance().format(it) },
-                                                        it.totalUsers?.let { NumberFormat.getInstance().format(it) },
-                                                        it.title
-                                                    )
-                                                }
-                                                viewModel.predictionSecondsLeft.value = null
-                                                viewModel.predictionTimer?.cancel()
-                                                viewModel.startPredictionTimeout { predictionLayout.visibility = View.GONE }
-                                                predictionStatus.visibility = View.VISIBLE
-                                                predictionStatus.text = getString(R.string.prediction_locked)
-                                            }
-                                            "CANCELED", "CANCEL_PENDING", "RESOLVED", "RESOLVE_PENDING" -> {
-                                                predictionLayout.visibility = View.VISIBLE
-                                                predictionTitle.text = getString(R.string.prediction_title, prediction.title)
-                                                val resolved = prediction.status == "RESOLVED" || prediction.status == "RESOLVE_PENDING"
-                                                val totalPoints = prediction.outcomes?.sumOf { it.totalPoints?.toLong() ?: 0 } ?: 0
-                                                predictionOutcomes.text = prediction.outcomes?.joinToString("\n") {
-                                                    getString(
-                                                        if (resolved && prediction.winningOutcomeId != null && prediction.winningOutcomeId == it.id) {
-                                                            R.string.prediction_outcome_winner
-                                                        } else {
-                                                            R.string.prediction_outcome
-                                                        },
-                                                        (((it.totalPoints ?: 0).toLong() * 100.0) / max(totalPoints, 1)).roundToInt(),
-                                                        it.totalPoints?.let { NumberFormat.getInstance().format(it) },
-                                                        it.totalUsers?.let { NumberFormat.getInstance().format(it) },
-                                                        it.title
-                                                    )
-                                                }
-                                                viewModel.predictionSecondsLeft.value = null
-                                                viewModel.predictionTimer?.cancel()
-                                                viewModel.startPredictionTimeout { predictionLayout.visibility = View.GONE }
-                                                if (resolved) {
-                                                    predictionStatus.visibility = View.GONE
-                                                } else {
-                                                    predictionStatus.visibility = View.VISIBLE
-                                                    predictionStatus.text = getString(R.string.prediction_refunded)
-                                                }
-                                            }
-                                            else -> {
-                                                predictionLayout.visibility = View.GONE
-                                                viewModel.predictionSecondsLeft.value = null
-                                                viewModel.predictionTimer?.cancel()
-                                                viewModel.predictionClosed = true
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        repeatOnLifecycle(Lifecycle.State.STARTED) {
-                            viewModel.predictionSecondsLeft.collectLatest {
-                                if (it != null) {
-                                    predictionStatus.text = getString(R.string.remaining_time, DateUtils.formatElapsedTime(it.toLong()))
-                                    if (it <= 0) {
-                                        viewModel.predictionSecondsLeft.value = null
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        repeatOnLifecycle(Lifecycle.State.STARTED) {
                             viewModel.playbackMessage.collectLatest {
                                 if (it != null) {
                                     if (it.live != null) {
@@ -1132,7 +1035,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             }
             state.prediction != null -> {
                 val suffix = state.predictionSeconds?.takeIf { it > 0 }?.let { DateUtils.formatElapsedTime(it.toLong()) }
-                getString(R.string.channel_points_prediction_active) + (suffix?.let { " · $it" } ?: "")
+                if (PredictionState.isBettingOpen(state.prediction)) {
+                    getString(R.string.channel_points_prediction_active) + (suffix?.let { " · $it" } ?: "")
+                } else {
+                    getString(R.string.channel_points_prediction_waiting)
+                }
             }
             else -> null
         }

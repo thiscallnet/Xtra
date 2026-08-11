@@ -301,7 +301,7 @@
     <string name="enable_ffz">Abilita emote FFZ</string>
     <string name="user_id">ID utente</string>
     <string name="user_login">Accesso utente</string>
-    <string name="waiting_ads">In attesa che le pubblicità finiscano</string>
+    <string name="waiting_ads">Cambio della sorgente di riproduzione…</string>
     <string name="show_playlist_tags">Mostra tag della playlist</string>
     <string name="show_media_playlist_tags">Mostra tag della playlist multimediale</string>
     <string name="show_multivariant_playlist_tags">Mostra tag della playlist multivariante</string>
@@ -320,7 +320,7 @@
     <string name="handle_audio_becoming_noisy">Metti in pausa quando le cuffie vengono disconnesse</string>
     <string name="proxy_playback_access_token">Token di accesso riproduzione proxy</string>
     <string name="proxy_multivariant_playlist">Playlist multivariante proxy</string>
-    <string name="proxy_media_playlist">Playlist multimediale proxy se vengono rilevate pubblicità</string>
+    <string name="proxy_media_playlist">Proxy della playlist multimediale per la continuità di riproduzione</string>
     <string name="proxy_host">Host</string>
     <string name="proxy_port">Porta</string>
     <string name="proxy_user">Nome utente</string>
@@ -461,7 +461,7 @@
     <string name="stream_player_type">Stream player type</string>
     <string name="video_player_type">Video player type</string>
     <string name="supported_codecs">Supported codecs</string>
-    <string name="hide_during_ads">Hide player during ads</string>
+    <string name="hide_during_ads">Nascondi il lettore durante i cambi di sorgente</string>
     <string name="include_gql_token_stream">Include GQL token in stream requests</string>
     <string name="include_gql_token_video">Include GQL token in video requests</string>
     <string name="min_buffer">Minimum buffer</string>

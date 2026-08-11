@@ -12,6 +12,8 @@ data class Prediction(
     val lockedAt: Long? = null,
     val endedAt: Long? = null,
     val observedAt: Long? = null,
+    /** Optional live-session identity used to discard unresolved predictions from an older broadcast. */
+    val broadcastId: String? = null,
 ) {
     data class PredictionOutcome(
         val id: String?,

@@ -10,21 +10,26 @@ object PredictionCache {
     private const val ENTRY_PREFIX = "latest_prediction_"
     private const val INDEX_KEY = "latest_prediction_index"
     private const val MAX_ENTRIES = 32
-    private const val MAX_AGE_MILLIS = 90L * 24L * 60L * 60L * 1_000L
+    private const val MAX_FINAL_AGE_MILLIS = 90L * 24L * 60L * 60L * 1_000L
+    private const val MAX_UNRESOLVED_AGE_MILLIS = 24L * 60L * 60L * 1_000L
 
     fun load(
         preferences: SharedPreferences,
         channelId: String,
         now: Long = System.currentTimeMillis(),
+        broadcastId: String? = null,
     ): Prediction? {
         val cacheTimestamp = readIndex(preferences)[channelId]
-        val isFresh = cacheTimestamp == null || cacheTimestamp >= now - MAX_AGE_MILLIS
         val prediction = preferences.getString(ENTRY_PREFIX + channelId, null)
-            ?.takeIf { isFresh }
             ?.let(::decode)
             ?.let { PredictionState.normalizeCached(it, now) }
+            ?.takeIf { isFresh(it, cacheTimestamp, now, broadcastId) }
         if (prediction == null) {
-            preferences.edit().remove(ENTRY_PREFIX + channelId).apply()
+            val index = readIndex(preferences).toMutableMap().apply { remove(channelId) }
+            preferences.edit()
+                .remove(ENTRY_PREFIX + channelId)
+                .putString(INDEX_KEY, JSONObject(index).toString())
+                .apply()
         }
         return prediction
     }
@@ -34,10 +39,11 @@ object PredictionCache {
         channelId: String,
         prediction: Prediction,
         now: Long = System.currentTimeMillis(),
+        broadcastId: String? = null,
     ) {
         val index = readIndex(preferences).toMutableMap()
         index[channelId] = now
-        val cutoff = now - MAX_AGE_MILLIS
+        val cutoff = now - MAX_FINAL_AGE_MILLIS
         index.filterValues { it < cutoff }.keys.toList().forEach { oldChannelId ->
             index.remove(oldChannelId)
             preferences.edit().remove(ENTRY_PREFIX + oldChannelId).apply()
@@ -48,9 +54,39 @@ object PredictionCache {
             preferences.edit().remove(ENTRY_PREFIX + oldest).apply()
         }
         preferences.edit()
-            .putString(ENTRY_PREFIX + channelId, encode(prediction))
+            .putString(
+                ENTRY_PREFIX + channelId,
+                encode(prediction.copy(broadcastId = broadcastId ?: prediction.broadcastId)),
+            )
             .putString(INDEX_KEY, JSONObject(index).toString())
             .apply()
+    }
+
+    /** Kept pure so cache-age and session invalidation rules can be unit tested. */
+    internal fun isFresh(
+        prediction: Prediction,
+        cacheTimestamp: Long?,
+        now: Long,
+        broadcastId: String? = null,
+    ): Boolean {
+        if (!broadcastId.isNullOrBlank() &&
+            !prediction.broadcastId.isNullOrBlank() &&
+            prediction.broadcastId != broadcastId &&
+            !PredictionState.isFinal(prediction)
+        ) {
+            return false
+        }
+        val reference = if (PredictionState.isFinal(prediction)) {
+            prediction.endedAt ?: prediction.observedAt ?: prediction.startedAt
+        } else {
+            prediction.lockedAt ?: prediction.startedAt ?: prediction.createdAt ?: prediction.observedAt
+        } ?: cacheTimestamp ?: return false
+        val maxAge = if (PredictionState.isFinal(prediction)) {
+            MAX_FINAL_AGE_MILLIS
+        } else {
+            MAX_UNRESOLVED_AGE_MILLIS
+        }
+        return reference >= now - maxAge
     }
 
     internal fun encode(prediction: Prediction): String = JSONObject().apply {
@@ -64,6 +100,7 @@ object PredictionCache {
         putNullable("title", prediction.title)
         putNullable("winning_outcome_id", prediction.winningOutcomeId)
         putNullable("observed_at", prediction.observedAt)
+        putNullable("broadcast_id", prediction.broadcastId)
         put("outcomes", JSONArray().apply {
             prediction.outcomes.orEmpty().forEach { outcome ->
                 put(JSONObject().apply {
@@ -107,6 +144,7 @@ object PredictionCache {
             lockedAt = json.optionalLong("locked_at"),
             endedAt = json.optionalLong("ended_at"),
             observedAt = json.optionalLong("observed_at"),
+            broadcastId = json.optionalString("broadcast_id"),
         )
     }.getOrNull()
 

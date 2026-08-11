@@ -13,6 +13,7 @@ import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import coil3.imageLoader
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.target
@@ -167,9 +168,36 @@ class StreamsCompactAdapter(
                     } else {
                         gameName.visibility = View.GONE
                     }
+                    if (item.thumbnailURL != null) {
+                        thumbnail.visibility = View.VISIBLE
+                        liveBadge.visibility = View.VISIBLE
+                        // Refresh thumbnails in the same five-minute buckets
+                        // as the normal live-card surface.
+                        val minutes = System.currentTimeMillis() / 60000L
+                        val lastMinute = minutes % 10
+                        val key = if (lastMinute < 5) minutes - lastMinute else minutes - (lastMinute - 5)
+                        fragment.requireContext().imageLoader.enqueue(
+                            ImageRequest.Builder(fragment.requireContext()).apply {
+                                data(item.thumbnail)
+                                memoryCacheKeyExtra("minutes", key.toString())
+                                diskCachePolicy(CachePolicy.DISABLED)
+                                crossfade(true)
+                                target(thumbnail)
+                                thumbnailState()
+                            }.build()
+                        )
+                    } else {
+                        thumbnail.visibility = View.GONE
+                        liveBadge.visibility = View.GONE
+                    }
                     if (item.viewerCount != null) {
                         viewers.visibility = View.VISIBLE
-                        viewers.text = TwitchApiHelper.formatCount(item.viewerCount ?: 0, context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true))
+                        val count = item.viewerCount ?: 0
+                        viewers.text = context.resources.getQuantityString(
+                            R.plurals.viewers,
+                            count,
+                            TwitchApiHelper.formatCount(count, context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true)),
+                        )
                     } else {
                         viewers.visibility = View.GONE
                     }
