@@ -1,0 +1,40 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory
+        android:title="@string/settings_general_notifications"
+        app:iconSpaceReserved="false" />
+
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="live_notifications_enabled"
+        android:title="@string/live_notifications"
+        android:summary="@string/live_notifications_summary"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <ListPreference
+        android:defaultValue="battery"
+        android:entries="@array/liveNotificationModeEntries"
+        android:entryValues="@array/liveNotificationModeValues"
+        android:key="live_notifications_mode"
+        android:summary="%s"
+        android:title="@string/live_notifications_mode_title"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <Preference
+        android:key="live_notifications_service_notification"
+        android:title="@string/live_notifications_service_notification_title"
+        android:summary="@string/live_notifications_service_notification_summary"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <Preference
+        android:key="live_notifications_battery_optimization"
+        android:title="@string/live_notifications_battery_optimization_title"
+        android:summary="@string/live_notifications_battery_optimization_summary"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+</androidx.preference.PreferenceScreen>

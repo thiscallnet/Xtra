@@ -42,8 +42,99 @@ import java.util.concurrent.ExecutorService
 class TwitchApiException(
     val statusCode: Int,
     val rateLimitResetEpochSeconds: Long?,
+    val rateLimitLimit: Long? = null,
+    val rateLimitRemaining: Long? = null,
     message: String,
 ) : IOException(message)
+
+data class HelixRateLimit(
+    val limit: Long?,
+    val remaining: Long?,
+    val resetEpochSeconds: Long?,
+)
+
+data class EventSubSubscriptionResult(
+    val statusCode: Int,
+    val success: Boolean,
+    val errorMessage: String? = null,
+    val cost: Int? = null,
+    val totalCost: Int? = null,
+    val maxTotalCost: Int? = null,
+    val subscriptionId: String? = null,
+    val subscriptionType: String? = null,
+    val subscriptionStatus: String? = null,
+    val rateLimitResetEpochSeconds: Long? = null,
+)
+
+data class EventSubSubscriptionInfo(
+    val statusCode: Int,
+    val id: String? = null,
+    val subscriptionType: String? = null,
+    val subscriptionStatus: String? = null,
+    val broadcasterUserId: String? = null,
+    val transportMethod: String? = null,
+    val transportSessionId: String? = null,
+    val cost: Int? = null,
+    val totalCost: Int? = null,
+    val maxTotalCost: Int? = null,
+)
+
+internal fun parseEventSubSubscriptionResult(
+    json: Json,
+    statusCode: Int,
+    body: String,
+    rateLimitResetEpochSeconds: Long? = null,
+): EventSubSubscriptionResult {
+    val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
+    val subscription = root?.get("data")?.jsonArray?.firstOrNull()?.jsonObject
+    val rootNumber = { key: String ->
+        root?.get(key)?.jsonPrimitive?.content?.toIntOrNull()
+    }
+    val subscriptionNumber = { key: String ->
+        subscription?.get(key)?.jsonPrimitive?.content?.toIntOrNull()
+    }
+    return EventSubSubscriptionResult(
+        statusCode = statusCode,
+        success = statusCode in 200..299,
+        errorMessage = if (statusCode in 200..299) null else {
+            root?.get("message")?.jsonPrimitive?.contentOrNull ?: body.take(500)
+        },
+        cost = subscriptionNumber("cost"),
+        totalCost = rootNumber("total_cost"),
+        maxTotalCost = rootNumber("max_total_cost"),
+        subscriptionId = subscription?.get("id")?.jsonPrimitive?.contentOrNull
+            ?: root?.get("id")?.jsonPrimitive?.contentOrNull,
+        subscriptionType = subscription?.get("type")?.jsonPrimitive?.contentOrNull,
+        subscriptionStatus = subscription?.get("status")?.jsonPrimitive?.contentOrNull,
+        rateLimitResetEpochSeconds = rateLimitResetEpochSeconds,
+    )
+}
+
+internal fun parseEventSubSubscriptionInfo(
+    json: Json,
+    statusCode: Int,
+    body: String,
+): EventSubSubscriptionInfo {
+    val root = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
+    val subscription = root?.get("data")?.jsonArray?.firstOrNull()?.jsonObject
+    val condition = subscription?.get("condition")?.jsonObject
+    val transport = subscription?.get("transport")?.jsonObject
+    val number = { key: String ->
+        root?.get(key)?.jsonPrimitive?.content?.toIntOrNull()
+    }
+    return EventSubSubscriptionInfo(
+        statusCode = statusCode,
+        id = subscription?.get("id")?.jsonPrimitive?.contentOrNull,
+        subscriptionType = subscription?.get("type")?.jsonPrimitive?.contentOrNull,
+        subscriptionStatus = subscription?.get("status")?.jsonPrimitive?.contentOrNull,
+        broadcasterUserId = condition?.get("broadcaster_user_id")?.jsonPrimitive?.contentOrNull,
+        transportMethod = transport?.get("method")?.jsonPrimitive?.contentOrNull,
+        transportSessionId = transport?.get("session_id")?.jsonPrimitive?.contentOrNull,
+        cost = subscription?.get("cost")?.jsonPrimitive?.content?.toIntOrNull(),
+        totalCost = number("total_cost"),
+        maxTotalCost = number("max_total_cost"),
+    )
+}
 
 class HelixRepository(
     private val httpEngine: Lazy<HttpEngine?>,
@@ -163,7 +254,7 @@ class HelixRepository(
         }
     }
 
-    suspend fun getStreams(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null, gameId: String? = null, languages: List<String>? = null, limit: Int? = null, offset: String? = null): StreamsResponse = withContext(Dispatchers.IO) {
+    suspend fun getStreams(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null, gameId: String? = null, languages: List<String>? = null, limit: Int? = null, offset: String? = null, rateLimitListener: ((HelixRateLimit) -> Unit)? = null): StreamsResponse = withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/streams".toUri().buildUpon().apply {
             ids?.forEach { appendQueryParameter("user_id", it) }
             logins?.forEach { appendQueryParameter("user_login", it) }
@@ -191,7 +282,9 @@ class HelixRepository(
                     }
                 }
                 val body = response.body.decodeToString()
-                ensureHelixSuccess(response.info.httpStatusCode, rateLimitReset(response.info.headers.asMap), body)
+                val rateLimit = rateLimit(response.info.headers.asMap)
+                rateLimitListener?.invoke(rateLimit)
+                ensureHelixSuccess(response.info.httpStatusCode, rateLimit, body)
                 json.decodeFromString<StreamsResponse>(body)
             }
             networkLibrary == C.CRONET && cronetEngine.value != null -> {
@@ -212,7 +305,9 @@ class HelixRepository(
                     }
                 }
                 val body = response.body.decodeToString()
-                ensureHelixSuccess(response.info.httpStatusCode, rateLimitReset(response.info.allHeaders), body)
+                val rateLimit = rateLimit(response.info.allHeaders)
+                rateLimitListener?.invoke(rateLimit)
+                ensureHelixSuccess(response.info.httpStatusCode, rateLimit, body)
                 json.decodeFromString<StreamsResponse>(body)
             }
             else -> {
@@ -221,25 +316,38 @@ class HelixRepository(
                     headers(headers.toHeaders())
                 }.build()).executeAsync().use { response ->
                     val body = response.body.string()
-                    ensureHelixSuccess(response.code, response.header("Ratelimit-Reset")?.toLongOrNull(), body)
+                    val rateLimit = HelixRateLimit(
+                        limit = response.header("Ratelimit-Limit")?.toLongOrNull(),
+                        remaining = response.header("Ratelimit-Remaining")?.toLongOrNull(),
+                        resetEpochSeconds = response.header("Ratelimit-Reset")?.toLongOrNull(),
+                    )
+                    rateLimitListener?.invoke(rateLimit)
+                    ensureHelixSuccess(response.code, rateLimit, body)
                     json.decodeFromString<StreamsResponse>(body)
                 }
             }
         }
     }
 
-    private fun rateLimitReset(headers: Map<String, List<String>>): Long? =
+    private fun rateLimit(headers: Map<String, List<String>>): HelixRateLimit = HelixRateLimit(
+        limit = headerValue(headers, "Ratelimit-Limit")?.toLongOrNull(),
+        remaining = headerValue(headers, "Ratelimit-Remaining")?.toLongOrNull(),
+        resetEpochSeconds = headerValue(headers, "Ratelimit-Reset")?.toLongOrNull(),
+    )
+
+    private fun headerValue(headers: Map<String, List<String>>, name: String): String? =
         headers.entries
-            .firstOrNull { it.key.equals("Ratelimit-Reset", ignoreCase = true) }
+            .firstOrNull { it.key.equals(name, ignoreCase = true) }
             ?.value
             ?.firstOrNull()
-            ?.toLongOrNull()
 
-    private fun ensureHelixSuccess(statusCode: Int, rateLimitResetEpochSeconds: Long?, body: String) {
+    private fun ensureHelixSuccess(statusCode: Int, rateLimit: HelixRateLimit, body: String) {
         if (statusCode !in 200..299) {
             throw TwitchApiException(
                 statusCode = statusCode,
-                rateLimitResetEpochSeconds = rateLimitResetEpochSeconds,
+                rateLimitResetEpochSeconds = rateLimit.resetEpochSeconds,
+                rateLimitLimit = rateLimit.limit,
+                rateLimitRemaining = rateLimit.remaining,
                 message = "Twitch Helix request failed with HTTP $statusCode: ${body.take(240)}",
             )
         }
@@ -1032,7 +1140,19 @@ class HelixRepository(
         }
     }
 
-    suspend fun createEventSubSubscription(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, type: String?, sessionId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun createEventSubSubscription(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, type: String?, sessionId: String?): String? =
+        createEventSubSubscriptionResult(networkLibrary, headers, userId, channelId, type, sessionId)
+            .takeUnless { it.success }
+            ?.errorMessage
+
+    suspend fun createEventSubSubscriptionResult(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        userId: String?,
+        channelId: String?,
+        type: String?,
+        sessionId: String?,
+    ): EventSubSubscriptionResult = withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/eventsub/subscriptions"
         val body = buildJsonObject {
             put("type", type)
@@ -1068,11 +1188,11 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                if (response.info.httpStatusCode in 200..299) {
-                    null
-                } else {
-                    response.body.decodeToString()
-                }
+                parseEventSubSubscriptionResponse(
+                    statusCode = response.info.httpStatusCode,
+                    body = response.body.decodeToString(),
+                    rateLimitResetEpochSeconds = rateLimit(response.info.headers.asMap).resetEpochSeconds,
+                )
             }
             networkLibrary == C.CRONET && cronetEngine.value != null -> {
                 val response = suspendCancellableCoroutine { continuation ->
@@ -1093,11 +1213,11 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                if (response.info.httpStatusCode in 200..299) {
-                    null
-                } else {
-                    response.body.decodeToString()
-                }
+                parseEventSubSubscriptionResponse(
+                    statusCode = response.info.httpStatusCode,
+                    body = response.body.decodeToString(),
+                    rateLimitResetEpochSeconds = rateLimit(response.info.allHeaders).resetEpochSeconds,
+                )
             }
             else -> {
                 okHttpClient.value.newCall(Request.Builder().apply {
@@ -1106,14 +1226,44 @@ class HelixRepository(
                     header("Content-Type", "application/json")
                     post(body.toRequestBody())
                 }.build()).executeAsync().use { response ->
-                    if (response.isSuccessful) {
-                        null
-                    } else {
-                        response.body.string()
+                    response.use {
+                        parseEventSubSubscriptionResponse(
+                            statusCode = it.code,
+                            body = it.body.string(),
+                            rateLimitResetEpochSeconds = it.header("Ratelimit-Reset")?.toLongOrNull(),
+                        )
                     }
                 }
             }
         }
+    }
+
+    suspend fun getEventSubSubscription(
+        headers: Map<String, String>,
+        subscriptionId: String,
+    ): EventSubSubscriptionInfo = withContext(Dispatchers.IO) {
+        val url = "https://api.twitch.tv/helix/eventsub/subscriptions".toUri().buildUpon()
+            .appendQueryParameter("subscription_id", subscriptionId)
+            .build()
+            .toString()
+        okHttpClient.value.newCall(Request.Builder().apply {
+            url(url)
+            headers(headers.toHeaders())
+        }.build()).executeAsync().use { response ->
+            parseEventSubSubscriptionInfo(
+                json = json,
+                statusCode = response.code,
+                body = response.body.string(),
+            )
+        }
+    }
+
+    private fun parseEventSubSubscriptionResponse(
+        statusCode: Int,
+        body: String,
+        rateLimitResetEpochSeconds: Long?,
+    ): EventSubSubscriptionResult {
+        return parseEventSubSubscriptionResult(json, statusCode, body, rateLimitResetEpochSeconds)
     }
 
     suspend fun sendMessage(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, message: String?, replyId: String?): String? = withContext(Dispatchers.IO) {

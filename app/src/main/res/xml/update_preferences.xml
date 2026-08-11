@@ -1,0 +1,67 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory
+        android:key="updates_category"
+        android:title="@string/settings_general_updates"
+        app:iconSpaceReserved="false" />
+
+    <Preference
+        android:key="check_updates"
+        android:title="@string/check_updates"
+        android:summary="@string/check_updates_summary"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <Preference
+        android:key="update_available_details"
+        android:title="@string/update_available"
+        app:isPreferenceVisible="false"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <Preference
+        android:key="ignore_update"
+        android:title="@string/ignore_update"
+        app:isPreferenceVisible="false"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="update_check_enabled"
+        android:summary="@string/auto_check_updates_summary"
+        android:title="@string/auto_check_updates"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <EditTextPreference
+        android:defaultValue="1"
+        android:key="update_check_frequency"
+        android:title="@string/update_check_frequency"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="update_use_browser"
+        android:title="@string/update_using_browser"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <EditTextPreference
+        android:defaultValue="https://api.github.com/repos/thiscallnet/xtra/releases/latest"
+        android:key="update_url"
+        android:title="@string/update_url"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <Preference
+        android:key="last_update_check"
+        android:selectable="false"
+        android:title="@string/last_update_check"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+</androidx.preference.PreferenceScreen>
