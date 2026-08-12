@@ -115,6 +115,25 @@ class MultiviewQualityPolicyTest {
     }
 
     @Test
+    fun readyThenResourceFailureAppliesOneRecoveryStepToPolicy() {
+        var recovery = MultiviewQualityRecoveryState()
+        recovery = MultiviewQualityRecovery.onReady(recovery)
+        recovery = MultiviewQualityRecovery.onResourceFailure(recovery, now = 1_000L)
+
+        val target = MultiviewQualityPolicy.target(
+            input(
+                streamCount = 1,
+                active = true,
+                bufferingLevel = recovery.downgradeLevel,
+                resourcePressure = recovery.resourcePressure,
+            ),
+        )
+
+        assertEquals(1, recovery.downgradeLevel)
+        assertEquals(480, target.maxHeightPx)
+    }
+
+    @Test
     fun customModeLeavesUnoverriddenStreamAdaptive() {
         val target = MultiviewQualityPolicy.target(
             input(streamCount = 4, active = false, mode = MultiviewQualityMode.CUSTOM),

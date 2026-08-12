@@ -45,7 +45,7 @@ object MultiviewQualityPolicy {
             val recoveryCap = if (input.streamCount >= 3 && !input.isActive && !input.isFocused) 480 else 720
             val degradedCap = downgrade(
                 recoveryCap,
-                input.bufferingDowngradeLevel + 1,
+                recoveryLevel(input),
             )
             val manualCap = override ?: Int.MAX_VALUE
             val tileCap = tileCap(input.tileWidthPx, input.tileHeightPx, degradedCap)
@@ -82,14 +82,14 @@ object MultiviewQualityPolicy {
                 return unconstrained(if (input.mode == MultiviewQualityMode.CUSTOM) "CUSTOM · AUTO" else "AUTO")
             }
             val recoveryCap = if (input.streamCount >= 3 && !input.isActive && !input.isFocused) 480 else 720
-            val degradedCap = downgrade(recoveryCap, input.bufferingDowngradeLevel + if (input.resourcePressure) 1 else 0)
+            val degradedCap = downgrade(recoveryCap, recoveryLevel(input))
             val tileCap = tileCap(input.tileWidthPx, input.tileHeightPx, degradedCap)
             val effectiveHeight = minOf(degradedCap, tileCap)
             return constrainedHeight(effectiveHeight, "AUTO · ${effectiveHeight}p60")
         }
 
         val degradedCap = if (input.mode == MultiviewQualityMode.SMART) {
-            downgrade(normalCap, input.bufferingDowngradeLevel + if (input.resourcePressure) 1 else 0)
+            downgrade(normalCap, recoveryLevel(input))
         } else {
             normalCap
         }
@@ -167,6 +167,12 @@ object MultiviewQualityPolicy {
             }
         }
         return result
+    }
+
+    private fun recoveryLevel(input: MultiviewQualityInput): Int {
+        // The recovery state already increments its level for a decoder/resource
+        // failure. Do not count the boolean pressure marker as another step.
+        return maxOf(input.bufferingDowngradeLevel, if (input.resourcePressure) 1 else 0)
     }
 
     private fun parseHeight(label: String): Int? {

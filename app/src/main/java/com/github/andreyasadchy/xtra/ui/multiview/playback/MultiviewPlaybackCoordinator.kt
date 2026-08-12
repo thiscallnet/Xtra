@@ -325,7 +325,7 @@ class MultiviewPlaybackCoordinator(
                 slot.player.setMediaSource(source)
                 slot.hasMediaSource = true
                 applyQuality(slot)
-                slot.player.volume = if (slot.identity == activeIdentity) activeVolume() else 0f
+                updateAudio()
                 slot.player.prepare()
                 slot.player.playWhenReady = foreground && slot.shouldPlay
                 debugLog("channel=${slot.identity} playlistLoaded quality=${slot.target?.label} urlType=${if (slot.customProxy) "proxy" else "usher"} playerType=${slot.currentPlayerType ?: "custom"} alternate=${slot.usingAlternateStream} httpProxyDisabled=${slot.httpProxyDisabled}")
@@ -631,7 +631,7 @@ class MultiviewPlaybackCoordinator(
                 .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                 .build()
         }
-        slot.player.volume = 0f
+        updateAudio()
     }
 
     @androidx.media3.common.util.UnstableApi
@@ -695,7 +695,12 @@ class MultiviewPlaybackCoordinator(
     private fun updateAudio() {
         val volume = activeVolume()
         slots.values.forEach { slot ->
-            slot.player.volume = if (slot.identity == activeIdentity) volume else 0f
+            slot.player.volume = MultiviewAudioPolicy.volumeFor(
+                identity = slot.identity,
+                activeIdentity = activeIdentity,
+                hiddenForAd = slot.hiddenForAd,
+                activeVolume = volume,
+            )
         }
     }
 

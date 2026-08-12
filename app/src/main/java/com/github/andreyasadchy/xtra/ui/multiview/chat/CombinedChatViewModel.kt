@@ -26,6 +26,7 @@ class CombinedChatViewModel(
     private val sessions = linkedMapOf<String, ChannelSession>()
     private val messages = mutableListOf<CombinedChatMessage>()
     private var sequence = 0L
+    private var lifecycleStarted = false
     private val _updates = MutableSharedFlow<Unit>(
         extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -48,12 +49,23 @@ class CombinedChatViewModel(
                 val created = ChannelSession(identity, stream, chatViewModelFactory())
                 sessions[identity] = created
                 observe(created)
-                start(created)
+                if (lifecycleStarted) start(created)
             } else {
                 session.stream = stream
             }
         }
         _updates.tryEmit(Unit)
+    }
+
+    fun onStart() {
+        lifecycleStarted = true
+        sessions.values.filterNot(ChannelSession::networkActive).forEach(::start)
+    }
+
+    fun onStop() {
+        lifecycleStarted = false
+        if (applicationContext.prefs().getBoolean(C.PLAYER_KEEP_CHAT_OPEN, false)) return
+        sessions.values.forEach(ChannelSession::pause)
     }
 
     fun snapshot(filterIdentity: String? = null): List<CombinedChatMessage> {
@@ -123,15 +135,31 @@ class CombinedChatViewModel(
 
     private fun start(session: ChannelSession) {
         val stream = session.stream
+        val channelLogin = stream.channelLogin?.trim()?.takeIf { it.isNotBlank() } ?: return
         val preferences = applicationContext.prefs()
-        session.viewModel.startLive(
-            networkLibrary = preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-            recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
-            channelId = stream.channelId,
-            channelLogin = stream.channelLogin,
-            channelName = stream.channelName,
-            streamId = stream.id,
-        )
+        if (!session.hasStarted) {
+            session.viewModel.startLive(
+                networkLibrary = preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+                channelId = stream.channelId,
+                channelLogin = channelLogin,
+                channelName = stream.channelName,
+                streamId = stream.id,
+            )
+            session.hasStarted = true
+        } else {
+            // Match ChatFragment.reconnect(): restart the live transport and
+            // rehydrate recent messages without recreating the ViewModel.
+            session.viewModel.startLiveChat(stream.channelId, channelLogin)
+            if (preferences.getBoolean(C.CHAT_RECENT, true)) {
+                session.viewModel.loadRecentMessages(
+                    preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+                    channelLogin,
+                )
+            }
+        }
+        session.networkActive = true
     }
 
     private fun append(session: ChannelSession, message: ChatMessage) {
@@ -186,6 +214,15 @@ class CombinedChatViewModel(
     ) {
         val jobs = mutableListOf<Job>()
         var renderGeneration: Long = 0L
+        var hasStarted = false
+        var networkActive = false
+
+        fun pause() {
+            if (!networkActive) return
+            viewModel.stopLiveChat()
+            viewModel.stopReplayChat()
+            networkActive = false
+        }
 
         fun release() {
             jobs.forEach(Job::cancel)

@@ -89,6 +89,16 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        viewModel.onStart()
+    }
+
+    override fun onStop() {
+        viewModel.onStop()
+        super.onStop()
+    }
+
     fun updateStreams(streams: List<Stream>) {
         currentStreams = streams
         viewModel.ensureStreams(streams)
