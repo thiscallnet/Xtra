@@ -1,0 +1,5 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <Preference android:key="backup_settings" android:title="@string/settings_backup_action" app:iconSpaceReserved="false" />
+    <Preference android:key="restore_settings" android:title="@string/settings_restore_action" app:iconSpaceReserved="false" />
+    <Preference android:key="reset_settings" android:summary="@string/settings_reset_summary" android:title="@string/settings_reset_action" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

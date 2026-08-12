@@ -1,0 +1,3 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <ListPreference android:defaultValue="auto" android:entries="@array/languageEntries" android:entryValues="@array/language" android:key="ui_language" android:summary="%s" android:title="@string/settings_language" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

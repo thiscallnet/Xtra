@@ -46,6 +46,8 @@ import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService.Companion.MEDIA_PLAYLIST_REGEX
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService.Companion.MULTIVARIANT_PLAYLIST_REGEX
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.httpProxyHost
+import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.common.util.concurrent.Futures
@@ -91,15 +93,15 @@ class PlaybackService : MediaSessionService() {
             setLoadControl(
                 DefaultLoadControl.Builder().apply {
                     setBufferDurationsMs(
-                        prefs().getString(C.PLAYER_BUFFER_MIN, "15000")?.toIntOrNull() ?: 15000,
-                        prefs().getString(C.PLAYER_BUFFER_MAX, "50000")?.toIntOrNull() ?: 50000,
-                        prefs().getString(C.PLAYER_BUFFER_PLAYBACK, "2000")?.toIntOrNull() ?: 2000,
-                        prefs().getString(C.PLAYER_BUFFER_REBUFFER, "2000")?.toIntOrNull() ?: 2000
+                        15000,
+                        50000,
+                        2000,
+                        2000
                     )
                 }.build()
             )
             setAudioAttributes(AudioAttributes.DEFAULT, prefs().getBoolean(C.PLAYER_AUDIO_FOCUS, false))
-            setHandleAudioBecomingNoisy(prefs().getBoolean(C.PLAYER_HANDLE_AUDIO_BECOMING_NOISY, true))
+            setHandleAudioBecomingNoisy(true)
             setSeekBackIncrementMs((prefs().getString(C.PLAYER_REWIND, "10")?.toLongOrNull() ?: 10) * 1000)
             setSeekForwardIncrementMs((prefs().getString(C.PLAYER_FORWARD, "10")?.toLongOrNull() ?: 10) * 1000)
         }.build()
@@ -230,8 +232,8 @@ class PlaybackService : MediaSessionService() {
                                 videoId = null
                                 offlineVideoId = null
                                 proxyMediaPlaylist = false
-                                val proxyHost = prefs().getString(C.PROXY_HOST, null)
-                                val proxyPort = prefs().getString(C.PROXY_PORT, null)?.toIntOrNull()
+                                val proxyHost = prefs().httpProxyHost()
+                                val proxyPort = prefs().httpProxyPort()
                                 val proxyUser = prefs().getString(C.PROXY_USER, null)
                                 val proxyPassword = prefs().getString(C.PROXY_PASSWORD, null)
                                 val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
@@ -242,7 +244,7 @@ class PlaybackService : MediaSessionService() {
                                             when {
                                                 networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
                                                     val proxyMultivariantPlaylist = prefs().getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false) && !proxyHost.isNullOrBlank() && proxyPort != null
-                                                    val proxyMediaPlaylist = prefs().getBoolean(C.PROXY_MEDIA_PLAYLIST, true) && !proxyHost.isNullOrBlank() && proxyPort != null
+                                                    val proxyMediaPlaylist = !proxyHost.isNullOrBlank() && proxyPort != null
                                                     val proxyClient = if (proxyMultivariantPlaylist || proxyMediaPlaylist) {
                                                         val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
                                                             listOf(android.util.Pair("Proxy-Authorization", Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)))
@@ -325,7 +327,7 @@ class PlaybackService : MediaSessionService() {
                                                 }
                                                 networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
                                                     val proxyMultivariantPlaylist = prefs().getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false) && !proxyHost.isNullOrBlank() && proxyPort != null
-                                                    val proxyMediaPlaylist = prefs().getBoolean(C.PROXY_MEDIA_PLAYLIST, true) && !proxyHost.isNullOrBlank() && proxyPort != null
+                                                    val proxyMediaPlaylist = !proxyHost.isNullOrBlank() && proxyPort != null
                                                     val proxyClient = if ((proxyMultivariantPlaylist || proxyMediaPlaylist) && CronetProvider.getAllProviders(application).any { it.isEnabled }) {
                                                         val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
                                                             mapOf("Proxy-Authorization" to Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)).entries.toList()
@@ -436,7 +438,7 @@ class PlaybackService : MediaSessionService() {
                                                             }
                                                         }.build()
                                                     } else null
-                                                    val mediaPlaylistProxyClient = if (prefs().getBoolean(C.PROXY_MEDIA_PLAYLIST, true) && !proxyHost.isNullOrBlank() && proxyPort != null) {
+                                                    val mediaPlaylistProxyClient = if (!proxyHost.isNullOrBlank() && proxyPort != null) {
                                                         xtraModule.okHttpClient.value.newBuilder().apply {
                                                             proxySelector(
                                                                 object : ProxySelector() {
@@ -487,9 +489,7 @@ class PlaybackService : MediaSessionService() {
                                             setUri(uri?.toUri())
                                             setMimeType(MimeTypes.APPLICATION_M3U8)
                                             setLiveConfiguration(MediaItem.LiveConfiguration.Builder().apply {
-                                                prefs().getString(C.PLAYER_LIVE_MIN_SPEED, "")?.toFloatOrNull()?.let { setMinPlaybackSpeed(it) }
-                                                prefs().getString(C.PLAYER_LIVE_MAX_SPEED, "")?.toFloatOrNull()?.let { setMaxPlaybackSpeed(it) }
-                                                prefs().getString(C.PLAYER_LIVE_TARGET_OFFSET, "2000")?.toLongOrNull()?.let { setTargetOffsetMs(it) }
+                                                setTargetOffsetMs(2000L)
                                             }.build())
                                             setMediaMetadata(
                                                 MediaMetadata.Builder().apply {
@@ -835,10 +835,7 @@ class PlaybackService : MediaSessionService() {
         val keepPlayback = player?.playWhenReady == true
                 && player.playbackState != Player.STATE_ENDED
                 && prefs().getBoolean(C.PLAYER_KEEP_PLAYING_AFTER_TASK_REMOVED, true)
-                && prefs().getBoolean(
-                    if (isInteractive) C.PLAYER_BACKGROUND_AUDIO else C.PLAYER_BACKGROUND_AUDIO_LOCKED,
-                    true,
-                )
+                && prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)
         if (keepPlayback) {
             backgroundPlayback = true
             return

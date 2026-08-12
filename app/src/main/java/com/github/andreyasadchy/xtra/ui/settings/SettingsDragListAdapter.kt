@@ -26,6 +26,7 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
 ) {
     var itemTouchHelper: ItemTouchHelper? = null
     var setDefault: ((SettingsDragListItem) -> Unit)? = null
+    var cycleGroup: ((SettingsDragListItem) -> Unit)? = null
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = SettingsDragListItemBinding.inflate(LayoutInflater.from(parent.context), parent, false)
@@ -47,8 +48,21 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     false
                 }
                 text.text = item.text
-                if (setDefault != null) {
+                if (cycleGroup != null) {
                     setAsDefault.visibility = View.VISIBLE
+                    setAsDefault.contentDescription = "Move to ${when (item.group) {
+                        "quick" -> "More menu"
+                        "menu" -> "Hidden"
+                        else -> "Quick controls"
+                    }}"
+                    setAsDefault.setOnClickListener { cycleGroup!!(item) }
+                    setAsDefault.setImageResource(
+                        if (item.group == "quick") R.drawable.baseline_home_black_24 else R.drawable.outline_home_black_24
+                    )
+                    checkBox.visibility = View.GONE
+                } else if (setDefault != null) {
+                    setAsDefault.visibility = View.VISIBLE
+                    checkBox.visibility = View.GONE
                     setAsDefault.setOnClickListener {
                         setAsDefault.setImageResource(R.drawable.baseline_home_black_24)
                         setAsDefault.isClickable = false
@@ -63,11 +77,11 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     }
                 } else {
                     setAsDefault.visibility = View.GONE
-                }
-                checkBox.visibility = View.VISIBLE
-                checkBox.isChecked = item.enabled
-                checkBox.setOnCheckedChangeListener { buttonView, isChecked ->
-                    item.enabled = isChecked
+                    checkBox.visibility = View.VISIBLE
+                    checkBox.isChecked = item.enabled
+                    checkBox.setOnCheckedChangeListener { _, isChecked ->
+                        item.enabled = isChecked
+                    }
                 }
             }
         }

@@ -1,66 +1,7 @@
-<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
-
-    <PreferenceCategory
-        android:title="@string/general_settings"
-        app:iconSpaceReserved="false" />
-
-    <ListPreference
-        android:defaultValue="auto"
-        android:entries="@array/languageEntries"
-        android:entryValues="@array/language"
-        android:key="ui_language"
-        android:summary="%s"
-        android:title="@string/language"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <SwitchPreferenceCompat
-        android:defaultValue="false"
-        android:key="ui_draw_behind_cutouts"
-        android:title="@string/draw_behind_cutouts"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <PreferenceCategory
-        android:title="@string/settings_general_data"
-        app:iconSpaceReserved="false" />
-
-    <Preference
-        android:key="backup_settings"
-        android:title="@string/backup_settings"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <Preference
-        android:key="restore_settings"
-        android:title="@string/restore_settings"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <PreferenceCategory
-        android:title="@string/settings_general_about"
-        app:iconSpaceReserved="false" />
-
-    <Preference
-        android:key="app_version"
-        android:selectable="false"
-        android:title="@string/app_version"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <Preference
-        android:key="app_build"
-        android:selectable="false"
-        android:title="@string/app_build"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <Preference
-        android:key="app_package"
-        android:selectable="false"
-        android:title="@string/app_package"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <ListPreference android:defaultValue="auto" android:entries="@array/languageEntries" android:entryValues="@array/language" android:key="ui_language" android:summary="%s" android:title="@string/settings_language" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_backup_restore" app:iconSpaceReserved="false" />
+    <Preference android:key="backup_settings" android:title="@string/settings_backup_action" app:iconSpaceReserved="false" />
+    <Preference android:key="restore_settings" android:title="@string/settings_restore_action" app:iconSpaceReserved="false" />
+    <Preference android:key="reset_settings" android:summary="@string/settings_reset_summary" android:title="@string/settings_reset_action" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

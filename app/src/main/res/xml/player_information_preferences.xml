@@ -1,0 +1,9 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="player_channel" android:title="@string/player_channel" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="player_title" android:title="@string/show_title" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="player_category" android:title="@string/show_category" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="player_show_uptime" android:title="@string/show_uptime" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="player_viewerlist" android:title="@string/player_viewerlist" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="player_viewericon" android:title="@string/show_view_count_icon" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="player_pause" android:title="@string/player_pause" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

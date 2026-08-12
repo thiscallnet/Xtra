@@ -45,6 +45,8 @@ import com.github.andreyasadchy.xtra.util.chat.ChatReadWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.httpProxyHost
+import com.github.andreyasadchy.xtra.util.httpProxyPort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -197,7 +199,7 @@ class StreamDownloadService : LifecycleService() {
     }
 
     private suspend fun downloadStream(currentOfflineVideo: OfflineVideo, currentDownloadProgress: DownloadProgress, downloadJob: DownloadJob, channelLogin: String) = withContext(Dispatchers.IO) {
-        val offlineCheck = max(prefs().getString(C.DOWNLOAD_STREAM_OFFLINE_CHECK, "10")?.toLongOrNull() ?: 10L, 2L) * 1000L
+        val offlineCheck = 10_000L
         val startWait = (prefs().getString(C.DOWNLOAD_STREAM_START_WAIT, "120")?.toLongOrNull())?.times(60000L)
         val endWait = (prefs().getString(C.DOWNLOAD_STREAM_END_WAIT, "15")?.toLongOrNull())?.times(60000L)
         val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
@@ -208,8 +210,8 @@ class StreamDownloadService : LifecycleService() {
         val supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264")
         val proxyPlaybackAccessToken = prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false)
         val proxyMultivariantPlaylist = prefs().getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false)
-        val proxyHost = prefs().getString(C.PROXY_HOST, null)
-        val proxyPort = prefs().getString(C.PROXY_PORT, null)?.toIntOrNull()
+        val proxyHost = prefs().httpProxyHost()
+        val proxyPort = prefs().httpProxyPort()
         val proxyUser = prefs().getString(C.PROXY_USER, null)
         val proxyPassword = prefs().getString(C.PROXY_PASSWORD, null)
         var offlineVideo = currentOfflineVideo
@@ -612,7 +614,7 @@ class StreamDownloadService : LifecycleService() {
 
     private suspend fun download(offlineVideo: OfflineVideo, downloadProgress: DownloadProgress, downloadJob: DownloadJob, channelLogin: String, sourceUrl: String, path: String, networkLibrary: String?) = withContext(Dispatchers.IO) {
         val isShared = path.toUri().scheme == ContentResolver.SCHEME_CONTENT
-        val liveCheck = max(prefs().getString(C.DOWNLOAD_STREAM_LIVE_CHECK, "2")?.toLongOrNull() ?: 2L, 2L) * 1000L
+        val liveCheck = 2_000L
         val downloadDate = System.currentTimeMillis()
         var startTime = System.currentTimeMillis()
         var lastUrl = downloadProgress.lastSegmentUrl
@@ -799,7 +801,7 @@ class StreamDownloadService : LifecycleService() {
             }
             fileUri
         }
-        val requestSemaphore = Semaphore(prefs().getInt(C.DOWNLOAD_CONCURRENT_LIMIT, 10))
+        val requestSemaphore = Semaphore(10)
         val mutexMap = mutableMapOf<Int, Mutex>()
         val count = MutableStateFlow(0)
         downloadProgress.lastSaved = System.currentTimeMillis()
@@ -1270,8 +1272,8 @@ class StreamDownloadService : LifecycleService() {
         val downloadEmotes = offlineVideo.downloadChatEmotes
         val gqlHeaders = TwitchApiHelper.getGQLHeaders(this@StreamDownloadService, true)
         val helixHeaders = TwitchApiHelper.getHelixHeaders(this@StreamDownloadService)
-        val emoteQuality = prefs().getString(C.CHAT_IMAGE_QUALITY, "4") ?: "4"
-        val useWebp = prefs().getBoolean(C.CHAT_USE_WEBP, true)
+        val emoteQuality = "4"
+        val useWebp = true
         val channelId = offlineVideo.channelId
         val globalBadgeList = mutableListOf<TwitchBadge>()
         val channelBadgeList = mutableListOf<TwitchBadge>()

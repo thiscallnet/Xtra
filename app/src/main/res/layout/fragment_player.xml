@@ -43,14 +43,14 @@
                 android:indeterminate="true"
                 android:visibility="gone" />
 
-            <include
-                android:id="@+id/playerControls"
-                layout="@layout/player_layout" />
-
             <View
                 android:id="@+id/dragView"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
+
+            <include
+                android:id="@+id/playerControls"
+                layout="@layout/player_layout" />
 
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/playerErrorContainer"

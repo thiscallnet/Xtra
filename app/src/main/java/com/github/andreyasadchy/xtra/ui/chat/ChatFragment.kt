@@ -63,6 +63,7 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.chat.PollState
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.util.isChatEnabled
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.reduceDragSensitivity
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -242,7 +243,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     }.collectLatest(::updateActivityIndicator)
                 }
             }
-            if (!requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)) {
+            if (requireContext().prefs().isChatEnabled()) {
                 val args = requireArguments()
                 val channelId = args.getString(KEY_CHANNEL_ID)
                 val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
@@ -291,17 +292,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         backgroundColor = MaterialColors.getColor(requireView(), com.google.android.material.R.attr.colorSurface),
                         dialogBackgroundColor = MaterialColors.getColor(
                             requireView(),
-                            if (requireContext().prefs().getBoolean(C.UI_THEME_MATERIAL3, true)) {
-                                com.google.android.material.R.attr.colorSurfaceContainerLow
-                            } else {
-                                com.google.android.material.R.attr.colorSurface
-                            }
+                            com.google.android.material.R.attr.colorSurfaceContainerLow
                         ),
-                        imageLibrary = requireContext().prefs().getString(C.CHAT_IMAGE_LIBRARY, "0"),
+                        imageLibrary = "0",
                         messageTextSize = (requireContext().prefs().getString(C.CHAT_TEXT_SIZE, "14")?.toFloatOrNull() ?: 14f) * sizeModifier,
                         emoteSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, (requireContext().prefs().getString(C.CHAT_EMOTE_SIZE, "29.5")?.toFloatOrNull() ?: 29.5f) * sizeModifier, resources.displayMetrics).toInt(),
-                        badgeSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, (requireContext().prefs().getString(C.CHAT_BADGE_SIZE, "18.5")?.toFloatOrNull() ?: 18.5f) * sizeModifier, resources.displayMetrics).toInt(),
-                        emoteQuality = requireContext().prefs().getString(C.CHAT_IMAGE_QUALITY, "4") ?: "4",
+                        badgeSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 18.5f * sizeModifier, resources.displayMetrics).toInt(),
+                        emoteQuality = "4",
                         animateGifs = requireContext().prefs().getBoolean(C.ANIMATED_EMOTES, true),
                         enableOverlayEmotes = requireContext().prefs().getBoolean(C.CHAT_ZERO_WIDTH, true),
                         translateMessage = this@ChatFragment::onTranslateMessageClicked,
@@ -869,14 +866,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun initialize() {
-        if (!requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)) {
+        if (requireContext().prefs().isChatEnabled()) {
             val args = requireArguments()
             val channelId = args.getString(KEY_CHANNEL_ID)
             val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
             if (args.getBoolean(KEY_IS_LIVE)) {
                 viewModel.startLive(
                     requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    requireContext().prefs().getString(C.CHAT_RECENT_MESSAGES_URL, "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel"),
+                    "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
                     channelId,
                     channelLogin,
                     args.getString(KEY_CHANNEL_NAME),
@@ -936,7 +933,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             if (requireContext().prefs().getBoolean(C.CHAT_RECENT, true)) {
                 viewModel.loadRecentMessages(
                     requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    requireContext().prefs().getString(C.CHAT_RECENT_MESSAGES_URL, "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel"),
+                    "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
                     channelLogin,
                 )
             }

@@ -157,13 +157,10 @@ object TwitchApiHelper {
     fun getTimestamp(input: Long, timestampFormat: String?): String? {
         val pattern = when (timestampFormat) {
             "0" -> "H:mm"
-            "1" -> "HH:mm"
-            "2" -> "H:mm:ss"
-            "3" -> "HH:mm:ss"
-            "4" -> "h:mm a"
-            "5" -> "hh:mm a"
-            "6" -> "h:mm:ss a"
-            else -> "hh:mm:ss a"
+            "1" -> "H:mm:ss"
+            "2" -> "h:mm a"
+            "3" -> "h:mm:ss a"
+            else -> "H:mm"
         }
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -259,7 +256,7 @@ object TwitchApiHelper {
                     }
                 }
             } else {
-                val gqlClientId = context.prefs().getString(C.GQL_CLIENT_ID2, "kd1unb4b3q4t58fwlpcbzcbnm76a8fp")
+                val gqlClientId = context.prefs().getString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2)
                 val gqlToken = if (includeToken) {
                     context.tokenPrefs().getString(C.GQL_TOKEN2, null)?.takeIf { it.isNotBlank() }
                 } else {
@@ -276,7 +273,7 @@ object TwitchApiHelper {
                 if (!gqlToken.isNullOrBlank()) {
                     put(C.HEADER_TOKEN, addTokenPrefixGQL(gqlToken))
                 } else if (!gqlWebToken.isNullOrBlank()) {
-                    context.prefs().getString(C.GQL_CLIENT_ID_WEB, "kimne78kx3ncx6brgo4mv6wki5h1ko")?.let {
+                    context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)?.let {
                         if (it.isNotBlank()) {
                             put(C.HEADER_CLIENT_ID, it)
                         }
@@ -289,7 +286,7 @@ object TwitchApiHelper {
 
     fun getHelixHeaders(context: Context): Map<String, String> {
         return mutableMapOf<String, String>().apply {
-            context.prefs().getString(C.HELIX_CLIENT_ID, "ilfexgv3nnljz3isbm257gzwrzr7bi")?.let {
+            context.prefs().getString(C.HELIX_CLIENT_ID, C.DEFAULT_HELIX_CLIENT_ID)?.let {
                 if (it.isNotBlank()) {
                     put(C.HEADER_CLIENT_ID, it)
                 }

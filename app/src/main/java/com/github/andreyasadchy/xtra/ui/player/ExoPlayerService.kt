@@ -76,6 +76,8 @@ import com.github.andreyasadchy.xtra.util.MediaButtonReceiver
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.httpProxyHost
+import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.prefs
@@ -234,9 +236,6 @@ class ExoPlayerService : BasePlaybackService() {
                                     val audio = find { it.name?.startsWith("audio", true) == true }
                                     audio?.let { remove(it) }
                                     add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
-                                    if (type == STREAM) {
-                                        add(VideoQuality(CHAT_ONLY_QUALITY))
-                                    }
                                 }
                             setDefaultQuality()
                             serviceListener?.changePlayerMode()
@@ -251,9 +250,8 @@ class ExoPlayerService : BasePlaybackService() {
                     if (type == STREAM) {
                         val avoidAds = prefs().shouldAvoidTwitchAds()
                         val suppressAds = avoidAds
-                        val useProxy = prefs().getBoolean(C.PROXY_MEDIA_PLAYLIST, true)
-                                && !prefs().getString(C.PROXY_HOST, null).isNullOrBlank()
-                                && prefs().getString(C.PROXY_PORT, null)?.toIntOrNull() != null
+                        val useProxy = prefs().httpProxyHost() != null
+                                && prefs().httpProxyPort() != null
                         if (suppressAds || useProxy) {
                             val playlist = (player?.currentManifest as? HlsManifest)?.mediaPlaylist
                             val ads = playlist?.let { TwitchAdDetector.isAd(it) } == true
@@ -552,15 +550,15 @@ class ExoPlayerService : BasePlaybackService() {
                 setLoadControl(
                     DefaultLoadControl.Builder().apply {
                         setBufferDurationsMs(
-                            prefs().getString(C.PLAYER_BUFFER_MIN, "15000")?.toIntOrNull() ?: 15000,
-                            prefs().getString(C.PLAYER_BUFFER_MAX, "50000")?.toIntOrNull() ?: 50000,
-                            prefs().getString(C.PLAYER_BUFFER_PLAYBACK, "2000")?.toIntOrNull() ?: 2000,
-                            prefs().getString(C.PLAYER_BUFFER_REBUFFER, "2000")?.toIntOrNull() ?: 2000
+                            15000,
+                            50000,
+                            2000,
+                            2000
                         )
                     }.build()
                 )
                 setAudioAttributes(AudioAttributes.DEFAULT, prefs().getBoolean(C.PLAYER_AUDIO_FOCUS, false))
-                setHandleAudioBecomingNoisy(prefs().getBoolean(C.PLAYER_HANDLE_AUDIO_BECOMING_NOISY, true))
+                setHandleAudioBecomingNoisy(true)
                 setSeekBackIncrementMs((prefs().getString(C.PLAYER_REWIND, "10")?.toLongOrNull() ?: 10) * 1000)
                 setSeekForwardIncrementMs((prefs().getString(C.PLAYER_FORWARD, "10")?.toLongOrNull() ?: 10) * 1000)
             }.build()
@@ -813,8 +811,8 @@ class ExoPlayerService : BasePlaybackService() {
                     playerTypes = playerTypes,
                     supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
                     proxyPlaybackAccessToken = prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-                    proxyHost = prefs().getString(C.PROXY_HOST, null),
-                    proxyPort = prefs().getString(C.PROXY_PORT, null)?.toIntOrNull(),
+                    proxyHost = prefs().httpProxyHost(),
+                    proxyPort = prefs().httpProxyPort(),
                     proxyUser = prefs().getString(C.PROXY_USER, null),
                     proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
                     enableIntegrity = prefs().getBoolean(C.ENABLE_INTEGRITY, false),
@@ -867,8 +865,8 @@ class ExoPlayerService : BasePlaybackService() {
                         playerTypes = listOf(primaryPlayerType),
                         supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
                         proxyPlaybackAccessToken = prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-                        proxyHost = prefs().getString(C.PROXY_HOST, null),
-                        proxyPort = prefs().getString(C.PROXY_PORT, null)?.toIntOrNull(),
+                        proxyHost = prefs().httpProxyHost(),
+                        proxyPort = prefs().httpProxyPort(),
                         proxyUser = prefs().getString(C.PROXY_USER, null),
                         proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
                         enableIntegrity = prefs().getBoolean(C.ENABLE_INTEGRITY, false),
@@ -936,8 +934,8 @@ class ExoPlayerService : BasePlaybackService() {
                             playerType = prefs().getString(C.TOKEN_PLAYER_TYPE, "site"),
                             supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
                             proxyPlaybackAccessToken = prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-                            proxyHost = prefs().getString(C.PROXY_HOST, null),
-                            proxyPort = prefs().getString(C.PROXY_PORT, null)?.toIntOrNull(),
+                            proxyHost = prefs().httpProxyHost(),
+                            proxyPort = prefs().httpProxyPort(),
                             proxyUser = prefs().getString(C.PROXY_USER, null),
                             proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
                             enableIntegrity = prefs().getBoolean(C.ENABLE_INTEGRITY, false)
@@ -956,8 +954,8 @@ class ExoPlayerService : BasePlaybackService() {
                 player?.let { player ->
                     proxyMediaPlaylist = false
                     val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-                    val proxyHost = prefs().getString(C.PROXY_HOST, null)
-                    val proxyPort = prefs().getString(C.PROXY_PORT, null)?.toIntOrNull()
+                    val proxyHost = prefs().httpProxyHost()
+                    val proxyPort = prefs().httpProxyPort()
                     val proxyUser = prefs().getString(C.PROXY_USER, null)
                     val proxyPassword = prefs().getString(C.PROXY_PASSWORD, null)
                     player.setMediaSource(
@@ -967,7 +965,7 @@ class ExoPlayerService : BasePlaybackService() {
                                 when {
                                     networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
                                         val proxyMultivariantPlaylist = prefs().getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false) && !proxyHost.isNullOrBlank() && proxyPort != null
-                                        val proxyMediaPlaylist = prefs().getBoolean(C.PROXY_MEDIA_PLAYLIST, true) && !proxyHost.isNullOrBlank() && proxyPort != null
+                                        val proxyMediaPlaylist = !proxyHost.isNullOrBlank() && proxyPort != null
                                         val proxyClient = if (proxyMultivariantPlaylist || proxyMediaPlaylist) {
                                             val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
                                                 listOf(android.util.Pair("Proxy-Authorization", Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)))
@@ -1050,7 +1048,7 @@ class ExoPlayerService : BasePlaybackService() {
                                     }
                                     networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
                                         val proxyMultivariantPlaylist = prefs().getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false) && !proxyHost.isNullOrBlank() && proxyPort != null
-                                        val proxyMediaPlaylist = prefs().getBoolean(C.PROXY_MEDIA_PLAYLIST, true) && !proxyHost.isNullOrBlank() && proxyPort != null
+                                        val proxyMediaPlaylist = !proxyHost.isNullOrBlank() && proxyPort != null
                                         val proxyClient = if ((proxyMultivariantPlaylist || proxyMediaPlaylist) && CronetProvider.getAllProviders(application).any { it.isEnabled }) {
                                             val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
                                                 mapOf("Proxy-Authorization" to Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)).entries.toList()
@@ -1161,7 +1159,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                 }
                                             }.build()
                                         } else null
-                                        val mediaPlaylistProxyClient = if (prefs().getBoolean(C.PROXY_MEDIA_PLAYLIST, true) && !proxyHost.isNullOrBlank() && proxyPort != null) {
+                                        val mediaPlaylistProxyClient = if (!proxyHost.isNullOrBlank() && proxyPort != null) {
                                             xtraModule.okHttpClient.value.newBuilder().apply {
                                                 proxySelector(
                                                     object : ProxySelector() {
@@ -1213,9 +1211,7 @@ class ExoPlayerService : BasePlaybackService() {
                                 setUri(url.toUri())
                                 setMimeType(MimeTypes.APPLICATION_M3U8)
                                 setLiveConfiguration(MediaItem.LiveConfiguration.Builder().apply {
-                                    prefs().getString(C.PLAYER_LIVE_MIN_SPEED, "")?.toFloatOrNull()?.let { setMinPlaybackSpeed(it) }
-                                    prefs().getString(C.PLAYER_LIVE_MAX_SPEED, "")?.toFloatOrNull()?.let { setMaxPlaybackSpeed(it) }
-                                    prefs().getString(C.PLAYER_LIVE_TARGET_OFFSET, "2000")?.toLongOrNull()?.let { setTargetOffsetMs(it) }
+                                    setTargetOffsetMs(2000L)
                                 }.build())
                             }.build()
                         )
@@ -1699,23 +1695,10 @@ class ExoPlayerService : BasePlaybackService() {
                 previousQuality = quality
                 quality = qualities?.find { it.name == AUDIO_ONLY_QUALITY }
                 quality?.let { quality ->
-                    player.currentMediaItem?.let { mediaItem ->
-                        if (prefs().getBoolean(C.PLAYER_DISABLE_BACKGROUND_VIDEO, true)) {
-                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
-                                setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
-                            }.build()
-                        }
-                        if (prefs().getBoolean(C.PLAYER_USE_BACKGROUND_AUDIO_TRACK, false)) {
-                            quality.url?.let { url ->
-                                val position = player.currentPosition
-                                if (qualities?.find { it.name == AUTO_QUALITY } != null) {
-                                    restorePlaylist = true
-                                }
-                                player.setMediaItem(mediaItem.buildUpon().setUri(url).build())
-                                player.prepare()
-                                player.seekTo(position)
-                            }
-                        }
+                    if (player.currentMediaItem != null) {
+                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                            setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
+                        }.build()
                     }
                 }
             }
@@ -1727,38 +1710,11 @@ class ExoPlayerService : BasePlaybackService() {
             proxyMediaPlaylist = false
             resumeWhenForeground = false
             val isInteractive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
-            if ((!isInPIPMode && isInteractive && prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO, true))
-                || (!isInPIPMode && !isInteractive && prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO_LOCKED, true))
-                || (isInPIPMode && isInteractive && prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO_PIP_CLOSED, true))
-                || (isInPIPMode && !isInteractive && prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO_PIP_LOCKED, true))) {
+            if (prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
                 if (player.playWhenReady && quality?.name != AUDIO_ONLY_QUALITY) {
-                    val useBackgroundAudioTrack = prefs().getBoolean(C.PLAYER_USE_BACKGROUND_AUDIO_TRACK, false)
-                    if (useBackgroundAudioTrack) {
-                        restoreQuality = true
-                        previousQuality = quality
-                        quality = qualities?.find { it.name == AUDIO_ONLY_QUALITY }
-                    }
-                    player.currentMediaItem?.let { mediaItem ->
-                        if (prefs().getBoolean(C.PLAYER_DISABLE_BACKGROUND_VIDEO, true) && useBackgroundAudioTrack) {
-                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
-                                setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
-                            }.build()
-                        }
-                        if (prefs().getBoolean(C.PLAYER_DISABLE_BACKGROUND_VIDEO, true) && !useBackgroundAudioTrack) {
-                            backgroundVideoDisabled = true
-                            serviceListener?.changeSurfaceVisibility(false)
-                        }
-                        if (useBackgroundAudioTrack) {
-                            quality?.url?.let { url ->
-                                val position = player.currentPosition
-                                if (qualities?.find { it.name == AUTO_QUALITY } != null) {
-                                    restorePlaylist = true
-                                }
-                                player.setMediaItem(mediaItem.buildUpon().setUri(url).build())
-                                player.prepare()
-                                player.seekTo(position)
-                            }
-                        }
+                    if (player.currentMediaItem != null) {
+                        backgroundVideoDisabled = true
+                        serviceListener?.changeSurfaceVisibility(false)
                     }
                 }
             } else {
@@ -2310,10 +2266,7 @@ class ExoPlayerService : BasePlaybackService() {
         val keepPlayback = player?.playWhenReady == true
                 && player?.playbackState != Player.STATE_ENDED
                 && prefs().getBoolean(C.PLAYER_KEEP_PLAYING_AFTER_TASK_REMOVED, true)
-                && prefs().getBoolean(
-                    if (isInteractive) C.PLAYER_BACKGROUND_AUDIO else C.PLAYER_BACKGROUND_AUDIO_LOCKED,
-                    true,
-                )
+                && prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)
         if (keepPlayback) {
             return
         }

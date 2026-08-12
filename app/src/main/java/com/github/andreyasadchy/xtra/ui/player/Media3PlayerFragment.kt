@@ -76,14 +76,16 @@ import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.RadioButtonDialogFragment
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
-import com.github.andreyasadchy.xtra.ui.game.GameMediaFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerViewModel.Companion.Media3PlayerViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.util.httpProxyHost
+import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.isKeyboardShown
+import com.github.andreyasadchy.xtra.util.isChatEnabled
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -240,15 +242,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     }
                 }
             }
-            if (requireContext().prefs().getBoolean(C.PLAYER_KEEP_SCREEN_ON_WHEN_PAUSED, false)) {
-                view.keepScreenOn = true
-            }
             if (isMaximized) {
                 enableBackground()
             } else {
                 disableBackground()
             }
-            isChatOpen = requireContext().prefs().getBoolean(C.KEY_CHAT_OPENED, true) && !requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)
+            isChatOpen = requireContext().prefs().getBoolean(C.KEY_CHAT_OPENED, true) && requireContext().prefs().isChatEnabled()
             chatWidthLandscape = requireContext().prefs().getInt(C.LANDSCAPE_CHAT_WIDTH, 0)
             resizeMode = requireContext().prefs().getInt(C.ASPECT_RATIO_LANDSCAPE, AspectRatioFrameLayout.RESIZE_MODE_FIT)
             aspectRatioFrameLayout.setAspectRatio(16f / 9f)
@@ -259,7 +258,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             val touchSlopRange = -touchSlop.toFloat()..touchSlop.toFloat()
             val longPressTimeout = ViewConfiguration.getLongPressTimeout()
             val moveFreely = requireContext().prefs().getBoolean(C.PLAYER_MOVE_FREELY, false)
-            val doubleTap = requireContext().prefs().getBoolean(C.PLAYER_DOUBLE_TAP, true) && !requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)
+            val doubleTap = requireContext().prefs().getBoolean(C.PLAYER_DOUBLE_TAP, true) && requireContext().prefs().isChatEnabled()
             val controllerTapDetector = GestureDetector(
                 requireContext(),
                 object : GestureDetector.SimpleOnGestureListener() {
@@ -597,9 +596,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 true
             }
             with(playerControls) {
-                root.setOnTouchListener { _, event ->
-                    controllerTapDetector.onTouchEvent(event)
-                }
                 playPause.setOnClickListener {
                     showController(force = true)
                     playPause()
@@ -689,21 +685,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     category.isFocusable = true
                     category.contentDescription = getString(R.string.player_open_category, gameName)
                     category.setOnClickListener {
-                        findNavController().navigate(
-                            if (requireContext().prefs().getBoolean(C.UI_GAME_PAGER, true)) {
-                                GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                                    gameId = requireArguments().getString(KEY_GAME_ID),
-                                    gameSlug = requireArguments().getString(KEY_GAME_SLUG),
-                                    gameName = gameName
-                                )
-                            } else {
-                                GameMediaFragmentDirections.actionGlobalGameMediaFragment(
-                                    gameId = requireArguments().getString(KEY_GAME_ID),
-                                    gameSlug = requireArguments().getString(KEY_GAME_SLUG),
-                                    gameName = gameName
-                                )
-                            }
-                        )
+                        findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                            gameId = requireArguments().getString(KEY_GAME_ID),
+                            gameSlug = requireArguments().getString(KEY_GAME_SLUG),
+                            gameName = gameName
+                        ))
                         minimize()
                     }
                 }
@@ -729,10 +715,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     audioOnly.visibility = View.VISIBLE
                     audioOnly.setOnClickListener {
                         showController(force = true)
-                        if (viewModel.quality?.name == AUDIO_ONLY_QUALITY) {
-                            changeQuality(viewModel.previousQuality)
-                        } else {
-                            changeQuality(viewModel.qualities?.find { it.name == AUDIO_ONLY_QUALITY })
+                        when (viewModel.quality?.name) {
+                            AUDIO_ONLY_QUALITY -> changeQuality(VideoQuality(CHAT_ONLY_QUALITY))
+                            CHAT_ONLY_QUALITY -> changeQuality(viewModel.previousQuality)
+                            else -> changeQuality(viewModel.qualities?.find { it.name == AUDIO_ONLY_QUALITY })
                         }
                         changePlayerMode()
                     }
@@ -778,7 +764,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
                                 !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank())
                     ) {
-                        if (requireContext().prefs().getBoolean(C.PLAYER_CHAT_BAR_TOGGLE, false) && !requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)) {
+                        if (requireContext().prefs().getBoolean(C.PLAYER_CHAT_BAR_TOGGLE, false) && requireContext().prefs().isChatEnabled()) {
                             toggleChatInput.visibility = View.VISIBLE
                             toggleChatInput.setOnClickListener {
                                 showController(force = true)
@@ -813,14 +799,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             viewModel.stream.collectLatest { stream ->
                                 if (stream != null) {
                                     stream.id?.let { chatFragment?.updateStreamId(it) }
-                                    if (requireContext().prefs().getBoolean(C.CHAT_DISABLE, false) ||
-                                        !requireContext().prefs().getBoolean(C.CHAT_PUB_SUB_ENABLED, true) ||
+                                    if (!requireContext().prefs().isChatEnabled() ||
+                                        false ||
                                         viewersText.text.isNullOrBlank()
                                     ) {
                                         updateViewerCount(stream.viewerCount)
                                     }
-                                    if (requireContext().prefs().getBoolean(C.CHAT_DISABLE, false) ||
-                                        !requireContext().prefs().getBoolean(C.CHAT_PUB_SUB_ENABLED, true) ||
+                                    if (!requireContext().prefs().isChatEnabled() ||
+                                        false ||
                                         title.text.isNullOrBlank() ||
                                         category.text.isNullOrBlank()
                                     ) {
@@ -1322,7 +1308,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             setResizeMode()
                         }
                     }
-                    if (requireContext().prefs().getBoolean(C.PLAYER_CHAT_TOGGLE, true) && !requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)) {
+                    if (requireContext().prefs().getBoolean(C.PLAYER_CHAT_TOGGLE, true) && requireContext().prefs().isChatEnabled()) {
                         toggleChat.visibility = View.VISIBLE
                         if (isChatOpen) {
                             toggleChat.setImageResource(R.drawable.baseline_speaker_notes_off_black_24)
@@ -1361,35 +1347,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     fun showSleepTimerDialog() {
-        if (requireContext().prefs().getBoolean(C.SLEEP_TIMER_USE_TIME_PICKER, false)) {
-            if (((activity as? MainActivity)?.getSleepTimerTimeLeft() ?: 0) > 0L) {
-                requireContext().getAlertDialogBuilder()
-                    .setMessage(getString(R.string.stop_sleep_timer_message))
-                    .setPositiveButton(getString(R.string.yes)) { _, _ ->
-                        onSleepTimerChanged(-1L, 0, 0, requireContext().prefs().getBoolean(C.SLEEP_TIMER_LOCK, false))
-                    }
-                    .setNegativeButton(getString(R.string.no), null)
-                    .show()
-            } else {
-                val savedValue = requireContext().prefs().getInt(C.SLEEP_TIMER_TIME, 15)
-                val picker = MaterialTimePicker.Builder()
-                    .setTimeFormat(if (DateFormat.is24HourFormat(requireContext())) TimeFormat.CLOCK_24H else TimeFormat.CLOCK_12H)
-                    .setInputMode(MaterialTimePicker.INPUT_MODE_CLOCK)
-                    .setHour(savedValue / 60)
-                    .setMinute(savedValue % 60)
-                    .build()
-                picker.addOnPositiveButtonClickListener {
-                    val minutes = TwitchApiHelper.getMinutesLeft(picker.hour, picker.minute)
-                    onSleepTimerChanged(minutes * 60_000L, minutes / 60, minutes % 60, requireContext().prefs().getBoolean(C.SLEEP_TIMER_LOCK, false))
-                    requireContext().prefs().edit {
-                        putInt(C.SLEEP_TIMER_TIME, picker.hour * 60 + picker.minute)
-                    }
-                }
-                picker.show(childFragmentManager, null)
-            }
-        } else {
-            SleepTimerDialog.newInstance((activity as? MainActivity)?.getSleepTimerTimeLeft() ?: 0).show(childFragmentManager, null)
-        }
+        SleepTimerDialog.newInstance((activity as? MainActivity)?.getSleepTimerTimeLeft() ?: 0).show(childFragmentManager, null)
     }
 
     fun getQualities(): List<Pair<String, VideoQuality>>? {
@@ -1672,21 +1630,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 text = gameName
                 visibility = View.VISIBLE
                 setOnClickListener {
-                    findNavController().navigate(
-                        if (requireContext().prefs().getBoolean(C.UI_GAME_PAGER, true)) {
-                            GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                                gameId = gameId,
-                                gameSlug = gameSlug,
-                                gameName = gameName
-                            )
-                        } else {
-                            GameMediaFragmentDirections.actionGlobalGameMediaFragment(
-                                gameId = gameId,
-                                gameSlug = gameSlug,
-                                gameName = gameName
-                            )
-                        }
-                    )
+                    findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                        gameId = gameId,
+                        gameSlug = gameSlug,
+                        gameName = gameName
+                    ))
                     minimize()
                 }
             } else {
@@ -2178,7 +2126,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     channelId = requireArguments().getString(KEY_CHANNEL_ID),
                     channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
                     viewerCount = requireArguments().getInt(KEY_VIEWER_COUNT).takeIf { it != -1 },
-                    loop = requireContext().prefs().getBoolean(C.CHAT_DISABLE, false) || !requireContext().prefs().getBoolean(C.CHAT_PUB_SUB_ENABLED, true),
+                    loop = !requireContext().prefs().isChatEnabled(),
                     networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                     helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
                     gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
@@ -2241,8 +2189,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     playerType = requireContext().prefs().getString(C.TOKEN_PLAYER_TYPE, "site"),
                     supportedCodecs = requireContext().prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
                     proxyPlaybackAccessToken = requireContext().prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-                    proxyHost = requireContext().prefs().getString(C.PROXY_HOST, null),
-                    proxyPort = requireContext().prefs().getString(C.PROXY_PORT, null)?.toIntOrNull(),
+                    proxyHost = requireContext().prefs().httpProxyHost(),
+                    proxyPort = requireContext().prefs().httpProxyPort(),
                     proxyUser = requireContext().prefs().getString(C.PROXY_USER, null),
                     proxyPassword = requireContext().prefs().getString(C.PROXY_PASSWORD, null),
                     enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false)
@@ -2611,8 +2559,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         playerType = requireContext().prefs().getString(C.TOKEN_PLAYER_TYPE, "site"),
                         supportedCodecs = requireContext().prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
                         proxyPlaybackAccessToken = requireContext().prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-                        proxyHost = requireContext().prefs().getString(C.PROXY_HOST, null),
-                        proxyPort = requireContext().prefs().getString(C.PROXY_PORT, null)?.toIntOrNull(),
+                        proxyHost = requireContext().prefs().httpProxyHost(),
+                        proxyPort = requireContext().prefs().httpProxyPort(),
                         proxyUser = requireContext().prefs().getString(C.PROXY_USER, null),
                         proxyPassword = requireContext().prefs().getString(C.PROXY_PASSWORD, null),
                         enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false)

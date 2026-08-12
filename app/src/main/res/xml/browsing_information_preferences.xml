@@ -1,0 +1,8 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="ui_truncateviewcount" android:title="@string/compact_number_formatting" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="ui_uptime" android:title="@string/show_uptime" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="ui_tags" android:title="@string/show_tags" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="ui_broadcasterscount" android:title="@string/broadcastersCount" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="ui_bookmark_time_left" android:title="@string/show_vod_time_left" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="0" android:entries="@array/nameDisplayEntries" android:entryValues="@array/nameDisplayValues" android:key="ui_name_display" android:summary="@string/name_display_summary" android:title="@string/name_display" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

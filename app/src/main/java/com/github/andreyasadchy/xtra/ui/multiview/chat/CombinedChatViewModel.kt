@@ -109,10 +109,7 @@ class CombinedChatViewModel(
         val preferences = applicationContext.prefs()
         session.viewModel.startLive(
             networkLibrary = preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-            recentMessagesUrl = preferences.getString(
-                C.CHAT_RECENT_MESSAGES_URL,
-                "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
-            ),
+            recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
             channelId = stream.channelId,
             channelLogin = stream.channelLogin,
             channelName = stream.channelName,

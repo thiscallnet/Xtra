@@ -30,6 +30,8 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.httpProxyHost
+import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.prefs
@@ -192,8 +194,8 @@ class Media3PlayerViewModel(
             playerTypes = playerTypes,
             supportedCodecs = preferences.getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
             proxyPlaybackAccessToken = preferences.getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-            proxyHost = preferences.getString(C.PROXY_HOST, null),
-            proxyPort = preferences.getString(C.PROXY_PORT, null)?.toIntOrNull(),
+            proxyHost = preferences.httpProxyHost(),
+            proxyPort = preferences.httpProxyPort(),
             proxyUser = preferences.getString(C.PROXY_USER, null),
             proxyPassword = preferences.getString(C.PROXY_PASSWORD, null),
             enableIntegrity = preferences.getBoolean(C.ENABLE_INTEGRITY, false),

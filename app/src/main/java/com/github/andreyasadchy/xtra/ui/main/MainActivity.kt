@@ -3,7 +3,6 @@ package com.github.andreyasadchy.xtra.ui.main
 import android.app.ActivityOptions
 import android.app.PictureInPictureParams
 import android.app.admin.DevicePolicyManager
-import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -38,7 +37,6 @@ import androidx.appcompat.widget.Toolbar
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.content.res.use
-import androidx.core.net.toUri
 import androidx.core.os.LocaleListCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -71,7 +69,6 @@ import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.download.StreamDownloadService
 import com.github.andreyasadchy.xtra.ui.download.VideoDownloadService
-import com.github.andreyasadchy.xtra.ui.game.GameMediaFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel.Companion.MainViewModelFactory
@@ -89,11 +86,13 @@ import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
+import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.UpdateInfo
 import com.github.andreyasadchy.xtra.util.UpdateState
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.util.rawPrefs
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.color.MaterialColors
@@ -234,11 +233,11 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                             if (isNetworkAvailable) {
-                                if (!TwitchApiHelper.checkedValidation && prefs.getBoolean(C.VALIDATE_TOKENS, true)) {
+                                if (!TwitchApiHelper.checkedValidation) {
                                     viewModel.validate(
                                         prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
                                         TwitchApiHelper.getGQLHeaders(this@MainActivity, true),
-                                        prefs.getString(C.GQL_CLIENT_ID_WEB, "kimne78kx3ncx6brgo4mv6wki5h1ko"),
+                                        prefs.getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB),
                                         tokenPrefs().getString(C.GQL_TOKEN_WEB, null)?.takeIf { it.isNotBlank() }?.let { TwitchApiHelper.addTokenPrefixGQL(it) },
                                         TwitchApiHelper.getHelixHeaders(this@MainActivity),
                                         this@MainActivity.tokenPrefs().getString(C.USER_ID, null),
@@ -523,25 +522,13 @@ class MainActivity : AppCompatActivity() {
                         val tag = pair.second
                         if (game != null) {
                             (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
-                            navController.navigate(
-                                if (prefs.getBoolean(C.UI_GAME_PAGER, true)) {
-                                    GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                                        gameId = game.id,
-                                        gameSlug = game.slug,
-                                        gameName = game.name,
-                                        boxArt = game.boxArt,
-                                        tags = tag?.let { arrayOf(it) },
-                                    )
-                                } else {
-                                    GameMediaFragmentDirections.actionGlobalGameMediaFragment(
-                                        gameId = game.id,
-                                        gameSlug = game.slug,
-                                        gameName = game.name,
-                                        boxArt = game.boxArt,
-                                        tags = tag?.let { arrayOf(it) },
-                                    )
-                                }
-                            )
+                            navController.navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                                gameId = game.id,
+                                gameSlug = game.slug,
+                                gameName = game.name,
+                                boxArt = game.boxArt,
+                                tags = tag?.let { arrayOf(it) },
+                            ))
                         }
                         viewModel.game.value = null
                     }
@@ -594,41 +581,30 @@ class MainActivity : AppCompatActivity() {
             .setTitle(getString(R.string.update_available_version, info.version))
             .setMessage(releaseNotes)
             .setPositiveButton(getString(R.string.yes)) { _, _ ->
-                if (prefs.getBoolean(C.UPDATE_USE_BROWSER, false)) {
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, info.releaseUrl.toUri()).apply {
-                            addCategory(Intent.CATEGORY_BROWSABLE)
-                        }
-                        startActivity(intent)
-                    } catch (_: ActivityNotFoundException) {
-                        Toast.makeText(this, R.string.no_browser_found, Toast.LENGTH_LONG).show()
-                    }
+                val binding = DialogUpdateDownloadBinding.inflate(layoutInflater)
+                updateDownloadDialogBinding = binding
+                val size = info.size
+                if (size != null) {
+                    binding.textView.text = getString(
+                        R.string.downloading_update_progress,
+                        Formatter.formatFileSize(this, 0),
+                        Formatter.formatFileSize(this, size),
+                    )
                 } else {
-                    val binding = DialogUpdateDownloadBinding.inflate(layoutInflater)
-                    updateDownloadDialogBinding = binding
-                    val size = info.size
-                    if (size != null) {
-                        binding.textView.text = getString(
-                            R.string.downloading_update_progress,
-                            Formatter.formatFileSize(this, 0),
-                            Formatter.formatFileSize(this, size),
-                        )
-                    } else {
-                        binding.textView.text = getString(R.string.downloading_update)
-                        binding.progressBar.visibility = View.GONE
-                    }
-                    viewModel.downloadUpdate(prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP), info)
-                    val dialog = getAlertDialogBuilder()
-                        .setView(binding.root)
-                        .setNegativeButton(getString(android.R.string.cancel), null)
-                        .setOnDismissListener {
-                            viewModel.updateJob?.cancel()
-                            updateDownloadDialogBinding = null
-                            updateDownloadDialog = null
-                        }
-                        .show()
-                    updateDownloadDialog = dialog
+                    binding.textView.text = getString(R.string.downloading_update)
+                    binding.progressBar.visibility = View.GONE
                 }
+                viewModel.downloadUpdate(prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP), info)
+                val dialog = getAlertDialogBuilder()
+                    .setView(binding.root)
+                    .setNegativeButton(getString(android.R.string.cancel), null)
+                    .setOnDismissListener {
+                        viewModel.updateJob?.cancel()
+                        updateDownloadDialogBinding = null
+                        updateDownloadDialog = null
+                    }
+                    .show()
+                updateDownloadDialog = dialog
             }
             .setNeutralButton(getString(R.string.ignore_update)) { _, _ ->
                 UpdateState.ignore(this)
@@ -651,9 +627,7 @@ class MainActivity : AppCompatActivity() {
         }
         viewModel.checkUpdates(
             prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-            prefs.getString(C.UPDATE_URL, null)?.takeUnless {
-                it == C.LEGACY_UPDATE_URL || it == C.LEGACY_LATEST_TAG_UPDATE_URL
-            } ?: C.DEFAULT_UPDATE_URL,
+            C.DEFAULT_UPDATE_URL,
         )
     }
 
@@ -965,11 +939,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             INTENT_OPEN_DOWNLOADS_TAB -> {
-                binding.navBar.selectedItemId = if (prefs.getBoolean(C.UI_SAVED_PAGER, true)) {
-                    R.id.savedPagerFragment
-                } else {
-                    R.id.savedMediaFragment
-                }
+                binding.navBar.selectedItemId = R.id.savedPagerFragment
             }
             INTENT_OPEN_DOWNLOADED_VIDEO -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -1288,32 +1258,14 @@ class MainActivity : AppCompatActivity() {
             } else defaultTabs
         }
         navController.setGraph(navController.navInflater.inflate(R.navigation.nav_graph).also {
-            val startOnFollowed = prefs.getString(C.UI_START_ON_FOLLOWED, "1")?.toIntOrNull() ?: 1
-            val isLoggedIn = !TwitchApiHelper.getGQLHeaders(this, true)[C.HEADER_TOKEN].isNullOrBlank() ||
-                    !TwitchApiHelper.getHelixHeaders(this)[C.HEADER_TOKEN].isNullOrBlank()
             val defaultItem = tabList.find { it.split(':')[1] != "0" }?.split(':')[0] ?: "1"
             when {
-                (isLoggedIn && startOnFollowed < 2) || (!isLoggedIn && startOnFollowed == 0) || defaultItem == "2" -> {
-                    if (prefs.getBoolean(C.UI_FOLLOW_PAGER, true)) {
-                        it.setStartDestination(R.id.followPagerFragment)
-                    } else {
-                        it.setStartDestination(R.id.followMediaFragment)
-                    }
-                }
+                defaultItem == "2" -> it.setStartDestination(R.id.followPagerFragment)
                 defaultItem == "0" -> it.setStartDestination(R.id.rootGamesFragment)
-                defaultItem == "3" -> {
-                    if (prefs.getBoolean(C.UI_SAVED_PAGER, true)) {
-                        it.setStartDestination(R.id.savedPagerFragment)
-                    } else {
-                        it.setStartDestination(R.id.savedMediaFragment)
-                    }
-                }
+                defaultItem == "3" -> it.setStartDestination(R.id.savedPagerFragment)
             }
         }, null)
         binding.navBar.apply {
-            if (!prefs.getBoolean(C.UI_THEME_BOTTOM_NAV_COLOR, true) && prefs.getBoolean(C.UI_THEME_MATERIAL3, true)) {
-                setBackgroundColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface))
-            }
             if (tabList.any { it.split(':')[2] != "0" }) {
                 tabList.forEach {
                     val split = it.split(':')
@@ -1324,18 +1276,10 @@ class MainActivity : AppCompatActivity() {
                             "0" -> menu.add(Menu.NONE, R.id.rootGamesFragment, Menu.NONE, R.string.games).setIcon(R.drawable.ic_games_black_24dp)
                             "1" -> menu.add(Menu.NONE, R.id.rootTopFragment, Menu.NONE, R.string.popular).setIcon(R.drawable.ic_trending_up_black_24dp)
                             "2" -> {
-                                if (prefs.getBoolean(C.UI_FOLLOW_PAGER, true)) {
-                                    menu.add(Menu.NONE, R.id.followPagerFragment, Menu.NONE, R.string.following).setIcon(R.drawable.ic_favorite_black_24dp)
-                                } else {
-                                    menu.add(Menu.NONE, R.id.followMediaFragment, Menu.NONE, R.string.following).setIcon(R.drawable.ic_favorite_black_24dp)
-                                }
+                                menu.add(Menu.NONE, R.id.followPagerFragment, Menu.NONE, R.string.following).setIcon(R.drawable.ic_favorite_black_24dp)
                             }
                             "3" -> {
-                                if (prefs.getBoolean(C.UI_SAVED_PAGER, true)) {
-                                    menu.add(Menu.NONE, R.id.savedPagerFragment, Menu.NONE, R.string.saved).setIcon(R.drawable.ic_file_download_black_24dp)
-                                } else {
-                                    menu.add(Menu.NONE, R.id.savedMediaFragment, Menu.NONE, R.string.saved).setIcon(R.drawable.ic_file_download_black_24dp)
-                                }
+                                menu.add(Menu.NONE, R.id.savedPagerFragment, Menu.NONE, R.string.saved).setIcon(R.drawable.ic_file_download_black_24dp)
                             }
                         }
                     }
@@ -1361,11 +1305,7 @@ class MainActivity : AppCompatActivity() {
 
     @OptIn(UnstableApi::class)
     private fun migrateSettings() {
-        if (prefs.getString(C.UPDATE_URL, null)?.let {
-                it == C.LEGACY_UPDATE_URL || it == C.LEGACY_LATEST_TAG_UPDATE_URL
-            } == true) {
-            prefs.edit { putString(C.UPDATE_URL, C.DEFAULT_UPDATE_URL) }
-        }
+        val freshInstall = rawPrefs().all.isEmpty()
         val version = prefs.getInt(C.SETTINGS_VERSION, 0).let {
             if (it == 0 && !prefs.getBoolean(C.FIRST_LAUNCH2, true)) {
                 when {
@@ -1392,9 +1332,6 @@ class MainActivity : AppCompatActivity() {
                     putString(C.PORTRAIT_COLUMN_COUNT, "2")
                     putString(C.LANDSCAPE_COLUMN_COUNT, "3")
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !prefs.contains(C.THEME)) {
-                    putString(C.THEME, C.THEME_MODERN)
-                }
             }
         }
         if (version < 3) {
@@ -1404,9 +1341,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
         if (version < 4) {
-            prefs.edit {
-                if (prefs().getString(C.GQL_CLIENT_ID2, "kd1unb4b3q4t58fwlpcbzcbnm76a8fp") == "kd1unb4b3q4t58fwlpcbzcbnm76a8fp" && prefs().getString(C.GQL_TOKEN2, null).isNullOrBlank()) {
-                    putString(C.GQL_CLIENT_ID2, "ue6666qo983tsx6so1t0vnawi233wa")
+            if (rawPrefs().getString(C.GQL_CLIENT_ID2, null) == C.LEGACY_GQL_CLIENT_ID2 &&
+                tokenPrefs().getString(C.GQL_TOKEN2, null).isNullOrBlank()
+            ) {
+                rawPrefs().edit {
+                    putString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2)
                     putString(C.GQL_REDIRECT2, "https://www.twitch.tv/settings/connections")
                 }
             }
@@ -1457,12 +1396,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         if (version < 9) {
-            prefs.edit {
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-                    putBoolean(C.CHAT_USE_WEBP, false)
-                    putString(C.CHAT_IMAGE_LIBRARY, "1")
-                }
-            }
+            // Image decoding is selected by the production pipeline now.
         }
         if (version < 10) {
             viewModel.deleteOldImages()
@@ -1544,5 +1478,6 @@ class MainActivity : AppCompatActivity() {
                 putInt(C.SETTINGS_VERSION, 14)
             }
         }
+        SettingsMigration.migrate(this, freshInstall = freshInstall)
     }
 }

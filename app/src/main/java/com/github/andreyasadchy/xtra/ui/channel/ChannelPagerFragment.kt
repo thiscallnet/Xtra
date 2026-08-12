@@ -48,7 +48,6 @@ import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
-import com.github.andreyasadchy.xtra.ui.game.GameMediaFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
@@ -457,11 +456,6 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, In
             }
             val adapter = ChannelPagerAdapter(this@ChannelPagerFragment, args, tabs)
             viewPager.adapter = adapter
-            if (!requireContext().prefs().getBoolean(C.UI_THEME_APPBAR_LIFT, true)) {
-                appBar.setLiftable(false)
-                appBar.background = null
-                collapsingToolbar.setContentScrimColor(MaterialColors.getColor(collapsingToolbar, com.google.android.material.R.attr.colorSurface))
-            }
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 private val layoutParams = collapsingToolbar.layoutParams as AppBarLayout.LayoutParams
                 private val originalScrollFlags = layoutParams.scrollFlags
@@ -627,21 +621,11 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, In
                 gameName.visibility = View.VISIBLE
                 gameName.text = stream.gameName
                 gameName.setOnClickListener {
-                    findNavController().navigate(
-                        if (requireContext().prefs().getBoolean(C.UI_GAME_PAGER, true)) {
-                            GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                                gameId = stream.gameId,
-                                gameSlug = stream.gameSlug,
-                                gameName = stream.gameName
-                            )
-                        } else {
-                            GameMediaFragmentDirections.actionGlobalGameMediaFragment(
-                                gameId = stream.gameId,
-                                gameSlug = stream.gameSlug,
-                                gameName = stream.gameName
-                            )
-                        }
-                    )
+                    findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                        gameId = stream.gameId,
+                        gameSlug = stream.gameSlug,
+                        gameName = stream.gameName
+                    ))
                 }
             } else {
                 gameName.visibility = View.GONE

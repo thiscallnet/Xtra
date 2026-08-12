@@ -19,7 +19,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.navigation.fragment.findNavController
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.VideoQuality
-import com.github.andreyasadchy.xtra.ui.game.GameMediaFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
@@ -152,21 +151,11 @@ class MediaPlayerFragment : PlayerFragment() {
                             category.text = gameName
                             category.contentDescription = getString(R.string.player_open_category, gameName)
                             category.setOnClickListener {
-                                findNavController().navigate(
-                                    if (requireContext().prefs().getBoolean(C.UI_GAME_PAGER, true)) {
-                                        GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                                            gameId = playbackService?.gameId,
-                                            gameSlug = playbackService?.gameSlug,
-                                            gameName = gameName
-                                        )
-                                    } else {
-                                        GameMediaFragmentDirections.actionGlobalGameMediaFragment(
-                                            gameId = playbackService?.gameId,
-                                            gameSlug = playbackService?.gameSlug,
-                                            gameName = gameName
-                                        )
-                                    }
-                                )
+                                findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                                    gameId = playbackService?.gameId,
+                                    gameSlug = playbackService?.gameSlug,
+                                    gameName = gameName
+                                ))
                                 minimize()
                             }
                         }
@@ -227,7 +216,7 @@ class MediaPlayerFragment : PlayerFragment() {
                     playbackService?.restoreBackgroundVideoIfNeeded()
                     playbackService?.resumePlaybackIfNeeded()
                     playbackService?.player?.let { player ->
-                        if (!requireContext().prefs().getBoolean(C.PLAYER_KEEP_SCREEN_ON_WHEN_PAUSED, false) && canEnterPictureInPicture()) {
+                        if (canEnterPictureInPicture()) {
                             requireView().keepScreenOn = player.isPlaying
                         }
                         updateProgress()
@@ -295,7 +284,7 @@ class MediaPlayerFragment : PlayerFragment() {
                 showController(show = playbackService?.type != BasePlaybackService.STREAM && ended)
             }
             updateProgress()
-            if (!requireContext().prefs().getBoolean(C.PLAYER_KEEP_SCREEN_ON_WHEN_PAUSED, false) && canEnterPictureInPicture()) {
+            if (canEnterPictureInPicture()) {
                 requireView().keepScreenOn = isPlaying
             }
         }

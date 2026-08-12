@@ -1,10 +1,13 @@
 package com.github.andreyasadchy.xtra.ui.player
 
+import android.content.res.Configuration
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.media3.common.Tracks
@@ -13,6 +16,7 @@ import com.github.andreyasadchy.xtra.databinding.PlayerSettingsBinding
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.isChatEnabled
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -91,7 +95,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                         dismiss()
                     }
                 }
-                if (!requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)) {
+                if (requireContext().prefs().isChatEnabled()) {
                     val isLoggedIn = !requireContext().tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
                             (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
                                     !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank())
@@ -233,7 +237,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             (parentFragment as? Media3PlayerFragment)?.setSubtitlesButton() ?:
             (parentFragment as? PlayerFragment)?.setSubtitlesButton()
             if ((type == BasePlaybackService.STREAM || type == BasePlaybackService.VIDEO) &&
-                !requireContext().prefs().getBoolean(C.CHAT_DISABLE, false) &&
+                requireContext().prefs().isChatEnabled() &&
                 requireContext().prefs().getBoolean(C.PLAYER_MENU_RELOAD_EMOTES, true)
             ) {
                 menuReloadEmotes.visibility = View.VISIBLE
@@ -242,6 +246,23 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                     (parentFragment as? PlayerFragment)?.reloadEmotes()
                     dismiss()
                 }
+            }
+        }
+        setMenuTextColor(view)
+    }
+
+    private fun setMenuTextColor(view: View) {
+        if (view is TextView) {
+            val themeMode = requireContext().prefs().getString(C.SETTINGS_THEME_MODE, "system")
+            val isDark = when (themeMode) {
+                "dark", "amoled" -> true
+                "light" -> false
+                else -> (view.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            }
+            view.setTextColor(if (isDark) Color.WHITE else Color.BLACK)
+        } else if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                setMenuTextColor(view.getChildAt(index))
             }
         }
     }

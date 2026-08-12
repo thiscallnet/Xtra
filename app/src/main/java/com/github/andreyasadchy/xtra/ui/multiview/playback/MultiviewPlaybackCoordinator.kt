@@ -168,10 +168,10 @@ class MultiviewPlaybackCoordinator(
             setLoadControl(
                 DefaultLoadControl.Builder().apply {
                     setBufferDurationsMs(
-                        applicationContext.prefs().getString(C.PLAYER_BUFFER_MIN, "15000")?.toIntOrNull() ?: 15000,
-                        applicationContext.prefs().getString(C.PLAYER_BUFFER_MAX, "50000")?.toIntOrNull() ?: 50000,
-                        applicationContext.prefs().getString(C.PLAYER_BUFFER_PLAYBACK, "2000")?.toIntOrNull() ?: 2000,
-                        applicationContext.prefs().getString(C.PLAYER_BUFFER_REBUFFER, "2000")?.toIntOrNull() ?: 2000,
+                        15000,
+                        50000,
+                        2000,
+                        2000,
                     )
                 }.build()
             )
@@ -179,9 +179,7 @@ class MultiviewPlaybackCoordinator(
                 AudioAttributes.DEFAULT,
                 false,
             )
-            setHandleAudioBecomingNoisy(
-                applicationContext.prefs().getBoolean(C.PLAYER_HANDLE_AUDIO_BECOMING_NOISY, true)
-            )
+            setHandleAudioBecomingNoisy(true)
         }.build()
         return MultiviewPlayerSlot(identity, stream, player).also { slot ->
             player.addListener(object : Player.Listener {
@@ -283,9 +281,7 @@ class MultiviewPlaybackCoordinator(
                     .setMimeType(MimeTypes.APPLICATION_M3U8)
                     .setLiveConfiguration(
                         MediaItem.LiveConfiguration.Builder().apply {
-                            applicationContext.prefs().getString(C.PLAYER_LIVE_MIN_SPEED, "")?.toFloatOrNull()?.let(::setMinPlaybackSpeed)
-                            applicationContext.prefs().getString(C.PLAYER_LIVE_MAX_SPEED, "")?.toFloatOrNull()?.let(::setMaxPlaybackSpeed)
-                            applicationContext.prefs().getString(C.PLAYER_LIVE_TARGET_OFFSET, "2000")?.toLongOrNull()?.let(::setTargetOffsetMs)
+                            setTargetOffsetMs(2000L)
                         }.build()
                     )
                     .setMediaMetadata(metadata(slot.stream))

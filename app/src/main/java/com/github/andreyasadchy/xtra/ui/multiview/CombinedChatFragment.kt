@@ -219,7 +219,7 @@ private class CombinedChatAdapter(
                 fragment = fragment,
                 backgroundColor = MaterialColors.getColor(fragment.requireView(), com.google.android.material.R.attr.colorSurface),
                 dialogBackgroundColor = MaterialColors.getColor(fragment.requireView(), com.google.android.material.R.attr.colorSurfaceContainerLow),
-                imageLibrary = preferences.getString(C.CHAT_IMAGE_LIBRARY, "0"),
+                imageLibrary = "0",
                 messageTextSize = (preferences.getString(C.CHAT_TEXT_SIZE, "14")?.toFloatOrNull() ?: 14f) * sizeModifier,
                 emoteSize = TypedValue.applyDimension(
                     TypedValue.COMPLEX_UNIT_DIP,
@@ -228,10 +228,10 @@ private class CombinedChatAdapter(
                 ).toInt(),
                 badgeSize = TypedValue.applyDimension(
                     TypedValue.COMPLEX_UNIT_DIP,
-                    (preferences.getString(C.CHAT_BADGE_SIZE, "18.5")?.toFloatOrNull() ?: 18.5f) * sizeModifier,
+                    18.5f * sizeModifier,
                     fragment.resources.displayMetrics,
                 ).toInt(),
-                emoteQuality = preferences.getString(C.CHAT_IMAGE_QUALITY, "4") ?: "4",
+                emoteQuality = "4",
                 animateGifs = preferences.getBoolean(C.ANIMATED_EMOTES, true),
                 enableOverlayEmotes = preferences.getBoolean(C.CHAT_ZERO_WIDTH, true),
                 translateMessage = { _, _ -> },

@@ -84,7 +84,7 @@ class ImageClickedDialog : BottomSheetDialogFragment(), IntegrityDialog.Listener
         }
         with(binding) {
             val args = requireArguments()
-            val imageLibrary = requireContext().prefs().getString(C.CHAT_IMAGE_LIBRARY, "0")
+            val imageLibrary = "0"
             if (imageLibrary == "0" || (imageLibrary == "1" && !args.getString(IMAGE_FORMAT).equals("webp", true))) {
                 requireContext().imageLoader.enqueue(
                     ImageRequest.Builder(requireContext()).apply {
