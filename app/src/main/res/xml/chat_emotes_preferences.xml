@@ -1,0 +1,8 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_enable_stv" android:title="7TV" app:iconSpaceReserved="false" />
+    <Preference android:key="chat_7tv_appearance" android:dependency="chat_enable_stv" android:title="@string/settings_7tv_appearance" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_enable_bttv" android:title="BetterTTV" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_enable_ffz" android:title="FrankerFaceZ" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="animatedGifEmotes" android:title="Animated emotes" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_zerowidth" android:title="Overlay emotes" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

@@ -1,0 +1,4 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="ui_draw_behind_cutouts" android:summary="@string/settings_display_cutouts_summary" android:title="@string/settings_display_cutouts" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="player_rounded_corner_padding" android:summary="Inset player content so physical curved corners and cutouts do not obscure video or controls." android:title="@string/avoid_rounded_corners" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

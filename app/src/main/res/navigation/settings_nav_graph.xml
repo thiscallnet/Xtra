@@ -1,109 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
-<navigation xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/settings_nav_graph"
-    app:startDestination="@id/settingsHomeFragment">
+<navigation xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:tools="http://schemas.android.com/tools" android:id="@+id/settings_nav_graph" app:startDestination="@id/settingsHomeFragment">
+    <fragment android:id="@+id/settingsHomeFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsHomeFragment" android:label="@string/settings" />
 
-    <fragment
-        android:id="@+id/settingsHomeFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsHomeFragment"
-        android:label="@string/settings" />
+    <fragment android:id="@+id/settingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_app"><argument android:name="settings_screen" android:defaultValue="general" app:argType="string" /></fragment>
+    <action android:id="@+id/action_global_settingsFragment" app:destination="@id/settingsFragment" />
+    <fragment android:id="@+id/liveNotificationSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_general_notifications" tools:layout="@xml/live_notification_preferences"><argument android:name="settings_screen" android:defaultValue="live_notifications" app:argType="string" /></fragment>
+    <action android:id="@+id/action_global_liveNotificationSettingsFragment" app:destination="@id/liveNotificationSettingsFragment" />
+    <fragment android:id="@+id/updateSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_general_updates" tools:layout="@xml/update_preferences"><argument android:name="settings_screen" android:defaultValue="updates" app:argType="string" /></fragment>
+    <action android:id="@+id/action_global_updateSettingsFragment" app:destination="@id/updateSettingsFragment" />
+    <fragment android:id="@+id/themeSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$ThemeSettingsFragment" android:label="@string/settings_section_appearance" />
+    <action android:id="@+id/action_global_themeSettingsFragment" app:destination="@id/themeSettingsFragment" />
+    <fragment android:id="@+id/uiSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$UiSettingsFragment" android:label="@string/settings_home_browsing" />
+    <action android:id="@+id/action_global_uiSettingsFragment" app:destination="@id/uiSettingsFragment" />
+    <fragment android:id="@+id/chatSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$ChatSettingsFragment" android:label="@string/settings_section_chat" />
+    <action android:id="@+id/action_global_chatSettingsFragment" app:destination="@id/chatSettingsFragment" />
+    <fragment android:id="@+id/playerSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$PlayerSettingsFragment" android:label="@string/settings_section_playback" />
+    <action android:id="@+id/action_global_playerSettingsFragment" app:destination="@id/playerSettingsFragment" />
+    <fragment android:id="@+id/playerButtonSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$PlayerButtonSettingsFragment" android:label="@string/settings_home_controls" />
+    <action android:id="@+id/action_global_playerButtonSettingsFragment" app:destination="@id/playerButtonSettingsFragment" />
+    <fragment android:id="@+id/apiTokenSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_account_details"><argument android:name="settings_screen" android:defaultValue="account" app:argType="string" /></fragment>
+    <action android:id="@+id/action_global_apiTokenSettingsFragment" app:destination="@id/apiTokenSettingsFragment" />
+    <fragment android:id="@+id/downloadSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$DownloadSettingsFragment" android:label="@string/settings_section_downloads" />
+    <action android:id="@+id/action_global_downloadSettingsFragment" app:destination="@id/downloadSettingsFragment" />
+    <fragment android:id="@+id/debugSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$DebugSettingsFragment" android:label="@string/settings_advanced" />
+    <action android:id="@+id/action_global_debugSettingsFragment" app:destination="@id/debugSettingsFragment" />
 
-    <fragment
-        android:id="@+id/settingsFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment"
-        android:label="@string/general_settings" />
-    <action
-        android:id="@+id/action_global_settingsFragment"
-        app:destination="@id/settingsFragment" />
-    <fragment
-        android:id="@+id/liveNotificationSettingsFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment"
-        android:label="@string/settings_general_notifications"
-        tools:layout="@xml/live_notification_preferences">
-        <argument
-            android:name="settings_screen"
-            android:defaultValue="live_notifications"
-            app:argType="string" />
-    </fragment>
-    <action
-        android:id="@+id/action_global_liveNotificationSettingsFragment"
-        app:destination="@id/liveNotificationSettingsFragment" />
-    <fragment
-        android:id="@+id/updateSettingsFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment"
-        android:label="@string/settings_general_updates"
-        tools:layout="@xml/update_preferences">
-        <argument
-            android:name="settings_screen"
-            android:defaultValue="updates"
-            app:argType="string" />
-    </fragment>
-    <action
-        android:id="@+id/action_global_updateSettingsFragment"
-        app:destination="@id/updateSettingsFragment" />
-    <fragment
-        android:id="@+id/themeSettingsFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$ThemeSettingsFragment"
-        android:label="@string/settings_section_appearance" />
-    <action
-        android:id="@+id/action_global_themeSettingsFragment"
-        app:destination="@id/themeSettingsFragment" />
-    <fragment
-        android:id="@+id/uiSettingsFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$UiSettingsFragment"
-        android:label="@string/settings_home_browsing" />
-    <action
-        android:id="@+id/action_global_uiSettingsFragment"
-        app:destination="@id/uiSettingsFragment" />
-    <fragment
-        android:id="@+id/chatSettingsFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$ChatSettingsFragment"
-        android:label="@string/chat_settings" />
-    <action
-        android:id="@+id/action_global_chatSettingsFragment"
-        app:destination="@id/chatSettingsFragment" />
-    <fragment
-        android:id="@+id/playerSettingsFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$PlayerSettingsFragment"
-        android:label="@string/settings_section_playback" />
-    <action
-        android:id="@+id/action_global_playerSettingsFragment"
-        app:destination="@id/playerSettingsFragment" />
-    <fragment
-        android:id="@+id/playerButtonSettingsFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$PlayerButtonSettingsFragment"
-        android:label="@string/settings_home_controls" />
-    <action
-        android:id="@+id/action_global_playerButtonSettingsFragment"
-        app:destination="@id/playerButtonSettingsFragment" />
-    <fragment
-        android:id="@+id/apiTokenSettingsFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$ApiTokenSettingsFragment"
-        android:label="@string/settings_home_account_network" />
-    <action
-        android:id="@+id/action_global_apiTokenSettingsFragment"
-        app:destination="@id/apiTokenSettingsFragment" />
-    <fragment
-        android:id="@+id/downloadSettingsFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$DownloadSettingsFragment"
-        android:label="@string/download_settings" />
-    <action
-        android:id="@+id/action_global_downloadSettingsFragment"
-        app:destination="@id/downloadSettingsFragment" />
-    <fragment
-        android:id="@+id/debugSettingsFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$DebugSettingsFragment"
-        android:label="@string/debug_settings" />
-    <action
-        android:id="@+id/action_global_debugSettingsFragment"
-        app:destination="@id/debugSettingsFragment" />
-    <fragment
-        android:id="@+id/settingsSearchFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsSearchFragment"
-        android:label="" />
-    <action
-        android:id="@+id/action_global_settingsSearchFragment"
-        app:destination="@id/settingsSearchFragment" />
+    <fragment android:id="@+id/settingsSearchFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsSearchFragment" android:label="" />
+    <action android:id="@+id/action_global_settingsSearchFragment" app:destination="@id/settingsSearchFragment" />
+
+    <fragment android:id="@+id/languageSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_language"><argument android:name="settings_screen" android:defaultValue="language" app:argType="string" /></fragment>
+    <fragment android:id="@+id/backupSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_backup_restore"><argument android:name="settings_screen" android:defaultValue="backup" app:argType="string" /></fragment>
+    <fragment android:id="@+id/aboutSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_about"><argument android:name="settings_screen" android:defaultValue="about" app:argType="string" /></fragment>
+    <fragment android:id="@+id/appearanceDisplayCompatibilityFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_display_compatibility"><argument android:name="settings_screen" android:defaultValue="display_compatibility" app:argType="string" /></fragment>
+    <fragment android:id="@+id/browsingInformationFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_displayed_information"><argument android:name="settings_screen" android:defaultValue="browsing_information" app:argType="string" /></fragment>
+    <fragment android:id="@+id/browsingTabsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_customize_tabs"><argument android:name="settings_screen" android:defaultValue="tabs" app:argType="string" /></fragment>
+    <fragment android:id="@+id/browsingSearchFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_search_history"><argument android:name="settings_screen" android:defaultValue="browsing_search" app:argType="string" /></fragment>
+    <fragment android:id="@+id/playerSeekFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_seek_controls"><argument android:name="settings_screen" android:defaultValue="player_seek" app:argType="string" /></fragment>
+    <fragment android:id="@+id/playerGesturesFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_gestures"><argument android:name="settings_screen" android:defaultValue="player_gestures" app:argType="string" /></fragment>
+    <fragment android:id="@+id/playerInformationFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_player_information"><argument android:name="settings_screen" android:defaultValue="player_information" app:argType="string" /></fragment>
+    <fragment android:id="@+id/displayCompatibilityFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_display_compatibility"><argument android:name="settings_screen" android:defaultValue="display_compatibility" app:argType="string" /></fragment>
+    <fragment android:id="@+id/chatAppearanceFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_chat_appearance"><argument android:name="settings_screen" android:defaultValue="chat_appearance" app:argType="string" /></fragment>
+    <fragment android:id="@+id/chatUsernameFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_username_appearance"><argument android:name="settings_screen" android:defaultValue="chat_username" app:argType="string" /></fragment>
+    <fragment android:id="@+id/chatEmotesFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_chat_emotes_badges"><argument android:name="settings_screen" android:defaultValue="chat_emotes" app:argType="string" /></fragment>
+    <fragment android:id="@+id/chat7tvFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_7tv_appearance"><argument android:name="settings_screen" android:defaultValue="chat_7tv" app:argType="string" /></fragment>
+    <fragment android:id="@+id/chatFeaturesFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_chat_features"><argument android:name="settings_screen" android:defaultValue="chat_features" app:argType="string" /></fragment>
+    <fragment android:id="@+id/chatHistoryFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_chat_history_page"><argument android:name="settings_screen" android:defaultValue="chat_history" app:argType="string" /></fragment>
+    <fragment android:id="@+id/chatTranslationFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_chat_translation_page"><argument android:name="settings_screen" android:defaultValue="chat_translation" app:argType="string" /></fragment>
+    <fragment android:id="@+id/chatVisibilityFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_chat_visibility"><argument android:name="settings_screen" android:defaultValue="chat_visibility" app:argType="string" /></fragment>
+    <fragment android:id="@+id/downloadLiveFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_live_downloads"><argument android:name="settings_screen" android:defaultValue="download_live" app:argType="string" /></fragment>
+    <fragment android:id="@+id/proxySettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_proxy"><argument android:name="settings_screen" android:defaultValue="proxy" app:argType="string" /></fragment>
+    <fragment android:id="@+id/developerSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_developer_options"><argument android:name="settings_screen" android:defaultValue="developer" app:argType="string" /></fragment>
+    <fragment android:id="@+id/developerApiFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_api_authentication"><argument android:name="settings_screen" android:defaultValue="developer_api" app:argType="string" /></fragment>
 </navigation>

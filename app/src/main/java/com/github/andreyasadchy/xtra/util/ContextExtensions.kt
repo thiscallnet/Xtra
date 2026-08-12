@@ -17,24 +17,134 @@ import com.google.android.material.color.DynamicColorsOptions
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.util.Locale
 
-fun Context.prefs(): SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
+fun Context.rawPrefs(): SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
+
+fun Context.prefs(): SharedPreferences = DeveloperGatedPreferences(rawPrefs())
 
 fun Context.tokenPrefs(): SharedPreferences = getSharedPreferences("prefs2", Context.MODE_PRIVATE)
 
-/**
- * Enables ad handling for new installs while preserving an explicit opt-out
- * from either of the legacy ad switches.
- */
-fun SharedPreferences.shouldAvoidTwitchAds(): Boolean {
-    val hasAvoidAds = contains(C.PLAYER_AVOID_ADS)
-    val hasHideAds = contains(C.PLAYER_HIDE_ADS)
-    return when {
-        !hasAvoidAds && !hasHideAds -> true
-        hasAvoidAds && !hasHideAds -> getBoolean(C.PLAYER_AVOID_ADS, false)
-        !hasAvoidAds && hasHideAds -> getBoolean(C.PLAYER_HIDE_ADS, false)
-        else -> getBoolean(C.PLAYER_AVOID_ADS, false) || getBoolean(C.PLAYER_HIDE_ADS, false)
+private class DeveloperGatedPreferences(
+    private val delegate: SharedPreferences,
+) : SharedPreferences {
+    private fun developerOverridesEnabled(): Boolean =
+        developerOverridesEnabled(delegate)
+
+    override fun getAll(): MutableMap<String, *> = delegate.all
+
+    override fun getString(key: String?, defValue: String?): String? {
+        return developerStringValue(
+            key = key,
+            storedValue = delegate.getString(key, null),
+            defaultValue = defValue,
+            enabled = developerOverridesEnabled(),
+        )
+    }
+
+    override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
+        delegate.getStringSet(key, defValues)
+
+    override fun getInt(key: String?, defValue: Int): Int = delegate.getInt(key, defValue)
+
+    override fun getLong(key: String?, defValue: Long): Long = delegate.getLong(key, defValue)
+
+    override fun getFloat(key: String?, defValue: Float): Float = delegate.getFloat(key, defValue)
+
+    override fun getBoolean(key: String?, defValue: Boolean): Boolean {
+        return developerBooleanValue(
+            key = key,
+            storedValue = delegate.getBoolean(key, defValue),
+            enabled = developerOverridesEnabled(),
+        )
+    }
+
+    override fun contains(key: String?): Boolean = delegate.contains(key)
+
+    override fun edit(): SharedPreferences.Editor = delegate.edit()
+
+    override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {
+        delegate.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {
+        delegate.unregisterOnSharedPreferenceChangeListener(listener)
     }
 }
+
+internal fun developerOverridesEnabled(preferences: SharedPreferences): Boolean =
+    preferences.getBoolean(C.SETTINGS_DEVELOPER_UNLOCKED, false) &&
+        preferences.getBoolean(C.SETTINGS_DEVELOPER_ENABLED, false)
+
+fun Context.developerOverridesEnabled(): Boolean = developerOverridesEnabled(rawPrefs())
+
+internal fun developerStringValue(
+    key: String?,
+    storedValue: String?,
+    defaultValue: String?,
+    enabled: Boolean,
+): String? {
+    if (enabled) {
+        return if (key == C.NETWORK_LIBRARY && storedValue == C.AUTOMATIC) C.OKHTTP else storedValue ?: defaultValue
+    }
+    return when (key) {
+        C.API_LOGIN -> "0"
+        C.HELIX_CLIENT_ID -> C.DEFAULT_HELIX_CLIENT_ID
+        C.HELIX_REDIRECT -> C.DEFAULT_HELIX_REDIRECT
+        C.GQL_CLIENT_ID2 -> C.DEFAULT_GQL_CLIENT_ID2
+        C.GQL_REDIRECT2 -> "https://www.twitch.tv/settings/connections"
+        C.GQL_CLIENT_ID_WEB -> C.DEFAULT_GQL_CLIENT_ID_WEB
+        C.NETWORK_LIBRARY -> C.OKHTTP
+        C.PLAYER -> C.EXOPLAYER
+        C.PLAYER_STREAM_HEADERS -> null
+        C.TOKEN_X_DEVICE_ID -> C.DEFAULT_TOKEN_X_DEVICE_ID
+        C.TOKEN_PLAYER_TYPE -> C.DEFAULT_TOKEN_PLAYER_TYPE
+        C.TOKEN_PLAYER_TYPE_VIDEO -> C.DEFAULT_TOKEN_PLAYER_TYPE_VIDEO
+        C.TOKEN_SUPPORTED_CODECS -> C.DEFAULT_TOKEN_SUPPORTED_CODECS
+        else -> storedValue ?: defaultValue
+    }
+}
+
+internal fun developerBooleanValue(key: String?, storedValue: Boolean, enabled: Boolean): Boolean {
+    if (enabled) return storedValue
+    return when (key) {
+        C.DEBUG_API_COMMANDS, C.DEBUG_API_CHAT_MESSAGES -> true
+        C.USE_WEBVIEW_INTEGRITY -> true
+        C.DEBUG_CHAT_FULL_MSG,
+        C.DEBUG_WEBSOCKET_INFO,
+        C.DEBUG_EVENT_SUB_CHAT,
+        C.DEBUG_PLAYER_MENU_PLAYLIST_TAGS,
+        C.ENABLE_INTEGRITY,
+        C.GET_ALL_GQL_HEADERS,
+        C.PROXY_PLAYBACK_ACCESS_TOKEN,
+        C.PROXY_MULTIVARIANT_PLAYLIST,
+        C.PROXY_MEDIA_PLAYLIST -> false
+        C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE -> true
+        C.TOKEN_RANDOM_DEVICE_ID,
+        C.TOKEN_INCLUDE_TOKEN_STREAM,
+        C.TOKEN_INCLUDE_TOKEN_VIDEO -> true
+        else -> storedValue
+    }
+}
+
+/** The positive setting is authoritative, while the legacy key remains a fallback during upgrades. */
+fun SharedPreferences.isChatEnabled(): Boolean = if (contains(C.SETTINGS_CHAT_ENABLED)) {
+    getBoolean(C.SETTINGS_CHAT_ENABLED, true)
+} else {
+    !getBoolean(C.CHAT_DISABLE, false)
+}
+
+/** HTTP proxy credentials are retained when disabled so the user can turn the proxy back on later. */
+fun SharedPreferences.httpProxyEnabled(): Boolean = if (contains(C.SETTINGS_HTTP_PROXY_ENABLED)) {
+    getBoolean(C.SETTINGS_HTTP_PROXY_ENABLED, false)
+} else {
+    !getString(C.PROXY_HOST, null).isNullOrBlank() && getString(C.PROXY_PORT, null)?.toIntOrNull() != null
+}
+
+fun SharedPreferences.httpProxyHost(): String? = getString(C.PROXY_HOST, null).takeIf { httpProxyEnabled() }
+
+fun SharedPreferences.httpProxyPort(): Int? = getString(C.PROXY_PORT, null)?.toIntOrNull().takeIf { httpProxyEnabled() }
+
+/** The alternate-stream master switch is authoritative; hiding is only a presentation choice. */
+fun SharedPreferences.shouldAvoidTwitchAds(): Boolean = getBoolean(C.PLAYER_AVOID_ADS, true)
 
 fun Activity.applyTheme() {
     // On Android 15, wrong language is used when multiple languages are set in device settings
@@ -48,216 +158,55 @@ fun Activity.applyTheme() {
             }
         )
     }
-    val theme = if (prefs().getBoolean(C.UI_THEME_FOLLOW_SYSTEM, false)) {
-        when (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) {
-            Configuration.UI_MODE_NIGHT_YES -> prefs().getString(C.UI_THEME_DARK_ON, C.THEME_MODERN) ?: C.THEME_MODERN
-            else -> prefs().getString(C.UI_THEME_DARK_OFF, "2") ?: "2"
+    val themeMode = prefs().getString(C.SETTINGS_THEME_MODE, "system") ?: "system"
+    val resolvedMode = if (themeMode == "system") {
+        if ((resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES) {
+            "dark"
+        } else {
+            "light"
         }
-    } else {
-        prefs().getString(C.THEME, C.THEME_MODERN) ?: C.THEME_MODERN
+    } else themeMode
+    val deviceColors = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        prefs().getBoolean(C.SETTINGS_DEVICE_COLORS, false)
+    val compact = prefs().getString(C.SETTINGS_DENSITY, "comfortable") == "compact"
+    val noCorners = prefs().getString(C.UI_THEME_ROUNDED_CORNERS, "0") == "2"
+    val smallCorners = prefs().getString(C.UI_THEME_ROUNDED_CORNERS, "0") == "1"
+    val style = when (resolvedMode) {
+        "light" -> when {
+            smallCorners && compact -> R.style.LightThemeSmallCornersReducedPaddingCompactText
+            smallCorners -> R.style.LightThemeSmallCorners
+            noCorners && compact -> R.style.LightThemeNoCornersReducedPaddingCompactText
+            noCorners -> R.style.LightThemeNoCorners
+            compact -> R.style.LightThemeReducedPaddingCompactText
+            else -> R.style.LightTheme
+        }
+        "amoled" -> when {
+            smallCorners && compact -> R.style.AmoledThemeSmallCornersReducedPaddingCompactText
+            smallCorners -> R.style.AmoledThemeSmallCorners
+            noCorners && compact -> R.style.AmoledThemeNoCornersReducedPaddingCompactText
+            noCorners -> R.style.AmoledThemeNoCorners
+            compact -> R.style.AmoledThemeReducedPaddingCompactText
+            else -> R.style.AmoledTheme
+        }
+        else -> when {
+            smallCorners && compact -> R.style.DarkThemeSmallCornersReducedPaddingCompactText
+            smallCorners -> R.style.DarkThemeSmallCorners
+            noCorners && compact -> R.style.DarkThemeNoCornersReducedPaddingCompactText
+            noCorners -> R.style.DarkThemeNoCorners
+            compact -> R.style.DarkThemeReducedPaddingCompactText
+            else -> R.style.DarkTheme
+        }
     }
-    val material3 = prefs().getBoolean(C.UI_THEME_MATERIAL3, true)
-    if (material3 && (theme == C.THEME_MODERN || theme == C.THEME_MODERN_AMOLED)) {
-        setTheme(if (theme == C.THEME_MODERN_AMOLED) R.style.ModernAmoledTheme else R.style.ModernTheme)
-    } else if (material3) {
-        val reducedPadding = prefs().getBoolean(C.UI_THEME_REDUCED_PADDING, false)
-        val compactText = prefs().getBoolean(C.UI_THEME_COMPACT_TEXT, false)
-        when (prefs().getString(C.UI_THEME_ROUNDED_CORNERS, "0")) {
-            "1" -> {
-                when {
-                    reducedPadding && compactText -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkThemeSmallCornersReducedPaddingCompactText
-                                "6" -> R.style.AmoledThemeSmallCornersReducedPaddingCompactText
-                                "5" -> R.style.LightThemeSmallCornersReducedPaddingCompactText
-                                "1" -> R.style.AmoledThemeSmallCornersReducedPaddingCompactText
-                                "2" -> R.style.LightThemeSmallCornersReducedPaddingCompactText
-                                "3" -> R.style.BlueThemeSmallCornersReducedPaddingCompactText
-                                else -> R.style.DarkThemeSmallCornersReducedPaddingCompactText
-                            }
-                        )
-                    }
-                    reducedPadding -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkThemeSmallCornersReducedPadding
-                                "6" -> R.style.AmoledThemeSmallCornersReducedPadding
-                                "5" -> R.style.LightThemeSmallCornersReducedPadding
-                                "1" -> R.style.AmoledThemeSmallCornersReducedPadding
-                                "2" -> R.style.LightThemeSmallCornersReducedPadding
-                                "3" -> R.style.BlueThemeSmallCornersReducedPadding
-                                else -> R.style.DarkThemeSmallCornersReducedPadding
-                            }
-                        )
-                    }
-                    compactText -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkThemeSmallCornersCompactText
-                                "6" -> R.style.AmoledThemeSmallCornersCompactText
-                                "5" -> R.style.LightThemeSmallCornersCompactText
-                                "1" -> R.style.AmoledThemeSmallCornersCompactText
-                                "2" -> R.style.LightThemeSmallCornersCompactText
-                                "3" -> R.style.BlueThemeSmallCornersCompactText
-                                else -> R.style.DarkThemeSmallCornersCompactText
-                            }
-                        )
-                    }
-                    else -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkThemeSmallCorners
-                                "6" -> R.style.AmoledThemeSmallCorners
-                                "5" -> R.style.LightThemeSmallCorners
-                                "1" -> R.style.AmoledThemeSmallCorners
-                                "2" -> R.style.LightThemeSmallCorners
-                                "3" -> R.style.BlueThemeSmallCorners
-                                else -> R.style.DarkThemeSmallCorners
-                            }
-                        )
-                    }
+    setTheme(style)
+    if (deviceColors && resolvedMode in setOf("light", "dark", "amoled")) {
+        DynamicColors.applyToActivityIfAvailable(
+            this,
+            DynamicColorsOptions.Builder().setThemeOverlay(
+                when (resolvedMode) {
+                    "light" -> R.style.LightDynamicOverlay
+                    else -> if (resolvedMode == "amoled") R.style.AmoledDynamicOverlay else R.style.DarkDynamicOverlay
                 }
-            }
-            "2" -> {
-                when {
-                    reducedPadding && compactText -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkThemeNoCornersReducedPaddingCompactText
-                                "6" -> R.style.AmoledThemeNoCornersReducedPaddingCompactText
-                                "5" -> R.style.LightThemeNoCornersReducedPaddingCompactText
-                                "1" -> R.style.AmoledThemeNoCornersReducedPaddingCompactText
-                                "2" -> R.style.LightThemeNoCornersReducedPaddingCompactText
-                                "3" -> R.style.BlueThemeNoCornersReducedPaddingCompactText
-                                else -> R.style.DarkThemeNoCornersReducedPaddingCompactText
-                            }
-                        )
-                    }
-                    reducedPadding -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkThemeNoCornersReducedPadding
-                                "6" -> R.style.AmoledThemeNoCornersReducedPadding
-                                "5" -> R.style.LightThemeNoCornersReducedPadding
-                                "1" -> R.style.AmoledThemeNoCornersReducedPadding
-                                "2" -> R.style.LightThemeNoCornersReducedPadding
-                                "3" -> R.style.BlueThemeNoCornersReducedPadding
-                                else -> R.style.DarkThemeNoCornersReducedPadding
-                            }
-                        )
-                    }
-                    compactText -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkThemeNoCornersCompactText
-                                "6" -> R.style.AmoledThemeNoCornersCompactText
-                                "5" -> R.style.LightThemeNoCornersCompactText
-                                "1" -> R.style.AmoledThemeNoCornersCompactText
-                                "2" -> R.style.LightThemeNoCornersCompactText
-                                "3" -> R.style.BlueThemeNoCornersCompactText
-                                else -> R.style.DarkThemeNoCornersCompactText
-                            }
-                        )
-                    }
-                    else -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkThemeNoCorners
-                                "6" -> R.style.AmoledThemeNoCorners
-                                "5" -> R.style.LightThemeNoCorners
-                                "1" -> R.style.AmoledThemeNoCorners
-                                "2" -> R.style.LightThemeNoCorners
-                                "3" -> R.style.BlueThemeNoCorners
-                                else -> R.style.DarkThemeNoCorners
-                            }
-                        )
-                    }
-                }
-            }
-            else -> {
-                when {
-                    reducedPadding && compactText -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkThemeReducedPaddingCompactText
-                                "6" -> R.style.AmoledThemeReducedPaddingCompactText
-                                "5" -> R.style.LightThemeReducedPaddingCompactText
-                                "1" -> R.style.AmoledThemeReducedPaddingCompactText
-                                "2" -> R.style.LightThemeReducedPaddingCompactText
-                                "3" -> R.style.BlueThemeReducedPaddingCompactText
-                                else -> R.style.DarkThemeReducedPaddingCompactText
-                            }
-                        )
-                    }
-                    reducedPadding -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkThemeReducedPadding
-                                "6" -> R.style.AmoledThemeReducedPadding
-                                "5" -> R.style.LightThemeReducedPadding
-                                "1" -> R.style.AmoledThemeReducedPadding
-                                "2" -> R.style.LightThemeReducedPadding
-                                "3" -> R.style.BlueThemeReducedPadding
-                                else -> R.style.DarkThemeReducedPadding
-                            }
-                        )
-                    }
-                    compactText -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkThemeCompactText
-                                "6" -> R.style.AmoledThemeCompactText
-                                "5" -> R.style.LightThemeCompactText
-                                "1" -> R.style.AmoledThemeCompactText
-                                "2" -> R.style.LightThemeCompactText
-                                "3" -> R.style.BlueThemeCompactText
-                                else -> R.style.DarkThemeCompactText
-                            }
-                        )
-                    }
-                    else -> {
-                        setTheme(
-                            when (theme) {
-                                "4" -> R.style.DarkTheme
-                                "6" -> R.style.AmoledTheme
-                                "5" -> R.style.LightTheme
-                                "1" -> R.style.AmoledTheme
-                                "2" -> R.style.LightTheme
-                                "3" -> R.style.BlueTheme
-                                else -> R.style.DarkTheme
-                            }
-                        )
-                    }
-                }
-            }
-        }
-        if (theme == "4" || theme == "6" || theme == "5") {
-            DynamicColors.applyToActivityIfAvailable(
-                this,
-                DynamicColorsOptions.Builder().apply {
-                    setThemeOverlay(
-                        when (theme) {
-                            "4" -> R.style.DarkDynamicOverlay
-                            "6" -> R.style.AmoledDynamicOverlay
-                            "5" -> R.style.LightDynamicOverlay
-                            else -> R.style.DarkDynamicOverlay
-                        }
-                    )
-                }.build()
-            )
-        }
-    } else {
-        setTheme(
-            when (theme) {
-                "4" -> R.style.AppCompatDarkTheme
-                "6" -> R.style.AppCompatAmoledTheme
-                "5" -> R.style.AppCompatLightTheme
-                "1" -> R.style.AppCompatAmoledTheme
-                "2" -> R.style.AppCompatLightTheme
-                "3" -> R.style.AppCompatBlueTheme
-                else -> R.style.AppCompatDarkTheme
-            }
+            ).build()
         )
     }
     val isLightTheme = obtainStyledAttributes(intArrayOf(androidx.appcompat.R.attr.isLightTheme)).use {
@@ -273,9 +222,5 @@ fun Activity.applyTheme() {
 }
 
 fun Context.getAlertDialogBuilder(): AlertDialog.Builder {
-    return if (prefs().getBoolean(C.UI_THEME_MATERIAL3, true)) {
-        MaterialAlertDialogBuilder(this)
-    } else {
-        AlertDialog.Builder(this)
-    }
+    return MaterialAlertDialogBuilder(this)
 }

@@ -1,0 +1,5 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="chat_translate" android:summary="@string/settings_translate_summary" android:title="Translate messages" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="en" android:dependency="chat_translate" android:key="chat_translate_target" android:summary="%s" android:title="Translate to" app:iconSpaceReserved="false" />
+    <Preference android:dependency="chat_translate" android:key="downloaded_languages" android:title="Offline translation languages" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

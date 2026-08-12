@@ -58,6 +58,7 @@ import com.github.andreyasadchy.xtra.ui.following.streams.FollowedStreamsViewMod
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.isChatEnabled
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -420,7 +421,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
         slot.channel.text = displayName(stream)
         slot.container.contentDescription = displayName(stream)
         slot.audioButton.isVisible = true
-        slot.chatButton.isVisible = !requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)
+        slot.chatButton.isVisible = requireContext().prefs().isChatEnabled()
         slot.removeButton.isVisible = slots.size > 1
         showSlotMessage(slot, getString(R.string.multiview_loading), error = false)
 
@@ -428,10 +429,10 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
             setLoadControl(
                 DefaultLoadControl.Builder().apply {
                     setBufferDurationsMs(
-                        requireContext().prefs().getString(C.PLAYER_BUFFER_MIN, "15000")?.toIntOrNull() ?: 15000,
-                        requireContext().prefs().getString(C.PLAYER_BUFFER_MAX, "50000")?.toIntOrNull() ?: 50000,
-                        requireContext().prefs().getString(C.PLAYER_BUFFER_PLAYBACK, "2000")?.toIntOrNull() ?: 2000,
-                        requireContext().prefs().getString(C.PLAYER_BUFFER_REBUFFER, "2000")?.toIntOrNull() ?: 2000,
+                        15000,
+                        50000,
+                        2000,
+                        2000,
                     )
                 }.build()
             )
@@ -464,7 +465,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
                     .setLiveConfiguration(
                         MediaItem.LiveConfiguration.Builder()
                             .setTargetOffsetMs(
-                                requireContext().prefs().getString(C.PLAYER_LIVE_TARGET_OFFSET, "2000")?.toLongOrNull() ?: 2000L
+                                2000L
                             )
                             .build()
                     )
@@ -551,7 +552,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
         binding.addStreamButton.isVisible = slots.size < MAX_STREAMS
         binding.aspectButton.isVisible = slots.isNotEmpty()
         binding.addStreamButton.text = getString(R.string.multiview_add_stream_count, slots.size, MAX_STREAMS)
-        val chatEnabled = active != null && !requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)
+        val chatEnabled = active != null && requireContext().prefs().isChatEnabled()
         binding.chatButton.isVisible = chatEnabled
         binding.combinedChatButton.isVisible = chatEnabled && binding.chatContainer.isVisible && slots.size > 1
         binding.chatTitle.text = if (combinedChat) {

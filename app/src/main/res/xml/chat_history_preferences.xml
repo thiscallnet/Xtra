@@ -1,0 +1,3 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_recent" android:summary="@string/settings_chat_recent_summary" android:title="@string/settings_chat_recent" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

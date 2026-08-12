@@ -12,7 +12,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentFiltersListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.SavedFilter
-import com.github.andreyasadchy.xtra.ui.game.GameMediaFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
@@ -51,25 +50,13 @@ class FiltersAdapter(
                     val context = fragment.requireContext()
                     root.setOnClickListener {
                         if (item.gameId != null || item.gameSlug != null || item.gameName != null) {
-                            fragment.findNavController().navigate(
-                                if (context.prefs().getBoolean(C.UI_GAME_PAGER, true)) {
-                                    GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                                        gameId = item.gameId,
-                                        gameSlug = item.gameSlug,
-                                        gameName = item.gameName,
-                                        tags = item.tags?.split(',')?.toTypedArray(),
-                                        languages = item.languages?.split(',')?.toTypedArray()
-                                    )
-                                } else {
-                                    GameMediaFragmentDirections.actionGlobalGameMediaFragment(
-                                        gameId = item.gameId,
-                                        gameSlug = item.gameSlug,
-                                        gameName = item.gameName,
-                                        tags = item.tags?.split(',')?.toTypedArray(),
-                                        languages = item.languages?.split(',')?.toTypedArray()
-                                    )
-                                }
-                            )
+                            fragment.findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                                gameId = item.gameId,
+                                gameSlug = item.gameSlug,
+                                gameName = item.gameName,
+                                tags = item.tags?.split(',')?.toTypedArray(),
+                                languages = item.languages?.split(',')?.toTypedArray()
+                            ))
                         } else {
                             fragment.findNavController().navigate(
                                 TopStreamsFragmentDirections.actionGlobalTopFragment(

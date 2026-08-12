@@ -37,8 +37,10 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.util.rawPrefs
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import com.github.andreyasadchy.xtra.util.developerOverridesEnabled
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.google.android.material.slider.Slider
 import com.google.android.material.textfield.TextInputEditText
@@ -48,6 +50,9 @@ import kotlinx.coroutines.Dispatchers
 import org.json.JSONObject
 import java.util.regex.Pattern
 import kotlin.math.roundToInt
+
+internal fun parseLoginApi(value: String?): Int =
+    value?.toIntOrNull()?.coerceIn(0, 2) ?: 0
 
 class LoginActivity : AppCompatActivity() {
 
@@ -126,7 +131,7 @@ class LoginActivity : AppCompatActivity() {
 
                         }
                     }
-                    val gqlWebClientId = prefs().getString(C.GQL_CLIENT_ID_WEB, "kimne78kx3ncx6brgo4mv6wki5h1ko")
+                    val gqlWebClientId = prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
                     if (!gqlWebClientId.isNullOrBlank() && !oldGQLWebToken.isNullOrBlank()) {
                         try {
                             xtraModule.authRepository.revoke(networkLibrary, "client_id=${gqlWebClientId}&token=${oldGQLWebToken}")
@@ -136,14 +141,14 @@ class LoginActivity : AppCompatActivity() {
                     }
                 }
             }
-            if (prefs().getString(C.GQL_CLIENT_ID2, "kd1unb4b3q4t58fwlpcbzcbnm76a8fp") == "kd1unb4b3q4t58fwlpcbzcbnm76a8fp") {
-                prefs().edit {
-                    putString(C.GQL_CLIENT_ID2, "ue6666qo983tsx6so1t0vnawi233wa")
+            if (rawPrefs().getString(C.GQL_CLIENT_ID2, null) == C.LEGACY_GQL_CLIENT_ID2) {
+                rawPrefs().edit {
+                    putString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2)
                     putString(C.GQL_REDIRECT2, "https://www.twitch.tv/settings/connections")
                 }
             }
-            val apiSetting = prefs().getString(C.API_LOGIN, "0")?.toInt() ?: 0
-            val helixRedirect = prefs().getString(C.HELIX_REDIRECT, "https://localhost")
+            val apiSetting = parseLoginApi(prefs().getString(C.API_LOGIN, "0"))
+            val helixRedirect = prefs().getString(C.HELIX_REDIRECT, C.DEFAULT_HELIX_REDIRECT)
             val helixScopes = listOf(
                 "channel:edit:commercial", // channels/commercial
                 "channel:manage:broadcast", // streams/markers
@@ -563,7 +568,7 @@ class LoginActivity : AppCompatActivity() {
         with(binding) {
             webView.visibility = View.INVISIBLE
             havingTrouble.visibility = View.INVISIBLE
-            val gqlClientId = prefs().getString(C.GQL_CLIENT_ID2, "kd1unb4b3q4t58fwlpcbzcbnm76a8fp")
+            val gqlClientId = prefs().getString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2)
             var deviceCode: String? = null
             var userCode: String? = null
             lifecycleScope.launch {
@@ -686,7 +691,7 @@ class LoginActivity : AppCompatActivity() {
         if (!gqlToken.isNullOrBlank() || !helixToken.isNullOrBlank()) {
             TwitchApiHelper.checkedValidation = true
             prefs().edit {
-                if (!gqlClientId.isNullOrBlank()) {
+                if (developerOverridesEnabled() && !gqlClientId.isNullOrBlank()) {
                     putString(C.GQL_CLIENT_ID2, gqlClientId)
                 }
                 if (!gqlWebClientId.isNullOrBlank()) {

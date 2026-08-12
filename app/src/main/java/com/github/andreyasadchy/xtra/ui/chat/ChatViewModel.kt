@@ -225,7 +225,7 @@ class ChatViewModel(
 
     fun startLive(networkLibrary: String?, recentMessagesUrl: String?, channelId: String?, channelLogin: String?, channelName: String?, streamId: String?) {
         if (chatReadIRCSocket == null && chatReadWebSocket == null && eventSub == null && channelLogin != null) {
-            messageLimit = applicationContext.prefs().getInt(C.CHAT_LIMIT, 600)
+            messageLimit = 600
             this.streamId = streamId
             startLiveChat(channelId, channelLogin)
             addChatter(channelName)
@@ -244,7 +244,7 @@ class ChatViewModel(
 
     fun startReplay(channelId: String?, channelLogin: String?, chatUrl: String? = null, videoId: String? = null, createdAt: String?, startTime: Int = 0, getCurrentPosition: () -> Long?, getCurrentSpeed: () -> Float?) {
         if (chatReplayManager == null && chatReplayManagerLocal == null) {
-            messageLimit = applicationContext.prefs().getInt(C.CHAT_LIMIT, 600)
+            messageLimit = 600
             startReplayChat(videoId, createdAt, startTime, chatUrl, getCurrentPosition, getCurrentSpeed, channelId, channelLogin)
             if (videoId != null) {
                 loadEmotes(channelId, channelLogin)
@@ -285,9 +285,9 @@ class ChatViewModel(
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext)
         val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
-        val emoteQuality = applicationContext.prefs().getString(C.CHAT_IMAGE_QUALITY, "4") ?: "4"
+        val emoteQuality = "4"
         val animateGifs = applicationContext.prefs().getBoolean(C.ANIMATED_EMOTES, true)
-        val useWebp = applicationContext.prefs().getBoolean(C.CHAT_USE_WEBP, true)
+        val useWebp = true
         val enableIntegrity = applicationContext.prefs().getBoolean(C.ENABLE_INTEGRITY, false)
         synchronized(thirdPartyEmotes) {
             thirdPartyEmotes.clear()
@@ -886,7 +886,7 @@ class ChatViewModel(
             viewModelScope.launch {
                 try {
                     val list = mutableListOf<ChatMessage>()
-                    playerRepository.loadRecentMessages(networkLibrary, recentMessagesUrl, channelLogin, applicationContext.prefs().getInt(C.CHAT_RECENT_LIMIT, 100).toString()).messages.forEach { message ->
+                    playerRepository.loadRecentMessages(networkLibrary, recentMessagesUrl, channelLogin, "100").messages.forEach { message ->
                         val ircMessage = ChatUtils.parseIRCMessage(message)
                         when (ircMessage.command) {
                             "PRIVMSG" -> ChatUtils.parseChatMessage(ircMessage)
@@ -1513,7 +1513,7 @@ class ChatViewModel(
         val accountId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
         val accountLogin = applicationContext.tokenPrefs().getString(C.USERNAME, null)
         val isLoggedIn = !accountLogin.isNullOrBlank() && (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank())
-        val usePubSub = applicationContext.prefs().getBoolean(C.CHAT_PUB_SUB_ENABLED, true)
+        val usePubSub = true
         val showUserNotice = applicationContext.prefs().getBoolean(C.CHAT_SHOW_USER_NOTICE, true)
         val showClearMsg = applicationContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_MSG, true)
         val showClearChat = applicationContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_CHAT, true)
@@ -1547,43 +1547,22 @@ class ChatViewModel(
         } else {
             val gqlToken = gqlHeaders[C.HEADER_TOKEN]?.removePrefix("OAuth ")
             val helixToken = helixHeaders[C.HEADER_TOKEN]?.removePrefix("Bearer ")
-            if (applicationContext.prefs().getBoolean(C.CHAT_USE_WEBSOCKET, true)) {
-                chatReadWebSocket = ChatReadWebSocket(channelLogin, trustManager, ChatReadListener(channelLogin, nameDisplay, showUserNotice, showClearMsg, showClearChat, usePubSub, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId))
-                chatReadJob = chatReadWebSocket?.connect(viewModelScope)
-                if (isLoggedIn && (!gqlToken.isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !useApiChatMessages)) {
-                    chatWriteWebSocket = ChatWriteWebSocket(
-                        userLogin = accountLogin,
-                        userToken = gqlToken?.takeIf { it.isNotBlank() } ?: helixToken,
-                        channelLogin = channelLogin,
-                        trustManager = trustManager,
-                        listener = ChatWriteListener(channelId, showWebSocketDebugInfo)
-                    )
-                    chatWriteJob = chatWriteWebSocket?.connect(viewModelScope)
-                }
-            } else {
-                val useSSL = applicationContext.prefs().getBoolean(C.CHAT_USE_SSL, true)
-                chatReadIRCSocket = ChatReadIRCSocket(useSSL, channelLogin, trustManager, ChatReadListener(channelLogin, nameDisplay, showUserNotice, showClearMsg, showClearChat, usePubSub, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId))
-                chatReadJob = viewModelScope.launch(Dispatchers.IO) {
-                    chatReadIRCSocket?.start()
-                }
-                if (isLoggedIn && (!gqlToken.isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !useApiChatMessages)) {
-                    chatWriteIRCSocket = ChatWriteIRCSocket(
-                        useSSL = useSSL,
-                        userLogin = accountLogin,
-                        userToken = gqlToken?.takeIf { it.isNotBlank() } ?: helixToken,
-                        channelLogin = channelLogin,
-                        trustManager = trustManager,
-                        listener = ChatWriteListener(channelId, showWebSocketDebugInfo)
-                    )
-                    chatWriteJob = viewModelScope.launch(Dispatchers.IO) {
-                        chatWriteIRCSocket?.start()
-                    }
-                }
+            chatReadWebSocket = ChatReadWebSocket(channelLogin, trustManager, ChatReadListener(channelLogin, nameDisplay, showUserNotice, showClearMsg, showClearChat, usePubSub, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId))
+            chatReadJob = chatReadWebSocket?.connect(viewModelScope)
+            if (isLoggedIn && (!gqlToken.isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !useApiChatMessages)) {
+                chatWriteWebSocket = ChatWriteWebSocket(
+                    userLogin = accountLogin,
+                    userToken = gqlToken?.takeIf { it.isNotBlank() } ?: helixToken,
+                    channelLogin = channelLogin,
+                    trustManager = trustManager,
+                    listener = ChatWriteListener(channelId, showWebSocketDebugInfo)
+                )
+                chatWriteJob = chatWriteWebSocket?.connect(viewModelScope)
             }
         }
         if (usePubSub && !channelId.isNullOrBlank()) {
             val collectPoints = applicationContext.prefs().getBoolean(C.CHAT_POINTS_COLLECT, true)
-            val gqlWebClientId = applicationContext.prefs().getString(C.GQL_CLIENT_ID_WEB, "kimne78kx3ncx6brgo4mv6wki5h1ko")
+            val gqlWebClientId = applicationContext.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
             val gqlWebToken = applicationContext.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
             val notifyPoints = applicationContext.prefs().getBoolean(C.CHAT_POINTS_NOTIFY, false)
             val showRaids = applicationContext.prefs().getBoolean(C.CHAT_RAIDS_SHOW, true)
@@ -1626,9 +1605,9 @@ class ChatViewModel(
         val showNamePaints = applicationContext.prefs().getBoolean(C.CHAT_SHOW_PAINTS, true)
         val showSTVBadges = applicationContext.prefs().getBoolean(C.CHAT_SHOW_STV_BADGES, true)
         val showPersonalEmotes = applicationContext.prefs().getBoolean(C.CHAT_SHOW_PERSONAL_EMOTES, true)
-        val stvLiveUpdates = applicationContext.prefs().getBoolean(C.CHAT_STV_LIVE_UPDATES, true)
+        val stvLiveUpdates = true
         if ((showNamePaints || showSTVBadges || showPersonalEmotes || stvLiveUpdates) && !channelId.isNullOrBlank()) {
-            val useWebp = applicationContext.prefs().getBoolean(C.CHAT_USE_WEBP, true)
+            val useWebp = true
             stvEventApi = STVEventApiWebSocket(
                 channelId = channelId,
                 trustManager = trustManager,

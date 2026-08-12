@@ -127,22 +127,17 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
                 override fun onPageSelected(position: Int) {
                     viewPager.doOnLayout {
                         childFragmentManager.findFragmentByTag("f${position}")?.let { fragment ->
-                            if (requireContext().prefs().getBoolean(C.UI_THEME_APPBAR_LIFT, true)) {
-                                fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
-                                    appBar.setLiftOnScrollTargetView(it)
-                                    it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-                                        override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                                            super.onScrolled(recyclerView, dx, dy)
-                                            appBar.isLifted = recyclerView.canScrollVertically(-1)
-                                        }
-                                    })
-                                    it.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                                        appBar.isLifted = it.canScrollVertically(-1)
+                            fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
+                                appBar.setLiftOnScrollTargetView(it)
+                                it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                                    override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                                        super.onScrolled(recyclerView, dx, dy)
+                                        appBar.isLifted = recyclerView.canScrollVertically(-1)
                                     }
+                                })
+                                it.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                                    appBar.isLifted = it.canScrollVertically(-1)
                                 }
-                            } else {
-                                appBar.setLiftable(false)
-                                appBar.background = null
                             }
                             if (fragment is Sortable) {
                                 fragment.setupSortBar(sortBar)

@@ -33,8 +33,8 @@ class AutoCompleteAdapter<T>(
 ): ArrayAdapter<T?>(context, resource, textViewResourceId) {
 
     private var objects = originalValues
-    private val imageLibrary = context.prefs().getString(C.CHAT_IMAGE_LIBRARY, "0")
-    private val emoteQuality = context.prefs().getString(C.CHAT_IMAGE_QUALITY, "4") ?: "4"
+    private val imageLibrary = "0"
+    private val emoteQuality = "4"
 
     override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
         val view = super.getView(position, convertView, parent)

@@ -257,11 +257,6 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
             }
             val adapter = GamePagerAdapter(this@GamePagerFragment, tabs)
             viewPager.adapter = adapter
-            if (!requireContext().prefs().getBoolean(C.UI_THEME_APPBAR_LIFT, true)) {
-                appBar.setLiftable(false)
-                appBar.background = null
-                collapsingToolbar.setContentScrimColor(MaterialColors.getColor(collapsingToolbar, com.google.android.material.R.attr.colorSurface))
-            }
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageSelected(position: Int) {
                     viewPager.doOnLayout {

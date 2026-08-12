@@ -1,0 +1,8 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SeekBarPreference android:defaultValue="100" android:key="chat_size_modifier" android:max="200" android:summary="@string/settings_chat_size_summary" android:title="@string/settings_chat_size" app:iconSpaceReserved="false" app:min="50" app:showSeekBarValue="true" />
+    <ListPreference android:defaultValue="14" android:entries="@array/chatTextSizeEntries" android:entryValues="@array/chatTextSizeValues" android:key="chat_text_size" android:summary="%s" android:title="@string/text_size" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="29.5" android:entries="@array/chatEmoteSizeEntries" android:entryValues="@array/chatEmoteSizeValues" android:key="chat_emote_size" android:summary="%s" android:title="@string/chat_emote_size" app:iconSpaceReserved="false" />
+    <SeekBarPreference android:defaultValue="30" android:key="chatWidth" android:max="70" android:title="@string/landscape_chat_width" app:iconSpaceReserved="false" app:min="20" app:showSeekBarValue="true" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_timestamps" android:title="@string/timestamps" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="0" android:entries="@array/settingsTimestampEntries" android:entryValues="@array/settingsTimestampValues" android:key="chat_timestamp_format" android:dependency="chat_timestamps" android:summary="%s" android:title="@string/timestamp_format" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

@@ -1,0 +1,7 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_usernotice" android:title="Subscriptions and notices" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_clearmsg" android:title="Deleted-message notices" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_clearchat" android:title="Timeouts and bans" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="0" android:entries="@array/chatFirstMsgEntries" android:entryValues="@array/miscValues" android:key="chat_firstmsg_visibility" android:summary="%s" android:title="First-time chatters &amp; redemptions" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_system_message_emotes" android:title="Emotes in system messages" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

@@ -474,8 +474,8 @@ class ChannelPointsDialog : DialogFragment() {
                         input.setText(emote.name.orEmpty())
                         input.setSelection(input.text.length)
                     },
-                    requireContext().prefs().getString(C.CHAT_IMAGE_QUALITY, "4") ?: "4",
-                    requireContext().prefs().getString(C.CHAT_IMAGE_LIBRARY, "0"),
+                    "4",
+                    "0",
                 )
                 val picker = RecyclerView(requireContext()).apply {
                     itemAnimator = null

@@ -146,22 +146,17 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
             }
             childFragmentManager.registerFragmentLifecycleCallbacks(object : FragmentManager.FragmentLifecycleCallbacks() {
                 override fun onFragmentViewCreated(fm: FragmentManager, f: Fragment, v: View, savedInstanceState: Bundle?) {
-                    if (requireContext().prefs().getBoolean(C.UI_THEME_APPBAR_LIFT, true)) {
-                        f.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
-                            appBar.setLiftOnScrollTargetView(it)
-                            it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-                                override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                                    super.onScrolled(recyclerView, dx, dy)
-                                    appBar.isLifted = recyclerView.canScrollVertically(-1)
-                                }
-                            })
-                            it.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                                appBar.isLifted = it.canScrollVertically(-1)
+                    f.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
+                        appBar.setLiftOnScrollTargetView(it)
+                        it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                                super.onScrolled(recyclerView, dx, dy)
+                                appBar.isLifted = recyclerView.canScrollVertically(-1)
                             }
+                        })
+                        it.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                            appBar.isLifted = it.canScrollVertically(-1)
                         }
-                    } else {
-                        appBar.setLiftable(false)
-                        appBar.background = null
                     }
                     if (f is Sortable) {
                         f.setupSortBar(sortBar)

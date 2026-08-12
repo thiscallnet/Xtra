@@ -1,0 +1,8 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <Preference android:key="about_version" android:title="@string/settings_version" app:iconSpaceReserved="false" />
+    <Preference android:key="about_build" android:title="@string/settings_build" app:iconSpaceReserved="false" />
+    <Preference android:key="about_package" android:title="@string/settings_package" app:iconSpaceReserved="false" />
+    <Preference android:key="about_github" android:title="@string/settings_github" app:iconSpaceReserved="false" />
+    <Preference android:key="about_licenses" android:title="@string/settings_licenses" app:iconSpaceReserved="false" />
+    <Preference android:key="about_issue" android:title="@string/settings_report_issue" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

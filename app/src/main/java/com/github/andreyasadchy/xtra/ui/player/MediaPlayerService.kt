@@ -48,6 +48,8 @@ import com.github.andreyasadchy.xtra.util.MediaButtonReceiver
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.httpProxyHost
+import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -535,8 +537,8 @@ class MediaPlayerService : BasePlaybackService() {
                             playerType = prefs().getString(C.TOKEN_PLAYER_TYPE, "site"),
                             supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
                             proxyPlaybackAccessToken = prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-                            proxyHost = prefs().getString(C.PROXY_HOST, null),
-                            proxyPort = prefs().getString(C.PROXY_PORT, null)?.toIntOrNull(),
+                            proxyHost = prefs().httpProxyHost(),
+                            proxyPort = prefs().httpProxyPort(),
                             proxyUser = prefs().getString(C.PROXY_USER, null),
                             proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
                             enableIntegrity = prefs().getBoolean(C.ENABLE_INTEGRITY, false)
@@ -555,8 +557,8 @@ class MediaPlayerService : BasePlaybackService() {
                 player?.let { player ->
                     val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, "OkHttp")
                     val proxyMultivariantPlaylist = prefs().getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false)
-                    val proxyHost = prefs().getString(C.PROXY_HOST, null)
-                    val proxyPort = prefs().getString(C.PROXY_PORT, null)?.toIntOrNull()
+                    val proxyHost = prefs().httpProxyHost()
+                    val proxyPort = prefs().httpProxyPort()
                     val proxyUser = prefs().getString(C.PROXY_USER, null)
                     val proxyPassword = prefs().getString(C.PROXY_PASSWORD, null)
                     val useProxy = !useCustomProxy && proxyMultivariantPlaylist && !proxyHost.isNullOrBlank() && proxyPort != null
@@ -793,7 +795,6 @@ class MediaPlayerService : BasePlaybackService() {
                                 val audio = find { it.name?.startsWith("audio", true) == true }
                                 audio?.let { remove(it) }
                                 add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
-                                add(VideoQuality(CHAT_ONLY_QUALITY))
                             }
                         setDefaultQuality()
                         serviceListener?.changePlayerMode()
@@ -1348,23 +1349,8 @@ class MediaPlayerService : BasePlaybackService() {
                 restoreQuality = true
                 previousQuality = quality
                 quality = qualities?.find { it.name == AUDIO_ONLY_QUALITY }
-                quality?.let { quality ->
-                    if (prefs().getBoolean(C.PLAYER_DISABLE_BACKGROUND_VIDEO, true)) {
-                        serviceListener?.changeSurfaceVisibility(false)
-                    }
-                    if (prefs().getBoolean(C.PLAYER_USE_BACKGROUND_AUDIO_TRACK, false)) {
-                        quality.url?.let { url ->
-                            val position = player.currentPosition.toLong()
-                            player.reset()
-                            if (offlineVideoId != null) {
-                                player.setDataSource(this, url.toUri())
-                            } else {
-                                player.setDataSource(url)
-                            }
-                            seekPosition = position
-                            player.prepareAsync()
-                        }
-                    }
+                quality?.let {
+                    serviceListener?.changeSurfaceVisibility(false)
                 }
             }
         }
@@ -1412,36 +1398,10 @@ class MediaPlayerService : BasePlaybackService() {
         player?.let { player ->
             resumeWhenForeground = false
             val isInteractive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
-            if ((!isInPIPMode && isInteractive && prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO, true))
-                || (!isInPIPMode && !isInteractive && prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO_LOCKED, true))
-                || (isInPIPMode && isInteractive && prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO_PIP_CLOSED, true))
-                || (isInPIPMode && !isInteractive && prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO_PIP_LOCKED, true))) {
+            if (prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
                 if (runCatching { player.isPlaying }.getOrDefault(false) && quality?.name != AUDIO_ONLY_QUALITY) {
-                    val useBackgroundAudioTrack = prefs().getBoolean(C.PLAYER_USE_BACKGROUND_AUDIO_TRACK, false)
-                    if (useBackgroundAudioTrack) {
-                        restoreQuality = true
-                        previousQuality = quality
-                        quality = qualities?.find { it.name == AUDIO_ONLY_QUALITY }
-                    }
-                    if (prefs().getBoolean(C.PLAYER_DISABLE_BACKGROUND_VIDEO, true)) {
-                        serviceListener?.changeSurfaceVisibility(false)
-                        if (!useBackgroundAudioTrack) {
-                            backgroundVideoDisabled = true
-                        }
-                    }
-                    if (useBackgroundAudioTrack) {
-                        quality?.url?.let { url ->
-                            val position = player.currentPosition.toLong()
-                            player.reset()
-                            if (offlineVideoId != null) {
-                                player.setDataSource(this, url.toUri())
-                            } else {
-                                player.setDataSource(url)
-                            }
-                            seekPosition = position
-                            player.prepareAsync()
-                        }
-                    }
+                    serviceListener?.changeSurfaceVisibility(false)
+                    backgroundVideoDisabled = true
                 }
             } else {
                 streamRecoveryJob?.cancel()
@@ -2062,10 +2022,7 @@ class MediaPlayerService : BasePlaybackService() {
         val isInteractive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
         if (player?.let { runCatching { it.isPlaying }.getOrDefault(false) } == true
             && prefs().getBoolean(C.PLAYER_KEEP_PLAYING_AFTER_TASK_REMOVED, true)
-            && prefs().getBoolean(
-                if (isInteractive) C.PLAYER_BACKGROUND_AUDIO else C.PLAYER_BACKGROUND_AUDIO_LOCKED,
-                true,
-            )) {
+            && prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
             return
         }
         streamPlaybackRequested = false

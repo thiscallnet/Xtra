@@ -419,7 +419,7 @@ class MessageClickedDialog : BottomSheetDialogFragment(), IntegrityDialog.Listen
             if ((!adapter.userId.isNullOrBlank() && (message.userId == adapter.userId || message.replyParent?.userId == adapter.userId)) ||
                 (!adapter.userLogin.isNullOrBlank() && (message.userLogin == adapter.userLogin || message.replyParent?.userLogin == adapter.userLogin))) {
                 synchronized(adapter.messages) {
-                    if (adapter.messages.size >= (messageLimit ?: requireContext().prefs().getInt(C.CHAT_LIMIT, 600).also { messageLimit = it })) {
+                    if (adapter.messages.size >= (messageLimit ?: 600.also { messageLimit = it })) {
                         adapter.messages.removeAt(0)
                         adapter.notifyItemRemoved(0)
                     }
@@ -437,7 +437,7 @@ class MessageClickedDialog : BottomSheetDialogFragment(), IntegrityDialog.Listen
     fun addMessages(messages: List<ChatMessage>) {
         adapter?.let { adapter ->
             synchronized(adapter.messages) {
-                val left = (messageLimit ?: requireContext().prefs().getInt(C.CHAT_LIMIT, 600).also { messageLimit = it }) - adapter.messages.size
+                    val left = (messageLimit ?: 600.also { messageLimit = it }) - adapter.messages.size
                 if (left > 0) {
                     val items = messages.filter { message ->
                         (!message.userId.isNullOrBlank() && (message.userId == adapter.userId || message.replyParent?.userId == adapter.userId)) ||

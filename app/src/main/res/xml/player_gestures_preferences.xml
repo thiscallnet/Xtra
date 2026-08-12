@@ -1,0 +1,3 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="player_doubletap" android:summary="Toggle chat with a double tap while watching." android:title="@string/settings_double_tap_chat" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

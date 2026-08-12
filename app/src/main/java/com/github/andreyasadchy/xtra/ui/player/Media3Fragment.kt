@@ -45,6 +45,8 @@ import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.util.httpProxyHost
+import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
 import com.google.android.material.snackbar.Snackbar
@@ -208,7 +210,7 @@ class Media3Fragment : Media3PlayerFragment() {
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     updateProgress()
-                    if (!requireContext().prefs().getBoolean(C.PLAYER_KEEP_SCREEN_ON_WHEN_PAUSED, false) && canEnterPictureInPicture()) {
+                    if (canEnterPictureInPicture()) {
                         requireView().keepScreenOn = isPlaying
                     }
                 }
@@ -280,7 +282,6 @@ class Media3Fragment : Media3PlayerFragment() {
                                                 audio?.let { remove(it) }
                                                 add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
                                                 if (videoType == STREAM) {
-                                                    add(VideoQuality(CHAT_ONLY_QUALITY))
                                                 }
                                             }
                                         setDefaultQuality()
@@ -299,9 +300,8 @@ class Media3Fragment : Media3PlayerFragment() {
                     if (videoType == STREAM) {
                         val avoidAds = requireContext().prefs().shouldAvoidTwitchAds()
                         val suppressAds = avoidAds
-                        val useProxy = requireContext().prefs().getBoolean(C.PROXY_MEDIA_PLAYLIST, true)
-                                && !requireContext().prefs().getString(C.PROXY_HOST, null).isNullOrBlank()
-                                && requireContext().prefs().getString(C.PROXY_PORT, null)?.toIntOrNull() != null
+                        val useProxy = requireContext().prefs().httpProxyHost() != null
+                                && requireContext().prefs().httpProxyPort() != null
                         if (suppressAds || useProxy) {
                             player?.sendCustomCommand(
                                 SessionCommand(PlaybackService.CHECK_ADS, Bundle.EMPTY),
@@ -502,7 +502,7 @@ class Media3Fragment : Media3PlayerFragment() {
                 if (viewModel.started && player.currentMediaItem != null) {
                     chatFragment?.startReplayChatLoad()
                 }
-                if (!requireContext().prefs().getBoolean(C.PLAYER_KEEP_SCREEN_ON_WHEN_PAUSED, false) && canEnterPictureInPicture()) {
+                if (canEnterPictureInPicture()) {
                     requireView().keepScreenOn = player.isPlaying
                 }
                 updateProgress()
@@ -1133,25 +1133,12 @@ class Media3Fragment : Media3PlayerFragment() {
                     viewModel.restoreQuality = true
                     viewModel.previousQuality = viewModel.quality
                     viewModel.quality = viewModel.qualities?.find { it.name == AUDIO_ONLY_QUALITY }
-                    viewModel.quality?.let { quality ->
-                        player.currentMediaItem?.let { mediaItem ->
-                            if (requireContext().prefs().getBoolean(C.PLAYER_DISABLE_BACKGROUND_VIDEO, true)) {
-                                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
-                                    setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
-                                }.build()
-                                binding.playerSurface.visibility = View.GONE
-                            }
-                            if (requireContext().prefs().getBoolean(C.PLAYER_USE_BACKGROUND_AUDIO_TRACK, false)) {
-                                quality.url?.let { url ->
-                                    val position = player.currentPosition
-                                    if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
-                                        viewModel.playlistUrl = mediaItem.localConfiguration?.uri
-                                    }
-                                    player.setMediaItem(mediaItem.buildUpon().setUri(url).build())
-                                    player.prepare()
-                                    player.seekTo(position)
-                                }
-                            }
+                    viewModel.quality?.let {
+                        if (player.currentMediaItem != null) {
+                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
+                            }.build()
+                            binding.playerSurface.visibility = View.GONE
                         }
                     }
                 }
@@ -1257,38 +1244,11 @@ class Media3Fragment : Media3PlayerFragment() {
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> !useController && isMaximized
                     else -> false
                 }
-                if ((!isInPIPMode && isInteractive && requireContext().prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO, true))
-                    || (!isInPIPMode && !isInteractive && requireContext().prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO_LOCKED, true))
-                    || (isInPIPMode && isInteractive && requireContext().prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO_PIP_CLOSED, true))
-                    || (isInPIPMode && !isInteractive && requireContext().prefs().getBoolean(C.PLAYER_BACKGROUND_AUDIO_PIP_LOCKED, true))) {
+                if (requireContext().prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
                     if (player.playWhenReady && viewModel.quality?.name != AUDIO_ONLY_QUALITY) {
-                        val useBackgroundAudioTrack = requireContext().prefs().getBoolean(C.PLAYER_USE_BACKGROUND_AUDIO_TRACK, false)
-                        if (useBackgroundAudioTrack) {
-                            viewModel.restoreQuality = true
-                            viewModel.previousQuality = viewModel.quality
-                            viewModel.quality = viewModel.qualities?.find { it.name == AUDIO_ONLY_QUALITY }
-                        }
-                        player.currentMediaItem?.let { mediaItem ->
-                            if (requireContext().prefs().getBoolean(C.PLAYER_DISABLE_BACKGROUND_VIDEO, true) && useBackgroundAudioTrack) {
-                                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
-                                    setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
-                                }.build()
-                            }
-                            if (requireContext().prefs().getBoolean(C.PLAYER_DISABLE_BACKGROUND_VIDEO, true) && !useBackgroundAudioTrack) {
-                                viewModel.backgroundVideoDisabled = true
-                                binding.playerSurface.visibility = View.GONE
-                            }
-                            if (useBackgroundAudioTrack) {
-                                viewModel.quality?.url?.let { url ->
-                                    val position = player.currentPosition
-                                    if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
-                                        viewModel.playlistUrl = mediaItem.localConfiguration?.uri
-                                    }
-                                    player.setMediaItem(mediaItem.buildUpon().setUri(url).build())
-                                    player.prepare()
-                                    player.seekTo(position)
-                                }
-                            }
+                        if (player.currentMediaItem != null) {
+                            viewModel.backgroundVideoDisabled = true
+                            binding.playerSurface.visibility = View.GONE
                         }
                     }
                 } else {
