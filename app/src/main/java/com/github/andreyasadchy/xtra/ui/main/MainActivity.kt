@@ -76,6 +76,7 @@ import com.github.andreyasadchy.xtra.ui.player.BasePlaybackService
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerFragment
 import com.github.andreyasadchy.xtra.ui.player.Media3Fragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
+import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.player.MediaPlayerFragment
 import com.github.andreyasadchy.xtra.ui.player.PlayerFragment
 import com.github.andreyasadchy.xtra.ui.saved.SavedMediaFragment
@@ -1143,6 +1144,14 @@ class MainActivity : AppCompatActivity() {
         }
         viewModel.sleepTimer?.cancel()
         viewModel.sleepTimerEndTime = 0L
+        currentMultiviewFragment()?.resumeAfterExternalPlayer()
+    }
+
+    private fun currentMultiviewFragment(): MultiviewFragment? {
+        return (supportFragmentManager.findFragmentById(R.id.navHostFragment) as? NavHostFragment)
+            ?.childFragmentManager
+            ?.fragments
+            ?.firstOrNull { it is MultiviewFragment } as? MultiviewFragment
     }
 
     private fun restorePlayerFragment() {

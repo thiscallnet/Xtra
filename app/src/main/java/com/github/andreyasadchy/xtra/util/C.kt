@@ -197,6 +197,8 @@ object C {
     const val PLAYER_STREAM_PROXY = "player_stream_proxy"
     const val PLAYER_PROXY_URL = "player_proxy_url"
     const val PLAYER_STREAM_HEADERS = "player_stream_headers"
+    const val MULTIVIEW_FILL = "multiview_fill_video"
+    const val MULTIVIEW_QUALITY_MODE = "multiview_quality_mode"
     const val PLAYER_SHOW_UPTIME = "player_show_uptime"
     const val PROXY_PLAYBACK_ACCESS_TOKEN = "proxy_playback_access_token"
     const val PROXY_MULTIVARIANT_PLAYLIST = "proxy_multivariant_playlist"

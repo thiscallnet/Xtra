@@ -68,6 +68,7 @@ import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
 import com.github.andreyasadchy.xtra.util.chat.STVEventApiUtils
 import com.github.andreyasadchy.xtra.util.chat.STVEventApiWebSocket
 import com.github.andreyasadchy.xtra.util.prefs
+import kotlinx.coroutines.cancel
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -277,11 +278,24 @@ class ChatViewModel(
     }
 
     override fun onCleared() {
+        releaseSession()
+        super.onCleared()
+    }
+
+    /** Releases a session owned by a non-Fragment chat surface such as multiview. */
+    fun releaseForMultiview() {
+        releaseSession()
+        // These sessions are created directly by CombinedChatViewModel, so
+        // Android will not call ViewModel.clear() for them. Cancel the scope
+        // explicitly to stop pending emote/network work as well.
+        viewModelScope.cancel()
+    }
+
+    private fun releaseSession() {
         stopLiveChat()
         stopReplayChat()
         pollSecondsLeft.value = null
         pollTimer?.cancel()
-        super.onCleared()
     }
 
     private fun loadEmotes(channelId: String?, channelLogin: String?) {

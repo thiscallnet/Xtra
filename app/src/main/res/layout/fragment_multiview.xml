@@ -9,86 +9,108 @@
     android:clipToPadding="false"
     android:orientation="vertical">
 
-    <LinearLayout
+    <FrameLayout
         android:id="@+id/multiviewContent"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical">
+        android:layout_weight="1">
 
-        <LinearLayout
+        <android.widget.GridLayout
             android:id="@+id/videoGrid"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="match_parent"
             android:clipToPadding="false"
-            android:orientation="vertical">
-
-        </LinearLayout>
+            android:columnCount="2"
+            android:rowCount="2"
+            android:useDefaultMargins="false" />
 
         <LinearLayout
-            android:id="@+id/multiviewToolbar"
+            android:id="@+id/controlsOverlay"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="?android:colorBackground"
+            android:layout_gravity="top"
+            android:layout_margin="8dp"
+            android:background="@drawable/bg_stream_overlay"
             android:gravity="center_vertical"
-            android:minHeight="64dp"
+            android:minHeight="48dp"
             android:orientation="horizontal"
-            android:paddingStart="12dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="12dp"
-            android:paddingBottom="6dp">
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:visibility="visible">
+
+            <ImageButton
+                android:id="@+id/backButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/multiview_close"
+                android:padding="12dp"
+                android:src="@drawable/baseline_arrow_back_black_24"
+                app:tint="@android:color/white" />
+
+            <TextView
+                android:id="@+id/multiviewTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/multiview"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="@android:color/white" />
 
             <TextView
                 android:id="@+id/activeAudio"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:minWidth="0dp"
-                android:paddingStart="4dp"
-                android:paddingEnd="4dp"
-                android:textAppearance="?attr/textAppearanceBodyMedium"
-                android:textColor="?android:attr/textColorSecondary"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="@android:color/white"
                 tools:text="Audio: channel" />
 
             <ImageButton
-                android:id="@+id/aspectButton"
+                android:id="@+id/chatButton"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
-                android:background="?android:selectableItemBackgroundBorderless"
-                android:contentDescription="@string/player_aspect_ratio"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/multiview_chat"
                 android:padding="12dp"
-                android:src="@drawable/baseline_aspect_ratio_black_24"
-                app:tint="?attr/colorControlNormal" />
+                android:src="@drawable/ic_settings_chat"
+                app:tint="@android:color/white" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/chatButton"
-                style="?attr/elevatedButtonStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:text="@string/multiview_chat" />
-
-            <com.google.android.material.button.MaterialButton
+            <ImageButton
                 android:id="@+id/addStreamButton"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:text="@string/multiview_add_stream" />
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/multiview_add_stream"
+                android:padding="12dp"
+                android:src="@drawable/ic_add"
+                app:tint="@android:color/white" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/closeButton"
-                style="?attr/elevatedButtonStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:text="@string/multiview_close" />
+            <ImageButton
+                android:id="@+id/layoutButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/multiview_layout"
+                android:padding="12dp"
+                android:src="@drawable/ic_multiview"
+                app:tint="@android:color/white" />
 
+            <ImageButton
+                android:id="@+id/moreButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/multiview_more_options"
+                android:padding="12dp"
+                android:src="@drawable/baseline_more_vert_black_24"
+                app:tint="@android:color/white" />
         </LinearLayout>
-    </LinearLayout>
+    </FrameLayout>
 
     <LinearLayout
         android:id="@+id/chatContainer"
@@ -122,14 +144,15 @@
                 android:text="@string/multiview_chat"
                 android:textAppearance="?attr/textAppearanceTitleSmall" />
 
-            <com.google.android.material.button.MaterialButton
+            <ImageButton
                 android:id="@+id/combinedChatButton"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:minWidth="0dp"
-                android:text="@string/multiview_all_chats" />
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/multiview_all_chats"
+                android:padding="12dp"
+                android:src="@drawable/ic_multiview"
+                app:tint="?attr/colorControlNormal" />
         </LinearLayout>
 
         <FrameLayout
@@ -139,5 +162,4 @@
             android:layout_weight="1"
             android:background="?android:colorBackground" />
     </LinearLayout>
-
 </LinearLayout>
