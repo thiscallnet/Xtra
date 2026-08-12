@@ -39,8 +39,8 @@ class EmotesFragment : Fragment() {
             val adapter = EmotesAdapter(
                 this@EmotesFragment,
                 { (parentFragment as? ChatFragment)?.appendEmote(it) },
-                requireContext().prefs().getString(C.CHAT_IMAGE_QUALITY, "4") ?: "4",
-                requireContext().prefs().getString(C.CHAT_IMAGE_LIBRARY, "0")
+                "4",
+                "0"
             )
             root.itemAnimator = null
             root.adapter = adapter

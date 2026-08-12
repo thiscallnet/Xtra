@@ -156,13 +156,8 @@ object UpdateState {
     }
 
     fun isDue(context: Context, now: Long = System.currentTimeMillis()): Boolean {
-        val frequencyDays = context.prefs()
-            .getString(C.UPDATE_CHECK_FREQUENCY, DEFAULT_FREQUENCY_DAYS.toString())
-            ?.toLongOrNull()
-            ?.coerceAtLeast(1L)
-            ?: DEFAULT_FREQUENCY_DAYS.toLong()
         val lastChecked = context.tokenPrefs().getLong(C.UPDATE_LAST_CHECKED, 0L)
-        return lastChecked <= 0L || now - lastChecked >= frequencyDays * DAY_MILLIS
+        return lastChecked <= 0L || now - lastChecked >= DEFAULT_FREQUENCY_DAYS * DAY_MILLIS
     }
 
     fun markChecked(context: Context, now: Long = System.currentTimeMillis()) {

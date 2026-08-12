@@ -12,6 +12,8 @@ import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.httpProxyHost
+import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.prefs
 
 class MultiviewViewModel(
@@ -93,8 +95,8 @@ class MultiviewViewModel(
             playerType = preferences.getString(C.TOKEN_PLAYER_TYPE, "site"),
             supportedCodecs = preferences.getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
             proxyPlaybackAccessToken = preferences.getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-            proxyHost = preferences.getString(C.PROXY_HOST, null),
-            proxyPort = preferences.getString(C.PROXY_PORT, null)?.toIntOrNull(),
+            proxyHost = preferences.httpProxyHost(),
+            proxyPort = preferences.httpProxyPort(),
             proxyUser = preferences.getString(C.PROXY_USER, null),
             proxyPassword = preferences.getString(C.PROXY_PASSWORD, null),
             enableIntegrity = preferences.getBoolean(C.ENABLE_INTEGRITY, false),

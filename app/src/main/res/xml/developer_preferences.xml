@@ -1,0 +1,21 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="developer_options_enabled" android:title="@string/settings_developer_enabled" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_api_authentication" app:iconSpaceReserved="false" />
+    <Preference android:key="developer_api_authentication" android:title="@string/settings_api_authentication" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_networking" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="Automatic" android:entries="@array/networkLibraryEntries" android:entryValues="@array/networkLibraryEntries" android:key="network_library" android:summary="%s" android:title="@string/settings_network_engine" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_chat_diagnostics" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="debug_chat_fullmsg" android:title="@string/show_copy_fullmsg" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="debug_api_commands" android:title="@string/debug_api_commands" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="debug_api_chat_messages" android:title="@string/use_api_chat_messages" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="debug_websocket_info" android:title="@string/show_more_websocket_info" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="debug_eventsub_chat" android:title="Use EventSub chat (experimental)" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_playback_diagnostics" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="debug_use_custom_playback_service_v2" android:title="@string/use_custom_playback_service" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="ExoPlayer" android:entries="@array/playerEntries" android:entryValues="@array/playerEntries" android:key="player" android:summary="%s" android:title="@string/player" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_twitch_api_diagnostics" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="enable_integrity" android:title="@string/use_integrity" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="use_webview_integrity" android:title="@string/get_webview_integrity" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="get_all_gql_headers" android:title="@string/get_all_headers" app:iconSpaceReserved="false" />
+    <Preference android:key="get_integrity_token" android:title="@string/get_integrity_token" app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

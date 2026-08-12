@@ -121,11 +121,6 @@ class TeamFragment : PagedListFragment(), Scrollable, IntegrityDialog.Listener {
                     else -> false
                 }
             }
-            if (!requireContext().prefs().getBoolean(C.UI_THEME_APPBAR_LIFT, true)) {
-                appBar.setLiftable(false)
-                appBar.background = null
-                collapsingToolbar.setContentScrimColor(MaterialColors.getColor(collapsingToolbar, com.google.android.material.R.attr.colorSurface))
-            }
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
                 collapsingToolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {

@@ -1,93 +1,11 @@
-<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
-
-    <PreferenceCategory
-        android:title="@string/settings_download_behavior"
-        app:iconSpaceReserved="false" />
-
-    <SwitchPreferenceCompat
-        android:defaultValue="false"
-        android:key="download_playlist_to_file"
-        android:title="@string/download_vod_to_file"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <SwitchPreferenceCompat
-        android:defaultValue="false"
-        android:key="download_wifi_only"
-        android:title="@string/download_wifi_only"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
-    <SeekBarPreference
-        android:defaultValue="2"
-        android:key="download_limit"
-        android:max="10"
-        android:title="@string/concurrent_downloads"
-        app:iconSpaceReserved="false"
-        app:min="1"
-        app:showSeekBarValue="true"
-        app:singleLineTitle="false" />
-
-    <SeekBarPreference
-        android:defaultValue="10"
-        android:key="download_concurrent_limit"
-        android:max="20"
-        android:summary="@string/download_threads_summary"
-        android:title="@string/download_threads"
-        app:iconSpaceReserved="false"
-        app:min="1"
-        app:showSeekBarValue="true"
-        app:singleLineTitle="false" />
-
-    <PreferenceCategory
-        android:title="@string/settings_download_live"
-        app:iconSpaceReserved="false" />
-
-    <EditTextPreference
-        android:defaultValue="2"
-        android:key="download_stream_live_check"
-        android:title="@string/download_live_check"
-        app:dialogMessage="@string/download_live_check_summary"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false"
-        app:useSimpleSummaryProvider="true" />
-
-    <EditTextPreference
-        android:defaultValue="10"
-        android:key="download_stream_offline_check"
-        android:title="@string/download_offline_check"
-        app:dialogMessage="@string/download_offline_check_summary"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false"
-        app:useSimpleSummaryProvider="true" />
-
-    <EditTextPreference
-        android:defaultValue="120"
-        android:key="download_stream_start_wait"
-        android:title="@string/download_start_wait"
-        app:dialogMessage="@string/download_start_wait_summary"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false"
-        app:useSimpleSummaryProvider="true" />
-
-    <EditTextPreference
-        android:defaultValue="15"
-        android:key="download_stream_end_wait"
-        android:title="@string/download_end_wait"
-        app:dialogMessage="@string/download_end_wait_summary"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false"
-        app:useSimpleSummaryProvider="true" />
-
-    <PreferenceCategory
-        android:title="@string/settings_download_data"
-        app:iconSpaceReserved="false" />
-
-    <Preference
-        android:key="import_app_downloads"
-        android:title="@string/import_app_downloads"
-        app:iconSpaceReserved="false"
-        app:singleLineTitle="false" />
-
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <PreferenceCategory android:title="@string/settings_download_network" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="download_wifi_only" android:summary="Only start downloads while connected to Wi-Fi." android:title="Download over Wi-Fi only" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_download_files" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="download_playlist_to_file" android:summary="Store downloaded videos as one media file instead of Xtra's segmented format." android:title="Save videos as a single file" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_download_performance" app:iconSpaceReserved="false" />
+    <SeekBarPreference android:defaultValue="2" android:key="download_limit" android:max="4" android:title="Simultaneous downloads" app:iconSpaceReserved="false" app:min="1" app:showSeekBarValue="true" />
+    <Preference android:key="download_live_page" android:title="@string/settings_live_downloads" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_download_data" app:iconSpaceReserved="false" />
+    <Preference android:key="import_app_downloads" android:summary="Find Xtra downloads that aren't currently shown in your library." android:title="Import existing downloads" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

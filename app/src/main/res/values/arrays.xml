@@ -6,19 +6,92 @@
     </string-array>
 
     <string-array name="networkLibraryEntries">
+        <item>Automatic</item>
         <item>HttpEngine</item>
         <item>Cronet</item>
         <item>OkHttp</item>
     </string-array>
 
     <string-array name="networkLibraryEntriesNoCronet">
+        <item>Automatic</item>
         <item>HttpEngine</item>
         <item>OkHttp</item>
     </string-array>
 
     <string-array name="networkLibraryEntriesNoHttpEngine">
+        <item>Automatic</item>
         <item>Cronet</item>
         <item>OkHttp</item>
+    </string-array>
+
+    <string-array name="liveDownloadWaitEntries">
+        <item>15 minutes</item>
+        <item>30 minutes</item>
+        <item>1 hour</item>
+        <item>2 hours</item>
+        <item>4 hours</item>
+        <item>8 hours</item>
+    </string-array>
+
+    <string-array name="liveDownloadWaitValues">
+        <item>15</item>
+        <item>30</item>
+        <item>60</item>
+        <item>120</item>
+        <item>240</item>
+        <item>480</item>
+    </string-array>
+
+    <string-array name="liveDownloadRestartWaitEntries">
+        <item>5 minutes</item>
+        <item>10 minutes</item>
+        <item>15 minutes</item>
+        <item>30 minutes</item>
+        <item>1 hour</item>
+    </string-array>
+
+    <string-array name="liveDownloadRestartWaitValues">
+        <item>5</item>
+        <item>10</item>
+        <item>15</item>
+        <item>30</item>
+        <item>60</item>
+    </string-array>
+
+    <string-array name="chatTextSizeEntries">
+        <item>12 sp</item>
+        <item>14 sp</item>
+        <item>16 sp</item>
+        <item>18 sp</item>
+        <item>20 sp</item>
+        <item>24 sp</item>
+    </string-array>
+
+    <string-array name="chatTextSizeValues">
+        <item>12</item>
+        <item>14</item>
+        <item>16</item>
+        <item>18</item>
+        <item>20</item>
+        <item>24</item>
+    </string-array>
+
+    <string-array name="chatEmoteSizeEntries">
+        <item>20 dp</item>
+        <item>24 dp</item>
+        <item>29.5 dp</item>
+        <item>36 dp</item>
+        <item>42 dp</item>
+        <item>48 dp</item>
+    </string-array>
+
+    <string-array name="chatEmoteSizeValues">
+        <item>20</item>
+        <item>24</item>
+        <item>29.5</item>
+        <item>36</item>
+        <item>42</item>
+        <item>48</item>
     </string-array>
 
     <string-array name="nameDisplayEntries">
@@ -123,9 +196,9 @@
     </string-array>
 
     <string-array name="roundedCornerEntries">
-        <item>@string/enabled_setting</item>
-        <item>@string/less_rounded_corners</item>
-        <item>@string/disabled_setting</item>
+        <item>@string/settings_corner_rounded</item>
+        <item>@string/settings_corner_subtle</item>
+        <item>@string/settings_corner_square</item>
     </string-array>
 
     <string-array name="roundedCornerValues">
@@ -162,7 +235,6 @@
         <item>360p</item>
         <item>160p</item>
         <item>@string/audio_only</item>
-        <item>@string/chat_only</item>
     </string-array>
 
     <string-array name="playerQualityValues">
@@ -177,7 +249,6 @@
         <item>360</item>
         <item>160</item>
         <item>audio_only</item>
-        <item>chat_only</item>
     </string-array>
 
     <string-array name="languageEntries">
@@ -229,9 +300,9 @@
     </string-array>
 
     <string-array name="liveNotificationModeEntries">
-        <item>@string/live_notifications_mode_battery_entry</item>
-        <item>@string/live_notifications_mode_fast_entry</item>
-        <item>@string/live_notifications_mode_persistent_entry</item>
+        <item>@string/live_notifications_mode_battery</item>
+        <item>@string/live_notifications_mode_fast</item>
+        <item>@string/live_notifications_mode_persistent</item>
     </string-array>
 
     <string-array name="liveNotificationModeValues">
@@ -351,14 +422,62 @@
     </string-array>
 
     <string-array name="compactStreamsEntries">
-        <item>@string/all</item>
-        <item>@string/followed_only</item>
-        <item>@string/disabled</item>
+        <item>@string/settings_stream_card_standard</item>
+        <item>@string/settings_stream_card_compact</item>
+        <item>@string/settings_stream_card_followed_compact</item>
     </string-array>
 
     <string-array name="compactStreamsValues">
+        <item>disabled</item>
         <item>all</item>
         <item>followed</item>
-        <item>disabled</item>
+    </string-array>
+
+    <string-array name="settingsThemeEntries">
+        <item>@string/settings_theme_system</item>
+        <item>@string/light</item>
+        <item>@string/dark</item>
+        <item>@string/settings_theme_amoled</item>
+    </string-array>
+
+    <string-array name="settingsThemeValues">
+        <item>system</item>
+        <item>light</item>
+        <item>dark</item>
+        <item>amoled</item>
+    </string-array>
+
+    <string-array name="settingsDensityEntries">
+        <item>@string/settings_density_comfortable</item>
+        <item>@string/settings_density_compact</item>
+    </string-array>
+
+    <string-array name="settingsDensityValues">
+        <item>comfortable</item>
+        <item>compact</item>
+    </string-array>
+
+    <string-array name="settingsProfilePictureEntries">
+        <item>Round</item>
+        <item>Rounded square</item>
+    </string-array>
+
+    <string-array name="settingsProfilePictureValues">
+        <item>round</item>
+        <item>rounded_square</item>
+    </string-array>
+
+    <string-array name="settingsTimestampEntries">
+        <item>13:37</item>
+        <item>13:37:42</item>
+        <item>1:37 PM</item>
+        <item>1:37:42 PM</item>
+    </string-array>
+
+    <string-array name="settingsTimestampValues">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+        <item>3</item>
     </string-array>
 </resources>

@@ -23,7 +23,6 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentFollowedGamesListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Tag
-import com.github.andreyasadchy.xtra.ui.game.GameMediaFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -59,23 +58,12 @@ class FollowedGamesAdapter(
                 if (item != null) {
                     val context = fragment.requireContext()
                     root.setOnClickListener {
-                        fragment.findNavController().navigate(
-                            if (context.prefs().getBoolean(C.UI_GAME_PAGER, true)) {
-                                GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                                    gameId = item.id,
-                                    gameSlug = item.slug,
-                                    gameName = item.name,
-                                    updateLocal = item.localFollow
-                                )
-                            } else {
-                                GameMediaFragmentDirections.actionGlobalGameMediaFragment(
-                                    gameId = item.id,
-                                    gameSlug = item.slug,
-                                    gameName = item.name,
-                                    updateLocal = item.localFollow
-                                )
-                            }
-                        )
+                        fragment.findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                            gameId = item.id,
+                            gameSlug = item.slug,
+                            gameName = item.name,
+                            updateLocal = item.localFollow
+                        ))
                     }
                     if (item.boxArt != null) {
                         gameImage.visibility = View.VISIBLE

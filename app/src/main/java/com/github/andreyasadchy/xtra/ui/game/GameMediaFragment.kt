@@ -277,11 +277,6 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
                     setText(adapter.getItem(previousItem).toString(), false)
                 }
             }
-            if (!requireContext().prefs().getBoolean(C.UI_THEME_APPBAR_LIFT, true)) {
-                appBar.setLiftable(false)
-                appBar.background = null
-                collapsingToolbar.setContentScrimColor(MaterialColors.getColor(collapsingToolbar, com.google.android.material.R.attr.colorSurface))
-            }
             childFragmentManager.registerFragmentLifecycleCallbacks(object : FragmentManager.FragmentLifecycleCallbacks() {
                 override fun onFragmentViewCreated(fm: FragmentManager, f: Fragment, v: View, savedInstanceState: Bundle?) {
                     if (f is Sortable) {

@@ -29,7 +29,6 @@ import com.github.andreyasadchy.xtra.model.ui.DownloadProgress
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.thumbnailState
-import com.github.andreyasadchy.xtra.ui.game.GameMediaFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
@@ -176,21 +175,11 @@ class DownloadsAdapter(
                         )
                     }
                     val gameListener: (View) -> Unit = {
-                        fragment.findNavController().navigate(
-                            if (context.prefs().getBoolean(C.UI_GAME_PAGER, true)) {
-                                GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                                fragment.findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
                                     gameId = item.gameId,
                                     gameSlug = item.gameSlug,
                                     gameName = item.gameName
-                                )
-                            } else {
-                                GameMediaFragmentDirections.actionGlobalGameMediaFragment(
-                                    gameId = item.gameId,
-                                    gameSlug = item.gameSlug,
-                                    gameName = item.gameName
-                                )
-                            }
-                        )
+                                ))
                     }
                     val videoDuration = item.duration
                     val position = item.lastWatchPosition

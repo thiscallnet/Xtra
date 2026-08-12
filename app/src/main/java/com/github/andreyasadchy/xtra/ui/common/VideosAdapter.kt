@@ -24,7 +24,6 @@ import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.ui.Bookmark
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
-import com.github.andreyasadchy.xtra.ui.game.GameMediaFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
@@ -215,21 +214,11 @@ class VideosAdapter(
                     }
                     if (showGame && item.gameName != null) {
                         val gameListener: (View) -> Unit = {
-                            fragment.findNavController().navigate(
-                                if (context.prefs().getBoolean(C.UI_GAME_PAGER, true)) {
-                                    GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                                        gameId = item.gameId,
-                                        gameSlug = item.gameSlug,
-                                        gameName = item.gameName
-                                    )
-                                } else {
-                                    GameMediaFragmentDirections.actionGlobalGameMediaFragment(
-                                        gameId = item.gameId,
-                                        gameSlug = item.gameSlug,
-                                        gameName = item.gameName
-                                    )
-                                }
-                            )
+                            fragment.findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                                gameId = item.gameId,
+                                gameSlug = item.gameSlug,
+                                gameName = item.gameName
+                            ))
                         }
                         gameName.visibility = View.VISIBLE
                         gameName.text = item.gameName

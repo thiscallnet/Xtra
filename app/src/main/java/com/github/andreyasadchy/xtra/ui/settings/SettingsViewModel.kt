@@ -29,6 +29,7 @@ import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
@@ -90,6 +91,13 @@ class SettingsViewModel(
     fun deleteRecentSearches() {
         viewModelScope.launch {
             recentSearchesRepository.deleteAll()
+        }
+    }
+
+    fun resetNotificationState() {
+        viewModelScope.launch(Dispatchers.IO) {
+            notificationsRepository.clearPendingNotificationEvents()
+            LiveNotificationScheduler.disable(applicationContext)
         }
     }
 
@@ -447,6 +455,7 @@ class SettingsViewModel(
 
     fun restoreSettings(list: List<String>, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>) {
         viewModelScope.launch(Dispatchers.IO) {
+            var restoredSettings = false
             list.take(2).forEach { url ->
                 if (url.endsWith(".xml")) {
                     FileOutputStream("${applicationContext.applicationInfo.dataDir}/shared_prefs/${applicationContext.packageName}_preferences.xml").use { outputStream ->
@@ -454,6 +463,8 @@ class SettingsViewModel(
                             inputStream.copyTo(outputStream)
                         }
                     }
+                    SettingsMigration.migrate(applicationContext)
+                    restoredSettings = true
                     val prefs = applicationContext.contentResolver.openInputStream(url.toUri())!!.bufferedReader().use {
                         it.readText()
                     }
@@ -476,6 +487,14 @@ class SettingsViewModel(
                     )
                     exitProcess(0)
                 }
+            }
+            if (restoredSettings) {
+                applicationContext.startActivity(
+                    Intent(applicationContext, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    }
+                )
+                exitProcess(0)
             }
         }
     }

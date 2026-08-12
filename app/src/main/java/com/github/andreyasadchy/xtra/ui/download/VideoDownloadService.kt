@@ -415,7 +415,7 @@ class VideoDownloadService : LifecycleService() {
             })
             fileUri
         }
-        val requestSemaphore = Semaphore(prefs().getInt(C.DOWNLOAD_CONCURRENT_LIMIT, 10))
+        val requestSemaphore = Semaphore(10)
         val mutexMap = mutableMapOf<Int, Mutex>()
         val count = MutableStateFlow(0)
         downloadProgress.lastSaved = System.currentTimeMillis()
@@ -709,7 +709,7 @@ class VideoDownloadService : LifecycleService() {
                 p.segments.forEach { downloadedSegments.add(it.uri.substringAfterLast("%2F").substringAfterLast("/")) }
             }
         }
-        val requestSemaphore = Semaphore(prefs().getInt(C.DOWNLOAD_CONCURRENT_LIMIT, 10))
+        val requestSemaphore = Semaphore(10)
         val mutexMap = mutableMapOf<Int, Mutex>()
         val count = MutableStateFlow(0)
         downloadProgress.lastSaved = System.currentTimeMillis()
@@ -993,8 +993,8 @@ class VideoDownloadService : LifecycleService() {
                 val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
                 val gqlHeaders = TwitchApiHelper.getGQLHeaders(this@VideoDownloadService, true)
                 val helixHeaders = TwitchApiHelper.getGQLHeaders(this@VideoDownloadService)
-                val emoteQuality = prefs().getString(C.CHAT_IMAGE_QUALITY, "4") ?: "4"
-                val useWebp = prefs().getBoolean(C.CHAT_USE_WEBP, true)
+                val emoteQuality = "4"
+                val useWebp = true
                 val channelId = offlineVideo.channelId
                 val channelLogin = offlineVideo.channelLogin
                 val globalBadgeList = mutableListOf<TwitchBadge>()
