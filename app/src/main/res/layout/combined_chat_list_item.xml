@@ -1,7 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:padding="0dp"
-    android:textAppearance="?attr/textAppearanceBodyMedium"
-    android:textDirection="ltr" />
+    android:gravity="top"
+    android:orientation="horizontal"
+    android:paddingTop="3dp"
+    android:paddingBottom="3dp">
+
+    <com.google.android.material.chip.Chip
+        android:id="@+id/channelChip"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="6dp"
+        android:clickable="false"
+        android:focusable="false"
+        android:maxLines="1"
+        android:textAppearance="?attr/textAppearanceLabelSmall"
+        app:chipMinHeight="28dp" />
+
+    <TextView
+        android:id="@+id/messageText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textDirection="ltr" />
+</LinearLayout>

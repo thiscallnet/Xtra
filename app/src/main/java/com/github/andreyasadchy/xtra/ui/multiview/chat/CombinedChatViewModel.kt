@@ -1,0 +1,203 @@
+package com.github.andreyasadchy.xtra.ui.multiview.chat
+
+import android.content.Context
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.model.chat.ChatMessage
+import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.launch
+
+class CombinedChatViewModel(
+    private val applicationContext: Context,
+    private val chatViewModelFactory: () -> ChatViewModel,
+) : ViewModel() {
+    private val sessions = linkedMapOf<String, ChannelSession>()
+    private val messages = mutableListOf<CombinedChatMessage>()
+    private var sequence = 0L
+    private val _updates = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val updates: SharedFlow<Unit> = _updates
+
+    fun ensureStreams(streams: List<Stream>) {
+        val desired = streams.mapNotNull { stream ->
+            stableIdentity(stream)?.let { it to stream }
+        }.toMap()
+        sessions.keys.toList().filterNot(desired::containsKey).forEach { identity ->
+            sessions.remove(identity)?.release()
+            synchronized(messages) {
+                messages.removeAll { it.identity == identity }
+            }
+        }
+        desired.forEach { (identity, stream) ->
+            val session = sessions[identity]
+            if (session == null) {
+                val created = ChannelSession(identity, stream, chatViewModelFactory())
+                sessions[identity] = created
+                observe(created)
+                start(created)
+            } else {
+                session.stream = stream
+            }
+        }
+        _updates.tryEmit(Unit)
+    }
+
+    fun snapshot(filterIdentity: String? = null): List<CombinedChatMessage> {
+        return synchronized(messages) {
+            messages.filter { filterIdentity == null || it.identity == filterIdentity }.toList()
+        }
+    }
+
+    override fun onCleared() {
+        sessions.values.forEach(ChannelSession::release)
+        sessions.clear()
+        super.onCleared()
+    }
+
+    private fun observe(session: ChannelSession) {
+        session.jobs += viewModelScope.launch {
+            session.viewModel.newMessage.collect { result ->
+                append(session, result.first)
+            }
+        }
+        session.jobs += viewModelScope.launch {
+            session.viewModel.addMessages.collect { result ->
+                prependHistory(session, result.first)
+            }
+        }
+        session.jobs += viewModelScope.launch {
+            session.viewModel.removeMessages.collect {
+                synchronized(messages) {
+                    var remaining = it
+                    val iterator = messages.listIterator()
+                    while (iterator.hasNext() && remaining > 0) {
+                        if (iterator.next().identity == session.identity) {
+                            iterator.remove()
+                            remaining--
+                        }
+                    }
+                }
+                _updates.emit(Unit)
+            }
+        }
+        session.jobs += viewModelScope.launch {
+            session.viewModel.reloadMessages.collect { _updates.emit(Unit) }
+        }
+        session.jobs += viewModelScope.launch {
+            session.viewModel.thirdPartyEmotesUpdated.collect { _updates.emit(Unit) }
+        }
+        session.jobs += viewModelScope.launch {
+            session.viewModel.userEmotesUpdated.collect { _updates.emit(Unit) }
+        }
+    }
+
+    private fun start(session: ChannelSession) {
+        val stream = session.stream
+        val preferences = applicationContext.prefs()
+        session.viewModel.startLive(
+            networkLibrary = preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP),
+            recentMessagesUrl = preferences.getString(
+                C.CHAT_RECENT_MESSAGES_URL,
+                "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+            ),
+            channelId = stream.channelId,
+            channelLogin = stream.channelLogin,
+            channelName = stream.channelName,
+            streamId = stream.id,
+        )
+    }
+
+    private fun append(session: ChannelSession, message: ChatMessage) {
+        synchronized(messages) {
+            if (message.id != null && messages.any { it.identity == session.identity && it.message.id == message.id }) return
+            messages += CombinedChatMessage(session.identity, displayName(session.stream), message, sequence++)
+            while (messages.size > MAX_MESSAGES) messages.removeAt(0)
+        }
+        _updates.tryEmit(Unit)
+    }
+
+    private fun prependHistory(session: ChannelSession, history: List<ChatMessage>) {
+        synchronized(messages) {
+            history.forEach { message ->
+                if (message.id == null || messages.none { it.identity == session.identity && it.message.id == message.id }) {
+                    messages += CombinedChatMessage(session.identity, displayName(session.stream), message, sequence++)
+                }
+            }
+            messages.sortWith(compareBy<CombinedChatMessage> { it.message.timestamp ?: Long.MAX_VALUE }.thenBy { it.sequence })
+            while (messages.size > MAX_MESSAGES) messages.removeAt(0)
+        }
+        _updates.tryEmit(Unit)
+    }
+
+    fun session(identity: String): ChatViewModel? = sessions[identity]?.viewModel
+
+    fun channelNames(): List<Pair<String, String>> = sessions.values.map { it.identity to displayName(it.stream) }
+
+    private fun displayName(stream: Stream): String {
+        return stream.channelName?.takeIf { it.isNotBlank() } ?: stream.channelLogin.orEmpty()
+    }
+
+    private fun stableIdentity(stream: Stream): String? {
+        return stream.channelId?.takeIf { it.isNotBlank() }?.let { "id:${it.lowercase()}" }
+            ?: stream.channelLogin?.trim()?.takeIf { it.isNotBlank() }?.let { "login:${it.lowercase()}" }
+            ?: stream.id?.takeIf { it.isNotBlank() }?.let { "stream:${it.lowercase()}" }
+    }
+
+    private class ChannelSession(
+        val identity: String,
+        var stream: Stream,
+        val viewModel: ChatViewModel,
+    ) {
+        val jobs = mutableListOf<Job>()
+
+        fun release() {
+            jobs.forEach(Job::cancel)
+            jobs.clear()
+            viewModel.releaseForMultiview()
+        }
+    }
+
+    companion object {
+        private const val MAX_MESSAGES = 500
+
+        val Factory = viewModelFactory {
+            initializer {
+                val application = this[APPLICATION_KEY] as XtraApp
+                val module = application.xtraModule
+                CombinedChatViewModel(
+                    applicationContext = application.applicationContext,
+                    chatViewModelFactory = {
+                        ChatViewModel(
+                            application.applicationContext,
+                            module.graphQLRepository,
+                            module.helixRepository,
+                            module.playerRepository,
+                            module.trustManager,
+                            module.json,
+                        )
+                    },
+                )
+            }
+        }
+    }
+}
+
+data class CombinedChatMessage(
+    val identity: String,
+    val channelName: String,
+    val message: ChatMessage,
+    val sequence: Long,
+)
