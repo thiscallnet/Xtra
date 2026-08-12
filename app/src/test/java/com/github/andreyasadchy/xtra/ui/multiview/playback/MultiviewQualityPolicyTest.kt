@@ -95,6 +95,76 @@ class MultiviewQualityPolicyTest {
     }
 
     @Test
+    fun resourcePressureOverridesHighQualityTemporarily() {
+        val target = MultiviewQualityPolicy.target(
+            input(streamCount = 4, active = true, mode = MultiviewQualityMode.HIGH_QUALITY, resourcePressure = true),
+        )
+
+        assertEquals(480, target.maxHeightPx)
+        assertTrue(target.isConstrained)
+    }
+
+    @Test
+    fun resourcePressureOverridesSourceOverrideTemporarily() {
+        val target = MultiviewQualityPolicy.target(
+            input(streamCount = 2, active = true, override = "Source", resourcePressure = true),
+        )
+
+        assertEquals(480, target.maxHeightPx)
+        assertTrue(target.isConstrained)
+    }
+
+    @Test
+    fun customModeLeavesUnoverriddenStreamAdaptive() {
+        val target = MultiviewQualityPolicy.target(
+            input(streamCount = 4, active = false, mode = MultiviewQualityMode.CUSTOM),
+        )
+
+        assertNull(target.maxHeightPx)
+        assertEquals("CUSTOM · AUTO", target.label)
+    }
+
+    @Test
+    fun tileWidthContributesToResolutionCeiling() {
+        val target = MultiviewQualityPolicy.target(
+            input(streamCount = 2, active = true, tileWidth = 900, tileHeight = 100),
+        )
+
+        assertEquals(720, target.maxHeightPx)
+    }
+
+    @Test
+    fun initialBufferingDoesNotCountAsRebuffer() {
+        var state = MultiviewQualityRecoveryState()
+        state = MultiviewQualityRecovery.onBuffering(state, 1_000L)
+        state = MultiviewQualityRecovery.onBuffering(state, 2_000L)
+        state = MultiviewQualityRecovery.onBuffering(state, 3_000L)
+
+        assertEquals(0, state.downgradeLevel)
+        assertTrue(state.rebufferTimes.isEmpty())
+    }
+
+    @Test
+    fun stablePlaybackRestoresOneQualityStepAndClearsResourcePressure() {
+        var state = MultiviewQualityRecoveryState(hasReachedReady = true, downgradeLevel = 1)
+        state = MultiviewQualityRecovery.onResourceFailure(state, 1_000L)
+        val recovered = MultiviewQualityRecovery.onStablePlayback(
+            state,
+            1_000L + MultiviewQualityRecovery.STABLE_PLAYBACK_MS,
+        )
+
+        assertEquals(1, recovered.downgradeLevel)
+        assertTrue(!recovered.resourcePressure)
+
+        val fullyRecovered = MultiviewQualityRecovery.onStablePlayback(
+            recovered,
+            1_000L + (MultiviewQualityRecovery.STABLE_PLAYBACK_MS * 2),
+        )
+        assertEquals(0, fullyRecovered.downgradeLevel)
+        assertTrue(!fullyRecovered.resourcePressure)
+    }
+
+    @Test
     fun availableQualitiesOnlyContainsFormatsFromManifest() {
         val labels = MultiviewQualityPolicy.availableManualLabels(
             listOf(
@@ -111,6 +181,7 @@ class MultiviewQualityPolicyTest {
         streamCount: Int,
         active: Boolean,
         focused: Boolean = false,
+        tileWidth: Int = 0,
         tileHeight: Int = 0,
         override: String? = null,
         bufferingLevel: Int = 0,
@@ -120,6 +191,7 @@ class MultiviewQualityPolicyTest {
         streamCount = streamCount,
         isActive = active,
         isFocused = focused,
+        tileWidthPx = tileWidth,
         tileHeightPx = tileHeight,
         manualOverride = override,
         bufferingDowngradeLevel = bufferingLevel,

@@ -32,7 +32,28 @@ object MultiviewQualityPolicy {
 
     fun target(input: MultiviewQualityInput): MultiviewQualityTarget {
         val override = input.manualOverride?.let(::parseHeight)
-        if (override != null || input.manualOverride.equals("Source", ignoreCase = true)) {
+        val sourceOverride = input.manualOverride.equals("Source", ignoreCase = true)
+        val recoveryRequested = input.resourcePressure ||
+            (input.mode == MultiviewQualityMode.SMART || input.mode == MultiviewQualityMode.CUSTOM) &&
+            input.bufferingDowngradeLevel > 0
+
+        // Decoder/resource pressure is deliberately handled before explicit quality
+        // preferences. A device which cannot initialize another decoder must still
+        // have a way out of Source/High Quality. Network buffering, on the other
+        // hand, never overrides a manual preference.
+        if (input.resourcePressure) {
+            val recoveryCap = if (input.streamCount >= 3 && !input.isActive && !input.isFocused) 480 else 720
+            val degradedCap = downgrade(
+                recoveryCap,
+                input.bufferingDowngradeLevel + 1,
+            )
+            val manualCap = override ?: Int.MAX_VALUE
+            val tileCap = tileCap(input.tileWidthPx, input.tileHeightPx, degradedCap)
+            val effectiveHeight = minOf(manualCap, degradedCap, tileCap)
+            return constrainedHeight(effectiveHeight, "RECOVERY · ${effectiveHeight}p60")
+        }
+
+        if (override != null || sourceOverride) {
             return override?.let { constrainedHeight(it, "${it}p60") }
                 ?: unconstrained("Source")
         }
@@ -43,9 +64,8 @@ object MultiviewQualityPolicy {
         val normalCap = when (input.mode) {
             MultiviewQualityMode.DATA_SAVER -> if (input.streamCount <= 1) 720 else 480
             MultiviewQualityMode.HIGH_QUALITY -> null
-            MultiviewQualityMode.SMART,
-            MultiviewQualityMode.CUSTOM,
-            -> when {
+            MultiviewQualityMode.CUSTOM -> null
+            MultiviewQualityMode.SMART -> when {
                 input.isFocused && input.streamCount > 1 -> null
                 input.streamCount <= 1 -> null
                 input.isActive -> 720
@@ -54,28 +74,26 @@ object MultiviewQualityPolicy {
             }
         }
 
-        val recoveryRequested = input.resourcePressure ||
-            (input.mode == MultiviewQualityMode.SMART || input.mode == MultiviewQualityMode.CUSTOM) &&
-            input.bufferingDowngradeLevel > 0
         if (normalCap == null) {
             // Smart deliberately leaves one stream/focused playback adaptive,
             // but a decoder failure or sustained rebuffers must still have a
             // resource-saving fallback. Resolution is reduced before fps.
-            if (!recoveryRequested) return unconstrained("AUTO")
-            val recoveryCap = if (input.streamCount >= 3 && !input.isFocused) 480 else 720
+            if (!recoveryRequested) {
+                return unconstrained(if (input.mode == MultiviewQualityMode.CUSTOM) "CUSTOM · AUTO" else "AUTO")
+            }
+            val recoveryCap = if (input.streamCount >= 3 && !input.isActive && !input.isFocused) 480 else 720
             val degradedCap = downgrade(recoveryCap, input.bufferingDowngradeLevel + if (input.resourcePressure) 1 else 0)
-            return constrainedHeight(degradedCap, "AUTO · ${degradedCap}p60")
+            val tileCap = tileCap(input.tileWidthPx, input.tileHeightPx, degradedCap)
+            val effectiveHeight = minOf(degradedCap, tileCap)
+            return constrainedHeight(effectiveHeight, "AUTO · ${effectiveHeight}p60")
         }
 
-        val degradedCap = if (input.mode == MultiviewQualityMode.SMART ||
-            input.mode == MultiviewQualityMode.CUSTOM ||
-            input.resourcePressure
-        ) {
+        val degradedCap = if (input.mode == MultiviewQualityMode.SMART) {
             downgrade(normalCap, input.bufferingDowngradeLevel + if (input.resourcePressure) 1 else 0)
         } else {
             normalCap
         }
-        val tileCap = tileHeightCap(input.tileHeightPx, degradedCap)
+        val tileCap = tileCap(input.tileWidthPx, input.tileHeightPx, degradedCap)
         val effectiveHeight = minOf(degradedCap, tileCap)
         return constrainedHeight(effectiveHeight, "AUTO · ${effectiveHeight}p60")
     }
@@ -129,9 +147,11 @@ object MultiviewQualityPolicy {
         isConstrained = false,
     )
 
-    private fun tileHeightCap(tileHeightPx: Int, cap: Int): Int {
-        if (tileHeightPx <= 0) return cap
-        val desired = ceil(tileHeightPx * TILE_OVERSAMPLE).toInt()
+    private fun tileCap(tileWidthPx: Int, tileHeightPx: Int, cap: Int): Int {
+        if (tileWidthPx <= 0 && tileHeightPx <= 0) return cap
+        val widthAsHeight = tileWidthPx * 9f / 16f
+        val renderedHeight = maxOf(tileHeightPx.toFloat(), widthAsHeight)
+        val desired = ceil(renderedHeight * TILE_OVERSAMPLE).toInt()
         return qualityHeights.firstOrNull { it >= desired }?.coerceAtMost(cap) ?: cap
     }
 

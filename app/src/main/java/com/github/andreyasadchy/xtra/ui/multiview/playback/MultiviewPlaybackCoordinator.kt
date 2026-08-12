@@ -1,6 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.multiview.playback
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import android.annotation.SuppressLint
 import com.github.andreyasadchy.xtra.BuildConfig
@@ -11,6 +13,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
@@ -29,9 +32,10 @@ import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
+import com.github.andreyasadchy.xtra.ui.player.TwitchAdController
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -50,12 +54,12 @@ import java.net.Proxy
 import java.net.ProxySelector
 import java.net.SocketAddress
 import java.net.URI
-import kotlin.math.min
+import com.github.andreyasadchy.xtra.repository.PlayerRepository
 
 class MultiviewPlaybackCoordinator(
     context: Context,
-    private val loadPlaylist: suspend (String) -> String,
-    private val loadCleanPlaylist: suspend (String, List<String>) -> String?,
+    private val loadPlaylist: suspend (String, Boolean) -> String,
+    private val loadCleanPlaylist: suspend (String, List<String>, Boolean, Boolean) -> PlayerRepository.StreamPlaylistCandidate?,
     private val onSnapshot: (String, MultiviewPlaybackSnapshot) -> Unit,
 ) {
     private val applicationContext = context.applicationContext
@@ -128,7 +132,7 @@ class MultiviewPlaybackCoordinator(
         slots[identity]?.let { slot ->
             slot.retryCount = 0
             slot.manualRetry = false
-            slot.downgradeLevel = min(slot.downgradeLevel, 1)
+            slot.retainDowngradeAtMost(1)
             slot.retryJob?.cancel()
             slot.loadJob?.cancel()
             start(slot, force = true)
@@ -186,18 +190,19 @@ class MultiviewPlaybackCoordinator(
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
                         Player.STATE_BUFFERING -> {
-                            slot.recordRebuffer()
-                            if (slot.shouldDowngrade()) {
-                                slot.downgradeLevel = (slot.downgradeLevel + 1).coerceAtMost(MAX_DOWNGRADE_LEVEL)
+                            slot.stableRecoveryJob?.cancel()
+                            if (slot.recordRebuffer()) {
                                 applyQuality(slot)
                             }
                             publish(slot, MultiviewSlotStatus.BUFFERING)
                         }
                         Player.STATE_READY -> {
+                            slot.markReady()
                             slot.retryCount = 0
                             slot.manualRetry = false
                             publish(slot, MultiviewSlotStatus.LIVE)
                             logSelectedFormat(slot, player.videoFormat)
+                            scheduleStableQualityRecovery(slot)
                         }
                         Player.STATE_ENDED -> publish(slot, MultiviewSlotStatus.OFFLINE)
                         Player.STATE_IDLE -> Unit
@@ -211,6 +216,10 @@ class MultiviewPlaybackCoordinator(
 
                 override fun onPlayerError(error: PlaybackException) {
                     handlePlayerError(slot, error)
+                }
+
+                override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                    inspectAdState(slot)
                 }
             })
             player.addAnalyticsListener(object : AnalyticsListener {
@@ -247,6 +256,13 @@ class MultiviewPlaybackCoordinator(
                     error: IOException,
                     wasCanceled: Boolean,
                 ) {
+                    extractResponseCode(error)?.let { responseCode ->
+                        slot.lastResponseCode = responseCode
+                        slot.lastResponseWasMaster = isMasterPlaylist(slot, loadEventInfo.uri.toString())
+                        if (slot.lastResponseWasMaster) {
+                            slot.lastMasterResponseCode = responseCode
+                        }
+                    }
                     Log.w(
                         TAG,
                         "channel=${slot.identity} loadError type=${mediaLoadData.dataType} canceled=$wasCanceled uri=${loadEventInfo.uri}",
@@ -257,7 +273,18 @@ class MultiviewPlaybackCoordinator(
         }
     }
 
-    private fun start(slot: MultiviewPlayerSlot, force: Boolean = false) {
+    private data class PlaylistSelection(
+        val url: String,
+        val playerType: String?,
+        val customProxy: Boolean = false,
+        val alternate: Boolean = false,
+    )
+
+    private fun start(
+        slot: MultiviewPlayerSlot,
+        force: Boolean = false,
+        requestedSelection: PlaylistSelection? = null,
+    ) {
         slot.retryJob?.cancel()
         slot.loadJob?.cancel()
         slot.target = null
@@ -272,12 +299,17 @@ class MultiviewPlaybackCoordinator(
             try {
                 val login = slot.stream.channelLogin?.trim()?.lowercase()
                     ?: throw IllegalArgumentException("missing channel login")
-                slot.customProxy = applicationContext.prefs().getBoolean(C.PLAYER_STREAM_PROXY, false) &&
-                    !applicationContext.prefs().getString(C.PLAYER_PROXY_URL, null).isNullOrBlank()
-                val playlistUrl = loadPlaylistUrl(login)
+                val selection = requestedSelection ?: loadPlaylistUrl(slot, login)
                 if (!isActive || slots[slot.identity] !== slot) return@launch
+                slot.customProxy = selection.customProxy
+                slot.currentPlayerType = selection.playerType
+                slot.usingAlternateStream = selection.alternate
+                slot.currentPlaylistUrl = selection.url
+                slot.lastResponseCode = null
+                slot.lastMasterResponseCode = null
+                slot.lastResponseWasMaster = false
                 val mediaItem = MediaItem.Builder()
-                    .setUri(playlistUrl)
+                    .setUri(selection.url)
                     .setMimeType(MimeTypes.APPLICATION_M3U8)
                     .setLiveConfiguration(
                         MediaItem.LiveConfiguration.Builder().apply {
@@ -286,7 +318,7 @@ class MultiviewPlaybackCoordinator(
                     )
                     .setMediaMetadata(metadata(slot.stream))
                     .build()
-                val source = HlsMediaSource.Factory(createDataSourceFactory())
+                val source = HlsMediaSource.Factory(createDataSourceFactory(slot))
                     .setPlaylistParserFactory(ExoPlayerService.CustomHlsPlaylistParserFactory())
                     .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))
                     .createMediaSource(mediaItem)
@@ -296,7 +328,7 @@ class MultiviewPlaybackCoordinator(
                 slot.player.volume = if (slot.identity == activeIdentity) activeVolume() else 0f
                 slot.player.prepare()
                 slot.player.playWhenReady = foreground && slot.shouldPlay
-                debugLog("channel=${slot.identity} playlistLoaded quality=${slot.target?.label} urlType=${if (slot.customProxy) "proxy" else "usher"}")
+                debugLog("channel=${slot.identity} playlistLoaded quality=${slot.target?.label} urlType=${if (slot.customProxy) "proxy" else "usher"} playerType=${slot.currentPlayerType ?: "custom"} alternate=${slot.usingAlternateStream} httpProxyDisabled=${slot.httpProxyDisabled}")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -305,57 +337,120 @@ class MultiviewPlaybackCoordinator(
         }
     }
 
-    private suspend fun loadPlaylistUrl(login: String): String {
+    private suspend fun loadPlaylistUrl(slot: MultiviewPlayerSlot, login: String): PlaylistSelection {
         val preferences = applicationContext.prefs()
         val proxyUrl = preferences.getString(C.PLAYER_PROXY_URL, null)
-        val useCustomProxy = preferences.getBoolean(C.PLAYER_STREAM_PROXY, false) && !proxyUrl.isNullOrBlank()
-        return if (useCustomProxy) {
-            proxyUrl.replace("\$channel", login)
-        } else if (preferences.shouldAvoidTwitchAds()) {
-            loadCleanPlaylist(login, listOf(preferences.getString(C.TOKEN_PLAYER_TYPE, "site") ?: "site"))
-                ?: loadPlaylist(login)
-        } else {
-            loadPlaylist(login)
+        val useCustomProxy = !slot.customProxyDisabled &&
+            preferences.getBoolean(C.PLAYER_STREAM_PROXY, false) && !proxyUrl.isNullOrBlank()
+        if (useCustomProxy) {
+            return PlaylistSelection(
+                url = proxyUrl.replace("\$channel", login),
+                playerType = null,
+                customProxy = true,
+            )
         }
+
+        val primaryPlayerType = preferences.getString(C.TOKEN_PLAYER_TYPE, "site") ?: "site"
+        if (preferences.shouldAvoidTwitchAds()) {
+            val cleanCandidate = loadCleanPlaylist(
+                login,
+                listOf(primaryPlayerType),
+                false,
+                slot.httpProxyDisabled,
+            )
+            if (cleanCandidate != null) {
+                return PlaylistSelection(
+                    url = cleanCandidate.url,
+                    playerType = cleanCandidate.playerType,
+                    alternate = cleanCandidate.playerType != primaryPlayerType,
+                )
+            }
+        }
+        return PlaylistSelection(
+            url = loadPlaylist(login, slot.httpProxyDisabled),
+            playerType = primaryPlayerType,
+        )
     }
 
     private fun handleLoadError(slot: MultiviewPlayerSlot, error: Exception) {
         Log.w(TAG, "channel=${slot.identity} playlist load failed", error)
-        handleFailure(slot, error, isOffline = false)
+        handleFailure(slot, error, isOffline = false, responseCode = extractResponseCode(error))
     }
 
     private fun handlePlayerError(slot: MultiviewPlayerSlot, error: PlaybackException) {
         Log.w(TAG, "channel=${slot.identity} player error code=${error.errorCodeName}", error)
-        val responseCode = error.cause?.let { cause ->
-            generateSequence(cause) { it.cause }.mapNotNull { throwable ->
-                (throwable as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
-            }.firstOrNull()
-        }
+        val responseCode = slot.lastResponseCode ?: extractResponseCode(error)
         val behindLiveWindow = error.errorCodeName.contains("BEHIND_LIVE_WINDOW", true)
         if (behindLiveWindow) {
             slot.reloadRequired = true
         }
-        val offline = responseCode == 404 || responseCode == 410
+        // A 404 from a media playlist or segment is not authoritative evidence
+        // that the channel ended. Only a failed master playlist may produce the
+        // Offline state.
+        val offline = !slot.customProxy &&
+            (slot.lastMasterResponseCode == 404 || slot.lastMasterResponseCode == 410)
         val decoderFailure = error.errorCodeName.contains("DECODER", true)
         if (decoderFailure) {
-            slot.resourceFailure = true
-            slot.downgradeLevel = (slot.downgradeLevel + 1).coerceAtMost(MAX_DOWNGRADE_LEVEL)
+            slot.markResourceFailure()
             applyQuality(slot)
         }
-        handleFailure(slot, error, offline)
+        handleFailure(slot, error, offline, responseCode)
     }
 
-    private fun handleFailure(slot: MultiviewPlayerSlot, error: Throwable, isOffline: Boolean) {
+    private fun handleFailure(
+        slot: MultiviewPlayerSlot,
+        error: Throwable,
+        isOffline: Boolean,
+        responseCode: Int? = extractResponseCode(error),
+    ) {
         if (isOffline) {
             publish(slot, MultiviewSlotStatus.OFFLINE, retryAvailable = true)
             return
         }
+
+        if (!hasValidatedNetwork()) {
+            slot.retryJob?.cancel()
+            publish(slot, MultiviewSlotStatus.RECONNECTING, retryAvailable = true)
+            slot.retryJob = scope.launch {
+                delay(NETWORK_RETRY_DELAY_MS)
+                if (!isActive || slots[slot.identity] !== slot) return@launch
+                if (hasValidatedNetwork()) {
+                    recoverSlot(slot, error)
+                } else {
+                    handleFailure(slot, error, isOffline = false, responseCode = responseCode)
+                }
+            }
+            return
+        }
+
+        // Match the normal player: a broken custom stream proxy is disabled for
+        // this slot and the normal Twitch path is retried immediately. The
+        // decision is made only with validated connectivity so an offline device
+        // cannot permanently disable a healthy proxy.
+        if (responseCode != null && responseCode >= 400 && slot.customProxy) {
+            slot.customProxyDisabled = true
+            slot.retryCount = 0
+            slot.manualRetry = false
+            slot.reloadRequired = false
+            start(slot, force = true)
+            return
+        }
+        if (responseCode != null && responseCode >= 400 && slot.httpProxyActive) {
+            slot.httpProxyDisabled = true
+            slot.retryCount = 0
+            slot.manualRetry = false
+            slot.reloadRequired = false
+            start(slot, force = true)
+            return
+        }
+
         if (slot.retryCount >= MAX_RETRIES) {
             slot.manualRetry = true
             publish(slot, MultiviewSlotStatus.PLAYBACK_UNAVAILABLE, retryAvailable = true)
             return
         }
         val delayMs = RETRY_DELAYS_MS[slot.retryCount.coerceIn(0, RETRY_DELAYS_MS.lastIndex)]
+        debugLog("channel=${slot.identity} retry=${slot.retryCount + 1}/$MAX_RETRIES delayMs=$delayMs responseCode=$responseCode reload=${slot.reloadRequired}")
         slot.retryCount++
         publish(slot, MultiviewSlotStatus.RECONNECTING, retryAvailable = true)
         slot.retryJob?.cancel()
@@ -363,17 +458,46 @@ class MultiviewPlaybackCoordinator(
             delay(delayMs)
             if (!isActive || slots[slot.identity] !== slot) return@launch
             try {
-                if (slot.hasMediaSource && !slot.reloadRequired) {
-                    slot.player.prepare()
-                    slot.player.playWhenReady = foreground && slot.shouldPlay
-                } else {
-                    slot.reloadRequired = false
-                    start(slot)
-                }
+                recoverSlot(slot, error)
             } catch (retryError: Exception) {
-                handleFailure(slot, retryError, false)
+                handleFailure(slot, retryError, false, extractResponseCode(retryError))
             }
         }
+    }
+
+    private fun recoverSlot(slot: MultiviewPlayerSlot, error: Throwable) {
+        if (!hasValidatedNetwork()) {
+            handleFailure(slot, error, isOffline = false)
+        } else if (slot.hasMediaSource && !slot.reloadRequired) {
+            slot.lastResponseCode = null
+            slot.lastMasterResponseCode = null
+            slot.player.prepare()
+            slot.player.playWhenReady = foreground && slot.shouldPlay
+        } else {
+            slot.reloadRequired = false
+            start(slot)
+        }
+    }
+
+    private fun hasValidatedNetwork(): Boolean {
+        val connectivityManager = applicationContext.getSystemService(ConnectivityManager::class.java)
+            ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+        return capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private fun extractResponseCode(error: Throwable): Int? {
+        return generateSequence(error) { it.cause }
+            .mapNotNull { throwable ->
+                (throwable as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
+            }
+            .firstOrNull()
+    }
+
+    private fun isMasterPlaylist(slot: MultiviewPlayerSlot, uri: String): Boolean {
+        return uri == slot.currentPlaylistUrl ||
+            uri.contains("/api/v2/channel/hls/", ignoreCase = true)
     }
 
     private fun applyQuality(slot: MultiviewPlayerSlot) {
@@ -405,6 +529,169 @@ class MultiviewPlaybackCoordinator(
         debugLog("channel=${slot.identity} policy mode=$qualityMode streams=${slots.size} active=${slot.identity == activeIdentity} focus=${slot.identity == focusedIdentity} target=${target.label} downgrade=${slot.downgradeLevel}")
     }
 
+    private fun scheduleStableQualityRecovery(slot: MultiviewPlayerSlot) {
+        if (slot.downgradeLevel <= 0 && !slot.resourceFailure) return
+        slot.stableRecoveryJob?.cancel()
+        slot.stableRecoveryJob = scope.launch {
+            while (isActive && slots[slot.identity] === slot &&
+                (slot.downgradeLevel > 0 || slot.resourceFailure)
+            ) {
+                delay(MultiviewQualityRecovery.STABLE_PLAYBACK_MS)
+                if (!isActive || slots[slot.identity] !== slot ||
+                    slot.player.playbackState != Player.STATE_READY
+                ) return@launch
+                if (slot.recoverAfterStable()) {
+                    applyQuality(slot)
+                    publish(slot, slot.status)
+                }
+            }
+        }
+    }
+
+    @androidx.media3.common.util.UnstableApi
+    private fun inspectAdState(slot: MultiviewPlayerSlot) {
+        if (slots[slot.identity] !== slot) return
+        val preferences = applicationContext.prefs()
+        val avoidAds = preferences.shouldAvoidTwitchAds()
+        val useProxy = slot.httpProxyActive
+        if (!avoidAds && !useProxy) return
+        val playlist = (slot.player.currentManifest as? HlsManifest)?.mediaPlaylist ?: return
+        val ads = TwitchAdDetector.isAd(playlist)
+        val changed = ads != slot.playingAds
+        slot.playingAds = ads
+        if (changed) {
+            debugLog("channel=${slot.identity} adState=$ads avoid=$avoidAds proxy=$useProxy playerType=${slot.currentPlayerType}")
+        }
+
+        if (ads) {
+            if (avoidAds) {
+                suppressAdPlayback(slot)
+                if (slot.adAvoidanceJob?.isActive != true) {
+                    val currentPlayerType = slot.currentPlayerType
+                        ?: preferences.getString(C.TOKEN_PLAYER_TYPE, "site")
+                        ?: "site"
+                    val playerTypes = slot.adController.playerTypesForAd(currentPlayerType)
+                    if (playerTypes.isNotEmpty()) {
+                        val login = slot.stream.channelLogin?.trim()?.lowercase() ?: return
+                        slot.adAvoidanceJob = scope.launch {
+                            val candidate = try {
+                                loadCleanPlaylist(
+                                    login,
+                                    playerTypes,
+                                    true,
+                                    slot.httpProxyDisabled,
+                                )
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                Log.w(TAG, "channel=${slot.identity} alternate ad probe failed", error)
+                                null
+                            }
+                            if (isActive && slots[slot.identity] === slot && candidate != null) {
+                                start(
+                                    slot,
+                                    force = true,
+                                    requestedSelection = PlaylistSelection(
+                                        url = candidate.url,
+                                        playerType = candidate.playerType,
+                                        alternate = true,
+                                    ),
+                                )
+                            } else if (isActive && slots[slot.identity] === slot) {
+                                // Keep the tile quiet until either Twitch exposes
+                                // another clean candidate or the ad window ends.
+                                suppressAdPlayback(slot)
+                            }
+                        }.also { job ->
+                            job.invokeOnCompletion {
+                                if (slot.adAvoidanceJob === job) slot.adAvoidanceJob = null
+                            }
+                        }
+                    }
+                }
+            } else if (useProxy) {
+                // With ad avoidance disabled, preserve the normal player's proxy
+                // fallback: a proxy that returns an ad is bypassed for this slot.
+                slot.httpProxyDisabled = true
+                start(slot, force = true)
+            }
+        } else {
+            slot.adController.onCleanPlaylist()
+            restoreAdPlayback(slot)
+            schedulePrimaryStreamRestore(slot)
+        }
+    }
+
+    @androidx.media3.common.util.UnstableApi
+    private fun suppressAdPlayback(slot: MultiviewPlayerSlot) {
+        if (!slot.hiddenForAd) {
+            slot.hiddenForAd = true
+            slot.player.trackSelectionParameters = slot.player.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
+                .build()
+        }
+        slot.player.volume = 0f
+    }
+
+    @androidx.media3.common.util.UnstableApi
+    private fun restoreAdPlayback(slot: MultiviewPlayerSlot) {
+        if (slot.hiddenForAd) {
+            slot.hiddenForAd = false
+            slot.player.trackSelectionParameters = slot.player.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
+                .build()
+        }
+        updateAudio()
+    }
+
+    @androidx.media3.common.util.UnstableApi
+    private fun schedulePrimaryStreamRestore(slot: MultiviewPlayerSlot) {
+        if (!slot.usingAlternateStream || slot.primaryRestoreJob?.isActive == true || slot.customProxy) return
+        val login = slot.stream.channelLogin?.trim()?.lowercase() ?: return
+        val primaryPlayerType = applicationContext.prefs().getString(C.TOKEN_PLAYER_TYPE, "site") ?: "site"
+        slot.primaryRestoreJob = scope.launch {
+            while (isActive && slots[slot.identity] === slot && slot.usingAlternateStream) {
+                delay(PRIMARY_RESTORE_INTERVAL_MS)
+                if (!isActive || slots[slot.identity] !== slot || !slot.usingAlternateStream) return@launch
+                val candidate = try {
+                    loadCleanPlaylist(
+                        login,
+                        listOf(primaryPlayerType),
+                        true,
+                        slot.httpProxyDisabled,
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Log.w(TAG, "channel=${slot.identity} primary restore probe failed", error)
+                    null
+                }
+                if (candidate?.verifiedClean == true && isActive && slots[slot.identity] === slot) {
+                    slot.usingAlternateStream = false
+                    start(
+                        slot,
+                        force = true,
+                        requestedSelection = PlaylistSelection(
+                            url = candidate.url,
+                            playerType = candidate.playerType,
+                            alternate = false,
+                        ),
+                    )
+                    slot.adController.reset()
+                    restoreAdPlayback(slot)
+                    debugLog("channel=${slot.identity} restored primary playerType=${candidate.playerType}")
+                    return@launch
+                }
+            }
+        }.also { job ->
+            job.invokeOnCompletion {
+                if (slot.primaryRestoreJob === job) slot.primaryRestoreJob = null
+            }
+        }
+    }
+
     private fun updateAudio() {
         val volume = activeVolume()
         slots.values.forEach { slot ->
@@ -414,12 +701,19 @@ class MultiviewPlaybackCoordinator(
 
     private fun updateFormats(slot: MultiviewPlayerSlot) {
         val manifest = slot.player.currentManifest as? HlsManifest
-        val formats = manifest?.multivariantPlaylist?.variants.orEmpty().mapNotNull { variant ->
+        val playlist = manifest?.multivariantPlaylist ?: run {
+            slot.availableQualities = emptyList()
+            publish(slot, slot.status)
+            return
+        }
+        val formats = playlist.variants.mapNotNull { variant ->
+            val formatName = variant.format.label?.takeIf { it.isNotBlank() }
+                ?: playlist.videos.find { it.groupId == variant.videoGroupId }?.name?.takeIf { it.isNotBlank() }
             variant.format.height.takeIf { it > 0 }?.let { height ->
                 MultiviewQualityPolicy.AvailableFormat(
                     height = height,
                     frameRate = variant.format.frameRate,
-                    isSource = variant.format.label.equals("Source", true),
+                    isSource = formatName.equals("Source", true),
                 )
             }
         }
@@ -457,7 +751,7 @@ class MultiviewPlaybackCoordinator(
     }
 
     @SuppressLint("NewApi")
-    private fun createDataSourceFactory(): DataSource.Factory {
+    private fun createDataSourceFactory(slot: MultiviewPlayerSlot): DataSource.Factory {
         val application = applicationContext as XtraApp
         val module = application.xtraModule
         val preferences = applicationContext.prefs()
@@ -466,10 +760,13 @@ class MultiviewPlaybackCoordinator(
         val proxyPort = preferences.getString(C.PROXY_PORT, null)?.toIntOrNull()
         val proxyUser = preferences.getString(C.PROXY_USER, null)
         val proxyPassword = preferences.getString(C.PROXY_PASSWORD, null)
-        val proxyMultivariant = preferences.getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false) &&
+        val proxyMultivariant = !slot.httpProxyDisabled &&
+            preferences.getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false) &&
             !proxyHost.isNullOrBlank() && proxyPort != null
-        val proxyMedia = preferences.getBoolean(C.PROXY_MEDIA_PLAYLIST, true) &&
+        val proxyMedia = !slot.httpProxyDisabled &&
+            preferences.getBoolean(C.PROXY_MEDIA_PLAYLIST, true) &&
             !proxyHost.isNullOrBlank() && proxyPort != null
+        slot.httpProxyActive = proxyMultivariant || proxyMedia
         val headers = preferences.getString(C.PLAYER_STREAM_HEADERS, null)?.let { raw ->
             runCatching {
                 val json = JSONObject(raw)
@@ -504,7 +801,7 @@ class MultiviewPlaybackCoordinator(
                     null,
                     multivariantProxy,
                     mediaProxy,
-                ) { preferences.getBoolean(C.PROXY_MEDIA_PLAYLIST, true) }
+                ) { !slot.httpProxyDisabled && preferences.getBoolean(C.PROXY_MEDIA_PLAYLIST, true) }
                     .apply { headers?.let(::setDefaultRequestProperties) }
             }
             networkLibrary == C.CRONET && module.cronetEngine.value != null -> {
@@ -516,13 +813,13 @@ class MultiviewPlaybackCoordinator(
                     null,
                     multivariantProxy,
                     mediaProxy,
-                ) { preferences.getBoolean(C.PROXY_MEDIA_PLAYLIST, true) }
+                ) { !slot.httpProxyDisabled && preferences.getBoolean(C.PROXY_MEDIA_PLAYLIST, true) }
                     .apply { headers?.let(::setDefaultRequestProperties) }
             }
             else -> OkHttpDataSource.Factory(
                 multivariantProxy ?: module.okHttpClient.value,
                 mediaProxy,
-            ) { preferences.getBoolean(C.PROXY_MEDIA_PLAYLIST, true) }
+            ) { !slot.httpProxyDisabled && preferences.getBoolean(C.PROXY_MEDIA_PLAYLIST, true) }
                 .apply { headers?.let(::setDefaultRequestProperties) }
         }
         return DefaultDataSource.Factory(applicationContext, upstream)
@@ -573,10 +870,26 @@ class MultiviewPlaybackCoordinator(
         var attachedView: PlayerView? = null
         var loadJob: Job? = null
         var retryJob: Job? = null
+        var stableRecoveryJob: Job? = null
+        var adAvoidanceJob: Job? = null
+        var primaryRestoreJob: Job? = null
+        val adController = TwitchAdController()
         var retryCount: Int = 0
-        var downgradeLevel: Int = 0
-        var resourceFailure: Boolean = false
+        private var recoveryState = MultiviewQualityRecoveryState()
+        val downgradeLevel: Int get() = recoveryState.downgradeLevel
+        val resourceFailure: Boolean get() = recoveryState.resourcePressure
         var customProxy: Boolean = false
+        var customProxyDisabled: Boolean = false
+        var httpProxyActive: Boolean = false
+        var httpProxyDisabled: Boolean = false
+        var currentPlayerType: String? = null
+        var currentPlaylistUrl: String? = null
+        var usingAlternateStream: Boolean = false
+        var playingAds: Boolean = false
+        var hiddenForAd: Boolean = false
+        var lastResponseCode: Int? = null
+        var lastMasterResponseCode: Int? = null
+        var lastResponseWasMaster: Boolean = false
         var reloadRequired: Boolean = false
         var effectiveQualityLabel: String? = null
         var manualRetry: Boolean = false
@@ -585,16 +898,32 @@ class MultiviewPlaybackCoordinator(
         var status: MultiviewSlotStatus = MultiviewSlotStatus.LOADING
         var target: MultiviewQualityTarget? = null
         var availableQualities: List<String> = emptyList()
-        private val rebufferTimes = ArrayDeque<Long>()
 
-        fun recordRebuffer(now: Long = System.currentTimeMillis()) {
-            rebufferTimes.addLast(now)
-            while (rebufferTimes.firstOrNull()?.let { now - it > REBUFFER_WINDOW_MS } == true) {
-                rebufferTimes.removeFirst()
-            }
+        fun markReady() {
+            recoveryState = MultiviewQualityRecovery.onReady(recoveryState)
         }
 
-        fun shouldDowngrade(): Boolean = rebufferTimes.size >= REBUFFER_THRESHOLD
+        fun recordRebuffer(now: Long = System.currentTimeMillis()): Boolean {
+            val previous = recoveryState
+            recoveryState = MultiviewQualityRecovery.onBuffering(recoveryState, now)
+            return recoveryState.downgradeLevel > previous.downgradeLevel
+        }
+
+        fun markResourceFailure(now: Long = System.currentTimeMillis()) {
+            recoveryState = MultiviewQualityRecovery.onResourceFailure(recoveryState, now)
+        }
+
+        fun retainDowngradeAtMost(level: Int) {
+            recoveryState = recoveryState.copy(
+                downgradeLevel = recoveryState.downgradeLevel.coerceAtMost(level),
+            )
+        }
+
+        fun recoverAfterStable(now: Long = System.currentTimeMillis()): Boolean {
+            val previous = recoveryState
+            recoveryState = MultiviewQualityRecovery.onStablePlayback(recoveryState, now)
+            return recoveryState != previous
+        }
 
         fun snapshot(qualityLabel: String, retryAvailable: Boolean = manualRetry) = MultiviewPlaybackSnapshot(
             status = status,
@@ -607,6 +936,9 @@ class MultiviewPlaybackCoordinator(
         fun release() {
             loadJob?.cancel()
             retryJob?.cancel()
+            stableRecoveryJob?.cancel()
+            adAvoidanceJob?.cancel()
+            primaryRestoreJob?.cancel()
             attachedView?.player = null
             attachedView = null
             player.release()
@@ -615,11 +947,10 @@ class MultiviewPlaybackCoordinator(
 
     companion object {
         private const val TAG = "MultiviewPlayback"
-        private const val MAX_RETRIES = 3
-        private const val MAX_DOWNGRADE_LEVEL = 2
-        private const val REBUFFER_THRESHOLD = 3
-        private const val REBUFFER_WINDOW_MS = 60_000L
-        private val RETRY_DELAYS_MS = longArrayOf(1_500L, 3_000L, 6_000L)
+        private const val MAX_RETRIES = 6
+        private const val NETWORK_RETRY_DELAY_MS = 15_000L
+        private const val PRIMARY_RESTORE_INTERVAL_MS = 10_000L
+        private val RETRY_DELAYS_MS = longArrayOf(1_500L, 3_000L, 6_000L, 12_000L, 20_000L, 30_000L)
         private const val MULTIVARIANT_PLAYLIST_REGEX = "^usher\\.ttvnw\\.net$"
         private const val MEDIA_PLAYLIST_REGEX = "^(?:[a-z0-9-]+\\.playlist\\.(?:live-video|ttvnw)\\.net|video-weaver\\.[a-z0-9-]+\\.hls\\.ttvnw\\.net)$"
     }

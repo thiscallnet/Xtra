@@ -1,5 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.multiview
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.os.Parcelable
@@ -14,6 +17,7 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
@@ -25,22 +29,40 @@ import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.chat.ChatAdapter
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel
+import com.github.andreyasadchy.xtra.ui.chat.ImageClickedDialog
+import com.github.andreyasadchy.xtra.ui.chat.MessageClickedChatAdapter
+import com.github.andreyasadchy.xtra.ui.chat.MessageClickedDialog
+import com.github.andreyasadchy.xtra.ui.chat.ReplyClickedChatAdapter
+import com.github.andreyasadchy.xtra.ui.chat.ReplyClickedDialog
 import com.github.andreyasadchy.xtra.ui.multiview.chat.CombinedChatMessage
 import com.github.andreyasadchy.xtra.ui.multiview.chat.CombinedChatViewModel
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.chip.Chip
 import com.google.android.material.color.MaterialColors
+import com.google.mlkit.nl.languageid.LanguageIdentification
+import com.google.mlkit.nl.languageid.LanguageIdentifier
+import com.google.mlkit.nl.translate.TranslateLanguage
+import com.google.mlkit.nl.translate.Translation
+import com.google.mlkit.nl.translate.Translator
+import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import java.util.Locale
 
-class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat) {
+class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
+    MessageClickedDialog.OnButtonClickListener,
+    ReplyClickedDialog.OnButtonClickListener {
     private var _binding: FragmentCombinedChatBinding? = null
     private val binding get() = _binding!!
     private val viewModel: CombinedChatViewModel by viewModels { CombinedChatViewModel.Factory }
     private lateinit var adapter: CombinedChatAdapter
     private var filterIdentity: String? = null
     private var currentStreams: List<Stream> = emptyList()
+    private var interactionAdapter: ChatAdapter? = null
+    private var interactionIdentity: String? = null
+    private var languageIdentifier: LanguageIdentifier? = null
+    private val translators = mutableMapOf<String, Translator>()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -54,11 +76,15 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat) {
         val layoutManager = LinearLayoutManager(requireContext()).apply { stackFromEnd = true }
         binding.combinedChatRecyclerView.layoutManager = layoutManager
         binding.combinedChatRecyclerView.adapter = adapter
-        submitMessages(scroll = true)
+        submitMessages(forceScroll = true)
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.updates.collectLatest { submitMessages(scroll = !isAtBottom(layoutManager)) }
+                viewModel.updates.collectLatest {
+                    // Capture the position before DiffUtil applies the new list.
+                    val wasAtBottom = isAtBottom(layoutManager)
+                    submitMessages(forceScroll = CombinedChatPresentationPolicy.shouldAutoScroll(wasAtBottom))
+                }
             }
         }
     }
@@ -69,7 +95,7 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat) {
         if (_binding != null) {
             if (filterIdentity !in viewModel.channelNames().map { it.first }) filterIdentity = null
             setupFilters()
-            submitMessages(scroll = true)
+            submitMessages(forceScroll = true)
         }
     }
 
@@ -85,12 +111,13 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat) {
         all.setOnCheckedChangeListener { _, checked ->
             if (checked) {
                 filterIdentity = null
-                submitMessages(scroll = true)
+                submitMessages(forceScroll = true)
             }
         }
         viewModel.channelNames().forEach { (identity, name) ->
             val chip = Chip(requireContext()).apply {
                 id = View.generateViewId()
+                tag = identity
                 text = name
                 isCheckable = true
                 contentDescription = name
@@ -99,21 +126,24 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat) {
             chip.setOnCheckedChangeListener { _, checked ->
                 if (checked) {
                     filterIdentity = identity
-                    submitMessages(scroll = true)
+                    submitMessages(forceScroll = true)
                 }
             }
         }
-        binding.channelFilters.check(all.id)
+        val selectedId = if (filterIdentity == null) {
+            all.id
+        } else {
+            binding.channelFilters.findViewWithTag<Chip>(filterIdentity)?.id ?: all.id
+        }
+        binding.channelFilters.check(selectedId)
     }
 
-    private fun submitMessages(scroll: Boolean) {
+    private fun submitMessages(forceScroll: Boolean) {
         if (!::adapter.isInitialized || _binding == null) return
-        val layoutManager = binding.combinedChatRecyclerView.layoutManager as? LinearLayoutManager
-        val shouldScroll = scroll || layoutManager?.let(::isAtBottom) == true
         val items = viewModel.snapshot(filterIdentity)
         adapter.submitList(items) {
             binding.combinedChatEmpty.isVisible = items.isEmpty()
-            if (shouldScroll && items.isNotEmpty()) {
+            if (forceScroll && items.isNotEmpty()) {
                 binding.combinedChatRecyclerView.scrollToPosition(items.lastIndex)
             }
         }
@@ -121,16 +151,150 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat) {
     }
 
     private fun isAtBottom(layoutManager: LinearLayoutManager): Boolean {
-        return layoutManager.findLastCompletelyVisibleItemPosition() >= adapter.itemCount - 1
+        return adapter.itemCount == 0 ||
+            layoutManager.findLastCompletelyVisibleItemPosition() >= adapter.itemCount - 1
+    }
+
+    fun openMessageInteraction(chatAdapter: ChatAdapter, channelId: String?) {
+        interactionAdapter = chatAdapter
+        interactionIdentity = currentStreams.firstOrNull { it.channelId == channelId }
+            ?.let { stableIdentity(it) }
+        if (childFragmentManager.findFragmentByTag(COMBINED_MESSAGE_DIALOG_TAG) == null) {
+            MessageClickedDialog.newInstance(false, channelId)
+                .show(childFragmentManager, COMBINED_MESSAGE_DIALOG_TAG)
+        }
+    }
+
+    fun openReplyInteraction(chatAdapter: ChatAdapter) {
+        interactionAdapter = chatAdapter
+        if (childFragmentManager.findFragmentByTag(COMBINED_REPLY_DIALOG_TAG) == null) {
+            ReplyClickedDialog.newInstance(false)
+                .show(childFragmentManager, COMBINED_REPLY_DIALOG_TAG)
+        }
+    }
+
+    fun openImageInteraction(
+        url: String?,
+        name: String?,
+        format: String?,
+        isAnimated: Boolean?,
+        source: Int?,
+        thirdParty: Boolean?,
+        emoteId: String?,
+    ) {
+        ImageClickedDialog.newInstance(url, name, format, isAnimated, source, thirdParty, emoteId)
+            .show(childFragmentManager, COMBINED_IMAGE_DIALOG_TAG)
+    }
+
+    private fun stableIdentity(stream: Stream): String? {
+        return stream.channelId?.takeIf { it.isNotBlank() }?.let { "id:${it.lowercase()}" }
+            ?: stream.channelLogin?.trim()?.takeIf { it.isNotBlank() }?.let { "login:${it.lowercase()}" }
+            ?: stream.id?.takeIf { it.isNotBlank() }?.let { "stream:${it.lowercase()}" }
+    }
+
+    override fun onCreateMessageClickedChatAdapter(): MessageClickedChatAdapter? {
+        return interactionAdapter?.createMessageClickedChatAdapter()
+    }
+
+    override fun onCreateReplyClickedChatAdapter(): ReplyClickedChatAdapter? {
+        return interactionAdapter?.createReplyClickedChatAdapter()
+    }
+
+    override fun onReplyClicked(replyId: String?, userLogin: String?, userName: String?, message: String?) {
+        // Combined chat is intentionally read-only, so the non-messaging dialog
+        // action has no composer to open.
+    }
+
+    override fun onCopyMessageClicked(message: String) {
+        val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.multiview_chat), message))
+    }
+
+    override fun onViewProfileClicked(id: String?, login: String?, name: String?, channelImage: String?) {
+        runCatching {
+            findNavController().navigate(
+                com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
+                    .actionGlobalChannelPagerFragment(
+                        channelId = id,
+                        channelLogin = login,
+                        channelName = name,
+                        channelImage = channelImage,
+                    ),
+            )
+        }
+    }
+
+    override fun onTranslateMessageClicked(chatMessage: ChatMessage, languageTag: String?) {
+        translateMessage(chatMessage, languageTag, interactionIdentity)
+    }
+
+    fun onRendererTranslateMessage(chatMessage: ChatMessage, languageTag: String?, identity: String) {
+        interactionIdentity = identity
+        translateMessage(chatMessage, languageTag, identity)
+    }
+
+    private fun translateMessage(chatMessage: ChatMessage, languageTag: String?, identity: String?) {
+        val message = chatMessage.message ?: chatMessage.systemMsg ?: return
+        val targetLanguage = requireContext().prefs().getString(C.CHAT_TRANSLATE_TARGET, "en") ?: "en"
+        if (languageTag == null) {
+            val identifier = languageIdentifier ?: LanguageIdentification.getClient().also { languageIdentifier = it }
+            identifier.identifyLanguage(message)
+                .addOnSuccessListener { detected -> translateMessage(chatMessage, detected, identity) }
+                .addOnFailureListener {
+                    chatMessage.translationFailed = true
+                    viewModel.invalidateRendering(identity)
+                }
+            return
+        }
+        if (languageTag == "und" || languageTag == targetLanguage) return
+        val sourceLanguage = TranslateLanguage.fromLanguageTag(languageTag) ?: return
+        val translator = translators[sourceLanguage] ?: Translation.getClient(
+            TranslatorOptions.Builder()
+                .setSourceLanguage(sourceLanguage)
+                .setTargetLanguage(targetLanguage)
+                .build(),
+        ).also {
+            if (translators.size >= 3) {
+                val first = translators.entries.firstOrNull()
+                first?.value?.close()
+                first?.key?.let(translators::remove)
+            }
+            translators[sourceLanguage] = it
+        }
+        val previousTranslation = chatMessage.translatedMessage
+        translator.translate(message)
+            .addOnSuccessListener { translated ->
+                val languageName = Locale.forLanguageTag(sourceLanguage).displayLanguage
+                chatMessage.translatedMessage = getString(R.string.translated_message, languageName, translated)
+                chatMessage.translationFailed = false
+                chatMessage.messageLanguage = null
+                viewModel.invalidateRendering(identity)
+                (childFragmentManager.findFragmentByTag(COMBINED_MESSAGE_DIALOG_TAG) as? MessageClickedDialog)
+                    ?.updateTranslation(chatMessage, previousTranslation)
+                (childFragmentManager.findFragmentByTag(COMBINED_REPLY_DIALOG_TAG) as? ReplyClickedDialog)
+                    ?.updateTranslation(chatMessage, previousTranslation)
+            }
+            .addOnFailureListener {
+                chatMessage.translationFailed = true
+                viewModel.invalidateRendering(identity)
+            }
     }
 
     override fun onDestroyView() {
+        interactionAdapter = null
+        interactionIdentity = null
+        languageIdentifier = null
+        translators.values.forEach(Translator::close)
+        translators.clear()
         _binding = null
         super.onDestroyView()
     }
 
     companion object {
         private const val ARG_STREAMS = "combined_chat_streams"
+        private const val COMBINED_MESSAGE_DIALOG_TAG = "combined_message_dialog"
+        private const val COMBINED_REPLY_DIALOG_TAG = "combined_reply_dialog"
+        private const val COMBINED_IMAGE_DIALOG_TAG = "combined_image_dialog"
 
         fun newInstance(streams: List<Stream>): CombinedChatFragment {
             return CombinedChatFragment().apply {
@@ -157,7 +321,7 @@ private class CombinedChatAdapter(
         viewModel.session(item.identity)?.let { session ->
             val renderer = renderers[item.identity]
                 ?.takeIf { it.isFor(session) }
-                ?: SessionRenderer(fragment, session, item.channelName).also {
+                ?: SessionRenderer(fragment, session, viewModel.channelId(item.identity), item.identity).also {
                     renderers[item.identity] = it
                 }
             renderer.bind(holder.binding.messageText, item.message)
@@ -174,7 +338,8 @@ private class CombinedChatAdapter(
     private class SessionRenderer(
         fragment: CombinedChatFragment,
         private val session: ChatViewModel,
-        streamName: String,
+        channelId: String?,
+        private val identity: String,
     ) {
         private val singleMessage = mutableListOf<ChatMessage>()
         private val adapter: ChatAdapter
@@ -234,13 +399,19 @@ private class CombinedChatAdapter(
                 emoteQuality = "4",
                 animateGifs = preferences.getBoolean(C.ANIMATED_EMOTES, true),
                 enableOverlayEmotes = preferences.getBoolean(C.CHAT_ZERO_WIDTH, true),
-                translateMessage = { _, _ -> },
+                translateMessage = { message, language -> fragment.onRendererTranslateMessage(message, language, identity) },
                 showLanguageDownloadDialog = { _, _ -> },
-                channelId = null,
+                channelId = channelId,
                 loggedInUser = null,
-                messageClickListener = null,
-                replyClickListener = null,
-                imageClickListener = null,
+                messageClickListener = { clickedChannelId ->
+                    fragment.openMessageInteraction(adapter, clickedChannelId ?: channelId)
+                },
+                replyClickListener = {
+                    fragment.openReplyInteraction(adapter)
+                },
+                imageClickListener = { url, name, format, isAnimated, source, thirdParty, emoteId ->
+                    fragment.openImageInteraction(url, name, format, isAnimated, source, thirdParty, emoteId)
+                },
             )
         }
 

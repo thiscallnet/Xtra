@@ -10,6 +10,7 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel
+import com.github.andreyasadchy.xtra.ui.multiview.CombinedChatPresentationPolicy
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.Job
@@ -57,7 +58,11 @@ class CombinedChatViewModel(
 
     fun snapshot(filterIdentity: String? = null): List<CombinedChatMessage> {
         return synchronized(messages) {
-            messages.filter { filterIdentity == null || it.identity == filterIdentity }.toList()
+            messages
+                .filter { filterIdentity == null || it.identity == filterIdentity }
+                .map { message ->
+                    message.copy(renderGeneration = sessions[message.identity]?.renderGeneration ?: message.renderGeneration)
+                }
         }
     }
 
@@ -94,13 +99,25 @@ class CombinedChatViewModel(
             }
         }
         session.jobs += viewModelScope.launch {
-            session.viewModel.reloadMessages.collect { _updates.emit(Unit) }
+            session.viewModel.reloadMessages.collect { reload ->
+                if (reload) {
+                    session.renderGeneration = CombinedChatPresentationPolicy.nextRenderGeneration(session.renderGeneration)
+                    session.viewModel.reloadMessages.value = false
+                    _updates.emit(Unit)
+                }
+            }
         }
         session.jobs += viewModelScope.launch {
-            session.viewModel.thirdPartyEmotesUpdated.collect { _updates.emit(Unit) }
+            session.viewModel.thirdPartyEmotesUpdated.collect {
+                session.renderGeneration = CombinedChatPresentationPolicy.nextRenderGeneration(session.renderGeneration)
+                _updates.emit(Unit)
+            }
         }
         session.jobs += viewModelScope.launch {
-            session.viewModel.userEmotesUpdated.collect { _updates.emit(Unit) }
+            session.viewModel.userEmotesUpdated.collect {
+                session.renderGeneration = CombinedChatPresentationPolicy.nextRenderGeneration(session.renderGeneration)
+                _updates.emit(Unit)
+            }
         }
     }
 
@@ -141,6 +158,15 @@ class CombinedChatViewModel(
 
     fun session(identity: String): ChatViewModel? = sessions[identity]?.viewModel
 
+    fun channelId(identity: String): String? = sessions[identity]?.stream?.channelId
+
+    fun invalidateRendering(identity: String?) {
+        if (identity == null || sessions[identity] == null) return
+        val session = sessions.getValue(identity)
+        session.renderGeneration = CombinedChatPresentationPolicy.nextRenderGeneration(session.renderGeneration)
+        _updates.tryEmit(Unit)
+    }
+
     fun channelNames(): List<Pair<String, String>> = sessions.values.map { it.identity to displayName(it.stream) }
 
     private fun displayName(stream: Stream): String {
@@ -159,6 +185,7 @@ class CombinedChatViewModel(
         val viewModel: ChatViewModel,
     ) {
         val jobs = mutableListOf<Job>()
+        var renderGeneration: Long = 0L
 
         fun release() {
             jobs.forEach(Job::cancel)
@@ -197,4 +224,5 @@ data class CombinedChatMessage(
     val channelName: String,
     val message: ChatMessage,
     val sequence: Long,
+    val renderGeneration: Long = 0L,
 )

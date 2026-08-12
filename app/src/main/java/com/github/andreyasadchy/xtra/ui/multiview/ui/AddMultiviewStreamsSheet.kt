@@ -37,6 +37,10 @@ class AddMultiviewStreamsSheet : BottomSheetDialogFragment() {
         super.onCreate(savedInstanceState)
         excluded = requireArguments().getStringArrayList(ARG_EXCLUDED).orEmpty().toSet()
         maxSelection = requireArguments().getInt(ARG_MAX_SELECTION, 1).coerceAtLeast(1)
+        @Suppress("DEPRECATION")
+        savedInstanceState?.getParcelableArrayList<Stream>(KEY_SELECTED)?.forEach { stream ->
+            stableIdentity(stream)?.let { identity -> selected[identity] = stream }
+        }
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, state: Bundle?): View {
@@ -56,6 +60,7 @@ class AddMultiviewStreamsSheet : BottomSheetDialogFragment() {
         binding.pickerLimit.text = getString(R.string.multiview_picker_limit, maxSelection)
         binding.cancelButton.setOnClickListener { dismiss() }
         binding.addButton.setOnClickListener { submitSelection() }
+        binding.errorState.setOnClickListener { adapter.retry() }
         binding.searchButton.setOnClickListener { lookupChannel() }
         binding.searchInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
@@ -153,6 +158,11 @@ class AddMultiviewStreamsSheet : BottomSheetDialogFragment() {
         super.onDestroyView()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putParcelableArrayList(KEY_SELECTED, ArrayList(selected.values))
+        super.onSaveInstanceState(outState)
+    }
+
     private fun stableIdentity(stream: Stream): String? {
         return stream.channelId?.takeIf { it.isNotBlank() }?.let { "id:${it.lowercase()}" }
             ?: stream.channelLogin?.takeIf { it.isNotBlank() }?.let { "login:${it.lowercase()}" }
@@ -166,6 +176,7 @@ class AddMultiviewStreamsSheet : BottomSheetDialogFragment() {
         const val DISMISSED_KEY = "multiview_add_streams_dismissed"
         private const val ARG_EXCLUDED = "multiview_excluded_streams"
         private const val ARG_MAX_SELECTION = "multiview_max_selection"
+        private const val KEY_SELECTED = "multiview_selected_streams"
 
         fun newInstance(excluded: List<String>, maxSelection: Int): AddMultiviewStreamsSheet {
             return AddMultiviewStreamsSheet().apply {

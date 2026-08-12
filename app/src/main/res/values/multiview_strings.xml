@@ -67,7 +67,7 @@
     <string name="multiview_picker_followed_live">Followed live</string>
     <string name="multiview_picker_loading">Loading channels…</string>
     <string name="multiview_picker_empty">No matching live channels.</string>
-    <string name="multiview_picker_error">Could not load live channels.</string>
+    <string name="multiview_picker_error">Could not load live channels. Tap to retry.</string>
     <string name="multiview_picker_manual_error">Enter a channel name.</string>
     <string name="multiview_picker_already_added">That channel is already in multiview.</string>
     <string name="multiview_picker_limit">Choose up to %d streams.</string>

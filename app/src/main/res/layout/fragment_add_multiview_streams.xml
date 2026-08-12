@@ -100,6 +100,8 @@
             android:id="@+id/errorState"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:clickable="true"
+            android:focusable="true"
             android:gravity="center"
             android:padding="24dp"
             android:text="@string/multiview_picker_error"

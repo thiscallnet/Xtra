@@ -165,6 +165,9 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
             (slotView.parent as? ViewGroup)?.removeView(slotView)
         }
         slotViews.clear()
+        childFragmentManager.fragments
+            .filter { it.id == R.id.chatContent }
+            .forEach(::releaseChatFragment)
         renderedChatKey = null
         renderedLayoutKey = null
         requireActivity().findViewById<View>(R.id.navBarContainer)?.visibility = previousNavBarVisibility
@@ -313,7 +316,31 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
     }
 
     private fun updateChat(state: MultiviewSessionState) {
-        if (!state.chatVisible) return
+        if (!state.chatVisible) {
+            if (renderedChatKey == null && childFragmentManager.fragments.none { it.id == R.id.chatContent }) {
+                return
+            }
+            renderedChatKey = null
+            childFragmentManager.beginTransaction().apply {
+                childFragmentManager.fragments
+                    .filter { it.id == R.id.chatContent }
+                    .forEach { fragment ->
+                        releaseChatFragment(fragment)
+                        remove(fragment)
+                    }
+            }.commit()
+            return
+        }
+        val singleStream = if (!state.combinedChat) {
+            state.streams.firstOrNull {
+                MultiviewSessionReducer.stableIdentity(it).equals(state.chatIdentity, true)
+            } ?: run {
+                renderedChatKey = null
+                return
+            }
+        } else {
+            null
+        }
         val key = if (state.combinedChat) {
             "all:${state.identities.joinToString(",")}"
         } else {
@@ -322,9 +349,19 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
         if (key == renderedChatKey) return
         renderedChatKey = key
         val transaction = childFragmentManager.beginTransaction()
+        val targetTag = if (state.combinedChat) {
+            COMBINED_CHAT_TAG
+        } else {
+            "$SINGLE_CHAT_TAG${state.chatIdentity}"
+        }
+        val existingTarget = childFragmentManager.findFragmentByTag(targetTag)
         childFragmentManager.fragments
             .filter { it.id == R.id.chatContent }
-            .forEach(transaction::hide)
+            .filterNot { it === existingTarget }
+            .forEach { fragment ->
+                releaseChatFragment(fragment)
+                transaction.remove(fragment)
+            }
         if (state.combinedChat) {
             val tag = COMBINED_CHAT_TAG
             val fragment = childFragmentManager.findFragmentByTag(tag)
@@ -334,17 +371,24 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
             }
             transaction.show(target)
         } else {
-            val stream = state.streams.firstOrNull {
-                MultiviewSessionReducer.stableIdentity(it).equals(state.chatIdentity, true)
-            } ?: return
-            val tag = "$SINGLE_CHAT_TAG${state.chatIdentity}"
-            val fragment = childFragmentManager.findFragmentByTag(tag)
+            val stream = singleStream ?: return
+            val tag = targetTag
+            val fragment = existingTarget
                 ?: ChatFragment.newInstance(stream.channelId, stream.channelLogin, displayName(stream), stream.id).also {
                     transaction.add(R.id.chatContent, it, tag)
                 }
             transaction.show(fragment)
         }
         transaction.commit()
+    }
+
+    private fun releaseChatFragment(fragment: Fragment) {
+        if (fragment is ChatFragment) {
+            // Hiding a Fragment does not call onStop. Explicitly disconnect
+            // before removing it so switching A -> B -> combined cannot leave
+            // hidden IRC sessions running beside the combined sessions.
+            fragment.disconnect()
+        }
     }
 
     private fun toggleChat() {

@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.prefs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -197,7 +198,10 @@ class MultiviewViewModel(
         }.getOrNull()
     }
 
-    suspend fun loadStreamPlaylist(channelLogin: String): String {
+    suspend fun loadStreamPlaylist(
+        channelLogin: String,
+        bypassHttpProxy: Boolean = false,
+    ): String {
         val preferences = applicationContext.prefs()
         return playerRepository.loadStreamPlaylistUrl(
             context = applicationContext,
@@ -211,18 +215,23 @@ class MultiviewViewModel(
             xDeviceId = preferences.getString(C.TOKEN_X_DEVICE_ID, "twitch-web-wall-mason"),
             playerType = preferences.getString(C.TOKEN_PLAYER_TYPE, "site"),
             supportedCodecs = preferences.getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
-            proxyPlaybackAccessToken = preferences.getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-            proxyHost = preferences.httpProxyHost(),
-            proxyPort = preferences.httpProxyPort(),
+            proxyPlaybackAccessToken = !bypassHttpProxy && preferences.getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
+            proxyHost = preferences.httpProxyHost().takeUnless { bypassHttpProxy },
+            proxyPort = preferences.httpProxyPort().takeUnless { bypassHttpProxy },
             proxyUser = preferences.getString(C.PROXY_USER, null),
             proxyPassword = preferences.getString(C.PROXY_PASSWORD, null),
             enableIntegrity = preferences.getBoolean(C.ENABLE_INTEGRITY, false),
         )
     }
 
-    private suspend fun loadCleanStreamPlaylist(channelLogin: String, playerTypes: List<String>): String? {
+    private suspend fun loadCleanStreamPlaylist(
+        channelLogin: String,
+        playerTypes: List<String>,
+        requireVerifiedClean: Boolean,
+        bypassHttpProxy: Boolean,
+    ): PlayerRepository.StreamPlaylistCandidate? {
         val preferences = applicationContext.prefs()
-        return runCatching {
+        return try {
             playerRepository.loadCleanStreamPlaylistUrl(
                 context = applicationContext,
                 networkLibrary = preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP),
@@ -235,14 +244,19 @@ class MultiviewViewModel(
                 xDeviceId = preferences.getString(C.TOKEN_X_DEVICE_ID, "twitch-web-wall-mason"),
                 playerTypes = playerTypes,
                 supportedCodecs = preferences.getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
-                proxyPlaybackAccessToken = preferences.getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-                proxyHost = preferences.getString(C.PROXY_HOST, null),
-                proxyPort = preferences.getString(C.PROXY_PORT, null)?.toIntOrNull(),
+                proxyPlaybackAccessToken = !bypassHttpProxy && preferences.getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
+                proxyHost = preferences.httpProxyHost().takeUnless { bypassHttpProxy },
+                proxyPort = preferences.httpProxyPort().takeUnless { bypassHttpProxy },
                 proxyUser = preferences.getString(C.PROXY_USER, null),
                 proxyPassword = preferences.getString(C.PROXY_PASSWORD, null),
                 enableIntegrity = preferences.getBoolean(C.ENABLE_INTEGRITY, false),
-            )?.url
-        }.getOrNull()
+                requireVerifiedClean = requireVerifiedClean,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
     }
 
     override fun onCleared() {
