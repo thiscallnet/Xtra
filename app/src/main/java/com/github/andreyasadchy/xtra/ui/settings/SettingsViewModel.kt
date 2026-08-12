@@ -1,12 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.settings
 
-import android.annotation.SuppressLint
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageInstaller
 import android.net.Uri
-import android.net.http.HttpEngine
 import android.provider.DocumentsContract
 import android.util.Log
 import android.util.JsonReader
@@ -33,31 +29,17 @@ import com.github.andreyasadchy.xtra.ui.main.LiveNotificationNotifier
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsMigration
-import com.github.andreyasadchy.xtra.util.NetworkUtils
-import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.Segment
-import com.github.andreyasadchy.xtra.util.UpdateInfo
-import com.github.andreyasadchy.xtra.util.UpdateState
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.chromium.net.CronetEngine
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.io.IOException
-import java.util.concurrent.ExecutorService
 import kotlin.math.max
 import kotlin.system.exitProcess
 
@@ -68,21 +50,8 @@ class SettingsViewModel(
     private val recentSearchesRepository: RecentSearchesRepository,
     private val notificationsRepository: NotificationsRepository,
     private val appDatabase: AppDatabase,
-    private val httpEngine: Lazy<HttpEngine?>,
-    private val cronetEngine: Lazy<CronetEngine?>,
-    private val cronetExecutor: Lazy<ExecutorService>,
-    private val okHttpClient: Lazy<OkHttpClient>,
-    private val json: Json,
 ) : ViewModel() {
 
-    val updateInfo = MutableSharedFlow<UpdateInfo?>()
-    val updateCheckFinished = MutableSharedFlow<Boolean>()
-    var updateSize: Long? = null
-    var updateJob: Job? = null
-    private var checkingUpdates = false
-    val updateProgress = MutableStateFlow(0L)
-    val closeUpdateDialog = MutableSharedFlow<Boolean>()
-    val updateDownloadFailed = MutableSharedFlow<Unit>()
     val liveNotificationResult = MutableSharedFlow<LiveNotificationResult>()
 
     fun deletePositions() {
@@ -274,151 +243,6 @@ class SettingsViewModel(
                         }
                     }
                 }
-            }
-        }
-    }
-
-    fun checkUpdates(networkLibrary: String?, url: String, notifyNoUpdates: Boolean = false) {
-        if (checkingUpdates) return
-        checkingUpdates = true
-        UpdateState.markAttempted(applicationContext)
-        viewModelScope.launch(Dispatchers.IO) {
-            var responseSucceeded = false
-            try {
-                val response = when {
-                    networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
-                        val response = suspendCancellableCoroutine { continuation ->
-                            val timeout = NetworkUtils.HttpEngineTimeout()
-                            val request = httpEngine.value!!.newUrlRequestBuilder(
-                                url,
-                                cronetExecutor.value,
-                                NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                            ).build()
-                            timeout.start(request, continuation)
-                            request.start()
-                            continuation.invokeOnCancellation {
-                                request.cancel()
-                                timeout.stop()
-                            }
-                        }
-                        if (response.info.httpStatusCode !in 200..299) {
-                            throw IOException("Update check failed with HTTP ${response.info.httpStatusCode}")
-                        }
-                        json.decodeFromString<JsonObject>(response.body.decodeToString())
-                    }
-                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                        val response = suspendCancellableCoroutine { continuation ->
-                            val timeout = NetworkUtils.CronetTimeout()
-                            val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                url,
-                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                cronetExecutor.value
-                            ).build()
-                            timeout.start(request, continuation)
-                            request.start()
-                            continuation.invokeOnCancellation {
-                                request.cancel()
-                                timeout.stop()
-                            }
-                        }
-                        if (response.info.httpStatusCode !in 200..299) {
-                            throw IOException("Update check failed with HTTP ${response.info.httpStatusCode}")
-                        }
-                        json.decodeFromString<JsonObject>(response.body.decodeToString())
-                    }
-                    else -> {
-                        okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
-                            if (!response.isSuccessful) {
-                                throw IOException("Update check failed with HTTP ${response.code}")
-                            }
-                            json.decodeFromString<JsonObject>(response.body.string())
-                        }
-                    }
-                }
-                responseSucceeded = true
-                UpdateState.markChecked(applicationContext)
-                val info = UpdateState.fromResponse(response, url)?.takeIf {
-                    UpdateState.isNewerThanInstalled(it.version)
-                }
-                if (info != null) {
-                    updateSize = info.size
-                    UpdateState.save(applicationContext, info)
-                } else {
-                    updateSize = null
-                    UpdateState.clear(applicationContext)
-                }
-            } catch (_: Exception) {
-                // Keep the last known release when a scheduled check cannot reach GitHub.
-            } finally {
-                val visible = UpdateState.isPending(applicationContext)
-                updateInfo.emit(if (responseSucceeded && visible) UpdateState.read(applicationContext) else null)
-                if (notifyNoUpdates && responseSucceeded) {
-                    updateCheckFinished.emit(responseSucceeded && visible)
-                }
-                checkingUpdates = false
-            }
-        }
-    }
-
-    @Suppress("UNUSED_PARAMETER")
-    fun downloadUpdate(networkLibrary: String?, info: UpdateInfo) {
-        updateJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // APK downloads use OkHttp's streaming body regardless of the
-                // selected Twitch API transport, so the whole package is never
-                // buffered in memory by the updater.
-                updateProgress.value = 0L
-                val packageInstaller = applicationContext.packageManager.packageInstaller
-                val sessionId = packageInstaller.createSession(
-                    PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-                )
-                val session = packageInstaller.openSession(sessionId)
-                try {
-                    var bytesWritten = 0L
-                    okHttpClient.value.newCall(Request.Builder().url(info.downloadUrl).build()).executeAsync().use { response ->
-                        if (!response.isSuccessful) {
-                            throw IOException("Update download failed with HTTP ${response.code}")
-                        }
-                        val body = response.body
-                        val length = body.contentLength()
-                        body.byteStream().use { input ->
-                            session.openWrite("package", 0, length).use { output ->
-                                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                                var read: Int
-                                while (input.read(buffer).also { read = it } != -1) {
-                                    output.write(buffer, 0, read)
-                                    bytesWritten += read
-                                    updateProgress.value = bytesWritten
-                                }
-                            }
-                        }
-                    }
-                    if (bytesWritten <= 0L) {
-                        throw IOException("Update download returned an empty APK")
-                    }
-                    session.commit(
-                        PendingIntent.getActivity(
-                            applicationContext,
-                            0,
-                            Intent(applicationContext, MainActivity::class.java).apply {
-                                setAction(MainActivity.INTENT_INSTALL_UPDATE)
-                                putExtra(MainActivity.EXTRA_UPDATE_VERSION, info.version)
-                            },
-                            PendingIntent.FLAG_MUTABLE
-                        ).intentSender
-                    )
-                } catch (e: Exception) {
-                    runCatching { session.abandon() }
-                    throw e
-                } finally {
-                    session.close()
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                updateDownloadFailed.emit(Unit)
-            } finally {
-                closeUpdateDialog.emit(true)
             }
         }
     }
@@ -696,7 +520,7 @@ class SettingsViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                SettingsViewModel(application.applicationContext, xtraModule.playerRepository, xtraModule.offlineVideosRepository, xtraModule.recentSearchesRepository, xtraModule.notificationsRepository, xtraModule.database, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.json)
+                SettingsViewModel(application.applicationContext, xtraModule.playerRepository, xtraModule.offlineVideosRepository, xtraModule.recentSearchesRepository, xtraModule.notificationsRepository, xtraModule.database)
             }
         }
     }

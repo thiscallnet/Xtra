@@ -1,8 +1,0 @@
-<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <PreferenceCategory android:key="updates_category" android:title="@string/settings_updates" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="update_check_enabled" android:summary="Check once per day while using Xtra." android:title="Automatically check for updates" app:iconSpaceReserved="false" />
-    <Preference android:key="check_updates" android:title="Check for updates now" app:iconSpaceReserved="false" />
-    <Preference android:key="update_available_details" android:title="@string/update_available" app:isPreferenceVisible="false" app:iconSpaceReserved="false" />
-    <Preference android:key="ignore_update" android:title="Skip this version" app:isPreferenceVisible="false" app:iconSpaceReserved="false" />
-    <Preference android:key="last_update_check" android:selectable="false" android:title="@string/last_update_check" app:iconSpaceReserved="false" />
-</androidx.preference.PreferenceScreen>

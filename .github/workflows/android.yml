@@ -58,11 +58,68 @@ jobs:
           echo "name=$version"
           echo "code=$version_code"
         } >> "$GITHUB_OUTPUT"
+    - name: Write release metadata
+      env:
+        VERSION_NAME: ${{ steps.version.outputs.name }}
+        VERSION_CODE: ${{ steps.version.outputs.code }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        printf '{"versionName":"%s","versionCode":%s}\n' "$VERSION_NAME" "$VERSION_CODE" > xtra-release-metadata.json
     - name: Run JVM tests
       run: ./gradlew testDebugUnitTest
 
+    - name: Run release lookup shell tests
+      run: bash .github/scripts/test-release-lookup.sh
+
     - name: Build with Gradle
       run: ./gradlew assembleRelease "-PciVersionCode=${{ steps.version.outputs.code }}"
+
+    - name: Verify release metadata against APK
+      env:
+        VERSION_NAME: ${{ steps.version.outputs.name }}
+        VERSION_CODE: ${{ steps.version.outputs.code }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        apk_asset=app/build/outputs/apk/release/app-release.apk
+        metadata_asset=xtra-release-metadata.json
+        if [[ ! -f "$apk_asset" ]]; then
+          echo "Expected release APK is missing: $apk_asset" >&2
+          exit 1
+        fi
+        if [[ ! -f "$metadata_asset" ]]; then
+          echo "Release metadata is missing: $metadata_asset" >&2
+          exit 1
+        fi
+
+        metadata_version_name="$(jq -er '.versionName | strings' "$metadata_asset")"
+        metadata_version_code="$(jq -er '.versionCode | numbers | tostring' "$metadata_asset")"
+        if [[ "$metadata_version_name" != "$VERSION_NAME" || "$metadata_version_code" != "$VERSION_CODE" ]]; then
+          echo "Release metadata does not match the CI version outputs" >&2
+          exit 1
+        fi
+
+        aapt2="$(find "${ANDROID_HOME:?}/build-tools" -type f -name aapt2 -print | sort -V | tail -n1)"
+        if [[ -z "$aapt2" ]]; then
+          echo "Could not locate aapt2 to inspect the release APK" >&2
+          exit 1
+        fi
+        badging="$($aapt2 dump badging "$apk_asset")"
+        package_line="$(grep -m1 '^package: ' <<< "$badging" || true)"
+        apk_version_name="$(sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p" <<< "$package_line")"
+        apk_version_code="$(sed -n "s/.*versionCode='\\([^']*\\)'.*/\\1/p" <<< "$package_line")"
+        if [[ -z "$apk_version_name" || -z "$apk_version_code" ]]; then
+          echo "Could not read version identity from $apk_asset" >&2
+          exit 1
+        fi
+        if [[ "$apk_version_name" != "$metadata_version_name" || "$apk_version_code" != "$metadata_version_code" ]]; then
+          echo "Built APK identity does not match xtra-release-metadata.json" >&2
+          echo "APK: versionName=$apk_version_name versionCode=$apk_version_code" >&2
+          echo "Metadata: versionName=$metadata_version_name versionCode=$metadata_version_code" >&2
+          exit 1
+        fi
+        echo "Verified release APK versionName=$apk_version_name versionCode=$apk_version_code"
 
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v7
@@ -112,10 +169,14 @@ jobs:
         tag="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
         repository_url="https://github.com/${GITHUB_REPOSITORY}.git"
 
-        shopt -s nullglob
-        assets=(app/build/outputs/apk/release/*.apk)
-        if (( ${#assets[@]} == 0 )); then
-          echo "No release APK was produced" >&2
+        apk_asset=app/build/outputs/apk/release/app-release.apk
+        metadata_asset=xtra-release-metadata.json
+        if [[ ! -f "$apk_asset" ]]; then
+          echo "No app-release.apk was produced" >&2
+          exit 1
+        fi
+        if [[ ! -f "$metadata_asset" ]]; then
+          echo "No release metadata was produced" >&2
           exit 1
         fi
 
@@ -141,6 +202,122 @@ jobs:
             esac
           done <<< "$refs"
           printf '%s' "$resolved_sha"
+        }
+
+        verify_tag() {
+          local resolved_sha
+          resolved_sha="$(get_remote_tag_sha)"
+          if [[ "$resolved_sha" != "$GITHUB_SHA" ]]; then
+            echo "Release tag ${tag} resolves to ${resolved_sha:-<missing>}, expected ${GITHUB_SHA}" >&2
+            exit 1
+          fi
+        }
+
+        source .github/scripts/release-lookup.sh
+
+        asset_count() {
+          jq -r --arg name "$1" '[.assets[] | select(.name == $name)] | length' <<< "$release_json"
+        }
+
+        ensure_asset_present() {
+          local name="$1"
+          local path="$2"
+          local count
+          refresh_release
+          count="$(asset_count "$name")"
+          if [[ "$count" != 0 && "$count" != 1 ]]; then
+            echo "Release ${tag} contains multiple assets named ${name}" >&2
+            exit 1
+          fi
+          if [[ "$count" == 1 ]]; then
+            return
+          fi
+
+          echo "Uploading missing release asset ${name}"
+          if ! gh release upload "$tag" "$path"; then
+            # A concurrent retry may have uploaded the asset after the first
+            # inspection. Never clobber it; re-inspect and verify it below.
+            refresh_release
+            if [[ "$(asset_count "$name")" != 1 ]]; then
+              echo "Unable to upload required release asset ${name}" >&2
+              exit 1
+            fi
+          fi
+        }
+
+        verify_metadata_asset() {
+          local name=xtra-release-metadata.json
+          local verification_dir
+          refresh_release
+          if [[ "$(asset_count "$name")" != 1 ]]; then
+            echo "Release ${tag} is missing exactly one ${name} asset" >&2
+            exit 1
+          fi
+          verification_dir="$(mktemp -d)"
+          if ! gh release download "$tag" --pattern "$name" --dir "$verification_dir"; then
+            echo "Unable to download ${name} for verification" >&2
+            rm -rf "$verification_dir"
+            exit 1
+          fi
+          if ! cmp -s "$metadata_asset" "$verification_dir/$name"; then
+            echo "Release ${tag} contains unexpected ${name} contents" >&2
+            rm -rf "$verification_dir"
+            exit 1
+          fi
+          rm -rf "$verification_dir"
+        }
+
+        verify_apk_asset() {
+          local name=app-release.apk
+          local local_digest
+          local remote_digest
+          local verification_dir
+          local downloaded_apk
+          refresh_release
+          if [[ "$(asset_count "$name")" != 1 ]]; then
+            echo "Release ${tag} is missing exactly one ${name} asset" >&2
+            exit 1
+          fi
+
+          local_digest="$(sha256sum "$apk_asset" | awk '{print $1}')"
+          remote_digest="$(jq -r --arg name "$name" '[.assets[] | select(.name == $name)][0].digest // ""' <<< "$release_json")"
+          if [[ "$remote_digest" == sha256:* ]]; then
+            if [[ "$remote_digest" != "sha256:${local_digest}" ]]; then
+              echo "Release ${tag} APK digest does not match the local APK" >&2
+              exit 1
+            fi
+            return
+          fi
+          if [[ -n "$remote_digest" ]]; then
+            echo "Release ${tag} exposes an unsupported APK digest: ${remote_digest}" >&2
+            exit 1
+          fi
+
+          # Older GitHub API responses may omit digest. Download the existing
+          # asset instead of replacing it, then compare its bytes locally.
+          verification_dir="$(mktemp -d)"
+          if ! gh release download "$tag" --pattern "$name" --dir "$verification_dir"; then
+            echo "Unable to download ${name} for digest verification" >&2
+            rm -rf "$verification_dir"
+            exit 1
+          fi
+          downloaded_apk="$verification_dir/$name"
+          if [[ ! -f "$downloaded_apk" ]] ||
+            [[ "$(sha256sum "$downloaded_apk" | awk '{print $1}')" != "$local_digest" ]]; then
+            echo "Release ${tag} APK bytes do not match the local APK" >&2
+            rm -rf "$verification_dir"
+            exit 1
+          fi
+          rm -rf "$verification_dir"
+        }
+
+        verify_release_postconditions() {
+          verify_tag
+          ensure_asset_present app-release.apk "$apk_asset"
+          ensure_asset_present xtra-release-metadata.json "$metadata_asset"
+          verify_tag
+          verify_apk_asset
+          verify_metadata_asset
         }
 
         existing_tag_sha="$(get_remote_tag_sha)"
@@ -175,23 +352,41 @@ jobs:
           echo "Release tag ${tag} already points to ${GITHUB_SHA}; continuing retry"
         fi
 
-        if gh release view "$tag" --json tagName >/dev/null 2>&1; then
-          echo "Release ${tag} already exists; continuing retry"
+        if release_exists; then
+          echo "Release ${tag} already exists; recovering and verifying it"
         else
-          gh release create "$tag" \
-            --verify-tag \
-            --target "$GITHUB_SHA" \
-            --title "Xtra ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
-            --notes-file notes.txt \
-            --latest \
-            "${assets[@]}" || {
-              if gh release view "$tag" --json tagName >/dev/null 2>&1; then
-                echo "Release ${tag} was created concurrently; continuing retry"
-              else
-                echo "Unable to create immutable release ${tag}" >&2
-                exit 1
-              fi
-            }
+          if ! gh release create "$tag" \
+              --draft \
+              --latest=false \
+              --verify-tag \
+              --target "$GITHUB_SHA" \
+              --title "Xtra ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
+              --notes-file notes.txt \
+              "$apk_asset" "$metadata_asset"; then
+            if release_exists; then
+              echo "Release ${tag} was created before the upload completed; recovering it"
+            else
+              echo "Unable to create immutable release ${tag}" >&2
+              exit 1
+            fi
+          fi
+        fi
+
+        # Keep a release draft until both assets have been repaired and
+        # verified. Published releases are immutable, so an unexpected asset
+        # mismatch fails the workflow instead of being hidden by clobbering.
+        verify_release_postconditions
+        refresh_release
+        if [[ "$(jq -r '.draft' <<< "$release_json")" == true ]]; then
+          gh release edit "$tag" --draft=false --latest
+        else
+          gh release edit "$tag" --latest
+        fi
+        verify_release_postconditions
+        refresh_release
+        if [[ "$(jq -r '.draft' <<< "$release_json")" != false ]]; then
+          echo "Release ${tag} was not published after verification" >&2
+          exit 1
         fi
 
     # Keep the historical latest URL working for existing external instances.
@@ -213,6 +408,8 @@ jobs:
           echo "No release APK was produced" >&2
           exit 1
         fi
+        metadata_asset=xtra-release-metadata.json
+        assets+=("$metadata_asset")
 
         if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${alias_tag}" >/dev/null 2>&1; then
           gh api --method PATCH \

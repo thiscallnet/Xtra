@@ -35,9 +35,31 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
 
     lateinit var xtraModule: XtraModule
 
+    @Volatile
+    var isInForeground: Boolean = false
+        private set
+    private var startedActivityCount = 0
+
     override fun onCreate() {
         super.onCreate()
         INSTANCE = this
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: android.app.Activity) {
+                startedActivityCount += 1
+                isInForeground = true
+            }
+
+            override fun onActivityStopped(activity: android.app.Activity) {
+                startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
+                isInForeground = startedActivityCount > 0
+            }
+
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) = Unit
+            override fun onActivityResumed(activity: android.app.Activity) = Unit
+            override fun onActivityPaused(activity: android.app.Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) = Unit
+            override fun onActivityDestroyed(activity: android.app.Activity) = Unit
+        })
         xtraModule = XtraModule(this)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             val conscrypt = Conscrypt.newProvider()

@@ -1,0 +1,276 @@
+package com.github.andreyasadchy.xtra.util.updater
+
+import android.net.Uri
+
+data class UpdateAsset(
+    val name: String,
+    val contentType: String?,
+    val downloadUrl: String,
+    val size: Long?,
+)
+
+data class UpdateRelease(
+    val tagName: String,
+    val versionName: String,
+    val buildNumber: Long?,
+    val title: String,
+    val releaseNotes: List<String>,
+    val rawBody: String,
+    val releaseUrl: String,
+    val publishedAt: String?,
+    val assets: List<UpdateAsset>,
+    val prerelease: Boolean,
+    val draft: Boolean,
+    val expectedVersionCode: Long? = null,
+) {
+    val id: String
+        get() = tagName
+
+    val displayVersion: String
+        get() = buildNumber?.let { "$versionName (build $it)" }
+            ?: versionName
+
+}
+
+data class DownloadProgress(
+    val downloadedBytes: Long,
+    val totalBytes: Long?,
+) {
+    val percent: Int?
+        get() = totalBytes?.takeIf { it > 0L }
+            ?.let { ((downloadedBytes * 100L) / it).toInt().coerceIn(0, 100) }
+}
+
+data class DownloadedArtifact(
+    val downloadId: Long,
+    val uri: Uri?,
+    val fileName: String,
+    val size: Long,
+)
+
+object UpdateVersionDisplay {
+    fun installed(versionName: String, versionCode: Long, versionCodeBase: Long): String {
+        val buildNumber = installedBuildNumber(versionCode, versionCodeBase)
+        return buildNumber?.let { "$versionName (build $it)" } ?: versionName
+    }
+
+    fun installedBuildNumber(versionCode: Long, versionCodeBase: Long): Long? =
+        (versionCode - versionCodeBase).takeIf { it > 0L }
+}
+
+enum class UpdateStage {
+    CHECK,
+    PARSE,
+    ASSET_SELECTION,
+    DOWNLOAD,
+    INSTALL,
+}
+
+enum class UpdateErrorTitle {
+    CHECK,
+    PARSE,
+    ASSET_SELECTION,
+    DOWNLOAD,
+    INSTALL,
+}
+
+fun UpdateStage.errorTitle(): UpdateErrorTitle = when (this) {
+    UpdateStage.CHECK -> UpdateErrorTitle.CHECK
+    UpdateStage.PARSE -> UpdateErrorTitle.PARSE
+    UpdateStage.ASSET_SELECTION -> UpdateErrorTitle.ASSET_SELECTION
+    UpdateStage.DOWNLOAD -> UpdateErrorTitle.DOWNLOAD
+    UpdateStage.INSTALL -> UpdateErrorTitle.INSTALL
+}
+
+sealed interface UpdateError {
+    data object NoConnection : UpdateError
+    data object Timeout : UpdateError
+    data object RateLimited : UpdateError
+    data object NotFound : UpdateError
+    data object Server : UpdateError
+    data object InvalidResponse : UpdateError
+    data object UnexpectedResponse : UpdateError
+    data object MissingApk : UpdateError
+    data object AmbiguousApk : UpdateError
+    data object IncompatibleApk : UpdateError
+    data object DownloadFailed : UpdateError
+    data object DownloadCancelled : UpdateError
+    data object DownloadedFileMissing : UpdateError
+    data object InstallPermissionDenied : UpdateError
+    data object InstallCancelled : UpdateError
+    data object InstallFailed : UpdateError
+}
+
+sealed interface UpdateState {
+    data object Idle : UpdateState
+    data object Checking : UpdateState
+    data class UpToDate(
+        val release: UpdateRelease? = null,
+        val lastSuccessfulCheck: Long? = null,
+    ) : UpdateState
+
+    data class Available(
+        val release: UpdateRelease,
+        val previouslySkipped: Boolean = false,
+        val previouslyDeferred: Boolean = false,
+    ) : UpdateState
+    data class Skipped(val release: UpdateRelease) : UpdateState
+    data class Deferred(val release: UpdateRelease) : UpdateState
+
+    data class Downloading(
+        val release: UpdateRelease,
+        val progress: DownloadProgress?,
+    ) : UpdateState
+
+    data class Downloaded(
+        val release: UpdateRelease,
+        val artifact: DownloadedArtifact,
+    ) : UpdateState
+
+    data class Installing(
+        val release: UpdateRelease,
+        val artifact: DownloadedArtifact?,
+        val sessionId: Int?,
+    ) : UpdateState
+
+    data class AwaitingUserAction(
+        val release: UpdateRelease,
+        val artifact: DownloadedArtifact?,
+        val sessionId: Int,
+    ) : UpdateState
+
+    data class Error(
+        val stage: UpdateStage,
+        val cause: UpdateError,
+        val retryable: Boolean,
+        val release: UpdateRelease? = null,
+        val artifact: DownloadedArtifact? = null,
+        val preservedAction: UpdatePrimaryAction? = null,
+    ) : UpdateState
+}
+
+sealed interface UpdateDecision {
+    data object Available : UpdateDecision
+    data object Current : UpdateDecision
+    data object Ignored : UpdateDecision
+    data object Deferred : UpdateDecision
+}
+
+enum class UpdateRetryAction {
+    CHECK,
+    DOWNLOAD,
+    INSTALL,
+}
+
+enum class UpdatePrimaryAction {
+    DOWNLOAD,
+    INSTALL,
+    ALLOW_INSTALL,
+}
+
+enum class UpdateInstallRecoveryAction {
+    RESUME,
+    RECOMMIT,
+    RETRY,
+}
+
+enum class UpdateInstallRecoveryState {
+    MISSING,
+    PREPARED,
+    COMMIT_UNCERTAIN,
+    COMMITTED,
+    AWAITING_USER_ACTION,
+    TERMINAL,
+}
+
+class UpdateInstallGate(initialSessionId: Int? = null) {
+    private var preparing = false
+    private var activeSessionId: Int? = initialSessionId
+
+    @Synchronized
+    fun tryBegin(): Boolean {
+        if (preparing || activeSessionId != null) return false
+        preparing = true
+        return true
+    }
+
+    @Synchronized
+    fun markCommitted(sessionId: Int) {
+        preparing = false
+        activeSessionId = sessionId
+    }
+
+    @Synchronized
+    fun abort() {
+        preparing = false
+    }
+
+    @Synchronized
+    fun finish(sessionId: Int?) {
+        if (sessionId == null || activeSessionId == sessionId) {
+            activeSessionId = null
+            preparing = false
+        }
+    }
+}
+
+fun UpdateState.Error.retryAction(): UpdateRetryAction? = UpdatePolicy.retryAction(
+    stage = stage,
+    retryable = retryable,
+    hasRelease = release != null,
+    hasArtifact = artifact != null,
+)
+
+fun UpdateState.Error.primaryAction(): UpdatePrimaryAction? = UpdatePolicy.primaryAction(this)
+
+fun UpdateState.downloadableRelease(): UpdateRelease? = when (this) {
+    is UpdateState.Available -> release
+    is UpdateState.Deferred -> release
+    is UpdateState.Error -> release?.takeIf { primaryAction() == UpdatePrimaryAction.DOWNLOAD }
+    else -> null
+}
+
+/** Whether Settings should call attention to an update that still has a user action. */
+fun UpdateState.hasActionableUpdate(): Boolean = when (this) {
+    is UpdateState.Available,
+    is UpdateState.Downloading,
+    is UpdateState.Downloaded,
+    is UpdateState.Installing,
+    is UpdateState.AwaitingUserAction -> true
+    is UpdateState.Error -> when {
+        // A failed download still owns the persisted release and can be retried even though it
+        // does not use primaryAction(), which is reserved for preserved UI actions.
+        retryAction() == UpdateRetryAction.DOWNLOAD && release != null -> true
+        primaryAction() == UpdatePrimaryAction.DOWNLOAD -> downloadableRelease() != null
+        primaryAction() == UpdatePrimaryAction.INSTALL ||
+            primaryAction() == UpdatePrimaryAction.ALLOW_INSTALL -> release != null && artifact != null
+        else -> false
+    }
+    is UpdateState.Idle,
+    is UpdateState.Checking,
+    is UpdateState.UpToDate,
+    is UpdateState.Skipped,
+    is UpdateState.Deferred -> false
+}
+
+fun UpdatePolicy.restoreAfterInstallPermission(state: UpdateState, permissionGranted: Boolean): UpdateState =
+    if (permissionGranted && state is UpdateState.Error &&
+        state.stage == UpdateStage.INSTALL &&
+        state.cause == UpdateError.InstallPermissionDenied &&
+        state.release != null && state.artifact != null
+    ) {
+        UpdateState.Downloaded(state.release, state.artifact)
+    } else {
+        state
+    }
+
+sealed interface ReleaseParseResult {
+    data class Success(val release: UpdateRelease) : ReleaseParseResult
+    data class Failure(val error: UpdateError) : ReleaseParseResult
+}
+
+class UpdateException(
+    val error: UpdateError,
+    cause: Throwable? = null,
+    val stage: UpdateStage? = null,
+) : Exception(error.toString(), cause)

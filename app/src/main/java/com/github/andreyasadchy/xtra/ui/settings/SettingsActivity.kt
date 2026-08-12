@@ -16,10 +16,10 @@ import android.os.PowerManager
 import android.os.ext.SdkExtensions
 import android.provider.Settings
 import android.text.InputType
+import android.text.format.Formatter
 import android.text.method.PasswordTransformationMethod
 import android.text.SpannableString
 import android.text.Spanned
-import android.text.format.Formatter
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.util.TypedValue
@@ -72,7 +72,7 @@ import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.SettingsNavGraphDirections
 import com.github.andreyasadchy.xtra.databinding.ActivitySettingsBinding
-import com.github.andreyasadchy.xtra.databinding.DialogUpdateDownloadBinding
+import com.github.andreyasadchy.xtra.databinding.FragmentUpdateSettingsBinding
 import com.github.andreyasadchy.xtra.databinding.FragmentSettingsHomeBinding
 import com.github.andreyasadchy.xtra.databinding.ItemSettingsRowBinding
 import com.github.andreyasadchy.xtra.model.ui.SettingsDragListItem
@@ -85,8 +85,17 @@ import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.Set
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.UpdateInfo
-import com.github.andreyasadchy.xtra.util.UpdateState
+import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.util.updater.UpdateError
+import com.github.andreyasadchy.xtra.util.updater.UpdatePrimaryAction
+import com.github.andreyasadchy.xtra.util.updater.UpdateRetryAction
+import com.github.andreyasadchy.xtra.util.updater.UpdateState
+import com.github.andreyasadchy.xtra.util.updater.UpdateTimeFormatter
+import com.github.andreyasadchy.xtra.util.updater.UpdateVersionDisplay
+import com.github.andreyasadchy.xtra.util.updater.downloadableRelease
+import com.github.andreyasadchy.xtra.util.updater.errorTitle
+import com.github.andreyasadchy.xtra.util.updater.primaryAction
+import com.github.andreyasadchy.xtra.util.updater.retryAction
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.rawPrefs
@@ -103,9 +112,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.chromium.net.CronetProvider
-import java.text.DateFormat
 import java.util.Collections
-import java.util.Date
 import java.util.Locale
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -463,8 +470,6 @@ class SettingsActivity : AppCompatActivity() {
         private var backupResultLauncher: ActivityResultLauncher<Intent>? = null
         private var restoreResultLauncher: ActivityResultLauncher<Intent>? = null
         private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
-        private var updateDownloadDialogBinding: DialogUpdateDownloadBinding? = null
-        private var updateDownloadDialog: AlertDialog? = null
 
         override fun onCreate(savedInstanceState: Bundle?) {
             super.onCreate(savedInstanceState)
@@ -864,7 +869,6 @@ class SettingsActivity : AppCompatActivity() {
             setPreferencesFromResource(
                 when (settingsScreen) {
                     SCREEN_LIVE_NOTIFICATIONS -> R.xml.live_notification_preferences
-                    SCREEN_UPDATES -> R.xml.update_preferences
                     SCREEN_LANGUAGE -> R.xml.language_preferences
                     SCREEN_BACKUP -> R.xml.backup_preferences
                     SCREEN_ABOUT -> R.xml.about_preferences
@@ -971,25 +975,6 @@ class SettingsActivity : AppCompatActivity() {
                 true
             }
             updateLiveNotificationsSummary()
-            findPreference<Preference>("check_updates")?.setOnPreferenceClickListener {
-                viewModel.checkUpdates(
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    C.DEFAULT_UPDATE_URL,
-                    notifyNoUpdates = true,
-                )
-                true
-            }
-            findPreference<Preference>("update_available_details")?.setOnPreferenceClickListener {
-                if (UpdateState.isPending(requireContext())) {
-                    UpdateState.read(requireContext())?.let(::showUpdateDialog)
-                }
-                true
-            }
-            findPreference<Preference>("ignore_update")?.setOnPreferenceClickListener {
-                UpdateState.ignore(requireContext())
-                updateUpdatePreferences()
-                true
-            }
             findPreference<Preference>("backup_settings")?.setOnPreferenceClickListener {
                 backupResultLauncher?.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE))
                 true
@@ -1012,11 +997,6 @@ class SettingsActivity : AppCompatActivity() {
                 BuildConfig.BUILD_TYPE,
             )
             findPreference<Preference>("app_package")?.summary = BuildConfig.APPLICATION_ID
-            findPreference<Preference>("last_update_check")?.summary = requireContext().tokenPrefs()
-                .getLong(C.UPDATE_LAST_CHECKED, 0L)
-                .takeIf { it > 0L }
-                ?.let { DateFormat.getDateTimeInstance().format(Date(it)) }
-                ?: getString(R.string.never)
             configureRedesignedPreferences()
         }
 
@@ -1082,7 +1062,7 @@ class SettingsActivity : AppCompatActivity() {
                         LiveNotificationScheduler.disable(context)
                         viewModel.resetNotificationState()
                         SettingsMigration.resetUserPreferences(context)
-                        UpdateState.clear(context)
+                        (context.applicationContext as? XtraApp)?.xtraModule?.updateRepository?.reset()
                         context.tokenPrefs().edit {
                             remove(C.UPDATE_LAST_CHECKED)
                             remove(C.UPDATE_LAST_ATTEMPTED)
@@ -1392,101 +1372,6 @@ class SettingsActivity : AppCompatActivity() {
             append(liveNotificationDiagnostics(requireContext()))
         }
 
-        private fun updateUpdatePreferences() {
-            val info = UpdateState.read(requireContext())
-            val pending = UpdateState.isPending(requireContext())
-            findPreference<PreferenceCategory>("updates_category")?.let { category ->
-                val title = getString(R.string.settings_general_updates)
-                category.title = if (pending) {
-                    SpannableString("• $title").apply {
-                        setSpan(
-                            ForegroundColorSpan(
-                                requireContext().getColor(android.R.color.holo_red_light)
-                            ),
-                            0,
-                            length,
-                            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-                        )
-                    }
-                } else {
-                    title
-                }
-            }
-            findPreference<Preference>("update_available_details")?.apply {
-                isVisible = info != null
-                if (info != null) {
-                    title = getString(R.string.update_available_version, info.version)
-                    summary = info.body.ifBlank { getString(R.string.update_no_release_notes) }
-                }
-            }
-            findPreference<Preference>("ignore_update")?.apply {
-                isVisible = pending
-                summary = info?.let { getString(R.string.ignore_update_summary, it.version) }
-            }
-            findPreference<Preference>("check_updates")?.summary = when {
-                pending && info != null -> getString(R.string.update_pending_summary, info.version)
-                UpdateState.isIgnored(requireContext()) && info != null -> getString(R.string.update_ignored_summary, info.version)
-                UpdateState.isDownloaded(requireContext()) && info != null -> getString(R.string.update_downloaded_summary, info.version)
-                else -> getString(R.string.check_updates_summary)
-            }
-            findPreference<Preference>("last_update_check")?.summary = requireContext().tokenPrefs()
-                .getLong(C.UPDATE_LAST_CHECKED, 0L)
-                .takeIf { it > 0L }
-                ?.let { DateFormat.getDateTimeInstance().format(Date(it)) }
-                ?: getString(R.string.never)
-        }
-
-        private fun showUpdateDialog(info: UpdateInfo) {
-            val releaseNotes = buildString {
-                if (info.title.isNotBlank() && !info.title.equals(info.version, true)) {
-                    append(info.title)
-                    append("\n")
-                }
-                append(info.version)
-                if (info.body.isNotBlank()) {
-                    append("\n\n")
-                    append(info.body)
-                }
-                append("\n\n")
-                append(getString(R.string.update_message))
-            }
-            requireActivity().getAlertDialogBuilder()
-                .setTitle(getString(R.string.update_available_version, info.version))
-                .setMessage(releaseNotes)
-                .setPositiveButton(getString(R.string.yes)) { _, _ ->
-                    val binding = DialogUpdateDownloadBinding.inflate(layoutInflater)
-                    updateDownloadDialogBinding = binding
-                    val size = info.size
-                    if (size != null) {
-                        binding.textView.text = getString(
-                            R.string.downloading_update_progress,
-                            Formatter.formatFileSize(requireContext(), 0),
-                            Formatter.formatFileSize(requireContext(), size),
-                        )
-                    } else {
-                        binding.textView.text = getString(R.string.downloading_update)
-                        binding.progressBar.visibility = View.GONE
-                    }
-                    viewModel.downloadUpdate(requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP), info)
-                    val dialog = requireActivity().getAlertDialogBuilder()
-                        .setView(binding.root)
-                        .setNegativeButton(getString(android.R.string.cancel), null)
-                        .setOnDismissListener {
-                            viewModel.updateJob?.cancel()
-                            updateDownloadDialogBinding = null
-                            updateDownloadDialog = null
-                        }
-                        .show()
-                    updateDownloadDialog = dialog
-                }
-                .setNeutralButton(getString(R.string.ignore_update)) { _, _ ->
-                    UpdateState.ignore(requireContext())
-                    updateUpdatePreferences()
-                }
-                .setNegativeButton(getString(R.string.update_later), null)
-                .show()
-        }
-
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
             viewLifecycleOwner.lifecycleScope.launch {
@@ -1498,57 +1383,6 @@ class SettingsActivity : AppCompatActivity() {
                     }
                 }
             }
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.updateInfo.collectLatest {
-                        if (it != null) {
-                            showUpdateDialog(it)
-                        }
-                    }
-                }
-            }
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.updateCheckFinished.collectLatest { found ->
-                        updateUpdatePreferences()
-                        if (!found) {
-                            Toast.makeText(requireContext(), R.string.no_updates_found, Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }
-            }
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.updateProgress.collectLatest {
-                        updateDownloadDialogBinding?.let { binding ->
-                            val size = viewModel.updateSize
-                            if (size != null) {
-                                binding.textView.text = getString(
-                                    R.string.downloading_update_progress,
-                                    Formatter.formatFileSize(requireContext(), it),
-                                    Formatter.formatFileSize(requireContext(), size),
-                                )
-                                binding.progressBar.progress = (((it.toFloat() / size) * 100)).toInt()
-                            }
-                        }
-                    }
-                }
-            }
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.closeUpdateDialog.collectLatest {
-                        updateDownloadDialog?.dismiss()
-                    }
-                }
-            }
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.updateDownloadFailed.collectLatest {
-                        Toast.makeText(requireContext(), R.string.update_download_failed, Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-            updateUpdatePreferences()
         }
 
         override fun onResume() {
@@ -1559,13 +1393,11 @@ class SettingsActivity : AppCompatActivity() {
                 toggleLiveNotifications(false)
             }
             updateLiveNotificationsSummary()
-            updateUpdatePreferences()
         }
 
         private companion object {
             const val ARG_SETTINGS_SCREEN = "settings_screen"
             const val SCREEN_LIVE_NOTIFICATIONS = "live_notifications"
-            const val SCREEN_UPDATES = "updates"
             const val SCREEN_LANGUAGE = "language"
             const val SCREEN_BACKUP = "backup"
             const val SCREEN_ABOUT = "about"
@@ -1589,6 +1421,234 @@ class SettingsActivity : AppCompatActivity() {
             const val SCREEN_DEVELOPER = "developer"
             const val SCREEN_DEVELOPER_API = "developer_api"
             const val SCREEN_ACCOUNT = "account"
+        }
+    }
+
+    class UpdateSettingsFragment : Fragment() {
+
+        private var _binding: FragmentUpdateSettingsBinding? = null
+        private val binding get() = _binding!!
+        private var technicalDetailsExpanded = false
+        private val repository
+            get() = (requireContext().applicationContext as XtraApp).xtraModule.updateRepository
+
+        override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+            _binding = FragmentUpdateSettingsBinding.inflate(inflater, container, false)
+            return binding.root
+        }
+
+        override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+            super.onViewCreated(view, savedInstanceState)
+            val preferences = requireContext().prefs()
+            binding.automaticCheck.isChecked = preferences.getBoolean(C.UPDATE_CHECK_ENABLED, true)
+            binding.automaticCheck.setOnCheckedChangeListener { _, enabled ->
+                preferences.edit { putBoolean(C.UPDATE_CHECK_ENABLED, enabled) }
+            }
+            binding.checkButton.setOnClickListener {
+                repository.check(preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP), C.DEFAULT_UPDATE_URL)
+            }
+            binding.downloadButton.setOnClickListener {
+                repository.downloadCurrent()
+            }
+            binding.installButton.setOnClickListener {
+                val state = repository.state.value
+                if (state is UpdateState.AwaitingUserAction) {
+                    repository.launchPendingInstall()
+                } else if (state is UpdateState.Error && state.cause == UpdateError.InstallPermissionDenied &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    !requireContext().packageManager.canRequestPackageInstalls()
+                ) {
+                    try {
+                        startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${requireContext().packageName}".toUri()))
+                    } catch (_: ActivityNotFoundException) {
+                        Toast.makeText(requireContext(), R.string.update_error_install, Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    repository.refreshInstallPermission()
+                    repository.install()
+                }
+            }
+            binding.cancelButton.setOnClickListener { repository.cancelDownload() }
+            binding.retryButton.setOnClickListener { repository.retry() }
+            binding.skipButton.setOnClickListener {
+                (repository.state.value as? UpdateState.Available)?.release?.let(repository::skip)
+            }
+            binding.notNowButton.setOnClickListener {
+                (repository.state.value as? UpdateState.Available)?.release?.let(repository::defer)
+            }
+            binding.undoSkipButton.setOnClickListener { repository.undoSkip() }
+            binding.technicalDetailsToggle.setOnClickListener {
+                technicalDetailsExpanded = !technicalDetailsExpanded
+                render(repository.state.value)
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    repository.state.collectLatest(::render)
+                }
+            }
+        }
+
+        override fun onResume() {
+            super.onResume()
+            repository.refreshInstallPermission()
+            repository.resumePendingInstall()
+        }
+
+        private fun render(state: UpdateState) {
+            val release = when (state) {
+                is UpdateState.Available -> state.release
+                is UpdateState.Skipped -> state.release
+                is UpdateState.Deferred -> state.release
+                is UpdateState.Downloading -> state.release
+                is UpdateState.Downloaded -> state.release
+                is UpdateState.Installing -> state.release
+                is UpdateState.AwaitingUserAction -> state.release
+                is UpdateState.Error -> state.release
+                else -> null
+            }
+            binding.statusTitle.text = when (state) {
+                UpdateState.Idle -> getString(R.string.settings_updates)
+                UpdateState.Checking -> getString(R.string.update_checking)
+                is UpdateState.UpToDate -> getString(R.string.update_up_to_date)
+                is UpdateState.Available, is UpdateState.Skipped, is UpdateState.Deferred -> getString(R.string.update_available)
+                is UpdateState.Downloading -> getString(R.string.downloading_update)
+                is UpdateState.Downloaded -> getString(R.string.update_ready_to_install, state.release.displayVersion)
+                is UpdateState.Installing -> getString(R.string.update_installing)
+                is UpdateState.AwaitingUserAction -> getString(R.string.update_awaiting_user_action)
+                is UpdateState.Error -> errorTitle(state.stage)
+            }
+            binding.versionText.text = getString(
+                R.string.update_version,
+                release?.displayVersion ?: UpdateVersionDisplay.installed(
+                    BuildConfig.VERSION_NAME,
+                    BuildConfig.VERSION_CODE.toLong(),
+                    BuildConfig.CI_VERSION_CODE_BASE.toLong(),
+                ),
+            )
+            binding.currentVersionText.text = if (release != null && state !is UpdateState.UpToDate) {
+                getString(
+                    R.string.update_current_version,
+                    UpdateVersionDisplay.installed(
+                        BuildConfig.VERSION_NAME,
+                        BuildConfig.VERSION_CODE.toLong(),
+                        BuildConfig.CI_VERSION_CODE_BASE.toLong(),
+                    ),
+                )
+            } else ""
+            val showReleaseDetails = release != null && state !is UpdateState.UpToDate
+            binding.notesTitle.visibility = if (showReleaseDetails) View.VISIBLE else View.GONE
+            binding.notesText.visibility = if (showReleaseDetails) View.VISIBLE else View.GONE
+            binding.notesText.text = release?.releaseNotes?.joinToString("\n") { "• $it" }
+                ?.ifBlank { getString(R.string.update_no_release_notes) }
+                ?: ""
+            binding.statusMessage.text = when (state) {
+                UpdateState.Checking -> getString(R.string.update_checking)
+                is UpdateState.Available -> when {
+                    state.previouslySkipped -> getString(R.string.update_previously_skipped)
+                    state.previouslyDeferred -> getString(R.string.update_deferred)
+                    else -> ""
+                }
+                is UpdateState.Skipped -> getString(R.string.update_previously_skipped)
+                is UpdateState.Deferred -> getString(R.string.update_deferred)
+                is UpdateState.Downloading -> state.progress?.let { progress ->
+                    val total = progress.totalBytes
+                    if (total != null && total > 0L) {
+                        getString(
+                            R.string.update_downloaded_progress,
+                            "${Formatter.formatFileSize(requireContext(), progress.downloadedBytes)} / ${Formatter.formatFileSize(requireContext(), total)} (${progress.percent}%)",
+                        )
+                    } else {
+                        getString(R.string.downloading_update)
+                    }
+                }.orEmpty()
+                is UpdateState.Installing -> getString(R.string.update_installing)
+                is UpdateState.AwaitingUserAction -> getString(R.string.update_awaiting_user_action)
+                is UpdateState.Error -> errorMessage(state.cause)
+                else -> ""
+            }
+            binding.checkButton.isEnabled = state !is UpdateState.Checking &&
+                state !is UpdateState.Downloading &&
+                state !is UpdateState.Installing &&
+                state !is UpdateState.AwaitingUserAction
+            binding.checkButton.text = getString(if (state is UpdateState.Checking) R.string.update_checking else R.string.check_for_updates)
+            binding.downloadButton.visibility = if (state.downloadableRelease() != null) View.VISIBLE else View.GONE
+            binding.installButton.visibility = if (state is UpdateState.Downloaded ||
+                state is UpdateState.AwaitingUserAction ||
+                state is UpdateState.Error && state.primaryAction() in setOf(
+                    UpdatePrimaryAction.INSTALL,
+                    UpdatePrimaryAction.ALLOW_INSTALL,
+                )
+            ) View.VISIBLE else View.GONE
+            binding.installButton.text = when {
+                state is UpdateState.Error && state.primaryAction() == UpdatePrimaryAction.ALLOW_INSTALL ->
+                    getString(R.string.allow_install)
+                state is UpdateState.AwaitingUserAction -> getString(R.string.continue_install)
+                state is UpdateState.Error && state.primaryAction() == UpdatePrimaryAction.INSTALL ->
+                    getString(R.string.retry_install)
+                else -> getString(R.string.install_update)
+            }
+            binding.cancelButton.visibility = if (state is UpdateState.Downloading) View.VISIBLE else View.GONE
+            binding.retryButton.visibility = if (state is UpdateState.Error &&
+                state.retryable && state.retryAction() != UpdateRetryAction.INSTALL
+            ) View.VISIBLE else View.GONE
+            binding.skipButton.visibility = if (state is UpdateState.Available && !state.previouslySkipped) View.VISIBLE else View.GONE
+            binding.notNowButton.visibility = if (state is UpdateState.Available && !state.previouslySkipped) View.VISIBLE else View.GONE
+            binding.undoSkipButton.visibility = if (state is UpdateState.Skipped ||
+                state is UpdateState.Available && state.previouslySkipped
+            ) View.VISIBLE else View.GONE
+            binding.lastCheckedText.text = getString(
+                R.string.last_successful_update_check,
+                UpdateTimeFormatter.format(requireContext(), repository.lastSuccessfulCheck),
+            )
+            binding.technicalDetailsToggle.visibility = if (showReleaseDetails) View.VISIBLE else View.GONE
+            binding.technicalDetails.visibility = if (showReleaseDetails && technicalDetailsExpanded) View.VISIBLE else View.GONE
+            binding.technicalDetailsToggle.text = getString(
+                if (technicalDetailsExpanded) R.string.hide_technical_details else R.string.technical_details,
+            )
+            binding.technicalDetails.text = release?.let {
+                buildString {
+                    appendLine(getString(R.string.technical_details))
+                    appendLine(getString(R.string.update_tag, it.tagName))
+                    it.buildNumber?.let { buildNumber -> appendLine(getString(R.string.update_build_number, buildNumber)) }
+                    appendLine(getString(R.string.update_release, it.releaseUrl))
+                    it.publishedAt?.let { timestamp -> appendLine(getString(R.string.update_published, timestamp)) }
+                    if (it.rawBody.isNotBlank()) {
+                        appendLine()
+                        appendLine(it.rawBody)
+                    }
+                }
+            }.orEmpty()
+        }
+
+        private fun errorTitle(stage: com.github.andreyasadchy.xtra.util.updater.UpdateStage): String = getString(
+            when (stage.errorTitle()) {
+                com.github.andreyasadchy.xtra.util.updater.UpdateErrorTitle.CHECK -> R.string.update_check_failed
+                com.github.andreyasadchy.xtra.util.updater.UpdateErrorTitle.PARSE -> R.string.update_parse_failed
+                com.github.andreyasadchy.xtra.util.updater.UpdateErrorTitle.ASSET_SELECTION -> R.string.update_asset_selection_failed
+                com.github.andreyasadchy.xtra.util.updater.UpdateErrorTitle.DOWNLOAD -> R.string.update_download_failed_title
+                com.github.andreyasadchy.xtra.util.updater.UpdateErrorTitle.INSTALL -> R.string.update_install_failed_title
+            },
+        )
+
+        private fun errorMessage(error: UpdateError): String = getString(
+            when (error) {
+                UpdateError.NoConnection -> R.string.update_error_no_connection
+                UpdateError.Timeout -> R.string.update_error_timeout
+                UpdateError.RateLimited -> R.string.update_error_rate_limited
+                UpdateError.NotFound -> R.string.update_error_not_found
+                UpdateError.Server -> R.string.update_error_server
+                UpdateError.InvalidResponse, UpdateError.UnexpectedResponse -> R.string.update_error_invalid_response
+                UpdateError.MissingApk -> R.string.update_error_missing_apk
+                UpdateError.AmbiguousApk -> R.string.update_error_ambiguous_apk
+                UpdateError.IncompatibleApk -> R.string.update_error_incompatible_apk
+                UpdateError.DownloadFailed, UpdateError.DownloadCancelled, UpdateError.DownloadedFileMissing -> R.string.update_error_download
+                UpdateError.InstallPermissionDenied, UpdateError.InstallCancelled, UpdateError.InstallFailed -> R.string.update_error_install
+            }
+        )
+
+        override fun onDestroyView() {
+            _binding = null
+            super.onDestroyView()
         }
     }
 
@@ -2336,7 +2396,7 @@ class SettingsActivity : AppCompatActivity() {
                     requireContext().prefs().getBoolean(C.SETTINGS_DEVELOPER_ENABLED, false)
                 listOf(
                     Triple(R.xml.live_notification_preferences, SettingsNavGraphDirections.actionGlobalLiveNotificationSettingsFragment(), getString(R.string.settings_general_notifications)),
-                    Triple(R.xml.update_preferences, SettingsNavGraphDirections.actionGlobalUpdateSettingsFragment(), getString(R.string.settings_general_updates)),
+                    Triple(R.xml.update_search_preferences, SettingsNavGraphDirections.actionGlobalUpdateSettingsFragment(), getString(R.string.settings_general_updates)),
                     Triple(R.xml.language_preferences, SettingsNavDirections(R.id.languageSettingsFragment), "App › Language"),
                     Triple(R.xml.backup_preferences, SettingsNavDirections(R.id.backupSettingsFragment), "App › Backup & restore"),
                     Triple(R.xml.about_preferences, SettingsNavDirections(R.id.aboutSettingsFragment), "App › About"),

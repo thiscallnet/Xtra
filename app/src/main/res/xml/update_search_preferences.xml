@@ -1,0 +1,4 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <Preference android:key="update_check_enabled" android:title="@string/auto_check_updates" android:summary="@string/auto_check_updates_summary" />
+    <Preference android:key="check_updates" android:title="@string/check_for_updates" android:summary="@string/check_updates_summary" />
+</androidx.preference.PreferenceScreen>
