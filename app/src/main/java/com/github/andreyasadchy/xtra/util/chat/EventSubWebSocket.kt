@@ -16,6 +16,97 @@ internal class EventSubReconnectState {
     fun shouldCreateSubscriptions(isReplacement: Boolean): Boolean = !isReplacement
 }
 
+internal enum class EventSubConnectionRole {
+    ACTIVE,
+    HANDOFF_PENDING,
+}
+
+internal enum class EventSubConnectionEvent {
+    AWAITING_WELCOME,
+    NORMAL_WELCOME,
+    HANDOFF_WELCOME,
+}
+
+internal class EventSubConnectionState(
+    initialRole: EventSubConnectionRole = EventSubConnectionRole.ACTIVE,
+) {
+    @Volatile
+    var role = initialRole
+        private set
+
+    @Volatile
+    var welcomed = false
+        private set
+
+    fun onTransportConnect(): EventSubConnectionEvent {
+        welcomed = false
+        return EventSubConnectionEvent.AWAITING_WELCOME
+    }
+
+    fun onSessionWelcome(): EventSubConnectionEvent {
+        welcomed = true
+        return if (role == EventSubConnectionRole.HANDOFF_PENDING) {
+            EventSubConnectionEvent.HANDOFF_WELCOME
+        } else {
+            EventSubConnectionEvent.NORMAL_WELCOME
+        }
+    }
+
+    fun promoteHandoff(): Boolean {
+        if (role != EventSubConnectionRole.HANDOFF_PENDING) return false
+        role = EventSubConnectionRole.ACTIVE
+        return true
+    }
+
+    fun shouldNotifyConnected(event: EventSubConnectionEvent): Boolean =
+        event == EventSubConnectionEvent.NORMAL_WELCOME
+
+    fun shouldRestartForMissingWelcome(): Boolean = !welcomed
+}
+
+internal class EventSubConnectionAnnouncementState {
+    private var announced = false
+
+    @Synchronized
+    fun shouldAnnounce(): Boolean {
+        if (announced) return false
+        announced = true
+        return true
+    }
+}
+
+internal enum class EventSubChatConnectionStatus {
+    IDLE,
+    CONNECTED,
+    RECONNECTING,
+}
+
+internal class EventSubChatConnectionState {
+    var status = EventSubChatConnectionStatus.IDLE
+        private set
+
+    fun onNormalWelcome(started: Boolean): EventSubChatConnectionStatus? {
+        if (!started) return null
+        status = EventSubChatConnectionStatus.CONNECTED
+        return status
+    }
+
+    fun onHandoffWelcome(started: Boolean): EventSubChatConnectionStatus? {
+        if (!started) return null
+        status = EventSubChatConnectionStatus.CONNECTED
+        return status
+    }
+
+    fun onDisconnect(started: Boolean, autoReconnect: Boolean): EventSubChatConnectionStatus {
+        status = if (started && autoReconnect) {
+            EventSubChatConnectionStatus.RECONNECTING
+        } else {
+            EventSubChatConnectionStatus.IDLE
+        }
+        return status
+    }
+}
+
 /**
  * Generic Twitch EventSub WebSocket wrapper.
  *
@@ -31,12 +122,13 @@ class EventSubWebSocket(
     private val reconnectState = EventSubReconnectState()
     private class Connection(
         val socket: WebSocket,
-        val isHandoff: Boolean,
+        role: EventSubConnectionRole,
     ) {
+        val sessionState = EventSubConnectionState(role)
         var job: Job? = null
         var pongTimer: Timer? = null
         var welcomeWatchdogJob: Job? = null
-        var welcomed = false
+        val welcomed: Boolean get() = sessionState.welcomed
     }
 
     private val lock = Any()
@@ -50,6 +142,7 @@ class EventSubWebSocket(
     private val handledMessageIds = mutableListOf<String>()
 
     companion object {
+        private const val EVENTSUB_URL = "wss://eventsub.wss.twitch.tv/ws"
         private const val WELCOME_TIMEOUT_MILLIS = 12_000L
     }
 
@@ -58,7 +151,7 @@ class EventSubWebSocket(
             disconnecting = false
             scope = coroutineScope
             if (activeConnection == null) {
-                activeConnection = newConnection("wss://eventsub.wss.twitch.tv/ws", false)
+                activeConnection = newConnection(EVENTSUB_URL, EventSubConnectionRole.ACTIVE)
             }
             activeConnection?.let(::startConnectionLocked)
         }
@@ -85,10 +178,10 @@ class EventSubWebSocket(
         }
     }
 
-    private fun newConnection(url: String, isHandoff: Boolean): Connection {
+    private fun newConnection(url: String, role: EventSubConnectionRole): Connection {
         val connection = Connection(
             socket = WebSocket(url, trustManager, WebSocketListener()),
-            isHandoff = isHandoff,
+            role = role,
         )
         synchronized(lock) { connections += connection }
         return connection
@@ -123,7 +216,7 @@ class EventSubWebSocket(
         connection.welcomeWatchdogJob = coroutineScope.launch {
             delay(WELCOME_TIMEOUT_MILLIS)
             val shouldRestart = synchronized(lock) {
-                !disconnecting && connections.contains(connection) && !connection.welcomed &&
+                !disconnecting && connections.contains(connection) && connection.sessionState.shouldRestartForMissingWelcome() &&
                         (activeConnection === connection || handoffConnection === connection)
             }
             if (shouldRestart) {
@@ -158,8 +251,10 @@ class EventSubWebSocket(
 
     private suspend fun startHandoff(old: Connection, reconnectUrl: String) {
         val replacement = synchronized(lock) {
-            if (disconnecting || activeConnection !== old || handoffConnection != null) return
-            newConnection(reconnectUrl, true).also {
+            if (disconnecting || activeConnection !== old || handoffConnection != null ||
+                old.sessionState.role != EventSubConnectionRole.ACTIVE
+            ) return
+            newConnection(reconnectUrl, EventSubConnectionRole.HANDOFF_PENDING).also {
                 handoffConnection = it
                 startConnectionLocked(it)
             }
@@ -199,10 +294,11 @@ class EventSubWebSocket(
         val old = synchronized(lock) {
             if (handoffConnection !== connection || disconnecting) return
             val previous = activeConnection
+            if (!connection.sessionState.promoteHandoff()) return
             activeConnection = connection
             handoffConnection = null
             previous?.let { connections.remove(it) }
-            connection.welcomed = true
+            connection.socket.updateUrl(EVENTSUB_URL)
             previous
         }
         handoffTimeoutJob?.cancel()
@@ -218,7 +314,7 @@ class EventSubWebSocket(
     private fun startFreshConnection() {
         synchronized(lock) {
             if (disconnecting) return
-            activeConnection = newConnection("wss://eventsub.wss.twitch.tv/ws", false)
+            activeConnection = newConnection(EVENTSUB_URL, EventSubConnectionRole.ACTIVE)
             activeConnection?.let(::startConnectionLocked)
         }
     }
@@ -228,6 +324,7 @@ class EventSubWebSocket(
     }
 
     interface Listener {
+        /** Called after a normal EventSub session receives a welcome message. */
         suspend fun onConnect() {}
         suspend fun onWelcomeMessage(sessionId: String) {}
         /** Called after a Twitch reconnect handoff; subscriptions were transferred. */
@@ -243,8 +340,10 @@ class EventSubWebSocket(
     private inner class WebSocketListener : WebSocket.Listener {
         override suspend fun onConnect(webSocket: WebSocket) {
             val connection = connectionFor(webSocket) ?: return
+            connection.sessionState.onTransportConnect()
+            connection.pongTimer?.cancel()
+            connection.pongTimer = null
             startWelcomeWatchdog(connection)
-            if (!connection.isHandoff) listener.onConnect()
         }
 
         override suspend fun onMessage(webSocket: WebSocket, message: String) {
@@ -288,7 +387,7 @@ class EventSubWebSocket(
                             val reconnectUrl = if (session?.isNull("reconnect_url") == false) {
                                 session.optString("reconnect_url").takeIf { it.isNotBlank() }
                             } else null
-                            if (!connection.isHandoff && !reconnectUrl.isNullOrBlank()) {
+                            if (connection.sessionState.role == EventSubConnectionRole.ACTIVE && !reconnectUrl.isNullOrBlank()) {
                                 startHandoff(connection, reconnectUrl)
                             }
                         }
@@ -301,12 +400,17 @@ class EventSubWebSocket(
                                 timeout = it * 1000L
                             }
                             startPongTimer(connection)
-                            connection.welcomed = true
+                            val connectionEvent = connection.sessionState.onSessionWelcome()
                             val sessionId = session?.optString("id")?.takeIf { it.isNotBlank() }
                             if (!sessionId.isNullOrBlank()) {
-                                if (!reconnectState.shouldCreateSubscriptions(connection.isHandoff)) {
+                                if (!reconnectState.shouldCreateSubscriptions(connectionEvent == EventSubConnectionEvent.HANDOFF_WELCOME)) {
                                     promoteHandoff(connection, sessionId)
                                 } else if (connection === activeConnection) {
+                                    // Notify only after a successful welcome. The
+                                    // raw WebSocket callback also fires for retries.
+                                    if (connection.sessionState.shouldNotifyConnected(connectionEvent)) {
+                                        listener.onConnect()
+                                    }
                                     listener.onWelcomeMessage(sessionId)
                                 }
                             }
@@ -320,7 +424,7 @@ class EventSubWebSocket(
 
         override suspend fun onDisconnect(webSocket: WebSocket, message: String, fullMsg: String?) {
             val connection = connectionFor(webSocket) ?: return
-            if (connection.isHandoff && !connection.welcomed) return
+            if (connection.sessionState.role == EventSubConnectionRole.HANDOFF_PENDING && !connection.welcomed) return
             if (connection === activeConnection && !disconnecting) {
                 listener.onDisconnect(message, fullMsg)
             }

@@ -53,6 +53,9 @@ import com.github.andreyasadchy.xtra.util.chat.ChatReadWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
 import com.github.andreyasadchy.xtra.util.chat.ChatWriteIRCSocket
 import com.github.andreyasadchy.xtra.util.chat.ChatWriteWebSocket
+import com.github.andreyasadchy.xtra.util.chat.EventSubConnectionAnnouncementState
+import com.github.andreyasadchy.xtra.util.chat.EventSubChatConnectionState
+import com.github.andreyasadchy.xtra.util.chat.EventSubChatConnectionStatus
 import com.github.andreyasadchy.xtra.util.chat.EventSubUtils
 import com.github.andreyasadchy.xtra.util.chat.EventSubWebSocket
 import com.github.andreyasadchy.xtra.util.chat.HermesWebSocket
@@ -2089,11 +2092,26 @@ class ChatViewModel(
         private val accountId: String?,
         private val channelId: String?,
     ) : EventSubWebSocket.Listener {
-        override suspend fun onConnect() {
-            if (started) {
-                _connectionState.value = ConnectionState.CONNECTED
+        private val connectionAnnouncementState = EventSubConnectionAnnouncementState()
+        private val connectionState = EventSubChatConnectionState()
+
+        private fun applyConnectionState(status: EventSubChatConnectionStatus) {
+            _connectionState.value = when (status) {
+                EventSubChatConnectionStatus.CONNECTED -> ConnectionState.CONNECTED
+                EventSubChatConnectionStatus.RECONNECTING -> ConnectionState.RECONNECTING
+                EventSubChatConnectionStatus.IDLE -> ConnectionState.IDLE
             }
-            onMessage(ChatMessage(systemMsg = ContextCompat.getString(applicationContext, R.string.chat_join).format(channelLogin)))
+        }
+
+        override suspend fun onConnect() {
+            connectionState.onNormalWelcome(started)?.let(::applyConnectionState)
+            if (connectionAnnouncementState.shouldAnnounce()) {
+                onMessage(ChatMessage(systemMsg = ContextCompat.getString(applicationContext, R.string.chat_join).format(channelLogin)))
+            }
+        }
+
+        override suspend fun onReconnectWelcome(sessionId: String) {
+            connectionState.onHandoffWelcome(started)?.let(::applyConnectionState)
         }
 
         override suspend fun onWelcomeMessage(sessionId: String) {
@@ -2149,6 +2167,7 @@ class ChatViewModel(
         }
 
         override suspend fun onDisconnect(message: String, fullMsg: String?) {
+            applyConnectionState(connectionState.onDisconnect(started, autoReconnect))
             onMessage(ChatMessage(
                 systemMsg = ContextCompat.getString(applicationContext, R.string.chat_disconnect).format(channelLogin, message),
                 fullMsg = fullMsg
