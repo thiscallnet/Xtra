@@ -38,6 +38,7 @@ android {
         applicationId = "com.github.andreyasadchy.xtra"
         minSdk = 23
         targetSdk = 37
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = applicationVersionCode
         versionName = applicationVersionName
         buildConfigField("int", "CI_VERSION_CODE_BASE", defaultVersionCode.toString())
@@ -85,6 +86,8 @@ tasks.register("printVersionInfo") {
 dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 
     compileOnly("com.google.j2objc:j2objc-annotations:3.0.0") // OkHttpDataSource SettableFuture
     implementation("com.google.android.gms:play-services-cronet:18.1.0")
