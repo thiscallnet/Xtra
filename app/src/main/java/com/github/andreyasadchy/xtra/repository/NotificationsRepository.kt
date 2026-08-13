@@ -27,6 +27,23 @@ internal fun shouldEnqueueStreamOnline(
     eventStartedAt: Long,
 ): Boolean = channelEnabled && shownStartedAt?.let { it >= eventStartedAt } != true
 
+internal fun isLiveNotificationBaselineAuthenticationMissing(
+    cachedChannelCount: Int,
+    gqlHeaders: Map<String, String>,
+    helixHeaders: Map<String, String>,
+): Boolean = cachedChannelCount > 0 &&
+        gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() &&
+        helixHeaders[C.HEADER_TOKEN].isNullOrBlank()
+
+private val liveNotificationGraphQlAuthPattern = Regex(
+    "(?i)\\b(?:unauthori[sz]ed|unauthenticated|authentication required|login required|forbidden|access denied|invalid (?:oauth|access|refresh) token|(?:oauth|access|refresh) token(?: is)? (?:invalid|expired)|invalid token|not authorized|permission denied|HTTP\\s+(?:401|403)|(?:401|403))\\b"
+)
+
+internal fun isFatalLiveNotificationGraphQlError(
+    errorMessage: String?,
+    requiredDataAvailable: Boolean,
+): Boolean = !requiredDataAvailable || liveNotificationGraphQlAuthPattern.containsMatchIn(errorMessage.orEmpty())
+
 class NotificationsRepository(
     private val shownNotificationsDao: ShownNotificationsDao,
     private val notificationUsersDao: NotificationUsersDao,
@@ -49,9 +66,11 @@ class NotificationsRepository(
         val list = mutableListOf<Stream>()
         var apiUsed = "none"
         val notificationIds = notificationUsersDao.getAll().map { it.channelId }
-        if (notificationIds.isNotEmpty() &&
-            gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() &&
-            helixHeaders[C.HEADER_TOKEN].isNullOrBlank()
+        if (isLiveNotificationBaselineAuthenticationMissing(
+                cachedChannelCount = notificationIds.size,
+                gqlHeaders = gqlHeaders,
+                helixHeaders = helixHeaders,
+            )
         ) {
             return@withContext emptyList()
         }
@@ -134,28 +153,53 @@ class NotificationsRepository(
 
     suspend fun syncNotificationUsers(networkLibrary: String?, gqlHeaders: Map<String, String>) = withContext(Dispatchers.IO) {
         if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-            return@withContext false
+            throw MissingAuthenticationException("notification-user/follow sync")
         }
         val users = mutableListOf<NotificationUser>()
         var offset: String? = null
         do {
             val response = graphQLRepository.loadQueryUserFollowedUsers(networkLibrary, gqlHeaders, 100, offset)
-            response.errors?.firstOrNull()?.let { throw Exception(it.message) }
-            val data = response.data!!.user!!.follows!!
-            val items = data.edges!!
+            response.errors?.firstOrNull()?.let {
+                throw GraphQLApiException(it.message, operation = "UserFollowedUsers")
+            }
+            val data = response.data
+                ?: throw GraphQLApiException("GraphQL response did not include data", operation = "UserFollowedUsers")
+            val user = data.user
+                ?: throw GraphQLApiException("GraphQL response did not include user data", operation = "UserFollowedUsers")
+            val follows = user.follows
+                ?: throw GraphQLApiException("GraphQL response did not include followed-user data", operation = "UserFollowedUsers")
+            val items = follows.edges
+                ?: throw GraphQLApiException("GraphQL response did not include followed-user edges", operation = "UserFollowedUsers")
             users.addAll(items.mapNotNull { item ->
                 item?.node?.takeIf {
                     it.self?.follower?.notificationSettings?.isEnabled == true
                 }?.id?.let(::NotificationUser)
             })
             offset = items.lastOrNull()?.cursor?.toString()
-        } while (!offset.isNullOrBlank() && data.pageInfo?.hasNextPage == true)
+        } while (!offset.isNullOrBlank() && follows.pageInfo?.hasNextPage == true)
         notificationUsersDao.replaceAll(users)
         val enabledIds = users.mapTo(hashSetOf()) { it.channelId }
         notificationEventsDao.getAll()
             .filterNot { it.channelId in enabledIds }
             .forEach { notificationEventsDao.delete(it.eventId) }
-        true
+    }
+
+    /**
+     * Setup-only validation for the cached notification-channel baseline.
+     * Runtime polls intentionally keep the old no-credential no-op behavior.
+     */
+    suspend fun validateLiveNotificationBaselineAuthentication(
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+    ) = withContext(Dispatchers.IO) {
+        if (isLiveNotificationBaselineAuthenticationMissing(
+                cachedChannelCount = notificationUsersDao.getAll().size,
+                gqlHeaders = gqlHeaders,
+                helixHeaders = helixHeaders,
+            )
+        ) {
+            throw MissingAuthenticationException("live stream baseline fetch")
+        }
     }
 
     suspend fun getNotificationUserIds(): List<String> = withContext(Dispatchers.IO) {
@@ -231,8 +275,36 @@ class NotificationsRepository(
         var offset: String? = null
         do {
             val response = graphQLRepository.loadQueryUserFollowedStreams(networkLibrary, gqlHeaders, 100, offset)
-            val data = response.data!!.user!!.followedLiveUsers!!
-            val items = data.edges!!
+            val graphQLError = response.errors?.firstOrNull {
+                isFatalLiveNotificationGraphQlError(it.message, requiredDataAvailable = true)
+            } ?: response.errors?.firstOrNull()
+            if (isFatalLiveNotificationGraphQlError(
+                    errorMessage = graphQLError?.message,
+                    requiredDataAvailable = response.data != null,
+                )
+            ) {
+                throw GraphQLApiException(
+                    graphQLError?.message ?: "GraphQL response did not include data",
+                    operation = "UserFollowedStreams",
+                )
+            }
+            val data = response.data
+                ?: throw GraphQLApiException("GraphQL response did not include data", operation = "UserFollowedStreams")
+            val user = data.user
+                ?: throw GraphQLApiException(
+                    graphQLError?.message ?: "GraphQL response did not include user data",
+                    operation = "UserFollowedStreams",
+                )
+            val followedLiveUsers = user.followedLiveUsers
+                ?: throw GraphQLApiException(
+                    graphQLError?.message ?: "GraphQL response did not include followed-stream data",
+                    operation = "UserFollowedStreams",
+                )
+            val items = followedLiveUsers.edges
+                ?: throw GraphQLApiException(
+                    graphQLError?.message ?: "GraphQL response did not include followed-stream edges",
+                    operation = "UserFollowedStreams",
+                )
             items.mapNotNull { item ->
                 item?.node?.let {
                     if (it.self?.follower?.notificationSettings?.isEnabled == true) {
@@ -255,14 +327,35 @@ class NotificationsRepository(
                 }
             }.let { list.addAll(it) }
             offset = items.lastOrNull()?.cursor?.toString()
-        } while (!items.lastOrNull()?.cursor?.toString().isNullOrBlank() && data.pageInfo?.hasNextPage == true)
+        } while (!items.lastOrNull()?.cursor?.toString().isNullOrBlank() && followedLiveUsers.pageInfo?.hasNextPage == true)
         return list
     }
 
     private suspend fun gqlQueryLocal(networkLibrary: String?, gqlHeaders: Map<String, String>, ids: List<String>): List<Stream> {
         val items = ids.chunked(100).map { list ->
             graphQLRepository.loadQueryUsersStream(networkLibrary, gqlHeaders, list)
-        }.flatMap { it.data!!.users!! }
+        }.flatMap { response ->
+            val graphQLError = response.errors?.firstOrNull {
+                isFatalLiveNotificationGraphQlError(it.message, requiredDataAvailable = true)
+            } ?: response.errors?.firstOrNull()
+            if (isFatalLiveNotificationGraphQlError(
+                    errorMessage = graphQLError?.message,
+                    requiredDataAvailable = response.data != null,
+                )
+            ) {
+                throw GraphQLApiException(
+                    graphQLError?.message ?: "GraphQL response did not include data",
+                    operation = "UsersStream",
+                )
+            }
+            val data = response.data
+                ?: throw GraphQLApiException("GraphQL response did not include data", operation = "UsersStream")
+            data.users
+                ?: throw GraphQLApiException(
+                    graphQLError?.message ?: "GraphQL response did not include user stream data",
+                    operation = "UsersStream",
+                )
+        }
         return items.mapNotNull { item ->
             item?.let {
                 if (it.stream?.viewersCount != null) {

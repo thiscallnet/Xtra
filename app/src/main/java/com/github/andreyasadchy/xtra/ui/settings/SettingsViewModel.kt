@@ -8,6 +8,7 @@ import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.net.http.HttpEngine
 import android.provider.DocumentsContract
+import android.util.Log
 import android.util.JsonReader
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.edit
@@ -27,6 +28,8 @@ import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
+import com.github.andreyasadchy.xtra.ui.main.LiveNotificationSchedulerResult
+import com.github.andreyasadchy.xtra.ui.main.LiveNotificationNotifier
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsMigration
@@ -37,6 +40,7 @@ import com.github.andreyasadchy.xtra.util.m3u8.Segment
 import com.github.andreyasadchy.xtra.util.UpdateInfo
 import com.github.andreyasadchy.xtra.util.UpdateState
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -505,55 +509,183 @@ class SettingsViewModel(
                 applicationContext.prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
                 notificationsRepository.clearPendingNotificationEvents()
                 LiveNotificationScheduler.disable(applicationContext)
-                liveNotificationResult.emit(LiveNotificationResult(enabled = false, failed = false))
+                liveNotificationResult.emit(LiveNotificationResult(enabled = false))
                 return@launch
             }
 
-            if (!LiveNotificationScheduler.canPostNotifications(applicationContext)) {
+            applicationContext.prefs().edit {
+                putLong(C.LIVE_NOTIFICATION_LAST_SETUP_ATTEMPT, System.currentTimeMillis())
+            }
+            val notificationBlockReason = try {
+                LiveNotificationNotifier(applicationContext).notificationBlockReason()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val failure = LiveNotificationFailureClassifier.classify(
+                    LiveNotificationSetupStage.NOTIFICATION_PERMISSION_CHANNEL_VALIDATION,
+                    e,
+                )
                 applicationContext.prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
-                LiveNotificationScheduler.disable(applicationContext)
-                liveNotificationResult.emit(LiveNotificationResult(enabled = false, failed = true))
+                disableSchedulerAfterEnableFailure()
+                emitLiveNotificationFailure(failure, e)
+                return@launch
+            }
+            if (notificationBlockReason != null) {
+                val failure = LiveNotificationFailure(
+                    stage = LiveNotificationSetupStage.NOTIFICATION_PERMISSION_CHANNEL_VALIDATION,
+                    reason = LiveNotificationFailureReason.NOTIFICATION_PERMISSION_OR_CHANNEL,
+                    technicalMessage = notificationBlockReason.name,
+                    exceptionClass = "NotificationBlockReason",
+                )
+                applicationContext.prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
+                disableSchedulerAfterEnableFailure()
+                emitLiveNotificationFailure(failure)
                 return@launch
             }
 
-            val prepared = try {
+            val useLocalFollows = (applicationContext.prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0) != 0
+            var apiUsed = "none"
+            var cachedChannelCount = 0
+            var setupFailure: LiveNotificationFailure? = null
+            var setupError: Throwable? = null
+            var stage = LiveNotificationSetupStage.NOTIFICATION_USER_FOLLOW_SYNC
+            try {
                 notificationsRepository.clearPendingNotificationEvents()
-                val useLocalFollows = (applicationContext.prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0) != 0
                 if (!useLocalFollows) {
+                    applicationContext.prefs().edit {
+                        putLong(C.LIVE_NOTIFICATION_LAST_SYNC_ATTEMPT, System.currentTimeMillis())
+                    }
                     notificationsRepository.syncNotificationUsers(networkLibrary, gqlHeaders)
+                    applicationContext.prefs().edit {
+                        putLong(C.LIVE_NOTIFICATION_LAST_SYNC_SUCCESS, System.currentTimeMillis())
+                    }
                 }
+                stage = LiveNotificationSetupStage.INITIAL_LIVE_STREAM_BASELINE_FETCH
+                notificationsRepository.validateLiveNotificationBaselineAuthentication(
+                    gqlHeaders = gqlHeaders,
+                    helixHeaders = helixHeaders,
+                )
                 notificationsRepository.getNewStreams(
                     networkLibrary = networkLibrary,
                     gqlHeaders = gqlHeaders,
                     helixHeaders = helixHeaders,
                     includeFollowedStreams = !useLocalFollows,
                     preferHelix = true,
+                    onApiUsed = { apiUsed = it },
                 )
-                true
+                cachedChannelCount = notificationsRepository.getNotificationUserIds().size
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                false
+                setupFailure = LiveNotificationFailureClassifier.classify(stage, e)
+                setupError = e
             }
 
-            if (prepared) {
-                applicationContext.prefs().edit {
-                    putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, true)
-                    putBoolean(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED, true)
-                }
-                LiveNotificationScheduler.enable(applicationContext, baselineOnly = true)
-                liveNotificationResult.emit(LiveNotificationResult(enabled = true, failed = false))
-            } else {
+            val failure = setupFailure
+            if (failure != null) {
                 applicationContext.prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
-                LiveNotificationScheduler.disable(applicationContext)
-                liveNotificationResult.emit(LiveNotificationResult(enabled = false, failed = true))
+                disableSchedulerAfterEnableFailure()
+                emitLiveNotificationFailure(failure, setupError)
+                return@launch
             }
+
+            applicationContext.prefs().edit {
+                putString(C.LIVE_NOTIFICATION_LAST_SETUP_API, apiUsed)
+                putInt(C.LIVE_NOTIFICATION_CACHED_CHANNEL_COUNT, cachedChannelCount)
+                putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, true)
+                putBoolean(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED, true)
+            }
+            stage = LiveNotificationSetupStage.SCHEDULER_REALTIME_MONITOR_STARTUP
+            when (val schedulerResult = LiveNotificationScheduler.enable(applicationContext, baselineOnly = true)) {
+                LiveNotificationSchedulerResult.Started -> Unit
+                is LiveNotificationSchedulerResult.Blocked -> {
+                    val failure = LiveNotificationFailure(
+                        stage = stage,
+                        reason = LiveNotificationFailureReason.NOTIFICATION_PERMISSION_OR_CHANNEL,
+                        technicalMessage = schedulerResult.reason.name,
+                        exceptionClass = "NotificationBlockReason",
+                    )
+                    applicationContext.prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
+                    disableSchedulerAfterEnableFailure()
+                    emitLiveNotificationFailure(failure)
+                    return@launch
+                }
+                is LiveNotificationSchedulerResult.Failed -> {
+                    val failure = LiveNotificationFailureClassifier.classify(stage, schedulerResult.error)
+                    applicationContext.prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
+                    disableSchedulerAfterEnableFailure()
+                    emitLiveNotificationFailure(failure, schedulerResult.error)
+                    return@launch
+                }
+                LiveNotificationSchedulerResult.NotEnabled -> {
+                    val error = IllegalStateException("Live notification scheduler was not enabled")
+                    val failure = LiveNotificationFailureClassifier.classify(stage, error)
+                    applicationContext.prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
+                    disableSchedulerAfterEnableFailure()
+                    emitLiveNotificationFailure(failure, error)
+                    return@launch
+                }
+            }
+
+            applicationContext.prefs().edit {
+                putLong(C.LIVE_NOTIFICATION_LAST_SETUP_SUCCESS, System.currentTimeMillis())
+            }
+            liveNotificationResult.emit(LiveNotificationResult(enabled = true))
         }
     }
 
-    data class LiveNotificationResult(val enabled: Boolean, val failed: Boolean)
+    fun reportLiveNotificationPermissionDenied() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val failure = LiveNotificationFailure(
+                stage = LiveNotificationSetupStage.NOTIFICATION_PERMISSION_CHANNEL_VALIDATION,
+                reason = LiveNotificationFailureReason.NOTIFICATION_PERMISSION_OR_CHANNEL,
+                technicalMessage = "POST_NOTIFICATIONS permission was not granted",
+                exceptionClass = "PermissionDenied",
+            )
+            applicationContext.prefs().edit {
+                putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false)
+                putLong(C.LIVE_NOTIFICATION_LAST_SETUP_ATTEMPT, System.currentTimeMillis())
+            }
+            disableSchedulerAfterEnableFailure()
+            emitLiveNotificationFailure(failure)
+        }
+    }
+
+    private suspend fun emitLiveNotificationFailure(failure: LiveNotificationFailure, error: Throwable? = null) {
+        val now = System.currentTimeMillis()
+        val diagnosticMessage = listOfNotNull(failure.exceptionClass, failure.technicalMessage)
+            .joinToString(": ")
+            .let(::sanitizeLiveNotificationTechnicalMessage)
+        applicationContext.prefs().edit {
+            putLong(C.LIVE_NOTIFICATION_LAST_SETUP_ERROR_AT, now)
+            putString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_STAGE, failure.stage.name)
+            putString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_REASON, failure.reason.name)
+            if (failure.httpStatus != null) {
+                putInt(C.LIVE_NOTIFICATION_ENABLE_FAILURE_STATUS, failure.httpStatus)
+            } else {
+                remove(C.LIVE_NOTIFICATION_ENABLE_FAILURE_STATUS)
+            }
+            putString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_EXCEPTION, failure.exceptionClass)
+            putString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_MESSAGE, diagnosticMessage)
+        }
+        if (error != null) {
+            Log.e(TAG, "Live notification setup failed at ${failure.stage}: ${failure.reason}", error)
+        } else {
+            Log.w(TAG, "Live notification setup failed at ${failure.stage}: ${failure.reason}")
+        }
+        liveNotificationResult.emit(LiveNotificationResult(enabled = false, failure = failure))
+    }
+
+    private fun disableSchedulerAfterEnableFailure() {
+        runCatching { LiveNotificationScheduler.disable(applicationContext) }
+            .onFailure { Log.w(TAG, "Unable to roll back live notification scheduler after setup failure", it) }
+    }
+
+    data class LiveNotificationResult(val enabled: Boolean, val failure: LiveNotificationFailure? = null)
 
     companion object {
+        private const val TAG = "SettingsViewModel"
+
         val SettingsViewModelFactory = viewModelFactory {
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)

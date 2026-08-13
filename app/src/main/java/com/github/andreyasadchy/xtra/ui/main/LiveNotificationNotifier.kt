@@ -57,16 +57,24 @@ class LiveNotificationNotifier(private val context: Context) {
     }
 
     fun canPostNotifications(): Boolean {
+        return notificationBlockReason() == null
+    }
+
+    fun notificationBlockReason(): NotificationBlockReason? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            return false
+            return NotificationBlockReason.POST_NOTIFICATIONS_PERMISSION
         }
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-            return false
+            return NotificationBlockReason.APP_NOTIFICATIONS_DISABLED
         }
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
-            notificationManager.getNotificationChannel(liveChannelId)?.importance != NotificationManager.IMPORTANCE_NONE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            notificationManager.getNotificationChannel(liveChannelId)?.importance == NotificationManager.IMPORTANCE_NONE
+        ) {
+            return NotificationBlockReason.LIVE_CHANNEL_DISABLED
+        }
+        return null
     }
 
     private fun ensureLiveNotificationChannel() {
@@ -118,4 +126,10 @@ class LiveNotificationNotifier(private val context: Context) {
     companion object {
         private const val SUMMARY_NOTIFICATION_ID = 0
     }
+}
+
+enum class NotificationBlockReason {
+    POST_NOTIFICATIONS_PERMISSION,
+    APP_NOTIFICATIONS_DISABLED,
+    LIVE_CHANNEL_DISABLED,
 }

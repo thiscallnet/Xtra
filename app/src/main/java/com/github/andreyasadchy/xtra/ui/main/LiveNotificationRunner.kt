@@ -13,6 +13,7 @@ import com.github.andreyasadchy.xtra.repository.TwitchApiException
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -230,12 +231,12 @@ class LiveNotificationRunner(
     }
 
     private fun recordFailure(error: Exception) {
+        val message = sanitizeLiveNotificationTechnicalMessage(
+            "${error::class.simpleName}: ${error.message.orEmpty()}"
+        ) ?: error::class.simpleName.orEmpty()
         applicationContext.prefs().edit {
             putLong(C.LIVE_NOTIFICATION_LAST_ERROR_AT, System.currentTimeMillis())
-            putString(
-                C.LIVE_NOTIFICATION_LAST_ERROR,
-                "${error::class.simpleName}: ${error.message.orEmpty()}".take(500),
-            )
+            putString(C.LIVE_NOTIFICATION_LAST_ERROR, message)
         }
     }
 

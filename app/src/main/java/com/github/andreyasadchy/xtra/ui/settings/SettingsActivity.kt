@@ -504,6 +504,7 @@ class SettingsActivity : AppCompatActivity() {
                     }
                 } else {
                     findPreference<SwitchPreferenceCompat>("live_notifications_enabled")?.isChecked = false
+                    viewModel.reportLiveNotificationPermissionDenied()
                 }
                 updateLiveNotificationsSummary()
             }
@@ -516,6 +517,126 @@ class SettingsActivity : AppCompatActivity() {
                 gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true),
                 helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext())
             )
+        }
+
+        private fun showLiveNotificationFailure(failure: LiveNotificationFailure) {
+            val operation = when (failure.stage) {
+                LiveNotificationSetupStage.NOTIFICATION_PERMISSION_CHANNEL_VALIDATION ->
+                    getString(R.string.live_notifications_failure_operation_validation)
+                LiveNotificationSetupStage.NOTIFICATION_USER_FOLLOW_SYNC ->
+                    getString(R.string.live_notifications_failure_operation_sync)
+                LiveNotificationSetupStage.INITIAL_LIVE_STREAM_BASELINE_FETCH ->
+                    getString(R.string.live_notifications_failure_operation_baseline)
+                LiveNotificationSetupStage.SCHEDULER_REALTIME_MONITOR_STARTUP ->
+                    getString(R.string.live_notifications_failure_operation_scheduler)
+            }
+            val reason = when (failure.reason) {
+                LiveNotificationFailureReason.NOTIFICATION_PERMISSION_OR_CHANNEL ->
+                    getString(R.string.live_notifications_failure_reason_notifications)
+                LiveNotificationFailureReason.MISSING_AUTHENTICATION ->
+                    getString(R.string.live_notifications_failure_reason_authentication)
+                LiveNotificationFailureReason.HTTP_401_UNAUTHORIZED ->
+                    getString(R.string.live_notifications_failure_reason_unauthorized)
+                LiveNotificationFailureReason.HTTP_403_FORBIDDEN ->
+                    getString(R.string.live_notifications_failure_reason_forbidden)
+                LiveNotificationFailureReason.HTTP_429_RATE_LIMITED ->
+                    getString(R.string.live_notifications_failure_reason_rate_limited)
+                LiveNotificationFailureReason.TWITCH_HTTP_5XX ->
+                    getString(R.string.live_notifications_failure_reason_server)
+                LiveNotificationFailureReason.DNS_CONNECTIVITY_OR_TIMEOUT ->
+                    getString(R.string.live_notifications_failure_reason_connectivity)
+                LiveNotificationFailureReason.MALFORMED_OR_UNEXPECTED_TWITCH_RESPONSE ->
+                    getString(R.string.live_notifications_failure_reason_malformed)
+                LiveNotificationFailureReason.LOCAL_DATABASE_FAILURE ->
+                    getString(R.string.live_notifications_failure_reason_database)
+                LiveNotificationFailureReason.UNKNOWN_FAILURE ->
+                    getString(R.string.live_notifications_failure_reason_unknown)
+            }
+            val action = when (failure.reason) {
+                LiveNotificationFailureReason.NOTIFICATION_PERMISSION_OR_CHANNEL ->
+                    getString(R.string.live_notifications_failure_action_notifications)
+                LiveNotificationFailureReason.MISSING_AUTHENTICATION,
+                LiveNotificationFailureReason.HTTP_401_UNAUTHORIZED,
+                LiveNotificationFailureReason.HTTP_403_FORBIDDEN,
+                -> getString(R.string.live_notifications_failure_action_sign_in)
+                LiveNotificationFailureReason.HTTP_429_RATE_LIMITED ->
+                    getString(R.string.live_notifications_failure_action_rate_limited)
+                LiveNotificationFailureReason.TWITCH_HTTP_5XX ->
+                    getString(R.string.live_notifications_failure_action_server)
+                LiveNotificationFailureReason.DNS_CONNECTIVITY_OR_TIMEOUT ->
+                    getString(R.string.live_notifications_failure_action_connection)
+                LiveNotificationFailureReason.MALFORMED_OR_UNEXPECTED_TWITCH_RESPONSE,
+                LiveNotificationFailureReason.LOCAL_DATABASE_FAILURE,
+                LiveNotificationFailureReason.UNKNOWN_FAILURE,
+                -> getString(R.string.live_notifications_failure_action_retry)
+            }
+            val technicalDetails = buildString {
+                failure.exceptionClass?.let { append(it) }
+                failure.httpStatus?.let {
+                    if (isNotEmpty()) append("; ")
+                    append("HTTP ").append(it)
+                }
+                failure.technicalMessage?.let {
+                    if (isNotEmpty()) append(": ")
+                    append(it)
+                }
+            }.ifBlank { getString(R.string.live_notifications_failure_no_details) }
+            val message = getString(
+                R.string.live_notifications_failure_message,
+                operation,
+                reason,
+                action,
+                technicalDetails,
+            )
+            val builder = requireActivity().getAlertDialogBuilder()
+                .setTitle(R.string.live_notifications_enable_failed_title)
+                .setMessage(message)
+                .setNeutralButton(R.string.live_notifications_copy_details) { _, _ ->
+                    copyLiveNotificationFailureDetails(failure)
+                }
+            when {
+                failure.reason == LiveNotificationFailureReason.NOTIFICATION_PERMISSION_OR_CHANNEL -> {
+                    builder.setPositiveButton(R.string.live_notifications_open_settings) { _, _ ->
+                        openNotificationSettings()
+                    }
+                }
+                failure.isAuthenticationFailure -> {
+                    builder.setPositiveButton(R.string.live_notifications_sign_in_again) { _, _ ->
+                        (requireActivity() as SettingsActivity).openAccountAction()
+                    }
+                }
+                failure.canRetry -> {
+                    builder.setPositiveButton(R.string.retry) { _, _ ->
+                        toggleLiveNotifications(true)
+                    }
+                }
+                else -> builder.setPositiveButton(android.R.string.ok, null)
+            }
+            if (failure.reason != LiveNotificationFailureReason.UNKNOWN_FAILURE || failure.canRetry) {
+                builder.setNegativeButton(android.R.string.cancel, null)
+            }
+            builder.show()
+        }
+
+        private fun copyLiveNotificationFailureDetails(failure: LiveNotificationFailure) {
+            val clipboard = requireContext().getSystemService(android.content.ClipboardManager::class.java)
+            clipboard?.setPrimaryClip(
+                android.content.ClipData.newPlainText(
+                    "Live notification failure",
+                    buildString {
+                        appendLine("Live notification enable failure")
+                        appendLine("Stage: ${failure.stage}")
+                        appendLine("Reason: ${failure.reason}")
+                        failure.httpStatus?.let { appendLine("HTTP status: $it") }
+                        failure.rateLimitResetEpochSeconds?.let { appendLine("Rate-limit reset: $it") }
+                        failure.rateLimitLimit?.let { appendLine("Rate-limit limit: $it") }
+                        failure.rateLimitRemaining?.let { appendLine("Rate-limit remaining: $it") }
+                        failure.exceptionClass?.let { appendLine("Exception: $it") }
+                        failure.technicalMessage?.let { appendLine("Message: $it") }
+                    },
+                ),
+            )
+            Toast.makeText(requireContext(), R.string.settings_diagnostics_copied, Toast.LENGTH_SHORT).show()
         }
 
         private fun styleLiveNotificationModeEntry(entry: CharSequence, selected: Boolean): CharSequence {
@@ -786,8 +907,7 @@ class SettingsActivity : AppCompatActivity() {
                         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                         false
                     } else if (!LiveNotificationScheduler.canPostNotifications(requireContext())) {
-                        openNotificationSettings()
-                        updateLiveNotificationsSummary()
+                        toggleLiveNotifications(true)
                         false
                     } else {
                         toggleLiveNotifications(true)
@@ -1227,6 +1347,7 @@ class SettingsActivity : AppCompatActivity() {
             appendLine("PiP: ${requireContext().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)}")
             appendLine("Notifications: ${Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED}")
             appendLine("ML Kit translation: ${Build.SUPPORTED_64_BIT_ABIS.firstOrNull() == "arm64-v8a"}")
+            append(liveNotificationDiagnostics(requireContext()))
         }
 
         private fun updateUpdatePreferences() {
@@ -1331,9 +1452,7 @@ class SettingsActivity : AppCompatActivity() {
                     viewModel.liveNotificationResult.collectLatest { result ->
                         findPreference<SwitchPreferenceCompat>("live_notifications_enabled")?.isChecked = result.enabled
                         updateLiveNotificationsSummary()
-                        if (result.failed) {
-                            Toast.makeText(requireContext(), R.string.live_notifications_enable_failed, Toast.LENGTH_LONG).show()
-                        }
+                        result.failure?.let(::showLiveNotificationFailure)
                     }
                 }
             }
@@ -2122,6 +2241,7 @@ class SettingsActivity : AppCompatActivity() {
             appendLine("PiP: ${requireContext().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)}")
             appendLine("Notifications: ${Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED}")
             appendLine("ML Kit translation: ${Build.SUPPORTED_64_BIT_ABIS.firstOrNull() == "arm64-v8a"}")
+            append(liveNotificationDiagnostics(requireContext()))
         }
 
     }
