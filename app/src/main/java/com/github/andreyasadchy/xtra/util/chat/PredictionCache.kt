@@ -62,6 +62,14 @@ object PredictionCache {
             .apply()
     }
 
+    fun clear(preferences: SharedPreferences, channelId: String) {
+        val index = readIndex(preferences).toMutableMap().apply { remove(channelId) }
+        preferences.edit()
+            .remove(ENTRY_PREFIX + channelId)
+            .putString(INDEX_KEY, JSONObject(index).toString())
+            .apply()
+    }
+
     /** Kept pure so cache-age and session invalidation rules can be unit tested. */
     internal fun isFresh(
         prediction: Prediction,

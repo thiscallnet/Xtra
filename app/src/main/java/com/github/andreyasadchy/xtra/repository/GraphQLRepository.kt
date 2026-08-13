@@ -1548,6 +1548,32 @@ class GraphQLRepository(
         json.decodeFromString<ChannelPointContextResponse>(sendPersistedQuery(networkLibrary, headers, body))
     }
 
+    /**
+     * Returns Twitch's viewer-facing prediction snapshot. This is intentionally
+     * a raw response because the private web operation has changed its
+     * collection shape over time.
+     */
+    suspend fun loadChannelPointsPredictionContext(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        channelLogin: String,
+    ): String = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            putJsonObject("extensions") {
+                putJsonObject("persistedQuery") {
+                    put("sha256Hash", TwitchGqlOperations.CHANNEL_POINTS_PREDICTION_CONTEXT_HASH)
+                    put("version", 1)
+                }
+            }
+            put("operationName", TwitchGqlOperations.CHANNEL_POINTS_PREDICTION_CONTEXT_NAME)
+            putJsonObject("variables") {
+                put("count", 1)
+                put("channelLogin", channelLogin)
+            }
+        }.toString()
+        sendPersistedQuery(networkLibrary, headers, body)
+    }
+
     suspend fun loadWatchStreak(networkLibrary: String?, headers: Map<String, String>, channelId: String): WatchStreakResponse = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
             put("operationName", "RewardList")

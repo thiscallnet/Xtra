@@ -13,6 +13,9 @@ import com.github.andreyasadchy.xtra.model.chat.Prediction
  * result.
  */
 object PredictionState {
+    /** Final prediction results are visible briefly; cache retention is longer. */
+    const val RESULT_DISPLAY_GRACE_MILLIS = 20_000L
+
     private val finalStatuses = setOf(
         "RESOLVED",
         "COMPLETED",
@@ -42,6 +45,16 @@ object PredictionState {
     }
 
     fun isFinal(prediction: Prediction?): Boolean = isFinalStatus(status(prediction))
+
+    fun isFreshFinalForDisplay(
+        prediction: Prediction?,
+        now: Long = System.currentTimeMillis(),
+    ): Boolean {
+        if (!isFinal(prediction)) return false
+        val endedAt = prediction?.endedAt ?: return false
+        val age = now - endedAt
+        return age in 0L..RESULT_DISPLAY_GRACE_MILLIS
+    }
 
     /** Normalizes an incoming live snapshot without guessing when timing is absent. */
     fun normalizeLive(prediction: Prediction, now: Long = System.currentTimeMillis()): Prediction {
@@ -192,6 +205,14 @@ internal class PredictionStateStore {
     fun reset(apply: () -> Unit) = synchronized(lock) {
         current = null
         apply()
+    }
+
+    fun clearIf(predicate: (Prediction) -> Boolean, apply: () -> Unit): Boolean = synchronized(lock) {
+        val value = current ?: return@synchronized false
+        if (!predicate(value)) return@synchronized false
+        current = null
+        apply()
+        true
     }
 
     fun <T> withLock(block: (Prediction?) -> T): T = synchronized(lock) {
