@@ -39,6 +39,7 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.VideoQuality
+import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
@@ -85,6 +86,13 @@ class PlaybackService : MediaSessionService() {
     private var sleepTimerEndTime = 0L
     private var lastSavedPosition: Long? = null
     private var savePositionTimer: Timer? = null
+    private val viewingStatsSourceId = "playback-service:primary"
+    private var viewingChannelId: String? = null
+    private var viewingChannelLogin: String? = null
+    private var viewingChannelName: String? = null
+    private var viewingChannelImage: String? = null
+    private var viewingContentType: String? = null
+    private var viewingContentId: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -108,6 +116,7 @@ class PlaybackService : MediaSessionService() {
         player.addListener(
             object : Player.Listener {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    updateViewingStats(player)
                     if (isPlaying) {
                         backgroundRecoveryTimer?.cancel()
                         backgroundRecoveryTimer = null
@@ -138,6 +147,7 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    updateViewingStats(player)
                     if (playbackState == Player.STATE_READY) {
                         backgroundRecoveryTimer?.cancel()
                         backgroundRecoveryTimer = null
@@ -229,6 +239,11 @@ class PlaybackService : MediaSessionService() {
                                 val title = customCommand.customExtras.getString(TITLE)
                                 val channelName = customCommand.customExtras.getString(CHANNEL_NAME)
                                 val channelLogo = customCommand.customExtras.getString(CHANNEL_LOGO)
+                                setViewingMetadata(
+                                    ViewingPlaybackMetadata.CONTENT_TYPE_LIVE,
+                                    customCommand.customExtras.getString(STREAM_ID),
+                                    customCommand.customExtras,
+                                )
                                 videoId = null
                                 offlineVideoId = null
                                 proxyMediaPlaylist = false
@@ -514,6 +529,11 @@ class PlaybackService : MediaSessionService() {
                                 val channelName = customCommand.customExtras.getString(CHANNEL_NAME)
                                 val channelLogo = customCommand.customExtras.getString(CHANNEL_LOGO)
                                 val newId = customCommand.customExtras.getLong(VIDEO_ID).takeIf { it != 0L }
+                                setViewingMetadata(
+                                    ViewingPlaybackMetadata.CONTENT_TYPE_VOD,
+                                    newId?.toString(),
+                                    customCommand.customExtras,
+                                )
                                 val position = if (videoId == newId && session.player.currentMediaItem != null) {
                                     session.player.currentPosition
                                 } else {
@@ -566,6 +586,11 @@ class PlaybackService : MediaSessionService() {
                                 val title = customCommand.customExtras.getString(TITLE)
                                 val channelName = customCommand.customExtras.getString(CHANNEL_NAME)
                                 val channelLogo = customCommand.customExtras.getString(CHANNEL_LOGO)
+                                setViewingMetadata(
+                                    ViewingPlaybackMetadata.CONTENT_TYPE_CLIP,
+                                    customCommand.customExtras.getString(CLIP_ID),
+                                    customCommand.customExtras,
+                                )
                                 videoId = null
                                 offlineVideoId = null
                                 val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
@@ -611,6 +636,11 @@ class PlaybackService : MediaSessionService() {
                                 val channelName = customCommand.customExtras.getString(CHANNEL_NAME)
                                 val channelLogo = customCommand.customExtras.getString(CHANNEL_LOGO)
                                 val newId = customCommand.customExtras.getInt(VIDEO_ID).takeIf { it != 0 }
+                                setViewingMetadata(
+                                    ViewingPlaybackMetadata.CONTENT_TYPE_OFFLINE_VIDEO,
+                                    newId?.toString(),
+                                    customCommand.customExtras,
+                                )
                                 val position = if (offlineVideoId == newId && session.player.currentMediaItem != null) {
                                     session.player.currentPosition
                                 } else {
@@ -826,6 +856,60 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun setViewingMetadata(
+        contentType: String,
+        contentId: String?,
+        extras: Bundle,
+    ) {
+        finishViewingStats()
+        viewingChannelId = extras.getString(CHANNEL_ID)
+        viewingChannelLogin = extras.getString(CHANNEL_LOGIN)
+        viewingChannelName = extras.getString(CHANNEL_NAME)
+        viewingChannelImage = extras.getString(CHANNEL_LOGO)
+        viewingContentType = contentType
+        viewingContentId = contentId
+    }
+
+    private fun finishViewingStats() {
+        if (::xtraModule.isInitialized) {
+            xtraModule.viewingStatsRecorder.update(
+                sourceId = viewingStatsSourceId,
+                metadata = viewingMetadata(),
+                isPlaying = false,
+                isBuffering = false,
+            )
+        }
+    }
+
+    private fun updateViewingStats(player: Player) {
+        val contentType = viewingContentType ?: return
+        xtraModule.viewingStatsRecorder.update(
+            sourceId = viewingStatsSourceId,
+            metadata = ViewingPlaybackMetadata(
+                channelId = viewingChannelId,
+                channelLogin = viewingChannelLogin,
+                channelName = viewingChannelName,
+                channelImage = viewingChannelImage,
+                contentType = contentType,
+                contentId = viewingContentId,
+            ),
+            isPlaying = player.isPlaying,
+            isBuffering = player.playbackState == Player.STATE_BUFFERING,
+        )
+    }
+
+    private fun viewingMetadata(): ViewingPlaybackMetadata? {
+        val contentType = viewingContentType ?: return null
+        return ViewingPlaybackMetadata(
+            channelId = viewingChannelId,
+            channelLogin = viewingChannelLogin,
+            channelName = viewingChannelName,
+            channelImage = viewingChannelImage,
+            contentType = contentType,
+            contentId = viewingContentId,
+        )
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -845,6 +929,9 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        if (::xtraModule.isInitialized) {
+            xtraModule.viewingStatsRecorder.release(viewingStatsSourceId)
+        }
         backgroundRecoveryTimer?.cancel()
         backgroundRecoveryTimer = null
         sleepTimer?.cancel()
@@ -875,9 +962,13 @@ class PlaybackService : MediaSessionService() {
 
         const val RESULT = "result"
         const val URI = "uri"
+        const val STREAM_ID = "streamId"
         const val VIDEO_ID = "videoId"
+        const val CLIP_ID = "clipId"
         const val PLAYBACK_POSITION = "playbackPosition"
         const val TITLE = "title"
+        const val CHANNEL_ID = "channelId"
+        const val CHANNEL_LOGIN = "channelLogin"
         const val CHANNEL_NAME = "channelName"
         const val CHANNEL_LOGO = "channelLogo"
         const val USING_PROXY = "usingProxy"

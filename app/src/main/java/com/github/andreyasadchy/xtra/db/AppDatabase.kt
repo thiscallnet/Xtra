@@ -8,6 +8,8 @@ import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.ShownNotification
 import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.chat.RecentEmote
+import com.github.andreyasadchy.xtra.model.stats.ViewingInterval
+import com.github.andreyasadchy.xtra.model.stats.ViewingSession
 import com.github.andreyasadchy.xtra.model.ui.Bookmark
 import com.github.andreyasadchy.xtra.model.ui.BookmarkIgnoredUser
 import com.github.andreyasadchy.xtra.model.ui.ChannelSort
@@ -36,9 +38,11 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
         TranslatedChannel::class,
         SavedFilter::class,
         RecentSearch::class,
-        PlaybackState::class
+        PlaybackState::class,
+        ViewingSession::class,
+        ViewingInterval::class,
     ],
-    version = 38,
+    version = 40,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -59,4 +63,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun savedFilters(): SavedFiltersDao
     abstract fun recentSearches(): RecentSearchesDao
     abstract fun playbackStates(): PlaybackStatesDao
+    abstract fun viewingStats(): ViewingStatsDao
 }

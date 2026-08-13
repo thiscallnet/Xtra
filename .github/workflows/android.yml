@@ -58,6 +58,9 @@ jobs:
           echo "name=$version"
           echo "code=$version_code"
         } >> "$GITHUB_OUTPUT"
+    - name: Run JVM tests
+      run: ./gradlew testDebugUnitTest
+
     - name: Build with Gradle
       run: ./gradlew assembleRelease "-PciVersionCode=${{ steps.version.outputs.code }}"
 

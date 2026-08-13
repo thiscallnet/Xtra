@@ -27,6 +27,7 @@ import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.ui.PlayerView
 import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
@@ -64,6 +65,9 @@ class MultiviewPlaybackCoordinator(
 ) {
     private val applicationContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val viewingStatsRecorder by lazy {
+        (applicationContext as? XtraApp)?.xtraModule?.viewingStatsRecorder
+    }
     private val slots = linkedMapOf<String, MultiviewPlayerSlot>()
     private val tileBounds = mutableMapOf<String, Pair<Int, Int>>()
     private var activeIdentity: String? = null
@@ -88,7 +92,10 @@ class MultiviewPlaybackCoordinator(
         }.toMap()
 
         slots.keys.toList().filterNot(desired::containsKey).forEach { identity ->
-            slots.remove(identity)?.release()
+            slots.remove(identity)?.let { slot ->
+                releaseViewingStats(slot)
+                slot.release()
+            }
             tileBounds.remove(identity)
         }
         desired.forEach { (identity, stream) ->
@@ -99,6 +106,7 @@ class MultiviewPlaybackCoordinator(
                 start(newSlot)
             } else if (slot.stream !== stream) {
                 slot.stream = stream
+                updateViewingStats(slot)
             }
         }
         slots.values.forEach { applyQuality(it) }
@@ -151,12 +159,16 @@ class MultiviewPlaybackCoordinator(
         slots.values.forEach { slot ->
             slot.shouldPlay = slot.player.playWhenReady
             slot.player.playWhenReady = false
+            updateViewingStats(slot, forceNotPlaying = true)
         }
     }
 
     fun releaseAll() {
         scope.coroutineContext[Job]?.cancel()
-        slots.values.forEach(MultiviewPlayerSlot::release)
+        slots.values.forEach { slot ->
+            releaseViewingStats(slot)
+            slot.release()
+        }
         slots.clear()
         tileBounds.clear()
     }
@@ -188,6 +200,7 @@ class MultiviewPlaybackCoordinator(
         return MultiviewPlayerSlot(identity, stream, player).also { slot ->
             player.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    updateViewingStats(slot)
                     when (playbackState) {
                         Player.STATE_BUFFERING -> {
                             slot.stableRecoveryJob?.cancel()
@@ -207,6 +220,10 @@ class MultiviewPlaybackCoordinator(
                         Player.STATE_ENDED -> publish(slot, MultiviewSlotStatus.OFFLINE)
                         Player.STATE_IDLE -> Unit
                     }
+                }
+
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    updateViewingStats(slot)
                 }
 
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -865,6 +882,30 @@ class MultiviewPlaybackCoordinator(
         return stream.channelId?.takeIf { it.isNotBlank() }?.let { "id:${it.lowercase()}" }
             ?: stream.channelLogin?.trim()?.takeIf { it.isNotBlank() }?.let { "login:${it.lowercase()}" }
             ?: stream.id?.takeIf { it.isNotBlank() }?.let { "stream:${it.lowercase()}" }
+    }
+
+    /**
+     * Statistics intentionally measure cumulative stream-hours: every tile is
+     * a separately playing playback source and contributes independently.
+     */
+    private fun updateViewingStats(slot: MultiviewPlayerSlot, forceNotPlaying: Boolean = false) {
+        viewingStatsRecorder?.update(
+            sourceId = "multiview:${slot.identity}",
+            metadata = ViewingPlaybackMetadata(
+                channelId = slot.stream.channelId,
+                channelLogin = slot.stream.channelLogin,
+                channelName = slot.stream.channelName,
+                channelImage = slot.stream.channelImage,
+                contentType = ViewingPlaybackMetadata.CONTENT_TYPE_LIVE,
+                contentId = slot.stream.id,
+            ),
+            isPlaying = !forceNotPlaying && slot.player.isPlaying,
+            isBuffering = slot.player.playbackState == Player.STATE_BUFFERING,
+        )
+    }
+
+    private fun releaseViewingStats(slot: MultiviewPlayerSlot) {
+        viewingStatsRecorder?.release("multiview:${slot.identity}")
     }
 
     class MultiviewPlayerSlot(

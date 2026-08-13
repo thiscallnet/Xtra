@@ -655,6 +655,14 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    fun openStatistics() {
+        (playerFragment as? Media3PlayerFragment)?.minimize()
+            ?: (playerFragment as? PlayerFragment)?.minimize()
+        if (navController.currentDestination?.id != R.id.statisticsFragment) {
+            navController.navigate(R.id.action_global_statisticsFragment)
+        }
+    }
+
     private fun setNavBarColor(isPortrait: Boolean) {
         when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {

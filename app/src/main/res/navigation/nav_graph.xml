@@ -216,4 +216,11 @@
     <fragment
         android:id="@+id/multiviewFragment"
         android:name="com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment" />
+    <fragment
+        android:id="@+id/statisticsFragment"
+        android:name="com.github.andreyasadchy.xtra.ui.statistics.StatisticsFragment"
+        android:label="@string/statistics" />
+    <action
+        android:id="@+id/action_global_statisticsFragment"
+        app:destination="@id/statisticsFragment" />
 </navigation>

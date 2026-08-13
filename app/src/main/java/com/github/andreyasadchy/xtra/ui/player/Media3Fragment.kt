@@ -735,6 +735,9 @@ class Media3Fragment : Media3PlayerFragment() {
                 PlaybackService.START_STREAM, Bundle().apply {
                     putString(PlaybackService.URI, url)
                     playWhenReady?.let { putBoolean(PlaybackService.PLAY_WHEN_READY, it) }
+                    putString(PlaybackService.STREAM_ID, requireArguments().getString(KEY_STREAM_ID))
+                    putString(PlaybackService.CHANNEL_ID, requireArguments().getString(KEY_CHANNEL_ID))
+                    putString(PlaybackService.CHANNEL_LOGIN, requireArguments().getString(KEY_CHANNEL_LOGIN))
                     putString(PlaybackService.TITLE, requireArguments().getString(KEY_TITLE))
                     putString(PlaybackService.CHANNEL_NAME, requireArguments().getString(KEY_CHANNEL_NAME))
                     putString(PlaybackService.CHANNEL_LOGO, requireArguments().getString(KEY_CHANNEL_IMAGE))
@@ -756,6 +759,8 @@ class Media3Fragment : Media3PlayerFragment() {
                         putString(PlaybackService.URI, url)
                         putLong(PlaybackService.PLAYBACK_POSITION, playbackPosition ?: 0)
                         putLong(PlaybackService.VIDEO_ID, requireArguments().getString(KEY_VIDEO_ID)?.toLongOrNull() ?: 0)
+                        putString(PlaybackService.CHANNEL_ID, requireArguments().getString(KEY_CHANNEL_ID))
+                        putString(PlaybackService.CHANNEL_LOGIN, requireArguments().getString(KEY_CHANNEL_LOGIN))
                         putString(PlaybackService.TITLE, requireArguments().getString(KEY_TITLE))
                         putString(PlaybackService.CHANNEL_NAME, requireArguments().getString(KEY_CHANNEL_NAME))
                         putString(PlaybackService.CHANNEL_LOGO, requireArguments().getString(KEY_CHANNEL_IMAGE))
@@ -783,6 +788,9 @@ class Media3Fragment : Media3PlayerFragment() {
                 SessionCommand(
                     PlaybackService.START_CLIP, Bundle().apply {
                         putString(PlaybackService.URI, url)
+                        putString(PlaybackService.CLIP_ID, requireArguments().getString(KEY_CLIP_ID))
+                        putString(PlaybackService.CHANNEL_ID, requireArguments().getString(KEY_CHANNEL_ID))
+                        putString(PlaybackService.CHANNEL_LOGIN, requireArguments().getString(KEY_CHANNEL_LOGIN))
                         putString(PlaybackService.TITLE, requireArguments().getString(KEY_TITLE))
                         putString(PlaybackService.CHANNEL_NAME, requireArguments().getString(KEY_CHANNEL_NAME))
                         putString(PlaybackService.CHANNEL_LOGO, requireArguments().getString(KEY_CHANNEL_IMAGE))
@@ -812,6 +820,8 @@ class Media3Fragment : Media3PlayerFragment() {
                         putString(PlaybackService.URI, url)
                         putInt(PlaybackService.VIDEO_ID, requireArguments().getInt(KEY_OFFLINE_VIDEO_ID))
                         putLong(PlaybackService.PLAYBACK_POSITION, position)
+                        putString(PlaybackService.CHANNEL_ID, requireArguments().getString(KEY_CHANNEL_ID))
+                        putString(PlaybackService.CHANNEL_LOGIN, requireArguments().getString(KEY_CHANNEL_LOGIN))
                         putString(PlaybackService.TITLE, requireArguments().getString(KEY_TITLE))
                         putString(PlaybackService.CHANNEL_NAME, requireArguments().getString(KEY_CHANNEL_NAME))
                         putString(PlaybackService.CHANNEL_LOGO, requireArguments().getString(KEY_CHANNEL_IMAGE))

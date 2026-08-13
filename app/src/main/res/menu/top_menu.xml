@@ -23,6 +23,12 @@
         app:iconTint="?attr/colorControlNormal"
         app:showAsAction="always" />
     <item
+        android:id="@+id/statistics"
+        android:icon="@drawable/ic_statistics"
+        android:title="@string/statistics"
+        app:iconTint="?attr/colorControlNormal"
+        app:showAsAction="always" />
+    <item
         android:id="@+id/profile"
         android:title="@string/view_profile"
         android:visible="false"

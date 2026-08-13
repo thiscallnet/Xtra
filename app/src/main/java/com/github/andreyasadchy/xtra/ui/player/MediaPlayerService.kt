@@ -76,6 +76,7 @@ import kotlin.time.Duration.Companion.milliseconds
 class MediaPlayerService : BasePlaybackService() {
 
     var player: MediaPlayer? = null
+    private var playerBuffering = false
     private var wifiLock: WifiManager.WifiLock? = null
     private var session: MediaSession? = null
     private var notificationManager: NotificationManager? = null
@@ -295,6 +296,7 @@ class MediaPlayerService : BasePlaybackService() {
                     .build()
             )
             player.setOnPreparedListener { player ->
+                playerBuffering = false
                 streamRecoveryJob?.cancel()
                 streamRecoveryJob = null
                 streamRecoveryAttempt = 0
@@ -331,7 +333,13 @@ class MediaPlayerService : BasePlaybackService() {
             }
             player.setOnInfoListener { player, what, extra ->
                 when (what) {
-                    MediaPlayer.MEDIA_INFO_BUFFERING_START, MediaPlayer.MEDIA_INFO_BUFFERING_END -> {
+                    MediaPlayer.MEDIA_INFO_BUFFERING_START -> {
+                        playerBuffering = true
+                        updatePlaybackState()
+                        updateNotification()
+                    }
+                    MediaPlayer.MEDIA_INFO_BUFFERING_END -> {
+                        playerBuffering = false
                         updatePlaybackState()
                         updateNotification()
                     }
@@ -343,6 +351,7 @@ class MediaPlayerService : BasePlaybackService() {
                 playerListener?.onError(player, width, height)
             }
             player.setOnErrorListener { player, what, extra ->
+                playerBuffering = false
                 updatePlaybackState()
                 updateNotification()
                 if (type == STREAM) {
@@ -1446,6 +1455,7 @@ class MediaPlayerService : BasePlaybackService() {
     private fun updatePlaybackState() {
         player?.let { player ->
             val isPlaying = runCatching { player.isPlaying }.getOrDefault(false)
+            updateViewingStats(isPlaying = isPlaying, isBuffering = playerBuffering)
             val position = runCatching { player.currentPosition.toLong() }.getOrDefault(0L)
             val speed = if (isPlaying) {
                 runCatching { player.playbackParams.speed }.getOrDefault(1f)
@@ -2033,6 +2043,7 @@ class MediaPlayerService : BasePlaybackService() {
     }
 
     override fun onDestroy() {
+        releaseViewingStats()
         super.onDestroy()
         streamRecoveryJob?.cancel()
         streamRecoveryJob = null

@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.room.Room
 import androidx.room.migration.Migration
 import com.github.andreyasadchy.xtra.db.AppDatabase
+import com.github.andreyasadchy.xtra.db.ViewingStatsMigrations
 import com.github.andreyasadchy.xtra.repository.AuthRepository
 import com.github.andreyasadchy.xtra.repository.BookmarksRepository
 import com.github.andreyasadchy.xtra.repository.ChannelSortRepository
@@ -21,6 +22,8 @@ import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
 import com.github.andreyasadchy.xtra.repository.SavedFiltersRepository
+import com.github.andreyasadchy.xtra.repository.ViewingStatsRepository
+import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -299,6 +302,8 @@ class XtraModule(application: Application) {
                 Migration(37, 38) { db ->
                     db.execSQL("CREATE TABLE IF NOT EXISTS notification_events (eventId TEXT NOT NULL, channelId TEXT NOT NULL, streamId TEXT, channelLogin TEXT, channelName TEXT, channelImageURL TEXT, gameName TEXT, title TEXT, thumbnailURL TEXT, createdAt TEXT, viewerCount INTEGER, startedAt INTEGER NOT NULL, queuedAt INTEGER NOT NULL, PRIMARY KEY (eventId))")
                 },
+                ViewingStatsMigrations.FROM_38,
+                ViewingStatsMigrations.FROM_HISTORICAL_39,
                 // Version 39 only contained the removed notification log table.
                 Migration(39, 37) { db ->
                     db.execSQL("DROP TABLE IF EXISTS live_notification_logs")
@@ -361,5 +366,13 @@ class XtraModule(application: Application) {
 
     val savedFiltersRepository by lazy {
         SavedFiltersRepository(database.savedFilters())
+    }
+
+    val viewingStatsRepository by lazy {
+        ViewingStatsRepository(database.viewingStats())
+    }
+
+    val viewingStatsRecorder by lazy {
+        ViewingStatsRecorder(viewingStatsRepository)
     }
 }
