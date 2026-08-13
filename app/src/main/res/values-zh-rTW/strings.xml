@@ -429,14 +429,10 @@
     <string name="stv_live_updates">7TV live 表情符號更新</string>
     <string name="personal_stv_emote">個人的 7TV 表情符號</string>
     <string name="show_polls">顯示投票活動</string>
-    <string name="poll_title">目前投票活動：%s</string>
-    <string name="remaining_time">剩餘時間 %s</string>
     <string name="show_predictions">顯示賽況預測</string>
     <string name="prediction_title">目前賽況預測：%s</string>
     <string name="prediction_locked">已鎖定</string>
     <string name="prediction_refunded">退還</string>
-    <string name="poll_choice">%1$d%% (%2$s): %3$s</string>
-    <string name="poll_choice_winner">🏆%1$d%% (%2$s): %3$s</string>
     <string name="prediction_outcome">%1$d%% (%2$s💎, %3$s👥): %4$s</string>
     <string name="prediction_outcome_winner">🏆%1$d%% (%2$s💎, %3$s👥): %4$s</string>
     <string name="api_token_settings">API 權杖設定</string>

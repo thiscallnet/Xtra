@@ -44,7 +44,9 @@ import com.github.andreyasadchy.xtra.databinding.FragmentChatBinding
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.Poll
+import com.github.andreyasadchy.xtra.model.chat.PollVoteState
 import com.github.andreyasadchy.xtra.model.chat.Prediction
+import com.github.andreyasadchy.xtra.model.chat.PredictionBetState
 import com.github.andreyasadchy.xtra.model.ui.ChannelPoints
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointReward
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRedemptionResult
@@ -60,7 +62,6 @@ import com.github.andreyasadchy.xtra.ui.player.PlayerFragment
 import com.github.andreyasadchy.xtra.ui.view.AutoCompleteAdapter
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.chat.PollState
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.isChatEnabled
@@ -84,7 +85,6 @@ import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.max
-import kotlin.math.roundToInt
 
 class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickListener, ReplyClickedDialog.OnButtonClickListener, ChannelPointsDialog.Listener {
 
@@ -106,6 +106,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var hasRecentEmotes = false
     private var messagingEnabled = false
     private var channelPointsIconUrl: String? = null
+    private var channelPointsAccessibilityLabel: String? = null
     private var composerOverlayState: ComposerOverlayState? = null
     private var pendingComposerText: String? = null
     private var composerSubmissionInProgress = false
@@ -146,11 +147,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun predictionSecondsLeftFlow(): StateFlow<Int?> = viewModel.predictionSecondsLeft
 
-    override fun predictionBetInFlightFlow(): StateFlow<Boolean> = viewModel.predictionBetInFlight
+    override fun pollVoteStateFlow(): StateFlow<PollVoteState> = viewModel.pollVoteState
+
+    override fun predictionBetStateFlow(): StateFlow<PredictionBetState> = viewModel.predictionBetState
 
     override fun canVotePoll(): Boolean = viewModel.canVotePoll()
 
-    override fun votePoll(choiceIndex: Int) = viewModel.votePoll(choiceIndex)
+    override fun votePoll(choiceId: String) = viewModel.votePoll(choiceId)
+
+    override fun dismissPoll() = viewModel.dismissPoll()
 
     override fun canBetPrediction(): Boolean = viewModel.canBetPrediction()
 
@@ -221,6 +226,19 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
                     }
                 }
+                launch {
+                    viewModel.pollVoteResults.collectLatest { result ->
+                        val message = if (result.success) {
+                            getString(R.string.poll_vote_success)
+                        } else {
+                            getString(
+                                R.string.poll_vote_failed,
+                                result.message?.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty(),
+                            )
+                        }
+                        Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+                    }
+                }
             }
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -239,8 +257,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         viewModel.ongoingPrediction,
                         viewModel.predictionSecondsLeft,
                     ) { poll, pollSeconds, prediction, predictionSeconds ->
-                        ActivityIndicatorState(poll, pollSeconds, prediction, predictionSeconds)
-                    }.collectLatest(::updateActivityIndicator)
+                        ChannelPointsActivityState(poll, pollSeconds, prediction, predictionSeconds)
+                    }.collectLatest(::updateChannelPointsActivity)
                 }
             }
             if (requireContext().prefs().isChatEnabled()) {
@@ -371,11 +389,23 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                     if (points != null) {
                                         val balance = NumberFormat.getInstance().format(points.balance)
                                         channelPointsText.text = balance
-                                        channelPoints.contentDescription = getString(R.string.channel_points_balance, balance)
+                                        channelPointsAccessibilityLabel = getString(
+                                            R.string.channel_points_balance,
+                                            balance,
+                                        )
                                         updateChannelPointsIcon(points.iconUrl)
+                                        updateChannelPointsActivity(
+                                            ChannelPointsActivityState(
+                                                viewModel.activePoll.value,
+                                                viewModel.pollSecondsLeft.value,
+                                                viewModel.ongoingPrediction.value,
+                                                viewModel.predictionSecondsLeft.value,
+                                            ),
+                                        )
                                         channelPoints.visibility = View.VISIBLE
                                         updateComposerDensity()
                                     } else {
+                                        channelPointsAccessibilityLabel = null
                                         updateChannelPointsIcon(null)
                                         channelPoints.visibility = View.GONE
                                         updateComposerDensity()
@@ -630,91 +660,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                         )
                                     )
                                     viewModel.raidClicked.value = null
-                                }
-                            }
-                        }
-                    }
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        repeatOnLifecycle(Lifecycle.State.STARTED) {
-                            viewModel.hidePoll.collectLatest {
-                                if (it) {
-                                    pollLayout.visibility = View.GONE
-                                    viewModel.pollSecondsLeft.value = null
-                                    viewModel.pollTimer?.cancel()
-                                    viewModel.pollClosed = true
-                                    viewModel.hidePoll.value = false
-                                }
-                            }
-                        }
-                    }
-                    pollClose.setOnClickListener {
-                        pollLayout.visibility = View.GONE
-                        viewModel.pollSecondsLeft.value = null
-                        viewModel.pollTimer?.cancel()
-                        viewModel.pollClosed = true
-                    }
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        repeatOnLifecycle(Lifecycle.State.STARTED) {
-                            viewModel.poll.collectLatest { poll ->
-                                if (poll != null && !viewModel.pollClosed) {
-                                    val isActive = PollState.isActive(poll)
-                                    val isTerminal = PollState.isTerminal(poll) || (!isActive && poll.status == "ACTIVE")
-                                    when {
-                                        isActive -> {
-                                            pollLayout.visibility = View.VISIBLE
-                                            pollTitle.text = getString(R.string.poll_title, poll.title)
-                                            val totalVotes = (poll.totalVotes ?: poll.choices.orEmpty().sumOf { it.totalVotes ?: 0 }).coerceAtLeast(1)
-                                            pollChoices.text = poll.choices?.joinToString("\n") {
-                                                getString(
-                                                    R.string.poll_choice,
-                                                    (((it.totalVotes ?: 0).toLong() * 100.0) / totalVotes).roundToInt(),
-                                                    it.totalVotes?.let { count -> NumberFormat.getInstance().format(count) } ?: "—",
-                                                    it.title,
-                                                )
-                                            }
-                                            pollStatus.visibility = View.VISIBLE
-                                        }
-                                        isTerminal -> {
-                                            pollLayout.visibility = View.VISIBLE
-                                            pollTitle.text = getString(R.string.poll_title, poll.title)
-                                            val totalVotes = (poll.totalVotes ?: poll.choices.orEmpty().sumOf { it.totalVotes ?: 0 }).coerceAtLeast(1)
-                                            val winningTotal = poll.choices.orEmpty().mapNotNull { it.totalVotes }.maxOrNull()
-                                            pollChoices.text = poll.choices?.joinToString("\n") {
-                                                getString(
-                                                    if (winningTotal != null && winningTotal > 0 && it.totalVotes == winningTotal) {
-                                                        R.string.poll_choice_winner
-                                                    } else {
-                                                        R.string.poll_choice
-                                                    },
-                                                    (((it.totalVotes ?: 0).toLong() * 100.0) / totalVotes).roundToInt(),
-                                                    it.totalVotes?.let { count -> NumberFormat.getInstance().format(count) } ?: "—",
-                                                    it.title,
-                                                )
-                                            }
-                                            pollStatus.visibility = View.GONE
-                                            viewModel.pollSecondsLeft.value = null
-                                            viewModel.pollTimer?.cancel()
-                                            viewModel.startPollTimeout { pollLayout.visibility = View.GONE }
-                                        }
-                                        else -> {
-                                            pollLayout.visibility = View.GONE
-                                            viewModel.pollSecondsLeft.value = null
-                                            viewModel.pollTimer?.cancel()
-                                            viewModel.pollClosed = true
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        repeatOnLifecycle(Lifecycle.State.STARTED) {
-                            viewModel.pollSecondsLeft.collectLatest {
-                                if (it != null) {
-                                    pollStatus.text = getString(R.string.remaining_time, DateUtils.formatElapsedTime(it.toLong()))
-                                    if (it <= 0) {
-                                        viewModel.pollSecondsLeft.value = null
-                                    }
                                 }
                             }
                         }
@@ -1023,54 +968,91 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         binding.clear.isVisible = !composerSubmissionInProgress && hasText
     }
 
-    private fun updateActivityIndicator(state: ActivityIndicatorState) {
+    private fun updateChannelPointsActivity(state: ChannelPointsActivityState) {
         if (_binding == null) return
-        val active = when {
+        val foregroundDefault = MaterialColors.getColor(
+            binding.channelPoints,
+            androidx.appcompat.R.attr.colorControlNormal,
+        )
+        val (background, foreground, description, alpha) = when {
             state.poll != null -> {
-                val suffix = state.pollSeconds?.takeIf { it > 0 }?.let { DateUtils.formatElapsedTime(it.toLong()) }
-                getString(R.string.channel_points_poll_active) + (suffix?.let { " · $it" } ?: "")
+                val remaining = state.pollSeconds?.takeIf { it > 0 }?.let {
+                    DateUtils.formatElapsedTime(it.toLong())
+                } ?: getString(R.string.channel_points_activity_unknown_time)
+                ActivityVisualState(
+                    background = MaterialColors.getColor(
+                        binding.channelPoints,
+                        com.google.android.material.R.attr.colorPrimaryContainer,
+                    ),
+                    foreground = MaterialColors.getColor(
+                        binding.channelPoints,
+                        com.google.android.material.R.attr.colorOnPrimaryContainer,
+                    ),
+                    description = getString(R.string.channel_points_activity_poll, remaining),
+                    alpha = 1f,
+                )
             }
-            state.prediction != null -> {
-                val suffix = state.predictionSeconds?.takeIf { it > 0 }?.let { DateUtils.formatElapsedTime(it.toLong()) }
-                if (PredictionState.isBettingOpen(state.prediction)) {
-                    getString(R.string.channel_points_prediction_active) + (suffix?.let { " · $it" } ?: "")
-                } else {
-                    getString(R.string.channel_points_prediction_waiting)
-                }
+            state.prediction != null && PredictionState.isBettingOpen(state.prediction) -> {
+                val remaining = state.predictionSeconds?.takeIf { it > 0 }?.let {
+                    DateUtils.formatElapsedTime(it.toLong())
+                } ?: getString(R.string.channel_points_activity_unknown_time)
+                ActivityVisualState(
+                    background = MaterialColors.getColor(
+                        binding.channelPoints,
+                        com.google.android.material.R.attr.colorSecondaryContainer,
+                    ),
+                    foreground = MaterialColors.getColor(
+                        binding.channelPoints,
+                        com.google.android.material.R.attr.colorOnSecondaryContainer,
+                    ),
+                    description = getString(R.string.channel_points_activity_prediction_open, remaining),
+                    alpha = 1f,
+                )
             }
-            else -> null
+            state.prediction != null && PredictionState.isOngoing(state.prediction) -> ActivityVisualState(
+                background = MaterialColors.getColor(
+                    binding.channelPoints,
+                    com.google.android.material.R.attr.colorSurfaceVariant,
+                ),
+                foreground = MaterialColors.getColor(
+                    binding.channelPoints,
+                    com.google.android.material.R.attr.colorOnSurfaceVariant,
+                ),
+                description = getString(R.string.channel_points_activity_prediction_locked),
+                alpha = 0.8f,
+            )
+            else -> ActivityVisualState(
+                background = null,
+                foreground = foregroundDefault,
+                description = getString(R.string.channel_points),
+                alpha = 1f,
+            )
         }
-        val indicator = binding.activityIndicator
-        indicator.isVisible = active != null
-        indicator.text = active
-        if (active != null) {
-            val background = if (state.poll != null) {
-                MaterialColors.getColor(binding.channelPoints, com.google.android.material.R.attr.colorPrimaryContainer)
-            } else {
-                MaterialColors.getColor(binding.channelPoints, com.google.android.material.R.attr.colorSecondaryContainer)
-            }
-            val foreground = if (state.poll != null) {
-                MaterialColors.getColor(binding.channelPoints, com.google.android.material.R.attr.colorOnPrimaryContainer)
-            } else {
-                MaterialColors.getColor(binding.channelPoints, com.google.android.material.R.attr.colorOnSecondaryContainer)
-            }
-            binding.channelPoints.backgroundTintList = ColorStateList.valueOf(background)
-            binding.channelPointsIcon.imageTintList = ColorStateList.valueOf(foreground)
-            binding.channelPointsText.setTextColor(foreground)
-            indicator.setTextColor(foreground)
+        binding.channelPoints.backgroundTintList = background?.let(ColorStateList::valueOf)
+        binding.channelPointsIcon.imageTintList = ColorStateList.valueOf(foreground)
+        binding.channelPointsIcon.alpha = alpha
+        binding.channelPointsText.setTextColor(foreground)
+        val accessibilityDescription = if (background == null) {
+            channelPointsAccessibilityLabel ?: description
         } else {
-            binding.channelPoints.backgroundTintList = null
-            val foreground = MaterialColors.getColor(binding.channelPoints, androidx.appcompat.R.attr.colorControlNormal)
-            binding.channelPointsIcon.imageTintList = ColorStateList.valueOf(foreground)
-            binding.channelPointsText.setTextColor(foreground)
+            listOfNotNull(channelPointsAccessibilityLabel, description).joinToString(". ")
         }
+        binding.channelPoints.contentDescription = accessibilityDescription
+        ViewCompat.setStateDescription(binding.channelPoints, accessibilityDescription)
     }
 
-    private data class ActivityIndicatorState(
+    private data class ChannelPointsActivityState(
         val poll: Poll?,
         val pollSeconds: Int?,
         val prediction: Prediction?,
         val predictionSeconds: Int?,
+    )
+
+    private data class ActivityVisualState(
+        val background: Int?,
+        val foreground: Int,
+        val description: String,
+        val alpha: Float,
     )
 
     private fun updateComposerDensity() {

@@ -8,6 +8,7 @@ import org.json.JSONObject
 /** Small bounded per-channel cache for the latest observed poll. */
 object PollCache {
     private const val ENTRY_PREFIX = "latest_poll_"
+    private const val DISMISSED_PREFIX = "dismissed_polls_"
     private const val INDEX_KEY = "latest_poll_index"
     private const val MAX_ENTRIES = 32
     private const val MAX_AGE_MILLIS = 90L * 24L * 60L * 60L * 1000L
@@ -48,6 +49,33 @@ object PollCache {
             .putString(ENTRY_PREFIX + channelId, encode(poll))
             .putString(INDEX_KEY, JSONObject(index).toString())
             .apply()
+    }
+
+    fun dismiss(preferences: SharedPreferences, channelId: String, pollId: String) {
+        if (channelId.isBlank() || pollId.isBlank()) return
+        val dismissed = readDismissed(preferences, channelId).toMutableList().apply {
+            if (pollId !in this) add(pollId)
+        }
+        preferences.edit()
+            .putString(
+                DISMISSED_PREFIX + channelId,
+                JSONArray().apply { dismissed.takeLast(64).forEach(::put) }.toString(),
+            )
+            .apply()
+    }
+
+    fun isDismissed(preferences: SharedPreferences, channelId: String, pollId: String?): Boolean {
+        return !pollId.isNullOrBlank() && pollId in readDismissed(preferences, channelId)
+    }
+
+    fun clearDismissal(preferences: SharedPreferences, channelId: String, pollId: String) {
+        if (channelId.isBlank() || pollId.isBlank()) return
+        val dismissed = readDismissed(preferences, channelId).toMutableSet()
+        if (dismissed.remove(pollId)) {
+            preferences.edit()
+                .putString(DISMISSED_PREFIX + channelId, JSONArray(dismissed).toString())
+                .apply()
+        }
     }
 
     internal fun encode(poll: Poll): String = JSONObject().apply {
@@ -119,6 +147,18 @@ object PollCache {
         val json = preferences.getString(INDEX_KEY, null)?.let { runCatching { JSONObject(it) }.getOrNull() }
             ?: return emptyMap()
         return json.keys().asSequence().associateWith { json.optLong(it, 0L) }
+    }
+
+    private fun readDismissed(preferences: SharedPreferences, channelId: String): Set<String> {
+        val value = preferences.getString(DISMISSED_PREFIX + channelId, null) ?: return emptySet()
+        return runCatching {
+            val array = JSONArray(value)
+            buildSet {
+                for (index in 0 until array.length()) {
+                    array.optString(index).takeIf { it.isNotBlank() }?.let(::add)
+                }
+            }
+        }.getOrDefault(emptySet())
     }
 
     private fun JSONObject.putNullable(key: String, value: Any?) {

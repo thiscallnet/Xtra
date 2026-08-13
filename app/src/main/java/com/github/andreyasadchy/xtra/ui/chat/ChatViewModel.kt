@@ -23,7 +23,9 @@ import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.NamePaint
 import com.github.andreyasadchy.xtra.model.chat.Poll
+import com.github.andreyasadchy.xtra.model.chat.PollVoteState
 import com.github.andreyasadchy.xtra.model.chat.Prediction
+import com.github.andreyasadchy.xtra.model.chat.PredictionBetState
 import com.github.andreyasadchy.xtra.model.chat.Raid
 import com.github.andreyasadchy.xtra.model.chat.RecentEmote
 import com.github.andreyasadchy.xtra.model.chat.RoomState
@@ -67,6 +69,7 @@ import com.github.andreyasadchy.xtra.util.chat.PredictionStateStore
 import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
 import com.github.andreyasadchy.xtra.util.chat.STVEventApiUtils
 import com.github.andreyasadchy.xtra.util.chat.STVEventApiWebSocket
+import com.github.andreyasadchy.xtra.util.chat.ViewerParticipationCache
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.cancel
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -99,7 +102,6 @@ import java.util.zip.DeflaterOutputStream
 import java.util.zip.InflaterOutputStream
 import javax.net.ssl.X509TrustManager
 import kotlin.concurrent.scheduleAtFixedRate
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 class ChatViewModel(
@@ -123,6 +125,11 @@ class ChatViewModel(
         val message: String? = null,
     )
 
+    data class PollVoteResult(
+        val success: Boolean,
+        val message: String? = null,
+    )
+
     val integrity = MutableSharedFlow<String?>()
 
     private var chatReadIRCSocket: ChatReadIRCSocket? = null
@@ -136,14 +143,19 @@ class ChatViewModel(
     private var pubSubJob: Job? = null
     private var channelPointsJob: Job? = null
     private var watchStreakJob: Job? = null
+    private var watchStreakRetryJob: Job? = null
+    private var watchStreakSession = 0L
     private var stvEventApi: STVEventApiWebSocket? = null
     private var stvEventApiJob: Job? = null
     private var stvUserId: String? = null
     private var stvLastPresenceUpdate: Long? = null
     private val allEmotes = mutableListOf<String>()
     private var usedRaidId: String? = null
-    private var usedPollId: String? = null
+    private var latestPoll: Poll? = null
+    private var pollTimerJob: Job? = null
     private var pollTimeoutJob: Job? = null
+    private var pollTimeoutPollId: String? = null
+    private var pollVoteJob: Job? = null
     private var predictionBetJob: Job? = null
     private var started = false
     private var activeChannelId: String? = null
@@ -174,9 +186,9 @@ class ChatViewModel(
     var raidClosed = false
     val poll = MutableStateFlow<Poll?>(null)
     val activePoll = MutableStateFlow<Poll?>(null)
-    var pollClosed = false
     val pollSecondsLeft = MutableStateFlow<Int?>(null)
-    var pollTimer: Timer? = null
+    private val _pollVoteState = MutableStateFlow(PollVoteState())
+    val pollVoteState: StateFlow<PollVoteState> = _pollVoteState
     val prediction = MutableStateFlow<Prediction?>(null)
     /** The latest prediction that is still ongoing, including LOCKED. */
     val ongoingPrediction = MutableStateFlow<Prediction?>(null)
@@ -189,7 +201,10 @@ class ChatViewModel(
     private val predictionStateStore = PredictionStateStore()
     private val predictionBetEvents = Channel<PredictionBetResult>(Channel.BUFFERED)
     val predictionBetResults: Flow<PredictionBetResult> = predictionBetEvents.receiveAsFlow()
-    val predictionBetInFlight = MutableStateFlow(false)
+    private val pollVoteEvents = Channel<PollVoteResult>(Channel.BUFFERED)
+    val pollVoteResults: Flow<PollVoteResult> = pollVoteEvents.receiveAsFlow()
+    private val _predictionBetState = MutableStateFlow(PredictionBetState())
+    val predictionBetState: StateFlow<PredictionBetState> = _predictionBetState
     private val _streamInfo = MutableStateFlow<PubSubUtils.StreamInfo?>(null)
     val streamInfo: StateFlow<PubSubUtils.StreamInfo?> = _streamInfo
     private val _playbackMessage = MutableStateFlow<PubSubUtils.PlaybackMessage?>(null)
@@ -212,7 +227,6 @@ class ChatViewModel(
 
     val reloadMessages = MutableStateFlow(false)
     val hideRaid = MutableStateFlow(false)
-    val hidePoll = MutableStateFlow(false)
 
     val newMessage = MutableSharedFlow<Triple<ChatMessage, Int, Int>>()
     val addMessages = MutableSharedFlow<Pair<List<ChatMessage>, Int>>()
@@ -294,8 +308,6 @@ class ChatViewModel(
     private fun releaseSession() {
         stopLiveChat()
         stopReplayChat()
-        pollSecondsLeft.value = null
-        pollTimer?.cancel()
     }
 
     private fun loadEmotes(channelId: String?, channelLogin: String?) {
@@ -1205,19 +1217,58 @@ class ChatViewModel(
     }
 
     private fun updateWatchStreak(streakCount: Int?, pointsAwarded: Int? = null) {
-        if (streakCount != null && streakCount > 0) {
-            val previous = watchStreak.value
-            val milestoneChanged = pointsAwarded != null ||
-                    previous?.nextMilestone?.let { streakCount >= it } == true
-            watchStreak.value = WatchStreak(
+        if (streakCount == null || streakCount <= 0) return
+        val previous = watchStreak.value
+        val milestoneReached = previous?.nextMilestone?.let {
+            previous.streakCount < it && streakCount >= it
+        } == true
+        mergeWatchStreak(
+            WatchStreak(
                 streakCount = streakCount,
                 nextMilestone = previous?.nextMilestone,
                 rewardPoints = previous?.rewardPoints,
                 pointsAwarded = pointsAwarded,
-                milestoneId = previous?.milestoneId?.takeUnless { milestoneChanged },
-                shareStatus = previous?.shareStatus?.takeUnless { milestoneChanged },
-            )
+                milestoneId = previous?.milestoneId?.takeUnless {
+                    pointsAwarded != null || milestoneReached
+                },
+                shareStatus = previous?.shareStatus?.takeUnless {
+                    pointsAwarded != null || milestoneReached
+                },
+            ),
+            realtime = true,
+        )
+    }
+
+    private fun mergeWatchStreak(incoming: WatchStreak, realtime: Boolean = false) {
+        val previous = watchStreak.value
+        if (previous == null) {
+            watchStreak.value = incoming
+            return
         }
+
+        val staleCount = incoming.streakCount < previous.streakCount
+        val streakCount = maxOf(previous.streakCount, incoming.streakCount)
+        val nextMilestone = incoming.nextMilestone ?: previous.nextMilestone
+        val milestoneReached = previous.nextMilestone?.let {
+            previous.streakCount < it && streakCount >= it
+        } == true
+        val milestoneChanged = realtime && (incoming.pointsAwarded != null || milestoneReached)
+        watchStreak.value = incoming.copy(
+            streakCount = streakCount,
+            nextMilestone = nextMilestone,
+            rewardPoints = incoming.rewardPoints ?: previous.rewardPoints,
+            pointsAwarded = if (staleCount) previous.pointsAwarded else incoming.pointsAwarded ?: previous.pointsAwarded,
+            milestoneId = when {
+                staleCount -> previous.milestoneId
+                milestoneChanged -> incoming.milestoneId
+                else -> incoming.milestoneId ?: previous.milestoneId
+            },
+            shareStatus = when {
+                staleCount -> previous.shareStatus
+                milestoneChanged -> incoming.shareStatus
+                else -> incoming.shareStatus ?: previous.shareStatus
+            },
+        )
     }
 
     private fun JsonElement?.toIntOrNull(): Int? = this?.jsonPrimitive?.content?.toIntOrNull()
@@ -1226,33 +1277,102 @@ class ChatViewModel(
         val milestone = response.data?.channel?.self?.watchStreakMilestone ?: return
         val milestoneValue = milestone.watchStreakMilestone ?: return
         val streakCount = milestoneValue.value.toIntOrNull() ?: return
-        watchStreak.value = WatchStreak(
-            streakCount = streakCount,
-            nextMilestone = milestone.watchStreakThreshold.toIntOrNull(),
-            rewardPoints = milestone.watchStreakCopoBonus.toIntOrNull(),
-            milestoneId = milestoneValue.id,
-            shareStatus = milestoneValue.shareStatus,
+        mergeWatchStreak(
+            WatchStreak(
+                streakCount = streakCount,
+                nextMilestone = milestone.watchStreakThreshold.toIntOrNull(),
+                rewardPoints = milestone.watchStreakCopoBonus.toIntOrNull(),
+                milestoneId = milestoneValue.id,
+                shareStatus = milestoneValue.shareStatus,
+            ),
         )
     }
+
+    private fun watchStreakCount(response: WatchStreakResponse): Int? =
+        response.data?.channel?.self?.watchStreakMilestone?.watchStreakMilestone?.value?.toIntOrNull()
 
     private fun loadWatchStreak(
         networkLibrary: String?,
         gqlHeaders: Map<String, String>,
         channelId: String?,
+        delayMillis: Long = 0L,
     ) {
         if (channelId.isNullOrBlank() || gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             return
         }
         val expectedChannelId = channelId
         val expectedChannelLogin = activeChannelLogin
+        val expectedSession = watchStreakSession
         watchStreakJob?.cancel()
+        watchStreakRetryJob?.cancel()
+        watchStreakRetryJob = null
         watchStreakJob = viewModelScope.launch {
             try {
+                if (delayMillis > 0L) delay(delayMillis)
+                if (watchStreakSession != expectedSession ||
+                    activeChannelId != expectedChannelId ||
+                    activeChannelLogin != expectedChannelLogin
+                ) {
+                    return@launch
+                }
                 val response = graphQLRepository.loadWatchStreak(networkLibrary, gqlHeaders, channelId)
-                if (activeChannelId != expectedChannelId || activeChannelLogin != expectedChannelLogin) {
+                if (watchStreakSession != expectedSession ||
+                    activeChannelId != expectedChannelId ||
+                    activeChannelLogin != expectedChannelLogin
+                ) {
+                    return@launch
+                }
+                val locallyObservedCount = watchStreak.value?.streakCount
+                val responseCount = watchStreakCount(response)
+                updateWatchStreakStatus(response)
+                if (delayMillis > 0L &&
+                    locallyObservedCount != null &&
+                    (responseCount == null || responseCount < locallyObservedCount)
+                ) {
+                    scheduleWatchStreakRetry(
+                        networkLibrary = networkLibrary,
+                        gqlHeaders = gqlHeaders,
+                        channelId = channelId,
+                        expectedChannelId = expectedChannelId,
+                        expectedChannelLogin = expectedChannelLogin,
+                        expectedSession = expectedSession,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun scheduleWatchStreakRetry(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        channelId: String,
+        expectedChannelId: String?,
+        expectedChannelLogin: String?,
+        expectedSession: Long,
+    ) {
+        if (watchStreakRetryJob?.isActive == true) return
+        watchStreakRetryJob = viewModelScope.launch {
+            try {
+                delay(WATCH_STREAK_RECONCILIATION_RETRY_DELAY_MILLIS)
+                if (watchStreakSession != expectedSession ||
+                    activeChannelId != expectedChannelId ||
+                    activeChannelLogin != expectedChannelLogin
+                ) {
+                    return@launch
+                }
+                val response = graphQLRepository.loadWatchStreak(networkLibrary, gqlHeaders, channelId)
+                if (watchStreakSession != expectedSession ||
+                    activeChannelId != expectedChannelId ||
+                    activeChannelLogin != expectedChannelLogin
+                ) {
                     return@launch
                 }
                 updateWatchStreakStatus(response)
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
             }
         }
@@ -1440,7 +1560,7 @@ class ChatViewModel(
                     )
                 } else {
                     watchStreak.value?.takeIf { it.milestoneId == milestoneId }?.let {
-                        watchStreak.value = it.copy(shareStatus = WatchStreak.SHARE_STATUS_SHARED)
+                        mergeWatchStreak(it.copy(shareStatus = WatchStreak.SHARE_STATUS_SHARED))
                     }
                     watchStreakShareEvents.send(
                         WatchStreakShareResult(
@@ -1542,16 +1662,29 @@ class ChatViewModel(
         val isOwnChannel = !channelId.isNullOrBlank() && channelId == accountId
         if (showPolls && !channelId.isNullOrBlank()) {
             PollCache.load(applicationContext.prefs(), channelId)?.let { cached ->
-                poll.value = cached
-                activePoll.value = cached.takeIf { PollState.isActive(it) }
-                usedPollId = cached.id
-                pollClosed = false
-                updatePollTimer(cached)
+                latestPoll = cached
+                val dismissed = PollCache.isDismissed(applicationContext.prefs(), channelId, cached.id)
+                restorePollVoteState(cached, restoreConfirmed = !dismissed && PollState.isActive(cached))
+                if (!dismissed && PollState.isActive(cached)) {
+                    poll.value = cached
+                    activePoll.value = cached
+                    updatePollTimer(cached)
+                } else if (dismissed) {
+                    clearPollParticipation(cached.id)
+                }
             }
         }
         if (showPredictions && !channelId.isNullOrBlank()) {
-            PredictionCache.load(applicationContext.prefs(), channelId, broadcastId = streamId)?.let { cached ->
+            val cached = PredictionCache.load(applicationContext.prefs(), channelId, broadcastId = streamId)
+            if (cached != null) {
                 predictionStateStore.restore(cached, ::publishPrediction)
+            } else if (!streamId.isNullOrBlank()) {
+                ViewerParticipationCache.loadPredictionBet(
+                    preferences = applicationContext.prefs(),
+                    channelId = channelId,
+                    userId = accountId,
+                    broadcastId = streamId,
+                )
             }
         }
         if (isLoggedIn) {
@@ -1645,6 +1778,7 @@ class ChatViewModel(
 
     fun stopLiveChat() {
         _connectionState.value = ConnectionState.IDLE
+        watchStreakSession++
         activeChannelId = null
         activeChannelLogin = null
         synchronized(channelEmotes) {
@@ -1657,18 +1791,22 @@ class ChatViewModel(
         channelPointsJob = null
         watchStreakJob?.cancel()
         watchStreakJob = null
+        watchStreakRetryJob?.cancel()
+        watchStreakRetryJob = null
         channelPoints.value = null
         watchStreak.value = null
-        poll.value = null
-        activePoll.value = null
-        pollSecondsLeft.value = null
-        pollTimer?.cancel()
+        clearPollPresentation()
+        latestPoll = null
         pollTimeoutJob?.cancel()
-        usedPollId = null
+        pollTimeoutJob = null
+        pollTimeoutPollId = null
+        pollVoteJob?.cancel()
+        pollVoteJob = null
+        _pollVoteState.value = PollVoteState()
         predictionStateStore.reset(::clearPredictionState)
         predictionBetJob?.cancel()
         predictionBetJob = null
-        predictionBetInFlight.value = false
+        _predictionBetState.value = PredictionBetState()
         if (started) {
             started = false
             if (chatReadIRCSocket != null) {
@@ -1720,10 +1858,6 @@ class ChatViewModel(
         stopLiveChat()
         usedRaidId = null
         raidClosed = true
-        usedPollId = null
-        pollClosed = true
-        pollSecondsLeft.value = null
-        pollTimer?.cancel()
         viewModelScope.launch {
             synchronized(chatMessages) {
                 val size = chatMessages.size
@@ -1736,9 +1870,6 @@ class ChatViewModel(
         }
         if (!hideRaid.value) {
             hideRaid.value = true
-        }
-        if (!hidePoll.value) {
-            hidePoll.value = true
         }
         roomState.value = RoomState("0", "-1", "0", "0", "0")
         autoReconnect = false
@@ -1773,7 +1904,12 @@ class ChatViewModel(
                     message.tags["msg-param-value"]?.toIntOrNull(),
                     message.tags["msg-param-copoReward"]?.toIntOrNull(),
                 )
-                loadWatchStreak(networkLibrary, gqlHeaders, channelId)
+                loadWatchStreak(
+                    networkLibrary,
+                    gqlHeaders,
+                    channelId,
+                    delayMillis = WATCH_STREAK_RECONCILIATION_DELAY_MILLIS,
+                )
             }
             if (!userNotice || showUserNotice) {
                 val chatMessage = ChatUtils.parseChatMessage(message)
@@ -1880,45 +2016,119 @@ class ChatViewModel(
     }
 
     private fun updatePoll(value: Poll) {
-        val merged = PollState.merge(poll.value, value) ?: return
-        if (merged.id != usedPollId) {
-            usedPollId = merged.id
-            pollClosed = false
+        val previousId = latestPoll?.id
+        val merged = PollState.merge(latestPoll, value) ?: return
+        latestPoll = merged
+        if (merged.id != previousId) {
+            restorePollVoteState(merged, restoreConfirmed = PollState.isActive(merged))
+            pollTimeoutJob?.cancel()
+            pollTimeoutJob = null
+            pollTimeoutPollId = null
         }
-        poll.value = merged
-        activePoll.value = merged.takeIf { PollState.isActive(it) }
-        updatePollTimer(merged)
         activeChannelId?.let { channelId ->
             PollCache.save(applicationContext.prefs(), channelId, merged)
+        }
+        if (activeChannelId?.let { channelId -> PollCache.isDismissed(applicationContext.prefs(), channelId, merged.id) } == true) {
+            clearPollParticipation(merged.id)
+            clearPollPresentation()
+            return
+        }
+        if (PollState.isActive(merged)) {
+            poll.value = merged
+            activePoll.value = merged
+            pollTimeoutJob?.cancel()
+            pollTimeoutJob = null
+            pollTimeoutPollId = null
+            updatePollTimer(merged)
+        } else if (PollState.isTerminal(merged)) {
+            poll.value = merged
+            activePoll.value = null
+            pollSecondsLeft.value = null
+            pollTimerJob?.cancel()
+            pollTimerJob = null
+            schedulePollDismissal(merged.id)
+        } else {
+            clearPollPresentation()
         }
     }
 
     private fun updatePollTimer(value: Poll) {
-        pollTimer?.cancel()
+        pollTimerJob?.cancel()
+        pollTimerJob = null
         val remaining = when {
             value.endsAt != null -> (value.endsAt - System.currentTimeMillis()).coerceAtLeast(0L)
             else -> value.remainingMilliseconds
         }
-        if (PollState.isActive(value) && remaining != null) {
-            val seconds = (remaining / 1000L).toInt().coerceAtLeast(0)
-            pollSecondsLeft.value = seconds
-            if (seconds > 0) {
-                pollTimer = Timer().apply {
-                    scheduleAtFixedRate(1000, 1000) {
-                        val current = pollSecondsLeft.value ?: run {
-                            cancel()
-                            return@scheduleAtFixedRate
+        if (remaining == null) {
+            pollSecondsLeft.value = null
+            return
+        }
+        if (!PollState.isActive(value)) {
+            if (latestPoll?.id == value.id) {
+                clearPollPresentation()
+            }
+            return
+        }
+        val pollId = value.id
+        val seconds = (remaining / 1000L).toInt().coerceAtLeast(0)
+        pollSecondsLeft.value = seconds
+        if (seconds > 0 && !pollId.isNullOrBlank()) {
+            pollTimerJob = viewModelScope.launch {
+                var current = seconds
+                while (isActive && latestPoll?.id == pollId) {
+                    if (current <= 0 || !PollState.isActive(latestPoll)) {
+                        if (latestPoll?.id == pollId) {
+                            clearPollPresentation()
                         }
-                        pollSecondsLeft.value = (current - 1).coerceAtLeast(0)
-                        if (current <= 1) {
-                            activePoll.value = null
-                            cancel()
-                        }
+                        return@launch
                     }
+                    pollSecondsLeft.value = current
+                    delay(1_000L)
+                    current = (current - 1).coerceAtLeast(0)
                 }
             }
         } else {
-            pollSecondsLeft.value = null
+            clearPollPresentation()
+        }
+    }
+
+    private fun clearPollPresentation() {
+        pollTimerJob?.cancel()
+        pollTimerJob = null
+        poll.value = null
+        activePoll.value = null
+        pollSecondsLeft.value = null
+    }
+
+    private fun restorePollVoteState(poll: Poll, restoreConfirmed: Boolean) {
+        val channelId = activeChannelId
+        val userId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
+        val stored = channelId?.let {
+            ViewerParticipationCache.loadPollVote(
+                preferences = applicationContext.prefs(),
+                channelId = it,
+                userId = userId,
+            )
+        }
+        val restored = stored?.takeIf { restoreConfirmed && it.pollId == poll.id }
+        if (stored != null && restored == null && !channelId.isNullOrBlank()) {
+            ViewerParticipationCache.clearPollVote(applicationContext.prefs(), channelId)
+        }
+        _pollVoteState.value = restored?.let {
+            PollVoteState(
+                pollId = poll.id,
+                selectedChoiceId = it.choiceId,
+            )
+        } ?: PollVoteState(pollId = poll.id)
+    }
+
+    private fun clearPollParticipation(pollId: String?) {
+        val channelId = activeChannelId
+        if (!channelId.isNullOrBlank()) {
+            ViewerParticipationCache.clearPollVote(applicationContext.prefs(), channelId)
+        }
+        if (_pollVoteState.value.pollId == pollId) {
+            _pollVoteState.value = PollVoteState()
         }
     }
 
@@ -1934,6 +2144,7 @@ class ChatViewModel(
     }
 
     private fun publishPrediction(value: Prediction) {
+        restorePredictionBetState(value)
         prediction.value = value
         ongoingPrediction.value = value.takeIf { PredictionState.isOngoing(it) }
         bettablePrediction.value = value.takeIf { PredictionState.isBettingOpen(it) }
@@ -1949,6 +2160,7 @@ class ChatViewModel(
     }
 
     private fun clearPredictionState() {
+        _predictionBetState.value = PredictionBetState()
         prediction.value = null
         ongoingPrediction.value = null
         bettablePrediction.value = null
@@ -1958,6 +2170,31 @@ class ChatViewModel(
         predictionDeadlineJob?.cancel()
         predictionDeadlineJob = null
         predictionDeadlineToken = null
+    }
+
+    private fun restorePredictionBetState(prediction: Prediction) {
+        if (!prediction.id.isNullOrBlank() && _predictionBetState.value.predictionId == prediction.id) return
+        val channelId = activeChannelId
+        val userId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
+        val stored = channelId?.let {
+            ViewerParticipationCache.loadPredictionBet(
+                preferences = applicationContext.prefs(),
+                channelId = it,
+                userId = userId,
+                broadcastId = streamId,
+            )
+        }
+        val restored = stored?.takeIf { it.predictionId == prediction.id }
+        if (stored != null && restored == null && !channelId.isNullOrBlank()) {
+            ViewerParticipationCache.clearPredictionBet(applicationContext.prefs(), channelId)
+        }
+        _predictionBetState.value = restored?.let {
+            PredictionBetState(
+                predictionId = prediction.id,
+                outcomeId = it.outcomeId,
+                amount = it.amount,
+            )
+        } ?: PredictionBetState(predictionId = prediction.id)
     }
 
     private fun updatePredictionTimer(value: Prediction) {
@@ -2142,7 +2379,12 @@ class ChatViewModel(
                     streak?.optInt("streak_count")?.takeIf { it > 0 },
                     streak?.optInt("channel_points_awarded")?.takeIf { it > 0 },
                 )
-                loadWatchStreak(networkLibrary, gqlHeaders, channelId)
+                loadWatchStreak(
+                    networkLibrary,
+                    gqlHeaders,
+                    channelId,
+                    delayMillis = WATCH_STREAK_RECONCILIATION_DELAY_MILLIS,
+                )
             }
             if (showUserNotice) {
                 onChatMessage(EventSubUtils.parseUserNotice(event, timestamp), networkLibrary, isLoggedIn, accountId, channelId)
@@ -2634,19 +2876,101 @@ class ChatViewModel(
         }
     }
 
-    /**
-     * Twitch poll votes are chat commands, not chat message API content. Only
-     * expose voting when a raw IRC/WebSocket writer exists, so a literal
-     * "/vote N" can never be sent through Helix/GQL as ordinary chat text.
-     */
-    fun canVotePoll(): Boolean = chatWriteIRCSocket != null || chatWriteWebSocket != null
+    fun canVotePoll(): Boolean {
+        val current = activePoll.value ?: return false
+        val pollId = current.id
+        val userId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
+        val token = TwitchApiHelper.getGQLHeaders(applicationContext, true)[C.HEADER_TOKEN]
+        val state = _pollVoteState.value
+        return PollState.isActive(current) &&
+                !pollId.isNullOrBlank() &&
+                !userId.isNullOrBlank() &&
+                !token.isNullOrBlank() &&
+                state.pollId == pollId &&
+                !state.inFlight &&
+                state.selectedChoiceId.isNullOrBlank()
+    }
 
-    fun votePoll(choiceIndex: Int) {
+    fun votePoll(choiceId: String) {
         val current = activePoll.value ?: return
-        if (!PollState.isActive(current) || choiceIndex !in current.choices.orEmpty().indices) return
-        val command = "/vote ${choiceIndex + 1}"
-        viewModelScope.launch(Dispatchers.IO) {
-            chatWriteIRCSocket?.send(command, null) ?: chatWriteWebSocket?.send(command, null)
+        val pollId = current.id
+        val userId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
+        if (!PollState.isActive(current) ||
+            pollId.isNullOrBlank() ||
+            userId.isNullOrBlank() ||
+            choiceId.isBlank() ||
+            current.choices.orEmpty().none { it.id == choiceId } ||
+            !canVotePoll()
+        ) {
+            return
+        }
+
+        val channelId = activeChannelId
+        val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        val headers = TwitchApiHelper.getGQLHeaders(applicationContext, true)
+        _pollVoteState.value = PollVoteState(
+            pollId = pollId,
+            pendingChoiceId = choiceId,
+            inFlight = true,
+        )
+        pollVoteJob?.cancel()
+        pollVoteJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val response = graphQLRepository.voteInPoll(
+                    networkLibrary = networkLibrary,
+                    headers = headers,
+                    pollId = pollId,
+                    choiceId = choiceId,
+                    userId = userId,
+                )
+                val errorMessage = response.errors?.firstOrNull()?.let {
+                    it.message ?: it.code()
+                } ?: response.data?.errorCode()
+                val success = response.errors.isNullOrEmpty() &&
+                        response.data?.hasPayload() == true &&
+                        response.data.hasError() == false
+                if (activeChannelId == channelId && _pollVoteState.value.pollId == pollId) {
+                    _pollVoteState.value = if (success) {
+                        channelId?.let { currentChannelId ->
+                            ViewerParticipationCache.savePollVote(
+                                preferences = applicationContext.prefs(),
+                                channelId = currentChannelId,
+                                pollId = pollId,
+                                choiceId = choiceId,
+                                userId = userId,
+                            )
+                        }
+                        PollVoteState(
+                            pollId = pollId,
+                            selectedChoiceId = choiceId,
+                        )
+                    } else {
+                        _pollVoteState.value.copy(
+                            pendingChoiceId = null,
+                            inFlight = false,
+                            error = errorMessage ?: "Twitch rejected the poll vote",
+                        )
+                    }
+                    pollVoteEvents.send(
+                        PollVoteResult(
+                            success = success,
+                            message = if (success) null else errorMessage ?: "Twitch rejected the poll vote",
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (activeChannelId == channelId && _pollVoteState.value.pollId == pollId) {
+                    val message = e.message ?: "Poll vote request failed"
+                    _pollVoteState.value = _pollVoteState.value.copy(
+                        pendingChoiceId = null,
+                        inFlight = false,
+                        error = message,
+                    )
+                    pollVoteEvents.send(PollVoteResult(success = false, message = message))
+                }
+            }
         }
     }
 
@@ -2657,7 +2981,7 @@ class ChatViewModel(
      */
     fun canBetPrediction(): Boolean {
         val current = bettablePrediction.value ?: return false
-        if (predictionBetInFlight.value || !PredictionState.isBettingOpen(current) || current.id.isNullOrBlank()) return false
+        if (!PredictionState.isBettingOpen(current) || current.id.isNullOrBlank()) return false
         return !TwitchApiHelper.getGQLHeaders(applicationContext, true)[C.HEADER_TOKEN].isNullOrBlank()
     }
 
@@ -2665,46 +2989,79 @@ class ChatViewModel(
         val current = bettablePrediction.value ?: return
         val predictionId = current.id
         val channelLogin = activeChannelLogin
+        val userId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
         val balance = channelPoints.value?.balance
-        if (predictionBetInFlight.value || !canBetPrediction() || predictionId.isNullOrBlank() || outcomeId.isBlank()) return
+        val previous = _predictionBetState.value
+        if ((previous.predictionId == predictionId &&
+                    (previous.inFlight || !previous.outcomeId.isNullOrBlank())) ||
+            !canBetPrediction() ||
+            predictionId.isNullOrBlank() ||
+            outcomeId.isBlank() ||
+            current.outcomes.orEmpty().none { it.id == outcomeId }
+        ) return
         if (points !in MIN_PREDICTION_POINTS..MAX_PREDICTION_POINTS || (balance != null && points > balance)) return
 
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val headers = TwitchApiHelper.getGQLHeaders(applicationContext, true)
-        predictionBetInFlight.value = true
+        _predictionBetState.value = PredictionBetState(
+            predictionId = predictionId,
+            outcomeId = outcomeId,
+            amount = points,
+            inFlight = true,
+        )
         predictionBetJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val response = runCatching {
-                    graphQLRepository.makePrediction(
-                        networkLibrary = networkLibrary,
-                        headers = headers,
-                        predictionId = predictionId,
-                        outcomeId = outcomeId,
-                        points = points,
-                    )
-                }.getOrElse { error ->
-                    if (error is CancellationException) throw error
-                    predictionBetEvents.send(
-                        PredictionBetResult(
-                            success = false,
-                            message = error.message,
-                        ),
-                    )
-                    return@launch
+                val response = graphQLRepository.makePrediction(
+                    networkLibrary = networkLibrary,
+                    headers = headers,
+                    predictionId = predictionId,
+                    outcomeId = outcomeId,
+                    points = points,
+                )
+                val errorMessage = response.errors?.firstOrNull()?.let {
+                    it.message ?: it.code()
                 }
-                val errorMessage = response.errors?.firstOrNull()?.message
                     ?: response.data?.errorMessage()
                     ?: response.data?.errorCode()
                 val success = response.errors.isNullOrEmpty() &&
                         response.data?.hasPayload() == true &&
-                        response.data.errorCode().isNullOrBlank()
-                predictionBetEvents.send(
-                    PredictionBetResult(
-                        success = success,
-                        message = if (success) null else errorMessage,
-                    ),
-                )
-                if (success) {
+                        response.data.hasError() == false
+                if (activeChannelLogin == channelLogin && _predictionBetState.value.predictionId == predictionId) {
+                    _predictionBetState.value = if (success) {
+                        activeChannelId?.let { channelId ->
+                            userId?.takeIf { it.isNotBlank() }?.let { currentUserId ->
+                                ViewerParticipationCache.savePredictionBet(
+                                    preferences = applicationContext.prefs(),
+                                    channelId = channelId,
+                                    predictionId = predictionId,
+                                    outcomeId = outcomeId,
+                                    amount = points,
+                                    userId = currentUserId,
+                                    broadcastId = streamId,
+                                )
+                            }
+                        }
+                        PredictionBetState(
+                            predictionId = predictionId,
+                            outcomeId = outcomeId,
+                            amount = points,
+                        )
+                    } else {
+                        _predictionBetState.value.copy(
+                            outcomeId = null,
+                            amount = null,
+                            inFlight = false,
+                            error = errorMessage ?: "Twitch rejected the prediction",
+                        )
+                    }
+                    predictionBetEvents.send(
+                        PredictionBetResult(
+                            success = success,
+                            message = if (success) null else errorMessage ?: "Twitch rejected the prediction",
+                        ),
+                    )
+                }
+                if (success && activeChannelLogin == channelLogin) {
                     loadChannelPoints(
                         networkLibrary = networkLibrary,
                         gqlHeaders = headers,
@@ -2712,20 +3069,50 @@ class ChatViewModel(
                         enableIntegrity = applicationContext.prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (activeChannelLogin == channelLogin && _predictionBetState.value.predictionId == predictionId) {
+                    val message = e.message ?: "Prediction request failed"
+                    _predictionBetState.value = _predictionBetState.value.copy(
+                        outcomeId = null,
+                        amount = null,
+                        inFlight = false,
+                        error = message,
+                    )
+                    predictionBetEvents.send(PredictionBetResult(success = false, message = message))
+                }
             } finally {
-                predictionBetInFlight.value = false
                 predictionBetJob = null
             }
         }
     }
 
-    fun startPollTimeout(hide: () -> Unit) {
+    private fun schedulePollDismissal(pollId: String?) {
+        if (pollId.isNullOrBlank()) return
+        if (pollTimeoutPollId == pollId && pollTimeoutJob?.isActive == true) return
         pollTimeoutJob?.cancel()
+        pollTimeoutPollId = pollId
         pollTimeoutJob = viewModelScope.launch {
-            delay(20.seconds)
-            activePoll.value = null
-            hide()
+            delay(20_000L)
+            if (latestPoll?.id == pollId && PollState.isTerminal(latestPoll)) {
+                dismissPoll()
+            }
         }
+    }
+
+    fun dismissPoll() {
+        val pollId = latestPoll?.id ?: poll.value?.id
+        val channelId = activeChannelId
+        if (!pollId.isNullOrBlank() && !channelId.isNullOrBlank()) {
+            PollCache.dismiss(applicationContext.prefs(), channelId, pollId)
+            ViewerParticipationCache.clearPollVote(applicationContext.prefs(), channelId)
+        }
+        pollTimeoutJob?.cancel()
+        pollTimeoutJob = null
+        pollTimeoutPollId = null
+        _pollVoteState.value = PollVoteState()
+        clearPollPresentation()
     }
 
     fun send(message: CharSequence, replyId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, accountId: String?, channelId: String?, channelLogin: String?, useApiCommands: Boolean, useApiChatMessages: Boolean, enableIntegrity: Boolean) {
@@ -4147,6 +4534,8 @@ class ChatViewModel(
     }
 
     companion object {
+        private const val WATCH_STREAK_RECONCILIATION_DELAY_MILLIS = 750L
+        private const val WATCH_STREAK_RECONCILIATION_RETRY_DELAY_MILLIS = 3_000L
         private const val METERED_CACHE_MAX_AGE_MS = 604_800_000L
         private const val MAX_BADGE_CACHE_FILES = 100
         private const val DEFAULT_REWARD_COLOR = "#9146FF"

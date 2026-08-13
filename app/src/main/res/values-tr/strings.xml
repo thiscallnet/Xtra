@@ -430,14 +430,10 @@
     <string name="stv_live_updates">7TV canlı ifade güncellemeleri</string>
     <string name="personal_stv_emote">Kişisel 7TV ifadesi</string>
     <string name="show_polls">Anketleri göster</string>
-    <string name="poll_title">Mevcut anket: %s</string>
-    <string name="remaining_time">Kalan süre %s</string>
     <string name="show_predictions">Tahminleri göster</string>
     <string name="prediction_title">Mevcut tahmin: %s</string>
     <string name="prediction_locked">Kilitli</string>
     <string name="prediction_refunded">İade edildi</string>
-    <string name="poll_choice">%1$d%% (%2$s): %3$s</string>
-    <string name="poll_choice_winner">🏆%1$d%% (%2$s): %3$s</string>
     <string name="prediction_outcome">%1$d%% (%2$s💎, %3$s👥): %4$s</string>
     <string name="prediction_outcome_winner">🏆%1$d%% (%2$s💎, %3$s👥): %4$s</string>
     <string name="api_token_settings">API token ayarları</string>

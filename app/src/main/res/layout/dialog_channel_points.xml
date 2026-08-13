@@ -189,13 +189,31 @@
                 android:orientation="vertical"
                 android:padding="12dp">
 
-                <TextView
-                    android:id="@+id/pollCardTitle"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textAppearance="?attr/textAppearanceTitleSmall"
-                    android:textStyle="bold"
-                    tools:text="Poll · Which game next?" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/pollCardTitle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textStyle="bold"
+                        tools:text="Poll · Which game next?" />
+
+                    <ImageButton
+                        android:id="@+id/pollDismiss"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="?android:selectableItemBackgroundBorderless"
+                        android:contentDescription="@string/chat_close_poll"
+                        android:padding="8dp"
+                        android:src="@drawable/baseline_close_black_36"
+                        app:tint="?attr/colorControlNormal" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/pollCardStatus"
@@ -418,23 +436,6 @@
             android:layout_marginTop="6dp"
             android:columnCount="3"
             android:useDefaultMargins="false" />
-
-        <TextView
-            android:id="@+id/votingTitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="@string/channel_points_voting"
-            android:textAppearance="?attr/textAppearanceTitleSmall"
-            android:textStyle="bold"
-            android:visibility="gone" />
-
-        <LinearLayout
-            android:id="@+id/votingList"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="vertical" />
 
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

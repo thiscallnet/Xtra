@@ -76,6 +76,7 @@ import com.github.andreyasadchy.xtra.model.gql.chat.EmoteCardResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.GlobalCheerEmotesResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.MakePredictionResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.ModeratorsResponse
+import com.github.andreyasadchy.xtra.model.gql.chat.PollVoteResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.UserEmotesResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.VipsResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.WatchStreakResponse
@@ -156,18 +157,6 @@ class GraphQLRepository(
         mutation RedeemCommunityPointsCustomReward(${'$'}input: RedeemCommunityPointsCustomRewardInput!) {
             redeemCommunityPointsCustomReward(input: ${'$'}input) {
                 error { code }
-            }
-        }
-    """.trimIndent()
-
-    // Twitch's web client uses this private mutation for viewer predictions.
-    // Keep it behind the existing GQL repository so it never falls back to
-    // posting a slash command as ordinary chat text.
-    private val makePredictionMutation = """
-        mutation MakePrediction(${'$'}input: MakePredictionInput!) {
-            makePrediction(input: ${'$'}input) {
-                error { code message }
-                prediction { id }
             }
         }
     """.trimIndent()
@@ -1571,6 +1560,28 @@ class GraphQLRepository(
         json.decodeFromString<WatchStreakResponse>(sendPersistedQuery(networkLibrary, headers, body))
     }
 
+    suspend fun voteInPoll(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        pollId: String,
+        choiceId: String,
+        userId: String,
+    ): PollVoteResponse = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("operationName", TwitchGqlOperations.VOTE_IN_POLL_NAME)
+            put("query", TwitchGqlOperations.VOTE_IN_POLL_QUERY)
+            putJsonObject("variables") {
+                putJsonObject("input") {
+                    put("choiceID", choiceId)
+                    put("pollID", pollId)
+                    put("userID", userId)
+                    put("voteID", newViewerTransactionId())
+                }
+            }
+        }.toString()
+        json.decodeFromString<PollVoteResponse>(sendPersistedQuery(networkLibrary, headers, body))
+    }
+
     suspend fun shareWatchStreak(
         networkLibrary: String?,
         headers: Map<String, String>,
@@ -1660,19 +1671,28 @@ class GraphQLRepository(
         points: Int,
     ): MakePredictionResponse = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
-            put("operationName", "MakePrediction")
-            put("query", makePredictionMutation)
+            putJsonObject("extensions") {
+                putJsonObject("persistedQuery") {
+                    put("sha256Hash", TwitchGqlOperations.MAKE_PREDICTION_HASH)
+                    put("version", 1)
+                }
+            }
+            put("operationName", TwitchGqlOperations.MAKE_PREDICTION_NAME)
             putJsonObject("variables") {
                 putJsonObject("input") {
                     put("eventID", predictionId)
                     put("outcomeID", outcomeId)
                     put("points", points)
-                    put("transactionID", Uuid.random().toString())
+                    put("transactionID", newViewerTransactionId())
                 }
             }
         }.toString()
         json.decodeFromString<MakePredictionResponse>(sendPersistedQuery(networkLibrary, headers, body))
     }
+
+    private fun newViewerTransactionId(): String = ByteArray(16).also {
+        java.security.SecureRandom().nextBytes(it)
+    }.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
     suspend fun loadClaimPoints(networkLibrary: String?, headers: Map<String, String>, channelId: String?, claimId: String?): ErrorResponse = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
