@@ -21,6 +21,7 @@ import java.time.temporal.ChronoUnit
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.uuid.Uuid
 
 object TwitchApiHelper {
 
@@ -280,6 +281,30 @@ object TwitchApiHelper {
                     }
                     put(C.HEADER_TOKEN, addTokenPrefixGQL(gqlWebToken))
                 }
+            }
+        }
+    }
+
+    /**
+     * Headers for private operations used by the Twitch web channel page.
+     * Keep these separate from the TV/integrity GQL identity: web operations
+     * can reject an otherwise valid client identity, while this prediction
+     * lookup also works without an Authorization header.
+     */
+    fun getWebGQLHeaders(context: Context, includeToken: Boolean = true): Map<String, String> {
+        return mutableMapOf(
+            C.HEADER_CLIENT_ID to (context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
+                ?: C.DEFAULT_GQL_CLIENT_ID_WEB),
+            "Client-Session-Id" to Uuid.random().toString(),
+            "X-Device-Id" to Uuid.random().toHexString(),
+            "Origin" to "https://www.twitch.tv",
+            "Referer" to "https://www.twitch.tv/",
+            "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+        ).apply {
+            if (includeToken) {
+                context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { put(C.HEADER_TOKEN, addTokenPrefixGQL(it)) }
             }
         }
     }

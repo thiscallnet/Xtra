@@ -60,6 +60,8 @@ import com.github.andreyasadchy.xtra.util.chat.EventSubChatConnectionState
 import com.github.andreyasadchy.xtra.util.chat.EventSubChatConnectionStatus
 import com.github.andreyasadchy.xtra.util.chat.EventSubUtils
 import com.github.andreyasadchy.xtra.util.chat.EventSubWebSocket
+import com.github.andreyasadchy.xtra.util.chat.GqlPredictionParser
+import com.github.andreyasadchy.xtra.util.chat.GqlPredictionSnapshot
 import com.github.andreyasadchy.xtra.util.chat.HermesWebSocket
 import com.github.andreyasadchy.xtra.util.chat.PollCache
 import com.github.andreyasadchy.xtra.util.chat.PollState
@@ -157,6 +159,9 @@ class ChatViewModel(
     private var pollTimeoutPollId: String? = null
     private var pollVoteJob: Job? = null
     private var predictionBetJob: Job? = null
+    private var predictionSnapshotJob: Job? = null
+    private var predictionSessionToken = 0L
+    private var predictionSubscriptionSessionToken: Long? = null
     private var started = false
     private var activeChannelId: String? = null
     private var activeChannelLogin: String? = null
@@ -1639,6 +1644,7 @@ class ChatViewModel(
 
     fun startLiveChat(channelId: String?, channelLogin: String) {
         stopLiveChat()
+        val sessionToken = predictionSessionToken
         started = true
         _connectionState.value = ConnectionState.CONNECTING
         activeChannelId = channelId
@@ -1676,8 +1682,12 @@ class ChatViewModel(
         }
         if (showPredictions && !channelId.isNullOrBlank()) {
             val cached = PredictionCache.load(applicationContext.prefs(), channelId, broadcastId = streamId)
-            if (cached != null) {
+            if (cached != null &&
+                (!PredictionState.isFinal(cached) || PredictionState.isFreshFinalForDisplay(cached))
+            ) {
                 predictionStateStore.restore(cached, ::publishPrediction)
+            } else if (cached != null) {
+                PredictionCache.clear(applicationContext.prefs(), channelId)
             } else if (!streamId.isNullOrBlank()) {
                 ViewerParticipationCache.loadPredictionBet(
                     preferences = applicationContext.prefs(),
@@ -1686,6 +1696,9 @@ class ChatViewModel(
                     broadcastId = streamId,
                 )
             }
+        }
+        if (showPredictions) {
+            loadCurrentPredictionSnapshot(networkLibrary, channelLogin, channelId, sessionToken)
         }
         if (isLoggedIn) {
             loadChannelPoints(networkLibrary, gqlHeaders, channelLogin, enableIntegrity)
@@ -1737,7 +1750,7 @@ class ChatViewModel(
                 showPolls = showPolls,
                 showPredictions = showPredictions,
                 trustManager = trustManager,
-                listener = PubSubListener(channelLogin, collectPoints, notifyPoints, showRaids, showPolls, showPredictions, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId, enableIntegrity, showWebSocketDebugInfo)
+                listener = PubSubListener(channelLogin, collectPoints, notifyPoints, showRaids, showPolls, showPredictions, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId, enableIntegrity, showWebSocketDebugInfo, sessionToken)
             )
             pubSubJob = hermesWebSocket?.connect(viewModelScope)
         }
@@ -1777,6 +1790,9 @@ class ChatViewModel(
     }
 
     fun stopLiveChat() {
+        predictionSessionToken += 1
+        predictionSnapshotJob?.cancel()
+        predictionSnapshotJob = null
         _connectionState.value = ConnectionState.IDLE
         watchStreakSession++
         activeChannelId = null
@@ -2132,9 +2148,17 @@ class ChatViewModel(
         }
     }
 
-    private fun updatePrediction(value: Prediction, sourceChannelId: String? = activeChannelId) {
+    private fun updatePrediction(
+        value: Prediction,
+        sourceChannelId: String? = activeChannelId,
+        sourceChannelLogin: String? = null,
+        sourceSessionToken: Long? = null,
+    ) {
         predictionStateStore.withLock {
-            if (sourceChannelId != null && sourceChannelId != activeChannelId) return@withLock
+            if ((sourceChannelId != null && sourceChannelId != activeChannelId) ||
+                (sourceChannelLogin != null && sourceChannelLogin != activeChannelLogin) ||
+                (sourceSessionToken != null && sourceSessionToken != predictionSessionToken)
+            ) return@withLock
             predictionStateStore.update(
                 incoming = value,
                 normalize = PredictionState::normalizeLive,
@@ -2410,6 +2434,97 @@ class ChatViewModel(
         }
     }
 
+    private fun loadCurrentPredictionSnapshot(
+        networkLibrary: String?,
+        channelLogin: String,
+        channelId: String?,
+        sessionToken: Long,
+    ) {
+        if (sessionToken != predictionSessionToken || activeChannelLogin != channelLogin) return
+        predictionSnapshotJob?.cancel()
+        val authenticatedHeaders = TwitchApiHelper.getWebGQLHeaders(applicationContext, includeToken = true)
+        predictionSnapshotJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val snapshotRequestedAt = System.currentTimeMillis()
+                val authenticatedSnapshot = GqlPredictionParser.parse(
+                    graphQLRepository.loadChannelPointsPredictionContext(
+                        networkLibrary,
+                        authenticatedHeaders,
+                        channelLogin,
+                    ),
+                    snapshotRequestedAt,
+                )
+                var snapshot = authenticatedSnapshot
+                if ((authenticatedSnapshot == null || !authenticatedSnapshot.hasActiveOrLockedPrediction) &&
+                    !authenticatedHeaders[C.HEADER_TOKEN].isNullOrBlank()
+                ) {
+                    val anonymousSnapshot = GqlPredictionParser.parse(
+                        graphQLRepository.loadChannelPointsPredictionContext(
+                            networkLibrary,
+                            TwitchApiHelper.getWebGQLHeaders(applicationContext, includeToken = false),
+                            channelLogin,
+                        ),
+                        snapshotRequestedAt,
+                    )
+                    snapshot = choosePredictionSnapshot(authenticatedSnapshot, anonymousSnapshot)
+                }
+                if (sessionToken != predictionSessionToken || activeChannelLogin != channelLogin || snapshot == null) {
+                    return@launch
+                }
+                val prediction = snapshot.prediction
+                if (prediction != null) {
+                    updatePrediction(
+                        prediction,
+                        sourceChannelId = channelId,
+                        sourceChannelLogin = channelLogin,
+                        sourceSessionToken = sessionToken,
+                    )
+                }
+                if (snapshot.authoritative && !snapshot.hasActiveOrLockedPrediction) {
+                    clearStalePrediction(channelId, channelLogin, sessionToken, snapshotRequestedAt)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Hermes remains the primary live path; a snapshot failure is harmless.
+            }
+        }
+    }
+
+    private fun choosePredictionSnapshot(
+        authenticatedSnapshot: GqlPredictionSnapshot?,
+        anonymousSnapshot: GqlPredictionSnapshot?,
+    ): GqlPredictionSnapshot? = listOfNotNull(authenticatedSnapshot, anonymousSnapshot)
+        .maxByOrNull { snapshot ->
+            when {
+                snapshot.hasActiveOrLockedPrediction -> 3
+                snapshot.authoritative -> 2
+                snapshot.prediction != null -> 1
+                else -> 0
+            }
+        }
+
+    private fun clearStalePrediction(
+        channelId: String?,
+        channelLogin: String,
+        sessionToken: Long,
+        notAfter: Long,
+    ) {
+        val cleared = predictionStateStore.clearIf(
+            {
+                sessionToken == predictionSessionToken &&
+                        channelLogin == activeChannelLogin &&
+                        ((PredictionState.isOngoing(it) &&
+                                (it.observedAt == null || it.observedAt <= notAfter)) ||
+                                PredictionState.isFinal(it) && !PredictionState.isFreshFinalForDisplay(it))
+            },
+            ::clearPredictionState,
+        )
+        if (cleared && !channelId.isNullOrBlank() && activeChannelId == channelId) {
+            PredictionCache.clear(applicationContext.prefs(), channelId)
+        }
+    }
+
     private inner class PubSubListener(
         private val channelLogin: String,
         private val collectPoints: Boolean,
@@ -2424,10 +2539,20 @@ class ChatViewModel(
         private val channelId: String?,
         private val enableIntegrity: Boolean,
         private val showWebSocketDebugInfo: Boolean,
+        private val sessionToken: Long,
     ) : HermesWebSocket.Listener {
         override suspend fun onConnect() {
             if (showWebSocketDebugInfo) {
                 onMessage(ChatMessage(systemMsg = ContextCompat.getString(applicationContext, R.string.websocket_connected).format("PubSub")))
+            }
+        }
+
+        override suspend fun onSubscriptionsSent() {
+            if (!showPredictions || sessionToken != predictionSessionToken || activeChannelLogin != channelLogin) return
+            if (predictionSubscriptionSessionToken == sessionToken) {
+                loadCurrentPredictionSnapshot(networkLibrary, channelLogin, channelId, sessionToken)
+            } else {
+                predictionSubscriptionSessionToken = sessionToken
             }
         }
 
@@ -2560,7 +2685,12 @@ class ChatViewModel(
         override suspend fun onPredictionUpdate(message: JSONObject) {
             if (showPredictions && channelId == activeChannelId) {
                 PubSubUtils.onPredictionUpdate(message)?.let {
-                    updatePrediction(it, sourceChannelId = channelId)
+                    updatePrediction(
+                        it,
+                        sourceChannelId = channelId,
+                        sourceChannelLogin = channelLogin,
+                        sourceSessionToken = sessionToken,
+                    )
                 }
             }
         }

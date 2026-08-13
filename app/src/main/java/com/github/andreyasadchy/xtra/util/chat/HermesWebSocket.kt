@@ -96,6 +96,7 @@ class HermesWebSocket(
             }.toString()
             webSocket?.write(subscribe)
         }
+        listener.onSubscriptionsSent()
     }
 
     private suspend fun startPongTimer() = withContext(Dispatchers.IO) {
@@ -120,6 +121,8 @@ class HermesWebSocket(
 
     interface Listener {
         suspend fun onConnect() {}
+        /** Called after every topic (re-)subscription message has been sent. */
+        suspend fun onSubscriptionsSent() {}
         suspend fun onPlaybackMessage(message: JSONObject) {}
         suspend fun onStreamInfo(message: JSONObject) {}
         suspend fun onRewardMessage(message: JSONObject) {}
