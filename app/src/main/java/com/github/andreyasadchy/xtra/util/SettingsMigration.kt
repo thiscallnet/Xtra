@@ -13,6 +13,7 @@ import androidx.core.content.edit
 object SettingsMigration {
 
     private const val DEFAULT_SPEEDS = "0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0,3.0,4.0,8.0"
+    private const val DEFAULT_CHAT_WIDTH_PERCENT = 30
     private const val TIMESTAMP_FORMAT_SCHEMA_VERSION = 1
 
     /** Settings reset deliberately names the keys it owns; authentication and app data are separate. */
@@ -42,6 +43,7 @@ object SettingsMigration {
         C.SETTINGS_PLAYER_SPEED_OPTIONS,
         C.SETTINGS_DEVELOPER_UNLOCKED,
         C.SETTINGS_DEVELOPER_ENABLED,
+        C.CHAT_WIDTH_PERCENT,
         C.LANDSCAPE_CHAT_WIDTH,
         C.KEY_CHAT_OPENED,
         C.KEY_CHAT_BAR_VISIBLE,
@@ -300,8 +302,25 @@ object SettingsMigration {
         migrate(context, freshInstall = true)
     }
 
-    fun migrate(context: Context, freshInstall: Boolean? = null) {
+    fun migrate(context: Context, freshInstall: Boolean? = null): Boolean {
         migratePreferences(context.rawPrefs(), freshInstall)
+        return synchronizeLandscapeChatWidth(context)
+    }
+
+    /** Keeps the player-facing pixel value in sync with the percentage setting. */
+    fun synchronizeLandscapeChatWidth(context: Context, percentage: Int? = null): Boolean {
+        val preferences = context.rawPrefs()
+        val chatWidthPercent = percentage
+            ?: preferences.getInt(C.CHAT_WIDTH_PERCENT, DEFAULT_CHAT_WIDTH_PERCENT)
+        val displayMetrics = context.resources.displayMetrics
+        val landscapePixels =
+            (maxOf(displayMetrics.widthPixels, displayMetrics.heightPixels) * (chatWidthPercent / 100f)).toInt()
+        if (preferences.getInt(C.LANDSCAPE_CHAT_WIDTH, 0) == landscapePixels) return false
+
+        preferences.edit {
+            putInt(C.LANDSCAPE_CHAT_WIDTH, landscapePixels)
+        }
+        return true
     }
 
     internal fun migratePreferences(preferences: SharedPreferences, freshInstall: Boolean? = null) {
