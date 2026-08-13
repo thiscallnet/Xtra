@@ -122,8 +122,8 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        SettingsMigration.migrate(this)
-        if (savedInstanceState?.getBoolean(KEY_CHANGED) == true) {
+        val landscapeChatWidthChanged = SettingsMigration.migrate(this)
+        if (landscapeChatWidthChanged || savedInstanceState?.getBoolean(KEY_CHANGED) == true) {
             setResult()
         }
         applyTheme()
@@ -1048,6 +1048,18 @@ class SettingsActivity : AppCompatActivity() {
         private fun configureChatSizePreferences() {
             appendCustomListValue(findPreference(C.CHAT_TEXT_SIZE), "sp")
             appendCustomListValue(findPreference(C.CHAT_EMOTE_SIZE), "dp")
+            findPreference<SeekBarPreference>(C.CHAT_WIDTH_PERCENT)?.apply {
+                if (SettingsMigration.synchronizeLandscapeChatWidth(requireContext(), value)) {
+                    (requireActivity() as? SettingsActivity)?.setResult()
+                }
+                setOnPreferenceChangeListener { _, newValue ->
+                    SettingsMigration.synchronizeLandscapeChatWidth(requireContext(), newValue as Int)
+
+                    (requireActivity() as? SettingsActivity)?.setResult()
+
+                    true
+                }
+            }
         }
 
         private fun configureLiveDownloadPreferences() {

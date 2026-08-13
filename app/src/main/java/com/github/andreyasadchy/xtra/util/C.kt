@@ -77,6 +77,7 @@ object C {
     const val SETTINGS_PLAYER_SPEED_OPTIONS = "player_speed_options"
     const val SETTINGS_DEVELOPER_UNLOCKED = "developer_options_unlocked"
     const val SETTINGS_DEVELOPER_ENABLED = "developer_options_enabled"
+    const val CHAT_WIDTH_PERCENT = "chatWidth"
     const val LANDSCAPE_CHAT_WIDTH = "landscape_chat_width"
     const val KEY_CHAT_OPENED = "key_chat_opened"
     const val KEY_CHAT_BAR_VISIBLE = "key_chat_bar_visible"
