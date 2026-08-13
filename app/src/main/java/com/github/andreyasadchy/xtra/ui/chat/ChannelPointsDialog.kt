@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -35,7 +36,9 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.DialogChannelPointsBinding
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.Poll
+import com.github.andreyasadchy.xtra.model.chat.PollVoteState
 import com.github.andreyasadchy.xtra.model.chat.Prediction
+import com.github.andreyasadchy.xtra.model.chat.PredictionBetState
 import com.github.andreyasadchy.xtra.model.ui.ChannelPoints
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointReward
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRewardInput
@@ -72,9 +75,11 @@ class ChannelPointsDialog : DialogFragment() {
         fun predictionFlow(): StateFlow<Prediction?>
         fun ongoingPredictionFlow(): StateFlow<Prediction?>
         fun predictionSecondsLeftFlow(): StateFlow<Int?>
-        fun predictionBetInFlightFlow(): StateFlow<Boolean>
+        fun pollVoteStateFlow(): StateFlow<PollVoteState>
         fun canVotePoll(): Boolean
-        fun votePoll(choiceIndex: Int)
+        fun votePoll(choiceId: String)
+        fun dismissPoll()
+        fun predictionBetStateFlow(): StateFlow<PredictionBetState>
         fun canBetPrediction(): Boolean
         fun betPrediction(outcomeId: String, points: Int)
         fun channelName(): String?
@@ -99,6 +104,9 @@ class ChannelPointsDialog : DialogFragment() {
     private var _binding: DialogChannelPointsBinding? = null
     private val binding get() = _binding!!
     private lateinit var listener: Listener
+    private var predictionDraftId: String? = null
+    private var predictionAmountDraft = MIN_PREDICTION_POINTS.toString()
+    private var predictionAmountWatcher: TextWatcher? = null
 
     private data class RewardInputContent(
         val input: EditText,
@@ -117,6 +125,12 @@ class ChannelPointsDialog : DialogFragment() {
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         _binding = DialogChannelPointsBinding.inflate(layoutInflater)
         binding.close.setOnClickListener { dismiss() }
+        binding.pollDismiss.setOnClickListener { listener.dismissPoll() }
+        predictionAmountWatcher = binding.predictionBetAmount.addTextChangedListener { text ->
+            if (predictionDraftId != null) {
+                predictionAmountDraft = text?.toString().orEmpty()
+            }
+        }
         val dialog = requireContext().getAlertDialogBuilder()
             .setView(binding.root)
             .create()
@@ -130,14 +144,27 @@ class ChannelPointsDialog : DialogFragment() {
                 ) { channelPoints, watchStreak, poll, prediction ->
                     BasicDialogState(channelPoints, watchStreak, poll, prediction)
                 }
-                val activeState = combine(
+                val activeTimingState = combine(
                     listener.activePollFlow(),
                     listener.ongoingPredictionFlow(),
                     listener.pollSecondsLeftFlow(),
                     listener.predictionSecondsLeftFlow(),
-                    listener.predictionBetInFlightFlow(),
-                ) { activePoll, ongoingPrediction, pollSeconds, predictionSeconds, predictionBetInFlight ->
-                    ActiveDialogState(activePoll, ongoingPrediction, pollSeconds, predictionSeconds, predictionBetInFlight)
+                ) { activePoll, ongoingPrediction, pollSeconds, predictionSeconds ->
+                    ActiveTimingState(activePoll, ongoingPrediction, pollSeconds, predictionSeconds)
+                }
+                val activeState = combine(
+                    activeTimingState,
+                    listener.pollVoteStateFlow(),
+                    listener.predictionBetStateFlow(),
+                ) { timing, pollVoteState, predictionBetState ->
+                    ActiveDialogState(
+                        timing.activePoll,
+                        timing.ongoingPrediction,
+                        timing.pollSecondsLeft,
+                        timing.predictionSecondsLeft,
+                        pollVoteState,
+                        predictionBetState,
+                    )
                 }
                 combine(basicState, activeState) { basic, active ->
                     DialogState(
@@ -149,7 +176,8 @@ class ChannelPointsDialog : DialogFragment() {
                         prediction = basic.prediction,
                         ongoingPrediction = active.ongoingPrediction,
                         predictionSecondsLeft = active.predictionSecondsLeft,
-                        predictionBetInFlight = active.predictionBetInFlight,
+                        pollVoteState = active.pollVoteState,
+                        predictionBetState = active.predictionBetState,
                     )
                 }.collectLatest(::render)
             }
@@ -187,16 +215,13 @@ class ChannelPointsDialog : DialogFragment() {
             state.prediction,
             state.ongoingPrediction,
             state.predictionSecondsLeft,
-            state.predictionBetInFlight,
+            state.predictionBetState,
             state.channelPoints,
             numberFormat,
         )
-        renderPoll(state.poll, state.activePoll, state.pollSecondsLeft, numberFormat)
+        renderPoll(state.poll, state.activePoll, state.pollSecondsLeft, state.pollVoteState, numberFormat)
         renderWatchStreak(state.watchStreak, points, numberFormat)
         renderRewards(points, numberFormat)
-        binding.votingTitle.isVisible = false
-        binding.votingList.isVisible = false
-        binding.votingList.removeAllViews()
     }
 
     private fun renderWatchStreak(
@@ -559,6 +584,7 @@ class ChannelPointsDialog : DialogFragment() {
         poll: Poll?,
         activePoll: Poll?,
         pollSecondsLeft: Int?,
+        pollVoteState: PollVoteState,
         numberFormat: NumberFormat,
     ) {
         binding.pollCard.isVisible = poll != null
@@ -593,11 +619,16 @@ class ChannelPointsDialog : DialogFragment() {
             poll.startedAt?.let { add(getString(R.string.channel_points_poll_started, TwitchApiHelper.formatDate(requireContext(), it))) }
             poll.endedAt?.let { add(getString(R.string.channel_points_poll_ended, TwitchApiHelper.formatDate(requireContext(), it))) }
             poll.durationSeconds?.let { add(getString(R.string.channel_points_poll_duration, android.text.format.DateUtils.formatElapsedTime(it.toLong()))) }
+            pollVoteState.error?.takeIf { pollVoteState.pollId == poll.id }?.let {
+                add(getString(R.string.channel_points_poll_vote_error, it))
+            }
         }
         binding.pollCardStatus.text = details.joinToString(" · ")
         val maxVotes = poll.choices.orEmpty().mapNotNull { it.totalVotes }.maxOrNull()
         val winners = poll.choices.orEmpty().filter { maxVotes != null && it.totalVotes == maxVotes }
-        val canVote = isActive && listener.canVotePoll()
+        val voteStateMatches = pollVoteState.pollId == poll.id
+        val canVote = isActive && listener.canVotePoll() && voteStateMatches &&
+                pollVoteState.pendingChoiceId == null && pollVoteState.selectedChoiceId == null
         poll.choices.orEmpty().forEachIndexed { index, choice ->
             val percent = if (totalVotes > 0) {
                 (((choice.totalVotes ?: 0).toLong() * 100.0) / totalVotes).roundToInt()
@@ -609,15 +640,31 @@ class ChannelPointsDialog : DialogFragment() {
                 choice.bitsVotes?.let { add("${numberFormat.format(it)} bits") }
             }.joinToString(" · ")
             val choiceText = "$prefix$percent% · $voteDetails · ${choice.title}"
-            if (canVote) {
+            val selected = voteStateMatches && pollVoteState.selectedChoiceId == choice.id
+            val pending = voteStateMatches && pollVoteState.pendingChoiceId == choice.id
+            val showButton = isActive && choice.id != null &&
+                    (canVote || selected || pending || (voteStateMatches && pollVoteState.inFlight))
+            if (showButton) {
                 binding.pollChoices.addView(
                     MaterialButton(requireContext()).apply {
-                        this.text = choiceText
+                        this.text = when {
+                            selected -> getString(R.string.channel_points_poll_choice_selected, choiceText)
+                            pending -> getString(R.string.channel_points_poll_choice_pending, choiceText)
+                            else -> choiceText
+                        }
                         isAllCaps = false
                         gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                        isCheckable = true
+                        isChecked = selected
+                        isEnabled = canVote && !selected && !pending
+                        if (selected) {
+                            strokeWidth = dp(2)
+                            strokeColor = ColorStateList.valueOf(
+                                MaterialColors.getColor(this, androidx.appcompat.R.attr.colorPrimary),
+                            )
+                        }
                         setOnClickListener {
-                            listener.votePoll(index)
-                            isEnabled = false
+                            listener.votePoll(choice.id)
                         }
                         layoutParams = LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT,
@@ -628,7 +675,10 @@ class ChannelPointsDialog : DialogFragment() {
                     },
                 )
             } else {
-                addRow(binding.pollChoices, choiceText)
+                addRow(
+                    binding.pollChoices,
+                    if (selected) getString(R.string.channel_points_poll_choice_selected, choiceText) else choiceText,
+                )
             }
         }
     }
@@ -637,15 +687,19 @@ class ChannelPointsDialog : DialogFragment() {
         prediction: Prediction?,
         ongoingPrediction: Prediction?,
         predictionSecondsLeft: Int?,
-        predictionBetInFlight: Boolean,
+        predictionBetState: PredictionBetState,
         channelPoints: ChannelPoints?,
         numberFormat: NumberFormat,
     ) {
         binding.predictionCard.isVisible = prediction != null
         binding.predictionOutcomes.removeAllViews()
-        binding.predictionBetRow.isVisible = false
-        binding.predictionBetHint.isVisible = false
-        if (prediction == null) return
+        if (prediction == null) {
+            resetPredictionDraftIfNeeded(null)
+            binding.predictionBetRow.isVisible = false
+            binding.predictionBetHint.isVisible = false
+            return
+        }
+        resetPredictionDraftIfNeeded(prediction.id)
 
         binding.predictionCardTitle.text = getString(R.string.channel_points_prediction, prediction.title.orEmpty())
         val status = PredictionState.status(prediction)
@@ -665,6 +719,10 @@ class ChannelPointsDialog : DialogFragment() {
         }
 
         val outcomes = prediction.outcomes.orEmpty()
+        val betStateMatches = predictionBetState.predictionId == prediction.id
+        val selectedOutcomeId = predictionBetState.outcomeId.takeIf { betStateMatches }
+        val betInFlight = betStateMatches && predictionBetState.inFlight
+        val predictionBetError = predictionBetState.error.takeIf { betStateMatches }
         val totalPoints = outcomes.mapNotNull { it.totalPoints }.sum().takeIf { it > 0 }
         val totalUsers = outcomes.mapNotNull { it.totalUsers }.sum().takeIf { it > 0 }
         binding.predictionCardMeta.text = buildList {
@@ -707,39 +765,68 @@ class ChannelPointsDialog : DialogFragment() {
                 winner = PredictionState.isFinal(prediction) && prediction.winningOutcomeId == outcome.id,
                 tie = status == "RESOLVED" && prediction.winningOutcomeId.isNullOrBlank() &&
                     totalPoints != null && outcome.totalPoints == outcomes.mapNotNull { it.totalPoints }.maxOrNull(),
+                viewerSelected = selectedOutcomeId == outcome.id,
+                viewerAmount = predictionBetState.amount.takeIf { betStateMatches && selectedOutcomeId == outcome.id },
             )
         }
 
-        val canBet = isBettingOpen && !predictionBetInFlight && twoOutcomePrediction && listener.canBetPrediction()
-        binding.predictionBetRow.isVisible = canBet
-        binding.predictionBetHint.isVisible = isBettingOpen && !canBet
-        binding.predictionBetHint.text = when {
-            predictionBetInFlight -> getString(R.string.channel_points_prediction_bet_pending)
+        val canBet = isBettingOpen && twoOutcomePrediction && listener.canBetPrediction()
+        if (binding.predictionBetRow.isVisible != canBet) {
+            binding.predictionBetRow.isVisible = canBet
+        }
+        val hint = when {
+            predictionBetError != null -> predictionBetError
+            betInFlight -> getString(R.string.channel_points_prediction_bet_pending)
+            selectedOutcomeId != null -> getString(
+                R.string.channel_points_prediction_bet_selected,
+                numberFormat.format(predictionBetState.amount ?: 0),
+            )
             isBettingOpen && !listener.canBetPrediction() -> getString(R.string.channel_points_prediction_bet_login)
             isBettingOpen && !twoOutcomePrediction -> getString(R.string.channel_points_prediction_bet_unavailable)
+            isBettingOpen && channelPoints != null && channelPoints.balance < MIN_PREDICTION_POINTS -> getString(
+                R.string.channel_points_prediction_bet_balance,
+                numberFormat.format(channelPoints.balance),
+            )
             else -> null
         }
+        if (binding.predictionBetHint.isVisible != (hint != null)) {
+            binding.predictionBetHint.isVisible = hint != null
+        }
+        binding.predictionBetHint.text = hint
         if (canBet) {
             binding.predictionBetAmount.apply {
-                inputType = InputType.TYPE_CLASS_NUMBER
-                if (text.isNullOrBlank() && !hasFocus()) setText(MIN_PREDICTION_POINTS.toString())
+                if (inputType != InputType.TYPE_CLASS_NUMBER) {
+                    inputType = InputType.TYPE_CLASS_NUMBER
+                }
                 setSelectAllOnFocus(true)
             }
             binding.predictionBetLeft.text = outcomes[0].title
             binding.predictionBetRight.text = outcomes[1].title
             stylePredictionButton(binding.predictionBetLeft, BLUE_PREDICTION_COLOR)
             stylePredictionButton(binding.predictionBetRight, PINK_PREDICTION_COLOR)
+            binding.predictionBetLeft.isEnabled = !betInFlight && selectedOutcomeId == null
+            binding.predictionBetRight.isEnabled = !betInFlight && selectedOutcomeId == null
             binding.predictionBetLeft.setOnClickListener {
                 placePredictionBet(binding.predictionBetAmount, outcomes[0].id)
             }
             binding.predictionBetRight.setOnClickListener {
                 placePredictionBet(binding.predictionBetAmount, outcomes[1].id)
             }
-        } else if (isBettingOpen && channelPoints != null && channelPoints.balance < MIN_PREDICTION_POINTS) {
-            binding.predictionBetHint.text = getString(
-                R.string.channel_points_prediction_bet_balance,
-                numberFormat.format(channelPoints.balance),
-            )
+        }
+    }
+
+    private fun resetPredictionDraftIfNeeded(predictionId: String?) {
+        if (predictionId == null) {
+            predictionDraftId = null
+            predictionAmountDraft = MIN_PREDICTION_POINTS.toString()
+            return
+        }
+        if (predictionDraftId == predictionId) return
+        predictionDraftId = predictionId
+        predictionAmountDraft = MIN_PREDICTION_POINTS.toString()
+        if (binding.predictionBetAmount.text?.toString() != predictionAmountDraft) {
+            binding.predictionBetAmount.setText(predictionAmountDraft)
+            binding.predictionBetAmount.setSelection(binding.predictionBetAmount.length())
         }
     }
 
@@ -752,6 +839,8 @@ class ChannelPointsDialog : DialogFragment() {
         numberFormat: NumberFormat,
         winner: Boolean,
         tie: Boolean,
+        viewerSelected: Boolean,
+        viewerAmount: Int?,
     ) {
         val color = when {
             outcome.color.equals("PINK", true) -> PINK_PREDICTION_COLOR
@@ -766,6 +855,17 @@ class ChannelPointsDialog : DialogFragment() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(6), dp(4), dp(6), dp(4))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.TRANSPARENT)
+                if (viewerSelected) {
+                    setStroke(
+                        dp(2),
+                        MaterialColors.getColor(this@ChannelPointsDialog.binding.predictionCard, androidx.appcompat.R.attr.colorPrimary),
+                    )
+                }
+            }
             layoutParams = LinearLayout.LayoutParams(
                 if (outcomeCount == 2) 0 else LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -788,6 +888,18 @@ class ChannelPointsDialog : DialogFragment() {
                 text = getString(if (winner) R.string.channel_points_prediction_winner else R.string.channel_points_prediction_tie)
                 gravity = Gravity.CENTER
                 setTextColor(MaterialColors.getColor(binding.predictionCard, androidx.appcompat.R.attr.colorControlNormal))
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+        }
+        if (viewerSelected) {
+            content.addView(TextView(requireContext()).apply {
+                text = getString(
+                    R.string.channel_points_prediction_bet_selected,
+                    numberFormat.format(viewerAmount ?: 0),
+                )
+                gravity = Gravity.CENTER
+                setTextColor(MaterialColors.getColor(binding.predictionCard, androidx.appcompat.R.attr.colorPrimary))
                 textSize = 12f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
@@ -899,6 +1011,9 @@ class ChannelPointsDialog : DialogFragment() {
     }
 
     override fun onDestroyView() {
+        predictionAmountWatcher?.let { binding.predictionBetAmount.removeTextChangedListener(it) }
+        predictionAmountWatcher = null
+        predictionDraftId = null
         super.onDestroyView()
         _binding = null
     }
@@ -912,7 +1027,8 @@ class ChannelPointsDialog : DialogFragment() {
         val prediction: Prediction?,
         val ongoingPrediction: Prediction?,
         val predictionSecondsLeft: Int?,
-        val predictionBetInFlight: Boolean,
+        val pollVoteState: PollVoteState,
+        val predictionBetState: PredictionBetState,
     )
 
     private data class BasicDialogState(
@@ -927,7 +1043,15 @@ class ChannelPointsDialog : DialogFragment() {
         val ongoingPrediction: Prediction?,
         val pollSecondsLeft: Int?,
         val predictionSecondsLeft: Int?,
-        val predictionBetInFlight: Boolean,
+        val pollVoteState: PollVoteState,
+        val predictionBetState: PredictionBetState,
+    )
+
+    private data class ActiveTimingState(
+        val activePoll: Poll?,
+        val ongoingPrediction: Prediction?,
+        val pollSecondsLeft: Int?,
+        val predictionSecondsLeft: Int?,
     )
 
 }

@@ -1,10 +1,11 @@
 package com.github.andreyasadchy.xtra.model.gql.chat
 
+import com.github.andreyasadchy.xtra.model.gql.GqlError
 import kotlinx.serialization.Serializable
 
 @Serializable
 class MakePredictionResponse(
-    val errors: List<MakePredictionError>? = null,
+    val errors: List<GqlError>? = null,
     val data: Data? = null,
 ) {
     @Serializable
@@ -16,6 +17,8 @@ class MakePredictionResponse(
         fun errorMessage(): String? = makePrediction?.error?.message
 
         fun hasPayload(): Boolean = makePrediction != null
+
+        fun hasError(): Boolean = makePrediction?.error != null
     }
 
     @Serializable
@@ -35,8 +38,4 @@ class MakePredictionResponse(
         val id: String? = null,
     )
 
-    @Serializable
-    class MakePredictionError(
-        val message: String? = null,
-    )
 }

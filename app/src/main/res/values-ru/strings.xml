@@ -429,14 +429,10 @@
     <string name="stv_live_updates">Обновления живых смайлов 7TV</string>
     <string name="personal_stv_emote">Персональный смайл 7TV</string>
     <string name="show_polls">Показывать голосования</string>
-    <string name="poll_title">Текущее голосование: %s</string>
-    <string name="remaining_time">Осталось %s</string>
     <string name="show_predictions">Показывать прогнозы</string>
     <string name="prediction_title">Текущий прогноз: %s</string>
     <string name="prediction_locked">Закрыт</string>
     <string name="prediction_refunded">Возвращён</string>
-    <string name="poll_choice">%1$d%% (%2$s): %3$s</string>
-    <string name="poll_choice_winner">🏆%1$d%% (%2$s): %3$s</string>
     <string name="prediction_outcome">%1$d%% (%2$s💎, %3$s👥): %4$s</string>
     <string name="prediction_outcome_winner">🏆%1$d%% (%2$s💎, %3$s👥): %4$s</string>
     <string name="api_token_settings">Настройки токена API</string>

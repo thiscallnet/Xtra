@@ -429,14 +429,10 @@
     <string name="stv_live_updates">Atualizações ao vivo de emotes 7TV</string>
     <string name="personal_stv_emote">Emote pessoal 7TV</string>
     <string name="show_polls">Mostrar enquetes</string>
-    <string name="poll_title">Enquete atual: %s</string>
-    <string name="remaining_time">Restante %s</string>
     <string name="show_predictions">Mostrar previsões</string>
     <string name="prediction_title">Previsão atual: %s</string>
     <string name="prediction_locked">Bloqueada</string>
     <string name="prediction_refunded">Reembolsado</string>
-    <string name="poll_choice">%1$d%% (%2$s): %3$s</string>
-    <string name="poll_choice_winner">🏆%1$d%% (%2$s): %3$s</string>
     <string name="prediction_outcome">%1$d%% (%2$s💎, %3$s👥): %4$s</string>
     <string name="prediction_outcome_winner">🏆%1$d%% (%2$s💎, %3$s👥): %4$s</string>
     <string name="api_token_settings">Configurações de token da API</string>
