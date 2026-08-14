@@ -51,7 +51,8 @@ object MultiviewQualityPolicy {
                 recoveryLevel(input),
             )
             val manualCap = override ?: Int.MAX_VALUE
-            val effectiveHeight = minOf(manualCap, degradedCap)
+            val globalCap = explicitQualityHeight(input.mode) ?: Int.MAX_VALUE
+            val effectiveHeight = minOf(manualCap, degradedCap, globalCap)
             return constrainedHeight(effectiveHeight, "RECOVERY · ${effectiveHeight}p60")
         }
 
@@ -188,6 +189,14 @@ object MultiviewQualityPolicy {
             }
         }
         return result
+    }
+
+    private fun explicitQualityHeight(mode: MultiviewQualityMode): Int? = when (mode) {
+        MultiviewQualityMode.AUTO -> null
+        MultiviewQualityMode.QUALITY_360P -> 360
+        MultiviewQualityMode.QUALITY_480P -> 480
+        MultiviewQualityMode.QUALITY_720P -> 720
+        MultiviewQualityMode.QUALITY_1080P -> 1080
     }
 
     private fun recoveryLevel(input: MultiviewQualityInput): Int {

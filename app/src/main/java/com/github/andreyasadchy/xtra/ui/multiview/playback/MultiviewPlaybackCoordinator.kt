@@ -213,20 +213,15 @@ class MultiviewPlaybackCoordinator(
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                     updateFormats(slot)
                     val preferredHeight = slot.target?.preferredHeightPx
-                    val preferredFrameRate = slot.target?.preferredFrameRate
                     val selectedFormat = player.videoFormat
                     preferredHeight?.let { height ->
-                        val preferredOverride = findPreferredVideoOverride(
+                        val preferredSelection = findPreferredVideoSelection(
                             player,
                             height,
-                            preferredFrameRate ?: slot.target?.maxFrameRate ?: 60,
+                            slot.target?.preferredFrameRate ?: slot.target?.maxFrameRate ?: 60,
                         )
-                        if (preferredOverride != null && (
-                                selectedFormat == null ||
-                                    selectedFormat.height != height ||
-                                    preferredFrameRate != null &&
-                                    !frameRateMatches(selectedFormat.frameRate, preferredFrameRate)
-                            )
+                        if (preferredSelection != null &&
+                            !selectedFormatMatches(selectedFormat, preferredSelection.format)
                         ) {
                             applyQuality(slot, force = true)
                         }
@@ -546,22 +541,27 @@ class MultiviewPlaybackCoordinator(
             builder.setMaxVideoSize(target.maxWidthPx, target.maxHeightPx)
         }
         target.preferredHeightPx?.let { preferredHeight ->
-            findPreferredVideoOverride(
+            findPreferredVideoSelection(
                 slot.player,
                 preferredHeight,
                 target.preferredFrameRate ?: target.maxFrameRate,
-            )?.let(builder::setOverrideForType)
+            )?.override?.let(builder::setOverrideForType)
         }
         slot.player.trackSelectionParameters = builder.build()
         onSnapshot(slot.identity, slot.snapshot(target.label))
         debugLog("channel=${slot.identity} policy mode=$qualityMode streams=${slots.size} active=${slot.identity == activeIdentity} focus=${slot.identity == focusedIdentity} target=${target.label} downgrade=${slot.downgradeLevel}")
     }
 
-    private fun findPreferredVideoOverride(
+    private data class PreferredVideoSelection(
+        val override: TrackSelectionOverride,
+        val format: androidx.media3.common.Format,
+    )
+
+    private fun findPreferredVideoSelection(
         player: ExoPlayer,
         preferredHeight: Int,
         preferredFrameRate: Int,
-    ): TrackSelectionOverride? {
+    ): PreferredVideoSelection? {
         data class SupportedFormat(
             val group: androidx.media3.common.Tracks.Group,
             val index: Int,
@@ -599,11 +599,20 @@ class MultiviewPlaybackCoordinator(
             }.thenByDescending { it.format.bitrate },
         ) ?: return null
 
-        return TrackSelectionOverride(selected.group.mediaTrackGroup, selected.index)
+        return PreferredVideoSelection(
+            override = TrackSelectionOverride(selected.group.mediaTrackGroup, selected.index),
+            format = selected.format,
+        )
     }
 
-    private fun frameRateMatches(actual: Float, preferred: Int): Boolean =
-        actual <= 0f || kotlin.math.abs(actual - preferred) <= FRAME_RATE_TOLERANCE
+    private fun selectedFormatMatches(
+        selected: androidx.media3.common.Format?,
+        candidate: androidx.media3.common.Format,
+    ): Boolean {
+        if (selected == null || selected.height != candidate.height) return false
+        return candidate.frameRate <= 0f || selected.frameRate <= 0f ||
+            kotlin.math.abs(selected.frameRate - candidate.frameRate) <= FRAME_RATE_TOLERANCE
+    }
 
     private fun scheduleStableQualityRecovery(slot: MultiviewPlayerSlot) {
         if (slot.downgradeLevel <= 0 && !slot.resourceFailure) return

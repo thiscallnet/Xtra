@@ -51,6 +51,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
     private val hideControls = Runnable {
         if (controlsLockCount > 0) return@Runnable
         setControlsOverlayVisible(false)
+        slotViews.values.forEach { it.setControlsVisible(false) }
     }
     private var latestState = MultiviewSessionState()
     private var latestPlayback: Map<String, MultiviewPlaybackSnapshot> = emptyMap()

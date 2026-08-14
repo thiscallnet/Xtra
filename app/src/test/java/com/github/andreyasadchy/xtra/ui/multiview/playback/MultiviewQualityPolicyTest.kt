@@ -105,6 +105,24 @@ class MultiviewQualityPolicyTest {
     }
 
     @Test
+    fun resourcePressureNeverRaises360pSelection() {
+        val target = MultiviewQualityPolicy.target(
+            input(streamCount = 1, active = true, mode = MultiviewQualityMode.QUALITY_360P, resourcePressure = true),
+        )
+
+        assertTrue(target.maxHeightPx!! <= 360)
+    }
+
+    @Test
+    fun resourcePressureNeverRaises480pSelection() {
+        val target = MultiviewQualityPolicy.target(
+            input(streamCount = 1, active = true, mode = MultiviewQualityMode.QUALITY_480P, resourcePressure = true),
+        )
+
+        assertTrue(target.maxHeightPx!! <= 480)
+    }
+
+    @Test
     fun resourcePressureOverridesSourceOverrideTemporarily() {
         val target = MultiviewQualityPolicy.target(
             input(streamCount = 2, active = true, override = "Source", resourcePressure = true),
