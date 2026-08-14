@@ -303,6 +303,7 @@ object C {
     const val LIVE_NOTIFICATION_CACHED_CHANNEL_COUNT = "live_notification_cached_channel_count"
     const val LIVE_NOTIFICATION_ENABLE_FAILURE_STAGE = "live_notification_enable_failure_stage"
     const val LIVE_NOTIFICATION_ENABLE_FAILURE_REASON = "live_notification_enable_failure_reason"
+    const val LIVE_NOTIFICATION_ENABLE_FAILURE_OPERATION = "live_notification_enable_failure_operation"
     const val LIVE_NOTIFICATION_ENABLE_FAILURE_STATUS = "live_notification_enable_failure_status"
     const val LIVE_NOTIFICATION_ENABLE_FAILURE_EXCEPTION = "live_notification_enable_failure_exception"
     const val LIVE_NOTIFICATION_ENABLE_FAILURE_MESSAGE = "live_notification_enable_failure_message"

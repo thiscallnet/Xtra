@@ -541,6 +541,8 @@ class SettingsActivity : AppCompatActivity() {
                     getString(R.string.live_notifications_failure_reason_forbidden)
                 LiveNotificationFailureReason.HTTP_429_RATE_LIMITED ->
                     getString(R.string.live_notifications_failure_reason_rate_limited)
+                LiveNotificationFailureReason.TWITCH_GRAPHQL_ERROR ->
+                    getString(R.string.live_notifications_failure_reason_graphql)
                 LiveNotificationFailureReason.TWITCH_HTTP_5XX ->
                     getString(R.string.live_notifications_failure_reason_server)
                 LiveNotificationFailureReason.DNS_CONNECTIVITY_OR_TIMEOUT ->
@@ -561,6 +563,8 @@ class SettingsActivity : AppCompatActivity() {
                 -> getString(R.string.live_notifications_failure_action_sign_in)
                 LiveNotificationFailureReason.HTTP_429_RATE_LIMITED ->
                     getString(R.string.live_notifications_failure_action_rate_limited)
+                LiveNotificationFailureReason.TWITCH_GRAPHQL_ERROR ->
+                    getString(R.string.live_notifications_failure_action_retry)
                 LiveNotificationFailureReason.TWITCH_HTTP_5XX ->
                     getString(R.string.live_notifications_failure_action_server)
                 LiveNotificationFailureReason.DNS_CONNECTIVITY_OR_TIMEOUT ->
@@ -571,23 +575,41 @@ class SettingsActivity : AppCompatActivity() {
                 -> getString(R.string.live_notifications_failure_action_retry)
             }
             val technicalDetails = buildString {
-                failure.exceptionClass?.let { append(it) }
+                failure.operation?.let {
+                    append("Operation: ").append(it)
+                }
+                failure.exceptionClass?.let {
+                    if (isNotEmpty()) append("; ")
+                    append(it)
+                }
                 failure.httpStatus?.let {
                     if (isNotEmpty()) append("; ")
                     append("HTTP ").append(it)
                 }
                 failure.technicalMessage?.let {
                     if (isNotEmpty()) append(": ")
-                    append(it)
+                    if (failure.reason == LiveNotificationFailureReason.TWITCH_GRAPHQL_ERROR) {
+                        append(getString(R.string.live_notifications_failure_twitch_returned, it))
+                    } else {
+                        append(it)
+                    }
                 }
             }.ifBlank { getString(R.string.live_notifications_failure_no_details) }
-            val message = getString(
-                R.string.live_notifications_failure_message,
-                operation,
-                reason,
-                action,
-                technicalDetails,
-            )
+            val message = buildString {
+                append(
+                    getString(
+                        R.string.live_notifications_failure_message,
+                        operation,
+                        reason,
+                        action,
+                        technicalDetails,
+                    )
+                )
+                if (failure.isTwitchRelated) {
+                    append("\n\n")
+                    append(getString(R.string.live_notifications_failure_troubleshooting))
+                }
+            }
             val builder = requireActivity().getAlertDialogBuilder()
                 .setTitle(R.string.live_notifications_enable_failed_title)
                 .setMessage(message)
@@ -627,6 +649,7 @@ class SettingsActivity : AppCompatActivity() {
                         appendLine("Live notification enable failure")
                         appendLine("Stage: ${failure.stage}")
                         appendLine("Reason: ${failure.reason}")
+                        failure.operation?.let { appendLine("Operation: $it") }
                         failure.httpStatus?.let { appendLine("HTTP status: $it") }
                         failure.rateLimitResetEpochSeconds?.let { appendLine("Rate-limit reset: $it") }
                         failure.rateLimitLimit?.let { appendLine("Rate-limit limit: $it") }
@@ -722,6 +745,25 @@ class SettingsActivity : AppCompatActivity() {
             }
             updateLiveNotificationsBatteryOptimization()
             updateLiveNotificationServiceNotification()
+            updateLiveNotificationTroubleshooting()
+        }
+
+        private fun updateLiveNotificationTroubleshooting() {
+            val preference = findPreference<Preference>("live_notifications_troubleshooting") ?: return
+            val prefs = requireContext().prefs()
+            val stage = prefs.getString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_STAGE, null)
+                ?.let { runCatching { LiveNotificationSetupStage.valueOf(it) }.getOrNull() }
+            val reason = prefs.getString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_REASON, null)
+                ?.let { runCatching { LiveNotificationFailureReason.valueOf(it) }.getOrNull() }
+            preference.isVisible = shouldShowLiveNotificationTroubleshooting(
+                stage = stage,
+                reason = reason,
+                failureAt = prefs.getLong(C.LIVE_NOTIFICATION_LAST_SETUP_ERROR_AT, 0L),
+                successAt = prefs.getLong(C.LIVE_NOTIFICATION_LAST_SETUP_SUCCESS, 0L),
+                exceptionClass = prefs.getString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_EXCEPTION, null),
+                technicalMessage = prefs.getString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_MESSAGE, null),
+                enabled = prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false),
+            )
         }
 
         private fun updateLiveNotificationsBatteryOptimization() {

@@ -660,6 +660,12 @@ class SettingsViewModel(
             putLong(C.LIVE_NOTIFICATION_LAST_SETUP_ERROR_AT, now)
             putString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_STAGE, failure.stage.name)
             putString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_REASON, failure.reason.name)
+            val operation = sanitizeLiveNotificationTechnicalMessage(failure.operation)
+            if (operation != null) {
+                putString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_OPERATION, operation)
+            } else {
+                remove(C.LIVE_NOTIFICATION_ENABLE_FAILURE_OPERATION)
+            }
             if (failure.httpStatus != null) {
                 putInt(C.LIVE_NOTIFICATION_ENABLE_FAILURE_STATUS, failure.httpStatus)
             } else {

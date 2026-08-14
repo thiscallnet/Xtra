@@ -822,6 +822,7 @@
     <string name="live_notifications_failure_reason_unauthorized">Twitch rejected the request because authentication is invalid (HTTP 401).</string>
     <string name="live_notifications_failure_reason_forbidden">Twitch did not allow this request (HTTP 403).</string>
     <string name="live_notifications_failure_reason_rate_limited">Twitch temporarily rate-limited the request (HTTP 429).</string>
+    <string name="live_notifications_failure_reason_graphql">Twitch returned a GraphQL error.</string>
     <string name="live_notifications_failure_reason_server">Twitch is temporarily unavailable.</string>
     <string name="live_notifications_failure_reason_connectivity">Xtra could not reach Twitch.</string>
     <string name="live_notifications_failure_reason_malformed">Twitch returned an unexpected response.</string>
@@ -834,6 +835,8 @@
     <string name="live_notifications_failure_action_connection">Check your connection, then retry.</string>
     <string name="live_notifications_failure_action_retry">Retry; if it persists, copy the details.</string>
     <string name="live_notifications_failure_no_details">No additional details are available.</string>
+    <string name="live_notifications_failure_twitch_returned">Twitch returned: %s</string>
+    <string name="live_notifications_failure_troubleshooting">Having trouble?\n\nThis may be caused by your Twitch session or network configuration.\n\n• Log out of Xtra and sign in again.\n• Complete the additional Twitch device/TV authorization step if prompted.\n• If you use a VPN, proxy, custom DNS, or network filtering, temporarily disable it and try again.\n\nThen try enabling Live Notifications again.</string>
     <string name="live_notifications_copy_details">Copy details</string>
     <string name="live_notifications_sign_in_again">Sign in again</string>
     <string name="live_notifications_open_settings">Open notification settings</string>
@@ -851,6 +854,8 @@
     <string name="live_notifications_service_notification_summary">Android shows this while Persistent mode is active. Tap to hide or change it in Android notification settings.</string>
     <string name="live_notifications_service_notification_hidden">Android is hiding this notification. Some devices may still show a system status notice for the foreground service.</string>
     <string name="live_notifications_service_notification_visible">Tap to open Android settings and hide or change this notification.</string>
+    <string name="live_notifications_troubleshooting_title">Trouble enabling notifications?</string>
+    <string name="live_notifications_troubleshooting_summary">If Twitch requests fail, try signing out and back in, completing the Twitch device/TV authorization step, and temporarily disabling any VPN, proxy, custom DNS, or network filtering.</string>
     <string name="live_notifications_battery_optimization_title">Battery optimization</string>
     <string name="live_notifications_battery_optimization_summary">Persistent mode may be paused during deep sleep. Open Android battery settings for the most reliable background alerts.</string>
     <string name="live_notifications_battery_optimization_unrestricted">Xtra is already allowed to run without battery optimization. Tap to open the app battery settings.</string>
