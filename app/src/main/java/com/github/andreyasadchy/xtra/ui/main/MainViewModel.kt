@@ -2,11 +2,9 @@ package com.github.andreyasadchy.xtra.ui.main
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Context.CONNECTIVITY_SERVICE
 import android.content.Intent
-import android.content.pm.PackageInstaller
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.http.HttpEngine
@@ -38,8 +36,6 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.UpdateInfo
-import com.github.andreyasadchy.xtra.util.UpdateState
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,14 +46,11 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.chromium.net.CronetEngine
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
 import java.security.MessageDigest
 import java.util.Timer
 import java.util.concurrent.CancellationException
@@ -77,7 +70,6 @@ class MainViewModel(
     private val cronetEngine: Lazy<CronetEngine?>,
     private val cronetExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
-    private val json: Json,
 ) : ViewModel() {
 
     val integrity = MutableSharedFlow<String?>()
@@ -101,15 +93,6 @@ class MainViewModel(
     val user = MutableStateFlow<User?>(null)
     val game = MutableStateFlow<Pair<Game?, String?>?>(null)
     val tag = MutableStateFlow<Tag?>(null)
-
-    val updateInfo = MutableSharedFlow<UpdateInfo?>()
-    val updateCheckFinished = MutableSharedFlow<Boolean>()
-    var updateSize: Long? = null
-    var updateJob: Job? = null
-    private var checkingUpdates = false
-    val updateProgress = MutableStateFlow(0L)
-    val closeUpdateDialog = MutableSharedFlow<Boolean>()
-    val updateDownloadFailed = MutableSharedFlow<Unit>()
 
     fun savePlaybackState(item: PlaybackState) {
         viewModelScope.launch {
@@ -1130,151 +1113,6 @@ class MainViewModel(
         TwitchApiHelper.checkedValidation = true
     }
 
-    fun checkUpdates(networkLibrary: String?, url: String, notifyNoUpdates: Boolean = false) {
-        if (checkingUpdates) return
-        checkingUpdates = true
-        UpdateState.markAttempted(applicationContext)
-        viewModelScope.launch(Dispatchers.IO) {
-            var responseSucceeded = false
-            try {
-                val response = when {
-                    networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
-                        val response = suspendCancellableCoroutine { continuation ->
-                            val timeout = NetworkUtils.HttpEngineTimeout()
-                            val request = httpEngine.value!!.newUrlRequestBuilder(
-                                url,
-                                cronetExecutor.value,
-                                NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                            ).build()
-                            timeout.start(request, continuation)
-                            request.start()
-                            continuation.invokeOnCancellation {
-                                request.cancel()
-                                timeout.stop()
-                            }
-                        }
-                        if (response.info.httpStatusCode !in 200..299) {
-                            throw IOException("Update check failed with HTTP ${response.info.httpStatusCode}")
-                        }
-                        json.decodeFromString<JsonObject>(response.body.decodeToString())
-                    }
-                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                        val response = suspendCancellableCoroutine { continuation ->
-                            val timeout = NetworkUtils.CronetTimeout()
-                            val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                url,
-                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                cronetExecutor.value
-                            ).build()
-                            timeout.start(request, continuation)
-                            request.start()
-                            continuation.invokeOnCancellation {
-                                request.cancel()
-                                timeout.stop()
-                            }
-                        }
-                        if (response.info.httpStatusCode !in 200..299) {
-                            throw IOException("Update check failed with HTTP ${response.info.httpStatusCode}")
-                        }
-                        json.decodeFromString<JsonObject>(response.body.decodeToString())
-                    }
-                    else -> {
-                        okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
-                            if (!response.isSuccessful) {
-                                throw IOException("Update check failed with HTTP ${response.code}")
-                            }
-                            json.decodeFromString<JsonObject>(response.body.string())
-                        }
-                    }
-                }
-                responseSucceeded = true
-                UpdateState.markChecked(applicationContext)
-                val info = UpdateState.fromResponse(response, url)?.takeIf {
-                    UpdateState.isNewerThanInstalled(it.version)
-                }
-                if (info != null) {
-                    updateSize = info.size
-                    UpdateState.save(applicationContext, info)
-                } else {
-                    updateSize = null
-                    UpdateState.clear(applicationContext)
-                }
-            } catch (_: Exception) {
-                // Keep the last known release when a scheduled check cannot reach GitHub.
-            } finally {
-                val visible = UpdateState.isPending(applicationContext)
-                updateInfo.emit(if (responseSucceeded && visible) UpdateState.read(applicationContext) else null)
-                if (notifyNoUpdates && responseSucceeded) {
-                    updateCheckFinished.emit(responseSucceeded && visible)
-                }
-                checkingUpdates = false
-            }
-        }
-    }
-
-    @Suppress("UNUSED_PARAMETER")
-    fun downloadUpdate(networkLibrary: String?, info: UpdateInfo) {
-        updateJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // APK downloads use OkHttp's streaming body regardless of the
-                // selected Twitch API transport, so the whole package is never
-                // buffered in memory by the updater.
-                updateProgress.value = 0L
-                val packageInstaller = applicationContext.packageManager.packageInstaller
-                val sessionId = packageInstaller.createSession(
-                    PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-                )
-                val session = packageInstaller.openSession(sessionId)
-                try {
-                    var bytesWritten = 0L
-                    okHttpClient.value.newCall(Request.Builder().url(info.downloadUrl).build()).executeAsync().use { response ->
-                        if (!response.isSuccessful) {
-                            throw IOException("Update download failed with HTTP ${response.code}")
-                        }
-                        val body = response.body
-                        val length = body.contentLength()
-                        body.byteStream().use { input ->
-                            session.openWrite("package", 0, length).use { output ->
-                                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                                var read: Int
-                                while (input.read(buffer).also { read = it } != -1) {
-                                    output.write(buffer, 0, read)
-                                    bytesWritten += read
-                                    updateProgress.value = bytesWritten
-                                }
-                            }
-                        }
-                    }
-                    if (bytesWritten <= 0L) {
-                        throw IOException("Update download returned an empty APK")
-                    }
-                    session.commit(
-                        PendingIntent.getActivity(
-                            applicationContext,
-                            0,
-                            Intent(applicationContext, MainActivity::class.java).apply {
-                                setAction(MainActivity.INTENT_INSTALL_UPDATE)
-                                putExtra(MainActivity.EXTRA_UPDATE_VERSION, info.version)
-                            },
-                            PendingIntent.FLAG_MUTABLE
-                        ).intentSender
-                    )
-                } catch (e: Exception) {
-                    runCatching { session.abandon() }
-                    throw e
-                } finally {
-                    session.close()
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                updateDownloadFailed.emit(Unit)
-            } finally {
-                closeUpdateDialog.emit(true)
-            }
-        }
-    }
-
     fun deleteOldImages() {
         viewModelScope.launch(Dispatchers.IO) {
             localChannelFollowsRepository.deleteOldImages()
@@ -1286,7 +1124,7 @@ class MainViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                MainViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.authRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.json)
+                MainViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.authRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient)
             }
         }
     }

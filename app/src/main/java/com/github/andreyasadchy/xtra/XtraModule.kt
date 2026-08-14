@@ -24,6 +24,8 @@ import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
 import com.github.andreyasadchy.xtra.repository.SavedFiltersRepository
 import com.github.andreyasadchy.xtra.repository.ViewingStatsRepository
 import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
+import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
+import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -100,6 +102,13 @@ class XtraModule(application: Application) {
                 sslSocketFactory(sslContext.socketFactory, trustManager.value)
             }
         }.build()
+    }
+
+    val updateRepository by lazy {
+        UpdateRepository(
+            application,
+            ReleaseClient(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json),
+        )
     }
 
     val trustManager = lazy {

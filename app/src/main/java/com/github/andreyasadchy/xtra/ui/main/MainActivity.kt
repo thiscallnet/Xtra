@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
-import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
@@ -21,7 +20,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.os.ext.SdkExtensions
-import android.text.format.Formatter
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
@@ -58,7 +56,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ActivityMainBinding
-import com.github.andreyasadchy.xtra.databinding.DialogUpdateDownloadBinding
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.ui.Clip
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
@@ -88,8 +85,9 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.UpdateInfo
-import com.github.andreyasadchy.xtra.util.UpdateState
+import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
+import com.github.andreyasadchy.xtra.util.updater.UpdateState
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.rawPrefs
@@ -108,8 +106,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val KEY_VIDEO = "video"
 
-        const val INTENT_INSTALL_UPDATE = "com.github.andreyasadchy.xtra.INSTALL_UPDATE"
-        const val EXTRA_UPDATE_VERSION = "update_version"
         const val INTENT_LIVE_NOTIFICATION = "com.github.andreyasadchy.xtra.LIVE_NOTIFICATION"
         const val INTENT_OPEN_DOWNLOADS_TAB = "com.github.andreyasadchy.xtra.OPEN_DOWNLOADS_TAB"
         const val INTENT_OPEN_DOWNLOADED_VIDEO = "com.github.andreyasadchy.xtra.OPEN_DOWNLOADED_VIDEO"
@@ -129,8 +125,9 @@ class MainActivity : AppCompatActivity() {
     var settingsResultLauncher: ActivityResultLauncher<Intent>? = null
     var loginResultLauncher: ActivityResultLauncher<Intent>? = null
     var logoutResultLauncher: ActivityResultLauncher<Intent>? = null
-    private var updateDownloadDialogBinding: DialogUpdateDownloadBinding? = null
-    private var updateDownloadDialog: AlertDialog? = null
+    private val updateRepository by lazy { (application as XtraApp).xtraModule.updateRepository }
+    private var updateDialog: AlertDialog? = null
+    private var updateDialogReleaseId: String? = null
     private var networkSnackbar: Snackbar? = null
     private var fragmentLifecycleCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
 
@@ -328,43 +325,21 @@ class MainActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.updateInfo.collectLatest {
-                    updateSettingsIndicator()
-                    if (it != null) {
-                        showUpdateDialog(it)
+                updateRepository.state.collectLatest { state ->
+                    updateSettingsIndicator(state)
+                    if (state is UpdateState.Available &&
+                        updateDialog?.isShowing == true &&
+                        updateDialogReleaseId != state.release.id
+                    ) {
+                        dismissUpdateDialogForRefresh()
                     }
                 }
             }
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.updateProgress.collectLatest {
-                    updateDownloadDialogBinding?.let { binding ->
-                        val size = viewModel.updateSize
-                        if (size != null) {
-                            binding.textView.text = getString(
-                                R.string.downloading_update_progress,
-                                Formatter.formatFileSize(this@MainActivity, it),
-                                Formatter.formatFileSize(this@MainActivity, size),
-                            )
-                            binding.progressBar.progress = (((it.toFloat() / size) * 100)).toInt()
-                        }
-                    }
-                }
-            }
-        }
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.closeUpdateDialog.collectLatest {
-                    updateDownloadDialog?.dismiss()
-                    updateSettingsIndicator()
-                }
-            }
-        }
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.updateDownloadFailed.collectLatest {
-                    Toast.makeText(this@MainActivity, R.string.update_download_failed, Toast.LENGTH_LONG).show()
+                updateRepository.automaticPromptEvents.collectLatest { release ->
+                    showUpdateDialog(release)
                 }
             }
         }
@@ -563,61 +538,47 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showUpdateDialog(info: UpdateInfo) {
-        val releaseNotes = buildString {
-            if (info.title.isNotBlank() && !info.title.equals(info.version, true)) {
-                append(info.title)
-                append("\n")
+    private fun showUpdateDialog(release: UpdateRelease) {
+        dismissUpdateDialogForRefresh()
+        val releaseNotes = release.releaseNotes.joinToString("\n") { "• $it" }
+        var userActionTaken = false
+        fun deferFromUserAction() {
+            if (!userActionTaken) {
+                userActionTaken = true
+                updateRepository.defer(release)
             }
-            append(info.version)
-            if (info.body.isNotBlank()) {
-                append("\n\n")
-                append(info.body)
-            }
-            append("\n\n")
-            append(getString(R.string.update_message))
         }
-        getAlertDialogBuilder()
-            .setTitle(getString(R.string.update_available_version, info.version))
-            .setMessage(releaseNotes)
-            .setPositiveButton(getString(R.string.yes)) { _, _ ->
-                val binding = DialogUpdateDownloadBinding.inflate(layoutInflater)
-                updateDownloadDialogBinding = binding
-                val size = info.size
-                if (size != null) {
-                    binding.textView.text = getString(
-                        R.string.downloading_update_progress,
-                        Formatter.formatFileSize(this, 0),
-                        Formatter.formatFileSize(this, size),
-                    )
-                } else {
-                    binding.textView.text = getString(R.string.downloading_update)
-                    binding.progressBar.visibility = View.GONE
+        lateinit var dialog: AlertDialog
+        dialog = getAlertDialogBuilder()
+            .setTitle(getString(R.string.update_available_title, release.displayVersion))
+            .setMessage(releaseNotes.ifBlank { getString(R.string.update_no_release_notes) })
+            .setPositiveButton(getString(R.string.download_update)) { _, _ ->
+                userActionTaken = true
+                updateRepository.downloadCurrent()
+            }
+            .setNegativeButton(getString(R.string.update_not_now)) { _, _ -> deferFromUserAction() }
+            .setOnCancelListener { deferFromUserAction() }
+            .setOnDismissListener {
+                if (updateDialog === dialog) {
+                    updateDialog = null
+                    updateDialogReleaseId = null
                 }
-                viewModel.downloadUpdate(prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP), info)
-                val dialog = getAlertDialogBuilder()
-                    .setView(binding.root)
-                    .setNegativeButton(getString(android.R.string.cancel), null)
-                    .setOnDismissListener {
-                        viewModel.updateJob?.cancel()
-                        updateDownloadDialogBinding = null
-                        updateDownloadDialog = null
-                    }
-                    .show()
-                updateDownloadDialog = dialog
             }
-            .setNeutralButton(getString(R.string.ignore_update)) { _, _ ->
-                UpdateState.ignore(this)
-                updateSettingsIndicator()
-            }
-            .setNegativeButton(getString(R.string.update_later), null)
             .show()
+        updateDialog = dialog
+        updateDialogReleaseId = release.id
+    }
+
+    private fun dismissUpdateDialogForRefresh() {
+        val dialog = updateDialog ?: return
+        dialog.dismiss()
+        if (updateDialog === dialog) {
+            updateDialog = null
+            updateDialogReleaseId = null
+        }
     }
 
     private fun checkUpdatesIfDue() {
-        if (!prefs.getBoolean(C.UPDATE_CHECK_ENABLED, false) || !UpdateState.isDue(this)) {
-            return
-        }
         val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
         if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) != true ||
@@ -625,15 +586,12 @@ class MainActivity : AppCompatActivity() {
         ) {
             return
         }
-        viewModel.checkUpdates(
-            prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-            C.DEFAULT_UPDATE_URL,
-        )
+        updateRepository.checkIfDue(prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP), C.DEFAULT_UPDATE_URL)
     }
 
-    private fun updateSettingsIndicator() {
+    private fun updateSettingsIndicator(state: UpdateState? = null) {
         findViewById<Toolbar>(R.id.toolbar)?.let {
-            SettingsUpdateIndicator.update(it, this)
+            SettingsUpdateIndicator.update(it, this, state)
         }
     }
 
@@ -706,6 +664,7 @@ class MainActivity : AppCompatActivity() {
             prefs.edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
             LiveNotificationScheduler.disable(this)
         }
+        updateRepository.resumePendingInstall()
         checkUpdatesIfDue()
         updateSettingsIndicator()
         restorePlayerFragment()
@@ -943,30 +902,6 @@ class MainActivity : AppCompatActivity() {
                                 )
                             }
                         }
-                    }
-                }
-            }
-            INTENT_INSTALL_UPDATE -> {
-                val extras = intent.extras ?: return
-                when (extras.getInt(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
-                    PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            extras.getParcelable(Intent.EXTRA_INTENT, Intent::class.java)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            extras.getParcelable(Intent.EXTRA_INTENT)
-                        }?.let {
-                            startActivity(it)
-                        }
-                    }
-                    PackageInstaller.STATUS_SUCCESS -> {
-                        val version = extras.getString(EXTRA_UPDATE_VERSION)
-                            ?: UpdateState.read(this)?.version
-                        version?.let { UpdateState.markDownloaded(this, it) }
-                        updateSettingsIndicator()
-                    }
-                    else -> {
-                        Toast.makeText(this, R.string.update_download_failed, Toast.LENGTH_LONG).show()
                     }
                 }
             }

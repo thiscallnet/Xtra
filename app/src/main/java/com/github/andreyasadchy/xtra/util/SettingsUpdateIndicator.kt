@@ -8,16 +8,21 @@ import androidx.appcompat.widget.Toolbar
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.DrawableCompat
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.util.updater.UpdateState
+import com.github.andreyasadchy.xtra.util.updater.hasActionableUpdate
 import com.google.android.material.color.MaterialColors
 
 object SettingsUpdateIndicator {
 
-    fun update(toolbar: Toolbar, context: Context) {
+    fun update(toolbar: Toolbar, context: Context, state: UpdateState? = null) {
         val item = toolbar.menu.findItem(R.id.settings) ?: return
         val icon = ContextCompat.getDrawable(context, R.drawable.baseline_settings_black_24)?.mutate() ?: return
         val normalColor = MaterialColors.getColor(toolbar, androidx.appcompat.R.attr.colorControlNormal)
         DrawableCompat.setTint(icon, normalColor)
-        if (!UpdateState.isPending(context)) {
+        val updateState = state ?: (context.applicationContext as? XtraApp)?.xtraModule?.updateRepository?.state?.value
+        val pending = updateState?.hasActionableUpdate() == true
+        if (!pending) {
             item.icon = icon
             return
         }
