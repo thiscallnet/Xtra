@@ -134,9 +134,9 @@ class MultiviewQualityPolicyTest {
     }
 
     @Test
-    fun customModeLeavesUnoverriddenStreamAdaptive() {
+    fun autoModeLeavesFocusedStreamAdaptive() {
         val target = MultiviewQualityPolicy.target(
-            input(streamCount = 4, active = false, mode = MultiviewQualityMode.AUTO),
+            input(streamCount = 4, active = false, focused = true, mode = MultiviewQualityMode.AUTO),
         )
 
         assertNull(target.maxHeightPx)
@@ -150,6 +150,38 @@ class MultiviewQualityPolicyTest {
         )
 
         assertEquals(720, target.maxHeightPx)
+    }
+
+    @Test
+    fun explicit1080pIgnoresSmallTileSize() {
+        val target = MultiviewQualityPolicy.target(
+            input(
+                streamCount = 4,
+                active = false,
+                tileWidth = 960,
+                tileHeight = 540,
+                mode = MultiviewQualityMode.QUALITY_1080P,
+            ),
+        )
+
+        assertEquals(1080, target.maxHeightPx)
+        assertEquals(1080, target.preferredHeightPx)
+    }
+
+    @Test
+    fun explicit720pIgnoresSmallTileSize() {
+        val target = MultiviewQualityPolicy.target(
+            input(
+                streamCount = 4,
+                active = false,
+                tileWidth = 320,
+                tileHeight = 180,
+                mode = MultiviewQualityMode.QUALITY_720P,
+            ),
+        )
+
+        assertEquals(720, target.maxHeightPx)
+        assertEquals(720, target.preferredHeightPx)
     }
 
     @Test
@@ -194,6 +226,16 @@ class MultiviewQualityPolicyTest {
         )
 
         assertEquals(listOf("Source", "1080p60", "720p60", "480p30"), labels)
+    }
+
+    @Test
+    fun fractionalFrameRatesUseNearestWholeFrameRateLabel() {
+        val labels = MultiviewQualityPolicy.availableManualLabels(
+            listOf(MultiviewQualityPolicy.AvailableFormat(720, 59.94f)),
+        )
+
+        assertEquals(listOf("720p60"), labels)
+        assertEquals("720p60", MultiviewQualityPolicy.effectiveFormatLabel(1280, 720, 59.94f))
     }
 
     private fun input(

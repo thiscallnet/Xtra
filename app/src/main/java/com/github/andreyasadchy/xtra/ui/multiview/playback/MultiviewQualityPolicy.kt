@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.multiview.playback
 
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 data class MultiviewQualityInput(
     val streamCount: Int,
@@ -50,8 +51,7 @@ object MultiviewQualityPolicy {
                 recoveryLevel(input),
             )
             val manualCap = override ?: Int.MAX_VALUE
-            val tileCap = tileCap(input.tileWidthPx, input.tileHeightPx, degradedCap)
-            val effectiveHeight = minOf(manualCap, degradedCap, tileCap)
+            val effectiveHeight = minOf(manualCap, degradedCap)
             return constrainedHeight(effectiveHeight, "RECOVERY · ${effectiveHeight}p60")
         }
 
@@ -100,9 +100,11 @@ object MultiviewQualityPolicy {
         } else {
             normalCap
         }
-        val tileCap = tileCap(input.tileWidthPx, input.tileHeightPx, degradedCap)
-        val effectiveHeight = minOf(degradedCap, tileCap)
         val isExplicit = input.mode != MultiviewQualityMode.AUTO
+        val effectiveHeight = if (isExplicit) degradedCap else minOf(
+            degradedCap,
+            tileCap(input.tileWidthPx, input.tileHeightPx, degradedCap),
+        )
         return constrainedHeight(
             effectiveHeight,
             if (isExplicit) "${effectiveHeight}p" else "AUTO · ${effectiveHeight}p60",
@@ -127,7 +129,7 @@ object MultiviewQualityPolicy {
         val labels = availableFormats
             .mapNotNull { format -> format.height.takeIf { it > 0 }?.let { height -> height to format.frameRate } }
             .sortedWith(compareByDescending<Pair<Int, Float>> { it.first }.thenByDescending { it.second })
-            .map { (height, frameRate) -> "${height}p${frameRate.toInt().takeIf { it > 0 } ?: 60}" }
+            .map { (height, frameRate) -> "${height}p${frameRate.takeIf { it > 0 }?.roundToInt() ?: 60}" }
             .distinctBy { it.substringBefore('p') }
             .toMutableList()
         if (availableFormats.any { it.isSource }) labels.add(0, "Source")
@@ -136,7 +138,7 @@ object MultiviewQualityPolicy {
 
     fun effectiveFormatLabel(width: Int, height: Int, frameRate: Float): String {
         if (width <= 0 || height <= 0) return "AUTO"
-        val fps = frameRate.takeIf { it > 0 }?.toInt() ?: 60
+        val fps = frameRate.takeIf { it > 0 }?.roundToInt() ?: 60
         return "${height}p${fps}"
     }
 

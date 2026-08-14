@@ -610,6 +610,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
         binding.controlsOverlay.isVisible = visible
         if (!visible) {
             binding.videoGrid.updatePadding(top = 0)
+            binding.multiviewContent.doOnLayout { renderTileBounds() }
             return
         }
 
