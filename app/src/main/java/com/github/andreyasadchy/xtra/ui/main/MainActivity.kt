@@ -112,6 +112,7 @@ class MainActivity : AppCompatActivity() {
         const val INTENT_OPEN_PLAYER = "com.github.andreyasadchy.xtra.OPEN_PLAYER"
         const val INTENT_START_AUDIO_ONLY = "com.github.andreyasadchy.xtra.START_AUDIO_ONLY"
         const val INTENT_PLAY_PAUSE_PLAYER = "com.github.andreyasadchy.xtra.PLAY_PAUSE_PLAYER"
+        const val INTENT_OPEN_OWN_PROFILE = "com.github.andreyasadchy.xtra.OPEN_OWN_PROFILE"
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -660,6 +661,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        findViewById<Toolbar>(R.id.toolbar)?.let { ProfileMenuBinder.bind(it, this) }
         if (prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) && !LiveNotificationScheduler.canPostNotifications(this)) {
             prefs.edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
             LiveNotificationScheduler.disable(this)
@@ -937,6 +939,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+            INTENT_OPEN_OWN_PROFILE -> openOwnProfile()
         }
     }
 

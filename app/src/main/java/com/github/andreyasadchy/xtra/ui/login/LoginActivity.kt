@@ -47,12 +47,50 @@ import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.regex.Pattern
 import kotlin.math.roundToInt
 
 internal fun parseLoginApi(value: String?): Int =
     value?.toIntOrNull()?.coerceIn(0, 2) ?: 0
+
+internal const val HELIX_ONLY_LOGIN_API = 2
+
+internal fun resolveLoginApi(storedApi: String?, reauthorize: Boolean): Int =
+    if (reauthorize) HELIX_ONLY_LOGIN_API else parseLoginApi(storedApi)
+
+internal fun shouldClearExistingSession(hasExistingSession: Boolean, reauthorize: Boolean): Boolean =
+    hasExistingSession && !reauthorize
+
+internal fun isReauthorizationUserAllowed(
+    reauthorize: Boolean,
+    previousUserId: String?,
+    newUserId: String?,
+): Boolean =
+    !reauthorize || (!previousUserId.isNullOrBlank() && previousUserId == newUserId)
+
+internal val REAUTHORIZATION_ACCOUNT_SCOPES = setOf(
+    "user:edit",
+    "user:read:blocked_users",
+    "user:manage:blocked_users",
+)
+
+internal fun hasRequiredReauthorizationScopes(scopes: Collection<String>): Boolean =
+    REAUTHORIZATION_ACCOUNT_SCOPES.all(scopes::contains)
+
+internal fun canCompleteReauthorization(
+    reauthorize: Boolean,
+    helixToken: String?,
+    helixScopes: Collection<String>,
+    helixValidationFailed: Boolean,
+    identityMismatch: Boolean = false,
+): Boolean =
+    !reauthorize ||
+        (!identityMismatch &&
+            !helixToken.isNullOrBlank() &&
+            !helixValidationFailed &&
+            hasRequiredReauthorizationScopes(helixScopes))
 
 class LoginActivity : AppCompatActivity() {
 
@@ -69,6 +107,18 @@ class LoginActivity : AppCompatActivity() {
     private var readHeaders = false
     private var readHeaders2 = false
     private var checkUrl = false
+    private var reauthorize = false
+    private var previousNetworkLibrary: String? = null
+    private var previousHelixClientId: String? = null
+    private var previousHelixToken: String? = null
+    private var previousGqlClientId: String? = null
+    private var previousGqlToken: String? = null
+    private var previousGqlWebClientId: String? = null
+    private var previousGqlWebToken: String? = null
+    private var previousUserId: String? = null
+    private var reauthorizationIdentityMismatch = false
+    private var reauthorizationHelixValidationFailed = false
+    private var reauthorizationHelixScopes: Set<String> = emptySet()
 
     private lateinit var binding: ActivityLoginBinding
 
@@ -79,6 +129,14 @@ class LoginActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivityLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        reauthorize = intent.getBooleanExtra(EXTRA_REAUTHORIZE, false)
+        previousUserId = tokenPrefs().getString(C.USER_ID, null)
+        if (reauthorize && previousUserId.isNullOrBlank()) {
+            Toast.makeText(this, R.string.account_reauthorize_identity_unknown, Toast.LENGTH_LONG).show()
+            setResult(RESULT_CANCELED)
+            finish()
+            return
+        }
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             binding.root.updateLayoutParams<ViewGroup.MarginLayoutParams> {
@@ -97,7 +155,14 @@ class LoginActivity : AppCompatActivity() {
             val gqlHeaders = TwitchApiHelper.getGQLHeaders(this@LoginActivity, true)
             val oldGQLToken = gqlHeaders[C.HEADER_TOKEN]?.removePrefix("OAuth ")
             val oldGQLWebToken = tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
-            if (!oldGQLToken.isNullOrBlank() || !oldHelixToken.isNullOrBlank()) {
+            previousNetworkLibrary = networkLibrary
+            previousHelixClientId = helixClientId
+            previousHelixToken = oldHelixToken
+            previousGqlClientId = gqlHeaders[C.HEADER_CLIENT_ID]
+            previousGqlToken = oldGQLToken
+            previousGqlWebClientId = prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
+            previousGqlWebToken = oldGQLWebToken
+            if (shouldClearExistingSession(!oldGQLToken.isNullOrBlank() || !oldHelixToken.isNullOrBlank(), reauthorize)) {
                 LiveNotificationScheduler.disable(this@LoginActivity)
                 lifecycleScope.launch(Dispatchers.IO) {
                     xtraModule.notificationsRepository.clearNotificationState()
@@ -147,7 +212,7 @@ class LoginActivity : AppCompatActivity() {
                     putString(C.GQL_REDIRECT2, "https://www.twitch.tv/settings/connections")
                 }
             }
-            val apiSetting = parseLoginApi(prefs().getString(C.API_LOGIN, "0"))
+            val apiSetting = resolveLoginApi(prefs().getString(C.API_LOGIN, "0"), reauthorize)
             val helixRedirect = prefs().getString(C.HELIX_REDIRECT, C.DEFAULT_HELIX_REDIRECT)
             val helixScopes = listOf(
                 "channel:edit:commercial", // channels/commercial
@@ -168,6 +233,9 @@ class LoginActivity : AppCompatActivity() {
                 "moderator:read:followers", // channels/followers
                 "user:manage:chat_color", // chat/color
                 "user:manage:whispers", // whispers
+                "user:edit", // account description
+                "user:read:blocked_users", // account blocked users
+                "user:manage:blocked_users", // account blocked users
                 "user:read:chat",
                 "user:read:emotes", // chat/emotes/user
                 "user:read:follows", // streams/followed, channels/followed
@@ -217,21 +285,15 @@ class LoginActivity : AppCompatActivity() {
                                 val valid = validateGQLToken(networkLibrary, clientId, token)
                                 if (prefs().getBoolean(C.ENABLE_INTEGRITY, false)) {
                                     if (valid) {
-                                        TwitchApiHelper.checkedValidation = true
-                                        tokenPrefs().edit {
-                                            putLong(C.INTEGRITY_EXPIRATION, 0)
-                                            putString(C.GQL_HEADERS, JSONObject(mapOf(
+                                        gqlWebClientId = clientId
+                                        gqlWebToken = token
+                                        done(
+                                            gqlHeaders = JSONObject(mapOf(
                                                 C.HEADER_CLIENT_ID to clientId,
-                                                C.HEADER_TOKEN to "OAuth $token"
-                                            )).toString())
-                                            if (!helixToken.isNullOrBlank()) {
-                                                putString(C.TOKEN, helixToken)
-                                            }
-                                            putString(C.USER_ID, userId)
-                                            putString(C.USERNAME, userLogin)
-                                        }
-                                        setResult(RESULT_OK)
-                                        finish()
+                                                C.HEADER_TOKEN to "OAuth $token",
+                                            )).toString(),
+                                            resetIntegrity = true,
+                                        )
                                     } else {
                                         if (!helixToken.isNullOrBlank()) {
                                             done()
@@ -541,6 +603,11 @@ class LoginActivity : AppCompatActivity() {
                         if (apiSetting == 0) {
                             if (valid) {
                                 helixToken = token
+                            } else if (reauthorize) {
+                                error()
+                                checkUrl = true
+                                webView.loadUrl(helixAuthUrl)
+                                return@launch
                             }
                             webView.visibility = View.VISIBLE
                             textZoom.visibility = View.VISIBLE
@@ -647,6 +714,15 @@ class LoginActivity : AppCompatActivity() {
         return try {
             val response = xtraModule.authRepository.validate(networkLibrary, TwitchApiHelper.addTokenPrefixGQL(token))
             if (response.clientId.isNotBlank() && response.clientId == gqlClientId) {
+                if (!isReauthorizationUserAllowed(reauthorize, previousUserId, response.userId)) {
+                    if (reauthorize) {
+                        reauthorizationIdentityMismatch = true
+                    }
+                    return false
+                }
+                if (reauthorize && !helixToken.isNullOrBlank() && !reauthorizationHelixValidationFailed) {
+                    reauthorizationIdentityMismatch = false
+                }
                 response.userId?.let { userId = it }
                 response.login?.let { userLogin = it }
                 true
@@ -660,18 +736,59 @@ class LoginActivity : AppCompatActivity() {
         return try {
             val response = xtraModule.authRepository.validate(networkLibrary, TwitchApiHelper.addTokenPrefixHelix(token))
             if (response.clientId.isNotBlank() && response.clientId == helixClientId) {
+                if (!isReauthorizationUserAllowed(reauthorize, previousUserId, response.userId)) {
+                    if (reauthorize) {
+                        reauthorizationHelixValidationFailed = true
+                        reauthorizationHelixScopes = emptySet()
+                        reauthorizationIdentityMismatch = true
+                    }
+                    return false
+                }
+                if (reauthorize) {
+                    reauthorizationIdentityMismatch = false
+                    if (!hasRequiredReauthorizationScopes(response.scopes)) {
+                        reauthorizationHelixValidationFailed = true
+                        reauthorizationHelixScopes = emptySet()
+                        return false
+                    }
+                    reauthorizationHelixValidationFailed = false
+                    reauthorizationHelixScopes = response.scopes.toSet()
+                }
                 response.userId?.let { userId = it }
                 response.login?.let { userLogin = it }
                 true
-            } else false
+            } else {
+                if (reauthorize) {
+                    reauthorizationHelixValidationFailed = true
+                    reauthorizationHelixScopes = emptySet()
+                }
+                false
+            }
         } catch (e: Exception) {
+            if (reauthorize) {
+                reauthorizationHelixValidationFailed = true
+                reauthorizationHelixScopes = emptySet()
+            }
             false
         }
     }
 
+    private fun canCompleteLogin(): Boolean = canCompleteReauthorization(
+        reauthorize = reauthorize,
+        helixToken = helixToken,
+        helixScopes = reauthorizationHelixScopes,
+        helixValidationFailed = reauthorizationHelixValidationFailed,
+        identityMismatch = reauthorizationIdentityMismatch,
+    )
+
     private fun error() {
         with(binding) {
-            Toast.makeText(this@LoginActivity, R.string.connection_error, Toast.LENGTH_LONG).show()
+            val message = when {
+                reauthorizationIdentityMismatch -> R.string.account_reauthorize_same_account
+                reauthorizationHelixValidationFailed -> R.string.account_reauthorize_helix_required
+                else -> R.string.connection_error
+            }
+            Toast.makeText(this@LoginActivity, message, Toast.LENGTH_LONG).show()
             CookieManager.getInstance().removeAllCookies(null)
             helixToken = null
             gqlClientId = null
@@ -687,37 +804,116 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    private fun done() {
-        if (!gqlToken.isNullOrBlank() || !helixToken.isNullOrBlank()) {
-            TwitchApiHelper.checkedValidation = true
-            prefs().edit {
-                if (developerOverridesEnabled() && !gqlClientId.isNullOrBlank()) {
-                    putString(C.GQL_CLIENT_ID2, gqlClientId)
-                }
-                if (!gqlWebClientId.isNullOrBlank()) {
-                    putString(C.GQL_CLIENT_ID_WEB, gqlWebClientId)
-                }
+    private fun done(gqlHeaders: String? = null, resetIntegrity: Boolean = false) {
+        if (!canCompleteLogin()) {
+            error()
+            return
+        }
+        if (!gqlHeaders.isNullOrBlank() || !gqlToken.isNullOrBlank() || !helixToken.isNullOrBlank()) {
+            if (!persistSuccessfulLogin(gqlHeaders, resetIntegrity)) {
+                return
             }
-            tokenPrefs().edit {
-                if (!helixToken.isNullOrBlank()) {
-                    putString(C.TOKEN, helixToken)
-                }
-                if (!gqlToken.isNullOrBlank()) {
-                    putString(C.GQL_TOKEN2, gqlToken)
-                }
-                if (!gqlWebToken.isNullOrBlank()) {
-                    putString(C.GQL_TOKEN_WEB, gqlWebToken)
-                }
+        }
+        finishSuccessfulLogin()
+    }
+
+    private fun persistSuccessfulLogin(gqlHeaders: String? = null, resetIntegrity: Boolean = false): Boolean {
+        if (!canCompleteLogin()) {
+            error()
+            return false
+        }
+        TwitchApiHelper.checkedValidation = true
+        prefs().edit {
+            if (developerOverridesEnabled() && !gqlClientId.isNullOrBlank()) {
+                putString(C.GQL_CLIENT_ID2, gqlClientId)
+            }
+            if (!gqlWebClientId.isNullOrBlank()) {
+                putString(C.GQL_CLIENT_ID_WEB, gqlWebClientId)
+            }
+        }
+        tokenPrefs().edit {
+            if (resetIntegrity) {
+                putLong(C.INTEGRITY_EXPIRATION, 0)
+            }
+            if (!gqlHeaders.isNullOrBlank()) {
+                putString(C.GQL_HEADERS, gqlHeaders)
+            }
+            if (!helixToken.isNullOrBlank()) {
+                putString(C.TOKEN, helixToken)
+            }
+            if (!gqlToken.isNullOrBlank()) {
+                putString(C.GQL_TOKEN2, gqlToken)
+            }
+            if (!gqlWebToken.isNullOrBlank()) {
+                putString(C.GQL_TOKEN_WEB, gqlWebToken)
+            }
+            if (!userId.isNullOrBlank()) {
                 putString(C.USER_ID, userId)
+            }
+            if (!userLogin.isNullOrBlank()) {
                 putString(C.USERNAME, userLogin)
             }
         }
-        setResult(RESULT_OK)
-        finish()
+        return true
+    }
+
+    private fun finishSuccessfulLogin() {
+        if (!canCompleteLogin()) {
+            error()
+            return
+        }
+        if (!reauthorize) {
+            setResult(RESULT_OK)
+            finish()
+            return
+        }
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                revokePreviousCredentials()
+            }
+            setResult(RESULT_OK)
+            finish()
+        }
+    }
+
+    private suspend fun revokePreviousCredentials() {
+        val networkLibrary = previousNetworkLibrary
+        if (!previousHelixToken.isNullOrBlank() && !helixToken.isNullOrBlank() && previousHelixToken != helixToken) {
+            revokeToken(networkLibrary, previousHelixClientId, previousHelixToken)
+        }
+        if (
+            !previousGqlToken.isNullOrBlank() &&
+            previousGqlToken != previousGqlWebToken &&
+            !gqlToken.isNullOrBlank() &&
+            previousGqlToken != gqlToken &&
+            previousGqlToken != gqlWebToken
+        ) {
+            revokeToken(networkLibrary, previousGqlClientId, previousGqlToken)
+        }
+        if (
+            !previousGqlWebToken.isNullOrBlank() &&
+            !gqlWebToken.isNullOrBlank() &&
+            previousGqlWebToken != gqlWebToken
+        ) {
+            revokeToken(networkLibrary, previousGqlWebClientId, previousGqlWebToken)
+        }
+    }
+
+    private suspend fun revokeToken(networkLibrary: String?, clientId: String?, token: String?) {
+        if (clientId.isNullOrBlank() || token.isNullOrBlank()) return
+        try {
+            xtraModule.authRepository.revoke(networkLibrary, "client_id=$clientId&token=$token")
+        } catch (_: Exception) {
+            // Reauthorization has already replaced the stored credentials.
+        }
     }
 
     override fun onDestroy() {
         binding.webView.loadUrl("about:blank")
         super.onDestroy()
+    }
+
+    companion object {
+        const val EXTRA_REAUTHORIZE = "com.github.andreyasadchy.xtra.REAUTHORIZE"
     }
 }

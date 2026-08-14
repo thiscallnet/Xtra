@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.main
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.view.Gravity
 import android.view.MenuItem
@@ -16,6 +17,7 @@ import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.ui.account.AccountActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
@@ -49,7 +51,9 @@ object ProfileMenuBinder {
         }
 
         val avatar = createAvatar(activity, item)
-        avatar.setOnClickListener { activity.openOwnProfile() }
+        avatar.setOnClickListener {
+            activity.startActivity(Intent(activity, AccountActivity::class.java))
+        }
         item.actionView = avatar
 
         val cachedUserId = activity.tokenPrefs().getString(C.PROFILE_IMAGE_USER_ID, null)

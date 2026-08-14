@@ -56,6 +56,10 @@
         </activity>
         <activity android:name=".ui.settings.SettingsActivity" />
         <activity
+            android:name=".ui.account.AccountActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".ui.login.LoginActivity"
             android:configChanges="orientation|screenSize"
             android:windowSoftInputMode="adjustResize" />
