@@ -6,6 +6,7 @@ import androidx.lifecycle.LifecycleService
 import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.VideoQuality
+import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -52,6 +53,8 @@ abstract class BasePlaybackService : LifecycleService() {
     var restorePlaylist = false
     var useCustomProxy = false
     var skipAccessToken = false
+
+    private val viewingStatsSourceId = "playback-service:primary"
 
     var chatUrl: String? = null
     var started = false
@@ -142,6 +145,43 @@ abstract class BasePlaybackService : LifecycleService() {
             skipAccessToken = skipAccessToken,
         )
         xtraModule.playerRepository.savePlaybackStates(listOf(item))
+    }
+
+    protected fun updateViewingStats(isPlaying: Boolean, isBuffering: Boolean = false) {
+        if (!::xtraModule.isInitialized) return
+        val contentType = when (type) {
+            STREAM -> ViewingPlaybackMetadata.CONTENT_TYPE_LIVE
+            VIDEO -> ViewingPlaybackMetadata.CONTENT_TYPE_VOD
+            CLIP -> ViewingPlaybackMetadata.CONTENT_TYPE_CLIP
+            OFFLINE_VIDEO -> ViewingPlaybackMetadata.CONTENT_TYPE_OFFLINE_VIDEO
+            else -> null
+        } ?: return
+        val contentId = when (type) {
+            STREAM -> streamId
+            VIDEO -> videoId
+            CLIP -> clipId ?: videoId
+            OFFLINE_VIDEO -> offlineVideoId?.toString() ?: clipId
+            else -> null
+        }
+        xtraModule.viewingStatsRecorder.update(
+            sourceId = viewingStatsSourceId,
+            metadata = ViewingPlaybackMetadata(
+                channelId = channelId,
+                channelLogin = channelLogin,
+                channelName = channelName,
+                channelImage = channelImage,
+                contentType = contentType,
+                contentId = contentId,
+            ),
+            isPlaying = isPlaying,
+            isBuffering = isBuffering,
+        )
+    }
+
+    protected fun releaseViewingStats() {
+        if (::xtraModule.isInitialized) {
+            xtraModule.viewingStatsRecorder.release(viewingStatsSourceId)
+        }
     }
 
     protected fun setDefaultQuality() {

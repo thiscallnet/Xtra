@@ -1751,6 +1751,10 @@ class ExoPlayerService : BasePlaybackService() {
 
     private fun updatePlaybackState() {
         player?.let { player ->
+            updateViewingStats(
+                isPlaying = player.isPlaying,
+                isBuffering = player.playbackState == Player.STATE_BUFFERING,
+            )
             session?.setPlaybackState(
                 PlaybackState.Builder().apply {
                     setState(
@@ -2275,6 +2279,7 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     override fun onDestroy() {
+        releaseViewingStats()
         super.onDestroy()
         streamRecoveryJob?.cancel()
         streamRecoveryJob = null
