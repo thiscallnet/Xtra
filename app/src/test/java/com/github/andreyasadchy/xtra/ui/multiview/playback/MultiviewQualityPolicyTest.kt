@@ -59,7 +59,7 @@ class MultiviewQualityPolicyTest {
     @Test
     fun manualOverrideWinsOverHighQualityMode() {
         val target = MultiviewQualityPolicy.target(
-            input(streamCount = 2, active = false, override = "480p", mode = MultiviewQualityMode.HIGH_QUALITY),
+            input(streamCount = 2, active = false, override = "480p", mode = MultiviewQualityMode.QUALITY_1080P),
         )
 
         assertEquals(480, target.maxHeightPx)
@@ -97,11 +97,29 @@ class MultiviewQualityPolicyTest {
     @Test
     fun resourcePressureOverridesHighQualityTemporarily() {
         val target = MultiviewQualityPolicy.target(
-            input(streamCount = 4, active = true, mode = MultiviewQualityMode.HIGH_QUALITY, resourcePressure = true),
+            input(streamCount = 4, active = true, mode = MultiviewQualityMode.QUALITY_1080P, resourcePressure = true),
         )
 
         assertEquals(480, target.maxHeightPx)
         assertTrue(target.isConstrained)
+    }
+
+    @Test
+    fun resourcePressureNeverRaises360pSelection() {
+        val target = MultiviewQualityPolicy.target(
+            input(streamCount = 1, active = true, mode = MultiviewQualityMode.QUALITY_360P, resourcePressure = true),
+        )
+
+        assertTrue(target.maxHeightPx!! <= 360)
+    }
+
+    @Test
+    fun resourcePressureNeverRaises480pSelection() {
+        val target = MultiviewQualityPolicy.target(
+            input(streamCount = 1, active = true, mode = MultiviewQualityMode.QUALITY_480P, resourcePressure = true),
+        )
+
+        assertTrue(target.maxHeightPx!! <= 480)
     }
 
     @Test
@@ -134,13 +152,13 @@ class MultiviewQualityPolicyTest {
     }
 
     @Test
-    fun customModeLeavesUnoverriddenStreamAdaptive() {
+    fun autoModeLeavesFocusedStreamAdaptive() {
         val target = MultiviewQualityPolicy.target(
-            input(streamCount = 4, active = false, mode = MultiviewQualityMode.CUSTOM),
+            input(streamCount = 4, active = false, focused = true, mode = MultiviewQualityMode.AUTO),
         )
 
         assertNull(target.maxHeightPx)
-        assertEquals("CUSTOM · AUTO", target.label)
+        assertEquals("AUTO", target.label)
     }
 
     @Test
@@ -150,6 +168,38 @@ class MultiviewQualityPolicyTest {
         )
 
         assertEquals(720, target.maxHeightPx)
+    }
+
+    @Test
+    fun explicit1080pIgnoresSmallTileSize() {
+        val target = MultiviewQualityPolicy.target(
+            input(
+                streamCount = 4,
+                active = false,
+                tileWidth = 960,
+                tileHeight = 540,
+                mode = MultiviewQualityMode.QUALITY_1080P,
+            ),
+        )
+
+        assertEquals(1080, target.maxHeightPx)
+        assertEquals(1080, target.preferredHeightPx)
+    }
+
+    @Test
+    fun explicit720pIgnoresSmallTileSize() {
+        val target = MultiviewQualityPolicy.target(
+            input(
+                streamCount = 4,
+                active = false,
+                tileWidth = 320,
+                tileHeight = 180,
+                mode = MultiviewQualityMode.QUALITY_720P,
+            ),
+        )
+
+        assertEquals(720, target.maxHeightPx)
+        assertEquals(720, target.preferredHeightPx)
     }
 
     @Test
@@ -196,6 +246,16 @@ class MultiviewQualityPolicyTest {
         assertEquals(listOf("Source", "1080p60", "720p60", "480p30"), labels)
     }
 
+    @Test
+    fun fractionalFrameRatesUseNearestWholeFrameRateLabel() {
+        val labels = MultiviewQualityPolicy.availableManualLabels(
+            listOf(MultiviewQualityPolicy.AvailableFormat(720, 59.94f)),
+        )
+
+        assertEquals(listOf("720p60"), labels)
+        assertEquals("720p60", MultiviewQualityPolicy.effectiveFormatLabel(1280, 720, 59.94f))
+    }
+
     private fun input(
         streamCount: Int,
         active: Boolean,
@@ -204,7 +264,7 @@ class MultiviewQualityPolicyTest {
         tileHeight: Int = 0,
         override: String? = null,
         bufferingLevel: Int = 0,
-        mode: MultiviewQualityMode = MultiviewQualityMode.SMART,
+        mode: MultiviewQualityMode = MultiviewQualityMode.AUTO,
         resourcePressure: Boolean = false,
     ) = MultiviewQualityInput(
         streamCount = streamCount,

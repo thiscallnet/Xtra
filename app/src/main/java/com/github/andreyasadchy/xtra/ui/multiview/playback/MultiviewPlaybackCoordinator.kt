@@ -14,6 +14,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
@@ -72,7 +73,7 @@ class MultiviewPlaybackCoordinator(
     private val tileBounds = mutableMapOf<String, Pair<Int, Int>>()
     private var activeIdentity: String? = null
     private var focusedIdentity: String? = null
-    private var qualityMode = MultiviewQualityMode.SMART
+    private var qualityMode = MultiviewQualityMode.AUTO
     private var qualityOverrides: Map<String, String> = emptyMap()
     private var foreground = true
 
@@ -228,6 +229,20 @@ class MultiviewPlaybackCoordinator(
 
                 override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                     updateFormats(slot)
+                    val preferredHeight = slot.target?.preferredHeightPx
+                    val selectedFormat = player.videoFormat
+                    preferredHeight?.let { height ->
+                        val preferredSelection = findPreferredVideoSelection(
+                            player,
+                            height,
+                            slot.target?.preferredFrameRate ?: slot.target?.maxFrameRate ?: 60,
+                        )
+                        if (preferredSelection != null &&
+                            !selectedFormatMatches(selectedFormat, preferredSelection.format)
+                        ) {
+                            applyQuality(slot, force = true)
+                        }
+                    }
                     logSelectedFormat(slot, player.videoFormat)
                 }
 
@@ -517,7 +532,7 @@ class MultiviewPlaybackCoordinator(
             uri.contains("/api/v2/channel/hls/", ignoreCase = true)
     }
 
-    private fun applyQuality(slot: MultiviewPlayerSlot) {
+    private fun applyQuality(slot: MultiviewPlayerSlot, force: Boolean = false) {
         val bounds = tileBounds[slot.identity]
         val target = MultiviewQualityPolicy.target(
             MultiviewQualityInput(
@@ -532,18 +547,88 @@ class MultiviewPlaybackCoordinator(
                 resourcePressure = slot.resourceFailure,
             )
         )
-        if (slot.target == target) return
+        if (!force && slot.target == target) return
         slot.target = target
         val builder = slot.player.trackSelectionParameters.buildUpon()
             .clearVideoSizeConstraints()
+            .clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
             .setMaxVideoFrameRate(target.maxFrameRate)
             .setMaxVideoBitrate(Int.MAX_VALUE)
         if (target.maxWidthPx != null && target.maxHeightPx != null) {
             builder.setMaxVideoSize(target.maxWidthPx, target.maxHeightPx)
         }
+        target.preferredHeightPx?.let { preferredHeight ->
+            findPreferredVideoSelection(
+                slot.player,
+                preferredHeight,
+                target.preferredFrameRate ?: target.maxFrameRate,
+            )?.override?.let(builder::setOverrideForType)
+        }
         slot.player.trackSelectionParameters = builder.build()
         onSnapshot(slot.identity, slot.snapshot(target.label))
         debugLog("channel=${slot.identity} policy mode=$qualityMode streams=${slots.size} active=${slot.identity == activeIdentity} focus=${slot.identity == focusedIdentity} target=${target.label} downgrade=${slot.downgradeLevel}")
+    }
+
+    private data class PreferredVideoSelection(
+        val override: TrackSelectionOverride,
+        val format: androidx.media3.common.Format,
+    )
+
+    private fun findPreferredVideoSelection(
+        player: ExoPlayer,
+        preferredHeight: Int,
+        preferredFrameRate: Int,
+    ): PreferredVideoSelection? {
+        data class SupportedFormat(
+            val group: androidx.media3.common.Tracks.Group,
+            val index: Int,
+            val format: androidx.media3.common.Format,
+        )
+
+        val formats = player.currentTracks.groups
+            .filter {
+                it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO && it.isSupported
+            }
+            .flatMap { group ->
+                (0 until group.mediaTrackGroup.length)
+                    .filter { index -> group.isTrackSupported(index) }
+                    .map { index -> SupportedFormat(group, index, group.mediaTrackGroup.getFormat(index)) }
+            }
+        if (formats.isEmpty()) return null
+
+        val atOrBelow = formats.filter { candidate ->
+            candidate.format.height in 1..preferredHeight &&
+                (candidate.format.frameRate <= 0f ||
+                    candidate.format.frameRate <= preferredFrameRate + FRAME_RATE_TOLERANCE)
+        }
+        val selected = atOrBelow.maxWithOrNull(
+            compareBy<SupportedFormat> { it.format.height }
+                .thenBy { it.format.frameRate }
+                .thenBy { it.format.bitrate },
+        ) ?: formats.minWithOrNull(
+            compareBy<SupportedFormat> {
+                kotlin.math.abs(it.format.height - preferredHeight)
+            }.thenBy {
+                kotlin.math.abs(
+                    (it.format.frameRate.takeIf { fps -> fps > 0f } ?: preferredFrameRate.toFloat()) -
+                        preferredFrameRate.toFloat(),
+                )
+            }.thenByDescending { it.format.bitrate },
+        ) ?: return null
+
+        return PreferredVideoSelection(
+            override = TrackSelectionOverride(selected.group.mediaTrackGroup, selected.index),
+            format = selected.format,
+        )
+    }
+
+    private fun selectedFormatMatches(
+        selected: androidx.media3.common.Format?,
+        candidate: androidx.media3.common.Format,
+    ): Boolean {
+        if (selected == null || selected.height != candidate.height) return false
+        return candidate.frameRate <= 0f || selected.frameRate <= 0f ||
+            kotlin.math.abs(selected.frameRate - candidate.frameRate) <= FRAME_RATE_TOLERANCE
     }
 
     private fun scheduleStableQualityRecovery(slot: MultiviewPlayerSlot) {
@@ -996,6 +1081,7 @@ class MultiviewPlaybackCoordinator(
         private const val MAX_RETRIES = 6
         private const val NETWORK_RETRY_DELAY_MS = 15_000L
         private const val PRIMARY_RESTORE_INTERVAL_MS = 10_000L
+        private const val FRAME_RATE_TOLERANCE = 0.5f
         private val RETRY_DELAYS_MS = longArrayOf(1_500L, 3_000L, 6_000L, 12_000L, 20_000L, 30_000L)
         private const val MULTIVARIANT_PLAYLIST_REGEX = "^usher\\.ttvnw\\.net$"
         private const val MEDIA_PLAYLIST_REGEX = "^(?:[a-z0-9-]+\\.playlist\\.(?:live-video|ttvnw)\\.net|video-weaver\\.[a-z0-9-]+\\.hls\\.ttvnw\\.net)$"

@@ -288,10 +288,10 @@ class MultiviewViewModel(
         val streams = savedStateHandle.get<ArrayList<Stream>>(KEY_STREAMS)?.toList().orEmpty()
         val fillVideo = savedStateHandle.get<Boolean>(KEY_FILL) ?: preferences.getBoolean(C.MULTIVIEW_FILL, false)
         val qualityMode = savedStateHandle.get<String>(KEY_QUALITY_MODE)
-            ?.let { runCatching { MultiviewQualityMode.valueOf(it) }.getOrNull() }
-            ?: preferences.getString(C.MULTIVIEW_QUALITY_MODE, MultiviewQualityMode.SMART.name)
-                ?.let { runCatching { MultiviewQualityMode.valueOf(it) }.getOrNull() }
-            ?: MultiviewQualityMode.SMART
+            ?.let(MultiviewQualityMode::fromPersistedName)
+            ?: preferences.getString(C.MULTIVIEW_QUALITY_MODE, MultiviewQualityMode.AUTO.name)
+                ?.let(MultiviewQualityMode::fromPersistedName)
+            ?: MultiviewQualityMode.AUTO
         return MultiviewSessionState(
             streams = streams,
             activeIdentity = savedStateHandle[KEY_ACTIVE] ?: streams.firstOrNull()?.let(MultiviewSessionReducer::stableIdentity),
