@@ -14,7 +14,7 @@ data class MultiviewSessionState(
     val chatVisible: Boolean = false,
     val combinedChat: Boolean = false,
     val chatIdentity: String? = null,
-    val qualityMode: MultiviewQualityMode = MultiviewQualityMode.SMART,
+    val qualityMode: MultiviewQualityMode = MultiviewQualityMode.AUTO,
     val qualityOverrides: Map<String, String> = emptyMap(),
 ) {
     val identities: List<String>

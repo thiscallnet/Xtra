@@ -50,8 +50,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
     private val controlsHandler = Handler(Looper.getMainLooper())
     private val hideControls = Runnable {
         if (controlsLockCount > 0) return@Runnable
-        bindingOrNull?.controlsOverlay?.isVisible = false
-        slotViews.values.forEach { it.setControlsVisible(false) }
+        setControlsOverlayVisible(false)
     }
     private var latestState = MultiviewSessionState()
     private var latestPlayback: Map<String, MultiviewPlaybackSnapshot> = emptyMap()
@@ -572,13 +571,14 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
 
     private fun showSlotQualityMenu(identity: String, slot: MultiviewSlotView) {
         val stream = slot.stream ?: return
-        val qualities = listOf(getString(R.string.multiview_smart)) + latestPlayback[identity]
+        val autoLabel = getString(R.string.multiview_quality_auto)
+        val qualities = listOf(autoLabel) + latestPlayback[identity]
             ?.availableQualities.orEmpty()
         lockControls()
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(getString(R.string.multiview_quality_for, displayName(stream)))
             .setItems(qualities.toTypedArray()) { _, which ->
-                viewModel.setQualityOverride(identity, qualities[which].takeUnless { it == getString(R.string.multiview_smart) })
+                viewModel.setQualityOverride(identity, qualities[which].takeUnless { it == autoLabel })
             }
             .setNegativeButton(android.R.string.cancel, null)
             .setOnDismissListener { unlockControls(slot) }
@@ -597,11 +597,29 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
 
     private fun revealControls(slot: MultiviewSlotView? = null) {
         val binding = _binding ?: return
-        binding.controlsOverlay.isVisible = true
+        setControlsOverlayVisible(true)
         slotViews.values.forEach { it.setControlsVisible(it === slot) }
         controlsHandler.removeCallbacks(hideControls)
         if (controlsLockCount == 0) {
             controlsHandler.postDelayed(hideControls, CONTROLS_TIMEOUT_MS)
+        }
+    }
+
+    private fun setControlsOverlayVisible(visible: Boolean) {
+        val binding = _binding ?: return
+        binding.controlsOverlay.isVisible = visible
+        if (!visible) {
+            binding.videoGrid.updatePadding(top = 0)
+            return
+        }
+
+        // The toolbar is an overlay, while each tile also owns a top info bar.
+        // Reserve the toolbar's measured height so those two rows cannot cover
+        // each other when controls are revealed.
+        binding.controlsOverlay.doOnLayout { controls ->
+            if (_binding == null || !controls.isVisible) return@doOnLayout
+            binding.videoGrid.updatePadding(top = controls.height + dp(16))
+            binding.multiviewContent.doOnLayout { renderTileBounds() }
         }
     }
 
@@ -681,10 +699,11 @@ private fun MultiviewLayoutMode.labelRes(): Int = when (this) {
 }
 
 private fun MultiviewQualityMode.labelRes(): Int = when (this) {
-    MultiviewQualityMode.SMART -> R.string.multiview_quality_smart
-    MultiviewQualityMode.DATA_SAVER -> R.string.multiview_quality_data_saver
-    MultiviewQualityMode.HIGH_QUALITY -> R.string.multiview_quality_high
-    MultiviewQualityMode.CUSTOM -> R.string.multiview_quality_custom
+    MultiviewQualityMode.AUTO -> R.string.multiview_quality_auto
+    MultiviewQualityMode.QUALITY_360P -> R.string.multiview_quality_360p
+    MultiviewQualityMode.QUALITY_480P -> R.string.multiview_quality_480p
+    MultiviewQualityMode.QUALITY_720P -> R.string.multiview_quality_720p
+    MultiviewQualityMode.QUALITY_1080P -> R.string.multiview_quality_1080p
 }
 
 private inline fun <reified T : Parcelable> Bundle.parcelable(key: String): T? {

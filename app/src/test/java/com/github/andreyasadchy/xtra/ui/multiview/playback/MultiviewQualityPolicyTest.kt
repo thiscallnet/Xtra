@@ -59,7 +59,7 @@ class MultiviewQualityPolicyTest {
     @Test
     fun manualOverrideWinsOverHighQualityMode() {
         val target = MultiviewQualityPolicy.target(
-            input(streamCount = 2, active = false, override = "480p", mode = MultiviewQualityMode.HIGH_QUALITY),
+            input(streamCount = 2, active = false, override = "480p", mode = MultiviewQualityMode.QUALITY_1080P),
         )
 
         assertEquals(480, target.maxHeightPx)
@@ -97,7 +97,7 @@ class MultiviewQualityPolicyTest {
     @Test
     fun resourcePressureOverridesHighQualityTemporarily() {
         val target = MultiviewQualityPolicy.target(
-            input(streamCount = 4, active = true, mode = MultiviewQualityMode.HIGH_QUALITY, resourcePressure = true),
+            input(streamCount = 4, active = true, mode = MultiviewQualityMode.QUALITY_1080P, resourcePressure = true),
         )
 
         assertEquals(480, target.maxHeightPx)
@@ -136,11 +136,11 @@ class MultiviewQualityPolicyTest {
     @Test
     fun customModeLeavesUnoverriddenStreamAdaptive() {
         val target = MultiviewQualityPolicy.target(
-            input(streamCount = 4, active = false, mode = MultiviewQualityMode.CUSTOM),
+            input(streamCount = 4, active = false, mode = MultiviewQualityMode.AUTO),
         )
 
         assertNull(target.maxHeightPx)
-        assertEquals("CUSTOM · AUTO", target.label)
+        assertEquals("AUTO", target.label)
     }
 
     @Test
@@ -204,7 +204,7 @@ class MultiviewQualityPolicyTest {
         tileHeight: Int = 0,
         override: String? = null,
         bufferingLevel: Int = 0,
-        mode: MultiviewQualityMode = MultiviewQualityMode.SMART,
+        mode: MultiviewQualityMode = MultiviewQualityMode.AUTO,
         resourcePressure: Boolean = false,
     ) = MultiviewQualityInput(
         streamCount = streamCount,

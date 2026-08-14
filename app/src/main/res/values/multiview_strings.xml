@@ -31,7 +31,12 @@
     <string name="multiview_layout_grid">Grid</string>
     <string name="multiview_layout_focus">Focus</string>
     <string name="multiview_more_options">More multiview options</string>
-    <string name="multiview_quality_mode">Quality mode</string>
+    <string name="multiview_quality_mode">Quality</string>
+    <string name="multiview_quality_auto">Auto</string>
+    <string name="multiview_quality_360p">360p</string>
+    <string name="multiview_quality_480p">480p</string>
+    <string name="multiview_quality_720p">720p</string>
+    <string name="multiview_quality_1080p">1080p</string>
     <string name="multiview_quality_smart">Smart</string>
     <string name="multiview_quality_data_saver">Data Saver</string>
     <string name="multiview_quality_high">High Quality</string>

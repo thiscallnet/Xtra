@@ -8,7 +8,7 @@ data class MultiviewQualityInput(
     val isFocused: Boolean,
     val tileWidthPx: Int = 0,
     val tileHeightPx: Int = 0,
-    val mode: MultiviewQualityMode = MultiviewQualityMode.SMART,
+    val mode: MultiviewQualityMode = MultiviewQualityMode.AUTO,
     val manualOverride: String? = null,
     val bufferingDowngradeLevel: Int = 0,
     val resourcePressure: Boolean = false,
@@ -18,6 +18,8 @@ data class MultiviewQualityTarget(
     val maxWidthPx: Int? = null,
     val maxHeightPx: Int? = null,
     val maxFrameRate: Int = 60,
+    val preferredHeightPx: Int? = null,
+    val preferredFrameRate: Int? = null,
     val label: String,
     val isConstrained: Boolean,
 )
@@ -34,7 +36,7 @@ object MultiviewQualityPolicy {
         val override = input.manualOverride?.let(::parseHeight)
         val sourceOverride = input.manualOverride.equals("Source", ignoreCase = true)
         val recoveryRequested = input.resourcePressure ||
-            (input.mode == MultiviewQualityMode.SMART || input.mode == MultiviewQualityMode.CUSTOM) &&
+            input.mode == MultiviewQualityMode.AUTO &&
             input.bufferingDowngradeLevel > 0
 
         // Decoder/resource pressure is deliberately handled before explicit quality
@@ -54,18 +56,23 @@ object MultiviewQualityPolicy {
         }
 
         if (override != null || sourceOverride) {
-            return override?.let { constrainedHeight(it, "${it}p60") }
+            return override?.let {
+                val frameRate = input.manualOverride.let(::parseFrameRate) ?: 60
+                constrainedHeight(
+                    it,
+                    "${it}p$frameRate",
+                    preferredHeight = it,
+                    preferredFrameRate = frameRate,
+                )
+            }
                 ?: unconstrained("Source")
         }
-        if (input.mode == MultiviewQualityMode.HIGH_QUALITY) {
-            return unconstrained("HIGH")
-        }
-
         val normalCap = when (input.mode) {
-            MultiviewQualityMode.DATA_SAVER -> if (input.streamCount <= 1) 720 else 480
-            MultiviewQualityMode.HIGH_QUALITY -> null
-            MultiviewQualityMode.CUSTOM -> null
-            MultiviewQualityMode.SMART -> when {
+            MultiviewQualityMode.QUALITY_360P -> 360
+            MultiviewQualityMode.QUALITY_480P -> 480
+            MultiviewQualityMode.QUALITY_720P -> 720
+            MultiviewQualityMode.QUALITY_1080P -> 1080
+            MultiviewQualityMode.AUTO -> when {
                 input.isFocused && input.streamCount > 1 -> null
                 input.streamCount <= 1 -> null
                 input.isActive -> 720
@@ -79,7 +86,7 @@ object MultiviewQualityPolicy {
             // but a decoder failure or sustained rebuffers must still have a
             // resource-saving fallback. Resolution is reduced before fps.
             if (!recoveryRequested) {
-                return unconstrained(if (input.mode == MultiviewQualityMode.CUSTOM) "CUSTOM · AUTO" else "AUTO")
+                return unconstrained("AUTO")
             }
             val recoveryCap = if (input.streamCount >= 3 && !input.isActive && !input.isFocused) 480 else 720
             val degradedCap = downgrade(recoveryCap, recoveryLevel(input))
@@ -88,14 +95,19 @@ object MultiviewQualityPolicy {
             return constrainedHeight(effectiveHeight, "AUTO · ${effectiveHeight}p60")
         }
 
-        val degradedCap = if (input.mode == MultiviewQualityMode.SMART) {
+        val degradedCap = if (input.mode == MultiviewQualityMode.AUTO) {
             downgrade(normalCap, recoveryLevel(input))
         } else {
             normalCap
         }
         val tileCap = tileCap(input.tileWidthPx, input.tileHeightPx, degradedCap)
         val effectiveHeight = minOf(degradedCap, tileCap)
-        return constrainedHeight(effectiveHeight, "AUTO · ${effectiveHeight}p60")
+        val isExplicit = input.mode != MultiviewQualityMode.AUTO
+        return constrainedHeight(
+            effectiveHeight,
+            if (isExplicit) "${effectiveHeight}p" else "AUTO · ${effectiveHeight}p60",
+            preferredHeight = effectiveHeight.takeIf { isExplicit },
+        )
     }
 
     fun targetForManualOverride(label: String?): MultiviewQualityTarget? {
@@ -105,7 +117,7 @@ object MultiviewQualityPolicy {
                 streamCount = 1,
                 isActive = true,
                 isFocused = false,
-                mode = MultiviewQualityMode.CUSTOM,
+                mode = MultiviewQualityMode.AUTO,
                 manualOverride = label,
             )
         )
@@ -128,12 +140,19 @@ object MultiviewQualityPolicy {
         return "${height}p${fps}"
     }
 
-    private fun constrainedHeight(height: Int, label: String): MultiviewQualityTarget {
+    private fun constrainedHeight(
+        height: Int,
+        label: String,
+        preferredHeight: Int? = null,
+        preferredFrameRate: Int? = null,
+    ): MultiviewQualityTarget {
         val normalizedHeight = height.coerceAtLeast(144)
         return MultiviewQualityTarget(
             maxWidthPx = normalizedHeight * 16 / 9,
             maxHeightPx = normalizedHeight,
             maxFrameRate = 60,
+            preferredHeightPx = preferredHeight,
+            preferredFrameRate = preferredFrameRate,
             label = label,
             isConstrained = true,
         )
@@ -177,6 +196,14 @@ object MultiviewQualityPolicy {
 
     private fun parseHeight(label: String): Int? {
         return Regex("^(\\d{3,4})p(?:\\d+)?$", RegexOption.IGNORE_CASE)
+            .matchEntire(label.trim())
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+    }
+
+    private fun parseFrameRate(label: String): Int? {
+        return Regex("^\\d{3,4}p(\\d+)$", RegexOption.IGNORE_CASE)
             .matchEntire(label.trim())
             ?.groupValues
             ?.getOrNull(1)
