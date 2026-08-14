@@ -766,6 +766,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        // Multiview uses background audio when Home is pressed. Its explicit
+        // toolbar action is the opt-in path into PiP, so Home never leaves a
+        // grid unexpectedly floating over another app.
+        if (playerFragment == null && currentMultiviewFragment() != null) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
@@ -778,6 +782,36 @@ class MainActivity : AppCompatActivity() {
                 //device doesn't support PIP
             }
         }
+    }
+
+    fun canMinimizeMultiview(): Boolean {
+        return playerFragment == null &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
+            prefs.getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true)
+    }
+
+    fun minimizeMultiview() {
+        if (!canMinimizeMultiview()) return
+        runCatching {
+            enterPictureInPictureMode(PictureInPictureParams.Builder().build())
+        }
+    }
+
+    fun prepareMultiviewPictureInPicture() {
+        if (!canMinimizeMultiview() || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        setPictureInPictureParams(
+            PictureInPictureParams.Builder()
+                // Multiview deliberately keeps background audio on Home. PiP
+                // is available through the explicit minimize control instead.
+                .setAutoEnterEnabled(false)
+                .build(),
+        )
+    }
+
+    fun clearMultiviewPictureInPicture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || playerFragment != null) return
+        setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(false).build())
     }
 
     private fun handleIntent(intent: Intent?) {

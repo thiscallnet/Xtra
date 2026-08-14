@@ -31,7 +31,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:layout_margin="6dp"
+        android:layout_margin="2dp"
         android:background="@drawable/bg_stream_overlay"
         android:gravity="center_vertical"
         android:minHeight="40dp"
@@ -64,11 +64,14 @@
             android:textAppearance="?attr/textAppearanceLabelSmall"
             android:textColor="@android:color/white" />
 
-        <ImageView
+        <ImageButton
             android:id="@+id/audioIcon"
-            android:layout_width="32dp"
-            android:layout_height="40dp"
+            android:layout_width="40dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
             android:contentDescription="@string/multiview_audio_muted_short"
+            android:focusable="true"
             android:padding="8dp"
             android:src="@drawable/baseline_volume_off_black_24"
             android:visibility="gone"

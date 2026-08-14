@@ -5,6 +5,27 @@ import org.junit.Test
 
 class MultiviewAudioPolicyTest {
     @Test
+    fun configuredVolumesRemainIndependentAcrossSlots() {
+        val volumes = mapOf("a" to 0.25f, "b" to 0.75f)
+
+        assertEquals(
+            0.25f,
+            MultiviewAudioPolicy.volumeFor("a", volumes, hiddenForAd = false),
+            0f,
+        )
+        assertEquals(
+            0.75f,
+            MultiviewAudioPolicy.volumeFor("b", volumes, hiddenForAd = false),
+            0f,
+        )
+        assertEquals(
+            0f,
+            MultiviewAudioPolicy.volumeFor("b", volumes, hiddenForAd = true),
+            0f,
+        )
+    }
+
+    @Test
     fun hiddenAdSlotStaysMutedAcrossActiveStreamChangesAndRenders() {
         fun render(activeIdentity: String): Map<String, Float> {
             return mapOf(

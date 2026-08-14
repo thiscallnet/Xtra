@@ -9,6 +9,8 @@ class MultiviewSessionReducerTest {
     private val first = Stream(id = "stream-1", channelId = "100", channelLogin = "Alpha", channelName = "Alpha")
     private val second = Stream(id = "stream-2", channelId = "200", channelLogin = "Beta", channelName = "Beta")
     private val third = Stream(id = "stream-3", channelId = "300", channelLogin = "Gamma", channelName = "Gamma")
+    private val fourth = Stream(id = "stream-4", channelId = "400", channelLogin = "Delta", channelName = "Delta")
+    private val requested = Stream(id = "stream-5", channelId = "500", channelLogin = "Epsilon", channelName = "Epsilon")
 
     @Test
     fun addUsesStableIdentityAndCapsAtFour() {
@@ -63,5 +65,22 @@ class MultiviewSessionReducerTest {
 
         state = MultiviewSessionReducer.setActive(state, "id:100")
         assertEquals("id:100", state.activeIdentity)
+    }
+
+    @Test
+    fun explicitInitialStreamReplacesLastWhenRestoredSessionIsFull() {
+        var state = MultiviewSessionState()
+        listOf(first, second, third, fourth).forEach {
+            state = MultiviewSessionReducer.add(state, it, initialAudioVolume = 0f)
+        }
+
+        state = MultiviewSessionReducer.addOrReplaceLast(
+            state = state,
+            stream = requested,
+            initialAudioVolume = 0f,
+        )
+
+        assertEquals(listOf("id:100", "id:200", "id:300", "id:500"), state.identities)
+        assertEquals("id:500", state.activeIdentity)
     }
 }

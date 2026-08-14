@@ -9,6 +9,7 @@
     <string name="multiview_loading">Loading stream…</string>
     <string name="multiview_playback_error">Playback failed. Tap to retry.</string>
     <string name="multiview_audio">Audio: %s</string>
+    <string name="multiview_audio_multiple">Audio: %d streams</string>
     <string name="multiview_chat">Chat</string>
     <string name="multiview_hide_chat">Hide chat</string>
     <string name="multiview_close">Done</string>
@@ -55,6 +56,11 @@
     <string name="multiview_open_player">Open in player</string>
     <string name="multiview_open_active_player">Open active stream in player</string>
     <string name="multiview_stream_actions">Stream actions</string>
+    <string name="multiview_volume">Volume</string>
+    <string name="multiview_volume_for">Volume for %s</string>
+    <string name="multiview_mute">Mute</string>
+    <string name="multiview_unmute">Unmute</string>
+    <string name="multiview_minimize">Minimize multiview</string>
     <string name="multiview_buffering">Buffering…</string>
     <string name="multiview_reconnecting">Reconnecting…</string>
     <string name="multiview_offline">Stream is offline</string>
@@ -80,4 +86,6 @@
     <string name="multiview_viewers">%d viewers</string>
     <string name="multiview_already_added">Already added</string>
     <string name="multiview_combined_message_description">%1$s chat message: %2$s</string>
+    <string name="multiview_background_playback">Multiview playback</string>
+    <string name="multiview_background_playback_description">Audio is playing while video is hidden.</string>
 </resources>
