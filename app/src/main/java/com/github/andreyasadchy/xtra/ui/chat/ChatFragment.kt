@@ -34,8 +34,10 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import coil3.imageLoader
 import coil3.request.CachePolicy
+import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.request.error
 import coil3.request.target
 import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
@@ -106,6 +108,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var hasRecentEmotes = false
     private var messagingEnabled = false
     private var channelPointsIconUrl: String? = null
+    private var channelPointsIconRequest: Disposable? = null
+    private var channelPointsIconRequestGeneration = 0
+    private var channelPointsIconLoaded = false
+    private var channelPointsIconForeground: Int? = null
     private var channelPointsAccessibilityLabel: String? = null
     private var composerOverlayState: ComposerOverlayState? = null
     private var pendingComposerText: String? = null
@@ -1029,7 +1035,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             )
         }
         binding.channelPoints.backgroundTintList = background?.let(ColorStateList::valueOf)
-        binding.channelPointsIcon.imageTintList = ColorStateList.valueOf(foreground)
+        channelPointsIconForeground = foreground
+        updateChannelPointsIconTint()
         binding.channelPointsIcon.alpha = alpha
         binding.channelPointsText.setTextColor(foreground)
         val accessibilityDescription = if (background == null) {
@@ -1496,7 +1503,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onDestroyView() {
+        disposeChannelPointsIconRequest()
+        channelPointsIconRequestGeneration++
         channelPointsIconUrl = null
+        channelPointsIconLoaded = false
+        channelPointsIconForeground = null
         composerOverlayState = null
         pendingComposerText = null
         composerSubmissionInProgress = false
@@ -1510,21 +1521,58 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private fun updateChannelPointsIcon(url: String?) {
         val icon = binding.channelPointsIcon
         if (channelPointsIconUrl == url) return
+        disposeChannelPointsIconRequest()
         channelPointsIconUrl = url
+        channelPointsIconLoaded = false
+        val requestGeneration = ++channelPointsIconRequestGeneration
         icon.setImageResource(R.drawable.ic_channel_points)
-        if (url.isNullOrBlank()) {
-            icon.imageTintList = ColorStateList.valueOf(
-                MaterialColors.getColor(icon, androidx.appcompat.R.attr.colorControlNormal),
-            )
+        updateChannelPointsIconTint()
+        if (url.isNullOrBlank()) return
+
+        val context = requireContext()
+        channelPointsIconRequest = context.imageLoader.enqueue(
+            ImageRequest.Builder(context)
+                .data(url)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .crossfade(true)
+                .error(R.drawable.ic_channel_points)
+                .target(icon)
+                .listener(object : ImageRequest.Listener {
+                    override fun onError(request: ImageRequest, result: coil3.request.ErrorResult) {
+                        if (!isCurrentChannelPointsIconRequest(url, requestGeneration)) return
+                        channelPointsIconLoaded = false
+                        updateChannelPointsIconTint()
+                    }
+
+                    override fun onSuccess(request: ImageRequest, result: coil3.request.SuccessResult) {
+                        if (!isCurrentChannelPointsIconRequest(url, requestGeneration)) return
+                        channelPointsIconLoaded = true
+                        updateChannelPointsIconTint()
+                    }
+                })
+                .build(),
+        )
+    }
+
+    private fun disposeChannelPointsIconRequest() {
+        channelPointsIconRequest?.dispose()
+        channelPointsIconRequest = null
+    }
+
+    private fun isCurrentChannelPointsIconRequest(url: String, requestGeneration: Int): Boolean {
+        return _binding != null &&
+            channelPointsIconUrl == url &&
+            channelPointsIconRequestGeneration == requestGeneration
+    }
+
+    private fun updateChannelPointsIconTint() {
+        val icon = _binding?.channelPointsIcon ?: return
+        icon.imageTintList = if (channelPointsIconLoaded) {
+            null
         } else {
-            icon.imageTintList = null
-            requireContext().imageLoader.enqueue(
-                ImageRequest.Builder(requireContext())
-                    .data(url)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .crossfade(true)
-                    .target(icon)
-                    .build(),
+            ColorStateList.valueOf(
+                channelPointsIconForeground
+                    ?: MaterialColors.getColor(icon, androidx.appcompat.R.attr.colorControlNormal),
             )
         }
     }
