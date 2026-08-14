@@ -27,6 +27,7 @@ enum class LiveNotificationFailureReason {
     HTTP_401_UNAUTHORIZED,
     HTTP_403_FORBIDDEN,
     HTTP_429_RATE_LIMITED,
+    TWITCH_GRAPHQL_ERROR,
     TWITCH_HTTP_5XX,
     DNS_CONNECTIVITY_OR_TIMEOUT,
     MALFORMED_OR_UNEXPECTED_TWITCH_RESPONSE,
@@ -37,6 +38,7 @@ enum class LiveNotificationFailureReason {
 data class LiveNotificationFailure(
     val stage: LiveNotificationSetupStage,
     val reason: LiveNotificationFailureReason,
+    val operation: String? = null,
     val httpStatus: Int? = null,
     val technicalMessage: String? = null,
     val exceptionClass: String? = null,
@@ -44,6 +46,9 @@ data class LiveNotificationFailure(
     val rateLimitLimit: Long? = null,
     val rateLimitRemaining: Long? = null,
 ) {
+    val isTwitchRelated: Boolean
+        get() = reason.isTwitchRelated(stage, exceptionClass, technicalMessage)
+
     val isAuthenticationFailure: Boolean
         get() = reason == LiveNotificationFailureReason.MISSING_AUTHENTICATION ||
                 reason == LiveNotificationFailureReason.HTTP_401_UNAUTHORIZED ||
@@ -59,6 +64,43 @@ data class LiveNotificationFailure(
             else -> true
         }
 }
+
+private fun LiveNotificationFailureReason.isTwitchRelated(
+    stage: LiveNotificationSetupStage,
+    exceptionClass: String? = null,
+    technicalMessage: String? = null,
+): Boolean = when (this) {
+    LiveNotificationFailureReason.MISSING_AUTHENTICATION,
+    LiveNotificationFailureReason.HTTP_401_UNAUTHORIZED,
+    LiveNotificationFailureReason.HTTP_403_FORBIDDEN,
+    LiveNotificationFailureReason.HTTP_429_RATE_LIMITED,
+    LiveNotificationFailureReason.TWITCH_GRAPHQL_ERROR,
+    LiveNotificationFailureReason.TWITCH_HTTP_5XX,
+    LiveNotificationFailureReason.MALFORMED_OR_UNEXPECTED_TWITCH_RESPONSE,
+    -> true
+    LiveNotificationFailureReason.DNS_CONNECTIVITY_OR_TIMEOUT ->
+        stage == LiveNotificationSetupStage.NOTIFICATION_USER_FOLLOW_SYNC ||
+            stage == LiveNotificationSetupStage.INITIAL_LIVE_STREAM_BASELINE_FETCH
+    LiveNotificationFailureReason.UNKNOWN_FAILURE ->
+        (stage == LiveNotificationSetupStage.NOTIFICATION_USER_FOLLOW_SYNC ||
+            stage == LiveNotificationSetupStage.INITIAL_LIVE_STREAM_BASELINE_FETCH) &&
+            Regex("(?i)\\b(?:twitch|graphql|helix|api|http|apollo)\\b")
+                .containsMatchIn("${exceptionClass.orEmpty()} ${technicalMessage.orEmpty()}")
+    LiveNotificationFailureReason.NOTIFICATION_PERMISSION_OR_CHANNEL,
+    LiveNotificationFailureReason.LOCAL_DATABASE_FAILURE,
+    -> false
+}
+
+internal fun shouldShowLiveNotificationTroubleshooting(
+    stage: LiveNotificationSetupStage?,
+    reason: LiveNotificationFailureReason?,
+    failureAt: Long,
+    successAt: Long,
+    exceptionClass: String? = null,
+    technicalMessage: String? = null,
+    enabled: Boolean = false,
+): Boolean = !enabled && failureAt > successAt && stage != null &&
+        reason?.isTwitchRelated(stage, exceptionClass, technicalMessage) == true
 
 object LiveNotificationFailureClassifier {
 
@@ -77,12 +119,17 @@ object LiveNotificationFailureClassifier {
             causes.any(::looksLikeMissingAuthentication) -> LiveNotificationFailureReason.MISSING_AUTHENTICATION
             causes.any(::isLocalDatabaseFailure) -> LiveNotificationFailureReason.LOCAL_DATABASE_FAILURE
             causes.any(::isConnectivityFailure) -> LiveNotificationFailureReason.DNS_CONNECTIVITY_OR_TIMEOUT
+            causes.any { it is GraphQLApiException && !isMalformedGraphQlResponse(it) } ->
+                LiveNotificationFailureReason.TWITCH_GRAPHQL_ERROR
             causes.any(::isMalformedTwitchResponse) -> LiveNotificationFailureReason.MALFORMED_OR_UNEXPECTED_TWITCH_RESPONSE
             else -> LiveNotificationFailureReason.UNKNOWN_FAILURE
         }
         return LiveNotificationFailure(
             stage = stage,
             reason = reason,
+            operation = sanitizeLiveNotificationTechnicalMessage(
+                graphQLError?.operation ?: causes.filterIsInstance<MissingAuthenticationException>().firstOrNull()?.operation
+            ),
             httpStatus = status,
             technicalMessage = sanitizeLiveNotificationTechnicalMessage(detailError.message),
             exceptionClass = detailError::class.simpleName ?: detailError::class.qualifiedName,
@@ -147,8 +194,8 @@ object LiveNotificationFailureClassifier {
                 (error is IOException && error !is GraphQLApiException && error !is TwitchApiException)
 
     private fun isMalformedTwitchResponse(error: Throwable): Boolean =
-        error is GraphQLApiException ||
-                error is SerializationException ||
+        (error is GraphQLApiException && isMalformedGraphQlResponse(error)) ||
+        error is SerializationException ||
                 error::class.simpleName.orEmpty() in setOf(
                     "JsonDataException",
                     "JsonDecodingException",
@@ -158,4 +205,7 @@ object LiveNotificationFailureClassifier {
                     "JsonParseException",
                     "MoshiJsonDataException",
                 )
+
+    private fun isMalformedGraphQlResponse(error: GraphQLApiException): Boolean =
+        error.message?.startsWith("GraphQL response did not include ", ignoreCase = true) == true
 }

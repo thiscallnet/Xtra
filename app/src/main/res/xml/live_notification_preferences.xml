@@ -13,6 +13,15 @@
         app:iconSpaceReserved="false"
         app:singleLineTitle="false" />
 
+    <Preference
+        android:key="live_notifications_troubleshooting"
+        android:title="@string/live_notifications_troubleshooting_title"
+        android:summary="@string/live_notifications_troubleshooting_summary"
+        android:selectable="false"
+        app:isPreferenceVisible="false"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
     <SwitchPreferenceCompat
         android:defaultValue="true"
         android:key="ui_activate_notifications_when_following"

@@ -23,6 +23,12 @@ internal fun liveNotificationDiagnostics(context: Context): String = buildString
     appendLine("Live notifications last setup API used: ${prefs.getString(C.LIVE_NOTIFICATION_LAST_SETUP_API, null) ?: "none"}")
     appendLine("Live notifications last setup failure stage: ${prefs.getString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_STAGE, null) ?: "none"}")
     appendLine("Live notifications last setup failure reason: ${prefs.getString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_REASON, null) ?: "none"}")
+    appendLine(
+        "Live notifications last setup failure operation: " +
+                (sanitizeLiveNotificationTechnicalMessage(
+                    prefs.getString(C.LIVE_NOTIFICATION_ENABLE_FAILURE_OPERATION, null)
+                ) ?: "none")
+    )
     val status = prefs.getInt(C.LIVE_NOTIFICATION_ENABLE_FAILURE_STATUS, 0)
     appendLine("Live notifications last setup failure HTTP status: ${status.takeIf { it > 0 } ?: "none"}")
     appendLine(

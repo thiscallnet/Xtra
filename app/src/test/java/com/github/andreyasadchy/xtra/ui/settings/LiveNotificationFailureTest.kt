@@ -96,11 +96,14 @@ class LiveNotificationFailureTest {
     }
 
     @Test
-    fun classifiesGraphQlErrorsAndUnexpectedDataAsMalformedResponses() {
-        assertEquals(
-            LiveNotificationFailureReason.MALFORMED_OR_UNEXPECTED_TWITCH_RESPONSE,
-            classify(GraphQLApiException("GraphQL error: invalid query")).reason,
+    fun classifiesGraphQlErrorsSeparatelyFromMalformedResponses() {
+        val graphQlFailure = classify(
+            GraphQLApiException("service error", operation = "UserFollowedUsers"),
         )
+        assertEquals(LiveNotificationFailureReason.TWITCH_GRAPHQL_ERROR, graphQlFailure.reason)
+        assertEquals("UserFollowedUsers", graphQlFailure.operation)
+        assertEquals("service error", graphQlFailure.technicalMessage)
+
         assertEquals(
             LiveNotificationFailureReason.MALFORMED_OR_UNEXPECTED_TWITCH_RESPONSE,
             classify(GraphQLApiException("GraphQL response did not include data")).reason,
@@ -112,6 +115,7 @@ class LiveNotificationFailureTest {
         val failure = classify(GraphQLApiException("Unauthenticated user"))
 
         assertEquals(LiveNotificationFailureReason.MISSING_AUTHENTICATION, failure.reason)
+        assertTrue(failure.isTwitchRelated)
     }
 
     @Test
@@ -143,6 +147,62 @@ class LiveNotificationFailureTest {
             LiveNotificationFailureReason.UNKNOWN_FAILURE,
             classify(IllegalStateException("Permission denied")).reason,
         )
+    }
+
+    @Test
+    fun twitchFailuresExposeTroubleshootingAdviceButLocalFailuresDoNot() {
+        assertTrue(
+            classify(
+                TwitchApiException(
+                    statusCode = 503,
+                    rateLimitResetEpochSeconds = null,
+                    message = "Twitch is unavailable",
+                )
+            ).isTwitchRelated
+        )
+        assertTrue(
+            LiveNotificationFailure(
+                stage = LiveNotificationSetupStage.NOTIFICATION_USER_FOLLOW_SYNC,
+                reason = LiveNotificationFailureReason.DNS_CONNECTIVITY_OR_TIMEOUT,
+            ).isTwitchRelated
+        )
+        assertTrue(
+            LiveNotificationFailure(
+                stage = LiveNotificationSetupStage.NOTIFICATION_USER_FOLLOW_SYNC,
+                reason = LiveNotificationFailureReason.UNKNOWN_FAILURE,
+                exceptionClass = "TwitchApiException",
+                technicalMessage = "Twitch API request failed",
+            ).isTwitchRelated
+        )
+        assertFalse(
+            LiveNotificationFailure(
+                stage = LiveNotificationSetupStage.NOTIFICATION_PERMISSION_CHANNEL_VALIDATION,
+                reason = LiveNotificationFailureReason.NOTIFICATION_PERMISSION_OR_CHANNEL,
+            ).isTwitchRelated
+        )
+        assertFalse(
+            LiveNotificationFailure(
+                stage = LiveNotificationSetupStage.NOTIFICATION_USER_FOLLOW_SYNC,
+                reason = LiveNotificationFailureReason.LOCAL_DATABASE_FAILURE,
+            ).isTwitchRelated
+        )
+        assertFalse(
+            LiveNotificationFailure(
+                stage = LiveNotificationSetupStage.SCHEDULER_REALTIME_MONITOR_STARTUP,
+                reason = LiveNotificationFailureReason.UNKNOWN_FAILURE,
+            ).isTwitchRelated
+        )
+    }
+
+    @Test
+    fun successfulEnableHidesTroubleshootingForThePersistedFailure() {
+        val stage = LiveNotificationSetupStage.NOTIFICATION_USER_FOLLOW_SYNC
+        val reason = LiveNotificationFailureReason.TWITCH_GRAPHQL_ERROR
+
+        assertTrue(shouldShowLiveNotificationTroubleshooting(stage, reason, failureAt = 20L, successAt = 10L))
+        assertFalse(shouldShowLiveNotificationTroubleshooting(stage, reason, failureAt = 20L, successAt = 10L, enabled = true))
+        assertFalse(shouldShowLiveNotificationTroubleshooting(stage, reason, failureAt = 20L, successAt = 20L))
+        assertFalse(shouldShowLiveNotificationTroubleshooting(stage, reason, failureAt = 10L, successAt = 20L))
     }
 
     @Test
@@ -182,6 +242,11 @@ class LiveNotificationFailureTest {
         assertFalse(error.message.orEmpty().contains("oauth-secret"))
         assertFalse(error.message.orEmpty().contains("session-secret"))
         assertTrue(error.message.orEmpty().contains("headers=<redacted>"))
+
+        val failure = classify(
+            GraphQLApiException("service error", operation = "Authorization: Bearer operation-secret")
+        )
+        assertFalse(failure.operation.orEmpty().contains("operation-secret"))
     }
 
     @Test
