@@ -75,7 +75,11 @@ class MultiviewPlaybackCoordinator(
     private var focusedIdentity: String? = null
     private var qualityMode = MultiviewQualityMode.AUTO
     private var qualityOverrides: Map<String, String> = emptyMap()
+    private var audioVolumes: Map<String, Float> = emptyMap()
     private var foreground = true
+    private var backgroundPlayback = false
+    private var lifecycleStarted = false
+    private var backgroundServicePrepared = false
 
     fun sync(
         streams: List<Stream>,
@@ -83,11 +87,13 @@ class MultiviewPlaybackCoordinator(
         focusedIdentity: String?,
         qualityMode: MultiviewQualityMode,
         qualityOverrides: Map<String, String>,
+        audioVolumes: Map<String, Float> = emptyMap(),
     ) {
         this.activeIdentity = activeIdentity
         this.focusedIdentity = focusedIdentity
         this.qualityMode = qualityMode
         this.qualityOverrides = qualityOverrides
+        this.audioVolumes = audioVolumes
         val desired = streams.mapNotNull { stream ->
             identityOf(stream)?.let { identity -> identity to stream }
         }.toMap()
@@ -112,6 +118,7 @@ class MultiviewPlaybackCoordinator(
         }
         slots.values.forEach { applyQuality(it) }
         updateAudio()
+        if (lifecycleStarted) maintainBackgroundPlaybackService()
     }
 
     fun attach(identity: String, playerView: PlayerView) {
@@ -148,19 +155,53 @@ class MultiviewPlaybackCoordinator(
         }
     }
 
-    fun onStart() {
-        foreground = true
-        slots.values.forEach { slot ->
-            if (slot.shouldPlay) slot.player.playWhenReady = true
-        }
+    private fun shouldPlayWhenReady(slot: MultiviewPlayerSlot): Boolean {
+        return (slot.shouldPlay && foreground) ||
+            (slot.shouldPlay && backgroundPlayback && configuredVolume(slot) > 0f)
     }
 
-    fun onStop() {
-        foreground = false
+    fun onStart() {
+        lifecycleStarted = true
+        foreground = true
+        backgroundPlayback = false
         slots.values.forEach { slot ->
-            slot.shouldPlay = slot.player.playWhenReady
-            slot.player.playWhenReady = false
-            updateViewingStats(slot, forceNotPlaying = true)
+            restoreBackgroundVideo(slot)
+            slot.attachedView?.player = slot.player
+            slot.player.playWhenReady = shouldPlayWhenReady(slot)
+        }
+        maintainBackgroundPlaybackService()
+    }
+
+    fun onStop(allowBackground: Boolean = true, inPictureInPicture: Boolean = false) {
+        if (inPictureInPicture) {
+            lifecycleStarted = true
+            foreground = true
+            backgroundPlayback = false
+            slots.values.forEach { slot ->
+                slot.player.playWhenReady = shouldPlayWhenReady(slot)
+            }
+            return
+        }
+        lifecycleStarted = false
+        foreground = false
+        val keepAudioInBackground = allowBackground && applicationContext.prefs()
+            .getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)
+        val canPlayInBackground = keepAudioInBackground && backgroundServicePrepared
+        backgroundPlayback = canPlayInBackground
+        slots.values.forEach { slot ->
+            // onStop may be called once by the explicit external-player handoff
+            // and again by Fragment lifecycle dispatch. Preserve the original
+            // intent instead of turning a playing tile into a paused tile on
+            // the second callback.
+            slot.shouldPlay = slot.shouldPlay || slot.player.playWhenReady
+            suppressBackgroundVideo(slot)
+            val shouldPlayInBackground = shouldPlayWhenReady(slot)
+            slot.player.playWhenReady = shouldPlayInBackground
+            updateViewingStats(slot, forceNotPlaying = !shouldPlayInBackground)
+        }
+        if (!canPlayInBackground) {
+            backgroundServicePrepared = false
+            MultiviewBackgroundPlaybackService.stop(applicationContext)
         }
     }
 
@@ -172,6 +213,10 @@ class MultiviewPlaybackCoordinator(
         }
         slots.clear()
         tileBounds.clear()
+        lifecycleStarted = false
+        backgroundPlayback = false
+        backgroundServicePrepared = false
+        MultiviewBackgroundPlaybackService.stop(applicationContext)
     }
 
     fun player(identity: String): ExoPlayer? = slots[identity]?.player
@@ -359,7 +404,7 @@ class MultiviewPlaybackCoordinator(
                 applyQuality(slot)
                 updateAudio()
                 slot.player.prepare()
-                slot.player.playWhenReady = foreground && slot.shouldPlay
+                slot.player.playWhenReady = shouldPlayWhenReady(slot)
                 debugLog("channel=${slot.identity} playlistLoaded quality=${slot.target?.label} urlType=${if (slot.customProxy) "proxy" else "usher"} playerType=${slot.currentPlayerType ?: "custom"} alternate=${slot.usingAlternateStream} httpProxyDisabled=${slot.httpProxyDisabled}")
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -504,7 +549,7 @@ class MultiviewPlaybackCoordinator(
             slot.lastResponseCode = null
             slot.lastMasterResponseCode = null
             slot.player.prepare()
-            slot.player.playWhenReady = foreground && slot.shouldPlay
+            slot.player.playWhenReady = shouldPlayWhenReady(slot)
         } else {
             slot.reloadRequired = false
             start(slot)
@@ -795,14 +840,60 @@ class MultiviewPlaybackCoordinator(
     }
 
     private fun updateAudio() {
-        val volume = activeVolume()
+        val fallbackVolume = activeVolume()
         slots.values.forEach { slot ->
             slot.player.volume = MultiviewAudioPolicy.volumeFor(
                 identity = slot.identity,
-                activeIdentity = activeIdentity,
+                audioVolumes = audioVolumes,
                 hiddenForAd = slot.hiddenForAd,
-                activeVolume = volume,
+                fallbackVolume = if (slot.identity == activeIdentity) fallbackVolume else 0f,
             )
+        }
+    }
+
+    private fun maintainBackgroundPlaybackService() {
+        val shouldPrepare = lifecycleStarted &&
+            applicationContext.prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true) &&
+            slots.values.any { it.shouldPlay && configuredVolume(it) > 0f }
+        if (!shouldPrepare) {
+            backgroundServicePrepared = false
+            MultiviewBackgroundPlaybackService.stop(applicationContext)
+            return
+        }
+        if (!backgroundServicePrepared) {
+            backgroundServicePrepared = MultiviewBackgroundPlaybackService.start(applicationContext)
+        }
+    }
+
+    private fun configuredVolume(slot: MultiviewPlayerSlot): Float {
+        return MultiviewAudioPolicy.volumeFor(
+            identity = slot.identity,
+            audioVolumes = audioVolumes,
+            hiddenForAd = false,
+            fallbackVolume = if (slot.identity == activeIdentity) activeVolume() else 0f,
+        )
+    }
+
+    @androidx.media3.common.util.UnstableApi
+    private fun suppressBackgroundVideo(slot: MultiviewPlayerSlot) {
+        if (!slot.videoDisabledForBackground) {
+            slot.videoDisabledForBackground = true
+            slot.player.trackSelectionParameters = slot.player.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
+                .build()
+        }
+        slot.attachedView?.player = null
+    }
+
+    @androidx.media3.common.util.UnstableApi
+    private fun restoreBackgroundVideo(slot: MultiviewPlayerSlot) {
+        if (slot.videoDisabledForBackground) {
+            slot.videoDisabledForBackground = false
+            slot.player.trackSelectionParameters = slot.player.trackSelectionParameters
+                .buildUpon()
+                .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
+                .build()
         }
     }
 
@@ -1018,6 +1109,7 @@ class MultiviewPlaybackCoordinator(
         var usingAlternateStream: Boolean = false
         var playingAds: Boolean = false
         var hiddenForAd: Boolean = false
+        var videoDisabledForBackground: Boolean = false
         var lastResponseCode: Int? = null
         var lastMasterResponseCode: Int? = null
         var lastResponseWasMaster: Boolean = false

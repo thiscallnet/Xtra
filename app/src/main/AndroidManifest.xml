@@ -79,6 +79,11 @@
         </service>
 
         <service
+            android:name=".ui.multiview.playback.MultiviewBackgroundPlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+
+        <service
             android:name=".ui.download.VideoDownloadService"
             android:foregroundServiceType="specialUse" />
 

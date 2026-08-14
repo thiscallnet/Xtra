@@ -27,6 +27,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentMultiviewBinding
+import com.github.andreyasadchy.xtra.databinding.PlayerVolumeBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.chat.ChatFragment
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -39,6 +40,7 @@ import com.github.andreyasadchy.xtra.ui.multiview.ui.MultiviewSlotView
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.slider.Slider
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -59,6 +61,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
     private var renderedLayoutKey: String? = null
     private var previousNavBarVisibility = View.VISIBLE
     private var controlsLockCount = 0
+    private var suppressBackgroundOnNextStop = false
 
     private val bindingOrNull: FragmentMultiviewBinding?
         get() = _binding
@@ -88,6 +91,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
         binding.combinedChatButton.setOnClickListener { toggleCombinedChat() }
         binding.layoutButton.setOnClickListener { showLayoutMenu() }
         binding.moreButton.setOnClickListener { showMoreMenu(binding.moreButton) }
+        binding.pipButton.setOnClickListener { (activity as? MainActivity)?.minimizeMultiview() }
 
         childFragmentManager.setFragmentResultListener(
             AddMultiviewStreamsSheet.RESULT_KEY,
@@ -141,11 +145,22 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
 
     override fun onStart() {
         super.onStart()
+        if ((activity as? MainActivity)?.playerFragment != null) return
+        (activity as? MainActivity)?.prepareMultiviewPictureInPicture()
         viewModel.onStart()
     }
 
     override fun onStop() {
-        viewModel.onStop()
+        if ((activity as? MainActivity)?.playerFragment != null) {
+            suppressBackgroundOnNextStop = false
+            super.onStop()
+            return
+        }
+        val inPictureInPicture = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
+            requireActivity().isInPictureInPictureMode
+        val allowBackground = !suppressBackgroundOnNextStop
+        suppressBackgroundOnNextStop = false
+        viewModel.onStop(allowBackground = allowBackground, inPictureInPicture = inPictureInPicture)
         super.onStop()
     }
 
@@ -170,6 +185,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
             .forEach(::releaseChatFragment)
         renderedChatKey = null
         renderedLayoutKey = null
+        (activity as? MainActivity)?.clearMultiviewPictureInPicture()
         requireActivity().findViewById<View>(R.id.navBarContainer)?.visibility = previousNavBarVisibility
         _binding = null
         super.onDestroyView()
@@ -196,7 +212,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
                 identity = identity,
                 stream = stream,
                 snapshot = latestPlayback[identity],
-                audioActive = identity.equals(state.activeIdentity, true),
+                audioVolume = viewModel.audioVolume(identity),
                 focused = identity.equals(state.focusedIdentity, true),
                 fillVideo = state.fillVideo,
             )
@@ -208,6 +224,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
             focusedIdentity = state.focusedIdentity,
             qualityMode = state.qualityMode,
             qualityOverrides = state.qualityOverrides,
+            audioVolumes = state.audioVolumes,
         )
         applyLayout(state)
         updateOrientationLayout()
@@ -236,6 +253,10 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
             onOverflow = {
                 revealControls(this)
                 showSlotMenu(this)
+            }
+            onAudioClick = {
+                viewModel.toggleAudio(identity)
+                revealControls(this)
             }
             onRetry = { viewModel.playbackCoordinator.retry(identity) }
         }
@@ -272,7 +293,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
             ).apply {
                 width = 0
                 height = 0
-                setMargins(dp(2), dp(2), dp(2), dp(2))
+                setMargins(dp(1), dp(1), dp(1), dp(1))
             }
             binding.videoGrid.addView(slotView, params)
             slotView.doOnLayout {
@@ -294,9 +315,18 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
         val active = state.streams.firstOrNull { stream ->
             MultiviewSessionReducer.stableIdentity(stream).equals(state.activeIdentity, true)
         }
-        binding.activeAudio.isVisible = active != null
-        binding.activeAudio.text = active?.let { getString(R.string.multiview_audio, displayName(it)) }
+        val audible = state.streams.filter { stream ->
+            MultiviewSessionReducer.stableIdentity(stream)?.let(viewModel::audioVolume)?.let { it > 0f } == true
+        }
+        binding.activeAudio.isVisible = audible.isNotEmpty()
+        binding.activeAudio.text = when {
+            audible.size == 1 -> getString(R.string.multiview_audio, displayName(audible.first()))
+            audible.size > 1 -> getString(R.string.multiview_audio_multiple, audible.size)
+            else -> null
+        }
         binding.addStreamButton.isVisible = state.streams.size < MAX_STREAMS
+        binding.pipButton.isVisible = (activity as? MainActivity)?.canMinimizeMultiview() == true &&
+            !(Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && requireActivity().isInPictureInPictureMode)
         binding.chatButton.isVisible = !requireContext().prefs().getBoolean(C.CHAT_DISABLE, false) && active != null
         binding.chatContainer.isVisible = state.chatVisible
         binding.combinedChatButton.isVisible = state.chatVisible && state.streams.size > 1
@@ -535,6 +565,17 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
                 showSlotQualityMenu(identity, slot)
                 true
             }
+            menu.add(R.string.multiview_volume).setOnMenuItemClickListener {
+                showVolumeDialog(identity, stream)
+                true
+            }
+            menu.add(
+                if (viewModel.audioVolume(identity) > 0f) R.string.multiview_mute
+                else R.string.multiview_unmute,
+            ).setOnMenuItemClickListener {
+                viewModel.toggleAudio(identity)
+                true
+            }
             menu.add(
                 if (latestState.focusedIdentity.equals(identity, true)) R.string.multiview_unfocus
                 else R.string.multiview_focus,
@@ -584,6 +625,55 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
             .setNegativeButton(android.R.string.cancel, null)
             .setOnDismissListener { unlockControls(slot) }
             .show()
+    }
+
+    private fun showVolumeDialog(identity: String, stream: Stream) {
+        lockControls()
+        val volumeBinding = PlayerVolumeBinding.inflate(layoutInflater)
+        var currentVolume = viewModel.audioVolume(identity)
+        fun renderVolume(volume: Float) {
+            currentVolume = volume.coerceIn(0f, 1f)
+            val percent = (currentVolume * 100f).toInt()
+            volumeBinding.volumeText.text = percent.toString()
+            volumeBinding.volumeMute.setImageResource(
+                if (currentVolume == 0f) R.drawable.baseline_volume_off_black_24
+                else R.drawable.baseline_volume_up_black_24,
+            )
+        }
+
+        volumeBinding.volumeBar.value = currentVolume * 100f
+        renderVolume(currentVolume)
+        val dialog = MaterialAlertDialogBuilder(requireContext())
+            .setTitle(getString(R.string.multiview_volume_for, displayName(stream)))
+            .setView(volumeBinding.root)
+            .setNegativeButton(R.string.multiview_close, null)
+            .create()
+        volumeBinding.volumeBar.addOnChangeListener { _, value, _ ->
+            renderVolume(value / 100f)
+            viewModel.setAudioVolume(identity, currentVolume, persist = false)
+        }
+        volumeBinding.volumeBar.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: Slider) = Unit
+
+            override fun onStopTrackingTouch(slider: Slider) {
+                viewModel.persistSession()
+            }
+        })
+        volumeBinding.volumeMute.setOnClickListener {
+            val next = if (currentVolume > 0f) {
+                0f
+            } else {
+                viewModel.defaultAudioVolume().takeIf { it > 0f } ?: 1f
+            }
+            volumeBinding.volumeBar.value = next * 100f
+            renderVolume(next)
+            viewModel.setAudioVolume(identity, next)
+        }
+        dialog.setOnDismissListener {
+            viewModel.persistSession()
+            unlockControls()
+        }
+        dialog.show()
     }
 
     private fun openNormalPlayer(identity: String) {
@@ -673,11 +763,33 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
     suspend fun resolveManualStream(login: String): Stream? = viewModel.resolveLiveStream(login)
 
     fun pauseForExternalPlayer() {
-        if (_binding != null) viewModel.onStop()
+        suppressBackgroundOnNextStop = true
+        if (_binding != null) viewModel.onStop(allowBackground = false)
     }
 
     fun resumeAfterExternalPlayer() {
-        if (_binding != null) viewModel.onStart()
+        suppressBackgroundOnNextStop = false
+        if (_binding != null) {
+            (activity as? MainActivity)?.prepareMultiviewPictureInPicture()
+            viewModel.onStart()
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+        if (_binding == null || (activity as? MainActivity)?.playerFragment != null) return
+        controlsHandler.removeCallbacks(hideControls)
+        controlsLockCount = 0
+        if (isInPictureInPictureMode) {
+            viewModel.onStart()
+            setControlsOverlayVisible(false)
+            slotViews.values.forEach { it.setControlsVisible(false) }
+            binding.chatContainer.isVisible = false
+        } else {
+            updateToolbar(latestState)
+            updateChat(latestState)
+            revealControls()
+        }
     }
 
     companion object {

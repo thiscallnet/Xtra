@@ -71,6 +71,17 @@
                 tools:text="Audio: channel" />
 
             <ImageButton
+                android:id="@+id/pipButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/multiview_minimize"
+                android:padding="12dp"
+                android:src="@drawable/ic_picture_in_picture"
+                android:visibility="gone"
+                app:tint="@android:color/white" />
+
+            <ImageButton
                 android:id="@+id/chatButton"
                 android:layout_width="48dp"
                 android:layout_height="48dp"

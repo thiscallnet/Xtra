@@ -55,6 +55,7 @@ class MultiviewSlotView(context: Context) : FrameLayout(context) {
     var onDoubleTap: (() -> Unit)? = null
     var onLongPress: (() -> Unit)? = null
     var onOverflow: (() -> Unit)? = null
+    var onAudioClick: (() -> Unit)? = null
     var onRetry: (() -> Unit)? = null
 
     init {
@@ -66,6 +67,7 @@ class MultiviewSlotView(context: Context) : FrameLayout(context) {
             true
         }
         binding.overflowButton.setOnClickListener { onOverflow?.invoke() }
+        binding.audioIcon.setOnClickListener { onAudioClick?.invoke() }
         binding.statusMessage.setOnClickListener { onRetry?.invoke() }
         setControlsVisible(false)
     }
@@ -74,13 +76,14 @@ class MultiviewSlotView(context: Context) : FrameLayout(context) {
         identity: String,
         stream: Stream,
         snapshot: MultiviewPlaybackSnapshot?,
-        audioActive: Boolean,
+        audioVolume: Float,
         focused: Boolean,
         fillVideo: Boolean,
     ) {
         this.identity = identity
         this.stream = stream
         val name = displayName(stream)
+        val audioActive = audioVolume > 0f
         binding.channelName.text = name
         binding.qualityBadge.text = snapshot?.qualityLabel.orEmpty()
         binding.qualityBadge.isVisible = !snapshot?.qualityLabel.isNullOrBlank()
@@ -89,7 +92,6 @@ class MultiviewSlotView(context: Context) : FrameLayout(context) {
         } else {
             AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
-        binding.audioIcon.isVisible = audioActive
         binding.audioIcon.setImageResource(
             if (audioActive) R.drawable.baseline_volume_up_black_24 else R.drawable.baseline_volume_off_black_24,
         )
@@ -118,6 +120,8 @@ class MultiviewSlotView(context: Context) : FrameLayout(context) {
     }
 
     fun setControlsVisible(visible: Boolean) {
+        binding.infoBar.isVisible = visible
+        binding.audioIcon.isVisible = visible
         binding.overflowButton.isVisible = visible
     }
 

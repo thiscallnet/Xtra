@@ -47,14 +47,23 @@ class MultiviewViewModel(
     )
 
     fun initialize(initialStream: Stream?) {
-        if (_state.value.streams.isEmpty() && initialStream != null) {
-            update(MultiviewSessionReducer.add(_state.value, initialStream))
-        }
+        val current = _state.value
+        val next = initializeStateOnce(
+            savedStateHandle = savedStateHandle,
+            state = current,
+            initialStream = initialStream,
+            initialAudioVolume = { if (current.streams.isEmpty()) defaultAudioVolume() else 0f },
+        ) ?: return
+        if (next != current) update(next)
     }
 
     fun addStreams(streams: Collection<Stream>) {
         val next = streams.fold(_state.value) { state, stream ->
-            MultiviewSessionReducer.add(state, stream)
+            MultiviewSessionReducer.add(
+                state = state,
+                stream = stream,
+                initialAudioVolume = if (state.streams.isEmpty()) defaultAudioVolume() else 0f,
+            )
         }
         update(next)
     }
@@ -137,9 +146,34 @@ class MultiviewViewModel(
         update(_state.value.copy(qualityOverrides = overrides))
     }
 
+    fun setAudioVolume(identity: String, volume: Float, persist: Boolean = true) {
+        update(
+            next = MultiviewSessionReducer.setAudioVolume(_state.value, identity, volume),
+            persist = persist,
+        )
+    }
+
+    fun toggleAudio(identity: String) {
+        val current = _state.value.audioVolumes[identity] ?: 0f
+        setAudioVolume(
+            identity,
+            if (current > 0f) 0f else defaultAudioVolume().takeIf { it > 0f } ?: 1f,
+        )
+    }
+
+    fun audioVolume(identity: String): Float {
+        return _state.value.audioVolumes[identity]
+            ?: if (_state.value.activeIdentity.equals(identity, true)) defaultAudioVolume() else 0f
+    }
+
+    fun persistSession() {
+        persistSession(_state.value)
+    }
+
     fun onStart() = playbackCoordinator.onStart()
 
-    fun onStop() = playbackCoordinator.onStop()
+    fun onStop(allowBackground: Boolean = true, inPictureInPicture: Boolean = false) =
+        playbackCoordinator.onStop(allowBackground, inPictureInPicture)
 
     suspend fun resolveLiveStream(channelLogin: String): Stream? {
         val preferences = applicationContext.prefs()
@@ -268,7 +302,7 @@ class MultiviewViewModel(
         _playback.value = _playback.value + (identity to snapshot)
     }
 
-    private fun update(next: MultiviewSessionState) {
+    private fun update(next: MultiviewSessionState, persist: Boolean = true) {
         _state.value = next
         savedStateHandle[KEY_STREAMS] = ArrayList(next.streams)
         savedStateHandle[KEY_ACTIVE] = next.activeIdentity
@@ -281,11 +315,27 @@ class MultiviewViewModel(
         savedStateHandle[KEY_CHAT_IDENTITY] = next.chatIdentity
         savedStateHandle[KEY_QUALITY_MODE] = next.qualityMode.name
         savedStateHandle[KEY_OVERRIDES] = HashMap(next.qualityOverrides)
+        savedStateHandle[KEY_AUDIO_VOLUMES] = HashMap(next.audioVolumes)
+        if (persist) persistSession(next)
+    }
+
+    private fun persistSession(state: MultiviewSessionState) {
+        applicationContext.prefs().edit().apply {
+            if (state.streams.isEmpty()) {
+                remove(C.MULTIVIEW_SESSION)
+            } else {
+                putString(C.MULTIVIEW_SESSION, MultiviewSessionStore.encode(state))
+            }
+        }.apply()
     }
 
     private fun loadState(): MultiviewSessionState {
         val preferences = applicationContext.prefs()
+        val persisted = MultiviewSessionStore.decode(preferences.getString(C.MULTIVIEW_SESSION, null))
         val streams = savedStateHandle.get<ArrayList<Stream>>(KEY_STREAMS)?.toList().orEmpty()
+        if (streams.isEmpty() && persisted != null) {
+            return persisted.withAudioDefaults(preferences)
+        }
         val fillVideo = savedStateHandle.get<Boolean>(KEY_FILL) ?: preferences.getBoolean(C.MULTIVIEW_FILL, false)
         val qualityMode = savedStateHandle.get<String>(KEY_QUALITY_MODE)
             ?.let(MultiviewQualityMode::fromPersistedName)
@@ -307,10 +357,29 @@ class MultiviewViewModel(
             chatIdentity = savedStateHandle[KEY_CHAT_IDENTITY],
             qualityMode = qualityMode,
             qualityOverrides = (savedStateHandle.get<HashMap<String, String>>(KEY_OVERRIDES) ?: hashMapOf()).toMap(),
-        )
+            audioVolumes = (savedStateHandle.get<HashMap<String, Float>>(KEY_AUDIO_VOLUMES) ?: hashMapOf()).toMap(),
+        ).withAudioDefaults(preferences)
+    }
+
+    fun defaultAudioVolume(): Float {
+        return (applicationContext.prefs().getInt(C.PLAYER_VOLUME, 100) / 100f).coerceIn(0f, 1f)
+    }
+
+    private fun MultiviewSessionState.withAudioDefaults(
+        preferences: android.content.SharedPreferences,
+    ): MultiviewSessionState {
+        val fallback = (preferences.getInt(C.PLAYER_VOLUME, 100) / 100f).coerceIn(0f, 1f)
+        val volumes = audioVolumes.toMutableMap()
+        streams.mapNotNull(MultiviewSessionReducer::stableIdentity).forEach { identity ->
+            if (identity !in volumes) {
+                volumes[identity] = if (identity.equals(activeIdentity, true)) fallback else 0f
+            }
+        }
+        return copy(audioVolumes = volumes)
     }
 
     companion object {
+        private const val KEY_INITIAL_STREAM_APPLIED = "multiview_initial_stream_applied"
         private const val KEY_STREAMS = "multiview_state_streams"
         private const val KEY_ACTIVE = "multiview_state_active"
         private const val KEY_FOCUSED = "multiview_state_focused"
@@ -322,6 +391,23 @@ class MultiviewViewModel(
         private const val KEY_CHAT_IDENTITY = "multiview_state_chat_identity"
         private const val KEY_QUALITY_MODE = "multiview_state_quality_mode"
         private const val KEY_OVERRIDES = "multiview_state_quality_overrides"
+        private const val KEY_AUDIO_VOLUMES = "multiview_state_audio_volumes"
+
+        internal fun initializeStateOnce(
+            savedStateHandle: SavedStateHandle,
+            state: MultiviewSessionState,
+            initialStream: Stream?,
+            initialAudioVolume: () -> Float,
+        ): MultiviewSessionState? {
+            if (savedStateHandle.get<Boolean>(KEY_INITIAL_STREAM_APPLIED) == true) return null
+            savedStateHandle[KEY_INITIAL_STREAM_APPLIED] = true
+            if (initialStream == null) return state
+            return MultiviewSessionReducer.addOrReplaceLast(
+                state = state,
+                stream = initialStream,
+                initialAudioVolume = initialAudioVolume(),
+            )
+        }
 
         val MultiviewViewModelFactory = viewModelFactory {
             initializer {
