@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.main
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.core.content.edit
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -18,21 +19,26 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import java.util.concurrent.TimeUnit
 
+sealed interface LiveNotificationSchedulerResult {
+    object Started : LiveNotificationSchedulerResult
+    data class Blocked(val reason: NotificationBlockReason) : LiveNotificationSchedulerResult
+    object NotEnabled : LiveNotificationSchedulerResult
+    data class Failed(val error: Throwable) : LiveNotificationSchedulerResult
+}
+
 object LiveNotificationScheduler {
 
     private val transitionLock = Any()
 
-    fun enable(context: Context, baselineOnly: Boolean) {
-        if (!canPostNotifications(context)) {
-            disable(context)
-            return
+    fun enable(context: Context, baselineOnly: Boolean): LiveNotificationSchedulerResult {
+        synchronized(transitionLock) {
+            return applyModeLocked(context, baselineOnly)
         }
-        applyMode(context, baselineOnly)
     }
 
     fun disable(context: Context) {
         synchronized(transitionLock) {
-            disableLocked(context)
+            bestEffortDisableLocked(context)
         }
     }
 
@@ -46,11 +52,21 @@ object LiveNotificationScheduler {
     }
 
     /** Applies the selected owner without ever running Fast and Persistent together. */
-    fun applyMode(context: Context, baselineOnly: Boolean = false) {
+    fun applyMode(context: Context, baselineOnly: Boolean = false): LiveNotificationSchedulerResult =
         synchronized(transitionLock) {
-            if (!context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) || !canPostNotifications(context)) {
-                disableLocked(context)
-                return
+            applyModeLocked(context, baselineOnly)
+        }
+
+    private fun applyModeLocked(context: Context, baselineOnly: Boolean): LiveNotificationSchedulerResult {
+        return try {
+            if (!context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false)) {
+                bestEffortDisableLocked(context)
+                return LiveNotificationSchedulerResult.NotEnabled
+            }
+            val initialBlockReason = LiveNotificationNotifier(context).notificationBlockReason()
+            if (initialBlockReason != null) {
+                bestEffortDisableLocked(context)
+                return LiveNotificationSchedulerResult.Blocked(initialBlockReason)
             }
             migrateMode(context)
             schedulePeriodicFallback(context)
@@ -82,6 +98,16 @@ object LiveNotificationScheduler {
                 }
             }
             clearLegacyConnectionNotification(context)
+            val finalBlockReason = LiveNotificationNotifier(context).notificationBlockReason()
+            if (finalBlockReason != null) {
+                bestEffortDisableLocked(context)
+                return LiveNotificationSchedulerResult.Blocked(finalBlockReason)
+            }
+            LiveNotificationSchedulerResult.Started
+        } catch (error: Exception) {
+            bestEffortDisableLocked(context)
+            Log.e(TAG, "Unable to establish live notification scheduling", error)
+            LiveNotificationSchedulerResult.Failed(error)
         }
     }
 
@@ -160,6 +186,11 @@ object LiveNotificationScheduler {
         clearLegacyConnectionNotification(context)
     }
 
+    private fun bestEffortDisableLocked(context: Context) {
+        runCatching { disableLocked(context) }
+            .onFailure { Log.w(TAG, "Unable to roll back live notification scheduling", it) }
+    }
+
     private fun schedulePeriodicFallback(context: Context) {
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             PERIODIC_WORK_NAME,
@@ -189,6 +220,8 @@ object LiveNotificationScheduler {
     private val networkConstraints = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
+
+    private const val TAG = "LiveNotificationScheduler"
 
     private const val PERIODIC_WORK_NAME = "live_notifications"
     private const val IMMEDIATE_WORK_NAME = "live_notifications_now"

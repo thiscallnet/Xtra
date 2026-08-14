@@ -45,9 +45,8 @@ class LiveNotificationMonitor(context: Context) {
         if (!useLocalFollows && shouldSyncNotificationUsers()) {
             prefs.edit { putLong(C.LIVE_NOTIFICATION_LAST_SYNC_ATTEMPT, System.currentTimeMillis()) }
             try {
-                if (repository.syncNotificationUsers(networkLibrary, gqlHeaders)) {
-                    prefs.edit { putLong(C.LIVE_NOTIFICATION_LAST_SYNC_SUCCESS, System.currentTimeMillis()) }
-                }
+                repository.syncNotificationUsers(networkLibrary, gqlHeaders)
+                prefs.edit { putLong(C.LIVE_NOTIFICATION_LAST_SYNC_SUCCESS, System.currentTimeMillis()) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -77,7 +76,9 @@ class LiveNotificationMonitor(context: Context) {
         if (effectiveBaselineOnly) {
             prefs.edit { putBoolean(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED, true) }
         }
-        PollResult(delivered, repository.getNotificationUserIds().size, apiUsed)
+        val channelCount = repository.getNotificationUserIds().size
+        prefs.edit { putInt(C.LIVE_NOTIFICATION_CACHED_CHANNEL_COUNT, channelCount) }
+        PollResult(delivered, channelCount, apiUsed)
     }
 
     suspend fun handleStreamOnline(event: LiveStreamOnlineEvent): Int = mutex.withLock {

@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
 import kotlinx.coroutines.CancellationException
 import androidx.core.content.edit
 
@@ -50,7 +51,9 @@ class LiveNotificationWorker(
     }
 
     private fun recordFailure(startedAt: Long, error: Exception) {
-        val message = "${error::class.simpleName}: ${error.message.orEmpty()}".take(500)
+        val message = sanitizeLiveNotificationTechnicalMessage(
+            "${error::class.simpleName}: ${error.message.orEmpty()}"
+        ) ?: error::class.simpleName.orEmpty()
         context.prefs().edit {
             putLong(C.LIVE_NOTIFICATION_LAST_ERROR_AT, System.currentTimeMillis())
             putString(C.LIVE_NOTIFICATION_LAST_ERROR, message)
