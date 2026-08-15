@@ -109,6 +109,7 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
             if (args.boxArt != null) {
                 gameLayout.visibility = View.VISIBLE
                 gameImage.visibility = View.VISIBLE
+                gameImage.tag = args.boxArt
                 requireContext().imageLoader.enqueue(
                     ImageRequest.Builder(requireContext()).apply {
                         data(args.boxArt)
@@ -118,6 +119,7 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
                 )
             } else {
                 gameImage.visibility = View.GONE
+                gameImage.tag = null
             }
             val isLoggedIn = !TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
                     !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank()
@@ -351,16 +353,23 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
 
     private fun updateGameLayout(game: Game?) {
         with(binding) {
-            if (!gameImage.isVisible && game?.boxArt != null) {
+            val boxArt = game?.boxArt
+            if (!boxArt.isNullOrBlank()) {
                 gameLayout.visibility = View.VISIBLE
                 gameImage.visibility = View.VISIBLE
-                requireContext().imageLoader.enqueue(
-                    ImageRequest.Builder(requireContext()).apply {
-                        data(game.boxArt)
-                        crossfade(true)
-                        target(gameImage)
-                    }.build()
-                )
+                if (gameImage.tag != boxArt || gameImage.drawable == null) {
+                    gameImage.tag = boxArt
+                    requireContext().imageLoader.enqueue(
+                        ImageRequest.Builder(requireContext()).apply {
+                            data(boxArt)
+                            crossfade(true)
+                            target(gameImage)
+                        }.build()
+                    )
+                }
+            } else {
+                gameImage.visibility = View.GONE
+                gameImage.tag = null
             }
             if (game?.name != null && game.name != args.gameName) {
                 gameLayout.visibility = View.VISIBLE

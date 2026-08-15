@@ -24,6 +24,7 @@ import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,10 +59,11 @@ class GamePagerViewModel(
 
     private val _game = MutableStateFlow<Game?>(null)
     val game: StateFlow<Game?> = _game
+    private var loadJob: Job? = null
 
     fun loadGame(networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
-        if (_game.value == null) {
-            viewModelScope.launch {
+        if (loadJob?.isActive == true) return
+        loadJob = viewModelScope.launch {
                 val cached = try {
                     metadataCache.readGame(args.gameId, args.gameSlug, args.gameName)
                 } catch (_: Exception) {
@@ -139,7 +141,6 @@ class GamePagerViewModel(
                         }
                     }
                 }
-            }
         }
     }
 

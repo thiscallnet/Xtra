@@ -29,6 +29,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -73,10 +74,11 @@ class ChannelPagerViewModel(
     val stream: StateFlow<Stream?> = _stream
     private val _user = MutableStateFlow<User?>(null)
     val user: StateFlow<User?> = _user
+    private var loadJob: Job? = null
 
     fun loadStream(networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
-        if (_stream.value == null) {
-            viewModelScope.launch {
+        if (loadJob?.isActive == true) return
+        loadJob = viewModelScope.launch {
                 val cached = try {
                     metadataCache.readChannel(args.channelId, args.channelLogin)
                 } catch (_: Exception) {
@@ -205,7 +207,6 @@ class ChannelPagerViewModel(
                         }
                     }
                 }
-            }
         }
     }
 

@@ -152,6 +152,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, In
                 if (it != null) {
                     userLayout.visibility = View.VISIBLE
                     userImage.visibility = View.VISIBLE
+                    userImage.tag = it
                     requireContext().imageLoader.enqueue(
                         ImageRequest.Builder(requireContext()).apply {
                             data(it)
@@ -164,6 +165,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, In
                     )
                 } else {
                     userImage.visibility = View.GONE
+                    userImage.tag = null
                 }
             }
             val isLoggedIn = !TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
@@ -572,19 +574,23 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, In
                 if (it != null) {
                     userLayout.visibility = View.VISIBLE
                     userImage.visibility = View.VISIBLE
-                    requireContext().imageLoader.enqueue(
-                        ImageRequest.Builder(requireContext()).apply {
-                            data(it)
-                            if (requireContext().prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true)) {
-                                transformations(CircleCropTransformation())
-                            }
-                            crossfade(true)
-                            target(userImage)
-                        }.build()
-                    )
+                    if (userImage.tag != it || userImage.drawable == null) {
+                        userImage.tag = it
+                        requireContext().imageLoader.enqueue(
+                            ImageRequest.Builder(requireContext()).apply {
+                                data(it)
+                                if (requireContext().prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true)) {
+                                    transformations(CircleCropTransformation())
+                                }
+                                crossfade(true)
+                                target(userImage)
+                            }.build()
+                        )
+                    }
                     requireArguments().putString(C.CHANNEL_IMAGE, it)
                 } else {
                     userImage.visibility = View.GONE
+                    userImage.tag = null
                 }
             }
             stream?.channelName.let {
@@ -683,19 +689,22 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, In
                     lastBroadcast.visibility = View.GONE
                 }
             }
-            if (!userImage.isVisible && user.profileImage != null) {
+            if (!user.profileImage.isNullOrBlank()) {
                 userLayout.visibility = View.VISIBLE
                 userImage.visibility = View.VISIBLE
-                requireContext().imageLoader.enqueue(
-                    ImageRequest.Builder(requireContext()).apply {
-                        data(user.profileImage)
-                        if (requireContext().prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true)) {
-                            transformations(CircleCropTransformation())
-                        }
-                        crossfade(true)
-                        target(userImage)
-                    }.build()
-                )
+                if (userImage.tag != user.profileImage || userImage.drawable == null) {
+                    userImage.tag = user.profileImage
+                    requireContext().imageLoader.enqueue(
+                        ImageRequest.Builder(requireContext()).apply {
+                            data(user.profileImage)
+                            if (requireContext().prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true)) {
+                                transformations(CircleCropTransformation())
+                            }
+                            crossfade(true)
+                            target(userImage)
+                        }.build()
+                    )
+                }
                 requireArguments().putString(C.CHANNEL_IMAGE, user.profileImage)
             }
             if (user.bannerImageURL != null) {
