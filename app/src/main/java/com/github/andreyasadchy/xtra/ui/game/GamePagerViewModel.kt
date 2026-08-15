@@ -18,6 +18,7 @@ import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalGameFollowsRepository
 import com.github.andreyasadchy.xtra.repository.MetadataCache
+import com.github.andreyasadchy.xtra.repository.mergeGameFallback
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -117,11 +118,12 @@ class GamePagerViewModel(
                                 ids = args.gameId?.let { listOf(it) },
                                 names = if (args.gameId.isNullOrBlank()) args.gameName?.let { listOf(it) } else null
                             ).data.firstOrNull()?.let {
-                                val game = Game(
+                                val helixGame = Game(
                                     id = it.id,
                                     name = it.name,
                                     boxArtURL = it.boxArtURL
                                 )
+                                val game = mergeGameFallback(cached?.game, helixGame)
                                 _game.value = game
                                 try {
                                     metadataCache.writeGame(

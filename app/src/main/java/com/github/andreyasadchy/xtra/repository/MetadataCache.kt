@@ -56,7 +56,12 @@ class MetadataCache(
 ) {
 
     suspend fun readAccount(userId: String?, login: String?): AccountCacheSnapshot? = withContext(Dispatchers.IO) {
-        val hit = readPayload<AccountCachePayload>(ACCOUNT_KIND, identityKeys("id", "login", userId, login))
+        val hit = readPayload<AccountCachePayload>(
+            kind = ACCOUNT_KIND,
+            keys = identityKeys("id", "login", userId, login),
+            expectedStableId = userId,
+            identity = { it.user?.id },
+        )
             ?: return@withContext null
         AccountCacheSnapshot(
             user = hit.payload.user,
@@ -87,6 +92,8 @@ class MetadataCache(
                 blockedUsers = snapshot.blockedUsers,
                 blockedUsersCursor = snapshot.blockedUsersCursor,
             ),
+            stableId = userId ?: snapshot.user?.id,
+            identity = { it.user?.id },
             nowMs = nowMs,
         )
     }
@@ -98,7 +105,12 @@ class MetadataCache(
     }
 
     suspend fun readChannel(channelId: String?, login: String?): ChannelPageCacheSnapshot? = withContext(Dispatchers.IO) {
-        val hit = readPayload<ChannelPageCachePayload>(CHANNEL_KIND, identityKeys("id", "login", channelId, login))
+        val hit = readPayload<ChannelPageCachePayload>(
+            kind = CHANNEL_KIND,
+            keys = identityKeys("id", "login", channelId, login),
+            expectedStableId = channelId,
+            identity = { it.user?.id ?: it.stream?.channelId },
+        )
             ?: return@withContext null
         val user = hit.payload.user?.toUiUser() ?: return@withContext null
         ChannelPageCacheSnapshot(user = user, stream = hit.payload.stream?.toUiStream())
@@ -117,12 +129,19 @@ class MetadataCache(
                 user = snapshot.user.toCacheUser(),
                 stream = snapshot.stream?.toCacheStream(),
             ),
+            stableId = channelId ?: snapshot.user.id,
+            identity = { it.user?.id ?: it.stream?.channelId },
             nowMs = nowMs,
         )
     }
 
     suspend fun readGame(gameId: String?, slug: String?, name: String?): GamePageCacheSnapshot? = withContext(Dispatchers.IO) {
-        val hit = readPayload<GamePageCachePayload>(GAME_KIND, gameIdentityKeys(gameId, slug, name))
+        val hit = readPayload<GamePageCachePayload>(
+            kind = GAME_KIND,
+            keys = gameIdentityKeys(gameId, slug, name),
+            expectedStableId = gameId,
+            identity = { it.game?.id },
+        )
             ?: return@withContext null
         hit.payload.game?.let { GamePageCacheSnapshot(it.toUiGame()) }
     }
@@ -138,11 +157,19 @@ class MetadataCache(
             kind = GAME_KIND,
             keys = gameIdentityKeys(gameId ?: snapshot.game.id, slug ?: snapshot.game.slug, name ?: snapshot.game.name),
             payload = GamePageCachePayload(snapshot.game.toCacheGame()),
+            stableId = gameId ?: snapshot.game.id,
+            identity = { it.game?.id },
             nowMs = nowMs,
         )
     }
 
-    private inline fun <reified T> readPayload(kind: String, keys: List<String>): CacheHit<T>? {
+    private inline fun <reified T> readPayload(
+        kind: String,
+        keys: List<String>,
+        expectedStableId: String?,
+        noinline identity: (T) -> String?,
+    ): CacheHit<T>? {
+        val expectedIdentity = normalizeIdentity(expectedStableId)
         for (key in keys) {
             val entry = dao.entry(kind, key) ?: continue
             val nowMs = System.currentTimeMillis()
@@ -155,17 +182,41 @@ class MetadataCache(
                 dao.delete(kind, key)
                 continue
             }
+            val payloadIdentity = normalizeIdentity(identity(payload))
+            if (expectedIdentity != null && payloadIdentity != null && expectedIdentity != payloadIdentity) {
+                dao.delete(kind, key)
+                continue
+            }
             dao.touch(kind, key, nowMs)
             return CacheHit(payload)
         }
         return null
     }
 
-    private inline fun <reified T> writePayload(kind: String, keys: List<String>, payload: T, nowMs: Long) {
+    private inline fun <reified T> writePayload(
+        kind: String,
+        keys: List<String>,
+        payload: T,
+        stableId: String?,
+        noinline identity: (T) -> String?,
+        nowMs: Long,
+    ) {
         if (keys.isEmpty()) return
         database.runInTransaction {
+            val distinctKeys = keys.distinct()
+            normalizeIdentity(stableId)?.let { stableIdentity ->
+                dao.entries(kind)
+                    .filter { it.cacheKey !in distinctKeys }
+                    .filter { entry ->
+                        runCatching { json.decodeFromString<T>(entry.payload) }
+                            .getOrNull()
+                            ?.let { normalizeIdentity(identity(it)) == stableIdentity }
+                            ?: false
+                    }
+                    .forEach { dao.delete(kind, it.cacheKey) }
+            }
             val payloadJson = json.encodeToString(payload)
-            keys.distinct().forEach { key ->
+            distinctKeys.forEach { key ->
                 dao.insert(
                     MetadataCacheEntry(
                         kind = kind,
@@ -192,6 +243,11 @@ class MetadataCache(
     }
 
     private data class CacheHit<T>(val payload: T)
+
+    private fun normalizeIdentity(value: String?): String? = value
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.lowercase(Locale.ROOT)
 
     companion object {
         internal fun identityKeys(

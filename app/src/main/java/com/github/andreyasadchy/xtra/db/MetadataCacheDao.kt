@@ -22,4 +22,7 @@ interface MetadataCacheDao {
 
     @Query("SELECT * FROM metadata_cache ORDER BY lastAccessAt DESC")
     fun allEntries(): List<MetadataCacheEntry>
+
+    @Query("SELECT * FROM metadata_cache WHERE kind = :kind")
+    fun entries(kind: String): List<MetadataCacheEntry>
 }

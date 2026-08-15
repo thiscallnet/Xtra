@@ -17,6 +17,8 @@ import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -81,5 +83,53 @@ class MetadataCacheTest {
             nowMs = now,
         )
         assertEquals("Tag", cache.readGame(null, null, "game")?.game?.tags?.firstOrNull()?.name)
+    }
+
+    @Test
+    fun failedStreamFallbackKeepsLiveChannelInRoom() = runBlocking {
+        val now = System.currentTimeMillis()
+        val liveSnapshot = ChannelPageCacheSnapshot(
+            user = User(id = "99", login = "channel", name = "Old name"),
+            stream = Stream(id = "stream", channelId = "99", title = "Still live"),
+        )
+        cache.writeChannel("99", "channel", liveSnapshot, now)
+
+        val resolution = resolveChannelFallback(
+            cached = cache.readChannel("99", "channel"),
+            streamResult = Result.failure(IllegalStateException("temporary failure")),
+            userResult = Result.success(User(id = "99", login = "channel", name = "New name")),
+        )
+        assertTrue(resolution.shouldPersist)
+        resolution.snapshot?.let { cache.writeChannel("99", "channel", it, now + 1) }
+
+        val persisted = cache.readChannel("99", "channel")
+        assertEquals("New name", persisted?.user?.name)
+        assertEquals("stream", persisted?.stream?.id)
+        assertEquals("Still live", persisted?.stream?.title)
+    }
+
+    @Test
+    fun stableIdRejectsMismatchedAccountAliasAndSameIdAliasStillWorks() = runBlocking {
+        val oldSnapshot = AccountCacheSnapshot(
+            user = HelixUser(id = "old", login = "old-login", displayName = "Old"),
+            scopes = setOf("old:scope"),
+        )
+        cache.writeAccount("old", "old-login", oldSnapshot)
+
+        assertNull(cache.readAccount("new", "old-login"))
+        assertNull(cache.readAccount(null, "old-login"))
+
+        val currentSnapshot = AccountCacheSnapshot(
+            user = HelixUser(id = "new", login = "new-login", displayName = "New"),
+            scopes = setOf("new:scope"),
+        )
+        cache.writeAccount("new", "new-login", currentSnapshot)
+        assertEquals("New", cache.readAccount("new", "new-login")?.user?.displayName)
+        assertEquals("New", cache.readAccount(null, "new-login")?.user?.displayName)
+
+        cache.writeAccount("new", "renamed-login", currentSnapshot)
+        assertNull(cache.readAccount(null, "new-login"))
+        assertEquals("New", cache.readAccount(null, "renamed-login")?.user?.displayName)
+        assertNull(cache.readAccount(null, "old-login"))
     }
 }

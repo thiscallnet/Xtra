@@ -23,6 +23,7 @@ import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.MetadataCache
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
+import com.github.andreyasadchy.xtra.repository.resolveChannelFallback
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
@@ -138,65 +139,68 @@ class ChannelPagerViewModel(
                     }
                 } catch (e: Exception) {
                     if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        val fallbackStream = try {
-                            helixRepository.getStreams(
-                                networkLibrary = networkLibrary,
-                                headers = helixHeaders,
-                                ids = args.channelId?.let { listOf(it) },
-                                logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
-                            ).data.firstOrNull()?.let {
-                                Stream(
-                                    id = it.id,
-                                    channelId = it.channelId,
-                                    channelLogin = it.channelLogin,
-                                    channelName = it.channelName,
-                                    channelImageURL = cached?.user?.profileImageURL,
-                                    gameId = it.gameId,
-                                    gameName = it.gameName,
-                                    title = it.title,
-                                    thumbnailURL = it.thumbnailURL,
-                                    createdAt = it.startedAt,
-                                    viewerCount = it.viewerCount,
-                                    tags = it.tags,
-                                )
-                            }
-                        } catch (_: Exception) {
-                            null
+                        val streamResult: Result<Stream?> = try {
+                            Result.success(
+                                helixRepository.getStreams(
+                                    networkLibrary = networkLibrary,
+                                    headers = helixHeaders,
+                                    ids = args.channelId?.let { listOf(it) },
+                                    logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
+                                ).data.firstOrNull()?.let {
+                                    Stream(
+                                        id = it.id,
+                                        channelId = it.channelId,
+                                        channelLogin = it.channelLogin,
+                                        channelName = it.channelName,
+                                        channelImageURL = cached?.user?.profileImageURL,
+                                        gameId = it.gameId,
+                                        gameName = it.gameName,
+                                        title = it.title,
+                                        thumbnailURL = it.thumbnailURL,
+                                        createdAt = it.startedAt,
+                                        viewerCount = it.viewerCount,
+                                        tags = it.tags,
+                                    )
+                                }
+                            )
+                        } catch (e: Exception) {
+                            Result.failure(e)
                         }
-                        val fallbackUser = try {
-                            helixRepository.getUsers(
-                                networkLibrary = networkLibrary,
-                                headers = helixHeaders,
-                                ids = args.channelId?.let { listOf(it) },
-                                logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
-                            ).data.firstOrNull()?.let {
-                                User(
-                                    id = it.id,
-                                    login = it.login,
-                                    name = it.displayName,
-                                    profileImageURL = it.profileImageURL,
-                                    type = it.type,
-                                    broadcasterType = it.broadcasterType,
-                                    createdAt = it.createdAt,
-                                )
-                            }
-                        } catch (_: Exception) {
-                            null
+                        val userResult: Result<User?> = try {
+                            Result.success(
+                                helixRepository.getUsers(
+                                    networkLibrary = networkLibrary,
+                                    headers = helixHeaders,
+                                    ids = args.channelId?.let { listOf(it) },
+                                    logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
+                                ).data.firstOrNull()?.let {
+                                    User(
+                                        id = it.id,
+                                        login = it.login,
+                                        name = it.displayName,
+                                        profileImageURL = it.profileImageURL,
+                                        type = it.type,
+                                        broadcasterType = it.broadcasterType,
+                                        createdAt = it.createdAt,
+                                    )
+                                }
+                            )
+                        } catch (e: Exception) {
+                            Result.failure(e)
                         }
-                        val snapshot = fallbackUser?.let { user ->
-                            ChannelPageCacheSnapshot(user = user, stream = fallbackStream)
-                        } ?: fallbackStream?.let { stream ->
-                            cached?.user?.let { user -> ChannelPageCacheSnapshot(user = user, stream = stream) }
-                        }
-                        snapshot?.let {
-                            applyChannelSnapshot(it)
-                            try {
-                                metadataCache.writeChannel(
-                                    channelId = args.channelId ?: it.user.id,
-                                    login = args.channelLogin ?: it.user.login,
-                                    snapshot = it,
-                                )
-                            } catch (_: Exception) {
+                        resolveChannelFallback(cached, streamResult, userResult).let { resolution ->
+                            resolution.snapshot?.let {
+                                applyChannelSnapshot(it)
+                                if (resolution.shouldPersist) {
+                                    try {
+                                        metadataCache.writeChannel(
+                                            channelId = args.channelId ?: it.user.id,
+                                            login = args.channelLogin ?: it.user.login,
+                                            snapshot = it,
+                                        )
+                                    } catch (_: Exception) {
+                                    }
+                                }
                             }
                         }
                     }
