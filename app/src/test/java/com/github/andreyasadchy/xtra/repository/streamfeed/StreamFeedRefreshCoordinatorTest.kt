@@ -13,7 +13,9 @@ import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withTimeout
@@ -238,7 +240,10 @@ class StreamFeedRefreshCoordinatorTest {
         elapsed = StreamFeedFreshnessPolicy.PLAYBACK_RETURN_THRESHOLD_MS
         coordinator.playbackReturned()
         assertFalse(coordinator.isPlayerFullscreen)
-        withTimeout(1_000L) { firstLoad.await() }
+        withTimeout(1_000L) {
+            firstLoad.await()
+            awaitScopeIdle(scope)
+        }
 
         now += StreamFeedFreshnessPolicy.LIVE_STREAM_SOFT_TTL_MS
         elapsed += 1L
@@ -716,5 +721,13 @@ class StreamFeedRefreshCoordinatorTest {
         override suspend fun invalidatePrefix(prefix: String, nowMs: Long) = Unit
 
         override suspend fun cleanup(nowMs: Long) = Unit
+    }
+}
+
+private suspend fun awaitScopeIdle(scope: CoroutineScope) {
+    while (true) {
+        val children = scope.coroutineContext[Job]?.children?.toList().orEmpty()
+        if (children.isEmpty()) return
+        children.joinAll()
     }
 }
