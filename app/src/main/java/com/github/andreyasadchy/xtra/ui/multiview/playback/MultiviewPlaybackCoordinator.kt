@@ -6,6 +6,7 @@ import android.net.NetworkCapabilities
 import android.util.Log
 import android.annotation.SuppressLint
 import com.github.andreyasadchy.xtra.BuildConfig
+import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -58,6 +59,7 @@ import java.net.SocketAddress
 import java.net.URI
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 
+@OptIn(UnstableApi::class)
 class MultiviewPlaybackCoordinator(
     context: Context,
     private val loadPlaylist: suspend (String, Boolean) -> String,

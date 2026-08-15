@@ -648,11 +648,12 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         }
     }
 
+    @SuppressLint("RepeatOnLifecycleWrongUsage") // start() runs once after service binding and resets with the view lifecycle.
     fun start() {
         with(binding) {
             clearPlayerError()
             viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     playbackService?.integrity?.collect {
                         (requireActivity() as? MainActivity)?.getNewIntegrityToken(it, childFragmentManager)
                     }
@@ -840,7 +841,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                         }
                     }
                     viewLifecycleOwner.lifecycleScope.launch {
-                        repeatOnLifecycle(Lifecycle.State.STARTED) {
+                        viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                             viewModel.stream.collectLatest { stream ->
                                 if (stream != null) {
                                     stream.id?.let {
@@ -925,7 +926,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 if (playbackService?.type == BasePlaybackService.VIDEO) {
                     if (requireContext().prefs().getBoolean(C.PLAYER_MENU_BOOKMARK, true)) {
                         viewLifecycleOwner.lifecycleScope.launch {
-                            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 viewModel.isBookmarked.collectLatest {
                                     if (it != null) {
                                         (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setBookmarkText(it)
@@ -937,7 +938,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                     }
                     if (!playbackService?.videoId.isNullOrBlank() && (requireContext().prefs().getBoolean(C.PLAYER_GAMES_BUTTON, true) || requireContext().prefs().getBoolean(C.PLAYER_MENU_GAMES, false))) {
                         viewLifecycleOwner.lifecycleScope.launch {
-                            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 viewModel.gamesList.collectLatest { list ->
                                     if (!list.isNullOrEmpty()) {
                                         if (requireContext().prefs().getBoolean(C.PLAYER_GAMES_BUTTON, true)) {
@@ -1051,7 +1052,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                             }
                         }
                         viewLifecycleOwner.lifecycleScope.launch {
-                            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 viewModel.isFollowing.collectLatest {
                                     if (it != null) {
                                         if (it) {
@@ -1066,7 +1067,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                             }
                         }
                         viewLifecycleOwner.lifecycleScope.launch {
-                            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 viewModel.follow.collectLatest { pair ->
                                     if (pair != null) {
                                         val following = pair.first
@@ -2053,7 +2054,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             if (isInPictureInPictureMode) {
                 if (!isMaximized) {
                     isMaximized = true
-                    requireActivity().onBackPressedDispatcher.addCallback(this@PlayerFragment, backPressedCallback)
+                    requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backPressedCallback)
                     if (playbackService?.type == BasePlaybackService.STREAM && chatFragment?.emoteMenuIsVisible() == true) {
                         chatFragment?.toggleBackPressedCallback(true)
                     }
@@ -2173,7 +2174,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)?.onPlayerEnteredPlayback(
                 isLive = playbackService?.type == BasePlaybackService.STREAM,
             )
-            requireActivity().onBackPressedDispatcher.addCallback(this@PlayerFragment, backPressedCallback)
+            requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backPressedCallback)
             if (playbackService?.type == BasePlaybackService.STREAM && chatFragment?.emoteMenuIsVisible() == true) {
                 chatFragment?.toggleBackPressedCallback(true)
             }
@@ -2422,6 +2423,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     }
 
     override fun onDestroyView() {
+        started = false
         super.onDestroyView()
         _binding = null
     }

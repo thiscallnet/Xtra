@@ -2275,7 +2275,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             if (isInPictureInPictureMode) {
                 if (!isMaximized) {
                     isMaximized = true
-                    requireActivity().onBackPressedDispatcher.addCallback(this@Media3PlayerFragment, backPressedCallback)
+                    requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backPressedCallback)
                     if (videoType == STREAM && chatFragment?.emoteMenuIsVisible() == true) {
                         chatFragment?.toggleBackPressedCallback(true)
                     }
@@ -2410,7 +2410,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         with(binding) {
             isMaximized = true
             (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
-            requireActivity().onBackPressedDispatcher.addCallback(this@Media3PlayerFragment, backPressedCallback)
+            requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backPressedCallback)
             if (videoType == STREAM && chatFragment?.emoteMenuIsVisible() == true) {
                 chatFragment?.toggleBackPressedCallback(true)
             }

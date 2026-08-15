@@ -4,11 +4,13 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
 import android.net.http.HttpEngine
+import androidx.annotation.OptIn
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.media3.common.util.UnstableApi
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.NotificationUser
 import com.github.andreyasadchy.xtra.model.ShownNotification
@@ -55,6 +57,7 @@ import java.util.concurrent.ExecutorService
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
+@OptIn(UnstableApi::class)
 class Media3PlayerViewModel(
     private val applicationContext: Context,
     private val httpEngine: Lazy<HttpEngine?>,

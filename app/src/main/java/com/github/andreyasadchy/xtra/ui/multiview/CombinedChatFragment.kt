@@ -11,6 +11,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.content.withStyledAttributes
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
@@ -358,8 +359,9 @@ private class CombinedChatAdapter(
             val context = fragment.requireContext()
             val preferences = context.prefs()
             val sizeModifier = (preferences.getInt(C.CHAT_SIZE_MODIFIER, 100).toFloat() / 100f)
-            val isLightTheme = context.obtainStyledAttributes(intArrayOf(androidx.appcompat.R.attr.isLightTheme)).use {
-                it.getBoolean(0, false)
+            var isLightTheme = false
+            context.withStyledAttributes(attrs = intArrayOf(androidx.appcompat.R.attr.isLightTheme)) {
+                isLightTheme = getBoolean(0, false)
             }
             adapter = ChatAdapter(
                 messages = singleMessage,

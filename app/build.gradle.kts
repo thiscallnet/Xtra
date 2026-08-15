@@ -64,6 +64,11 @@ android {
     androidResources {
         generateLocaleConfig = true
     }
+    bundle {
+        language {
+            enableSplit = false
+        }
+    }
     lint {
         disable += "ContentDescription"
     }
@@ -147,14 +152,5 @@ apollo {
     @Suppress("ApolloEndpointNotConfigured")
     service("service") {
         packageName.set("com.github.andreyasadchy.xtra.graphql")
-    }
-}
-
-// Delete large build log files from ~/.gradle/daemon/X.X/daemon-XXX.out.log
-// Source: https://discuss.gradle.org/t/gradle-daemon-produces-a-lot-of-logs/9905
-File("${project.gradle.gradleUserHomeDir.absolutePath}/daemon/${project.gradle.gradleVersion}").listFiles()?.forEach {
-    if (it.name.endsWith(".out.log")) {
-        // println("Deleting gradle log file: $it") // Optional debug output
-        it.delete()
     }
 }
