@@ -2014,6 +2014,11 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     }
 
     override fun initialize() {
+        if (isMaximized) {
+            (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)?.onPlayerEnteredPlayback(
+                isLive = playbackService?.type == BasePlaybackService.STREAM,
+            )
+        }
         if (!started && playbackService?.started == true) {
             started = true
             start()
@@ -2072,7 +2077,13 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 (chatFragment?.childFragmentManager?.findFragmentByTag("messageDialog") as? BottomSheetDialogFragment)?.dismiss()
                 (chatFragment?.childFragmentManager?.findFragmentByTag("replyDialog") as? BottomSheetDialogFragment)?.dismiss()
                 (chatFragment?.childFragmentManager?.findFragmentByTag("imageDialog") as? BottomSheetDialogFragment)?.dismiss()
+                (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)?.onPlayerEnteredPlayback(
+                    isLive = playbackService?.type == BasePlaybackService.STREAM,
+                )
             } else {
+                (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)?.onPlayerEnteredPlayback(
+                    isLive = playbackService?.type == BasePlaybackService.STREAM,
+                )
                 useController = true
             }
         }
@@ -2085,7 +2096,11 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
 
     fun minimize() {
         with(binding) {
+            val wasMaximized = isMaximized
             isMaximized = false
+            if (wasMaximized) {
+                (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)?.onPlayerReturnedToBrowsing()
+            }
             if (playbackService?.type == BasePlaybackService.STREAM && chatFragment?.emoteMenuIsVisible() == true) {
                 chatFragment?.toggleBackPressedCallback(false)
             }
@@ -2155,6 +2170,9 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     fun maximize() {
         with(binding) {
             isMaximized = true
+            (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)?.onPlayerEnteredPlayback(
+                isLive = playbackService?.type == BasePlaybackService.STREAM,
+            )
             requireActivity().onBackPressedDispatcher.addCallback(this@PlayerFragment, backPressedCallback)
             if (playbackService?.type == BasePlaybackService.STREAM && chatFragment?.emoteMenuIsVisible() == true) {
                 chatFragment?.toggleBackPressedCallback(true)

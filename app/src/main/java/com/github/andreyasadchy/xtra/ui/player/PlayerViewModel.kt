@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
+import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -53,6 +54,7 @@ class PlayerViewModel(
     private val bookmarksRepository: BookmarksRepository,
     private val localChannelFollowsRepository: LocalChannelFollowsRepository,
     private val notificationsRepository: NotificationsRepository,
+    private val streamFeedRefreshCoordinator: StreamFeedRefreshCoordinator,
 ) : ViewModel() {
 
     val integrity = MutableSharedFlow<String?>()
@@ -487,6 +489,7 @@ class PlayerViewModel(
                                     notificationsRepository.saveList(listOf(ShownNotification(channelId, it)))
                                 }
                             }
+                            streamFeedRefreshCoordinator.invalidateFollowedFeeds()
                         }
                     } else {
                         localChannelFollowsRepository.save(LocalChannelFollow(channelId, channelLogin, channelName))
@@ -529,6 +532,7 @@ class PlayerViewModel(
                             _isFollowing.value = false
                             follow.value = Pair(false, null)
                             notificationsRepository.deleteUser(NotificationUser(channelId))
+                            streamFeedRefreshCoordinator.invalidateFollowedFeeds()
                         }
                     } else {
                         localChannelFollowsRepository.getById(channelId)?.let { localChannelFollowsRepository.delete(it) }
@@ -548,7 +552,7 @@ class PlayerViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                PlayerViewModel(xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.bookmarksRepository, xtraModule.localChannelFollowsRepository, xtraModule.notificationsRepository)
+                PlayerViewModel(xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.bookmarksRepository, xtraModule.localChannelFollowsRepository, xtraModule.notificationsRepository, xtraModule.streamFeedRefreshCoordinator)
             }
         }
     }

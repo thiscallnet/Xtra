@@ -26,6 +26,8 @@ abstract class BaseNetworkFragment : Fragment() {
     private val mainViewModel: MainViewModel by activityViewModels { MainViewModelFactory }
 
     protected open var enableNetworkCheck = true
+    /** Cache-backed screens can render Room data before a network is validated. */
+    protected open val initializeWithoutNetwork = false
     private var lastIsOnlineState = false
     private var shouldRestore = false
     protected var isInitialized = false
@@ -91,7 +93,7 @@ abstract class BaseNetworkFragment : Fragment() {
         super.onResume()
         if (enableNetworkCheck) {
             if (!isInitialized) {
-                if (created || lastIsOnlineState) {
+                if (created || lastIsOnlineState || initializeWithoutNetwork) {
                     init()
                 }
             } else if (shouldRestore && lastIsOnlineState) {

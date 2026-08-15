@@ -12,13 +12,6 @@ import androidx.navigation.fragment.findNavController
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
-import coil3.imageLoader
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
-import coil3.request.crossfade
-import coil3.request.target
-import coil3.request.transformations
-import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentStreamsListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
@@ -41,12 +34,10 @@ class StreamsAdapter(
 ) : PagingDataAdapter<Stream, StreamsAdapter.PagingViewHolder>(
     object : DiffUtil.ItemCallback<Stream>() {
         override fun areItemsTheSame(oldItem: Stream, newItem: Stream): Boolean =
-            oldItem.id == newItem.id
+            oldItem.streamIdentity() == newItem.streamIdentity()
 
         override fun areContentsTheSame(oldItem: Stream, newItem: Stream): Boolean =
-            oldItem.viewerCount == newItem.viewerCount &&
-                    oldItem.gameName == newItem.gameName &&
-                    oldItem.title == newItem.title
+            streamContentsSame(oldItem, newItem)
     }) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PagingViewHolder {
@@ -102,20 +93,13 @@ class StreamsAdapter(
                         userImage.contentDescription = item.channelName?.let {
                             context.getString(R.string.player_open_channel, it)
                         }
-                        fragment.requireContext().imageLoader.enqueue(
-                            ImageRequest.Builder(fragment.requireContext()).apply {
-                                data(item.channelImage)
-                                if (context.prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true)) {
-                                    transformations(CircleCropTransformation())
-                                }
-                                crossfade(true)
-                                target(userImage)
-                            }.build()
-                        )
+                        loadStreamProfileImage(context, userImage, item)
                         userImage.setOnClickListener(channelListener)
                     } else {
                         userImage.visibility = View.GONE
                         userImage.contentDescription = null
+                        userImage.setImageDrawable(null)
+                        userImage.tag = null
                     }
                     if (item.channelName != null) {
                         username.visibility = View.VISIBLE
@@ -160,23 +144,12 @@ class StreamsAdapter(
                     if (item.thumbnailURL != null) {
                         thumbnail.visibility = View.VISIBLE
                         liveBadge.visibility = View.VISIBLE
-                        //update every 5 minutes
-                        val minutes = System.currentTimeMillis() / 60000L
-                        val lastMinute = minutes % 10
-                        val key = if (lastMinute < 5) minutes - lastMinute else minutes - (lastMinute - 5)
-                        fragment.requireContext().imageLoader.enqueue(
-                            ImageRequest.Builder(fragment.requireContext()).apply {
-                                data(item.thumbnail)
-                                memoryCacheKeyExtra("minutes", key.toString())
-                                diskCachePolicy(CachePolicy.DISABLED)
-                                crossfade(true)
-                                target(thumbnail)
-                                thumbnailState()
-                            }.build()
-                        )
+                        loadStreamThumbnail(context, thumbnail, item)
                     } else {
                         thumbnail.visibility = View.GONE
                         liveBadge.visibility = View.GONE
+                        thumbnail.setImageDrawable(null)
+                        thumbnail.tag = null
                     }
                     if (item.viewerCount != null) {
                         viewers.visibility = View.VISIBLE
@@ -257,6 +230,22 @@ class StreamsAdapter(
                     } else {
                         tagsLayout.visibility = View.GONE
                     }
+                } else {
+                    root.setOnClickListener(null)
+                    multiview.setOnClickListener(null)
+                    userImage.setOnClickListener(null)
+                    userImage.setImageDrawable(null)
+                    userImage.tag = null
+                    thumbnail.setImageDrawable(null)
+                    thumbnail.tag = null
+                    username.visibility = View.GONE
+                    title.visibility = View.GONE
+                    gameName.visibility = View.GONE
+                    viewers.visibility = View.GONE
+                    uptime.visibility = View.GONE
+                    tagsLayout.removeAllViews()
+                    tagsLayout.visibility = View.GONE
+                    liveBadge.visibility = View.GONE
                 }
             }
         }

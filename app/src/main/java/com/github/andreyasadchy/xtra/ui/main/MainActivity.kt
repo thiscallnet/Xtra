@@ -231,6 +231,7 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                             if (isNetworkAvailable) {
+                                (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.onNetworkRestored()
                                 if (!TwitchApiHelper.checkedValidation) {
                                     viewModel.validate(
                                         prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
@@ -412,6 +413,9 @@ class MainActivity : AppCompatActivity() {
                                     }
                                 }
                             }
+                            (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackEntered(
+                                isLive = savedState.type == BasePlaybackService.STREAM,
+                            )
                             startPlayer(fragment)
                         }
                     }
@@ -959,6 +963,7 @@ class MainActivity : AppCompatActivity() {
 //Navigation listeners
 
     fun startStream(stream: Stream) {
+        onPlayerEnteredPlayback(isLive = true)
         if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(stream)
@@ -989,6 +994,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun startVideo(video: Video, offset: Long?, ignoreSavedPosition: Boolean = false, videoUrl: String? = null) {
+        onPlayerChangedPlayback(isLive = false)
         if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(video, offset, ignoreSavedPosition)
@@ -1028,6 +1034,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun startClip(clip: Clip) {
+        onPlayerChangedPlayback(isLive = false)
         if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(clip)
@@ -1062,6 +1069,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun startOfflineVideo(video: OfflineVideo, offset: Long? = null) {
+        onPlayerChangedPlayback(isLive = false)
         if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(video)
@@ -1113,6 +1121,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun closePlayer() {
+        onPlayerReturnedToBrowsing()
         supportFragmentManager.beginTransaction()
             .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
             .remove(supportFragmentManager.findFragmentById(R.id.playerContainer)!!)
@@ -1125,6 +1134,18 @@ class MainActivity : AppCompatActivity() {
         viewModel.sleepTimer?.cancel()
         viewModel.sleepTimerEndTime = 0L
         currentMultiviewFragment()?.resumeAfterExternalPlayer()
+    }
+
+    fun onPlayerReturnedToBrowsing() {
+        (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackReturned()
+    }
+
+    fun onPlayerEnteredPlayback(isLive: Boolean = true) {
+        (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackEntered(isLive)
+    }
+
+    fun onPlayerChangedPlayback(isLive: Boolean) {
+        (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackChanged(isLive)
     }
 
     private fun currentMultiviewFragment(): MultiviewFragment? {

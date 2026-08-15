@@ -1,0 +1,28 @@
+package com.github.andreyasadchy.xtra.repository.streamfeed
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Test
+
+class StreamFeedKeyTest {
+
+    @Test
+    fun equivalentFilterOrderingProducesOneKey() {
+        assertEquals(
+            StreamFeedKey.top("VIEWER_COUNT", listOf("FPS", "ENGLISH", "fps"), listOf("SK", "EN")),
+            StreamFeedKey.top("viewer_count", listOf("english", "fps"), listOf("en", "sk")),
+        )
+    }
+
+    @Test
+    fun accountScopesNeverShareFollowedKey() {
+        assertNotEquals(StreamFeedKey.followed("100"), StreamFeedKey.followed("200"))
+        assertNotEquals(StreamFeedKey.followed("100"), StreamFeedKey.followed(null))
+    }
+
+    @Test
+    fun credentialsAreNotPartOfKey() {
+        assertEquals(StreamFeedKey.followed("100"), StreamFeedKey.followed(" 100 "))
+        assertEquals("followed:account:100", StreamFeedKey.followed("100").value)
+    }
+}

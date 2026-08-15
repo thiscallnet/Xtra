@@ -12,6 +12,7 @@ class LocalChannelFollowsRepository(
     private val localChannelFollowsDao: LocalChannelFollowsDao,
     private val offlineVideosDao: OfflineVideosDao,
     private val bookmarksDao: BookmarksDao,
+    private val onChanged: () -> Unit = {},
 ) {
 
     suspend fun getAll() = withContext(Dispatchers.IO) {
@@ -24,14 +25,17 @@ class LocalChannelFollowsRepository(
 
     suspend fun save(item: LocalChannelFollow) = withContext(Dispatchers.IO) {
         localChannelFollowsDao.insert(item)
+        onChanged()
     }
 
     suspend fun delete(item: LocalChannelFollow) = withContext(Dispatchers.IO) {
         localChannelFollowsDao.delete(item)
+        onChanged()
     }
 
     suspend fun update(item: LocalChannelFollow) = withContext(Dispatchers.IO) {
         localChannelFollowsDao.update(item)
+        onChanged()
     }
 
     suspend fun deleteOldImages() = withContext(Dispatchers.IO) {

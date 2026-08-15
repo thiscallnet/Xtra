@@ -209,6 +209,8 @@ object C {
     const val PROXY_PORT = "proxy_port"
     const val PROXY_USER = "proxy_user"
     const val PROXY_PASSWORD = "proxy_password"
+    const val STREAM_FEED_RETURN_INTERVAL_MS = "stream_feed_return_interval_ms"
+    const val STREAM_FEED_RETURN_SAMPLE_COUNT = "stream_feed_return_sample_count"
     const val ANIMATED_EMOTES = "animatedGifEmotes"
     const val CHAT_SIZE_MODIFIER = "chat_size_modifier"
     const val CHAT_TEXT_SIZE = "chat_text_size"
