@@ -481,6 +481,7 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
             TwitchApiHelper.getGQLHeaders(requireContext()),
             TwitchApiHelper.getHelixHeaders(requireContext()),
             requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
+            revalidate = true,
         )
     }
 
@@ -492,6 +493,7 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
                     TwitchApiHelper.getGQLHeaders(requireContext()),
                     TwitchApiHelper.getHelixHeaders(requireContext()),
                     requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
+                    revalidate = true,
                 )
                 val setting = requireContext().prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0
                 if (setting < 2) {

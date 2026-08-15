@@ -23,8 +23,8 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.ui.common.LoadRequestCoalescer
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,11 +59,42 @@ class GamePagerViewModel(
 
     private val _game = MutableStateFlow<Game?>(null)
     val game: StateFlow<Game?> = _game
-    private var loadJob: Job? = null
 
-    fun loadGame(networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
-        if (loadJob?.isActive == true) return
-        loadJob = viewModelScope.launch {
+    private data class LoadRequest(
+        val networkLibrary: String?,
+        val gqlHeaders: Map<String, String>,
+        val helixHeaders: Map<String, String>,
+        val enableIntegrity: Boolean,
+    )
+
+    private val loadCoordinator: LoadRequestCoalescer<LoadRequest>
+
+    init {
+        loadCoordinator = LoadRequestCoalescer { request ->
+            viewModelScope.launch {
+                try {
+                    loadGame(request)
+                } finally {
+                    loadCoordinator.complete()
+                }
+            }
+        }
+    }
+
+    fun loadGame(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+        enableIntegrity: Boolean,
+        revalidate: Boolean = false,
+    ) {
+        loadCoordinator.request(
+            LoadRequest(networkLibrary, gqlHeaders, helixHeaders, enableIntegrity),
+            revalidate = revalidate,
+        )
+    }
+
+    private suspend fun loadGame(request: LoadRequest) {
                 val cached = try {
                     metadataCache.readGame(args.gameId, args.gameSlug, args.gameName)
                 } catch (_: Exception) {
@@ -72,16 +103,16 @@ class GamePagerViewModel(
                 cached?.let { _game.value = it.game }
                 try {
                     val response = graphQLRepository.loadQueryGame(
-                        networkLibrary = networkLibrary,
-                        headers = gqlHeaders,
+                        networkLibrary = request.networkLibrary,
+                        headers = request.gqlHeaders,
                         id = args.gameId,
                         slug = args.gameSlug.takeIf { args.gameId.isNullOrBlank() },
                         name = args.gameName.takeIf { args.gameId.isNullOrBlank() && args.gameSlug.isNullOrBlank() },
                     )
-                    if (enableIntegrity) {
+                    if (request.enableIntegrity) {
                         response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
                             integrity.emit("refresh")
-                            return@launch
+                            return
                         }
                     }
                     response.data!!.game?.let {
@@ -112,11 +143,11 @@ class GamePagerViewModel(
                         }
                     }
                 } catch (e: Exception) {
-                    if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+                    if (!request.helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         try {
                             helixRepository.getGames(
-                                networkLibrary = networkLibrary,
-                                headers = helixHeaders,
+                                networkLibrary = request.networkLibrary,
+                                headers = request.helixHeaders,
                                 ids = args.gameId?.let { listOf(it) },
                                 names = if (args.gameId.isNullOrBlank()) args.gameName?.let { listOf(it) } else null
                             ).data.firstOrNull()?.let {
@@ -141,7 +172,6 @@ class GamePagerViewModel(
                         }
                     }
                 }
-        }
     }
 
     fun isFollowingGame(gameId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>) {

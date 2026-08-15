@@ -25,11 +25,11 @@ import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.resolveChannelFallback
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
+import com.github.andreyasadchy.xtra.ui.common.LoadRequestCoalescer
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -74,11 +74,42 @@ class ChannelPagerViewModel(
     val stream: StateFlow<Stream?> = _stream
     private val _user = MutableStateFlow<User?>(null)
     val user: StateFlow<User?> = _user
-    private var loadJob: Job? = null
 
-    fun loadStream(networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
-        if (loadJob?.isActive == true) return
-        loadJob = viewModelScope.launch {
+    private data class LoadRequest(
+        val networkLibrary: String?,
+        val gqlHeaders: Map<String, String>,
+        val helixHeaders: Map<String, String>,
+        val enableIntegrity: Boolean,
+    )
+
+    private val loadCoordinator: LoadRequestCoalescer<LoadRequest>
+
+    init {
+        loadCoordinator = LoadRequestCoalescer { request ->
+            viewModelScope.launch {
+                try {
+                    loadStream(request)
+                } finally {
+                    loadCoordinator.complete()
+                }
+            }
+        }
+    }
+
+    fun loadStream(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+        enableIntegrity: Boolean,
+        revalidate: Boolean = false,
+    ) {
+        loadCoordinator.request(
+            LoadRequest(networkLibrary, gqlHeaders, helixHeaders, enableIntegrity),
+            revalidate = revalidate,
+        )
+    }
+
+    private suspend fun loadStream(request: LoadRequest) {
                 val cached = try {
                     metadataCache.readChannel(args.channelId, args.channelLogin)
                 } catch (_: Exception) {
@@ -86,11 +117,11 @@ class ChannelPagerViewModel(
                 }
                 cached?.let(::applyChannelSnapshot)
                 try {
-                    val response = graphQLRepository.loadQueryUserChannelPage(networkLibrary, gqlHeaders, args.channelId, if (args.channelId.isNullOrBlank()) args.channelLogin else null)
-                    if (enableIntegrity) {
+                    val response = graphQLRepository.loadQueryUserChannelPage(request.networkLibrary, request.gqlHeaders, args.channelId, if (args.channelId.isNullOrBlank()) args.channelLogin else null)
+                    if (request.enableIntegrity) {
                         response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
                             integrity.emit("refresh")
-                            return@launch
+                            return
                         }
                     }
                     response.data!!.user?.let {
@@ -140,12 +171,12 @@ class ChannelPagerViewModel(
                         }
                     }
                 } catch (e: Exception) {
-                    if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+                    if (!request.helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         val streamResult: Result<Stream?> = try {
                             Result.success(
                                 helixRepository.getStreams(
-                                    networkLibrary = networkLibrary,
-                                    headers = helixHeaders,
+                                    networkLibrary = request.networkLibrary,
+                                    headers = request.helixHeaders,
                                     ids = args.channelId?.let { listOf(it) },
                                     logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
                                 ).data.firstOrNull()?.let {
@@ -171,8 +202,8 @@ class ChannelPagerViewModel(
                         val userResult: Result<User?> = try {
                             Result.success(
                                 helixRepository.getUsers(
-                                    networkLibrary = networkLibrary,
-                                    headers = helixHeaders,
+                                    networkLibrary = request.networkLibrary,
+                                    headers = request.helixHeaders,
                                     ids = args.channelId?.let { listOf(it) },
                                     logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
                                 ).data.firstOrNull()?.let {
@@ -207,7 +238,6 @@ class ChannelPagerViewModel(
                         }
                     }
                 }
-        }
     }
 
     private fun applyChannelSnapshot(snapshot: ChannelPageCacheSnapshot) {
