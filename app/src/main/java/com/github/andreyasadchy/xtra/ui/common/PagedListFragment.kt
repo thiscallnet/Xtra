@@ -27,25 +27,9 @@ abstract class PagedListFragment : BaseNetworkFragment(), IntegrityDialog.Listen
     private var pageErrorSnackbar: Snackbar? = null
     private var pageError: LoadState.Error? = null
     private var pageErrorState: PagedListErrorState? = null
+    private var manualRefreshRequested = false
 
     fun <T : Any, VH : RecyclerView.ViewHolder> setAdapter(recyclerView: RecyclerView, adapter: PagingDataAdapter<T, VH>) {
-        adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
-
-            override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
-                adapter.unregisterAdapterDataObserver(this)
-                adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
-                    override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
-                        try {
-                            if (positionStart == 0) {
-                                recyclerView.scrollToPosition(0)
-                            }
-                        } catch (e: Exception) {
-
-                        }
-                    }
-                })
-            }
-        })
         recyclerView.adapter = adapter
     }
 
@@ -123,7 +107,10 @@ abstract class PagedListFragment : BaseNetworkFragment(), IntegrityDialog.Listen
         binding.retryButton.setOnClickListener { pagingAdapter.retry() }
         binding.swipeRefresh.isEnabled = enableSwipeRefresh
         if (enableSwipeRefresh) {
-            binding.swipeRefresh.setOnRefreshListener { pagingAdapter.refresh() }
+            binding.swipeRefresh.setOnRefreshListener {
+                manualRefreshRequested = true
+                pagingAdapter.refresh()
+            }
         }
     }
 
@@ -134,11 +121,29 @@ abstract class PagedListFragment : BaseNetworkFragment(), IntegrityDialog.Listen
         showEmpty: Boolean = true,
         enableSwipeRefresh: Boolean = true,
     ) {
-        val contentState = pagedListContentState(loadState.refresh, pagingAdapter.itemCount)
-        val refreshError = loadState.refresh as? LoadState.Error
-        val appendError = loadState.append as? LoadState.Error
-        val prependError = loadState.prepend as? LoadState.Error
-        val errorState = pagedListErrorState(loadState.refresh, loadState.append, loadState.prepend)
+        val sourceRefresh = loadState.source.refresh
+        val mediatorRefresh = loadState.mediator?.refresh
+        val sourceAppend = loadState.source.append
+        val sourcePrepend = loadState.source.prepend
+        val mediatorAppend = loadState.mediator?.append
+        val mediatorPrepend = loadState.mediator?.prepend
+        val contentState = cacheAwarePagedListContentState(sourceRefresh, mediatorRefresh, pagingAdapter.itemCount)
+        val sourceRefreshError = sourceRefresh as? LoadState.Error
+        val mediatorRefreshError = mediatorRefresh as? LoadState.Error
+        val refreshError = sourceRefreshError ?: mediatorRefreshError
+        val appendError = (sourceAppend as? LoadState.Error) ?: (mediatorAppend as? LoadState.Error)
+        val prependError = (sourcePrepend as? LoadState.Error) ?: (mediatorPrepend as? LoadState.Error)
+        val manualRefreshWasRequested = manualRefreshRequested
+        val showRefreshError = shouldShowPagedListRefreshError(
+            sourceRefreshError = sourceRefreshError != null,
+            mediatorRefreshError = mediatorRefreshError != null,
+            manualRefreshRequested = manualRefreshWasRequested,
+        )
+        val errorState = when {
+            refreshError != null && showRefreshError -> PagedListErrorState.Refresh
+            appendError != null || prependError != null -> PagedListErrorState.Page
+            else -> null
+        }
         val pageError = when (errorState) {
             PagedListErrorState.Refresh -> refreshError
             PagedListErrorState.Page -> appendError ?: prependError
@@ -148,13 +153,22 @@ abstract class PagedListFragment : BaseNetworkFragment(), IntegrityDialog.Listen
         binding.progressBar.isVisible = contentState == PagedListContentState.Loading
         binding.nothingHere.isVisible = showEmpty && contentState == PagedListContentState.Empty
         binding.errorContainer.isVisible = showEmpty && contentState == PagedListContentState.Error
-        binding.retryButton.isVisible = refreshError != null
-        if (showEmpty && refreshError != null) {
+        binding.retryButton.isVisible = pagingAdapter.itemCount == 0 && refreshError != null
+        if (showEmpty && pagingAdapter.itemCount == 0 && refreshError != null) {
             binding.errorMessage.setText(R.string.list_load_error)
         }
 
         if (enableSwipeRefresh) {
-            binding.swipeRefresh.isRefreshing = contentState == PagedListContentState.Content && loadState.refresh is LoadState.Loading
+            // Keep automatic mediator revalidation silent while cached rows are visible.
+            val refreshLoading = sourceRefresh is LoadState.Loading || mediatorRefresh is LoadState.Loading
+            binding.swipeRefresh.isRefreshing = shouldShowPagedListSwipeRefresh(
+                refreshLoading = refreshLoading,
+                itemCount = pagingAdapter.itemCount,
+                manualRefreshRequested = manualRefreshRequested,
+            )
+            if (!refreshLoading) {
+                manualRefreshRequested = false
+            }
         }
 
         if (pageError != null && pagingAdapter.itemCount > 0) {
@@ -169,7 +183,7 @@ abstract class PagedListFragment : BaseNetworkFragment(), IntegrityDialog.Listen
                     } else {
                         R.string.list_load_more_error
                     },
-                    Snackbar.LENGTH_INDEFINITE,
+                    Snackbar.LENGTH_LONG,
                 ).setAction(R.string.retry) { pagingAdapter.retry() }
                 pageErrorSnackbar?.show()
             }
@@ -190,6 +204,7 @@ abstract class PagedListFragment : BaseNetworkFragment(), IntegrityDialog.Listen
         pageErrorSnackbar = null
         pageError = null
         pageErrorState = null
+        manualRefreshRequested = false
         super.onDestroyView()
     }
 }

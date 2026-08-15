@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
+import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -49,6 +50,7 @@ class ChannelPagerViewModel(
     private val cronetEngine: Lazy<CronetEngine?>,
     private val cronetExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
+    private val streamFeedRefreshCoordinator: StreamFeedRefreshCoordinator,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -308,6 +310,7 @@ class ChannelPagerViewModel(
                                     notificationsRepository.saveList(listOf(ShownNotification(channelId, it)))
                                 }
                             }
+                            streamFeedRefreshCoordinator.invalidateFollowedFeeds()
                         }
                     } else {
                         localChannelFollowsRepository.save(LocalChannelFollow(channelId, channelLogin, channelName))
@@ -352,6 +355,7 @@ class ChannelPagerViewModel(
                             follow.value = Pair(false, null)
                             _notificationsEnabled.value = false
                             notificationsRepository.deleteUser(NotificationUser(channelId))
+                            streamFeedRefreshCoordinator.invalidateFollowedFeeds()
                         }
                     } else {
                         localChannelFollowsRepository.getById(channelId)?.let { localChannelFollowsRepository.delete(it) }
@@ -469,7 +473,7 @@ class ChannelPagerViewModel(
                 val savedStateHandle = createSavedStateHandle()
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                ChannelPagerViewModel(xtraModule.localChannelFollowsRepository, xtraModule.offlineVideosRepository, xtraModule.bookmarksRepository, xtraModule.notificationsRepository, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, savedStateHandle)
+                ChannelPagerViewModel(xtraModule.localChannelFollowsRepository, xtraModule.offlineVideosRepository, xtraModule.bookmarksRepository, xtraModule.notificationsRepository, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.streamFeedRefreshCoordinator, savedStateHandle)
             }
         }
     }

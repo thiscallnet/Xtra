@@ -23,6 +23,39 @@ internal fun pagedListContentState(refresh: LoadState, itemCount: Int): PagedLis
     }
 }
 
+/**
+ * RemoteMediator refreshes synchronize the cache; they must not hide rows
+ * already supplied by the Room PagingSource.
+ */
+internal fun cacheAwarePagedListContentState(
+    sourceRefresh: LoadState,
+    mediatorRefresh: LoadState?,
+    itemCount: Int,
+): PagedListContentState {
+    return when {
+        itemCount > 0 -> PagedListContentState.Content
+        sourceRefresh is LoadState.Loading || mediatorRefresh is LoadState.Loading -> PagedListContentState.Loading
+        sourceRefresh is LoadState.Error || mediatorRefresh is LoadState.Error -> PagedListContentState.Error
+        else -> PagedListContentState.Empty
+    }
+}
+
+internal fun shouldShowPagedListSwipeRefresh(
+    refreshLoading: Boolean,
+    itemCount: Int,
+    manualRefreshRequested: Boolean,
+): Boolean {
+    return refreshLoading && (itemCount == 0 || manualRefreshRequested)
+}
+
+internal fun shouldShowPagedListRefreshError(
+    sourceRefreshError: Boolean,
+    mediatorRefreshError: Boolean,
+    manualRefreshRequested: Boolean,
+): Boolean {
+    return sourceRefreshError || (mediatorRefreshError && manualRefreshRequested)
+}
+
 internal fun pagedListErrorState(
     refresh: LoadState,
     append: LoadState,

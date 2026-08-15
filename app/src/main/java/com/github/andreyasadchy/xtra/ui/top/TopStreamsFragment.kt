@@ -19,7 +19,6 @@ import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
 import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.setupWithNavController
-import androidx.paging.PagingData
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
@@ -35,6 +34,7 @@ import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.RECENT
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.SORT_VIEWERS
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.SORT_VIEWERS_ASC
+import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentArgs
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -46,16 +46,20 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.OnFilter {
+
+    override val initializeWithoutNetwork = true
 
     private var _binding: FragmentGamesBinding? = null
     private val binding get() = _binding!!
     private val args: GamePagerFragmentArgs by navArgs()
     private val viewModel: TopStreamsViewModel by viewModels { TopStreamsViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
+    private lateinit var streamFeedScreenController: StreamFeedScreenController
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentGamesBinding.inflate(inflater, container, false)
@@ -132,6 +136,11 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
             StreamsAdapter(this, { addTag(it) })
         }
         setAdapter(binding.recyclerViewLayout.recyclerView, pagingAdapter)
+        streamFeedScreenController = StreamFeedScreenController(
+            fragment = this,
+            coordinator = viewModel.refreshCoordinator,
+            specProvider = viewModel::currentFeedSpec,
+        ).also { it.start() }
     }
 
     override fun initialize() {
@@ -180,6 +189,7 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
                     }
                 } else null
             }
+            streamFeedScreenController.onSpecChanged(force = false, reason = RefreshReason.SCREEN_VISIBLE)
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.flow.collectLatest { pagingData ->
                     pagingAdapter.submitData(pagingData)
@@ -227,9 +237,9 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
 
     private fun addTag(tag: String) {
         viewLifecycleOwner.lifecycleScope.launch {
-            pagingAdapter.submitData(PagingData.empty())
             val tags = viewModel.tags.plus(tag).sortedArray()
             viewModel.setFilter(viewModel.sort, tags, viewModel.languages)
+            streamFeedScreenController.onSpecChanged(force = true)
             viewModel.filtersText.value = buildString {
                 if (viewModel.tags.isNotEmpty()) {
                     append(
@@ -259,8 +269,8 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
     override fun onChange(sort: String, sortText: CharSequence, tags: Array<String>, languages: Array<String>, changed: Boolean, saveFilters: Boolean, saveSort: Boolean, saveDefault: Boolean) {
         viewLifecycleOwner.lifecycleScope.launch {
             if (changed) {
-                pagingAdapter.submitData(PagingData.empty())
                 viewModel.setFilter(sort, tags, languages)
+                streamFeedScreenController.onSpecChanged(force = true)
                 viewModel.sortText.value = getString(R.string.sort_by, sortText)
                 viewModel.filtersText.value = if (viewModel.tags.isNotEmpty() || viewModel.languages.isNotEmpty()) {
                     buildString {
@@ -322,7 +332,21 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
     }
 
     override fun onNetworkRestored() {
-        pagingAdapter.retry()
+        viewModel.refreshCurrent(RefreshReason.NETWORK_RESTORED, force = true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::streamFeedScreenController.isInitialized) {
+            streamFeedScreenController.onResume()
+        }
+    }
+
+    override fun onPause() {
+        if (::streamFeedScreenController.isInitialized) {
+            streamFeedScreenController.onPause()
+        }
+        super.onPause()
     }
 
     override fun onIntegrityTokenLoaded(callback: String?) {

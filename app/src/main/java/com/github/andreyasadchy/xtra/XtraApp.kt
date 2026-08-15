@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra
 import android.annotation.SuppressLint
 import android.app.Application
 import android.os.Build
+import android.os.SystemClock
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -19,6 +20,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.coil.CacheControlCacheStrategy
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPrewarmScheduler
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okio.Buffer
 import okio.buffer
@@ -39,19 +41,35 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
     var isInForeground: Boolean = false
         private set
     private var startedActivityCount = 0
+    private var backgroundStartedElapsedMs: Long? = null
 
     override fun onCreate() {
         super.onCreate()
         INSTANCE = this
+        xtraModule = XtraModule(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
+                val wasInBackground = startedActivityCount == 0
                 startedActivityCount += 1
                 isInForeground = true
+                if (wasInBackground) {
+                    val awayMs = backgroundStartedElapsedMs?.let { (SystemClock.elapsedRealtime() - it).coerceAtLeast(0L) }
+                    if (awayMs != null) {
+                        StreamFeedPrewarmScheduler.recordBackgroundReturn(this@XtraApp, awayMs)
+                        xtraModule.streamFeedRefreshCoordinator.onAppForeground(awayMs)
+                    }
+                    backgroundStartedElapsedMs = null
+                    StreamFeedPrewarmScheduler.cancel(this@XtraApp)
+                }
             }
 
             override fun onActivityStopped(activity: android.app.Activity) {
                 startedActivityCount = (startedActivityCount - 1).coerceAtLeast(0)
                 isInForeground = startedActivityCount > 0
+                if (!isInForeground) {
+                    backgroundStartedElapsedMs = SystemClock.elapsedRealtime()
+                    StreamFeedPrewarmScheduler.schedule(this@XtraApp)
+                }
             }
 
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) = Unit
@@ -60,7 +78,6 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
             override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) = Unit
             override fun onActivityDestroyed(activity: android.app.Activity) = Unit
         })
-        xtraModule = XtraModule(this)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             val conscrypt = Conscrypt.newProvider()
             Security.insertProviderAt(conscrypt, 1)

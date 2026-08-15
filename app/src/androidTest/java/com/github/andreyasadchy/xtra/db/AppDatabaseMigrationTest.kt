@@ -23,23 +23,26 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
-    fun migrateCurrentVersion38To40CreatesStatisticsSchema() {
+    fun migrateCurrentVersion38To42CreatesStatisticsAndStreamFeedSchema() {
         val name = "migration-v38.db"
         prepareDatabase(name, version = 38, historicalVersion39 = false)
 
         val database = openMigratedDatabase(name)
-        assertStatisticsSchema(database.openHelper.readableDatabase)
+        val sqlite = database.openHelper.readableDatabase
+        assertStatisticsSchema(sqlite)
+        assertStreamFeedSchema(sqlite)
         database.close()
     }
 
     @Test
-    fun migrateHistoricalVersion39NormalizesAndCreatesStatisticsSchema() {
+    fun migrateHistoricalVersion39NormalizesAndCreatesCurrentSchema() {
         val name = "migration-historical-v39.db"
         prepareDatabase(name, version = 39, historicalVersion39 = true)
 
         val database = openMigratedDatabase(name)
         val sqlite = database.openHelper.readableDatabase
         assertStatisticsSchema(sqlite)
+        assertStreamFeedSchema(sqlite)
         assertTrue(tableExists(sqlite, "notification_events"))
         assertFalse(tableExists(sqlite, "live_notification_logs"))
         database.close()
@@ -50,6 +53,8 @@ class AppDatabaseMigrationTest {
             .addMigrations(
                 ViewingStatsMigrations.FROM_38,
                 ViewingStatsMigrations.FROM_HISTORICAL_39,
+                StreamFeedMigrations.FROM_40,
+                StreamFeedMigrations.FROM_41,
             )
             .build()
             .also { it.openHelper.writableDatabase }
@@ -73,6 +78,10 @@ class AppDatabaseMigrationTest {
         sqlite.execSQL("DROP INDEX IF EXISTS index_viewing_sessions_channel_id_started_at")
         sqlite.execSQL("DROP INDEX IF EXISTS index_viewing_sessions_started_at")
         sqlite.execSQL("DROP TABLE IF EXISTS viewing_sessions")
+        sqlite.execSQL("DROP INDEX IF EXISTS index_stream_feed_items_feedKey_position")
+        sqlite.execSQL("DROP INDEX IF EXISTS index_stream_feed_items_feedKey_channelId")
+        sqlite.execSQL("DROP TABLE IF EXISTS stream_feed_items")
+        sqlite.execSQL("DROP TABLE IF EXISTS stream_feed_states")
         if (historicalVersion39) {
             sqlite.execSQL("DROP TABLE IF EXISTS notification_events")
             sqlite.execSQL("CREATE TABLE live_notification_logs (id INTEGER PRIMARY KEY NOT NULL)")
@@ -82,11 +91,21 @@ class AppDatabaseMigrationTest {
     }
 
     private fun assertStatisticsSchema(database: SupportSQLiteDatabase) {
-        assertEquals(40, scalarInt(database, "PRAGMA user_version"))
+        assertEquals(42, scalarInt(database, "PRAGMA user_version"))
         assertTrue(tableExists(database, "viewing_sessions"))
         assertTrue(tableExists(database, "viewing_intervals"))
         assertTrue(indexExists(database, "index_viewing_sessions_started_at"))
         assertTrue(indexExists(database, "index_viewing_intervals_start_at"))
+    }
+
+    private fun assertStreamFeedSchema(database: SupportSQLiteDatabase) {
+        assertTrue(tableExists(database, "stream_feed_items"))
+        assertTrue(tableExists(database, "stream_feed_states"))
+        assertTrue(indexExists(database, "index_stream_feed_items_feedKey_position"))
+        assertTrue(indexExists(database, "index_stream_feed_items_feedKey_channelId"))
+        assertTrue(columnExists(database, "stream_feed_items", "generation"))
+        assertTrue(columnExists(database, "stream_feed_states", "nextCursorApi"))
+        assertTrue(columnExists(database, "stream_feed_states", "activeGeneration"))
     }
 
     private fun tableExists(database: SupportSQLiteDatabase, tableName: String): Boolean {
@@ -107,6 +126,15 @@ class AppDatabaseMigrationTest {
         return database.query(query).use {
             check(it.moveToFirst())
             it.getInt(0)
+        }
+    }
+
+    private fun columnExists(database: SupportSQLiteDatabase, tableName: String, columnName: String): Boolean {
+        return database.query("PRAGMA table_info($tableName)").use { cursor ->
+            while (cursor.moveToNext()) {
+                if (cursor.getString(cursor.getColumnIndexOrThrow("name")) == columnName) return@use true
+            }
+            false
         }
     }
 }

@@ -23,8 +23,10 @@ import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.StreamsAdapter
 import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
+import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.following.streams.FollowedStreamsViewModel.Companion.FollowedStreamsViewModelFactory
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
+import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
@@ -32,10 +34,13 @@ import kotlinx.coroutines.launch
 
 class FollowedStreamsFragment : PagedListFragment(), Scrollable {
 
+    override val initializeWithoutNetwork = true
+
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
     private val viewModel: FollowedStreamsViewModel by viewModels { FollowedStreamsViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
+    private lateinit var streamFeedScreenController: StreamFeedScreenController
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = CommonRecyclerViewLayoutBinding.inflate(inflater, container, false)
@@ -62,6 +67,11 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable {
             })
         }
         setAdapter(binding.recyclerView, pagingAdapter)
+        streamFeedScreenController = StreamFeedScreenController(
+            fragment = this,
+            coordinator = viewModel.refreshCoordinator,
+            specProvider = viewModel::currentFeedSpec,
+        ).also { it.start() }
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
             if (activity?.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false) {
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -72,6 +82,8 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable {
     }
 
     override fun initialize() {
+        viewModel.syncCurrentAccount()
+        streamFeedScreenController.onSpecChanged(force = false, reason = RefreshReason.SCREEN_VISIBLE)
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.flow.collectLatest { pagingData ->
@@ -87,7 +99,23 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable {
     }
 
     override fun onNetworkRestored() {
-        pagingAdapter.retry()
+        viewModel.syncCurrentAccount()
+        viewModel.refreshCurrent(RefreshReason.NETWORK_RESTORED, force = true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.syncCurrentAccount()
+        if (::streamFeedScreenController.isInitialized) {
+            streamFeedScreenController.onResume()
+        }
+    }
+
+    override fun onPause() {
+        if (::streamFeedScreenController.isInitialized) {
+            streamFeedScreenController.onPause()
+        }
+        super.onPause()
     }
 
     override fun onIntegrityTokenLoaded(callback: String?) {

@@ -26,6 +26,7 @@ import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
+import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -67,6 +68,7 @@ class Media3PlayerViewModel(
     private val offlineVideosRepository: OfflineVideosRepository,
     private val localChannelFollowsRepository: LocalChannelFollowsRepository,
     private val notificationsRepository: NotificationsRepository,
+    private val streamFeedRefreshCoordinator: StreamFeedRefreshCoordinator,
 ) : ViewModel() {
 
     val integrity = MutableSharedFlow<String?>()
@@ -695,6 +697,7 @@ class Media3PlayerViewModel(
                                     notificationsRepository.saveList(listOf(ShownNotification(channelId, it)))
                                 }
                             }
+                            streamFeedRefreshCoordinator.invalidateFollowedFeeds()
                         }
                     } else {
                         localChannelFollowsRepository.save(LocalChannelFollow(channelId, channelLogin, channelName))
@@ -737,6 +740,7 @@ class Media3PlayerViewModel(
                             _isFollowing.value = false
                             follow.value = Pair(false, null)
                             notificationsRepository.deleteUser(NotificationUser(channelId))
+                            streamFeedRefreshCoordinator.invalidateFollowedFeeds()
                         }
                     } else {
                         localChannelFollowsRepository.getById(channelId)?.let { localChannelFollowsRepository.delete(it) }
@@ -756,7 +760,7 @@ class Media3PlayerViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                Media3PlayerViewModel(application.applicationContext, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.bookmarksRepository, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.notificationsRepository)
+                Media3PlayerViewModel(application.applicationContext, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.bookmarksRepository, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.notificationsRepository, xtraModule.streamFeedRefreshCoordinator)
             }
         }
     }

@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.room.Room
 import androidx.room.migration.Migration
 import com.github.andreyasadchy.xtra.db.AppDatabase
+import com.github.andreyasadchy.xtra.db.StreamFeedMigrations
 import com.github.andreyasadchy.xtra.db.ViewingStatsMigrations
 import com.github.andreyasadchy.xtra.repository.AuthRepository
 import com.github.andreyasadchy.xtra.repository.BookmarksRepository
@@ -23,6 +24,9 @@ import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
 import com.github.andreyasadchy.xtra.repository.SavedFiltersRepository
 import com.github.andreyasadchy.xtra.repository.ViewingStatsRepository
+import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
+import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPager
+import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
 import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
 import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
@@ -41,6 +45,18 @@ import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 class XtraModule(application: Application) {
+
+    val streamFeedCache by lazy {
+        StreamFeedCache(database)
+    }
+
+    val streamFeedRefreshCoordinator by lazy {
+        StreamFeedRefreshCoordinator(streamFeedCache)
+    }
+
+    val streamFeedPager by lazy {
+        StreamFeedPager(streamFeedCache, streamFeedRefreshCoordinator)
+    }
 
     val httpEngine = lazy {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S) >= 7) {
@@ -321,6 +337,8 @@ class XtraModule(application: Application) {
                     db.execSQL("DROP TABLE IF EXISTS live_notification_logs")
                     db.execSQL("CREATE TABLE IF NOT EXISTS notification_events (eventId TEXT NOT NULL, channelId TEXT NOT NULL, streamId TEXT, channelLogin TEXT, channelName TEXT, channelImageURL TEXT, gameName TEXT, title TEXT, thumbnailURL TEXT, createdAt TEXT, viewerCount INTEGER, startedAt INTEGER NOT NULL, queuedAt INTEGER NOT NULL, PRIMARY KEY (eventId))")
                 },
+                StreamFeedMigrations.FROM_40,
+                StreamFeedMigrations.FROM_41,
             )
         }.build()
     }
@@ -350,7 +368,12 @@ class XtraModule(application: Application) {
     }
 
     val localChannelFollowsRepository by lazy {
-        LocalChannelFollowsRepository(database.localChannelFollows(), database.offlineVideos(), database.bookmarks())
+        LocalChannelFollowsRepository(
+            localChannelFollowsDao = database.localChannelFollows(),
+            offlineVideosDao = database.offlineVideos(),
+            bookmarksDao = database.bookmarks(),
+            onChanged = { streamFeedRefreshCoordinator.invalidateFollowedFeeds() },
+        )
     }
 
     val localGameFollowsRepository by lazy {

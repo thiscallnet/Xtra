@@ -174,6 +174,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             enableNetworkCheck = false
         }
         super.onCreate(savedInstanceState)
+        (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
         isPortrait = resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
         requireActivity().onBackPressedDispatcher.addCallback(this, backPressedCallback)
         WindowCompat.getInsetsController(
@@ -2092,6 +2093,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     override fun initialize() {
+        if (isMaximized) {
+            (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
+        }
         if (requireArguments().getString(KEY_TYPE) != OFFLINE_VIDEO) {
             viewModel.isFollowingChannel(
                 requireContext().tokenPrefs().getString(C.USER_ID, null),
@@ -2295,7 +2299,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 (chatFragment?.childFragmentManager?.findFragmentByTag("messageDialog") as? BottomSheetDialogFragment)?.dismiss()
                 (chatFragment?.childFragmentManager?.findFragmentByTag("replyDialog") as? BottomSheetDialogFragment)?.dismiss()
                 (chatFragment?.childFragmentManager?.findFragmentByTag("imageDialog") as? BottomSheetDialogFragment)?.dismiss()
+                (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
             } else {
+                (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
                 useController = true
             }
         }
@@ -2329,7 +2335,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     fun minimize() {
         with(binding) {
+            val wasMaximized = isMaximized
             isMaximized = false
+            if (wasMaximized) {
+                (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)?.onPlayerReturnedToBrowsing()
+            }
             if (videoType == STREAM && chatFragment?.emoteMenuIsVisible() == true) {
                 chatFragment?.toggleBackPressedCallback(false)
             }
@@ -2399,6 +2409,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun maximize() {
         with(binding) {
             isMaximized = true
+            (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
             requireActivity().onBackPressedDispatcher.addCallback(this@Media3PlayerFragment, backPressedCallback)
             if (videoType == STREAM && chatFragment?.emoteMenuIsVisible() == true) {
                 chatFragment?.toggleBackPressedCallback(true)

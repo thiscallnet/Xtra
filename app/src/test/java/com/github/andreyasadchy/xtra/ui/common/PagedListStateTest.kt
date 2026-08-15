@@ -2,6 +2,8 @@ package com.github.andreyasadchy.xtra.ui.common
 
 import androidx.paging.LoadState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PagedListStateTest {
@@ -70,6 +72,59 @@ class PagedListStateTest {
                 refresh = LoadState.NotLoading(endOfPaginationReached = false),
                 append = LoadState.NotLoading(endOfPaginationReached = false),
                 prepend = LoadState.NotLoading(endOfPaginationReached = false),
+            ),
+        )
+    }
+
+    @Test
+    fun mediatorRefreshKeepsCachedRowsVisible() {
+        assertEquals(
+            PagedListContentState.Content,
+            cacheAwarePagedListContentState(
+                sourceRefresh = LoadState.NotLoading(endOfPaginationReached = false),
+                mediatorRefresh = LoadState.Loading,
+                itemCount = 6,
+            ),
+        )
+        assertEquals(
+            PagedListContentState.Content,
+            cacheAwarePagedListContentState(
+                sourceRefresh = LoadState.NotLoading(endOfPaginationReached = false),
+                mediatorRefresh = LoadState.Error(IllegalStateException("offline")),
+                itemCount = 6,
+            ),
+        )
+    }
+
+    @Test
+    fun automaticRefreshWithRowsIsSilentButManualRefreshShowsSpinner() {
+        assertFalse(shouldShowPagedListSwipeRefresh(true, itemCount = 3, manualRefreshRequested = false))
+        assertTrue(shouldShowPagedListSwipeRefresh(true, itemCount = 3, manualRefreshRequested = true))
+        assertTrue(shouldShowPagedListSwipeRefresh(true, itemCount = 0, manualRefreshRequested = false))
+        assertFalse(shouldShowPagedListSwipeRefresh(false, itemCount = 3, manualRefreshRequested = true))
+    }
+
+    @Test
+    fun automaticMediatorRefreshErrorsStaySilentButManualErrorsAreShown() {
+        assertFalse(
+            shouldShowPagedListRefreshError(
+                sourceRefreshError = false,
+                mediatorRefreshError = true,
+                manualRefreshRequested = false,
+            ),
+        )
+        assertTrue(
+            shouldShowPagedListRefreshError(
+                sourceRefreshError = false,
+                mediatorRefreshError = true,
+                manualRefreshRequested = true,
+            ),
+        )
+        assertTrue(
+            shouldShowPagedListRefreshError(
+                sourceRefreshError = true,
+                mediatorRefreshError = false,
+                manualRefreshRequested = false,
             ),
         )
     }
