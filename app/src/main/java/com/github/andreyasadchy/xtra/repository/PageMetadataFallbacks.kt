@@ -19,11 +19,25 @@ internal fun resolveChannelFallback(
     streamResult: Result<Stream?>,
     userResult: Result<User?>,
 ): ChannelFallbackResolution {
+    val freshStream = streamResult.getOrNull()
     val stream = streamResult.getOrElse { cached?.stream }
-    val user = userResult.getOrNull() ?: cached?.user
+    val user = userResult.getOrNull()
+        ?: cached?.user
+        ?: freshStream?.let {
+            User(
+                id = it.channelId,
+                login = it.channelLogin,
+                name = it.channelName,
+                profileImageURL = it.channelImageURL,
+            )
+        }
     val snapshot = user?.let { ChannelPageCacheSnapshot(user = it, stream = stream) }
     val hasFreshUser = userResult.getOrNull() != null
-    val shouldPersist = snapshot != null && (streamResult.isSuccess || (hasFreshUser && cached != null))
+    val shouldPersist = snapshot != null && when {
+        freshStream != null -> true
+        streamResult.isSuccess -> hasFreshUser || cached != null
+        else -> hasFreshUser && cached != null
+    }
     return ChannelFallbackResolution(snapshot = snapshot, shouldPersist = shouldPersist)
 }
 

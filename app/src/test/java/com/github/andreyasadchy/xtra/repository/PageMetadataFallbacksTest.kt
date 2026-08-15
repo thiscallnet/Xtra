@@ -48,6 +48,63 @@ class PageMetadataFallbacksTest {
     }
 
     @Test
+    fun `fresh live stream builds a minimal user when user request fails`() {
+        val stream = Stream(
+            id = "stream",
+            channelId = "42",
+            channelLogin = "channel",
+            channelName = "Channel",
+            channelImageURL = "profile",
+            title = "Live",
+        )
+
+        val resolution = resolveChannelFallback(
+            cached = null,
+            streamResult = Result.success(stream),
+            userResult = Result.failure(IllegalStateException("temporary failure")),
+        )
+
+        assertEquals("42", resolution.snapshot?.user?.id)
+        assertEquals("channel", resolution.snapshot?.user?.login)
+        assertEquals("Channel", resolution.snapshot?.user?.name)
+        assertEquals("profile", resolution.snapshot?.user?.profileImageURL)
+        assertEquals("stream", resolution.snapshot?.stream?.id)
+        assertTrue(resolution.shouldPersist)
+    }
+
+    @Test
+    fun `fresh live stream builds a minimal user when user response is empty`() {
+        val stream = Stream(
+            id = "stream",
+            channelId = "42",
+            channelLogin = "channel",
+            channelName = "Channel",
+        )
+
+        val resolution = resolveChannelFallback(
+            cached = null,
+            streamResult = Result.success(stream),
+            userResult = Result.success(null),
+        )
+
+        assertEquals("42", resolution.snapshot?.user?.id)
+        assertEquals("stream", resolution.snapshot?.stream?.id)
+        assertTrue(resolution.shouldPersist)
+    }
+
+    @Test
+    fun `successful offline response without user or cache has no snapshot`() {
+        val resolution = resolveChannelFallback(
+            cached = null,
+            streamResult = Result.success(null),
+            userResult = Result.failure(IllegalStateException("temporary failure")),
+        )
+
+        assertNull(resolution.snapshot)
+        assertFalse(resolution.shouldPersist)
+    }
+
+    @Test
     fun `failed stream request without cache does not persist an offline snapshot`() {
         val resolution = resolveChannelFallback(
             cached = null,
