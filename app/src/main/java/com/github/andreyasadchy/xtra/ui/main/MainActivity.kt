@@ -758,6 +758,7 @@ class MainActivity : AppCompatActivity() {
 
     fun minimizeMultiview() {
         if (!canMinimizeMultiview()) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         runCatching {
             enterPictureInPictureMode(PictureInPictureParams.Builder().build())
         }

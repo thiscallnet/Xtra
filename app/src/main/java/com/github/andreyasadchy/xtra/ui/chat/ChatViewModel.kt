@@ -298,7 +298,6 @@ class ChatViewModel(
 
     override fun onCleared() {
         releaseSession()
-        super.onCleared()
     }
 
     /** Releases a session owned by a non-Fragment chat surface such as multiview. */

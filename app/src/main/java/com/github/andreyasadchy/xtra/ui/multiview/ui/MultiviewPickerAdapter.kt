@@ -7,6 +7,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.databinding.MultiviewPickerListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 
 class MultiviewPickerAdapter(
     private val isExcluded: (Stream) -> Boolean,
@@ -58,7 +59,7 @@ class MultiviewPickerAdapter(
             }
 
             override fun areContentsTheSame(oldItem: Stream, newItem: Stream): Boolean {
-                return oldItem == newItem
+                return streamContentsSame(oldItem, newItem)
             }
         }
 

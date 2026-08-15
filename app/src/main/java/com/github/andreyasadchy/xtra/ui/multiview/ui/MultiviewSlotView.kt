@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.multiview.ui
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -8,8 +9,10 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
+import androidx.annotation.OptIn
 import androidx.core.view.ViewCompat
 import androidx.core.view.isVisible
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.github.andreyasadchy.xtra.R
@@ -20,13 +23,14 @@ import com.github.andreyasadchy.xtra.ui.multiview.playback.MultiviewSlotStatus
 import com.google.android.material.color.MaterialColors
 
 /** A stable tile shell. The coordinator owns the player; this view only owns presentation and gestures. */
+@OptIn(UnstableApi::class)
 class MultiviewSlotView(context: Context) : FrameLayout(context) {
     private val binding = MultiviewSlotBinding.inflate(LayoutInflater.from(context), this, true)
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(event: MotionEvent): Boolean = true
 
         override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
-            onTap?.invoke()
+            this@MultiviewSlotView.performClick()
             return true
         }
 
@@ -62,14 +66,19 @@ class MultiviewSlotView(context: Context) : FrameLayout(context) {
         isClickable = true
         isFocusable = true
         setOnClickListener { onTap?.invoke() }
-        binding.playerView.setOnTouchListener { _, event ->
-            gestureDetector.onTouchEvent(event)
-            true
-        }
+        installPlayerTouchListener()
         binding.overflowButton.setOnClickListener { onOverflow?.invoke() }
         binding.audioIcon.setOnClickListener { onAudioClick?.invoke() }
         binding.statusMessage.setOnClickListener { onRetry?.invoke() }
         setControlsVisible(false)
+    }
+
+    @SuppressLint("ClickableViewAccessibility") // GestureDetector forwards confirmed clicks to the outer slot.
+    private fun installPlayerTouchListener() {
+        binding.playerView.setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
+            true
+        }
     }
 
     fun bind(

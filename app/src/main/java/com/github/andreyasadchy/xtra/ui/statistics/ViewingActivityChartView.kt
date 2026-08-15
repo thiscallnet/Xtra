@@ -1,6 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.statistics
 
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.TypedArray
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
@@ -30,7 +32,7 @@ class ViewingActivityChartView @JvmOverloads constructor(
     init {
         context.withStyledAttributes(attrs, intArrayOf(android.R.attr.colorAccent, android.R.attr.textColorSecondary)) {
             bars.color = getColor(0, 0xff6750a4.toInt())
-            baseline.color = getColor(1, 0xff777777.toInt())
+            baseline.color = getBaselineColor(0xff777777.toInt())
             label.color = baseline.color
         }
         setWillNotDraw(false)
@@ -116,3 +118,6 @@ class ViewingActivityChartView @JvmOverloads constructor(
         private const val MAX_POINTS = 30
     }
 }
+
+@SuppressLint("ResourceType") // 1 is a TypedArray index, not a resource ID.
+private fun TypedArray.getBaselineColor(defaultColor: Int): Int = getColor(1, defaultColor)

@@ -6,7 +6,9 @@ import android.net.http.HttpEngine
 import android.net.http.ProxyOptions
 import android.util.Base64
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.core.net.toUri
+import androidx.media3.common.util.UnstableApi
 import com.apollographql.apollo.api.CustomScalarAdapters
 import com.apollographql.apollo.api.json.buildJsonString
 import com.apollographql.apollo.api.json.jsonReader
@@ -75,6 +77,7 @@ import kotlin.uuid.Uuid
 
 private const val AD_TAG = "XtraAd"
 
+@OptIn(UnstableApi::class)
 class PlayerRepository(
     private val httpEngine: Lazy<HttpEngine?>,
     private val cronetEngine: Lazy<CronetEngine?>,

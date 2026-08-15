@@ -81,7 +81,6 @@ class CombinedChatViewModel(
     override fun onCleared() {
         sessions.values.forEach(ChannelSession::release)
         sessions.clear()
-        super.onCleared()
     }
 
     private fun observe(session: ChannelSession) {

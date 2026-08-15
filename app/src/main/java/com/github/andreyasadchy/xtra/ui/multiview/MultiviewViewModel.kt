@@ -295,7 +295,6 @@ class MultiviewViewModel(
 
     override fun onCleared() {
         playbackCoordinator.releaseAll()
-        super.onCleared()
     }
 
     private fun updatePlaybackSnapshot(identity: String, snapshot: MultiviewPlaybackSnapshot) {
