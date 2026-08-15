@@ -13,13 +13,17 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.LocalGameFollow
 import com.github.andreyasadchy.xtra.model.ui.Tag
+import com.github.andreyasadchy.xtra.repository.GamePageCacheSnapshot
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalGameFollowsRepository
+import com.github.andreyasadchy.xtra.repository.MetadataCache
+import com.github.andreyasadchy.xtra.repository.mergeGameFallback
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.ui.common.LoadRequestCoalescer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +45,7 @@ class GamePagerViewModel(
     private val cronetEngine: Lazy<CronetEngine?>,
     private val cronetExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
+    private val metadataCache: MetadataCache,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -55,25 +60,63 @@ class GamePagerViewModel(
     private val _game = MutableStateFlow<Game?>(null)
     val game: StateFlow<Game?> = _game
 
-    fun loadGame(networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
-        if (_game.value == null) {
+    private data class LoadRequest(
+        val networkLibrary: String?,
+        val gqlHeaders: Map<String, String>,
+        val helixHeaders: Map<String, String>,
+        val enableIntegrity: Boolean,
+    )
+
+    private val loadCoordinator: LoadRequestCoalescer<LoadRequest>
+
+    init {
+        loadCoordinator = LoadRequestCoalescer { request ->
             viewModelScope.launch {
-                _game.value = try {
+                try {
+                    loadGame(request)
+                } finally {
+                    loadCoordinator.complete()
+                }
+            }
+        }
+    }
+
+    fun loadGame(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+        enableIntegrity: Boolean,
+        revalidate: Boolean = false,
+    ) {
+        loadCoordinator.request(
+            LoadRequest(networkLibrary, gqlHeaders, helixHeaders, enableIntegrity),
+            revalidate = revalidate,
+        )
+    }
+
+    private suspend fun loadGame(request: LoadRequest) {
+                val cached = try {
+                    metadataCache.readGame(args.gameId, args.gameSlug, args.gameName)
+                } catch (_: Exception) {
+                    null
+                }
+                cached?.let { _game.value = it.game }
+                try {
                     val response = graphQLRepository.loadQueryGame(
-                        networkLibrary = networkLibrary,
-                        headers = gqlHeaders,
+                        networkLibrary = request.networkLibrary,
+                        headers = request.gqlHeaders,
                         id = args.gameId,
                         slug = args.gameSlug.takeIf { args.gameId.isNullOrBlank() },
                         name = args.gameName.takeIf { args.gameId.isNullOrBlank() && args.gameSlug.isNullOrBlank() },
                     )
-                    if (enableIntegrity) {
+                    if (request.enableIntegrity) {
                         response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
                             integrity.emit("refresh")
-                            return@launch
+                            return
                         }
                     }
                     response.data!!.game?.let {
-                        Game(
+                        val game = Game(
                             id = it.id,
                             slug = it.slug,
                             name = it.displayName,
@@ -88,29 +131,47 @@ class GamePagerViewModel(
                                 )
                             }
                         )
+                        _game.value = game
+                        try {
+                            metadataCache.writeGame(
+                                gameId = args.gameId ?: game.id,
+                                slug = args.gameSlug ?: game.slug,
+                                name = args.gameName ?: game.name,
+                                snapshot = GamePageCacheSnapshot(game),
+                            )
+                        } catch (_: Exception) {
+                        }
                     }
                 } catch (e: Exception) {
-                    if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+                    if (!request.helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         try {
                             helixRepository.getGames(
-                                networkLibrary = networkLibrary,
-                                headers = helixHeaders,
+                                networkLibrary = request.networkLibrary,
+                                headers = request.helixHeaders,
                                 ids = args.gameId?.let { listOf(it) },
                                 names = if (args.gameId.isNullOrBlank()) args.gameName?.let { listOf(it) } else null
                             ).data.firstOrNull()?.let {
-                                Game(
+                                val helixGame = Game(
                                     id = it.id,
                                     name = it.name,
                                     boxArtURL = it.boxArtURL
                                 )
+                                val game = mergeGameFallback(cached?.game, helixGame)
+                                _game.value = game
+                                try {
+                                    metadataCache.writeGame(
+                                        gameId = args.gameId ?: game.id,
+                                        slug = args.gameSlug ?: game.slug,
+                                        name = args.gameName ?: game.name,
+                                        snapshot = GamePageCacheSnapshot(game),
+                                    )
+                                } catch (_: Exception) {
+                                }
                             }
                         } catch (e: Exception) {
-                            null
                         }
-                    } else null
+                    }
                 }
-            }
-        }
     }
 
     fun isFollowingGame(gameId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>) {
@@ -369,7 +430,7 @@ class GamePagerViewModel(
                 val savedStateHandle = createSavedStateHandle()
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                GamePagerViewModel(xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.localGameFollowsRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, savedStateHandle)
+                GamePagerViewModel(xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.localGameFollowsRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.metadataCache, savedStateHandle)
             }
         }
     }

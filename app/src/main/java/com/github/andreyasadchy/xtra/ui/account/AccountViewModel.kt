@@ -10,6 +10,7 @@ import com.github.andreyasadchy.xtra.model.helix.chat.ChatSettings
 import com.github.andreyasadchy.xtra.model.helix.game.Game
 import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
 import com.github.andreyasadchy.xtra.model.helix.user.User
+import com.github.andreyasadchy.xtra.repository.AccountCacheSnapshot
 import com.github.andreyasadchy.xtra.repository.TwitchApiException
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -89,22 +90,6 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private suspend fun loadAccount() {
-        _uiState.update {
-            it.copy(
-                loading = true,
-                error = null,
-                scopes = emptySet(),
-                capabilities = AccountCapabilities(),
-                chatColor = null,
-                chatColorLoadError = null,
-                channel = null,
-                channelLoadError = null,
-                chatSettings = null,
-                chatSettingsLoadError = null,
-                actionError = null,
-                actionMessage = null,
-            )
-        }
         val headers = TwitchApiHelper.getHelixHeaders(context)
         val token = headers[C.HEADER_TOKEN]
         if (token.isNullOrBlank()) {
@@ -130,6 +115,36 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             return
         }
 
+        val tokenUserId = context.tokenPrefs().getString(C.USER_ID, null)
+        val tokenLogin = context.tokenPrefs().getString(C.USERNAME, null)
+        val cached = try {
+            module.metadataCache.readAccount(tokenUserId, tokenLogin)
+        } catch (_: Exception) {
+            null
+        }
+        val cachedScopes = cached?.scopes.orEmpty()
+        _uiState.update {
+            it.copy(
+                loading = true,
+                error = null,
+                user = cached?.user ?: cachedUser(),
+                scopes = cachedScopes,
+                capabilities = AccountCapabilities.from(cachedScopes),
+                chatColor = cached?.chatColor,
+                chatColorLoadError = null,
+                channel = cached?.channel,
+                channelLoadError = null,
+                chatSettings = cached?.chatSettings,
+                chatSettingsLoadError = null,
+                blockedUsers = cached?.blockedUsers.orEmpty(),
+                blockedUsersCursor = cached?.blockedUsersCursor,
+                blockedUsersLoading = false,
+                blockedUsersLoadError = null,
+                actionError = null,
+                actionMessage = null,
+            )
+        }
+
         try {
             val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
             val validation = try {
@@ -143,14 +158,6 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                         loading = false,
                         scopes = emptySet(),
                         capabilities = AccountCapabilities(),
-                        chatColor = null,
-                        chatColorLoadError = null,
-                        channel = null,
-                        channelLoadError = null,
-                        chatSettings = null,
-                        chatSettingsLoadError = null,
-                        blockedUsers = emptyList(),
-                        blockedUsersCursor = null,
                         blockedUsersLoading = false,
                         blockedUsersLoadError = null,
                         error = readableError(error),
@@ -171,27 +178,28 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 headers = headers,
                 ids = userId?.let { listOf(it) },
                 logins = if (userId.isNullOrBlank()) login?.let { listOf(it) } else null,
-            ).data.firstOrNull() ?: cachedUser()
+            ).data.firstOrNull() ?: cached?.user ?: cachedUser()
+            val resolvedUserId = userId ?: user?.id
 
             supervisorScope {
-                val color = if (capabilities.editChatColor && userId != null) {
+                val color = if (capabilities.editChatColor && resolvedUserId != null) {
                     async {
                         runCatching {
-                            module.helixRepository.getChatColor(networkLibrary, headers, userId)
+                            module.helixRepository.getChatColor(networkLibrary, headers, resolvedUserId)
                         }
                     }
                 } else null
-                val channel = if (capabilities.editChannel && userId != null) {
+                val channel = if (capabilities.editChannel && resolvedUserId != null) {
                     async {
                         runCatching {
-                            module.helixRepository.getChannelInformation(networkLibrary, headers, userId)
+                            module.helixRepository.getChannelInformation(networkLibrary, headers, resolvedUserId)
                         }
                     }
                 } else null
-                val chatSettings = if (capabilities.editChatSettings && userId != null) {
+                val chatSettings = if (capabilities.editChatSettings && resolvedUserId != null) {
                     async {
                         runCatching {
-                            module.helixRepository.getChatSettings(networkLibrary, headers, userId, userId)
+                            module.helixRepository.getChatSettings(networkLibrary, headers, resolvedUserId, resolvedUserId)
                         }
                     }
                 } else null
@@ -199,9 +207,9 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 val colorResult = color?.await()
                 val channelResult = channel?.await()
                 val chatSettingsResult = chatSettings?.await()
-                val loadedColor = colorResult?.getOrNull()?.takeIf(::isCanonicalChatColor)
-                val loadedChannel = channelResult?.getOrNull()
-                val loadedChatSettings = chatSettingsResult?.getOrNull()
+                val loadedColor = colorResult?.getOrNull()?.takeIf(::isCanonicalChatColor) ?: cached?.chatColor
+                val loadedChannel = channelResult?.getOrNull() ?: cached?.channel
+                val loadedChatSettings = chatSettingsResult?.getOrNull() ?: cached?.chatSettings
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -210,19 +218,20 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                         capabilities = capabilities,
                         chatColor = loadedColor,
                         chatColorLoadError = colorResult?.let {
-                            if (it.isFailure) context.getString(R.string.account_load_failed) else null
+                            if (it.isFailure && loadedColor == null) context.getString(R.string.account_load_failed) else null
                         },
                         channel = loadedChannel,
                         channelLoadError = channelResult?.let {
-                            if (it.isFailure || loadedChannel == null) context.getString(R.string.account_load_failed) else null
+                            if ((it.isFailure || loadedChannel == null) && cached?.channel == null) context.getString(R.string.account_load_failed) else null
                         },
                         chatSettings = loadedChatSettings,
                         chatSettingsLoadError = chatSettingsResult?.let {
-                            if (it.isFailure || loadedChatSettings == null) context.getString(R.string.account_load_failed) else null
+                            if ((it.isFailure || loadedChatSettings == null) && cached?.chatSettings == null) context.getString(R.string.account_load_failed) else null
                         },
                         error = null,
                     )
                 }
+                persistAccountCache(resolvedUserId, login)
             }
         } catch (error: Exception) {
             _uiState.update {
@@ -256,6 +265,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     chatColorLoadError = canonicalColor.exceptionOrNull()?.let { context.getString(R.string.account_load_failed) },
                 )
             }
+            persistAccountCache()
         }
     }
 
@@ -265,6 +275,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             require(description.length <= 300) { context.getString(R.string.account_bio_too_long) }
             val user = module.helixRepository.updateUserDescription(networkLibrary(), helixHeaders(), description)
             _uiState.update { state -> state.copy(user = user ?: state.user) }
+            persistAccountCache()
         }
     }
 
@@ -302,6 +313,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     )
                 )
             }
+            persistAccountCache()
         }
     }
 
@@ -358,6 +370,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     ),
                 )
             }
+            persistAccountCache()
         }
     }
 
@@ -410,6 +423,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                         blockedUsersLoadError = null,
                     )
                 }
+                persistAccountCache()
             } catch (error: Exception) {
                 val message = readableError(error)
                 _uiState.update {
@@ -429,6 +443,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             requireCapability { it.manageBlockedUsers }
             module.helixRepository.unblockUser(networkLibrary(), helixHeaders(), id)
             _uiState.update { state -> state.copy(blockedUsers = state.blockedUsers.filterNot { it.id == id }) }
+            persistAccountCache()
         }
     }
 
@@ -465,6 +480,33 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     private fun currentUserId(): String = _uiState.value.user?.id
         ?: context.tokenPrefs().getString(C.USER_ID, null)
         ?: error(context.getString(R.string.account_missing_user))
+
+    private suspend fun persistAccountCache(userId: String? = null, login: String? = null) {
+        val state = _uiState.value
+        val resolvedUserId = userId
+            ?: state.user?.id
+            ?: context.tokenPrefs().getString(C.USER_ID, null)
+        val resolvedLogin = login
+            ?: state.user?.login
+            ?: context.tokenPrefs().getString(C.USERNAME, null)
+        if (resolvedUserId.isNullOrBlank() && resolvedLogin.isNullOrBlank()) return
+        try {
+            module.metadataCache.writeAccount(
+                userId = resolvedUserId,
+                login = resolvedLogin,
+                snapshot = AccountCacheSnapshot(
+                    user = state.user,
+                    scopes = state.scopes,
+                    chatColor = state.chatColor,
+                    channel = state.channel,
+                    chatSettings = state.chatSettings,
+                    blockedUsers = state.blockedUsers,
+                    blockedUsersCursor = state.blockedUsersCursor,
+                ),
+            )
+        } catch (_: Exception) {
+        }
+    }
 
     private fun cachedUser(): User? {
         val id = context.tokenPrefs().getString(C.USER_ID, null)

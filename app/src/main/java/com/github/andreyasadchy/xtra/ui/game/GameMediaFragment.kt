@@ -65,6 +65,8 @@ import kotlinx.coroutines.launch
 
 class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, IntegrityDialog.Listener {
 
+    override val initializeWithoutNetwork = true
+
     private var _binding: FragmentGameBinding? = null
     private val binding get() = _binding!!
     private val args: GamePagerFragmentArgs by navArgs()
@@ -109,6 +111,7 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
             if (args.boxArt != null) {
                 gameLayout.visibility = View.VISIBLE
                 gameImage.visibility = View.VISIBLE
+                gameImage.tag = args.boxArt
                 requireContext().imageLoader.enqueue(
                     ImageRequest.Builder(requireContext()).apply {
                         data(args.boxArt)
@@ -118,6 +121,7 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
                 )
             } else {
                 gameImage.visibility = View.GONE
+                gameImage.tag = null
             }
             val isLoggedIn = !TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
                     !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank()
@@ -351,16 +355,22 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
 
     private fun updateGameLayout(game: Game?) {
         with(binding) {
-            if (!gameImage.isVisible && game?.boxArt != null) {
+            val boxArt = game?.boxArtURL
+                ?.takeIf { it.isNotBlank() }
+                ?.let(TwitchApiHelper::getGameBoxArt)
+            if (!boxArt.isNullOrBlank()) {
                 gameLayout.visibility = View.VISIBLE
                 gameImage.visibility = View.VISIBLE
-                requireContext().imageLoader.enqueue(
-                    ImageRequest.Builder(requireContext()).apply {
-                        data(game.boxArt)
-                        crossfade(true)
-                        target(gameImage)
-                    }.build()
-                )
+                if (gameImage.tag != boxArt || gameImage.drawable == null) {
+                    gameImage.tag = boxArt
+                    requireContext().imageLoader.enqueue(
+                        ImageRequest.Builder(requireContext()).apply {
+                            data(boxArt)
+                            crossfade(true)
+                            target(gameImage)
+                        }.build()
+                    )
+                }
             }
             if (game?.name != null && game.name != args.gameName) {
                 gameLayout.visibility = View.VISIBLE
@@ -471,6 +481,7 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
             TwitchApiHelper.getGQLHeaders(requireContext()),
             TwitchApiHelper.getHelixHeaders(requireContext()),
             requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
+            revalidate = true,
         )
     }
 
@@ -482,6 +493,7 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
                     TwitchApiHelper.getGQLHeaders(requireContext()),
                     TwitchApiHelper.getHelixHeaders(requireContext()),
                     requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
+                    revalidate = true,
                 )
                 val setting = requireContext().prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0
                 if (setting < 2) {

@@ -55,6 +55,7 @@ class AppDatabaseMigrationTest {
                 ViewingStatsMigrations.FROM_HISTORICAL_39,
                 StreamFeedMigrations.FROM_40,
                 StreamFeedMigrations.FROM_41,
+                MetadataCacheMigrations.FROM_42,
             )
             .build()
             .also { it.openHelper.writableDatabase }
@@ -82,6 +83,8 @@ class AppDatabaseMigrationTest {
         sqlite.execSQL("DROP INDEX IF EXISTS index_stream_feed_items_feedKey_channelId")
         sqlite.execSQL("DROP TABLE IF EXISTS stream_feed_items")
         sqlite.execSQL("DROP TABLE IF EXISTS stream_feed_states")
+        sqlite.execSQL("DROP INDEX IF EXISTS index_metadata_cache_lastAccessAt")
+        sqlite.execSQL("DROP TABLE IF EXISTS metadata_cache")
         if (historicalVersion39) {
             sqlite.execSQL("DROP TABLE IF EXISTS notification_events")
             sqlite.execSQL("CREATE TABLE live_notification_logs (id INTEGER PRIMARY KEY NOT NULL)")
@@ -91,7 +94,7 @@ class AppDatabaseMigrationTest {
     }
 
     private fun assertStatisticsSchema(database: SupportSQLiteDatabase) {
-        assertEquals(42, scalarInt(database, "PRAGMA user_version"))
+        assertEquals(43, scalarInt(database, "PRAGMA user_version"))
         assertTrue(tableExists(database, "viewing_sessions"))
         assertTrue(tableExists(database, "viewing_intervals"))
         assertTrue(indexExists(database, "index_viewing_sessions_started_at"))
@@ -106,6 +109,8 @@ class AppDatabaseMigrationTest {
         assertTrue(columnExists(database, "stream_feed_items", "generation"))
         assertTrue(columnExists(database, "stream_feed_states", "nextCursorApi"))
         assertTrue(columnExists(database, "stream_feed_states", "activeGeneration"))
+        assertTrue(tableExists(database, "metadata_cache"))
+        assertTrue(indexExists(database, "index_metadata_cache_lastAccessAt"))
     }
 
     private fun tableExists(database: SupportSQLiteDatabase, tableName: String): Boolean {

@@ -16,12 +16,16 @@ import com.github.andreyasadchy.xtra.model.ui.LocalChannelFollow
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.repository.BookmarksRepository
+import com.github.andreyasadchy.xtra.repository.ChannelPageCacheSnapshot
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
+import com.github.andreyasadchy.xtra.repository.MetadataCache
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
+import com.github.andreyasadchy.xtra.repository.resolveChannelFallback
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
+import com.github.andreyasadchy.xtra.ui.common.LoadRequestCoalescer
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -51,6 +55,7 @@ class ChannelPagerViewModel(
     private val cronetExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val streamFeedRefreshCoordinator: StreamFeedRefreshCoordinator,
+    private val metadataCache: MetadataCache,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -70,98 +75,174 @@ class ChannelPagerViewModel(
     private val _user = MutableStateFlow<User?>(null)
     val user: StateFlow<User?> = _user
 
-    fun loadStream(networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
-        if (_stream.value == null) {
+    private data class LoadRequest(
+        val networkLibrary: String?,
+        val gqlHeaders: Map<String, String>,
+        val helixHeaders: Map<String, String>,
+        val enableIntegrity: Boolean,
+    )
+
+    private val loadCoordinator: LoadRequestCoalescer<LoadRequest>
+
+    init {
+        loadCoordinator = LoadRequestCoalescer { request ->
             viewModelScope.launch {
                 try {
-                    val response = graphQLRepository.loadQueryUserChannelPage(networkLibrary, gqlHeaders, args.channelId, if (args.channelId.isNullOrBlank()) args.channelLogin else null)
-                    if (enableIntegrity) {
-                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                            integrity.emit("refresh")
-                            return@launch
-                        }
-                    }
-                    response.data!!.user?.let {
-                        _stream.value = Stream(
-                            id = it.stream?.id,
-                            channelId = it.id,
-                            channelLogin = it.login,
-                            channelName = it.displayName,
-                            channelImageURL = it.profileImageURL,
-                            gameId = it.stream?.game?.id,
-                            gameSlug = it.stream?.game?.slug,
-                            gameName = it.stream?.game?.displayName,
-                            title = it.stream?.title,
-                            thumbnailURL = it.stream?.previewImageURL,
-                            createdAt = it.stream?.createdAt?.toString(),
-                            viewerCount = it.stream?.viewersCount,
-                        )
-                        _user.value = User(
-                            id = it.id,
-                            login = it.login,
-                            name = it.displayName,
-                            profileImageURL = it.profileImageURL,
-                            type = when {
-                                it.roles?.isStaff == true -> "staff"
-                                else -> null
-                            },
-                            broadcasterType = when {
-                                it.roles?.isPartner == true -> "partner"
-                                it.roles?.isAffiliate == true -> "affiliate"
-                                else -> null
-                            },
-                            createdAt = it.createdAt?.toString(),
-                            followerCount = it.followers?.totalCount,
-                            bannerImageURL = it.bannerImageURL,
-                            lastBroadcast = it.lastBroadcast?.startedAt?.toString(),
-                        )
-                    }
-                } catch (e: Exception) {
-                    if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        try {
-                            helixRepository.getStreams(
-                                networkLibrary = networkLibrary,
-                                headers = helixHeaders,
-                                ids = args.channelId?.let { listOf(it) },
-                                logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
-                            ).data.firstOrNull()?.let {
-                                _stream.value = Stream(
-                                    id = it.id,
-                                    channelId = it.channelId,
-                                    channelLogin = it.channelLogin,
-                                    channelName = it.channelName,
-                                    gameId = it.gameId,
-                                    gameName = it.gameName,
-                                    title = it.title,
-                                    thumbnailURL = it.thumbnailURL,
-                                    createdAt = it.startedAt,
-                                    viewerCount = it.viewerCount,
-                                    tags = it.tags,
-                                )
-                            }
-                            helixRepository.getUsers(
-                                networkLibrary = networkLibrary,
-                                headers = helixHeaders,
-                                ids = args.channelId?.let { listOf(it) },
-                                logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
-                            ).data.firstOrNull()?.let {
-                                _user.value = User(
-                                    id = it.id,
-                                    login = it.login,
-                                    name = it.displayName,
-                                    profileImageURL = it.profileImageURL,
-                                    type = it.type,
-                                    broadcasterType = it.broadcasterType,
-                                    createdAt = it.createdAt,
-                                )
-                            }
-                        } catch (e: Exception) {
-
-                        }
-                    }
+                    loadStream(request)
+                } finally {
+                    loadCoordinator.complete()
                 }
             }
         }
+    }
+
+    fun loadStream(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+        enableIntegrity: Boolean,
+        revalidate: Boolean = false,
+    ) {
+        loadCoordinator.request(
+            LoadRequest(networkLibrary, gqlHeaders, helixHeaders, enableIntegrity),
+            revalidate = revalidate,
+        )
+    }
+
+    private suspend fun loadStream(request: LoadRequest) {
+                val cached = try {
+                    metadataCache.readChannel(args.channelId, args.channelLogin)
+                } catch (_: Exception) {
+                    null
+                }
+                cached?.let(::applyChannelSnapshot)
+                try {
+                    val response = graphQLRepository.loadQueryUserChannelPage(request.networkLibrary, request.gqlHeaders, args.channelId, if (args.channelId.isNullOrBlank()) args.channelLogin else null)
+                    if (request.enableIntegrity) {
+                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
+                            integrity.emit("refresh")
+                            return
+                        }
+                    }
+                    response.data!!.user?.let {
+                        val snapshot = ChannelPageCacheSnapshot(
+                            stream = Stream(
+                                id = it.stream?.id,
+                                channelId = it.id,
+                                channelLogin = it.login,
+                                channelName = it.displayName,
+                                channelImageURL = it.profileImageURL,
+                                gameId = it.stream?.game?.id,
+                                gameSlug = it.stream?.game?.slug,
+                                gameName = it.stream?.game?.displayName,
+                                title = it.stream?.title,
+                                thumbnailURL = it.stream?.previewImageURL,
+                                createdAt = it.stream?.createdAt?.toString(),
+                                viewerCount = it.stream?.viewersCount,
+                            ),
+                            user = User(
+                                id = it.id,
+                                login = it.login,
+                                name = it.displayName,
+                                profileImageURL = it.profileImageURL,
+                                type = when {
+                                    it.roles?.isStaff == true -> "staff"
+                                    else -> null
+                                },
+                                broadcasterType = when {
+                                    it.roles?.isPartner == true -> "partner"
+                                    it.roles?.isAffiliate == true -> "affiliate"
+                                    else -> null
+                                },
+                                createdAt = it.createdAt?.toString(),
+                                followerCount = it.followers?.totalCount,
+                                bannerImageURL = it.bannerImageURL,
+                                lastBroadcast = it.lastBroadcast?.startedAt?.toString(),
+                            ),
+                        )
+                        applyChannelSnapshot(snapshot)
+                        try {
+                            metadataCache.writeChannel(
+                                channelId = args.channelId ?: snapshot.user.id,
+                                login = args.channelLogin ?: snapshot.user.login,
+                                snapshot = snapshot,
+                            )
+                        } catch (_: Exception) {
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (!request.helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+                        val streamResult: Result<Stream?> = try {
+                            Result.success(
+                                helixRepository.getStreams(
+                                    networkLibrary = request.networkLibrary,
+                                    headers = request.helixHeaders,
+                                    ids = args.channelId?.let { listOf(it) },
+                                    logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
+                                ).data.firstOrNull()?.let {
+                                    Stream(
+                                        id = it.id,
+                                        channelId = it.channelId,
+                                        channelLogin = it.channelLogin,
+                                        channelName = it.channelName,
+                                        channelImageURL = cached?.user?.profileImageURL,
+                                        gameId = it.gameId,
+                                        gameName = it.gameName,
+                                        title = it.title,
+                                        thumbnailURL = it.thumbnailURL,
+                                        createdAt = it.startedAt,
+                                        viewerCount = it.viewerCount,
+                                        tags = it.tags,
+                                    )
+                                }
+                            )
+                        } catch (e: Exception) {
+                            Result.failure(e)
+                        }
+                        val userResult: Result<User?> = try {
+                            Result.success(
+                                helixRepository.getUsers(
+                                    networkLibrary = request.networkLibrary,
+                                    headers = request.helixHeaders,
+                                    ids = args.channelId?.let { listOf(it) },
+                                    logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
+                                ).data.firstOrNull()?.let {
+                                    User(
+                                        id = it.id,
+                                        login = it.login,
+                                        name = it.displayName,
+                                        profileImageURL = it.profileImageURL,
+                                        type = it.type,
+                                        broadcasterType = it.broadcasterType,
+                                        createdAt = it.createdAt,
+                                    )
+                                }
+                            )
+                        } catch (e: Exception) {
+                            Result.failure(e)
+                        }
+                        resolveChannelFallback(cached, streamResult, userResult).let { resolution ->
+                            resolution.snapshot?.let {
+                                applyChannelSnapshot(it)
+                                if (resolution.shouldPersist) {
+                                    try {
+                                        metadataCache.writeChannel(
+                                            channelId = args.channelId ?: it.user.id,
+                                            login = args.channelLogin ?: it.user.login,
+                                            snapshot = it,
+                                        )
+                                    } catch (_: Exception) {
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+    }
+
+    private fun applyChannelSnapshot(snapshot: ChannelPageCacheSnapshot) {
+        _stream.value = snapshot.stream
+        _user.value = snapshot.user
     }
 
     fun enableNotifications(userId: String?, channelId: String?, setting: Int, notificationsEnabled: Boolean, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
@@ -473,7 +554,7 @@ class ChannelPagerViewModel(
                 val savedStateHandle = createSavedStateHandle()
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                ChannelPagerViewModel(xtraModule.localChannelFollowsRepository, xtraModule.offlineVideosRepository, xtraModule.bookmarksRepository, xtraModule.notificationsRepository, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.streamFeedRefreshCoordinator, savedStateHandle)
+                ChannelPagerViewModel(xtraModule.localChannelFollowsRepository, xtraModule.offlineVideosRepository, xtraModule.bookmarksRepository, xtraModule.notificationsRepository, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.streamFeedRefreshCoordinator, xtraModule.metadataCache, savedStateHandle)
             }
         }
     }
