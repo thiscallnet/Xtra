@@ -80,6 +80,9 @@ class StreamFeedRefreshCoordinator(
         reason: RefreshReason,
         force: Boolean,
     ): StreamRefreshResult {
+        if (force) {
+            StreamThumbnailRefreshSignal.requestForceRefresh()
+        }
         val result = refreshFlights.run(spec.key.value) {
             executeRefresh(spec, reason, force)
         }

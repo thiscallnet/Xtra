@@ -231,7 +231,14 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                         error = null,
                     )
                 }
-                persistAccountCache(resolvedUserId, login)
+                persistAccountCache(
+                    userId = resolvedUserId,
+                    login = login,
+                    scopesValidated = true,
+                    chatColorValidated = colorResult?.getOrNull()?.let(::isCanonicalChatColor) == true,
+                    channelValidated = channelResult?.getOrNull() != null,
+                    chatSettingsValidated = chatSettingsResult?.getOrNull() != null,
+                )
             }
         } catch (error: Exception) {
             _uiState.update {
@@ -265,7 +272,9 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     chatColorLoadError = canonicalColor.exceptionOrNull()?.let { context.getString(R.string.account_load_failed) },
                 )
             }
-            persistAccountCache()
+            persistAccountCache(
+                chatColorValidated = canonicalColor.getOrNull()?.let(::isCanonicalChatColor) == true,
+            )
         }
     }
 
@@ -423,7 +432,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                         blockedUsersLoadError = null,
                     )
                 }
-                persistAccountCache()
+                persistAccountCache(blockedUsersValidated = reset)
             } catch (error: Exception) {
                 val message = readableError(error)
                 _uiState.update {
@@ -481,7 +490,15 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
         ?: context.tokenPrefs().getString(C.USER_ID, null)
         ?: error(context.getString(R.string.account_missing_user))
 
-    private suspend fun persistAccountCache(userId: String? = null, login: String? = null) {
+    private suspend fun persistAccountCache(
+        userId: String? = null,
+        login: String? = null,
+        scopesValidated: Boolean = false,
+        chatColorValidated: Boolean = false,
+        channelValidated: Boolean = false,
+        chatSettingsValidated: Boolean = false,
+        blockedUsersValidated: Boolean = false,
+    ) {
         val state = _uiState.value
         val resolvedUserId = userId
             ?: state.user?.id
@@ -503,6 +520,11 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     blockedUsers = state.blockedUsers,
                     blockedUsersCursor = state.blockedUsersCursor,
                 ),
+                scopesValidated = scopesValidated,
+                chatColorValidated = chatColorValidated,
+                channelValidated = channelValidated,
+                chatSettingsValidated = chatSettingsValidated,
+                blockedUsersValidated = blockedUsersValidated,
             )
         } catch (_: Exception) {
         }

@@ -7,6 +7,8 @@ import com.github.andreyasadchy.xtra.model.ui.User
 internal data class ChannelFallbackResolution(
     val snapshot: ChannelPageCacheSnapshot?,
     val shouldPersist: Boolean,
+    val streamValidated: Boolean = false,
+    val followerCountValidated: Boolean = false,
 )
 
 /**
@@ -38,7 +40,13 @@ internal fun resolveChannelFallback(
         streamResult.isSuccess -> hasFreshUser || cached != null
         else -> hasFreshUser && cached != null
     }
-    return ChannelFallbackResolution(snapshot = snapshot, shouldPersist = shouldPersist)
+    return ChannelFallbackResolution(
+        snapshot = snapshot,
+        shouldPersist = shouldPersist,
+        streamValidated = streamResult.isSuccess,
+        // Helix user fallback does not include the channel follower count.
+        followerCountValidated = false,
+    )
 }
 
 internal fun mergeGameFallback(cached: Game?, helixGame: Game): Game {

@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.model.ui
 
 import android.os.Parcelable
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import kotlinx.parcelize.IgnoredOnParcel
 import kotlinx.parcelize.Parcelize
 
 @Parcelize
@@ -19,6 +20,9 @@ class Stream(
     var createdAt: String? = null,
     var viewerCount: Int? = null,
     val tags: List<String>? = null,
+    /** Feed refresh generation used to revalidate live preview pixels. */
+    @IgnoredOnParcel
+    val thumbnailGeneration: Long = 0L,
 ) : Parcelable {
 
     val channelImage: String?

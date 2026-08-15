@@ -166,6 +166,8 @@ class ChannelPagerViewModel(
                                 channelId = args.channelId ?: snapshot.user.id,
                                 login = args.channelLogin ?: snapshot.user.login,
                                 snapshot = snapshot,
+                                streamValidated = true,
+                                followerCountValidated = true,
                             )
                         } catch (_: Exception) {
                         }
@@ -230,6 +232,8 @@ class ChannelPagerViewModel(
                                             channelId = args.channelId ?: it.user.id,
                                             login = args.channelLogin ?: it.user.login,
                                             snapshot = it,
+                                            streamValidated = resolution.streamValidated,
+                                            followerCountValidated = resolution.followerCountValidated,
                                         )
                                     } catch (_: Exception) {
                                     }

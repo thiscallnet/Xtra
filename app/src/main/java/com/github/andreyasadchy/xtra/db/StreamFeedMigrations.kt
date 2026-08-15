@@ -28,4 +28,15 @@ object StreamFeedMigrations {
         db.execSQL("ALTER TABLE stream_feed_states ADD COLUMN nextCursorApi TEXT")
         db.execSQL("ALTER TABLE stream_feed_states ADD COLUMN activeGeneration INTEGER NOT NULL DEFAULT 0")
     }
+
+    val FROM_43 = Migration(43, 44) { db ->
+        db.execSQL("ALTER TABLE stream_feed_states ADD COLUMN staleTailRetainedAt INTEGER")
+        // Existing rows predate the separate tail clock. lastSuccessAt is the
+        // preferred value, while lastAccessAt covers feeds invalidated before
+        // this column existed.
+        db.execSQL(
+            "UPDATE stream_feed_states SET staleTailRetainedAt = COALESCE(lastSuccessAt, lastAccessAt) " +
+                    "WHERE activeGeneration != 0"
+        )
+    }
 }

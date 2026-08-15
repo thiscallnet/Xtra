@@ -17,4 +17,6 @@ data class StreamFeedState(
     val nextCursorApi: String? = null,
     /** Generation currently being refreshed/appended for this feed. */
     val activeGeneration: Long = 0L,
+    /** When the retained stale tail started being kept behind the active generation. */
+    val staleTailRetainedAt: Long? = null,
 )

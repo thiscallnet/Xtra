@@ -138,6 +138,8 @@ class GamePagerViewModel(
                                 slug = args.gameSlug ?: game.slug,
                                 name = args.gameName ?: game.name,
                                 snapshot = GamePageCacheSnapshot(game),
+                                liveStatsValidated = true,
+                                followerCountValidated = true,
                             )
                         } catch (_: Exception) {
                         }

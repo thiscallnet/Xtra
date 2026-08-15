@@ -8,6 +8,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /** A stable, credential-free identity for one stream feed variant. */
 data class StreamFeedKey(val value: String) {
@@ -91,6 +92,17 @@ enum class RefreshDecision {
     JOIN,
 }
 
+/** Process-local signal for image loaders that must bypass the current preview bucket. */
+internal object StreamThumbnailRefreshSignal {
+    private val forceEpoch = AtomicLong(0L)
+
+    fun requestForceRefresh() {
+        forceEpoch.incrementAndGet()
+    }
+
+    fun currentForceEpoch(): Long = forceEpoch.get()
+}
+
 internal fun refreshDecision(
     nowMs: Long,
     lastSuccessAt: Long?,
@@ -161,6 +173,10 @@ object StreamFeedFreshnessPolicy {
     const val PREWARM_LEAD_TIME_MS = 2 * 60_000L
     const val PREWARM_MIN_DELAY_MS = 10 * 60_000L
     const val PREWARM_MAX_DELAY_MS = 6 * 60 * 60_000L
+    /** Keep one verified stale generation useful without retaining old tails forever. */
+    const val MAX_RETAINED_STALE_GENERATIONS = 1
+    /** A retained tail is bootstrap data, not a permanent offline feed snapshot. */
+    const val MAX_RETAINED_STALE_TAIL_AGE_MS = 24 * 60 * 60_000L
     /** Keep the retained tail useful without eagerly refetching a deep feed. */
     const val MAX_AUTOMATIC_TAIL_PREFETCH_PAGES = 1
 

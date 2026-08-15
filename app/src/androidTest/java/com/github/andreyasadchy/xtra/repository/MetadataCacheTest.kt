@@ -52,6 +52,11 @@ class MetadataCacheTest {
                 blockedUsersCursor = "next",
             ),
             nowMs = now,
+            scopesValidated = true,
+            chatColorValidated = true,
+            channelValidated = true,
+            chatSettingsValidated = true,
+            blockedUsersValidated = true,
         )
 
         val account = cache.readAccount(null, "STREAMER")
@@ -92,7 +97,13 @@ class MetadataCacheTest {
             user = User(id = "99", login = "channel", name = "Old name"),
             stream = Stream(id = "stream", channelId = "99", title = "Still live"),
         )
-        cache.writeChannel("99", "channel", liveSnapshot, now)
+        cache.writeChannel(
+            channelId = "99",
+            login = "channel",
+            snapshot = liveSnapshot,
+            nowMs = now,
+            streamValidated = true,
+        )
 
         val resolution = resolveChannelFallback(
             cached = cache.readChannel("99", "channel"),
@@ -131,5 +142,179 @@ class MetadataCacheTest {
         assertNull(cache.readAccount(null, "new-login"))
         assertEquals("New", cache.readAccount(null, "renamed-login")?.user?.displayName)
         assertNull(cache.readAccount(null, "old-login"))
+    }
+
+    @Test
+    fun durableMetadataRetentionDoesNotMakeVolatileFieldsLookFresh() = runBlocking {
+        val now = maxOf(
+            MetadataCachePolicy.CURRENT_STREAM_BOOTSTRAP_MAX_AGE_MS,
+            MetadataCachePolicy.FOLLOWER_COUNT_BOOTSTRAP_MAX_AGE_MS,
+        ) + 1L
+        val clockedCache = MetadataCache(
+            database = database,
+            json = Json { ignoreUnknownKeys = true },
+            clockMs = { now },
+        )
+        clockedCache.writeChannel(
+            channelId = "99",
+            login = "channel",
+            snapshot = ChannelPageCacheSnapshot(
+                user = User(id = "99", login = "channel", name = "Channel", followerCount = 321),
+                stream = Stream(
+                    id = "stream",
+                    channelId = "99",
+                    title = "Still useful title",
+                    viewerCount = 123,
+                ),
+            ),
+            nowMs = 0L,
+        )
+
+        val snapshot = clockedCache.readChannel("99", "channel")
+        assertEquals("Still useful title", snapshot?.stream?.title)
+        assertNull(snapshot?.stream?.viewerCount)
+        assertNull(snapshot?.user?.followerCount)
+    }
+
+    @Test
+    fun partialFallbackWriteDoesNotRejuvenateChannelLiveState() = runBlocking {
+        var nowMs = 0L
+        val clockedCache = MetadataCache(
+            database = database,
+            json = Json { ignoreUnknownKeys = true },
+            clockMs = { nowMs },
+        )
+        val original = ChannelPageCacheSnapshot(
+            user = User(id = "99", login = "channel", name = "Old name", followerCount = 321),
+            stream = Stream(
+                id = "stream",
+                channelId = "99",
+                title = "Old title",
+                viewerCount = 123,
+            ),
+        )
+        clockedCache.writeChannel(
+            channelId = "99",
+            login = "channel",
+            snapshot = original,
+            nowMs = nowMs,
+            streamValidated = true,
+            followerCountValidated = true,
+        )
+
+        nowMs = MetadataCachePolicy.CURRENT_STREAM_BOOTSTRAP_MAX_AGE_MS - 1L
+        clockedCache.writeChannel(
+            channelId = "99",
+            login = "channel",
+            snapshot = ChannelPageCacheSnapshot(
+                user = User(id = "99", login = "channel", name = "Fresh static name", followerCount = 321),
+                stream = original.stream,
+            ),
+            nowMs = nowMs,
+        )
+
+        nowMs = MetadataCachePolicy.CURRENT_STREAM_BOOTSTRAP_MAX_AGE_MS + 1L
+        val snapshot = clockedCache.readChannel("99", "channel")
+        assertEquals("Fresh static name", snapshot?.user?.name)
+        assertEquals("Old title", snapshot?.stream?.title)
+        assertNull(snapshot?.stream?.viewerCount)
+    }
+
+    @Test
+    fun partialAccountMutationsDoNotRejuvenateUntouchedComponents() = runBlocking {
+        var nowMs = 0L
+        val clockedCache = MetadataCache(
+            database = database,
+            json = Json { ignoreUnknownKeys = true },
+            clockMs = { nowMs },
+        )
+        val original = AccountCacheSnapshot(
+            user = HelixUser(id = "42", login = "streamer", displayName = "Streamer"),
+            channel = ChannelInformation(
+                broadcasterId = "42",
+                title = "Old title",
+                delay = 3,
+                tags = listOf("old"),
+            ),
+            chatSettings = ChatSettings(
+                broadcasterId = "42",
+                followerMode = true,
+                followerModeDuration = 10,
+                slowMode = false,
+                slowModeWaitTime = 30,
+                subscriberMode = true,
+                emoteMode = true,
+                uniqueChatMode = true,
+            ),
+        )
+        clockedCache.writeAccount(
+            userId = "42",
+            login = "streamer",
+            snapshot = original,
+            nowMs = nowMs,
+            channelValidated = true,
+            chatSettingsValidated = true,
+        )
+
+        nowMs = MetadataCachePolicy.ACCOUNT_SETTINGS_BOOTSTRAP_MAX_AGE_MS - 1L
+        clockedCache.writeAccount(
+            userId = "42",
+            login = "streamer",
+            snapshot = original.copy(
+                channel = original.channel?.copy(title = "Mutated title"),
+                chatSettings = original.chatSettings?.copy(slowMode = true),
+            ),
+            nowMs = nowMs,
+            // Simulates a successful one-field PATCH while the full GETs
+            // failed: copied fields retain their original validation times.
+        )
+
+        nowMs = MetadataCachePolicy.ACCOUNT_SETTINGS_BOOTSTRAP_MAX_AGE_MS + 1L
+        val cached = clockedCache.readAccount("42", "streamer")
+        assertNull(cached?.channel)
+        assertNull(cached?.chatSettings)
+    }
+
+    @Test
+    fun appendingBlockedUsersPageDoesNotRejuvenateTheOriginalPage() = runBlocking {
+        var nowMs = 0L
+        val clockedCache = MetadataCache(
+            database = database,
+            json = Json { ignoreUnknownKeys = true },
+            clockMs = { nowMs },
+        )
+        val firstPage = AccountCacheSnapshot(
+            user = HelixUser(id = "42", login = "streamer", displayName = "Streamer"),
+            blockedUsers = listOf(BlockedUser(id = "1", login = "first", displayName = "First")),
+            blockedUsersCursor = "page-2",
+        )
+        clockedCache.writeAccount(
+            userId = "42",
+            login = "streamer",
+            snapshot = firstPage,
+            nowMs = nowMs,
+            blockedUsersValidated = true,
+        )
+
+        nowMs = MetadataCachePolicy.ACCOUNT_SENSITIVE_BOOTSTRAP_MAX_AGE_MS - 1L
+        clockedCache.writeAccount(
+            userId = "42",
+            login = "streamer",
+            snapshot = firstPage.copy(
+                blockedUsers = firstPage.blockedUsers + BlockedUser(
+                    id = "2",
+                    login = "second",
+                    displayName = "Second",
+                ),
+                blockedUsersCursor = null,
+            ),
+            nowMs = nowMs,
+            // Appending page two does not revalidate page one.
+        )
+
+        nowMs = MetadataCachePolicy.ACCOUNT_SENSITIVE_BOOTSTRAP_MAX_AGE_MS + 1L
+        val cached = clockedCache.readAccount("42", "streamer")
+        assertTrue(cached?.blockedUsers.isNullOrEmpty())
+        assertNull(cached?.blockedUsersCursor)
     }
 }
