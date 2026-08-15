@@ -64,6 +64,8 @@ import kotlinx.coroutines.launch
 
 class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, IntegrityDialog.Listener {
 
+    override val initializeWithoutNetwork = true
+
     private var _binding: FragmentGamePagerBinding? = null
     private val binding get() = _binding!!
     private val args: GamePagerFragmentArgs by navArgs()
@@ -355,7 +357,9 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
 
     private fun updateGameLayout(game: Game?) {
         with(binding) {
-            val boxArt = game?.boxArt
+            val boxArt = game?.boxArtURL
+                ?.takeIf { it.isNotBlank() }
+                ?.let(TwitchApiHelper::getGameBoxArt)
             if (!boxArt.isNullOrBlank()) {
                 gameLayout.visibility = View.VISIBLE
                 gameImage.visibility = View.VISIBLE
@@ -369,9 +373,6 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
                         }.build()
                     )
                 }
-            } else {
-                gameImage.visibility = View.GONE
-                gameImage.tag = null
             }
             if (game?.name != null && game.name != args.gameName) {
                 gameLayout.visibility = View.VISIBLE

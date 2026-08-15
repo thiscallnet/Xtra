@@ -73,6 +73,8 @@ import kotlin.time.Instant
 
 class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, IntegrityDialog.Listener {
 
+    override val initializeWithoutNetwork = true
+
     private var _binding: FragmentChannelBinding? = null
     private val binding get() = _binding!!
     private val args: ChannelPagerFragmentArgs by navArgs()
@@ -588,9 +590,6 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, In
                         )
                     }
                     requireArguments().putString(C.CHANNEL_IMAGE, it)
-                } else {
-                    userImage.visibility = View.GONE
-                    userImage.tag = null
                 }
             }
             stream?.channelName.let {
