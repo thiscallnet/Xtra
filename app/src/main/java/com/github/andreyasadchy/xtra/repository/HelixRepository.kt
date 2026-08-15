@@ -3,9 +3,13 @@ package com.github.andreyasadchy.xtra.repository
 import android.annotation.SuppressLint
 import android.net.http.HttpEngine
 import androidx.core.net.toUri
+import com.github.andreyasadchy.xtra.model.helix.channel.ChannelInformation
+import com.github.andreyasadchy.xtra.model.helix.channel.ChannelInformationResponse
 import com.github.andreyasadchy.xtra.model.helix.channel.ChannelSearchResponse
 import com.github.andreyasadchy.xtra.model.helix.chat.BadgesResponse
 import com.github.andreyasadchy.xtra.model.helix.chat.ChatUsersResponse
+import com.github.andreyasadchy.xtra.model.helix.chat.ChatSettings
+import com.github.andreyasadchy.xtra.model.helix.chat.ChatSettingsResponse
 import com.github.andreyasadchy.xtra.model.helix.chat.CheerEmotesResponse
 import com.github.andreyasadchy.xtra.model.helix.chat.EmoteSetsResponse
 import com.github.andreyasadchy.xtra.model.helix.chat.UserEmotesResponse
@@ -13,6 +17,8 @@ import com.github.andreyasadchy.xtra.model.helix.clip.ClipsResponse
 import com.github.andreyasadchy.xtra.model.helix.follows.FollowsResponse
 import com.github.andreyasadchy.xtra.model.helix.game.GamesResponse
 import com.github.andreyasadchy.xtra.model.helix.stream.StreamsResponse
+import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
+import com.github.andreyasadchy.xtra.model.helix.user.BlockedUsersResponse
 import com.github.andreyasadchy.xtra.model.helix.user.UsersResponse
 import com.github.andreyasadchy.xtra.model.helix.video.VideosResponse
 import com.github.andreyasadchy.xtra.util.C
@@ -29,7 +35,9 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.Headers.Companion.toHeaders
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -52,6 +60,40 @@ data class HelixRateLimit(
     val remaining: Long?,
     val resetEpochSeconds: Long?,
 )
+
+internal fun buildChannelInformationUpdateBody(
+    title: String? = null,
+    gameId: String? = null,
+    language: String? = null,
+    tags: List<String>? = null,
+): String = buildJsonObject {
+    title?.let { put("title", it) }
+    gameId?.let { put("game_id", it) }
+    language?.let { put("broadcaster_language", it) }
+    tags?.let { values ->
+        putJsonArray("tags") {
+            values.forEach { add(JsonPrimitive(it)) }
+        }
+    }
+}.toString()
+
+internal fun buildChatSettingsUpdateBody(
+    emote: Boolean? = null,
+    followers: Boolean? = null,
+    followersDuration: Int? = null,
+    slow: Boolean? = null,
+    slowDuration: Int? = null,
+    subs: Boolean? = null,
+    unique: Boolean? = null,
+): String = buildJsonObject {
+    emote?.let { put("emote_mode", it) }
+    followers?.let { put("follower_mode", it) }
+    followersDuration?.let { put("follower_mode_duration", it) }
+    slow?.let { put("slow_mode", it) }
+    slowDuration?.let { put("slow_mode_wait_time", it) }
+    subs?.let { put("subscriber_mode", it) }
+    unique?.let { put("unique_chat_mode", it) }
+}.toString()
 
 data class EventSubSubscriptionResult(
     val statusCode: Int,
@@ -351,6 +393,195 @@ class HelixRepository(
                 message = "Twitch Helix request failed with HTTP $statusCode: ${body.take(240)}",
             )
         }
+    }
+
+    private data class RawHelixResponse(
+        val statusCode: Int,
+        val body: String,
+    )
+
+    /**
+     * Small common transport for account endpoints. Most of the older Helix
+     * methods below predate consistent error handling, so account mutations
+     * use this path to make HTTP failures visible to the account UI.
+     */
+    private suspend fun executeRawHelix(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        url: String,
+        method: String = "GET",
+        body: String? = null,
+    ): RawHelixResponse = withContext(Dispatchers.IO) {
+        when {
+            networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
+                val response = suspendCancellableCoroutine { continuation ->
+                    val timeout = NetworkUtils.HttpEngineTimeout()
+                    val request = httpEngine.value!!.newUrlRequestBuilder(
+                        url,
+                        cronetExecutor.value,
+                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
+                    ).apply {
+                        headers.forEach { addHeader(it.key, it.value) }
+                        body?.let {
+                            addHeader("Content-Type", "application/json")
+                            setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(it.toByteArray()), cronetExecutor.value)
+                        }
+                        if (method != "GET") {
+                            setHttpMethod(method)
+                        }
+                    }.build()
+                    timeout.start(request, continuation)
+                    request.start()
+                    continuation.invokeOnCancellation {
+                        request.cancel()
+                        timeout.stop()
+                    }
+                }
+                RawHelixResponse(response.info.httpStatusCode, response.body.decodeToString())
+            }
+            networkLibrary == C.CRONET && cronetEngine.value != null -> {
+                val response = suspendCancellableCoroutine { continuation ->
+                    val timeout = NetworkUtils.CronetTimeout()
+                    val request = cronetEngine.value!!.newUrlRequestBuilder(
+                        url,
+                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
+                        cronetExecutor.value,
+                    ).apply {
+                        headers.forEach { addHeader(it.key, it.value) }
+                        body?.let {
+                            addHeader("Content-Type", "application/json")
+                            setUploadDataProvider(UploadDataProviders.create(it.toByteArray()), cronetExecutor.value)
+                        }
+                        if (method != "GET") {
+                            setHttpMethod(method)
+                        }
+                    }.build()
+                    timeout.start(request, continuation)
+                    request.start()
+                    continuation.invokeOnCancellation {
+                        request.cancel()
+                        timeout.stop()
+                    }
+                }
+                RawHelixResponse(response.info.httpStatusCode, response.body.decodeToString())
+            }
+            else -> {
+                okHttpClient.value.newCall(Request.Builder().apply {
+                    url(url)
+                    headers(headers.toHeaders())
+                    val requestBody = body?.toRequestBody()
+                        ?: if (method == "POST" || method == "PUT" || method == "PATCH") "".toRequestBody() else null
+                    if (requestBody != null) {
+                        header("Content-Type", "application/json")
+                    }
+                    if (requestBody != null || method != "GET") {
+                        method(method, requestBody)
+                    }
+                }.build()).executeAsync().use { response ->
+                    RawHelixResponse(response.code, response.body.string())
+                }
+            }
+        }.also {
+            ensureHelixSuccess(it.statusCode, HelixRateLimit(null, null, null), it.body)
+        }
+    }
+
+    suspend fun getChannelInformation(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        broadcasterId: String?,
+    ): ChannelInformation? {
+        val url = "https://api.twitch.tv/helix/channels".toUri().buildUpon().apply {
+            broadcasterId?.let { appendQueryParameter("broadcaster_id", it) }
+        }.build().toString()
+        return json.decodeFromString<ChannelInformationResponse>(
+            executeRawHelix(networkLibrary, headers, url).body,
+        ).data.firstOrNull()
+    }
+
+    suspend fun updateChannelInformation(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        broadcasterId: String?,
+        title: String? = null,
+        gameId: String? = null,
+        language: String? = null,
+        tags: List<String>? = null,
+    ) {
+        val url = "https://api.twitch.tv/helix/channels".toUri().buildUpon().apply {
+            broadcasterId?.let { appendQueryParameter("broadcaster_id", it) }
+        }.build().toString()
+        val body = buildChannelInformationUpdateBody(title, gameId, language, tags)
+        executeRawHelix(networkLibrary, headers, url, method = "PATCH", body = body)
+    }
+
+    suspend fun getChatSettings(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        broadcasterId: String?,
+        moderatorId: String?,
+    ): ChatSettings? {
+        val url = "https://api.twitch.tv/helix/chat/settings".toUri().buildUpon().apply {
+            broadcasterId?.let { appendQueryParameter("broadcaster_id", it) }
+            moderatorId?.let { appendQueryParameter("moderator_id", it) }
+        }.build().toString()
+        return json.decodeFromString<ChatSettingsResponse>(
+            executeRawHelix(networkLibrary, headers, url).body,
+        ).data.firstOrNull()
+    }
+
+    suspend fun updateUserDescription(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        description: String,
+    ): com.github.andreyasadchy.xtra.model.helix.user.User? {
+        val url = "https://api.twitch.tv/helix/users".toUri().buildUpon().apply {
+            appendQueryParameter("description", description)
+        }.build().toString()
+        return json.decodeFromString<UsersResponse>(
+            executeRawHelix(networkLibrary, headers, url, method = "PUT").body,
+        ).data.firstOrNull()
+    }
+
+    suspend fun getBlockedUsers(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        broadcasterId: String?,
+        limit: Int = 100,
+        cursor: String? = null,
+    ): BlockedUsersResponse {
+        val url = "https://api.twitch.tv/helix/users/blocks".toUri().buildUpon().apply {
+            broadcasterId?.let { appendQueryParameter("broadcaster_id", it) }
+            appendQueryParameter("first", limit.coerceIn(1, 100).toString())
+            cursor?.let { appendQueryParameter("after", it) }
+        }.build().toString()
+        return json.decodeFromString(executeRawHelix(networkLibrary, headers, url).body)
+    }
+
+    suspend fun blockUser(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        targetUserId: String,
+        sourceContext: String = "chat",
+        reason: String = "other",
+    ) {
+        val url = "https://api.twitch.tv/helix/users/blocks".toUri().buildUpon().apply {
+            appendQueryParameter("target_user_id", targetUserId)
+            appendQueryParameter("source_context", sourceContext)
+            appendQueryParameter("reason", reason)
+        }.build().toString()
+        executeRawHelix(networkLibrary, headers, url, method = "PUT")
+    }
+
+    suspend fun unblockUser(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        targetUserId: String,
+    ) {
+        val url = "https://api.twitch.tv/helix/users/blocks".toUri().buildUpon().apply {
+            appendQueryParameter("target_user_id", targetUserId)
+        }.build().toString()
+        executeRawHelix(networkLibrary, headers, url, method = "DELETE")
     }
 
     suspend fun getFollowedStreams(networkLibrary: String?, headers: Map<String, String>, userId: String?, limit: Int?, offset: String?): StreamsResponse = withContext(Dispatchers.IO) {
@@ -1775,6 +2006,9 @@ class HelixRepository(
         }
     }
 
+    private fun parseChatColor(body: String): String? =
+        json.decodeFromString<JsonElement>(body).jsonObject["data"]?.jsonArray?.firstOrNull()?.jsonObject?.get("color")?.jsonPrimitive?.contentOrNull
+
     suspend fun getChatColor(networkLibrary: String?, headers: Map<String, String>, userId: String?): String? = withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/color".toUri().buildUpon().apply {
             userId?.let { appendQueryParameter("user_id", it) }
@@ -1797,11 +2031,9 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                if (response.info.httpStatusCode in 200..299) {
-                    null
-                } else {
-                    response.body.decodeToString()
-                }
+                val body = response.body.decodeToString()
+                ensureHelixSuccess(response.info.httpStatusCode, HelixRateLimit(null, null, null), body)
+                parseChatColor(body)
             }
             networkLibrary == C.CRONET && cronetEngine.value != null -> {
                 val response = suspendCancellableCoroutine { continuation ->
@@ -1820,22 +2052,18 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                if (response.info.httpStatusCode in 200..299) {
-                    null
-                } else {
-                    response.body.decodeToString()
-                }
+                val body = response.body.decodeToString()
+                ensureHelixSuccess(response.info.httpStatusCode, HelixRateLimit(null, null, null), body)
+                parseChatColor(body)
             }
             else -> {
                 okHttpClient.value.newCall(Request.Builder().apply {
                     url(url)
                     headers(headers.toHeaders())
                 }.build()).executeAsync().use { response ->
-                    if (response.isSuccessful) {
-                        json.decodeFromString<JsonElement>(response.body.string()).jsonObject["data"]?.jsonArray?.firstOrNull()?.jsonObject?.get("color")?.jsonPrimitive?.contentOrNull
-                    } else {
-                        response.body.string()
-                    }
+                    val body = response.body.string()
+                    ensureHelixSuccess(response.code, HelixRateLimit(null, null, null), body)
+                    parseChatColor(body)
                 }
             }
         }
@@ -1990,15 +2218,7 @@ class HelixRepository(
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
             userId?.let { appendQueryParameter("moderator_id", it) }
         }.build().toString()
-        val body = buildJsonObject {
-            emote?.let { put("emote_mode", it) }
-            followers?.let { put("follower_mode", it) }
-            followersDuration?.let { put("follower_mode_duration", it) }
-            slow?.let { put("slow_mode", it) }
-            slowDuration?.let { put("slow_mode_wait_time", it) }
-            subs?.let { put("subscriber_mode", it) }
-            unique?.let { put("unique_chat_mode", it) }
-        }.toString()
+        val body = buildChatSettingsUpdateBody(emote, followers, followersDuration, slow, slowDuration, subs, unique)
         when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
                 val response = suspendCancellableCoroutine { continuation ->

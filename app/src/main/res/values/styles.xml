@@ -185,6 +185,10 @@
         <item name="cornerSize">12dp</item>
     </style>
 
+    <style name="AccountAvatar" parent="ShapeAppearance.Material3.LargeComponent">
+        <item name="cornerSize">50%</item>
+    </style>
+
     <style name="SwitchModern" parent="Widget.Material3.CompoundButton.MaterialSwitch">
         <item name="materialThemeOverlay">@style/SwitchOverlayModern</item>
     </style>

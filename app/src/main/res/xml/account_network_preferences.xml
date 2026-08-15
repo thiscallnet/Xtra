@@ -1,4 +1,0 @@
-<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <Preference android:key="account_status" android:title="@string/settings_account_status" app:iconSpaceReserved="false" />
-    <Preference android:key="account_logout" android:title="@string/log_out" app:iconSpaceReserved="false" />
-</androidx.preference.PreferenceScreen>

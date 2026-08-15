@@ -3429,7 +3429,9 @@ class ChatViewModel(
                         }
                     } else {
                         if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                            helixRepository.getChatColor(networkLibrary, helixHeaders, accountId)
+                            runCatching {
+                                helixRepository.getChatColor(networkLibrary, helixHeaders, accountId)
+                            }.getOrElse { it.message }
                         } else null
                     }?.let {
                         onMessage(ChatMessage(systemMsg = it))

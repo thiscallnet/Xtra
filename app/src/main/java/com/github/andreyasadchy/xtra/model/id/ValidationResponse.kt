@@ -10,4 +10,7 @@ class ValidationResponse(
     val login: String? = null,
     @SerialName("user_id")
     val userId: String? = null,
+    val scopes: List<String> = emptyList(),
+    @SerialName("expires_in")
+    val expiresIn: Int? = null,
 )

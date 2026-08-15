@@ -77,6 +77,7 @@ import com.github.andreyasadchy.xtra.databinding.FragmentSettingsHomeBinding
 import com.github.andreyasadchy.xtra.databinding.ItemSettingsRowBinding
 import com.github.andreyasadchy.xtra.model.ui.SettingsDragListItem
 import com.github.andreyasadchy.xtra.model.ui.SettingsSearchItem
+import com.github.andreyasadchy.xtra.ui.account.AccountActivity
 import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
@@ -125,6 +126,7 @@ class SettingsActivity : AppCompatActivity() {
     private var changed = false
     private var accountActionIsLogout = false
     private var loginResultLauncher: ActivityResultLauncher<Intent>? = null
+    private var accountResultLauncher: ActivityResultLauncher<Intent>? = null
     var searchItem: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -143,6 +145,9 @@ class SettingsActivity : AppCompatActivity() {
                 setResult(RESULT_OK)
                 finish()
             }
+        }
+        accountResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) recreate()
         }
         val ignoreCutouts = prefs().getBoolean(C.UI_DRAW_BEHIND_CUTOUTS, false)
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
@@ -380,7 +385,7 @@ class SettingsActivity : AppCompatActivity() {
             accountRow.root.contentDescription = accountRow.title.text.toString() + ". " + accountSummary
             accountRow.root.setOnClickListener {
                 if (isLoggedIn) {
-                    findNavController().navigate(R.id.apiTokenSettingsFragment)
+                    settingsActivity.accountResultLauncher?.launch(Intent(requireContext(), AccountActivity::class.java))
                 } else {
                     settingsActivity.openAccountAction()
                 }
@@ -891,7 +896,6 @@ class SettingsActivity : AppCompatActivity() {
                     SCREEN_PROXY -> R.xml.proxy_preferences
                     SCREEN_DEVELOPER -> R.xml.developer_preferences
                     SCREEN_DEVELOPER_API -> R.xml.developer_api_preferences
-                    SCREEN_ACCOUNT -> R.xml.account_network_preferences
                     else -> R.xml.general_preferences
                 },
                 rootKey,
@@ -1102,19 +1106,6 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<Preference>("about_issue")?.setOnPreferenceClickListener { openExternal("https://github.com/thiscallnet/Xtra/issues"); true }
             findPreference<Preference>("developer_options")?.isVisible = requireContext().prefs().getBoolean(C.SETTINGS_DEVELOPER_UNLOCKED, false) &&
                 requireContext().prefs().getBoolean(C.SETTINGS_DEVELOPER_ENABLED, false)
-            findPreference<Preference>("account_status")?.summary = if (activity.isAccountConnected()) {
-                getString(R.string.settings_account_connected)
-            } else {
-                getString(R.string.settings_account_disconnected)
-            }
-            findPreference<Preference>("account_logout")?.apply {
-                isVisible = activity.isAccountConnected()
-                setOnPreferenceClickListener {
-                    activity.accountActionIsLogout = true
-                    activity.loginResultLauncher?.launch(Intent(activity, LoginActivity::class.java))
-                    true
-                }
-            }
             findPreference<SwitchPreferenceCompat>(C.SETTINGS_DEVELOPER_ENABLED)?.setOnPreferenceChangeListener { _, value ->
                 val enabled = value as Boolean
                 requireContext().prefs().edit { putBoolean(C.SETTINGS_DEVELOPER_ENABLED, enabled) }
@@ -1420,7 +1411,6 @@ class SettingsActivity : AppCompatActivity() {
             const val SCREEN_PROXY = "proxy"
             const val SCREEN_DEVELOPER = "developer"
             const val SCREEN_DEVELOPER_API = "developer_api"
-            const val SCREEN_ACCOUNT = "account"
         }
     }
 
