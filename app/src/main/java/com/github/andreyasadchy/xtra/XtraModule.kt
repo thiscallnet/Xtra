@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.room.Room
 import androidx.room.migration.Migration
 import com.github.andreyasadchy.xtra.db.AppDatabase
+import com.github.andreyasadchy.xtra.db.MetadataCacheMigrations
 import com.github.andreyasadchy.xtra.db.StreamFeedMigrations
 import com.github.andreyasadchy.xtra.db.ViewingStatsMigrations
 import com.github.andreyasadchy.xtra.repository.AuthRepository
@@ -18,6 +19,7 @@ import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.LocalGameFollowsRepository
+import com.github.andreyasadchy.xtra.repository.MetadataCache
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
@@ -56,6 +58,10 @@ class XtraModule(application: Application) {
 
     val streamFeedPager by lazy {
         StreamFeedPager(streamFeedCache, streamFeedRefreshCoordinator)
+    }
+
+    val metadataCache by lazy {
+        MetadataCache(database, json)
     }
 
     val httpEngine = lazy {
@@ -339,6 +345,7 @@ class XtraModule(application: Application) {
                 },
                 StreamFeedMigrations.FROM_40,
                 StreamFeedMigrations.FROM_41,
+                MetadataCacheMigrations.FROM_42,
             )
         }.build()
     }

@@ -16,9 +16,11 @@ import com.github.andreyasadchy.xtra.model.ui.LocalChannelFollow
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.repository.BookmarksRepository
+import com.github.andreyasadchy.xtra.repository.ChannelPageCacheSnapshot
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
+import com.github.andreyasadchy.xtra.repository.MetadataCache
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
@@ -51,6 +53,7 @@ class ChannelPagerViewModel(
     private val cronetExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val streamFeedRefreshCoordinator: StreamFeedRefreshCoordinator,
+    private val metadataCache: MetadataCache,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -73,6 +76,12 @@ class ChannelPagerViewModel(
     fun loadStream(networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
         if (_stream.value == null) {
             viewModelScope.launch {
+                val cached = try {
+                    metadataCache.readChannel(args.channelId, args.channelLogin)
+                } catch (_: Exception) {
+                    null
+                }
+                cached?.let(::applyChannelSnapshot)
                 try {
                     val response = graphQLRepository.loadQueryUserChannelPage(networkLibrary, gqlHeaders, args.channelId, if (args.channelId.isNullOrBlank()) args.channelLogin else null)
                     if (enableIntegrity) {
@@ -82,54 +91,66 @@ class ChannelPagerViewModel(
                         }
                     }
                     response.data!!.user?.let {
-                        _stream.value = Stream(
-                            id = it.stream?.id,
-                            channelId = it.id,
-                            channelLogin = it.login,
-                            channelName = it.displayName,
-                            channelImageURL = it.profileImageURL,
-                            gameId = it.stream?.game?.id,
-                            gameSlug = it.stream?.game?.slug,
-                            gameName = it.stream?.game?.displayName,
-                            title = it.stream?.title,
-                            thumbnailURL = it.stream?.previewImageURL,
-                            createdAt = it.stream?.createdAt?.toString(),
-                            viewerCount = it.stream?.viewersCount,
+                        val snapshot = ChannelPageCacheSnapshot(
+                            stream = Stream(
+                                id = it.stream?.id,
+                                channelId = it.id,
+                                channelLogin = it.login,
+                                channelName = it.displayName,
+                                channelImageURL = it.profileImageURL,
+                                gameId = it.stream?.game?.id,
+                                gameSlug = it.stream?.game?.slug,
+                                gameName = it.stream?.game?.displayName,
+                                title = it.stream?.title,
+                                thumbnailURL = it.stream?.previewImageURL,
+                                createdAt = it.stream?.createdAt?.toString(),
+                                viewerCount = it.stream?.viewersCount,
+                            ),
+                            user = User(
+                                id = it.id,
+                                login = it.login,
+                                name = it.displayName,
+                                profileImageURL = it.profileImageURL,
+                                type = when {
+                                    it.roles?.isStaff == true -> "staff"
+                                    else -> null
+                                },
+                                broadcasterType = when {
+                                    it.roles?.isPartner == true -> "partner"
+                                    it.roles?.isAffiliate == true -> "affiliate"
+                                    else -> null
+                                },
+                                createdAt = it.createdAt?.toString(),
+                                followerCount = it.followers?.totalCount,
+                                bannerImageURL = it.bannerImageURL,
+                                lastBroadcast = it.lastBroadcast?.startedAt?.toString(),
+                            ),
                         )
-                        _user.value = User(
-                            id = it.id,
-                            login = it.login,
-                            name = it.displayName,
-                            profileImageURL = it.profileImageURL,
-                            type = when {
-                                it.roles?.isStaff == true -> "staff"
-                                else -> null
-                            },
-                            broadcasterType = when {
-                                it.roles?.isPartner == true -> "partner"
-                                it.roles?.isAffiliate == true -> "affiliate"
-                                else -> null
-                            },
-                            createdAt = it.createdAt?.toString(),
-                            followerCount = it.followers?.totalCount,
-                            bannerImageURL = it.bannerImageURL,
-                            lastBroadcast = it.lastBroadcast?.startedAt?.toString(),
-                        )
+                        applyChannelSnapshot(snapshot)
+                        try {
+                            metadataCache.writeChannel(
+                                channelId = args.channelId ?: snapshot.user.id,
+                                login = args.channelLogin ?: snapshot.user.login,
+                                snapshot = snapshot,
+                            )
+                        } catch (_: Exception) {
+                        }
                     }
                 } catch (e: Exception) {
                     if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        try {
+                        val fallbackStream = try {
                             helixRepository.getStreams(
                                 networkLibrary = networkLibrary,
                                 headers = helixHeaders,
                                 ids = args.channelId?.let { listOf(it) },
                                 logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
                             ).data.firstOrNull()?.let {
-                                _stream.value = Stream(
+                                Stream(
                                     id = it.id,
                                     channelId = it.channelId,
                                     channelLogin = it.channelLogin,
                                     channelName = it.channelName,
+                                    channelImageURL = cached?.user?.profileImageURL,
                                     gameId = it.gameId,
                                     gameName = it.gameName,
                                     title = it.title,
@@ -139,13 +160,17 @@ class ChannelPagerViewModel(
                                     tags = it.tags,
                                 )
                             }
+                        } catch (_: Exception) {
+                            null
+                        }
+                        val fallbackUser = try {
                             helixRepository.getUsers(
                                 networkLibrary = networkLibrary,
                                 headers = helixHeaders,
                                 ids = args.channelId?.let { listOf(it) },
                                 logins = if (args.channelId.isNullOrBlank()) args.channelLogin?.let { listOf(it) } else null
                             ).data.firstOrNull()?.let {
-                                _user.value = User(
+                                User(
                                     id = it.id,
                                     login = it.login,
                                     name = it.displayName,
@@ -155,13 +180,34 @@ class ChannelPagerViewModel(
                                     createdAt = it.createdAt,
                                 )
                             }
-                        } catch (e: Exception) {
-
+                        } catch (_: Exception) {
+                            null
+                        }
+                        val snapshot = fallbackUser?.let { user ->
+                            ChannelPageCacheSnapshot(user = user, stream = fallbackStream)
+                        } ?: fallbackStream?.let { stream ->
+                            cached?.user?.let { user -> ChannelPageCacheSnapshot(user = user, stream = stream) }
+                        }
+                        snapshot?.let {
+                            applyChannelSnapshot(it)
+                            try {
+                                metadataCache.writeChannel(
+                                    channelId = args.channelId ?: it.user.id,
+                                    login = args.channelLogin ?: it.user.login,
+                                    snapshot = it,
+                                )
+                            } catch (_: Exception) {
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    private fun applyChannelSnapshot(snapshot: ChannelPageCacheSnapshot) {
+        _stream.value = snapshot.stream
+        _user.value = snapshot.user
     }
 
     fun enableNotifications(userId: String?, channelId: String?, setting: Int, notificationsEnabled: Boolean, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
@@ -473,7 +519,7 @@ class ChannelPagerViewModel(
                 val savedStateHandle = createSavedStateHandle()
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                ChannelPagerViewModel(xtraModule.localChannelFollowsRepository, xtraModule.offlineVideosRepository, xtraModule.bookmarksRepository, xtraModule.notificationsRepository, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.streamFeedRefreshCoordinator, savedStateHandle)
+                ChannelPagerViewModel(xtraModule.localChannelFollowsRepository, xtraModule.offlineVideosRepository, xtraModule.bookmarksRepository, xtraModule.notificationsRepository, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.streamFeedRefreshCoordinator, xtraModule.metadataCache, savedStateHandle)
             }
         }
     }

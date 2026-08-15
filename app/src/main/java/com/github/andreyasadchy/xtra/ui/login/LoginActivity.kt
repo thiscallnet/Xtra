@@ -116,6 +116,7 @@ class LoginActivity : AppCompatActivity() {
     private var previousGqlWebClientId: String? = null
     private var previousGqlWebToken: String? = null
     private var previousUserId: String? = null
+    private var previousUserLogin: String? = null
     private var reauthorizationIdentityMismatch = false
     private var reauthorizationHelixValidationFailed = false
     private var reauthorizationHelixScopes: Set<String> = emptySet()
@@ -131,6 +132,7 @@ class LoginActivity : AppCompatActivity() {
         setContentView(binding.root)
         reauthorize = intent.getBooleanExtra(EXTRA_REAUTHORIZE, false)
         previousUserId = tokenPrefs().getString(C.USER_ID, null)
+        previousUserLogin = tokenPrefs().getString(C.USERNAME, null)
         if (reauthorize && previousUserId.isNullOrBlank()) {
             Toast.makeText(this, R.string.account_reauthorize_identity_unknown, Toast.LENGTH_LONG).show()
             setResult(RESULT_CANCELED)
@@ -166,6 +168,7 @@ class LoginActivity : AppCompatActivity() {
                 LiveNotificationScheduler.disable(this@LoginActivity)
                 lifecycleScope.launch(Dispatchers.IO) {
                     xtraModule.notificationsRepository.clearNotificationState()
+                    xtraModule.metadataCache.clearAccount(previousUserId, previousUserLogin)
                 }
                 TwitchApiHelper.checkedValidation = false
                 prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }

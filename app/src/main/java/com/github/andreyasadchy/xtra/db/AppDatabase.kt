@@ -43,8 +43,9 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
         ViewingInterval::class,
         CachedStreamFeedItem::class,
         StreamFeedState::class,
+        MetadataCacheEntry::class,
     ],
-    version = 42,
+    version = 43,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -67,4 +68,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun playbackStates(): PlaybackStatesDao
     abstract fun viewingStats(): ViewingStatsDao
     abstract fun streamFeedDao(): StreamFeedDao
+    abstract fun metadataCache(): MetadataCacheDao
 }
