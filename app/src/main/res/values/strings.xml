@@ -464,6 +464,7 @@
     <string name="copy_message">Copy message</string>
     <string name="view_profile">View profile</string>
     <string name="chat">Chat</string>
+    <string name="favorite_emotes">★ Favorites</string>
     <string name="recent_emotes">Recent</string>
     <string name="notification_playback_channel_title">Playback</string>
     <string name="channels">Channels</string>
@@ -1021,6 +1022,12 @@
     <string name="chat_close_prediction">Close prediction</string>
     <string name="chat_scroll_to_latest">Scroll to latest messages</string>
     <string name="use_emote">Use %1$s emote</string>
+    <string name="add_emote_to_favorites">Add to favorites</string>
+    <string name="remove_emote_from_favorites">Remove from favorites</string>
+    <string name="added_emote_to_favorites">Added %1$s to favorites</string>
+    <string name="removed_emote_from_favorites">Removed %1$s from favorites</string>
+    <string name="favorite_emotes_empty">No favorite emotes here yet\nLong-press an emote to add it to Favorites.</string>
+    <string name="favorite_emotes_unavailable">None of your favorite emotes are available in this channel.</string>
     <string name="watch_stream">Watch stream</string>
     <string name="select_stream">Select stream</string>
     <string name="channel_stv_emote">Channel 7TV emote</string>

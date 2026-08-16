@@ -94,6 +94,13 @@
     <string name="view_profile">Profili görüntüle</string>
     <string name="chat">Sohbet</string>
     <string name="recent_emotes">Son Kullanılanlar</string>
+    <string name="favorite_emotes">★ Favoriler</string>
+    <string name="add_emote_to_favorites">Favorilere ekle</string>
+    <string name="remove_emote_from_favorites">Favorilerden kaldır</string>
+    <string name="added_emote_to_favorites">%1$s favorilere eklendi</string>
+    <string name="removed_emote_from_favorites">%1$s favorilerden kaldırıldı</string>
+    <string name="favorite_emotes_empty">Henüz favori ifade yok\nBir ifadeyi Favorilere eklemek için uzun basın.</string>
+    <string name="favorite_emotes_unavailable">Favori ifadelerinizin hiçbiri bu kanalda kullanılamıyor.</string>
     <string name="notification_playback_channel_title">Oynatma</string>
     <string name="channels">Kanallar</string>
     <string name="watch_video">Videonun tamamını izle</string>

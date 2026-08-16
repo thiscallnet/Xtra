@@ -93,6 +93,13 @@
     <string name="view_profile">檢視個人檔案</string>
     <string name="chat">聊天室</string>
     <string name="recent_emotes">最近的</string>
+    <string name="favorite_emotes">★ 收藏</string>
+    <string name="add_emote_to_favorites">加入收藏</string>
+    <string name="remove_emote_from_favorites">從收藏中移除</string>
+    <string name="added_emote_to_favorites">已將 %1$s 加入收藏</string>
+    <string name="removed_emote_from_favorites">已將 %1$s 從收藏中移除</string>
+    <string name="favorite_emotes_empty">尚無收藏的表情\n長按表情即可將其加入收藏。</string>
+    <string name="favorite_emotes_unavailable">此頻道中沒有可用的收藏表情。</string>
     <string name="notification_playback_channel_title">播放</string>
     <string name="channels">頻道</string>
     <string name="watch_video">觀看完整影片</string>

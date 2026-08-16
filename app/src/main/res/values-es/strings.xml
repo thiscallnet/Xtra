@@ -98,6 +98,13 @@
     <string name="view_profile">Ver perfil</string>
     <string name="chat">Chat</string>
     <string name="recent_emotes">Recientes</string>
+    <string name="favorite_emotes">★ Favoritos</string>
+    <string name="add_emote_to_favorites">Añadir a favoritos</string>
+    <string name="remove_emote_from_favorites">Quitar de favoritos</string>
+    <string name="added_emote_to_favorites">Se añadió %1$s a favoritos</string>
+    <string name="removed_emote_from_favorites">Se quitó %1$s de favoritos</string>
+    <string name="favorite_emotes_empty">Aún no hay emotes favoritos\nMantén pulsado un emote para añadirlo a Favoritos.</string>
+    <string name="favorite_emotes_unavailable">Ninguno de tus emotes favoritos está disponible en este canal.</string>
     <string name="notification_playback_channel_title">Reproducción</string>
     <string name="channels">Canales</string>
     <string name="watch_video">Ver video completo</string>

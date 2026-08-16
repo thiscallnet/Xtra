@@ -9,6 +9,7 @@ class FFZResponse(
 ) {
     @Serializable
     class Emote(
+        val id: Int? = null,
         val name: String? = null,
         val animated: Urls? = null,
         val urls: Urls? = null,

@@ -2,13 +2,16 @@ package com.github.andreyasadchy.xtra.db
 
 import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedFreshnessPolicy
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedKey
+import com.github.andreyasadchy.xtra.model.chat.FavoriteEmote
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -28,7 +31,7 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
-    fun migrateCurrentVersion38To45CreatesStatisticsAndStreamFeedSchema() {
+    fun migrateCurrentVersion38To46CreatesStatisticsAndStreamFeedSchema() {
         val name = "migration-v38.db"
         prepareDatabase(name, version = 38, historicalVersion39 = false)
 
@@ -95,15 +98,31 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
-    fun migrateVersion44To45RetainsExistingViewingStats() {
+    fun migrateVersion44To46RetainsExistingViewingStats() {
         val name = "migration-v44-stats.db"
         prepareVersion44Database(name)
         insertLegacyViewingStats(name)
 
         val database = openMigratedDatabase(name)
         val sqlite = database.openHelper.readableDatabase
-        assertEquals(45, scalarInt(sqlite, "PRAGMA user_version"))
+        assertEquals(46, scalarInt(sqlite, "PRAGMA user_version"))
         assertRetainedViewingStats(sqlite)
+        database.close()
+    }
+
+    @Test
+    fun migrateVersion45To46CreatesFavoritesWithoutChangingExistingData() = runBlocking {
+        val name = "migration-v45-favorites.db"
+        prepareVersion45WithoutFavorites(name)
+
+        val database = openMigratedDatabase(name)
+        val sqlite = database.openHelper.readableDatabase
+        assertEquals(46, scalarInt(sqlite, "PRAGMA user_version"))
+        assertTrue(tableExists(sqlite, "favorite_emotes"))
+        assertEquals("legacy", database.recentEmotes().getAll().single().name)
+
+        database.favoriteEmotes().insert(FavoriteEmote("BTTV", "emote-id", 123L))
+        assertEquals("emote-id", database.favoriteEmotes().getAllFlow().first().single().emoteId)
         database.close()
     }
 
@@ -117,6 +136,9 @@ class AppDatabaseMigrationTest {
                 MetadataCacheMigrations.FROM_42,
                 StreamFeedMigrations.FROM_43,
                 ViewingStatsMigrations.FROM_44,
+                Migration(45, 46) { db ->
+                    db.execSQL("CREATE TABLE IF NOT EXISTS favorite_emotes (provider TEXT NOT NULL, emote_id TEXT NOT NULL, favorited_at INTEGER NOT NULL, PRIMARY KEY (provider, emote_id))")
+                },
             )
             .build()
             .also { it.openHelper.writableDatabase }
@@ -241,6 +263,17 @@ class AppDatabaseMigrationTest {
         database.close()
     }
 
+    private fun prepareVersion45WithoutFavorites(name: String) {
+        context.deleteDatabase(name)
+        databaseNames += name
+        val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
+        val sqlite = database.openHelper.writableDatabase
+        sqlite.execSQL("DROP TABLE IF EXISTS favorite_emotes")
+        sqlite.execSQL("INSERT INTO recent_emotes (name, used_at) VALUES ('legacy', 1000)")
+        sqlite.execSQL("PRAGMA user_version = 45")
+        database.close()
+    }
+
     private fun dropViewingStatsTables(sqlite: SupportSQLiteDatabase) {
         sqlite.execSQL("DROP INDEX IF EXISTS index_viewing_intervals_session_id")
         sqlite.execSQL("DROP INDEX IF EXISTS index_viewing_intervals_content_type_start_at")
@@ -315,7 +348,7 @@ class AppDatabaseMigrationTest {
     }
 
     private fun assertStatisticsSchema(database: SupportSQLiteDatabase) {
-        assertEquals(45, scalarInt(database, "PRAGMA user_version"))
+        assertEquals(46, scalarInt(database, "PRAGMA user_version"))
         assertTrue(tableExists(database, "viewing_sessions"))
         assertTrue(tableExists(database, "viewing_intervals"))
         assertTrue(indexExists(database, "index_viewing_sessions_started_at"))

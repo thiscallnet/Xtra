@@ -64,9 +64,11 @@ object STVEventApiUtils {
     }
 
     private fun parseEmote(value: JSONObject?, useWebp: Boolean, channelSet: Boolean): Emote? {
+        val emoteId = value?.optString("id")?.takeIf { it.isNotBlank() }
         val objectData = value?.optJSONObject("data")
         return if (objectData != null) {
-            val name = if (!objectData.isNull("name")) objectData.optString("name").takeIf { it.isNotBlank() } else null
+            val name = value.optString("name").takeIf { it.isNotBlank() }
+                ?: objectData.optString("name").takeIf { it.isNotBlank() }
             val host = objectData.optJSONObject("host")
             if (name != null && host != null) {
                 val template = if (!host.isNull("url")) host.optString("url").takeIf { it.isNotBlank() } else null
@@ -91,6 +93,7 @@ object STVEventApiUtils {
                     }
                     Emote(
                         name = name,
+                        id = emoteId,
                         url1x = urls.getOrNull(0) ?: "https:${template}/1x.webp",
                         url2x = urls.getOrNull(1) ?: if (urls.isEmpty()) "https:${template}/2x.webp" else null,
                         url3x = urls.getOrNull(2) ?: if (urls.isEmpty()) "https:${template}/3x.webp" else null,
