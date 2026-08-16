@@ -381,6 +381,7 @@ class XtraModule(application: Application) {
                 StreamFeedMigrations.FROM_41,
                 MetadataCacheMigrations.FROM_42,
                 StreamFeedMigrations.FROM_43,
+                ViewingStatsMigrations.FROM_44,
             )
         }.build()
     }

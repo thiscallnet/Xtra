@@ -762,6 +762,22 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
 
     suspend fun resolveManualStream(login: String): Stream? = viewModel.resolveLiveStream(login)
 
+    fun updateViewingMetadata(
+        channelId: String?,
+        channelLogin: String?,
+        title: String?,
+        categoryId: String?,
+        categoryName: String?,
+    ) {
+        viewModel.playbackCoordinator.updateStreamMetadataForChannel(
+            channelId = channelId,
+            channelLogin = channelLogin,
+            title = title,
+            categoryId = categoryId,
+            categoryName = categoryName,
+        )
+    }
+
     fun pauseForExternalPlayer() {
         suppressBackgroundOnNextStop = true
         if (_binding != null) viewModel.onStop(allowBackground = false)

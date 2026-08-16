@@ -88,6 +88,24 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
                 }
             }
         }
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.streamInfoUpdates.collectLatest { updates ->
+                    val multiview = parentFragment as? MultiviewFragment
+                    updates.values.forEach { update ->
+                        multiview?.updateViewingMetadata(
+                            channelId = viewModel.channelId(update.identity),
+                            channelLogin = currentStreams.firstOrNull {
+                                stableIdentity(it) == update.identity
+                            }?.channelLogin,
+                            title = update.title,
+                            categoryId = update.categoryId,
+                            categoryName = update.categoryName,
+                        )
+                    }
+                }
+            }
+        }
     }
 
     override fun onStart() {

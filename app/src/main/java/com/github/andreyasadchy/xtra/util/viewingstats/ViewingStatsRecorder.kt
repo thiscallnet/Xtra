@@ -131,14 +131,28 @@ class ViewingStatsRecorder(
         if (!state.metadata.hasSamePlaybackAs(metadata)) {
             finish(state, command.reading)
             state.resetForNewMetadata(metadata, command.reading)
+        } else if (!state.metadata.hasSameAttributionAs(metadata)) {
+            // A category change is a new attribution interval, not a new
+            // viewing session. The elapsed time accrued above belongs to the
+            // previous category before we checkpoint it.
+            if (state.actualPlaying) {
+                closeActiveInterval(state, command.reading)
+                persistSession(state, command.reading.wallTimeMillis)
+            }
+            state.metadata = metadata
         } else {
-            // Keep the latest display-name/avatar snapshot without changing channel identity.
+            // Keep the latest display-name/avatar/category snapshot without
+            // changing the playback or attribution identity.
             state.metadata = metadata
         }
 
         if (command.shouldPlay) {
             if (!state.actualPlaying) {
-                startSession(state, command.reading)
+                if (state.sessionId == null) {
+                    startSession(state, command.reading)
+                } else {
+                    startInterval(state, command.reading)
+                }
             } else if (shouldCheckpoint(state, command.reading)) {
                 persistCheckpoint(state, command.reading)
             }
@@ -191,6 +205,12 @@ class ViewingStatsRecorder(
             state.sessionWatchedMs = 0L
             state.sessionId = repository.insertSession(state.metadata, reading.wallTimeMillis)
         }
+        startInterval(state, reading)
+        persistSession(state, reading.wallTimeMillis)
+    }
+
+    private suspend fun startInterval(state: SourceState, reading: ClockReading) {
+        if (state.sessionId == null || state.intervalId != null) return
         state.intervalStartWall = reading.wallTimeMillis
         state.intervalWatchedMs = 0L
         state.intervalId = repository.insertInterval(state.metadata, state.sessionId!!, reading.wallTimeMillis)
@@ -198,7 +218,6 @@ class ViewingStatsRecorder(
         state.lastElapsed = reading.elapsedRealtime
         state.lastWall = reading.wallTimeMillis
         state.lastPersistElapsed = reading.elapsedRealtime
-        persistSession(state, reading.wallTimeMillis)
     }
 
     private suspend fun finish(state: SourceState, reading: ClockReading) {
@@ -223,6 +242,12 @@ class ViewingStatsRecorder(
                 channelLogin = state.metadata.channelLogin,
                 channelName = state.metadata.channelName,
                 channelImage = state.metadata.channelImage,
+                categoryId = state.metadata.categoryId,
+                categoryName = state.metadata.categoryName,
+                categoryImage = state.metadata.categoryImage,
+                contentType = state.metadata.contentType,
+                contentId = state.metadata.contentId,
+                streamTitle = state.metadata.title,
                 startAt = state.intervalStartWall,
                 endAt = endAt,
                 watchedMs = state.intervalWatchedMs,
@@ -246,6 +271,12 @@ class ViewingStatsRecorder(
                     channelLogin = state.metadata.channelLogin,
                     channelName = state.metadata.channelName,
                     channelImage = state.metadata.channelImage,
+                    categoryId = state.metadata.categoryId,
+                    categoryName = state.metadata.categoryName,
+                    categoryImage = state.metadata.categoryImage,
+                    contentType = state.metadata.contentType,
+                    contentId = state.metadata.contentId,
+                    streamTitle = state.metadata.title,
                     startAt = state.intervalStartWall,
                     endAt = endAt,
                     watchedMs = state.intervalWatchedMs,

@@ -59,6 +59,7 @@ import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewModelFactory
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
 import com.github.andreyasadchy.xtra.ui.player.PlayerFragment
 import com.github.andreyasadchy.xtra.ui.view.AutoCompleteAdapter
@@ -686,7 +687,17 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
                             viewModel.streamInfo.collectLatest {
                                 if (it != null) {
-                                    (parentFragment as? Media3PlayerFragment)?.updateStreamInfo(it.title, it.gameId, null, it.gameName) ?: (parentFragment as? PlayerFragment)?.updateStreamInfo(it.title, it.gameId, null, it.gameName)
+                                    when (val parent = parentFragment) {
+                                        is Media3PlayerFragment -> parent.updateStreamInfo(it.title, it.gameId, null, it.gameName)
+                                        is PlayerFragment -> parent.updateStreamInfo(it.title, it.gameId, null, it.gameName)
+                                        is MultiviewFragment -> parent.updateViewingMetadata(
+                                            channelId = channelId,
+                                            channelLogin = channelLogin,
+                                            title = it.title,
+                                            categoryId = it.gameId,
+                                            categoryName = it.gameName,
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -45,7 +45,7 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
         StreamFeedState::class,
         MetadataCacheEntry::class,
     ],
-    version = 44,
+    version = 45,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

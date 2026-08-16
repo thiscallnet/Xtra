@@ -99,6 +99,12 @@ class MediaPlayerService : BasePlaybackService() {
     private var streamRecoveryJob: Job? = null
     private var streamRecoveryAttempt = 0
 
+    override fun isViewingPlaybackPlaying(): Boolean {
+        return runCatching { player?.isPlaying == true }.getOrDefault(false)
+    }
+
+    override fun isViewingPlaybackBuffering(): Boolean = playerBuffering
+
     interface PlayerListener {
         fun onPrepared(player: MediaPlayer)
         fun onSeekComplete(player: MediaPlayer)

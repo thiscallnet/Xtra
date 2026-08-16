@@ -19,6 +19,8 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["start_at"]),
         Index(value = ["channel_id", "start_at"]),
+        Index(value = ["category_id", "start_at"]),
+        Index(value = ["content_type", "start_at"]),
         Index(value = ["session_id"]),
     ],
 )
@@ -35,6 +37,18 @@ data class ViewingInterval(
     val channelName: String?,
     @ColumnInfo(name = "channel_image")
     val channelImage: String?,
+    @ColumnInfo(name = "category_id")
+    val categoryId: String? = null,
+    @ColumnInfo(name = "category_name")
+    val categoryName: String? = null,
+    @ColumnInfo(name = "category_image")
+    val categoryImage: String? = null,
+    @ColumnInfo(name = "content_type")
+    val contentType: String = ViewingPlaybackMetadata.CONTENT_TYPE_UNKNOWN,
+    @ColumnInfo(name = "content_id")
+    val contentId: String? = null,
+    @ColumnInfo(name = "stream_title")
+    val streamTitle: String? = null,
     @ColumnInfo(name = "start_at")
     val startAt: Long,
     @ColumnInfo(name = "end_at")

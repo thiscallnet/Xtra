@@ -141,6 +141,10 @@ class ExoPlayerService : BasePlaybackService() {
     private var streamRecoveryJob: Job? = null
     private var streamRecoveryAttempt = 0
 
+    override fun isViewingPlaybackPlaying(): Boolean = player?.isPlaying == true
+
+    override fun isViewingPlaybackBuffering(): Boolean = player?.playbackState == Player.STATE_BUFFERING
+
     val vaftActive: Boolean
         get() = type == STREAM && prefs().shouldAvoidTwitchAds() && (playingAds || usingAlternateStream || hidden)
 

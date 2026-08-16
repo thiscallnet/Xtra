@@ -41,6 +41,7 @@ import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
+import com.github.andreyasadchy.xtra.model.stats.mergeViewingCategoryPatch
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
@@ -92,6 +93,10 @@ class PlaybackService : MediaSessionService() {
     private var viewingChannelLogin: String? = null
     private var viewingChannelName: String? = null
     private var viewingChannelImage: String? = null
+    private var viewingCategoryId: String? = null
+    private var viewingCategoryName: String? = null
+    private var viewingCategoryImage: String? = null
+    private var viewingTitle: String? = null
     private var viewingContentType: String? = null
     private var viewingContentId: String? = null
 
@@ -215,6 +220,7 @@ class PlaybackService : MediaSessionService() {
                         val connectionResult = super.onConnect(session, controller)
                         val sessionCommands = connectionResult.availableSessionCommands.buildUpon().apply {
                             add(SessionCommand(START_STREAM, Bundle.EMPTY))
+                            add(SessionCommand(UPDATE_VIEWING_METADATA, Bundle.EMPTY))
                             add(SessionCommand(START_VIDEO, Bundle.EMPTY))
                             add(SessionCommand(START_CLIP, Bundle.EMPTY))
                             add(SessionCommand(START_OFFLINE_VIDEO, Bundle.EMPTY))
@@ -234,6 +240,10 @@ class PlaybackService : MediaSessionService() {
 
                     override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
                         return when (customCommand.customAction) {
+                            UPDATE_VIEWING_METADATA -> {
+                                handleViewingMetadataCommand(customCommand.customExtras, session.player)
+                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                            }
                             START_STREAM -> {
                                 backgroundPlayback = false
                                 val uri = customCommand.customExtras.getString(URI)
@@ -858,7 +868,35 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private fun setViewingMetadata(
+    internal fun handleViewingMetadataCommand(extras: Bundle, player: Player) {
+        val streamId = extras.getString(STREAM_ID)
+        if (viewingContentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE ||
+            (streamId != null && streamId != viewingContentId)
+        ) {
+            return
+        }
+
+        // UPDATE_VIEWING_METADATA is a patch. A category is only updated when
+        // both identity fields are supplied so an incomplete refresh cannot
+        // create an inconsistent ID/name pair.
+        val nextCategory = mergeViewingCategoryPatch(
+            currentId = viewingCategoryId,
+            currentName = viewingCategoryName,
+            patchId = extras.getString(GAME_ID),
+            patchName = extras.getString(GAME_NAME),
+        )
+        viewingCategoryId = nextCategory.id
+        viewingCategoryName = nextCategory.name
+        if (extras.containsKey(GAME_IMAGE)) {
+            viewingCategoryImage = extras.getString(GAME_IMAGE)
+        }
+        if (extras.containsKey(TITLE)) {
+            viewingTitle = extras.getString(TITLE)
+        }
+        updateViewingStats(player)
+    }
+
+    internal fun setViewingMetadata(
         contentType: String,
         contentId: String?,
         extras: Bundle,
@@ -868,6 +906,10 @@ class PlaybackService : MediaSessionService() {
         viewingChannelLogin = extras.getString(CHANNEL_LOGIN)
         viewingChannelName = extras.getString(CHANNEL_NAME)
         viewingChannelImage = extras.getString(CHANNEL_LOGO)
+        viewingCategoryId = extras.getString(GAME_ID)
+        viewingCategoryName = extras.getString(GAME_NAME)
+        viewingCategoryImage = extras.getString(GAME_IMAGE)
+        viewingTitle = extras.getString(TITLE)
         viewingContentType = contentType
         viewingContentId = contentId
     }
@@ -892,8 +934,12 @@ class PlaybackService : MediaSessionService() {
                 channelLogin = viewingChannelLogin,
                 channelName = viewingChannelName,
                 channelImage = viewingChannelImage,
+                categoryId = viewingCategoryId,
+                categoryName = viewingCategoryName,
+                categoryImage = viewingCategoryImage,
                 contentType = contentType,
                 contentId = viewingContentId,
+                title = viewingTitle,
             ),
             isPlaying = player.isPlaying,
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
@@ -907,8 +953,12 @@ class PlaybackService : MediaSessionService() {
             channelLogin = viewingChannelLogin,
             channelName = viewingChannelName,
             channelImage = viewingChannelImage,
+            categoryId = viewingCategoryId,
+            categoryName = viewingCategoryName,
+            categoryImage = viewingCategoryImage,
             contentType = contentType,
             contentId = viewingContentId,
+            title = viewingTitle,
         )
     }
 
@@ -950,6 +1000,7 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val START_STREAM = "startStream"
+        const val UPDATE_VIEWING_METADATA = "updateViewingMetadata"
         const val START_VIDEO = "startVideo"
         const val START_CLIP = "startClip"
         const val START_OFFLINE_VIDEO = "startOfflineVideo"
@@ -975,6 +1026,9 @@ class PlaybackService : MediaSessionService() {
         const val CHANNEL_LOGIN = "channelLogin"
         const val CHANNEL_NAME = "channelName"
         const val CHANNEL_LOGO = "channelLogo"
+        const val GAME_ID = "gameId"
+        const val GAME_NAME = "gameName"
+        const val GAME_IMAGE = "gameImage"
         const val USING_PROXY = "usingProxy"
         const val PLAY_WHEN_READY = "playWhenReady"
         const val BACKGROUND_PLAYBACK = "backgroundPlayback"

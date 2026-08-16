@@ -18,6 +18,36 @@ data class ChannelWatchTotal(
     val channelName: String?,
     val channelImage: String?,
     val watchedMs: Long,
+    val sessionCount: Int = 0,
+)
+
+data class CategoryWatchTotal(
+    val categoryKey: String,
+    val categoryId: String?,
+    val categoryName: String?,
+    val categoryImage: String?,
+    val watchedMs: Long,
+    val sessionCount: Int = 0,
+)
+
+data class ContentTypeWatchTotal(
+    val contentType: String,
+    val watchedMs: Long,
+    val sessionCount: Int = 0,
+)
+
+data class TimelineWatchTotal(
+    val startAt: Long,
+    val endAt: Long,
+    val watchedMs: Long,
+    val sessionCount: Int,
+    val channelCount: Int = 0,
+)
+
+data class PatternWatchTotal(
+    val weekday: Int,
+    val timeBucket: Int,
+    val watchedMs: Long,
 )
 
 data class ViewingStatsCalculated(
@@ -51,7 +81,7 @@ object ViewingStatsMath {
         val totalWatchedMs = dailyTotals.fold(0L) { total, day -> safeAdd(total, day.watchedMs) }
         val channelTotals = linkedMapOf<String, MutableChannelTotal>()
         val sessionTotals = mutableMapOf<Long, Long>()
-        val timeBuckets = LongArray(TIME_BUCKET_COUNT)
+        val timeBuckets = LongArray(ViewingStatsRanges.TIME_BUCKET_COUNT)
 
         intervals.forEach { interval ->
             forEachSegment(interval, fromInclusive, toExclusive, timeZone, ::localDayStart) { start, end, watched ->
@@ -73,7 +103,7 @@ object ViewingStatsMath {
                 channel.watchedMs = safeAdd(channel.watchedMs, watched)
                 sessionTotals[interval.sessionId] = safeAdd(sessionTotals[interval.sessionId] ?: 0L, watched)
             }
-            forEachTimeBucketSegment(interval, fromInclusive, toExclusive, timeZone) { bucket, watched ->
+            forEachTimeBucketSegment(interval, fromInclusive, toExclusive, timeZone) { _, bucket, watched ->
                 timeBuckets[bucket] = safeAdd(timeBuckets[bucket], watched)
             }
         }
@@ -169,7 +199,43 @@ object ViewingStatsMath {
 
     fun timeBucket(timestamp: Long, timeZone: TimeZone): Int {
         val hour = Calendar.getInstance(timeZone).apply { timeInMillis = timestamp }.get(Calendar.HOUR_OF_DAY)
-        return (hour / HOURS_PER_BUCKET).coerceIn(0, TIME_BUCKET_COUNT - 1)
+        return (hour / ViewingStatsRanges.TIME_BUCKET_HOURS).coerceIn(
+            0,
+            ViewingStatsRanges.TIME_BUCKET_COUNT - 1,
+        )
+    }
+
+    /**
+     * Allocates an interval over every local 3-hour bucket it intersects.
+     * Checkpoints update an interval in place, so assigning all of its watch
+     * time to startAt would be incorrect for long sessions and midnight/DST.
+     */
+    fun patternTotals(
+        intervals: List<ViewingInterval>,
+        fromInclusive: Long,
+        toExclusive: Long,
+        timeZone: TimeZone,
+    ): List<PatternWatchTotal> {
+        val totals = LongArray(DAYS_IN_WEEK * ViewingStatsRanges.TIME_BUCKET_COUNT)
+        intervals.forEach { interval ->
+            forEachTimeBucketSegment(interval, fromInclusive, toExclusive, timeZone) { weekday, bucket, watched ->
+                val index = weekday * ViewingStatsRanges.TIME_BUCKET_COUNT + bucket
+                totals[index] = safeAdd(totals[index], watched)
+            }
+        }
+        return buildList {
+            totals.forEachIndexed { index, watchedMs ->
+                if (watchedMs > 0L) {
+                    add(
+                        PatternWatchTotal(
+                            weekday = index / ViewingStatsRanges.TIME_BUCKET_COUNT,
+                            timeBucket = index % ViewingStatsRanges.TIME_BUCKET_COUNT,
+                            watchedMs = watchedMs,
+                        )
+                    )
+                }
+            }
+        }
     }
 
     private fun forEachSegment(
@@ -194,10 +260,7 @@ object ViewingStatsMath {
         var assigned = 0L
         while (cursor < clippedEnd) {
             val boundary = boundaryStart(cursor, timeZone)
-            val nextBoundary = when (boundaryStart) {
-                ::localDayStart -> ViewingStatsRanges.nextLocalDayStart(boundary, timeZone)
-                else -> nextLocalTimeBucketStart(boundary, timeZone)
-            }
+            val nextBoundary = ViewingStatsRanges.nextLocalDayStart(boundary, timeZone)
             val segmentEnd = min(clippedEnd, max(cursor + 1L, nextBoundary))
             val isLast = segmentEnd >= clippedEnd
             val watched = if (isLast) {
@@ -216,7 +279,7 @@ object ViewingStatsMath {
         fromInclusive: Long,
         toExclusive: Long,
         timeZone: TimeZone,
-        block: (bucket: Int, watchedMs: Long) -> Unit,
+        block: (weekday: Int, bucket: Int, watchedMs: Long) -> Unit,
     ) {
         val intervalStart = interval.startAt
         val intervalEnd = interval.endAt
@@ -227,39 +290,24 @@ object ViewingStatsMath {
         val wallDuration = intervalEnd - intervalStart
         val clippedDuration = clippedEnd - clippedStart
         val clippedWatchedMs = proportional(interval.watchedMs, clippedDuration, wallDuration)
-        var cursor = clippedStart
         var assigned = 0L
-        while (cursor < clippedEnd) {
-            val bucketStart = localTimeBucketStart(cursor, timeZone)
-            val nextBoundary = nextLocalTimeBucketStart(bucketStart, timeZone)
-            val segmentEnd = min(clippedEnd, max(cursor + 1L, nextBoundary))
+        val buckets = ViewingStatsRanges.dailyBuckets(
+            ViewingStatsRangeBounds(clippedStart, clippedEnd),
+            timeZone,
+        ).flatMap { ViewingStatsRanges.timeBucketsForLocalDay(it.startAt, timeZone) }
+        buckets.forEach { bucket ->
+            val segmentStart = max(clippedStart, bucket.startAt)
+            val segmentEnd = min(clippedEnd, bucket.endAt)
+            if (segmentEnd <= segmentStart) return@forEach
             val isLast = segmentEnd >= clippedEnd
             val watched = if (isLast) {
                 max(0L, clippedWatchedMs - assigned)
             } else {
-                proportional(clippedWatchedMs, segmentEnd - cursor, clippedDuration)
+                proportional(clippedWatchedMs, segmentEnd - segmentStart, clippedDuration)
             }
-            block(timeBucket(cursor, timeZone), watched)
+            block(weekday(bucket.startAt, timeZone), timeBucket(bucket.startAt, timeZone), watched)
             assigned = safeAdd(assigned, watched)
-            cursor = segmentEnd
         }
-    }
-
-    private fun localTimeBucketStart(timestamp: Long, timeZone: TimeZone): Long {
-        return Calendar.getInstance(timeZone).apply {
-            timeInMillis = timestamp
-            set(Calendar.HOUR_OF_DAY, get(Calendar.HOUR_OF_DAY) / HOURS_PER_BUCKET * HOURS_PER_BUCKET)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-    }
-
-    private fun nextLocalTimeBucketStart(bucketStart: Long, timeZone: TimeZone): Long {
-        return Calendar.getInstance(timeZone).apply {
-            timeInMillis = bucketStart
-            add(Calendar.HOUR_OF_DAY, HOURS_PER_BUCKET)
-        }.timeInMillis
     }
 
     private fun proportional(total: Long, numerator: Long, denominator: Long): Long {
@@ -297,6 +345,4 @@ object ViewingStatsMath {
     )
 
     private const val DAYS_IN_WEEK = 7
-    private const val HOURS_PER_BUCKET = 3
-    private const val TIME_BUCKET_COUNT = 24 / HOURS_PER_BUCKET
 }
