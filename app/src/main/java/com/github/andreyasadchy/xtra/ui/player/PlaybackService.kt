@@ -13,6 +13,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.util.Base64
 import androidx.annotation.OptIn
+import androidx.lifecycle.lifecycleScope
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
@@ -53,7 +54,6 @@ import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
-import kotlinx.coroutines.runBlocking
 import okhttp3.Credentials
 import org.chromium.net.CronetEngine
 import org.chromium.net.CronetProvider
@@ -66,6 +66,7 @@ import java.net.ProxySelector
 import java.net.SocketAddress
 import java.net.URI
 import java.util.Timer
+import kotlinx.coroutines.launch
 import kotlin.concurrent.schedule
 import kotlin.concurrent.scheduleAtFixedRate
 
@@ -706,8 +707,10 @@ class PlaybackService : MediaSessionService() {
                                         schedule(duration) {
                                             Handler(Looper.getMainLooper()).post {
                                                 savePosition()
-                                                mediaSession?.player?.clearMediaItems()
-                                                pauseAllPlayersAndStopSelf()
+                                                runAfterPlaybackPersistence {
+                                                    mediaSession?.player?.clearMediaItems()
+                                                    pauseAllPlayersAndStopSelf()
+                                                }
                                             }
                                         }
                                     }
@@ -797,16 +800,19 @@ class PlaybackService : MediaSessionService() {
         mediaSession?.player?.let { player ->
             if (!player.currentTracks.isEmpty && prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
                 videoId?.let {
-                    runBlocking {
-                        xtraModule.playerRepository.saveVideoPosition(VideoPosition(it, player.currentPosition))
-                    }
+                    xtraModule.playbackPersistence.saveVideoPosition(VideoPosition(it, player.currentPosition))
                 } ?:
                 offlineVideoId?.let {
-                    runBlocking {
-                        xtraModule.offlineVideosRepository.updatePosition(it, player.currentPosition)
-                    }
+                    xtraModule.playbackPersistence.saveOfflineVideoPosition(it, player.currentPosition)
                 }
             }
+        }
+    }
+
+    private fun runAfterPlaybackPersistence(action: () -> Unit) {
+        lifecycleScope.launch {
+            xtraModule.playbackPersistence.flush()
+            action()
         }
     }
 
@@ -818,14 +824,10 @@ class PlaybackService : MediaSessionService() {
                 if (savedPosition == null || currentPosition - savedPosition !in 0..2000) {
                     lastSavedPosition = currentPosition
                     videoId?.let {
-                        runBlocking {
-                            xtraModule.playerRepository.saveVideoPosition(VideoPosition(it, currentPosition))
-                        }
+                        xtraModule.playbackPersistence.saveVideoPosition(VideoPosition(it, currentPosition))
                     } ?:
                     offlineVideoId?.let {
-                        runBlocking {
-                            xtraModule.offlineVideosRepository.updatePosition(it, currentPosition)
-                        }
+                        xtraModule.playbackPersistence.saveOfflineVideoPosition(it, currentPosition)
                     }
                 }
             }
@@ -925,7 +927,9 @@ class PlaybackService : MediaSessionService() {
             return
         }
         player?.clearMediaItems()
-        pauseAllPlayersAndStopSelf()
+        runAfterPlaybackPersistence {
+            pauseAllPlayersAndStopSelf()
+        }
     }
 
     override fun onDestroy() {

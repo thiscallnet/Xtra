@@ -559,4 +559,27 @@
     <string name="recent_messages_api_url">Recent messages API URL</string>
     <string name="access_local_network_title">Grant local network permission</string>
     <string name="access_local_network_desc">Required for connecting to local proxies</string>
+    <string name="credentials_revoke_failed">Beberapa kredensial Twitch sebelumnya tidak dapat dicabut.</string>
+    <string name="settings_api_login">API login</string>
+    <string name="api_helix_client_id_sensitive">ID klien Helix (sensitif)</string>
+    <string name="api_helix_redirect_sensitive">Pengalihan Helix (sensitif)</string>
+    <string name="api_gql_client_id_sensitive">ID klien GraphQL (sensitif)</string>
+    <string name="api_user_id_sensitive">ID pengguna (sensitif)</string>
+    <string name="api_username_sensitive">Nama pengguna (sensitif)</string>
+    <string name="api_helix_token_sensitive">Token Helix (sensitif)</string>
+    <string name="api_gql_token_sensitive">Token GraphQL (sensitif)</string>
+    <string name="api_web_gql_token_sensitive">Token Web GraphQL (sensitif)</string>
+    <string name="gql_headers_sensitive">Header GraphQL (sensitif)</string>
+    <string name="use_eventsub_chat_experimental">Gunakan chat EventSub (eksperimental)</string>
+    <string name="settings_section_support">Dukungan</string>
+    <string name="settings_download_wifi_only_summary">Mulai unduhan hanya saat terhubung ke Wi‑Fi.</string>
+    <string name="settings_download_single_file_summary">Simpan video yang diunduh sebagai satu file media, bukan dalam format tersegmentasi Xtra.</string>
+    <string name="settings_import_downloads_summary">Temukan unduhan Xtra yang saat ini tidak ditampilkan di pustaka Anda.</string>
+    <string name="settings_download_start_wait_summary">Menit untuk menunggu unduhan live yang diantrekan dimulai.</string>
+    <string name="settings_download_restart_wait_summary">Tetap menunggu sebentar setelah siaran berakhir agar mulai ulang dengan cepat dapat melanjutkan pengambilan.</string>
+    <string name="live_notifications_following_summary">Aktifkan peringatan live secara otomatis untuk channel yang Anda ikuti melalui Xtra.</string>
+    <string name="settings_customize_controls_summary">Kontrol cepat, menu Lainnya, dan kontrol tersembunyi</string>
+    <string name="settings_playback_speed_options_summary">Pilih dan urutkan ulang nilai kecepatan</string>
+    <string name="settings_double_tap_chat_summary">Alihkan chat dengan mengetuk dua kali saat menonton.</string>
+    <string name="avoid_rounded_corners_summary">Atur jarak konten pemutar agar sudut melengkung fisik dan potongan layar tidak menutupi video atau kontrol.</string>
 </resources>

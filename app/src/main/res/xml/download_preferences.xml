@@ -1,11 +1,11 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
     <PreferenceCategory android:title="@string/settings_download_network" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="false" android:key="download_wifi_only" android:summary="Only start downloads while connected to Wi-Fi." android:title="Download over Wi-Fi only" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="download_wifi_only" android:summary="@string/settings_download_wifi_only_summary" android:title="@string/download_wifi_only" app:iconSpaceReserved="false" />
     <PreferenceCategory android:title="@string/settings_download_files" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="false" android:key="download_playlist_to_file" android:summary="Store downloaded videos as one media file instead of Xtra's segmented format." android:title="Save videos as a single file" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="download_playlist_to_file" android:summary="@string/settings_download_single_file_summary" android:title="@string/download_vod_to_file" app:iconSpaceReserved="false" />
     <PreferenceCategory android:title="@string/settings_download_performance" app:iconSpaceReserved="false" />
-    <SeekBarPreference android:defaultValue="2" android:key="download_limit" android:max="4" android:title="Simultaneous downloads" app:iconSpaceReserved="false" app:min="1" app:showSeekBarValue="true" />
+    <SeekBarPreference android:defaultValue="2" android:key="download_limit" android:max="4" android:title="@string/concurrent_downloads" app:iconSpaceReserved="false" app:min="1" app:showSeekBarValue="true" />
     <Preference android:key="download_live_page" android:title="@string/settings_live_downloads" app:iconSpaceReserved="false" />
     <PreferenceCategory android:title="@string/settings_download_data" app:iconSpaceReserved="false" />
-    <Preference android:key="import_app_downloads" android:summary="Find Xtra downloads that aren't currently shown in your library." android:title="Import existing downloads" app:iconSpaceReserved="false" />
+    <Preference android:key="import_app_downloads" android:summary="@string/settings_import_downloads_summary" android:title="@string/import_app_downloads" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

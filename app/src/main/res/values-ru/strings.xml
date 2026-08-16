@@ -558,4 +558,27 @@
     <string name="recent_messages_api_url">Recent messages API URL</string>
     <string name="access_local_network_title">Grant local network permission</string>
     <string name="access_local_network_desc">Required for connecting to local proxies</string>
+    <string name="credentials_revoke_failed">Некоторые предыдущие учетные данные Twitch не удалось отозвать.</string>
+    <string name="settings_api_login">API входа</string>
+    <string name="api_helix_client_id_sensitive">Идентификатор клиента Helix (конфиденциальный)</string>
+    <string name="api_helix_redirect_sensitive">Перенаправление Helix (конфиденциальное)</string>
+    <string name="api_gql_client_id_sensitive">Идентификатор клиента GraphQL (конфиденциальный)</string>
+    <string name="api_user_id_sensitive">ID пользователя (конфиденциальный)</string>
+    <string name="api_username_sensitive">Имя пользователя (конфиденциальное)</string>
+    <string name="api_helix_token_sensitive">Токен Helix (конфиденциальный)</string>
+    <string name="api_gql_token_sensitive">Токен GraphQL (конфиденциальный)</string>
+    <string name="api_web_gql_token_sensitive">Токен веб-GraphQL (конфиденциальный)</string>
+    <string name="gql_headers_sensitive">Заголовки GraphQL (конфиденциальные)</string>
+    <string name="use_eventsub_chat_experimental">Использовать чат EventSub (экспериментально)</string>
+    <string name="settings_section_support">Поддержка</string>
+    <string name="settings_download_wifi_only_summary">Запускать загрузки только при подключении к Wi‑Fi.</string>
+    <string name="settings_download_single_file_summary">Сохранять загруженные видео одним медиафайлом вместо сегментированного формата Xtra.</string>
+    <string name="settings_import_downloads_summary">Найти загрузки Xtra, которые сейчас не отображаются в вашей медиатеке.</string>
+    <string name="settings_download_start_wait_summary">Минуты ожидания запуска поставленной в очередь прямой трансляции.</string>
+    <string name="settings_download_restart_wait_summary">Недолго продолжать ожидание после окончания трансляции, чтобы быстрое возобновление могло продолжить захват.</string>
+    <string name="live_notifications_following_summary">Автоматически включать уведомления о трансляциях для каналов, на которые вы подписаны через Xtra.</string>
+    <string name="settings_customize_controls_summary">Быстрые элементы управления, меню «Еще» и скрытые элементы</string>
+    <string name="settings_playback_speed_options_summary">Выбирать и менять порядок значений скорости</string>
+    <string name="settings_double_tap_chat_summary">Переключать чат двойным нажатием во время просмотра.</string>
+    <string name="avoid_rounded_corners_summary">Сместить содержимое плеера внутрь, чтобы физические закругленные углы и вырезы не закрывали видео или элементы управления.</string>
 </resources>

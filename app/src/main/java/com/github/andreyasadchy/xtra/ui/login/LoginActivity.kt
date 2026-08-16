@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
@@ -45,6 +46,7 @@ import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.google.android.material.slider.Slider
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -183,28 +185,28 @@ class LoginActivity : AppCompatActivity() {
                     putString(C.PROFILE_IMAGE_URL, null)
                     putString(C.PROFILE_IMAGE_USER_ID, null)
                 }
-                lifecycleScope.launch {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    var failedRevocations = 0
                     if (!helixClientId.isNullOrBlank() && !oldHelixToken.isNullOrBlank()) {
-                        try {
-                            xtraModule.authRepository.revoke(networkLibrary, "client_id=${helixClientId}&token=${oldHelixToken}")
-                        } catch (e: Exception) {
-
+                        if (!revokeToken(networkLibrary, helixClientId, oldHelixToken, "Helix")) {
+                            failedRevocations += 1
                         }
                     }
                     val gqlClientId = gqlHeaders[C.HEADER_CLIENT_ID]
                     if (!gqlClientId.isNullOrBlank() && !oldGQLToken.isNullOrBlank() && oldGQLToken != oldGQLWebToken) {
-                        try {
-                            xtraModule.authRepository.revoke(networkLibrary, "client_id=${gqlClientId}&token=${oldGQLToken}")
-                        } catch (e: Exception) {
-
+                        if (!revokeToken(networkLibrary, gqlClientId, oldGQLToken, "GraphQL")) {
+                            failedRevocations += 1
                         }
                     }
                     val gqlWebClientId = prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
                     if (!gqlWebClientId.isNullOrBlank() && !oldGQLWebToken.isNullOrBlank()) {
-                        try {
-                            xtraModule.authRepository.revoke(networkLibrary, "client_id=${gqlWebClientId}&token=${oldGQLWebToken}")
-                        } catch (e: Exception) {
-
+                        if (!revokeToken(networkLibrary, gqlWebClientId, oldGQLWebToken, "Web GraphQL")) {
+                            failedRevocations += 1
+                        }
+                    }
+                    if (failedRevocations > 0) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@LoginActivity, R.string.credentials_revoke_failed, Toast.LENGTH_LONG).show()
                         }
                     }
                 }
@@ -871,18 +873,24 @@ class LoginActivity : AppCompatActivity() {
             return
         }
         lifecycleScope.launch {
-            withContext(Dispatchers.IO) {
+            val failedRevocations = withContext(Dispatchers.IO) {
                 revokePreviousCredentials()
+            }
+            if (failedRevocations > 0) {
+                Toast.makeText(this@LoginActivity, R.string.credentials_revoke_failed, Toast.LENGTH_LONG).show()
             }
             setResult(RESULT_OK)
             finish()
         }
     }
 
-    private suspend fun revokePreviousCredentials() {
+    private suspend fun revokePreviousCredentials(): Int {
+        var failedRevocations = 0
         val networkLibrary = previousNetworkLibrary
         if (!previousHelixToken.isNullOrBlank() && !helixToken.isNullOrBlank() && previousHelixToken != helixToken) {
-            revokeToken(networkLibrary, previousHelixClientId, previousHelixToken)
+            if (!revokeToken(networkLibrary, previousHelixClientId, previousHelixToken, "previous Helix")) {
+                failedRevocations += 1
+            }
         }
         if (
             !previousGqlToken.isNullOrBlank() &&
@@ -891,23 +899,37 @@ class LoginActivity : AppCompatActivity() {
             previousGqlToken != gqlToken &&
             previousGqlToken != gqlWebToken
         ) {
-            revokeToken(networkLibrary, previousGqlClientId, previousGqlToken)
+            if (!revokeToken(networkLibrary, previousGqlClientId, previousGqlToken, "previous GraphQL")) {
+                failedRevocations += 1
+            }
         }
         if (
             !previousGqlWebToken.isNullOrBlank() &&
             !gqlWebToken.isNullOrBlank() &&
             previousGqlWebToken != gqlWebToken
         ) {
-            revokeToken(networkLibrary, previousGqlWebClientId, previousGqlWebToken)
+            if (!revokeToken(networkLibrary, previousGqlWebClientId, previousGqlWebToken, "previous Web GraphQL")) {
+                failedRevocations += 1
+            }
         }
+        return failedRevocations
     }
 
-    private suspend fun revokeToken(networkLibrary: String?, clientId: String?, token: String?) {
-        if (clientId.isNullOrBlank() || token.isNullOrBlank()) return
+    private suspend fun revokeToken(
+        networkLibrary: String?,
+        clientId: String?,
+        token: String?,
+        credentialName: String,
+    ): Boolean {
+        if (clientId.isNullOrBlank() || token.isNullOrBlank()) return true
         try {
             xtraModule.authRepository.revoke(networkLibrary, "client_id=$clientId&token=$token")
-        } catch (_: Exception) {
-            // Reauthorization has already replaced the stored credentials.
+            return true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(LOG_TAG, "Unable to revoke $credentialName credentials (${e.javaClass.simpleName})")
+            return false
         }
     }
 
@@ -918,5 +940,6 @@ class LoginActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_REAUTHORIZE = "com.github.andreyasadchy.xtra.REAUTHORIZE"
+        private const val LOG_TAG = "LoginActivity"
     }
 }

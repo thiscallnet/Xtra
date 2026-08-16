@@ -131,6 +131,7 @@ class MainActivity : AppCompatActivity() {
     private var updateDialogReleaseId: String? = null
     private var networkSnackbar: Snackbar? = null
     private var fragmentLifecycleCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
+    private var startupTasksReady = false
 
     //Lifecycle methods
 
@@ -139,18 +140,10 @@ class MainActivity : AppCompatActivity() {
         prefs = prefs()
         migrateSettings()
         LiveNotificationScheduler.migrateMode(this)
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.integrity.collect {
-                    if (prefs.getBoolean(C.USE_WEBVIEW_INTEGRITY, true)) {
-                        getNewIntegrityToken(null, supportFragmentManager)
-                    }
-                }
-            }
-        }
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        observeIntegrityRefreshes()
         fragmentLifecycleCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
             override fun onFragmentViewCreated(
                 fragmentManager: FragmentManager,
@@ -231,20 +224,10 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                             if (isNetworkAvailable) {
-                                (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.onNetworkRestored()
-                                if (!TwitchApiHelper.checkedValidation) {
-                                    viewModel.validate(
-                                        prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                        TwitchApiHelper.getGQLHeaders(this@MainActivity, true),
-                                        prefs.getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB),
-                                        tokenPrefs().getString(C.GQL_TOKEN_WEB, null)?.takeIf { it.isNotBlank() }?.let { TwitchApiHelper.addTokenPrefixGQL(it) },
-                                        TwitchApiHelper.getHelixHeaders(this@MainActivity),
-                                        this@MainActivity.tokenPrefs().getString(C.USER_ID, null),
-                                        this@MainActivity.tokenPrefs().getString(C.USERNAME, null),
-                                        this@MainActivity
-                                    )
+                                binding.root.post {
+                                    if (isFinishing || isDestroyed || !startupTasksReady) return@post
+                                    handleNetworkAvailable()
                                 }
-                                checkUpdatesIfDue()
                             }
                         }
                         viewModel.checkNetworkStatus.value = false
@@ -530,6 +513,26 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        binding.root.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            startupTasksReady = true
+            runDeferredStartupTasks()
+        }, 250L)
+    }
+
+    private fun observeIntegrityRefreshes() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.integrity.collect {
+                    if (prefs.getBoolean(C.USE_WEBVIEW_INTEGRITY, true)) {
+                        getNewIntegrityToken(null, supportFragmentManager)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun runDeferredStartupTasks() {
         if (prefs.getBoolean(C.ENABLE_INTEGRITY, false) && TwitchApiHelper.isIntegrityTokenExpired(this)) {
             getNewIntegrityToken(null, supportFragmentManager)
         }
@@ -541,6 +544,35 @@ class MainActivity : AppCompatActivity() {
             }
             LiveNotificationScheduler.disable(this)
         }
+        if (hasValidatedNetwork()) {
+            handleNetworkAvailable()
+        } else {
+            checkUpdatesIfDue()
+        }
+    }
+
+    private fun hasValidatedNetwork(): Boolean {
+        val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+        return capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private fun handleNetworkAvailable() {
+        (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.onNetworkRestored()
+        if (!TwitchApiHelper.checkedValidation) {
+            viewModel.validate(
+                prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                TwitchApiHelper.getGQLHeaders(this, true),
+                prefs.getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB),
+                tokenPrefs().getString(C.GQL_TOKEN_WEB, null)?.takeIf { it.isNotBlank() }?.let { TwitchApiHelper.addTokenPrefixGQL(it) },
+                TwitchApiHelper.getHelixHeaders(this),
+                tokenPrefs().getString(C.USER_ID, null),
+                tokenPrefs().getString(C.USERNAME, null),
+                this
+            )
+        }
+        checkUpdatesIfDue()
     }
 
     private fun showUpdateDialog(release: UpdateRelease) {
@@ -671,7 +703,9 @@ class MainActivity : AppCompatActivity() {
             LiveNotificationScheduler.disable(this)
         }
         updateRepository.resumePendingInstall()
-        checkUpdatesIfDue()
+        if (startupTasksReady) {
+            checkUpdatesIfDue()
+        }
         updateSettingsIndicator()
         restorePlayerFragment()
     }

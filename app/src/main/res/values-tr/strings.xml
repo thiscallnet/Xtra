@@ -559,4 +559,27 @@
     <string name="recent_messages_api_url">Recent messages API URL</string>
     <string name="access_local_network_title">Grant local network permission</string>
     <string name="access_local_network_desc">Required for connecting to local proxies</string>
+    <string name="credentials_revoke_failed">Önceki Twitch kimlik bilgilerinin bazıları iptal edilemedi.</string>
+    <string name="settings_api_login">Giriş API\'si</string>
+    <string name="api_helix_client_id_sensitive">Helix istemci kimliği (hassas)</string>
+    <string name="api_helix_redirect_sensitive">Helix yönlendirmesi (hassas)</string>
+    <string name="api_gql_client_id_sensitive">GraphQL istemci kimliği (hassas)</string>
+    <string name="api_user_id_sensitive">Kullanıcı kimliği (hassas)</string>
+    <string name="api_username_sensitive">Kullanıcı adı (hassas)</string>
+    <string name="api_helix_token_sensitive">Helix belirteci (hassas)</string>
+    <string name="api_gql_token_sensitive">GraphQL belirteci (hassas)</string>
+    <string name="api_web_gql_token_sensitive">Web GraphQL belirteci (hassas)</string>
+    <string name="gql_headers_sensitive">GraphQL üst bilgileri (hassas)</string>
+    <string name="use_eventsub_chat_experimental">EventSub sohbetini kullan (deneysel)</string>
+    <string name="settings_section_support">Destek</string>
+    <string name="settings_download_wifi_only_summary">İndirmeleri yalnızca Wi‑Fi bağlantısı varken başlat.</string>
+    <string name="settings_download_single_file_summary">İndirilen videoları Xtra\'nın bölümlü biçimi yerine tek bir medya dosyası olarak sakla.</string>
+    <string name="settings_import_downloads_summary">Şu anda kitaplığında gösterilmeyen Xtra indirmelerini bul.</string>
+    <string name="settings_download_start_wait_summary">Sıraya alınmış canlı indirmenin başlamasını bekleme süresi (dakika).</string>
+    <string name="settings_download_restart_wait_summary">Yayın sona erdikten sonra kısa süre beklemeye devam et; hızlı bir yeniden başlatma yakalamayı sürdürebilsin.</string>
+    <string name="live_notifications_following_summary">Xtra üzerinden takip ettiğin kanallar için canlı uyarıları otomatik etkinleştir.</string>
+    <string name="settings_customize_controls_summary">Hızlı kontroller, Daha Fazla menüsü ve gizli kontroller</string>
+    <string name="settings_playback_speed_options_summary">Hız değerlerini seç ve yeniden sırala</string>
+    <string name="settings_double_tap_chat_summary">İzlerken iki kez dokunarak sohbeti aç veya kapat.</string>
+    <string name="avoid_rounded_corners_summary">Fiziksel yuvarlatılmış köşeler ve kamera kesikleri videoyu veya kontrolleri kapatmasın diye oynatıcı içeriğini içeri al.</string>
 </resources>

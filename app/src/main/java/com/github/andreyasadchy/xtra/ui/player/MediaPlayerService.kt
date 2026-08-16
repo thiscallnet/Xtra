@@ -39,7 +39,6 @@ import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
-import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -55,7 +54,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Credentials
@@ -1809,10 +1807,12 @@ class MediaPlayerService : BasePlaybackService() {
                 schedule(duration) {
                     Handler(Looper.getMainLooper()).post {
                         savePosition()
-                        player?.pause()
-                        updatePlayingState()
-                        playerListener?.onIsPlayingChanged()
-                        stopSelf()
+                        runAfterPlaybackPersistence {
+                            player?.pause()
+                            updatePlayingState()
+                            playerListener?.onIsPlayingChanged()
+                            stopSelf()
+                        }
                     }
                 }
             }
@@ -1827,7 +1827,9 @@ class MediaPlayerService : BasePlaybackService() {
                 stopServiceTimer = Timer().apply {
                     schedule(600000) {
                         Handler(Looper.getMainLooper()).post {
-                            stopSelf()
+                            runAfterPlaybackPersistence {
+                                stopSelf()
+                            }
                         }
                     }
                 }
@@ -1886,24 +1888,14 @@ class MediaPlayerService : BasePlaybackService() {
                 if (prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
                     when (type) {
                         VIDEO -> {
-                            videoId?.toLongOrNull()?.let {
-                                runBlocking {
-                                    xtraModule.playerRepository.saveVideoPosition(VideoPosition(it, currentPosition))
-                                }
-                            }
+                            saveVideoPosition(currentPosition)
                         }
                         OFFLINE_VIDEO -> {
-                            offlineVideoId?.let {
-                                runBlocking {
-                                    xtraModule.offlineVideosRepository.updatePosition(it, currentPosition)
-                                }
-                            }
+                            saveVideoPosition(currentPosition)
                         }
                     }
                 }
-                runBlocking {
-                    xtraModule.playerRepository.deletePlaybackStates()
-                }
+                deletePlaybackStates()
             }
         }
     }
@@ -1941,7 +1933,9 @@ class MediaPlayerService : BasePlaybackService() {
                     stopServiceTimer = Timer().apply {
                         schedule(600000) {
                             Handler(Looper.getMainLooper()).post {
-                                stopSelf()
+                                runAfterPlaybackPersistence {
+                                    stopSelf()
+                                }
                             }
                         }
                     }
@@ -1959,26 +1953,9 @@ class MediaPlayerService : BasePlaybackService() {
                 if (savedPosition == null || currentPosition - savedPosition !in 0..2000) {
                     lastSavedPosition = currentPosition
                     if (prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
-                        when (type) {
-                            VIDEO -> {
-                                videoId?.toLongOrNull()?.let {
-                                    runBlocking {
-                                        xtraModule.playerRepository.saveVideoPosition(VideoPosition(it, currentPosition))
-                                    }
-                                }
-                            }
-                            OFFLINE_VIDEO -> {
-                                offlineVideoId?.let {
-                                    runBlocking {
-                                        xtraModule.offlineVideosRepository.updatePosition(it, currentPosition)
-                                    }
-                                }
-                            }
-                        }
+                        saveVideoPosition(currentPosition)
                     }
-                    runBlocking {
-                        savePlaybackState(currentPosition, !runCatching { player.isPlaying }.getOrDefault(false))
-                    }
+                    savePlaybackState(currentPosition, !runCatching { player.isPlaying }.getOrDefault(false))
                 }
             }
         }
@@ -2039,7 +2016,9 @@ class MediaPlayerService : BasePlaybackService() {
         runCatching { player?.pause() }
         updatePlayingState()
         playerListener?.onIsPlayingChanged()
-        stopSelf()
+        runAfterPlaybackPersistence {
+            stopSelf()
+        }
     }
 
     override fun onDestroy() {

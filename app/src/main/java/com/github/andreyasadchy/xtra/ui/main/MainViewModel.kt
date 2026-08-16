@@ -32,6 +32,7 @@ import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
+import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -63,6 +64,7 @@ class MainViewModel(
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
     private val playerRepository: PlayerRepository,
+    private val playbackPersistence: PlaybackPersistence,
     private val offlineVideosRepository: OfflineVideosRepository,
     private val localChannelFollowsRepository: LocalChannelFollowsRepository,
     private val authRepository: AuthRepository,
@@ -95,16 +97,14 @@ class MainViewModel(
     val tag = MutableStateFlow<Tag?>(null)
 
     fun savePlaybackState(item: PlaybackState) {
-        viewModelScope.launch {
-            playerRepository.savePlaybackStates(listOf(item))
-        }
+        playbackPersistence.savePlaybackState(item)
     }
 
     fun getPlaybackStates() {
         if (!loadingPlaybackStates) {
             loadingPlaybackStates = true
             viewModelScope.launch {
-                playbackStates.emit(playerRepository.getPlaybackStates())
+                playbackStates.emit(playbackPersistence.getPlaybackStatesAndWait())
             }.invokeOnCompletion {
                 loadingPlaybackStates = false
             }
@@ -275,19 +275,15 @@ class MainViewModel(
     }
 
     fun saveVideoPosition(id: Long, position: Long) {
-        viewModelScope.launch {
-            playerRepository.saveVideoPosition(VideoPosition(id, position))
-        }
+        playbackPersistence.saveVideoPosition(VideoPosition(id, position))
     }
 
     suspend fun savePosition(id: Long, position: Long) {
-        playerRepository.saveVideoPosition(VideoPosition(id, position))
+        playbackPersistence.saveVideoPositionAndWait(VideoPosition(id, position))
     }
 
     fun saveOfflineVideoPosition(id: Int, position: Long) {
-        viewModelScope.launch {
-            offlineVideosRepository.updatePosition(id, position)
-        }
+        playbackPersistence.saveOfflineVideoPosition(id, position)
     }
 
     fun loadClip(clipId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
@@ -1124,7 +1120,7 @@ class MainViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                MainViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.authRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient)
+                MainViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.playbackPersistence, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.authRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient)
             }
         }
     }

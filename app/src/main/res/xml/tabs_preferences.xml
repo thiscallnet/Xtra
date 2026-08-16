@@ -1,10 +1,10 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <PreferenceCategory android:title="Main navigation" app:iconSpaceReserved="false" />
-    <Preference android:key="ui_navigation_tab_list_dialog" android:title="Home navigation" app:iconSpaceReserved="false" />
-    <PreferenceCategory android:title="Content pages" app:iconSpaceReserved="false" />
-    <Preference android:key="ui_following_tabs_dialog" android:title="Following" app:iconSpaceReserved="false" />
-    <Preference android:key="ui_saved_tabs_dialog" android:title="Saved" app:iconSpaceReserved="false" />
-    <Preference android:key="ui_channel_tabs_dialog" android:title="Channel pages" app:iconSpaceReserved="false" />
-    <Preference android:key="ui_game_tabs_dialog" android:title="Game pages" app:iconSpaceReserved="false" />
-    <Preference android:key="ui_search_tabs_dialog" android:title="Search results" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_navigation" app:iconSpaceReserved="false" />
+    <Preference android:key="ui_navigation_tab_list_dialog" android:title="@string/settings_navigation" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_ui_content" app:iconSpaceReserved="false" />
+    <Preference android:key="ui_following_tabs_dialog" android:title="@string/following_tabs" app:iconSpaceReserved="false" />
+    <Preference android:key="ui_saved_tabs_dialog" android:title="@string/saved_tabs" app:iconSpaceReserved="false" />
+    <Preference android:key="ui_channel_tabs_dialog" android:title="@string/channel_tabs" app:iconSpaceReserved="false" />
+    <Preference android:key="ui_game_tabs_dialog" android:title="@string/game_tabs" app:iconSpaceReserved="false" />
+    <Preference android:key="ui_search_tabs_dialog" android:title="@string/search_tabs" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

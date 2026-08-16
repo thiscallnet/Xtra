@@ -1,5 +1,5 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_paints" android:title="Name paints" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_stv_badges" android:title="Badges" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_personal_emotes" android:title="Personal emotes" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_paints" android:title="@string/show_name_paints" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_stv_badges" android:title="@string/show_stv_badges" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_personal_emotes" android:title="@string/show_stv_personal_emotes" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

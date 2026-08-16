@@ -563,4 +563,27 @@
     <string name="recent_messages_api_url">Recent messages API URL</string>
     <string name="access_local_network_title">Grant local network permission</string>
     <string name="access_local_network_desc">Required for connecting to local proxies</string>
+    <string name="credentials_revoke_failed">No se pudieron revocar algunas credenciales anteriores de Twitch.</string>
+    <string name="settings_api_login">API de inicio de sesión</string>
+    <string name="api_helix_client_id_sensitive">ID de cliente de Helix (sensible)</string>
+    <string name="api_helix_redirect_sensitive">Redirección de Helix (sensible)</string>
+    <string name="api_gql_client_id_sensitive">ID de cliente de GraphQL (sensible)</string>
+    <string name="api_user_id_sensitive">ID de usuario (sensible)</string>
+    <string name="api_username_sensitive">Nombre de usuario (sensible)</string>
+    <string name="api_helix_token_sensitive">Token de Helix (sensible)</string>
+    <string name="api_gql_token_sensitive">Token de GraphQL (sensible)</string>
+    <string name="api_web_gql_token_sensitive">Token de Web GraphQL (sensible)</string>
+    <string name="gql_headers_sensitive">Cabeceras de GraphQL (sensible)</string>
+    <string name="use_eventsub_chat_experimental">Usar el chat de EventSub (experimental)</string>
+    <string name="settings_section_support">Asistencia</string>
+    <string name="settings_download_wifi_only_summary">Iniciar las descargas solo mientras haya conexión a Wi‑Fi.</string>
+    <string name="settings_download_single_file_summary">Guardar los vídeos descargados como un solo archivo multimedia en lugar del formato segmentado de Xtra.</string>
+    <string name="settings_import_downloads_summary">Buscar descargas de Xtra que no se muestran actualmente en tu biblioteca.</string>
+    <string name="settings_download_start_wait_summary">Minutos de espera para iniciar una descarga en directo en cola.</string>
+    <string name="settings_download_restart_wait_summary">Seguir esperando brevemente después de que termine un directo para que un reinicio rápido pueda continuar la captura.</string>
+    <string name="live_notifications_following_summary">Activar automáticamente las alertas de directos para los canales que sigues mediante Xtra.</string>
+    <string name="settings_customize_controls_summary">Controles rápidos, menú Más y controles ocultos</string>
+    <string name="settings_playback_speed_options_summary">Elegir y reordenar los valores de velocidad</string>
+    <string name="settings_double_tap_chat_summary">Alternar el chat con un doble toque mientras miras.</string>
+    <string name="avoid_rounded_corners_summary">Ajustar el contenido del reproductor para que las esquinas curvas físicas y los recortes no oculten el vídeo ni los controles.</string>
 </resources>

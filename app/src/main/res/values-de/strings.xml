@@ -558,4 +558,27 @@
     <string name="recent_messages_api_url">API-URL für aktuelle Nachrichten</string>
     <string name="access_local_network_title">Berechtigung für lokales Netzwerk erteilen</string>
     <string name="access_local_network_desc">Erforderlich für die Verbindung zu lokalen Proxys</string>
+    <string name="credentials_revoke_failed">Einige vorherige Twitch-Anmeldedaten konnten nicht widerrufen werden.</string>
+    <string name="settings_api_login">Login-API</string>
+    <string name="api_helix_client_id_sensitive">Helix-Client-ID (sensibel)</string>
+    <string name="api_helix_redirect_sensitive">Helix-Weiterleitung (sensibel)</string>
+    <string name="api_gql_client_id_sensitive">GraphQL-Client-ID (sensibel)</string>
+    <string name="api_user_id_sensitive">Benutzer-ID (sensibel)</string>
+    <string name="api_username_sensitive">Benutzername (sensibel)</string>
+    <string name="api_helix_token_sensitive">Helix-Token (sensibel)</string>
+    <string name="api_gql_token_sensitive">GraphQL-Token (sensibel)</string>
+    <string name="api_web_gql_token_sensitive">Web-GraphQL-Token (sensibel)</string>
+    <string name="gql_headers_sensitive">GraphQL-Header (sensibel)</string>
+    <string name="use_eventsub_chat_experimental">EventSub-Chat verwenden (experimentell)</string>
+    <string name="settings_section_support">Support</string>
+    <string name="settings_download_wifi_only_summary">Downloads nur bei einer WLAN-Verbindung starten.</string>
+    <string name="settings_download_single_file_summary">Heruntergeladene Videos als eine Mediendatei statt im segmentierten Xtra-Format speichern.</string>
+    <string name="settings_import_downloads_summary">Xtra-Downloads finden, die derzeit nicht in deiner Bibliothek angezeigt werden.</string>
+    <string name="settings_download_start_wait_summary">Minuten, die auf den Start eines wartenden Live-Downloads gewartet werden soll.</string>
+    <string name="settings_download_restart_wait_summary">Nach dem Ende eines Streams kurz weiter warten, damit eine schnelle Wiederaufnahme die Aufnahme fortsetzen kann.</string>
+    <string name="live_notifications_following_summary">Live-Benachrichtigungen für Kanäle, denen du über Xtra folgst, automatisch aktivieren.</string>
+    <string name="settings_customize_controls_summary">Schnelle Steuerung, Menü „Mehr“ und ausgeblendete Steuerelemente</string>
+    <string name="settings_playback_speed_options_summary">Geschwindigkeitswerte auswählen und neu anordnen</string>
+    <string name="settings_double_tap_chat_summary">Chat beim Anschauen durch zweimaliges Tippen umschalten.</string>
+    <string name="avoid_rounded_corners_summary">Player-Inhalte einrücken, damit physische abgerundete Ecken und Aussparungen Video oder Steuerelemente nicht verdecken.</string>
 </resources>

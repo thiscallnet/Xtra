@@ -558,4 +558,27 @@
     <string name="recent_messages_api_url">Recent messages API URL</string>
     <string name="access_local_network_title">Grant local network permission</string>
     <string name="access_local_network_desc">Required for connecting to local proxies</string>
+    <string name="credentials_revoke_failed">Non è stato possibile revocare alcune credenziali Twitch precedenti.</string>
+    <string name="settings_api_login">API di accesso</string>
+    <string name="api_helix_client_id_sensitive">ID client Helix (sensibile)</string>
+    <string name="api_helix_redirect_sensitive">Reindirizzamento Helix (sensibile)</string>
+    <string name="api_gql_client_id_sensitive">ID client GraphQL (sensibile)</string>
+    <string name="api_user_id_sensitive">ID utente (sensibile)</string>
+    <string name="api_username_sensitive">Nome utente (sensibile)</string>
+    <string name="api_helix_token_sensitive">Token Helix (sensibile)</string>
+    <string name="api_gql_token_sensitive">Token GraphQL (sensibile)</string>
+    <string name="api_web_gql_token_sensitive">Token Web GraphQL (sensibile)</string>
+    <string name="gql_headers_sensitive">Intestazioni GraphQL (sensibili)</string>
+    <string name="use_eventsub_chat_experimental">Usa la chat EventSub (sperimentale)</string>
+    <string name="settings_section_support">Supporto</string>
+    <string name="settings_download_wifi_only_summary">Avvia i download solo quando sei connesso al Wi‑Fi.</string>
+    <string name="settings_download_single_file_summary">Salva i video scaricati come un unico file multimediale invece del formato segmentato di Xtra.</string>
+    <string name="settings_import_downloads_summary">Trova i download di Xtra che al momento non vengono mostrati nella tua libreria.</string>
+    <string name="settings_download_start_wait_summary">Minuti di attesa per l\'avvio di un download live in coda.</string>
+    <string name="settings_download_restart_wait_summary">Continua ad attendere brevemente dopo la fine di una trasmissione, così un riavvio rapido può continuare l\'acquisizione.</string>
+    <string name="live_notifications_following_summary">Attiva automaticamente gli avvisi live per i canali che segui tramite Xtra.</string>
+    <string name="settings_customize_controls_summary">Controlli rapidi, menu Altro e controlli nascosti</string>
+    <string name="settings_playback_speed_options_summary">Scegli e riordina i valori della velocità</string>
+    <string name="settings_double_tap_chat_summary">Attiva o disattiva la chat con un doppio tocco durante la visione.</string>
+    <string name="avoid_rounded_corners_summary">Rientra il contenuto del lettore per evitare che angoli arrotondati fisici e ritagli nascondano il video o i controlli.</string>
 </resources>

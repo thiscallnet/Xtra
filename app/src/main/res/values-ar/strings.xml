@@ -558,4 +558,27 @@
     <string name="recent_messages_api_url">Recent messages API URL</string>
     <string name="access_local_network_title">Grant local network permission</string>
     <string name="access_local_network_desc">Required for connecting to local proxies</string>
+    <string name="credentials_revoke_failed">تعذّر إلغاء بعض بيانات اعتماد Twitch السابقة.</string>
+    <string name="settings_api_login">واجهة تسجيل الدخول</string>
+    <string name="api_helix_client_id_sensitive">معرّف عميل Helix (حساس)</string>
+    <string name="api_helix_redirect_sensitive">إعادة توجيه Helix (حساس)</string>
+    <string name="api_gql_client_id_sensitive">معرّف عميل GraphQL (حساس)</string>
+    <string name="api_user_id_sensitive">معرّف المستخدم (حساس)</string>
+    <string name="api_username_sensitive">اسم المستخدم (حساس)</string>
+    <string name="api_helix_token_sensitive">رمز Helix (حساس)</string>
+    <string name="api_gql_token_sensitive">رمز GraphQL (حساس)</string>
+    <string name="api_web_gql_token_sensitive">رمز GraphQL للويب (حساس)</string>
+    <string name="gql_headers_sensitive">رؤوس GraphQL (حساسة)</string>
+    <string name="use_eventsub_chat_experimental">استخدام دردشة EventSub (تجريبي)</string>
+    <string name="settings_section_support">الدعم</string>
+    <string name="settings_download_wifi_only_summary">ابدأ التنزيلات فقط أثناء الاتصال بشبكة Wi‑Fi.</string>
+    <string name="settings_download_single_file_summary">احفظ الفيديوهات التي تم تنزيلها كملف وسائط واحد بدلًا من تنسيق Xtra المجزأ.</string>
+    <string name="settings_import_downloads_summary">اعثر على تنزيلات Xtra غير المعروضة حاليًا في مكتبتك.</string>
+    <string name="settings_download_start_wait_summary">عدد الدقائق لانتظار بدء تنزيل مباشر في قائمة الانتظار.</string>
+    <string name="settings_download_restart_wait_summary">استمر في الانتظار قليلًا بعد انتهاء البث حتى تتمكن إعادة تشغيل سريعة من متابعة الالتقاط.</string>
+    <string name="live_notifications_following_summary">فعّل تلقائيًا التنبيهات المباشرة للقنوات التي تتابعها عبر Xtra.</string>
+    <string name="settings_customize_controls_summary">عناصر التحكم السريعة وقائمة المزيد والعناصر المخفية</string>
+    <string name="settings_playback_speed_options_summary">اختر قيم السرعة وأعد ترتيبها</string>
+    <string name="settings_double_tap_chat_summary">بدّل الدردشة بالنقر مرتين أثناء المشاهدة.</string>
+    <string name="avoid_rounded_corners_summary">أزح محتوى المشغل حتى لا تحجب الزوايا المنحنية الفعلية وفتحات الشاشة الفيديو أو عناصر التحكم.</string>
 </resources>
