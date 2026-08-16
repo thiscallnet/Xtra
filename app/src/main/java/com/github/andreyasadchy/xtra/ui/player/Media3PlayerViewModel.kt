@@ -72,6 +72,7 @@ class Media3PlayerViewModel(
     private val localChannelFollowsRepository: LocalChannelFollowsRepository,
     private val notificationsRepository: NotificationsRepository,
     private val streamFeedRefreshCoordinator: StreamFeedRefreshCoordinator,
+    private val playbackPersistence: PlaybackPersistence,
 ) : ViewModel() {
 
     val integrity = MutableSharedFlow<String?>()
@@ -344,14 +345,12 @@ class Media3PlayerViewModel(
 
     fun saveVideoPosition(id: Long, position: Long) {
         if (loaded.value) {
-            viewModelScope.launch {
-                playerRepository.saveVideoPosition(VideoPosition(id, position))
-            }
+            playbackPersistence.saveVideoPosition(VideoPosition(id, position))
         }
     }
 
     suspend fun savePosition(id: Long, position: Long) {
-        playerRepository.saveVideoPosition(VideoPosition(id, position))
+        playbackPersistence.saveVideoPositionAndWait(VideoPosition(id, position))
     }
 
     fun loadGamesList(videoId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
@@ -641,9 +640,7 @@ class Media3PlayerViewModel(
 
     fun saveOfflineVideoPosition(id: Int, position: Long) {
         if (loaded.value) {
-            viewModelScope.launch {
-                offlineVideosRepository.updatePosition(id, position)
-            }
+            playbackPersistence.saveOfflineVideoPosition(id, position)
         }
     }
 
@@ -763,7 +760,7 @@ class Media3PlayerViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                Media3PlayerViewModel(application.applicationContext, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.bookmarksRepository, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.notificationsRepository, xtraModule.streamFeedRefreshCoordinator)
+                Media3PlayerViewModel(application.applicationContext, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.bookmarksRepository, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.notificationsRepository, xtraModule.streamFeedRefreshCoordinator, xtraModule.playbackPersistence)
             }
         }
     }

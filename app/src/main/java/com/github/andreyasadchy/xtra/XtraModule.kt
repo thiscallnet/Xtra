@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra
 
 import android.app.Application
+import android.net.Uri
 import android.net.http.HttpEngine
 import android.os.Build
 import android.os.ext.SdkExtensions
@@ -29,6 +30,7 @@ import com.github.andreyasadchy.xtra.repository.ViewingStatsRepository
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPager
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
+import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
 import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
 import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
@@ -47,6 +49,10 @@ import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 class XtraModule(application: Application) {
+
+    val playbackPersistence by lazy {
+        PlaybackPersistence(this)
+    }
 
     val streamFeedCache by lazy {
         StreamFeedCache(database)
@@ -78,6 +84,14 @@ class XtraModule(application: Application) {
         }
     }
 
+    val cronetExecutor = lazy {
+        Executors.newCachedThreadPool { runnable ->
+            Thread(runnable, "xtra-cronet").apply {
+                isDaemon = true
+            }
+        }
+    }
+
     val cronetEngine = lazy {
         if (CronetProvider.getAllProviders(application).any { it.isEnabled }) {
             CronetEngine.Builder(application).apply {
@@ -92,12 +106,24 @@ class XtraModule(application: Application) {
                 addQuicHint("api.betterttv.net", 443, 443)
             }.build().also {
                 if (BuildConfig.DEBUG) {
-                    it.addRequestFinishedListener(object : RequestFinishedInfo.Listener(Executors.newSingleThreadExecutor()) {
+                    it.addRequestFinishedListener(object : RequestFinishedInfo.Listener(cronetExecutor.value) {
                         override fun onRequestFinished(requestInfo: RequestFinishedInfo) {
                             requestInfo.responseInfo?.let {
-                                Log.i("Cronet", "${it.httpStatusCode} ${it.negotiatedProtocol} ${it.url}")
+                                val safeUrl = runCatching {
+                                    Uri.parse(it.url).buildUpon().clearQuery().build().toString()
+                                }.getOrDefault("<invalid-url>")
+                                Log.i("Cronet", "${it.httpStatusCode} ${it.negotiatedProtocol} $safeUrl")
                                 it.allHeadersAsList?.forEach {
-                                    Log.i("Cronet", "${it.key}: ${it.value}")
+                                    val value = if (it.key.equals("authorization", true) ||
+                                        it.key.equals("cookie", true) ||
+                                        it.key.equals("set-cookie", true) ||
+                                        it.key.equals("client-integrity", true)
+                                    ) {
+                                        "<redacted>"
+                                    } else {
+                                        it.value
+                                    }
+                                    Log.i("Cronet", "${it.key}: $value")
                                 }
                             }
                         }
@@ -109,14 +135,22 @@ class XtraModule(application: Application) {
         }
     }
 
-    val cronetExecutor = lazy {
-        Executors.newCachedThreadPool()
-    }
-
     val okHttpClient = lazy {
         OkHttpClient.Builder().apply {
             if (BuildConfig.DEBUG) {
-                addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BODY })
+                val sensitiveQueryParameter = Regex(
+                    "([?&](?:token|access_token|client_secret|password|code)=)[^&\\s]+",
+                    RegexOption.IGNORE_CASE,
+                )
+                addInterceptor(HttpLoggingInterceptor { message ->
+                    Log.d("OkHttp", message.replace(sensitiveQueryParameter, "\$1<redacted>"))
+                }.apply {
+                    level = HttpLoggingInterceptor.Level.BASIC
+                    redactHeader("Authorization")
+                    redactHeader("Cookie")
+                    redactHeader("Set-Cookie")
+                    redactHeader("Client-Integrity")
+                })
             }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
                 val sslContext = SSLContext.getInstance("TLSv1.3")

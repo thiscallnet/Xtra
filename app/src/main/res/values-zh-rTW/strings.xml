@@ -558,4 +558,27 @@
     <string name="recent_messages_api_url">Recent messages API URL</string>
     <string name="access_local_network_title">Grant local network permission</string>
     <string name="access_local_network_desc">Required for connecting to local proxies</string>
+    <string name="credentials_revoke_failed">部分先前的 Twitch 認證資訊無法撤銷。</string>
+    <string name="settings_api_login">登入 API</string>
+    <string name="api_helix_client_id_sensitive">Helix 用戶端 ID（敏感）</string>
+    <string name="api_helix_redirect_sensitive">Helix 重新導向（敏感）</string>
+    <string name="api_gql_client_id_sensitive">GraphQL 用戶端 ID（敏感）</string>
+    <string name="api_user_id_sensitive">使用者 ID（敏感）</string>
+    <string name="api_username_sensitive">使用者名稱（敏感）</string>
+    <string name="api_helix_token_sensitive">Helix 權杖（敏感）</string>
+    <string name="api_gql_token_sensitive">GraphQL 權杖（敏感）</string>
+    <string name="api_web_gql_token_sensitive">Web GraphQL 權杖（敏感）</string>
+    <string name="gql_headers_sensitive">GraphQL 標頭（敏感）</string>
+    <string name="use_eventsub_chat_experimental">使用 EventSub 聊天（實驗性）</string>
+    <string name="settings_section_support">支援</string>
+    <string name="settings_download_wifi_only_summary">僅在連線至 Wi‑Fi 時開始下載。</string>
+    <string name="settings_download_single_file_summary">將下載的影片儲存為單一媒體檔案，而非 Xtra 的分段格式。</string>
+    <string name="settings_import_downloads_summary">尋找目前未顯示在媒體庫中的 Xtra 下載。</string>
+    <string name="settings_download_start_wait_summary">等待佇列中的直播下載開始的分鐘數。</string>
+    <string name="settings_download_restart_wait_summary">直播結束後繼續短暫等待，讓快速重新啟動能繼續擷取。</string>
+    <string name="live_notifications_following_summary">自動為你透過 Xtra 追蹤的頻道啟用直播提醒。</string>
+    <string name="settings_customize_controls_summary">快速控制項、「更多」選單和隱藏控制項</string>
+    <string name="settings_playback_speed_options_summary">選擇並重新排列速度值</string>
+    <string name="settings_double_tap_chat_summary">觀看時點兩下切換聊天。</string>
+    <string name="avoid_rounded_corners_summary">將播放器內容向內嵌入，避免實體圓角和缺口遮擋影片或控制項。</string>
 </resources>

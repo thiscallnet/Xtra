@@ -1,11 +1,11 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <PreferenceCategory android:title="HTTP proxy" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/proxy_settings" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:key="http_proxy_enabled" android:summary="@string/settings_http_proxy_summary" android:title="@string/settings_http_proxy" app:iconSpaceReserved="false" />
-    <EditTextPreference android:key="proxy_host" android:dependency="http_proxy_enabled" android:title="Host" app:iconSpaceReserved="false" app:useSimpleSummaryProvider="true" />
-    <EditTextPreference android:key="proxy_port" android:dependency="http_proxy_enabled" android:title="Port" app:iconSpaceReserved="false" app:useSimpleSummaryProvider="true" />
-    <EditTextPreference android:key="proxy_user" android:dependency="http_proxy_enabled" android:title="Username" app:iconSpaceReserved="false" app:useSimpleSummaryProvider="true" />
-    <EditTextPreference android:key="proxy_password" android:dependency="http_proxy_enabled" android:title="Password" android:inputType="textPassword" app:iconSpaceReserved="false" />
-    <PreferenceCategory android:title="Stream proxy" app:iconSpaceReserved="false" />
+    <EditTextPreference android:key="proxy_host" android:dependency="http_proxy_enabled" android:title="@string/proxy_host" app:iconSpaceReserved="false" app:useSimpleSummaryProvider="true" />
+    <EditTextPreference android:key="proxy_port" android:dependency="http_proxy_enabled" android:title="@string/proxy_port" app:iconSpaceReserved="false" app:useSimpleSummaryProvider="true" />
+    <EditTextPreference android:key="proxy_user" android:dependency="http_proxy_enabled" android:title="@string/proxy_user" app:iconSpaceReserved="false" app:useSimpleSummaryProvider="true" />
+    <EditTextPreference android:key="proxy_password" android:dependency="http_proxy_enabled" android:title="@string/proxy_password" android:inputType="textPassword" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/stream_proxy" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:key="player_stream_proxy" android:summary="@string/settings_stream_proxy_summary" android:title="@string/settings_stream_proxy" app:iconSpaceReserved="false" />
     <EditTextPreference android:key="player_proxy_url" android:dependency="player_stream_proxy" android:title="@string/settings_stream_proxy_url" app:iconSpaceReserved="false" app:useSimpleSummaryProvider="true" />
 </androidx.preference.PreferenceScreen>

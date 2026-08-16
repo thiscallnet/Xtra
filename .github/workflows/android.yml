@@ -69,6 +69,9 @@ jobs:
     - name: Run JVM tests
       run: ./gradlew testDebugUnitTest
 
+    - name: Check resource localization hygiene
+      run: python3 .github/scripts/check-resources.py
+
     - name: Run release lookup shell tests
       run: bash .github/scripts/test-release-lookup.sh
 

@@ -558,4 +558,27 @@
     <string name="recent_messages_api_url">Recent messages API URL</string>
     <string name="access_local_network_title">Grant local network permission</string>
     <string name="access_local_network_desc">Required for connecting to local proxies</string>
+    <string name="credentials_revoke_failed">部分以前的 Twitch 凭据无法撤销。</string>
+    <string name="settings_api_login">登录 API</string>
+    <string name="api_helix_client_id_sensitive">Helix 客户端 ID（敏感）</string>
+    <string name="api_helix_redirect_sensitive">Helix 重定向（敏感）</string>
+    <string name="api_gql_client_id_sensitive">GraphQL 客户端 ID（敏感）</string>
+    <string name="api_user_id_sensitive">用户 ID（敏感）</string>
+    <string name="api_username_sensitive">用户名（敏感）</string>
+    <string name="api_helix_token_sensitive">Helix 令牌（敏感）</string>
+    <string name="api_gql_token_sensitive">GraphQL 令牌（敏感）</string>
+    <string name="api_web_gql_token_sensitive">Web GraphQL 令牌（敏感）</string>
+    <string name="gql_headers_sensitive">GraphQL 请求头（敏感）</string>
+    <string name="use_eventsub_chat_experimental">使用 EventSub 聊天（实验性）</string>
+    <string name="settings_section_support">支持</string>
+    <string name="settings_download_wifi_only_summary">仅在连接到 Wi‑Fi 时开始下载。</string>
+    <string name="settings_download_single_file_summary">将下载的视频保存为一个媒体文件，而不是 Xtra 的分段格式。</string>
+    <string name="settings_import_downloads_summary">查找当前未显示在媒体库中的 Xtra 下载。</string>
+    <string name="settings_download_start_wait_summary">等待队列中的直播下载开始的分钟数。</string>
+    <string name="settings_download_restart_wait_summary">直播结束后继续短暂等待，以便快速重启可以继续捕获。</string>
+    <string name="live_notifications_following_summary">自动为你通过 Xtra 关注的频道启用直播提醒。</string>
+    <string name="settings_customize_controls_summary">快捷控件、“更多”菜单和隐藏控件</string>
+    <string name="settings_playback_speed_options_summary">选择并重新排列速度值</string>
+    <string name="settings_double_tap_chat_summary">观看时双击切换聊天。</string>
+    <string name="avoid_rounded_corners_summary">将播放器内容向内缩进，避免物理圆角和缺口遮挡视频或控件。</string>
 </resources>

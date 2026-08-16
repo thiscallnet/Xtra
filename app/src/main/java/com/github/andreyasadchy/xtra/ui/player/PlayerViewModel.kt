@@ -51,6 +51,7 @@ class PlayerViewModel(
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
     private val playerRepository: PlayerRepository,
+    private val playbackPersistence: PlaybackPersistence,
     private val bookmarksRepository: BookmarksRepository,
     private val localChannelFollowsRepository: LocalChannelFollowsRepository,
     private val notificationsRepository: NotificationsRepository,
@@ -68,9 +69,7 @@ class PlayerViewModel(
     val follow = MutableStateFlow<Pair<Boolean, String?>?>(null)
 
     fun deletePlaybackStates() {
-        viewModelScope.launch {
-            playerRepository.deletePlaybackStates()
-        }
+        playbackPersistence.deletePlaybackStates()
     }
 
     fun loadStreamInfo(channelId: String?, channelLogin: String?, viewerCount: Int?, loop: Boolean, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
@@ -552,7 +551,7 @@ class PlayerViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                PlayerViewModel(xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.bookmarksRepository, xtraModule.localChannelFollowsRepository, xtraModule.notificationsRepository, xtraModule.streamFeedRefreshCoordinator)
+                PlayerViewModel(xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.playbackPersistence, xtraModule.bookmarksRepository, xtraModule.localChannelFollowsRepository, xtraModule.notificationsRepository, xtraModule.streamFeedRefreshCoordinator)
             }
         }
     }

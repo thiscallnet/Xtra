@@ -1,8 +1,8 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_points_collect" android:title="Automatically claim Channel Points" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="false" android:key="chat_points_notify" android:title="Show points earned in chat" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_raids_show" android:title="Show raids" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="false" android:dependency="chat_raids_show" android:key="chat_raids_auto_switch" android:title="Automatically open raided streams" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_polls_show" android:title="Show polls" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_predictions_show" android:title="Show predictions" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_points_collect" android:title="@string/points_collect" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="chat_points_notify" android:title="@string/points_notify" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_raids_show" android:title="@string/show_raids" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:dependency="chat_raids_show" android:key="chat_raids_auto_switch" android:title="@string/auto_switch_raids" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_polls_show" android:title="@string/show_polls" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_predictions_show" android:title="@string/show_predictions" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

@@ -1,11 +1,11 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <PreferenceCategory android:title="Playback" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_section_playback" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:key="settings_mix_audio" android:summary="@string/settings_mix_audio_summary" android:title="@string/settings_mix_audio" app:iconSpaceReserved="false" />
-    <PreferenceCategory android:title="Chat" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_section_chat" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:key="player_keep_chat_open" android:summary="@string/settings_keep_chat_background_summary" android:title="@string/settings_keep_chat_background" app:iconSpaceReserved="false" />
-    <PreferenceCategory android:title="Network" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_section_network" app:iconSpaceReserved="false" />
     <Preference android:key="advanced_proxy" android:title="@string/settings_proxy" app:iconSpaceReserved="false" />
-    <PreferenceCategory android:title="Support" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_section_support" app:iconSpaceReserved="false" />
     <Preference android:key="copy_diagnostics" android:title="@string/settings_diagnostics" app:iconSpaceReserved="false" />
     <Preference android:key="developer_options" android:title="@string/settings_developer_options" app:isPreferenceVisible="false" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

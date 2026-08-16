@@ -25,8 +25,8 @@
     <SwitchPreferenceCompat
         android:defaultValue="true"
         android:key="ui_activate_notifications_when_following"
-        android:title="Enable live alerts when following"
-        android:summary="Automatically enable live alerts for channels you follow through Xtra."
+        android:title="@string/activate_notifications_when_following"
+        android:summary="@string/live_notifications_following_summary"
         app:iconSpaceReserved="false"
         app:singleLineTitle="false" />
 

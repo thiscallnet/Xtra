@@ -558,4 +558,27 @@
     <string name="recent_messages_api_url">Recent messages API URL</string>
     <string name="access_local_network_title">Grant local network permission</string>
     <string name="access_local_network_desc">Required for connecting to local proxies</string>
+    <string name="credentials_revoke_failed">以前のTwitch認証情報の一部を取り消せませんでした。</string>
+    <string name="settings_api_login">ログインAPI</string>
+    <string name="api_helix_client_id_sensitive">HelixクライアントID（機密）</string>
+    <string name="api_helix_redirect_sensitive">Helixリダイレクト（機密）</string>
+    <string name="api_gql_client_id_sensitive">GraphQLクライアントID（機密）</string>
+    <string name="api_user_id_sensitive">ユーザーID（機密）</string>
+    <string name="api_username_sensitive">ユーザー名（機密）</string>
+    <string name="api_helix_token_sensitive">Helixトークン（機密）</string>
+    <string name="api_gql_token_sensitive">GraphQLトークン（機密）</string>
+    <string name="api_web_gql_token_sensitive">Web GraphQLトークン（機密）</string>
+    <string name="gql_headers_sensitive">GraphQLヘッダー（機密）</string>
+    <string name="use_eventsub_chat_experimental">EventSubチャットを使用（実験的）</string>
+    <string name="settings_section_support">サポート</string>
+    <string name="settings_download_wifi_only_summary">Wi‑Fi接続時のみダウンロードを開始します。</string>
+    <string name="settings_download_single_file_summary">ダウンロードした動画を、Xtraの分割形式ではなく1つのメディアファイルとして保存します。</string>
+    <string name="settings_import_downloads_summary">現在ライブラリに表示されていないXtraのダウンロードを検索します。</string>
+    <string name="settings_download_start_wait_summary">キューに入ったライブダウンロードの開始を待つ時間（分）。</string>
+    <string name="settings_download_restart_wait_summary">配信終了後もしばらく待機し、すぐに再開した場合にキャプチャを続行します。</string>
+    <string name="live_notifications_following_summary">Xtraでフォローしているチャンネルのライブ通知を自動的に有効にします。</string>
+    <string name="settings_customize_controls_summary">クイック操作、「その他」メニュー、非表示の操作</string>
+    <string name="settings_playback_speed_options_summary">速度の値を選択して並べ替えます</string>
+    <string name="settings_double_tap_chat_summary">視聴中にダブルタップしてチャットを切り替えます。</string>
+    <string name="avoid_rounded_corners_summary">物理的な曲面や切り欠きで動画や操作が隠れないよう、プレーヤーのコンテンツを内側に配置します。</string>
 </resources>

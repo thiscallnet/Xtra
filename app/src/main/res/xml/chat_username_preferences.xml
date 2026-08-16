@@ -1,5 +1,5 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <SwitchPreferenceCompat android:defaultValue="false" android:key="chat_boldnames" android:title="Bold usernames" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_randomcolor" android:title="Color users without a Twitch color" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_theme_adapted_username_color" android:title="Improve color readability" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="chat_boldnames" android:title="@string/bold_usernames" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_randomcolor" android:title="@string/randomcolor" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_theme_adapted_username_color" android:title="@string/theme_adapted_username_color" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

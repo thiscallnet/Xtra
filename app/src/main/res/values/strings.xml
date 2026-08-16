@@ -53,6 +53,7 @@
     <string name="welcome">Welcome</string>
     <string name="log_in">Log in</string>
     <string name="log_out">Log out</string>
+    <string name="credentials_revoke_failed">Some previous Twitch credentials could not be revoked.</string>
     <string name="skip">Skip</string>
     <string name="specify_time">Specify time</string>
     <string name="from">From:</string>
@@ -1226,4 +1227,26 @@
     <string name="statistics_reset_message">This permanently deletes all viewing statistics recorded locally on this device.</string>
     <string name="statistics_reset_done">Viewing statistics reset</string>
     <string name="statistics_multiview_note">Watch time counts every actively playing stream, including each Multiview tile.</string>
+    <string name="settings_api_login">Login API</string>
+    <string name="api_helix_client_id_sensitive">Helix client ID (sensitive)</string>
+    <string name="api_helix_redirect_sensitive">Helix redirect (sensitive)</string>
+    <string name="api_gql_client_id_sensitive">GraphQL client ID (sensitive)</string>
+    <string name="api_user_id_sensitive">User ID (sensitive)</string>
+    <string name="api_username_sensitive">Username (sensitive)</string>
+    <string name="api_helix_token_sensitive">Helix token (sensitive)</string>
+    <string name="api_gql_token_sensitive">GraphQL token (sensitive)</string>
+    <string name="api_web_gql_token_sensitive">Web GraphQL token (sensitive)</string>
+    <string name="gql_headers_sensitive">GraphQL headers (sensitive)</string>
+    <string name="use_eventsub_chat_experimental">Use EventSub chat (experimental)</string>
+    <string name="settings_section_support">Support</string>
+    <string name="settings_download_wifi_only_summary">Only start downloads while connected to Wi-Fi.</string>
+    <string name="settings_download_single_file_summary">Store downloaded videos as one media file instead of Xtra\'s segmented format.</string>
+    <string name="settings_import_downloads_summary">Find Xtra downloads that aren\'t currently shown in your library.</string>
+    <string name="settings_download_start_wait_summary">Minutes to wait for a queued live download to start.</string>
+    <string name="settings_download_restart_wait_summary">Keep waiting briefly after a stream ends so a quick restart can continue the capture.</string>
+    <string name="live_notifications_following_summary">Automatically enable live alerts for channels you follow through Xtra.</string>
+    <string name="settings_customize_controls_summary">Quick controls, More menu and Hidden</string>
+    <string name="settings_playback_speed_options_summary">Choose and reorder speed values</string>
+    <string name="settings_double_tap_chat_summary">Toggle chat with a double tap while watching.</string>
+    <string name="avoid_rounded_corners_summary">Inset player content so physical curved corners and cutouts do not obscure video or controls.</string>
 </resources>

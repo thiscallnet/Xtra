@@ -3,13 +3,16 @@ package com.github.andreyasadchy.xtra.ui.player
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.lifecycleScope
 import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.model.PlaybackState
+import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -61,8 +64,7 @@ abstract class BasePlaybackService : LifecycleService() {
     var loaded = false
 
     protected suspend fun restorePlaybackState() {
-        val savedState = xtraModule.playerRepository.getPlaybackStates().firstOrNull()
-        xtraModule.playerRepository.deletePlaybackStates()
+        val savedState = xtraModule.playbackPersistence.takePlaybackState()
         if (savedState != null) {
             type = savedState.type
             streamId = savedState.streamId
@@ -103,7 +105,7 @@ abstract class BasePlaybackService : LifecycleService() {
         }
     }
 
-    protected suspend fun savePlaybackState(position: Long?, paused: Boolean) {
+    protected fun savePlaybackState(position: Long?, paused: Boolean) {
         val item = PlaybackState(
             type = type,
             streamId = streamId,
@@ -144,7 +146,28 @@ abstract class BasePlaybackService : LifecycleService() {
             useCustomProxy = useCustomProxy,
             skipAccessToken = skipAccessToken,
         )
-        xtraModule.playerRepository.savePlaybackStates(listOf(item))
+        xtraModule.playbackPersistence.savePlaybackState(item)
+    }
+
+    protected fun saveVideoPosition(position: Long) {
+        videoId?.toLongOrNull()?.let {
+            xtraModule.playbackPersistence.saveVideoPosition(
+                VideoPosition(it, position),
+            )
+        } ?: offlineVideoId?.let {
+            xtraModule.playbackPersistence.saveOfflineVideoPosition(it, position)
+        }
+    }
+
+    protected fun deletePlaybackStates() {
+        xtraModule.playbackPersistence.deletePlaybackStates()
+    }
+
+    protected fun runAfterPlaybackPersistence(action: () -> Unit) {
+        lifecycleScope.launch {
+            xtraModule.playbackPersistence.flush()
+            action()
+        }
     }
 
     protected fun updateViewingStats(isPlaying: Boolean, isBuffering: Boolean = false) {

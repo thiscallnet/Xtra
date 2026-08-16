@@ -1,12 +1,12 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <ListPreference android:defaultValue="0" android:entries="@array/loginApiEntries" android:entryValues="@array/miscValues" android:key="api_login" android:summary="%s" android:title="Login API" app:iconSpaceReserved="false" />
-    <EditTextPreference android:key="helix_client_id" android:title="Helix client ID (sensitive)" app:iconSpaceReserved="false" />
-    <EditTextPreference android:key="helix_redirect" android:title="Helix redirect (sensitive)" app:iconSpaceReserved="false" />
-    <EditTextPreference android:key="gql_client_id2" android:title="GraphQL client ID (sensitive)" app:iconSpaceReserved="false" />
-    <EditTextPreference android:key="user_id" android:title="User ID (sensitive)" app:iconSpaceReserved="false" />
-    <EditTextPreference android:key="username" android:title="Username (sensitive)" app:iconSpaceReserved="false" />
-    <EditTextPreference android:key="token" android:title="Helix token (sensitive)" app:iconSpaceReserved="false" />
-    <EditTextPreference android:key="gql_token2" android:title="GraphQL token (sensitive)" app:iconSpaceReserved="false" />
-    <EditTextPreference android:key="gql_token_web" android:title="Web GraphQL token (sensitive)" app:iconSpaceReserved="false" />
-    <EditTextPreference android:key="gql_headers" android:title="GraphQL headers (sensitive)" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="0" android:entries="@array/loginApiEntries" android:entryValues="@array/miscValues" android:key="api_login" android:summary="%s" android:title="@string/settings_api_login" app:iconSpaceReserved="false" />
+    <EditTextPreference android:key="helix_client_id" android:title="@string/api_helix_client_id_sensitive" app:iconSpaceReserved="false" />
+    <EditTextPreference android:key="helix_redirect" android:title="@string/api_helix_redirect_sensitive" app:iconSpaceReserved="false" />
+    <EditTextPreference android:key="gql_client_id2" android:title="@string/api_gql_client_id_sensitive" app:iconSpaceReserved="false" />
+    <EditTextPreference android:key="user_id" android:title="@string/api_user_id_sensitive" app:iconSpaceReserved="false" />
+    <EditTextPreference android:key="username" android:title="@string/api_username_sensitive" app:iconSpaceReserved="false" />
+    <EditTextPreference android:key="token" android:title="@string/api_helix_token_sensitive" app:iconSpaceReserved="false" />
+    <EditTextPreference android:key="gql_token2" android:title="@string/api_gql_token_sensitive" app:iconSpaceReserved="false" />
+    <EditTextPreference android:key="gql_token_web" android:title="@string/api_web_gql_token_sensitive" app:iconSpaceReserved="false" />
+    <EditTextPreference android:key="gql_headers" android:title="@string/gql_headers_sensitive" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

@@ -1,6 +1,6 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <Preference android:key="customize_controls" android:summary="Quick controls, More menu and Hidden" android:title="@string/settings_customize_controls" app:iconSpaceReserved="false" />
-    <Preference android:key="player_speed_options" android:summary="Choose and reorder speed values" android:title="@string/settings_playback_speed_options" app:iconSpaceReserved="false" />
+    <Preference android:key="customize_controls" android:summary="@string/settings_customize_controls_summary" android:title="@string/settings_customize_controls" app:iconSpaceReserved="false" />
+    <Preference android:key="player_speed_options" android:summary="@string/settings_playback_speed_options_summary" android:title="@string/settings_playback_speed_options" app:iconSpaceReserved="false" />
     <Preference android:key="player_seek_controls" android:title="@string/settings_seek_controls" app:iconSpaceReserved="false" />
     <Preference android:key="player_gestures" android:title="@string/settings_gestures" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="player_move_freely" android:summary="@string/settings_free_position_player_summary" android:title="@string/settings_free_position_player" app:iconSpaceReserved="false" />

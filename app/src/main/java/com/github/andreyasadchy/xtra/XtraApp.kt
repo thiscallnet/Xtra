@@ -21,6 +21,9 @@ import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.coil.CacheControlCacheStrategy
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPrewarmScheduler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okio.Buffer
 import okio.buffer
@@ -36,6 +39,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
     }
 
     lateinit var xtraModule: XtraModule
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Volatile
     var isInForeground: Boolean = false
