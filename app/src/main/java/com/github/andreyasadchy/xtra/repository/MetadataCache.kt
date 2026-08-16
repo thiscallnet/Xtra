@@ -22,8 +22,22 @@ import java.util.Locale
 private const val ACCOUNT_KIND = "account"
 private const val CHANNEL_KIND = "channel"
 private const val GAME_KIND = "game"
-private const val CACHE_RETENTION_MS = 30L * 24 * 60 * 60 * 1_000L
 private const val MAX_CACHE_ENTRIES = 240
+private const val METADATA_CACHE_FRESHNESS_VERSION = 1
+
+/**
+ * Freshness is deliberately separate from durable retention. A cached object
+ * can remain useful for bootstrap while its volatile fields must be treated as
+ * stale and revalidated immediately by the owning screen.
+ */
+internal object MetadataCachePolicy {
+    const val DURABLE_RETENTION_MS = 30L * 24 * 60 * 60 * 1_000L
+    const val CURRENT_STREAM_BOOTSTRAP_MAX_AGE_MS = 2L * 60 * 60 * 1_000L
+    const val GAME_STATS_BOOTSTRAP_MAX_AGE_MS = 15L * 60 * 1_000L
+    const val FOLLOWER_COUNT_BOOTSTRAP_MAX_AGE_MS = 6L * 60 * 60 * 1_000L
+    const val ACCOUNT_SENSITIVE_BOOTSTRAP_MAX_AGE_MS = 10L * 60 * 1_000L
+    const val ACCOUNT_SETTINGS_BOOTSTRAP_MAX_AGE_MS = 6L * 60 * 60 * 1_000L
+}
 
 data class AccountCacheSnapshot(
     val user: HelixUser? = null,
@@ -53,6 +67,7 @@ class MetadataCache(
     private val database: AppDatabase,
     private val json: Json,
     private val dao: MetadataCacheDao = database.metadataCache(),
+    private val clockMs: () -> Long = { System.currentTimeMillis() },
 ) {
 
     suspend fun readAccount(userId: String?, login: String?): AccountCacheSnapshot? = withContext(Dispatchers.IO) {
@@ -63,14 +78,48 @@ class MetadataCache(
             identity = { it.user?.id },
         )
             ?: return@withContext null
+        val sensitiveFresh = hit.isFresh(
+            freshnessVersion = hit.payload.freshnessVersion,
+            validatedAt = hit.payload.scopesValidatedAt,
+            maxAgeMs = MetadataCachePolicy.ACCOUNT_SENSITIVE_BOOTSTRAP_MAX_AGE_MS,
+        )
+        val settingsFresh = hit.isFresh(
+            freshnessVersion = hit.payload.freshnessVersion,
+            validatedAt = hit.payload.chatSettingsValidatedAt,
+            maxAgeMs = MetadataCachePolicy.ACCOUNT_SETTINGS_BOOTSTRAP_MAX_AGE_MS,
+        )
         AccountCacheSnapshot(
             user = hit.payload.user,
-            scopes = hit.payload.scopes.toSet(),
-            chatColor = hit.payload.chatColor,
-            channel = hit.payload.channel,
-            chatSettings = hit.payload.chatSettings,
-            blockedUsers = hit.payload.blockedUsers,
-            blockedUsersCursor = hit.payload.blockedUsersCursor,
+            scopes = hit.payload.scopes.takeIf { sensitiveFresh }?.toSet().orEmpty(),
+            chatColor = hit.payload.chatColor.takeIf {
+                hit.isFresh(
+                    freshnessVersion = hit.payload.freshnessVersion,
+                    validatedAt = hit.payload.chatColorValidatedAt,
+                    maxAgeMs = MetadataCachePolicy.ACCOUNT_SETTINGS_BOOTSTRAP_MAX_AGE_MS,
+                )
+            },
+            channel = hit.payload.channel.takeIf {
+                hit.isFresh(
+                    freshnessVersion = hit.payload.freshnessVersion,
+                    validatedAt = hit.payload.channelValidatedAt,
+                    maxAgeMs = MetadataCachePolicy.ACCOUNT_SETTINGS_BOOTSTRAP_MAX_AGE_MS,
+                )
+            },
+            chatSettings = hit.payload.chatSettings.takeIf { settingsFresh },
+            blockedUsers = hit.payload.blockedUsers.takeIf {
+                hit.isFresh(
+                    freshnessVersion = hit.payload.freshnessVersion,
+                    validatedAt = hit.payload.blockedUsersValidatedAt,
+                    maxAgeMs = MetadataCachePolicy.ACCOUNT_SENSITIVE_BOOTSTRAP_MAX_AGE_MS,
+                )
+            }.orEmpty(),
+            blockedUsersCursor = hit.payload.blockedUsersCursor.takeIf {
+                hit.isFresh(
+                    freshnessVersion = hit.payload.freshnessVersion,
+                    validatedAt = hit.payload.blockedUsersValidatedAt,
+                    maxAgeMs = MetadataCachePolicy.ACCOUNT_SENSITIVE_BOOTSTRAP_MAX_AGE_MS,
+                )
+            },
         )
     }
 
@@ -78,23 +127,69 @@ class MetadataCache(
         userId: String?,
         login: String?,
         snapshot: AccountCacheSnapshot,
-        nowMs: Long = System.currentTimeMillis(),
+        nowMs: Long = clockMs(),
+        scopesValidated: Boolean = false,
+        chatColorValidated: Boolean = false,
+        channelValidated: Boolean = false,
+        chatSettingsValidated: Boolean = false,
+        blockedUsersValidated: Boolean = false,
     ) = withContext(Dispatchers.IO) {
+        val payload = AccountCachePayload(
+            freshnessVersion = METADATA_CACHE_FRESHNESS_VERSION,
+            user = snapshot.user,
+            scopes = snapshot.scopes.sorted(),
+            chatColor = snapshot.chatColor,
+            channel = snapshot.channel,
+            chatSettings = snapshot.chatSettings,
+            blockedUsers = snapshot.blockedUsers,
+            blockedUsersCursor = snapshot.blockedUsersCursor,
+        )
         writePayload(
             kind = ACCOUNT_KIND,
             keys = identityKeys("id", "login", userId ?: snapshot.user?.id, login ?: snapshot.user?.login),
-            payload = AccountCachePayload(
-                user = snapshot.user,
-                scopes = snapshot.scopes.sorted(),
-                chatColor = snapshot.chatColor,
-                channel = snapshot.channel,
-                chatSettings = snapshot.chatSettings,
-                blockedUsers = snapshot.blockedUsers,
-                blockedUsersCursor = snapshot.blockedUsersCursor,
-            ),
+            payload = payload,
             stableId = userId ?: snapshot.user?.id,
             identity = { it.user?.id },
             nowMs = nowMs,
+            mergePayload = { previous, previousUpdatedAt ->
+                payload.copy(
+                    scopesValidatedAt = fieldValidationTimestamp(
+                        validated = scopesValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.scopesValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
+                    chatColorValidatedAt = fieldValidationTimestamp(
+                        validated = chatColorValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.chatColorValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
+                    channelValidatedAt = fieldValidationTimestamp(
+                        validated = channelValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.channelValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
+                    chatSettingsValidatedAt = fieldValidationTimestamp(
+                        validated = chatSettingsValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.chatSettingsValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
+                    blockedUsersValidatedAt = fieldValidationTimestamp(
+                        validated = blockedUsersValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.blockedUsersValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
+                )
+            },
         )
     }
 
@@ -112,26 +207,63 @@ class MetadataCache(
             identity = { it.user?.id ?: it.stream?.channelId },
         )
             ?: return@withContext null
-        val user = hit.payload.user?.toUiUser() ?: return@withContext null
-        ChannelPageCacheSnapshot(user = user, stream = hit.payload.stream?.toUiStream())
+        val user = hit.payload.user?.toUiUser(
+            includeFollowerCount = hit.isFresh(
+                freshnessVersion = hit.payload.freshnessVersion,
+                validatedAt = hit.payload.followerCountValidatedAt,
+                maxAgeMs = MetadataCachePolicy.FOLLOWER_COUNT_BOOTSTRAP_MAX_AGE_MS,
+            ),
+        ) ?: return@withContext null
+        ChannelPageCacheSnapshot(
+            user = user,
+            stream = hit.payload.stream?.toUiStream(
+                includeLiveState = hit.isFresh(
+                    freshnessVersion = hit.payload.freshnessVersion,
+                    validatedAt = hit.payload.streamValidatedAt,
+                    maxAgeMs = MetadataCachePolicy.CURRENT_STREAM_BOOTSTRAP_MAX_AGE_MS,
+                ),
+            ),
+        )
     }
 
     suspend fun writeChannel(
         channelId: String?,
         login: String?,
         snapshot: ChannelPageCacheSnapshot,
-        nowMs: Long = System.currentTimeMillis(),
+        nowMs: Long = clockMs(),
+        streamValidated: Boolean = false,
+        followerCountValidated: Boolean = false,
     ) = withContext(Dispatchers.IO) {
+        val payload = ChannelPageCachePayload(
+            freshnessVersion = METADATA_CACHE_FRESHNESS_VERSION,
+            user = snapshot.user.toCacheUser(),
+            stream = snapshot.stream?.toCacheStream(),
+        )
         writePayload(
             kind = CHANNEL_KIND,
             keys = identityKeys("id", "login", channelId ?: snapshot.user.id, login ?: snapshot.user.login),
-            payload = ChannelPageCachePayload(
-                user = snapshot.user.toCacheUser(),
-                stream = snapshot.stream?.toCacheStream(),
-            ),
+            payload = payload,
             stableId = channelId ?: snapshot.user.id,
             identity = { it.user?.id ?: it.stream?.channelId },
             nowMs = nowMs,
+            mergePayload = { previous, previousUpdatedAt ->
+                payload.copy(
+                    streamValidatedAt = fieldValidationTimestamp(
+                        validated = streamValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.streamValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
+                    followerCountValidatedAt = fieldValidationTimestamp(
+                        validated = followerCountValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.followerCountValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
+                )
+            },
         )
     }
 
@@ -143,7 +275,22 @@ class MetadataCache(
             identity = { it.game?.id },
         )
             ?: return@withContext null
-        hit.payload.game?.let { GamePageCacheSnapshot(it.toUiGame()) }
+        hit.payload.game?.let {
+            GamePageCacheSnapshot(
+                it.toUiGame(
+                    includeLiveStats = hit.isFresh(
+                        freshnessVersion = hit.payload.freshnessVersion,
+                        validatedAt = hit.payload.liveStatsValidatedAt,
+                        maxAgeMs = MetadataCachePolicy.GAME_STATS_BOOTSTRAP_MAX_AGE_MS,
+                    ),
+                    includeFollowerCount = hit.isFresh(
+                        freshnessVersion = hit.payload.freshnessVersion,
+                        validatedAt = hit.payload.followerCountValidatedAt,
+                        maxAgeMs = MetadataCachePolicy.FOLLOWER_COUNT_BOOTSTRAP_MAX_AGE_MS,
+                    ),
+                ),
+            )
+        }
     }
 
     suspend fun writeGame(
@@ -151,15 +298,39 @@ class MetadataCache(
         slug: String?,
         name: String?,
         snapshot: GamePageCacheSnapshot,
-        nowMs: Long = System.currentTimeMillis(),
+        nowMs: Long = clockMs(),
+        liveStatsValidated: Boolean = false,
+        followerCountValidated: Boolean = false,
     ) = withContext(Dispatchers.IO) {
+        val payload = GamePageCachePayload(
+            freshnessVersion = METADATA_CACHE_FRESHNESS_VERSION,
+            game = snapshot.game.toCacheGame(),
+        )
         writePayload(
             kind = GAME_KIND,
             keys = gameIdentityKeys(gameId ?: snapshot.game.id, slug ?: snapshot.game.slug, name ?: snapshot.game.name),
-            payload = GamePageCachePayload(snapshot.game.toCacheGame()),
+            payload = payload,
             stableId = gameId ?: snapshot.game.id,
             identity = { it.game?.id },
             nowMs = nowMs,
+            mergePayload = { previous, previousUpdatedAt ->
+                payload.copy(
+                    liveStatsValidatedAt = fieldValidationTimestamp(
+                        validated = liveStatsValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.liveStatsValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
+                    followerCountValidatedAt = fieldValidationTimestamp(
+                        validated = followerCountValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.followerCountValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
+                )
+            },
         )
     }
 
@@ -172,8 +343,8 @@ class MetadataCache(
         val expectedIdentity = normalizeIdentity(expectedStableId)
         for (key in keys) {
             val entry = dao.entry(kind, key) ?: continue
-            val nowMs = System.currentTimeMillis()
-            if (entry.updatedAt <= nowMs - CACHE_RETENTION_MS) {
+            val nowMs = clockMs()
+            if (entry.updatedAt <= nowMs - MetadataCachePolicy.DURABLE_RETENTION_MS) {
                 dao.delete(kind, key)
                 continue
             }
@@ -188,7 +359,11 @@ class MetadataCache(
                 continue
             }
             dao.touch(kind, key, nowMs)
-            return CacheHit(payload)
+            return CacheHit(
+                payload = payload,
+                updatedAt = entry.updatedAt,
+                readAtMs = nowMs,
+            )
         }
         return null
     }
@@ -200,6 +375,7 @@ class MetadataCache(
         stableId: String?,
         noinline identity: (T) -> String?,
         nowMs: Long,
+        noinline mergePayload: (T?, Long?) -> T,
     ) {
         if (keys.isEmpty()) return
         database.runInTransaction {
@@ -215,7 +391,20 @@ class MetadataCache(
                     }
                     .forEach { dao.delete(kind, it.cacheKey) }
             }
-            val payloadJson = json.encodeToString(payload)
+            val stableIdentity = normalizeIdentity(stableId)
+            val previous = distinctKeys.asSequence()
+                .mapNotNull { key ->
+                    dao.entry(kind, key)?.let { entry ->
+                        runCatching { json.decodeFromString<T>(entry.payload) }
+                            .getOrNull()
+                            ?.takeIf { previousPayload ->
+                                stableIdentity == null || normalizeIdentity(identity(previousPayload)) == stableIdentity
+                            }
+                            ?.let { previousPayload -> ExistingPayload(previousPayload, entry.updatedAt) }
+                    }
+                }
+                .firstOrNull()
+            val payloadJson = json.encodeToString(mergePayload(previous?.payload, previous?.updatedAt))
             distinctKeys.forEach { key ->
                 dao.insert(
                     MetadataCacheEntry(
@@ -232,7 +421,7 @@ class MetadataCache(
     }
 
     private fun cleanup(nowMs: Long) {
-        val cutoff = nowMs - CACHE_RETENTION_MS
+        val cutoff = nowMs - MetadataCachePolicy.DURABLE_RETENTION_MS
         val entries = dao.allEntries()
         entries.filter { it.lastAccessAt <= cutoff }
             .forEach { dao.delete(it.kind, it.cacheKey) }
@@ -242,7 +431,42 @@ class MetadataCache(
             .forEach { dao.delete(it.kind, it.cacheKey) }
     }
 
-    private data class CacheHit<T>(val payload: T)
+    private data class CacheHit<T>(
+        val payload: T,
+        val updatedAt: Long,
+        val readAtMs: Long,
+    )
+
+    private data class ExistingPayload<T>(
+        val payload: T,
+        val updatedAt: Long,
+    )
+
+    private fun CacheHit<*>.isFresh(
+        freshnessVersion: Int,
+        validatedAt: Long?,
+        maxAgeMs: Long,
+    ): Boolean {
+        val effectiveValidatedAt = validatedAt
+            ?: updatedAt.takeIf { freshnessVersion < METADATA_CACHE_FRESHNESS_VERSION }
+        return effectiveValidatedAt?.let {
+            (readAtMs - it).coerceAtLeast(0L) <= maxAgeMs
+        } == true
+    }
+
+    private fun fieldValidationTimestamp(
+        validated: Boolean,
+        nowMs: Long,
+        previousVersion: Int?,
+        previousTimestamp: Long?,
+        previousUpdatedAt: Long?,
+    ): Long? {
+        if (validated) return nowMs
+        return previousTimestamp
+            ?: previousUpdatedAt?.takeIf {
+                (previousVersion ?: 0) < METADATA_CACHE_FRESHNESS_VERSION
+            }
+    }
 
     private fun normalizeIdentity(value: String?): String? = value
         ?.trim()
@@ -272,6 +496,7 @@ class MetadataCache(
 
 @Serializable
 private data class AccountCachePayload(
+    val freshnessVersion: Int = 0,
     val user: HelixUser? = null,
     val scopes: List<String> = emptyList(),
     val chatColor: String? = null,
@@ -279,12 +504,20 @@ private data class AccountCachePayload(
     val chatSettings: ChatSettings? = null,
     val blockedUsers: List<BlockedUser> = emptyList(),
     val blockedUsersCursor: String? = null,
+    val scopesValidatedAt: Long? = null,
+    val chatColorValidatedAt: Long? = null,
+    val channelValidatedAt: Long? = null,
+    val chatSettingsValidatedAt: Long? = null,
+    val blockedUsersValidatedAt: Long? = null,
 )
 
 @Serializable
 private data class ChannelPageCachePayload(
+    val freshnessVersion: Int = 0,
     val user: CachedChannelUser? = null,
     val stream: CachedChannelStream? = null,
+    val streamValidatedAt: Long? = null,
+    val followerCountValidatedAt: Long? = null,
 )
 
 @Serializable
@@ -320,7 +553,10 @@ private data class CachedChannelStream(
 
 @Serializable
 private data class GamePageCachePayload(
+    val freshnessVersion: Int = 0,
     val game: CachedGame? = null,
+    val liveStatsValidatedAt: Long? = null,
+    val followerCountValidatedAt: Long? = null,
 )
 
 @Serializable
@@ -354,7 +590,7 @@ private fun User.toCacheUser() = CachedChannelUser(
     lastBroadcast = lastBroadcast,
 )
 
-private fun CachedChannelUser.toUiUser() = User(
+private fun CachedChannelUser.toUiUser(includeFollowerCount: Boolean) = User(
     id = id,
     login = login,
     name = name,
@@ -362,7 +598,7 @@ private fun CachedChannelUser.toUiUser() = User(
     type = type,
     broadcasterType = broadcasterType,
     createdAt = createdAt,
-    followerCount = followerCount,
+    followerCount = followerCount.takeIf { includeFollowerCount },
     bannerImageURL = bannerImageURL,
     lastBroadcast = lastBroadcast,
 )
@@ -383,7 +619,7 @@ private fun Stream.toCacheStream() = CachedChannelStream(
     tags = tags,
 )
 
-private fun CachedChannelStream.toUiStream() = Stream(
+private fun CachedChannelStream.toUiStream(includeLiveState: Boolean) = Stream(
     id = id,
     channelId = channelId,
     channelLogin = channelLogin,
@@ -395,7 +631,7 @@ private fun CachedChannelStream.toUiStream() = Stream(
     title = title,
     thumbnailURL = thumbnailURL,
     createdAt = createdAt,
-    viewerCount = viewerCount,
+    viewerCount = viewerCount.takeIf { includeLiveState },
     tags = tags,
 )
 
@@ -410,13 +646,16 @@ private fun Game.toCacheGame() = CachedGame(
     tags = tags?.map { CachedTag(it.id, it.name) },
 )
 
-private fun CachedGame.toUiGame() = Game(
+private fun CachedGame.toUiGame(
+    includeLiveStats: Boolean,
+    includeFollowerCount: Boolean,
+) = Game(
     id = id,
     slug = slug,
     name = name,
     boxArtURL = boxArtURL,
-    viewerCount = viewerCount,
-    broadcasterCount = broadcasterCount,
-    followerCount = followerCount,
+    viewerCount = viewerCount.takeIf { includeLiveStats },
+    broadcasterCount = broadcasterCount.takeIf { includeLiveStats },
+    followerCount = followerCount.takeIf { includeFollowerCount },
     tags = tags?.map { Tag(it.id, it.name) },
 )

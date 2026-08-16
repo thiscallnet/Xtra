@@ -89,4 +89,95 @@ class StreamFeedSnapshotTest {
         assertTrue(afterAppend.take(6).all { it.generation == 2L })
         assertTrue(afterAppend.drop(6).all { it.generation == 1L })
     }
+
+    @Test
+    fun refreshingAnExistingChannelReplacesEveryCachedStreamField() {
+        val key = "top:v2"
+        val existing = refreshCachedItems(
+            feedKey = key,
+            streams = listOf(
+                Stream(
+                    id = "broadcast-1",
+                    channelId = "channel-42",
+                    channelLogin = "old-login",
+                    channelName = "Old name",
+                    channelImageURL = "old-avatar",
+                    gameId = "game-old",
+                    gameSlug = "old-game",
+                    gameName = "Old game",
+                    title = "Old title",
+                    thumbnailURL = "old-thumbnail",
+                    createdAt = "old-created",
+                    viewerCount = 10,
+                    tags = listOf("old-tag"),
+                ),
+            ),
+            generation = 1L,
+        )
+        val refreshed = refreshCachedItemsPreservingTail(
+            feedKey = key,
+            existing = existing,
+            streams = listOf(
+                Stream(
+                    id = "broadcast-2",
+                    channelId = "channel-42",
+                    channelLogin = "new-login",
+                    channelName = "New name",
+                    channelImageURL = "new-avatar",
+                    gameId = "game-new",
+                    gameSlug = "new-game",
+                    gameName = "New game",
+                    title = "New title",
+                    thumbnailURL = "new-thumbnail",
+                    createdAt = "new-created",
+                    viewerCount = 20,
+                    tags = listOf("new-tag"),
+                ),
+            ),
+            generation = 2L,
+        )
+
+        val stream = refreshed.single().toStream()
+        assertEquals("broadcast-2", stream.id)
+        assertEquals("channel-42", stream.channelId)
+        assertEquals("new-login", stream.channelLogin)
+        assertEquals("New name", stream.channelName)
+        assertEquals("new-avatar", stream.channelImageURL)
+        assertEquals("game-new", stream.gameId)
+        assertEquals("new-game", stream.gameSlug)
+        assertEquals("New game", stream.gameName)
+        assertEquals("New title", stream.title)
+        assertEquals("new-thumbnail", stream.thumbnailURL)
+        assertEquals("new-created", stream.createdAt)
+        assertEquals(20, stream.viewerCount)
+        assertEquals(listOf("new-tag"), stream.tags)
+        assertEquals(2L, stream.thumbnailGeneration)
+    }
+
+    @Test
+    fun staleTailIsBoundToOnePreviouslyVerifiedGeneration() {
+        val first = refreshCachedItems(
+            "top:bounded-tail",
+            listOf(Stream(channelId = "old")),
+            generation = 1L,
+        )
+        val second = refreshCachedItemsPreservingTail(
+            "top:bounded-tail",
+            first,
+            listOf(Stream(channelId = "middle")),
+            generation = 2L,
+        )
+        val third = refreshCachedItemsPreservingTail(
+            "top:bounded-tail",
+            second,
+            listOf(Stream(channelId = "new")),
+            generation = 3L,
+        )
+
+        assertEquals(
+            listOf("channel:new", "channel:middle"),
+            third.map { it.itemKey },
+        )
+        assertTrue(third.all { it.generation >= 2L })
+    }
 }

@@ -87,6 +87,7 @@ internal fun CachedStreamFeedItem.toStream(): Stream {
         createdAt = createdAt,
         viewerCount = viewerCount,
         tags = tags?.let(::decodeTags),
+        thumbnailGeneration = generation,
     )
 }
 
@@ -126,13 +127,32 @@ internal fun refreshCachedItemsPreservingTail(
 ): List<CachedStreamFeedItem> {
     val refreshed = refreshCachedItems(feedKey, streams, generation)
     val refreshedKeys = refreshed.map { it.itemKey }.toSet()
+    // Keep at most one previously verified generation as a useful stale tail.
+    // Without this bound, every successful first-page refresh could retain rows
+    // from an arbitrarily old feed snapshot until the feed's long retention
+    // cleanup ran.
+    val retainedGenerations = existing.asSequence()
+        .map { it.generation }
+        .distinct()
+        .sortedDescending()
+        .take(StreamFeedFreshnessPolicy.MAX_RETAINED_STALE_GENERATIONS)
+        .toSet()
     val staleTail = existing
+        .filter { it.generation in retainedGenerations }
         .filterNot { it.itemKey in refreshedKeys }
         .sortedBy { it.position }
         .mapIndexed { index, item ->
             item.copy(position = refreshed.size + index)
         }
     return refreshed + staleTail
+}
+
+internal fun staleTailExpired(state: StreamFeedState?, nowMs: Long): Boolean {
+    return state != null &&
+            state.activeGeneration != 0L &&
+            state.staleTailRetainedAt?.let {
+                nowMs - it >= StreamFeedFreshnessPolicy.MAX_RETAINED_STALE_TAIL_AGE_MS
+            } == true
 }
 
 /**
@@ -203,8 +223,15 @@ class StreamFeedCache(
     override suspend fun touchAccess(feedKey: StreamFeedKey, nowMs: Long) = withContext(Dispatchers.IO) {
         database.runInTransaction {
             val current = dao.state(feedKey.value)
+            val expiredTail = staleTailExpired(current, nowMs)
+            if (expiredTail) {
+                dao.deleteItemsExceptGeneration(feedKey.value, current!!.activeGeneration)
+            }
             dao.insertState(
-                (current ?: StreamFeedState(feedKey.value)).copy(lastAccessAt = nowMs)
+                (current ?: StreamFeedState(feedKey.value)).copy(
+                    lastAccessAt = nowMs,
+                    staleTailRetainedAt = if (expiredTail) null else current?.staleTailRetainedAt,
+                )
             )
         }
     }
@@ -212,10 +239,15 @@ class StreamFeedCache(
     override suspend fun markAttempt(feedKey: StreamFeedKey, nowMs: Long) = withContext(Dispatchers.IO) {
         database.runInTransaction {
             val current = dao.state(feedKey.value)
+            val expiredTail = staleTailExpired(current, nowMs)
+            if (expiredTail) {
+                dao.deleteItemsExceptGeneration(feedKey.value, current!!.activeGeneration)
+            }
             dao.insertState(
                 (current ?: StreamFeedState(feedKey.value)).copy(
                     lastAttemptAt = nowMs,
                     lastAccessAt = nowMs,
+                    staleTailRetainedAt = if (expiredTail) null else current?.staleTailRetainedAt,
                 )
             )
         }
@@ -232,6 +264,13 @@ class StreamFeedCache(
         database.runInTransaction {
             val current = dao.state(feedKey.value)
             val generation = (current?.activeGeneration ?: 0L) + 1L
+            val expiredTail = staleTailExpired(current, nowMs)
+            if (expiredTail && current != null) {
+                // The expired rows are the generations behind the active one.
+                // Keep the active generation available to become the next
+                // stale tail even when expiry is crossed during the request.
+                dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
+            }
             val items = if (preserveTail) {
                 refreshCachedItemsPreservingTail(
                     feedKey = feedKey.value,
@@ -251,6 +290,9 @@ class StreamFeedCache(
             if (page.nextCursor == null && pruneStaleOnEnd) {
                 dao.deleteItemsExceptGeneration(feedKey.value, generation)
             }
+            val retainsStaleTail = preserveTail &&
+                    !(page.nextCursor == null && pruneStaleOnEnd) &&
+                    items.any { it.generation != generation }
             dao.insertState(
                 StreamFeedState(
                     feedKey = feedKey.value,
@@ -262,6 +304,11 @@ class StreamFeedCache(
                     rateLimitUntil = null,
                     nextCursorApi = page.nextCursor?.api,
                     activeGeneration = generation,
+                    staleTailRetainedAt = if (retainsStaleTail) {
+                        current?.staleTailRetainedAt?.takeUnless { expiredTail } ?: nowMs
+                    } else {
+                        null
+                    },
                 )
             )
         }
@@ -276,6 +323,10 @@ class StreamFeedCache(
     ) = withContext(Dispatchers.IO) {
         database.runInTransaction {
             val current = dao.state(feedKey.value) ?: StreamFeedState(feedKey.value)
+            val expiredTail = staleTailExpired(current, nowMs)
+            if (expiredTail) {
+                dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
+            }
             val existing = dao.itemsForFeed(feedKey.value)
             val items = appendCachedPage(feedKey.value, existing, page.items, current.activeGeneration)
             if (items.isNotEmpty()) {
@@ -284,6 +335,9 @@ class StreamFeedCache(
             if (page.nextCursor == null && pruneStaleOnEnd) {
                 dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
             }
+            val retainsStaleTail =
+                !(page.nextCursor == null && pruneStaleOnEnd) &&
+                        items.any { it.generation != current.activeGeneration }
             dao.insertState(
                 current.copy(
                     nextCursor = page.nextCursor?.value,
@@ -293,6 +347,11 @@ class StreamFeedCache(
                     failureBackoffUntil = null,
                     rateLimitUntil = null,
                     nextCursorApi = page.nextCursor?.api,
+                    staleTailRetainedAt = if (retainsStaleTail) {
+                        current.staleTailRetainedAt?.takeUnless { expiredTail } ?: nowMs
+                    } else {
+                        null
+                    },
                 )
             )
         }
@@ -302,6 +361,7 @@ class StreamFeedCache(
         database.runInTransaction {
             dao.state(feedKey.value)?.let { state ->
                 dao.deleteItemsExceptGeneration(feedKey.value, state.activeGeneration)
+                dao.insertState(state.copy(staleTailRetainedAt = null))
             }
         }
     }
@@ -315,12 +375,17 @@ class StreamFeedCache(
     ) = withContext(Dispatchers.IO) {
         database.runInTransaction {
             val current = dao.state(feedKey.value) ?: StreamFeedState(feedKey.value)
+            val expiredTail = staleTailExpired(current, nowMs)
+            if (expiredTail) {
+                dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
+            }
             dao.insertState(
                 current.copy(
                     lastAttemptAt = nowMs,
                     lastAccessAt = nowMs,
                     failureBackoffUntil = failureBackoffUntil,
                     rateLimitUntil = rateLimitUntil,
+                    staleTailRetainedAt = if (expiredTail) null else current.staleTailRetainedAt,
                 )
             )
         }
@@ -345,6 +410,11 @@ class StreamFeedCache(
         database.runInTransaction {
             val cutoff = nowMs - FEED_RETENTION_MS
             val states = dao.allStates()
+            states.filter { staleTailExpired(it, nowMs) }
+                .forEach { state ->
+                    dao.deleteItemsExceptGeneration(state.feedKey, state.activeGeneration)
+                    dao.insertState(state.copy(staleTailRetainedAt = null))
+                }
             states.filter { it.lastAccessAt <= cutoff }
                 .forEach { state ->
                     dao.deleteItems(state.feedKey)

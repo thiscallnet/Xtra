@@ -98,6 +98,79 @@ class StreamFeedCacheTest {
     }
 
     @Test
+    fun successfulRefreshReplacesAllMutableFieldsForAnExistingChannel() = runBlocking {
+        val cache = StreamFeedCache(database)
+        val feedKey = StreamFeedKey("top:mutable-fields")
+        cache.replaceAfterRefresh(
+            feedKey,
+            StreamFeedPage(
+                listOf(
+                    Stream(
+                        id = "broadcast-1",
+                        channelId = "channel-42",
+                        channelLogin = "old-login",
+                        channelName = "Old name",
+                        channelImageURL = "old-avatar",
+                        gameId = "game-old",
+                        gameSlug = "old-game",
+                        gameName = "Old game",
+                        title = "Old title",
+                        thumbnailURL = "old-thumbnail",
+                        createdAt = "old-created",
+                        viewerCount = 10,
+                        tags = listOf("old-tag"),
+                    ),
+                ),
+                nextCursor = null,
+            ),
+            nowMs = 1L,
+            preserveTail = false,
+            pruneStaleOnEnd = true,
+        )
+        cache.replaceAfterRefresh(
+            feedKey,
+            StreamFeedPage(
+                listOf(
+                    Stream(
+                        id = "broadcast-2",
+                        channelId = "channel-42",
+                        channelLogin = "new-login",
+                        channelName = "New name",
+                        channelImageURL = "new-avatar",
+                        gameId = "game-new",
+                        gameSlug = "new-game",
+                        gameName = "New game",
+                        title = "New title",
+                        thumbnailURL = "new-thumbnail",
+                        createdAt = "new-created",
+                        viewerCount = 20,
+                        tags = listOf("new-tag"),
+                    ),
+                ),
+                nextCursor = null,
+            ),
+            nowMs = 2L,
+            preserveTail = false,
+            pruneStaleOnEnd = true,
+        )
+
+        val stream = database.streamFeedDao().itemsForFeed(feedKey.value).single().toStream()
+        assertEquals("broadcast-2", stream.id)
+        assertEquals("new-login", stream.channelLogin)
+        assertEquals("New name", stream.channelName)
+        assertEquals("new-avatar", stream.channelImageURL)
+        assertEquals("game-new", stream.gameId)
+        assertEquals("new-game", stream.gameSlug)
+        assertEquals("New game", stream.gameName)
+        assertEquals("New title", stream.title)
+        assertEquals("new-thumbnail", stream.thumbnailURL)
+        assertEquals("new-created", stream.createdAt)
+        assertEquals(20, stream.viewerCount)
+        assertEquals(listOf("new-tag"), stream.tags)
+        assertEquals(2L, stream.thumbnailGeneration)
+    }
+
+    @Test
     fun automaticRefreshEofDefersStalePruningUntilExplicitFinalization() = runBlocking {
         val cache = StreamFeedCache(database)
         val feedKey = StreamFeedKey("top:cache-automatic-eof")
@@ -121,6 +194,119 @@ class StreamFeedCacheTest {
         assertEquals(listOf("channel:fresh-0", "channel:fresh-1"), rows.map { it.itemKey })
         assertFalse(rows.any { it.itemKey == "channel:old-80" })
         assertContiguousLayout(feedKey, activeCount = 2)
+    }
+
+    @Test
+    fun retainedStaleTailExpiresAfterItsBoundedBootstrapWindow() = runBlocking {
+        val cache = StreamFeedCache(database)
+        val feedKey = StreamFeedKey("top:cache-tail-expiry")
+        cache.replaceAfterRefresh(
+            feedKey,
+            StreamFeedPage(streams("old"), nextCursor = StreamFeedCursor("gql", "old-next")),
+            nowMs = 1L,
+            preserveTail = false,
+            pruneStaleOnEnd = true,
+        )
+        cache.replaceAfterRefresh(
+            feedKey,
+            StreamFeedPage(streams("fresh"), nextCursor = StreamFeedCursor("gql", "fresh-next")),
+            nowMs = 2L,
+            preserveTail = true,
+            pruneStaleOnEnd = false,
+        )
+        assertEquals(
+            listOf("channel:fresh", "channel:old"),
+            database.streamFeedDao().itemsForFeed(feedKey.value).map { it.itemKey },
+        )
+
+        cache.touchAccess(
+            feedKey,
+            nowMs = 2L + StreamFeedFreshnessPolicy.MAX_RETAINED_STALE_TAIL_AGE_MS + 1L,
+        )
+
+        assertEquals(
+            listOf("channel:fresh"),
+            database.streamFeedDao().itemsForFeed(feedKey.value).map { it.itemKey },
+        )
+    }
+
+    @Test
+    fun invalidationDoesNotDisableStaleTailExpiry() = runBlocking {
+        val cache = StreamFeedCache(database)
+        val feedKey = StreamFeedKey("top:cache-tail-invalidation")
+        cache.replaceAfterRefresh(
+            feedKey,
+            StreamFeedPage(streams("old"), StreamFeedCursor("gql", "old-next")),
+            nowMs = 1L,
+            preserveTail = false,
+            pruneStaleOnEnd = true,
+        )
+        cache.replaceAfterRefresh(
+            feedKey,
+            StreamFeedPage(streams("fresh"), StreamFeedCursor("gql", "fresh-next")),
+            nowMs = 2L,
+            preserveTail = true,
+            pruneStaleOnEnd = false,
+        )
+
+        cache.invalidatePrefix("top:", nowMs = 3L)
+        assertEquals(null, database.streamFeedDao().state(feedKey.value)?.lastSuccessAt)
+        assertEquals(
+            listOf("channel:fresh", "channel:old"),
+            database.streamFeedDao().itemsForFeed(feedKey.value).map { it.itemKey },
+        )
+
+        cache.touchAccess(
+            feedKey,
+            nowMs = 2L + StreamFeedFreshnessPolicy.MAX_RETAINED_STALE_TAIL_AGE_MS + 1L,
+        )
+
+        assertEquals(
+            listOf("channel:fresh"),
+            database.streamFeedDao().itemsForFeed(feedKey.value).map { it.itemKey },
+        )
+        assertEquals(null, database.streamFeedDao().state(feedKey.value)?.staleTailRetainedAt)
+    }
+
+    @Test
+    fun expiryDuringRefreshPreservesThePreviousActiveGenerationAsTheNewTail() = runBlocking {
+        val cache = StreamFeedCache(database)
+        val feedKey = StreamFeedKey("top:cache-tail-refresh-race")
+        cache.replaceAfterRefresh(
+            feedKey,
+            StreamFeedPage(streams("old"), StreamFeedCursor("gql", "old-next")),
+            nowMs = 1L,
+            preserveTail = false,
+            pruneStaleOnEnd = true,
+        )
+        cache.replaceAfterRefresh(
+            feedKey,
+            StreamFeedPage(streams("active"), StreamFeedCursor("gql", "active-next")),
+            nowMs = 2L,
+            preserveTail = true,
+            pruneStaleOnEnd = false,
+        )
+
+        val justBeforeExpiry = 2L + StreamFeedFreshnessPolicy.MAX_RETAINED_STALE_TAIL_AGE_MS - 1L
+        cache.markAttempt(feedKey, nowMs = justBeforeExpiry)
+        cache.replaceAfterRefresh(
+            feedKey,
+            StreamFeedPage(streams("fresh"), StreamFeedCursor("gql", "fresh-next")),
+            nowMs = justBeforeExpiry + 2L,
+            preserveTail = true,
+            pruneStaleOnEnd = false,
+        )
+
+        val rows = database.streamFeedDao().itemsForFeed(feedKey.value)
+        assertEquals(
+            listOf("channel:fresh", "channel:active"),
+            rows.map { it.itemKey },
+        )
+        assertEquals(rows.first().generation - 1L, rows.last().generation)
+        assertEquals(
+            justBeforeExpiry + 2L,
+            database.streamFeedDao().state(feedKey.value)?.staleTailRetainedAt,
+        )
     }
 
     @Test

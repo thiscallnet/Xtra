@@ -25,4 +25,35 @@ class StreamFeedKeyTest {
         assertEquals(StreamFeedKey.followed("100"), StreamFeedKey.followed(" 100 "))
         assertEquals("followed:account:100", StreamFeedKey.followed("100").value)
     }
+
+    @Test
+    fun gameIdentityAndFiltersCannotCollide() {
+        val first = StreamFeedKey.game(
+            gameId = "1",
+            gameSlug = "same-slug",
+            gameName = "Same name",
+            sort = "VIEWER_COUNT",
+            tags = listOf("fps"),
+            languages = listOf("en"),
+        )
+        val second = StreamFeedKey.game(
+            gameId = "2",
+            gameSlug = "same-slug",
+            gameName = "Same name",
+            sort = "VIEWER_COUNT",
+            tags = listOf("fps"),
+            languages = listOf("en"),
+        )
+        val differentFilters = StreamFeedKey.game(
+            gameId = "1",
+            gameSlug = "same-slug",
+            gameName = "Same name",
+            sort = "VIEWER_COUNT",
+            tags = listOf("rpg"),
+            languages = listOf("en"),
+        )
+
+        assertNotEquals(first, second)
+        assertNotEquals(first, differentFilters)
+    }
 }
