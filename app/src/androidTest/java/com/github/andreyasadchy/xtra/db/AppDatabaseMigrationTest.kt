@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.db
 
+import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -27,7 +28,7 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
-    fun migrateCurrentVersion38To44CreatesStatisticsAndStreamFeedSchema() {
+    fun migrateCurrentVersion38To45CreatesStatisticsAndStreamFeedSchema() {
         val name = "migration-v38.db"
         prepareDatabase(name, version = 38, historicalVersion39 = false)
 
@@ -79,6 +80,33 @@ class AppDatabaseMigrationTest {
         database.close()
     }
 
+    @Test
+    fun migrateVersion43Through44And45RetainsExistingViewingStats() {
+        val name = "migration-v43-stats.db"
+        prepareVersion43Database(name)
+        insertLegacyViewingStats(name)
+
+        val database = openMigratedDatabase(name)
+        val sqlite = database.openHelper.readableDatabase
+        assertStatisticsSchema(sqlite)
+        assertStreamFeedSchema(sqlite)
+        assertRetainedViewingStats(sqlite)
+        database.close()
+    }
+
+    @Test
+    fun migrateVersion44To45RetainsExistingViewingStats() {
+        val name = "migration-v44-stats.db"
+        prepareVersion44Database(name)
+        insertLegacyViewingStats(name)
+
+        val database = openMigratedDatabase(name)
+        val sqlite = database.openHelper.readableDatabase
+        assertEquals(45, scalarInt(sqlite, "PRAGMA user_version"))
+        assertRetainedViewingStats(sqlite)
+        database.close()
+    }
+
     private fun openMigratedDatabase(name: String): AppDatabase {
         return Room.databaseBuilder(context, AppDatabase::class.java, name)
             .addMigrations(
@@ -88,6 +116,7 @@ class AppDatabaseMigrationTest {
                 StreamFeedMigrations.FROM_41,
                 MetadataCacheMigrations.FROM_42,
                 StreamFeedMigrations.FROM_43,
+                ViewingStatsMigrations.FROM_44,
             )
             .build()
             .also { it.openHelper.writableDatabase }
@@ -130,6 +159,7 @@ class AppDatabaseMigrationTest {
         databaseNames += name
         val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
         val sqlite = database.openHelper.writableDatabase
+        dropViewingStatsTables(sqlite)
         sqlite.execSQL("DROP INDEX IF EXISTS index_stream_feed_items_feedKey_position")
         sqlite.execSQL("DROP INDEX IF EXISTS index_stream_feed_items_feedKey_channelId")
         sqlite.execSQL("DROP TABLE IF EXISTS stream_feed_items")
@@ -151,6 +181,7 @@ class AppDatabaseMigrationTest {
                     "failureBackoffUntil INTEGER, rateLimitUntil INTEGER, nextCursorApi TEXT, " +
                     "activeGeneration INTEGER NOT NULL DEFAULT 0)"
         )
+        createLegacyViewingStatsTables { sql -> sqlite.execSQL(sql) }
         sqlite.execSQL(
             "INSERT INTO stream_feed_items (feedKey, itemKey, position, channelId, generation) " +
                     "VALUES (?, ?, ?, ?, ?)",
@@ -170,12 +201,128 @@ class AppDatabaseMigrationTest {
         database.close()
     }
 
+    private fun prepareVersion43Database(name: String) {
+        context.deleteDatabase(name)
+        databaseNames += name
+        val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
+        val sqlite = database.openHelper.writableDatabase
+        dropViewingStatsTables(sqlite)
+        sqlite.execSQL("DROP INDEX IF EXISTS index_stream_feed_items_feedKey_position")
+        sqlite.execSQL("DROP INDEX IF EXISTS index_stream_feed_items_feedKey_channelId")
+        sqlite.execSQL("DROP TABLE IF EXISTS stream_feed_items")
+        sqlite.execSQL("DROP TABLE IF EXISTS stream_feed_states")
+        sqlite.execSQL(
+            "CREATE TABLE stream_feed_items (" +
+                    "feedKey TEXT NOT NULL, itemKey TEXT NOT NULL, position INTEGER NOT NULL, " +
+                    "streamId TEXT, channelId TEXT, channelLogin TEXT, channelName TEXT, " +
+                    "channelImageURL TEXT, gameId TEXT, gameSlug TEXT, gameName TEXT, title TEXT, " +
+                    "thumbnailURL TEXT, createdAt TEXT, viewerCount INTEGER, tags TEXT, " +
+                    "generation INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(feedKey, itemKey))"
+        )
+        sqlite.execSQL("CREATE INDEX index_stream_feed_items_feedKey_position ON stream_feed_items(feedKey, position)")
+        sqlite.execSQL("CREATE INDEX index_stream_feed_items_feedKey_channelId ON stream_feed_items(feedKey, channelId)")
+        sqlite.execSQL(
+            "CREATE TABLE stream_feed_states (" +
+                    "feedKey TEXT NOT NULL PRIMARY KEY, nextCursor TEXT, lastSuccessAt INTEGER, " +
+                    "lastAttemptAt INTEGER, lastAccessAt INTEGER NOT NULL, " +
+                    "failureBackoffUntil INTEGER, rateLimitUntil INTEGER, nextCursorApi TEXT, " +
+                    "activeGeneration INTEGER NOT NULL DEFAULT 0)"
+        )
+        sqlite.execSQL("PRAGMA user_version = 43")
+        database.close()
+    }
+
+    private fun prepareVersion44Database(name: String) {
+        context.deleteDatabase(name)
+        databaseNames += name
+        val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
+        dropViewingStatsTables(database.openHelper.writableDatabase)
+        database.openHelper.writableDatabase.execSQL("PRAGMA user_version = 44")
+        database.close()
+    }
+
+    private fun dropViewingStatsTables(sqlite: SupportSQLiteDatabase) {
+        sqlite.execSQL("DROP INDEX IF EXISTS index_viewing_intervals_session_id")
+        sqlite.execSQL("DROP INDEX IF EXISTS index_viewing_intervals_content_type_start_at")
+        sqlite.execSQL("DROP INDEX IF EXISTS index_viewing_intervals_category_id_start_at")
+        sqlite.execSQL("DROP INDEX IF EXISTS index_viewing_intervals_channel_id_start_at")
+        sqlite.execSQL("DROP INDEX IF EXISTS index_viewing_intervals_start_at")
+        sqlite.execSQL("DROP TABLE IF EXISTS viewing_intervals")
+        sqlite.execSQL("DROP INDEX IF EXISTS index_viewing_sessions_channel_id_started_at")
+        sqlite.execSQL("DROP INDEX IF EXISTS index_viewing_sessions_started_at")
+        sqlite.execSQL("DROP TABLE IF EXISTS viewing_sessions")
+    }
+
+    private fun insertLegacyViewingStats(name: String) {
+        val sqlite = SQLiteDatabase.openDatabase(
+            context.getDatabasePath(name).path,
+            null,
+            SQLiteDatabase.OPEN_READWRITE,
+        )
+        createLegacyViewingStatsTables { sql -> sqlite.execSQL(sql) }
+        sqlite.execSQL(
+            "INSERT INTO viewing_sessions VALUES (9001, 'channel-a', 'channel-a', 'Channel A', NULL, " +
+                    "'live', 'stream-a', 1000, 61000, 60000, 61000)"
+        )
+        sqlite.execSQL(
+            "INSERT INTO viewing_intervals VALUES (9001, 9001, 'channel-a', 'channel-a', 'Channel A', NULL, " +
+                    "1000, 61000, 60000, 61000)"
+        )
+        sqlite.close()
+    }
+
+    private fun createLegacyViewingStatsTables(execSql: (String) -> Unit) {
+        execSql(
+            "CREATE TABLE viewing_sessions (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, channel_id TEXT NOT NULL, " +
+                    "channel_login TEXT, channel_name TEXT, channel_image TEXT, " +
+                    "content_type TEXT NOT NULL, content_id TEXT, started_at INTEGER NOT NULL, " +
+                    "ended_at INTEGER NOT NULL, watched_ms INTEGER NOT NULL, last_checkpoint_at INTEGER NOT NULL)"
+        )
+        execSql(
+            "CREATE TABLE viewing_intervals (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, session_id INTEGER NOT NULL, " +
+                    "channel_id TEXT NOT NULL, channel_login TEXT, channel_name TEXT, channel_image TEXT, " +
+                    "start_at INTEGER NOT NULL, end_at INTEGER NOT NULL, watched_ms INTEGER NOT NULL, " +
+                    "last_checkpoint_at INTEGER NOT NULL, FOREIGN KEY(session_id) REFERENCES viewing_sessions(id) " +
+                    "ON UPDATE NO ACTION ON DELETE CASCADE)"
+        )
+        execSql("CREATE INDEX index_viewing_sessions_started_at ON viewing_sessions(started_at)")
+        execSql(
+            "CREATE INDEX index_viewing_sessions_channel_id_started_at " +
+                    "ON viewing_sessions(channel_id, started_at)"
+        )
+        execSql("CREATE INDEX index_viewing_intervals_start_at ON viewing_intervals(start_at)")
+        execSql(
+            "CREATE INDEX index_viewing_intervals_channel_id_start_at " +
+                    "ON viewing_intervals(channel_id, start_at)"
+        )
+        execSql("CREATE INDEX index_viewing_intervals_session_id ON viewing_intervals(session_id)")
+    }
+
+    private fun assertRetainedViewingStats(database: SupportSQLiteDatabase) {
+        database.query(
+            "SELECT category_id, category_name, content_type, content_id, watched_ms " +
+                    "FROM viewing_intervals WHERE id = 9001"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+            assertTrue(cursor.isNull(1))
+            assertEquals("live", cursor.getString(2))
+            assertEquals("stream-a", cursor.getString(3))
+            assertEquals(60000L, cursor.getLong(4))
+        }
+    }
+
     private fun assertStatisticsSchema(database: SupportSQLiteDatabase) {
-        assertEquals(44, scalarInt(database, "PRAGMA user_version"))
+        assertEquals(45, scalarInt(database, "PRAGMA user_version"))
         assertTrue(tableExists(database, "viewing_sessions"))
         assertTrue(tableExists(database, "viewing_intervals"))
         assertTrue(indexExists(database, "index_viewing_sessions_started_at"))
         assertTrue(indexExists(database, "index_viewing_intervals_start_at"))
+        assertTrue(indexExists(database, "index_viewing_intervals_category_id_start_at"))
+        assertTrue(columnExists(database, "viewing_intervals", "category_id"))
+        assertTrue(columnExists(database, "viewing_intervals", "content_type"))
     }
 
     private fun assertStreamFeedSchema(database: SupportSQLiteDatabase) {

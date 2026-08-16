@@ -806,13 +806,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                     ) {
                                         updateViewerCount(stream.viewerCount)
                                     }
-                                    if (!requireContext().prefs().isChatEnabled() ||
-                                        false ||
-                                        title.text.isNullOrBlank() ||
-                                        category.text.isNullOrBlank()
-                                    ) {
-                                        updateStreamInfo(stream.title, stream.gameId, stream.gameSlug, stream.gameName)
-                                    }
+                                    // This is also the live analytics metadata
+                                    // refresh. It must run even after the UI
+                                    // already has a title/category; otherwise
+                                    // a category change is never sent to the
+                                    // Media3 recorder source.
+                                    updateStreamInfo(stream.title, stream.gameId, stream.gameSlug, stream.gameName)
                                     if (requireContext().prefs().getBoolean(C.PLAYER_SHOW_UPTIME, true) &&
                                         !uptimeLayout.isVisible
                                     ) {
@@ -1617,6 +1616,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     fun updateStreamInfo(title: String?, gameId: String?, gameSlug: String?, gameName: String?) {
+        onViewingMetadataChanged(title, gameId, gameName)
         binding.playerControls.title.apply {
             if (!title.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_TITLE, true)) {
                 text = title.trim()
@@ -1644,6 +1644,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             }
         }
     }
+
+    protected open fun onViewingMetadataChanged(
+        title: String?,
+        gameId: String?,
+        gameName: String?,
+    ) = Unit
 
     fun restartPlayer() {
         if (viewModel.quality?.name != CHAT_ONLY_QUALITY) {

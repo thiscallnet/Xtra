@@ -140,6 +140,23 @@ class ViewingStatsRecorderTest {
     }
 
     @Test
+    fun switchingCategorySplitsIntervalsButKeepsTheViewingSession() = runBlocking {
+        recorder.update("service", metadata("channel-a").copy(categoryId = "1", categoryName = "League of Legends"), true, false)
+        recorder.awaitIdle()
+        clock.advance(2.minutes)
+        recorder.update("service", metadata("channel-a").copy(categoryId = "2", categoryName = "Just Chatting"), true, false)
+        clock.advance(3.minutes)
+        recorder.release("service")
+        recorder.awaitIdle()
+
+        assertEquals(1, store.sessions.size)
+        assertEquals(2, store.intervals.size)
+        assertEquals(2.minutes, store.intervals.first { it.categoryId == "1" }.watchedMs)
+        assertEquals(3.minutes, store.intervals.first { it.categoryId == "2" }.watchedMs)
+        assertEquals(store.intervals.map { it.sessionId }.toSet().single(), store.sessions.single().id)
+    }
+
+    @Test
     fun resetWhilePlayingStartsAZeroBasedSession() = runBlocking {
         recorder.update("service", metadata("channel-a"), true, false)
         recorder.awaitIdle()
@@ -215,6 +232,12 @@ class ViewingStatsRecorderTest {
                 channelLogin = metadata.channelLogin,
                 channelName = metadata.channelName,
                 channelImage = metadata.channelImage,
+                categoryId = metadata.categoryId,
+                categoryName = metadata.categoryName,
+                categoryImage = metadata.categoryImage,
+                contentType = metadata.contentType,
+                contentId = metadata.contentId,
+                streamTitle = metadata.title,
                 startAt = startAt,
                 endAt = startAt,
                 watchedMs = 0L,

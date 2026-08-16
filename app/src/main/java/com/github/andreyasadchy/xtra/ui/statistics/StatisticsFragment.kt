@@ -17,19 +17,18 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.setupWithNavController
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentStatisticsBinding
-import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRange
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.DateFormat
+import java.text.NumberFormat
 import java.util.Date
 
 class StatisticsFragment : Fragment() {
@@ -38,6 +37,7 @@ class StatisticsFragment : Fragment() {
     private val binding get() = _binding!!
     private val viewModel: StatisticsViewModel by viewModels { StatisticsViewModel.StatisticsViewModelFactory }
     private lateinit var channelAdapter: StatisticsChannelAdapter
+    private lateinit var categoryAdapter: StatisticsCategoryAdapter
     private var initialContentBottomPadding = 0
 
     override fun onCreateView(
@@ -84,23 +84,56 @@ class StatisticsFragment : Fragment() {
 
         channelAdapter = StatisticsChannelAdapter { channel ->
             navController.navigate(
-                ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                R.id.statisticsDetailFragment,
+                StatisticsDetailFragment.argumentsForChannel(
                     channelId = channel.channelId,
                     channelLogin = channel.channelLogin,
                     channelName = channel.channelName ?: channel.channelLogin,
                     channelImage = channel.channelImage,
-                )
+                ),
+            )
+        }
+        categoryAdapter = StatisticsCategoryAdapter { category ->
+            navController.navigate(
+                R.id.statisticsDetailFragment,
+                StatisticsDetailFragment.argumentsForCategory(
+                    categoryKey = category.categoryKey,
+                    categoryName = category.categoryName,
+                    categoryId = category.categoryId,
+                    categoryImage = category.categoryImage,
+                ),
             )
         }
         binding.topChannels.adapter = channelAdapter
+        binding.topCategories.adapter = categoryAdapter
+        binding.topChannels.layoutManager = LinearLayoutManager(requireContext())
+        binding.topCategories.layoutManager = LinearLayoutManager(requireContext())
         binding.topChannels.isNestedScrollingEnabled = false
+        binding.topCategories.isNestedScrollingEnabled = false
         initialContentBottomPadding = binding.content.paddingBottom
+
+        binding.activityChart.onBucketSelected = { index, _ -> viewModel.selectBucket(index) }
+        binding.viewBucketDetails.setOnClickListener {
+            val state = viewModel.uiState.value
+            val bucket = state.snapshot.timeline.getOrNull(state.selectedBucketIndex) ?: return@setOnClickListener
+            navController.navigate(
+                R.id.statisticsDetailFragment,
+                StatisticsDetailFragment.argumentsForBucket(bucket.startAt, bucket.endAt),
+            )
+        }
+        binding.seeAllChannels.setOnClickListener {
+            navController.navigate(R.id.statisticsListFragment, StatisticsListFragment.argumentsForChannels())
+        }
+        binding.seeAllCategories.setOnClickListener {
+            navController.navigate(R.id.statisticsListFragment, StatisticsListFragment.argumentsForCategories())
+        }
 
         binding.rangeGroup.setOnCheckedChangeListener { _, checkedId ->
             when (checkedId) {
                 R.id.range7 -> viewModel.selectRange(ViewingStatsRange.LAST_7_DAYS)
                 R.id.range30 -> viewModel.selectRange(ViewingStatsRange.LAST_30_DAYS)
                 R.id.range90 -> viewModel.selectRange(ViewingStatsRange.LAST_90_DAYS)
+                R.id.rangeYear -> viewModel.selectRange(ViewingStatsRange.LAST_YEAR)
                 R.id.rangeAll -> viewModel.selectRange(ViewingStatsRange.ALL_TIME)
             }
         }
@@ -110,12 +143,6 @@ class StatisticsFragment : Fragment() {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     viewModel.uiState.collectLatest(::render)
-                }
-                launch {
-                    while (isActive) {
-                        delay(STATISTICS_REFRESH_INTERVAL_MS)
-                        viewModel.refreshSilently()
-                    }
                 }
             }
         }
@@ -153,6 +180,7 @@ class StatisticsFragment : Fragment() {
                     ViewingStatsRange.LAST_7_DAYS -> R.id.range7
                     ViewingStatsRange.LAST_30_DAYS -> R.id.range30
                     ViewingStatsRange.LAST_90_DAYS -> R.id.range90
+                    ViewingStatsRange.LAST_YEAR -> R.id.rangeYear
                     ViewingStatsRange.ALL_TIME -> R.id.rangeAll
                 }
             )
@@ -194,21 +222,60 @@ class StatisticsFragment : Fragment() {
                 )
                 else -> getString(R.string.statistics_comparison_unchanged)
             }
-            sessionsValue.text = snapshot.sessionCount.toString()
-            channelsValue.text = snapshot.channelCount.toString()
-            activeDaysValue.text = snapshot.activeDays.toString()
+            sessionsValue.text = formatCount(snapshot.sessionCount)
+            channelsValue.text = formatCount(snapshot.channelCount)
+            categoriesValue.text = formatCount(snapshot.categoryCount)
+            activeDaysValue.text = formatCount(snapshot.activeDays)
             averageSessionValue.text = formatDuration(snapshot.averageSessionMs)
 
-            activityChart.setDailyTotals(snapshot.dailyTotals)
+            activityChart.setBuckets(snapshot.timeline)
+            activityChart.setSelectedIndex(state.selectedBucketIndex)
             activitySummary.text = getString(
                 R.string.statistics_activity_summary,
                 snapshot.activeDays,
                 snapshot.dailyTotals.size,
             )
+            val selectedBucket = snapshot.timeline.getOrNull(state.selectedBucketIndex)
+            selectedBucketSummary.visibility = if (selectedBucket == null) View.GONE else View.VISIBLE
+            viewBucketDetails.visibility = if (selectedBucket == null) View.GONE else View.VISIBLE
+            selectedBucket?.let { bucket ->
+                val detail = state.selectedBucketDetail
+                val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(bucket.startAt))
+                val duration = formatDuration(bucket.watchedMs)
+                val topChannel = detail?.topChannels?.firstOrNull()
+                selectedBucketSummary.text = if (topChannel == null) {
+                    getString(R.string.statistics_selected_bucket_summary, date, duration, bucket.sessionCount)
+                } else {
+                    getString(
+                        R.string.statistics_selected_bucket_summary_with_channel,
+                        date,
+                        duration,
+                        bucket.sessionCount,
+                        topChannel.channelName ?: topChannel.channelLogin ?: topChannel.channelId,
+                        formatDuration(topChannel.watchedMs),
+                    )
+                }
+            }
 
             channelAdapter.submitChannels(snapshot.topChannels, snapshot.totalWatchMs)
             topChannelsEmpty.visibility = if (snapshot.topChannels.isEmpty()) View.VISIBLE else View.GONE
             topChannels.visibility = if (snapshot.topChannels.isEmpty()) View.GONE else View.VISIBLE
+            categoryAdapter.submitCategories(snapshot.topCategories, snapshot.totalWatchMs)
+            topCategoriesEmpty.visibility = if (snapshot.topCategories.isEmpty()) View.VISIBLE else View.GONE
+            topCategories.visibility = if (snapshot.topCategories.isEmpty()) View.GONE else View.VISIBLE
+            contentBreakdown.text = snapshot.contentTypes.joinToString(" · ") { content ->
+                val label = when (content.contentType) {
+                    "live" -> getString(R.string.statistics_content_live)
+                    "vod" -> getString(R.string.statistics_content_vod)
+                    "clip" -> getString(R.string.statistics_content_clips)
+                    "offline_video" -> getString(R.string.statistics_content_offline)
+                    else -> getString(R.string.statistics_content_unknown)
+                }
+                val share = if (snapshot.totalWatchMs > 0L) {
+                    (content.watchedMs * 100.0 / snapshot.totalWatchMs).toInt()
+                } else 0
+                "$label ${share}%"
+            }
 
             mostActiveDayValue.text = snapshot.mostActiveWeekday?.let { weekdayName(it) }
                 ?: getString(R.string.statistics_not_available)
@@ -253,6 +320,8 @@ class StatisticsFragment : Fragment() {
         }
     }
 
+    private fun formatCount(value: Int): String = NumberFormat.getIntegerInstance().format(value)
+
     private fun weekdayName(index: Int): String {
         return resources.getStringArray(R.array.statistics_weekdays).getOrNull(index)
             ?: getString(R.string.statistics_not_available)
@@ -266,11 +335,9 @@ class StatisticsFragment : Fragment() {
 
     override fun onDestroyView() {
         binding.topChannels.adapter = null
+        binding.topCategories.adapter = null
         _binding = null
         super.onDestroyView()
     }
 
-    private companion object {
-        const val STATISTICS_REFRESH_INTERVAL_MS = 45_000L
-    }
 }

@@ -66,6 +66,53 @@ class ViewingStatsMathTest {
     }
 
     @Test
+    fun patternTotalsSplitAnIntervalAcrossThreeHourBuckets() {
+        val start = timestamp(2024, Calendar.JANUARY, 1, 20, 50, utc)
+        val end = timestamp(2024, Calendar.JANUARY, 1, 23, 10, utc)
+        val result = ViewingStatsMath.patternTotals(
+            intervals = listOf(interval(1L, "channel-a", start, end, end - start)),
+            fromInclusive = start,
+            toExclusive = end,
+            timeZone = utc,
+        )
+
+        assertEquals(10.minutes, result.single { it.timeBucket == 6 }.watchedMs)
+        assertEquals(130.minutes, result.single { it.timeBucket == 7 }.watchedMs)
+    }
+
+    @Test
+    fun patternTotalsSplitAnIntervalAcrossMidnight() {
+        val start = timestamp(2024, Calendar.JANUARY, 7, 23, 0, utc) // Sunday
+        val end = timestamp(2024, Calendar.JANUARY, 8, 2, 0, utc) // Monday
+        val result = ViewingStatsMath.patternTotals(
+            intervals = listOf(interval(1L, "channel-a", start, end, end - start)),
+            fromInclusive = start,
+            toExclusive = end,
+            timeZone = utc,
+        )
+
+        assertEquals(1.hours, result.single { it.weekday == 6 && it.timeBucket == 7 }.watchedMs)
+        assertEquals(2.hours, result.single { it.weekday == 0 && it.timeBucket == 0 }.watchedMs)
+    }
+
+    @Test
+    fun patternTotalsUseActualElapsedTimeOnDaylightSavingTransition() {
+        val zone = TimeZone.getTimeZone("America/New_York")
+        val start = timestamp(2024, Calendar.MARCH, 10, 0, 0, zone)
+        val end = ViewingStatsRanges.addDays(start, 1, zone)
+        val result = ViewingStatsMath.patternTotals(
+            intervals = listOf(interval(1L, "channel-a", start, end, end - start)),
+            fromInclusive = start,
+            toExclusive = end,
+            timeZone = zone,
+        )
+
+        assertEquals(23.hours, result.sumOf { it.watchedMs })
+        assertEquals(2.hours, result.single { it.weekday == 6 && it.timeBucket == 0 }.watchedMs)
+        assertEquals(3.hours, result.single { it.weekday == 6 && it.timeBucket == 1 }.watchedMs)
+    }
+
+    @Test
     fun topChannelsAggregateByBroadcasterIdAndKeepNewestSnapshot() {
         val first = timestamp(2024, Calendar.JANUARY, 1, 10, 0, utc)
         val second = first + 2.hours

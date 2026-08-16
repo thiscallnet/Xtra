@@ -9,6 +9,7 @@ import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
+import com.github.andreyasadchy.xtra.model.stats.mergeViewingCategoryPatch
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -193,13 +194,56 @@ abstract class BasePlaybackService : LifecycleService() {
                 channelLogin = channelLogin,
                 channelName = channelName,
                 channelImage = channelImage,
+                categoryId = gameId,
+                categoryName = gameName,
                 contentType = contentType,
                 contentId = contentId,
+                title = title,
             ),
             isPlaying = isPlaying,
             isBuffering = isBuffering,
         )
     }
+
+    /**
+     * Updates metadata for the playback that is already running. This must
+     * not use the start/finish path: a live channel can change category while
+     * the same player and viewing session continue.
+     */
+    fun updateViewingMetadata(
+        categoryId: String?,
+        categoryName: String?,
+        title: String? = null,
+    ) {
+        if (type == null) return
+        // PubSub stream-info messages can omit individual fields. Treat null
+        // as "not supplied" so a partial refresh cannot erase attribution
+        // that is still valid for the running playback.
+        val nextCategory = mergeViewingCategoryPatch(
+            currentId = gameId,
+            currentName = gameName,
+            patchId = categoryId,
+            patchName = categoryName,
+        )
+        val nextGameId = nextCategory.id
+        val nextGameName = nextCategory.name
+        val nextTitle = title ?: this.title
+        val changed = gameId != nextGameId || gameName != nextGameName ||
+                this.title != nextTitle
+        gameId = nextGameId
+        gameName = nextGameName
+        this.title = nextTitle
+        if (changed) {
+            updateViewingStats(
+                isPlaying = isViewingPlaybackPlaying(),
+                isBuffering = isViewingPlaybackBuffering(),
+            )
+        }
+    }
+
+    protected open fun isViewingPlaybackPlaying(): Boolean = false
+
+    protected open fun isViewingPlaybackBuffering(): Boolean = false
 
     protected fun releaseViewingStats() {
         if (::xtraModule.isInitialized) {

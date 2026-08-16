@@ -79,6 +79,26 @@ class Media3Fragment : Media3PlayerFragment() {
     private var primaryStreamRestoreJob: Job? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
 
+    override fun onViewingMetadataChanged(title: String?, gameId: String?, gameName: String?) {
+        if (videoType != STREAM) return
+        player?.sendCustomCommand(
+            SessionCommand(
+                PlaybackService.UPDATE_VIEWING_METADATA,
+                Bundle().apply {
+                    putString(PlaybackService.STREAM_ID, requireArguments().getString(KEY_STREAM_ID))
+                    // Category identity is a pair. Keep an incomplete refresh
+                    // from combining a new name with an old ID (or vice versa).
+                    if (gameId != null && gameName != null) {
+                        putString(PlaybackService.GAME_ID, gameId)
+                        putString(PlaybackService.GAME_NAME, gameName)
+                    }
+                    title?.let { putString(PlaybackService.TITLE, it) }
+                },
+            ),
+            Bundle.EMPTY,
+        )
+    }
+
     override fun onStart() {
         super.onStart()
         controllerFuture?.let { MediaController.releaseFuture(it) }
@@ -741,6 +761,8 @@ class Media3Fragment : Media3PlayerFragment() {
                     putString(PlaybackService.TITLE, requireArguments().getString(KEY_TITLE))
                     putString(PlaybackService.CHANNEL_NAME, requireArguments().getString(KEY_CHANNEL_NAME))
                     putString(PlaybackService.CHANNEL_LOGO, requireArguments().getString(KEY_CHANNEL_IMAGE))
+                    putString(PlaybackService.GAME_ID, requireArguments().getString(KEY_GAME_ID))
+                    putString(PlaybackService.GAME_NAME, requireArguments().getString(KEY_GAME_NAME))
                 }
             ), Bundle.EMPTY
         )
@@ -764,6 +786,8 @@ class Media3Fragment : Media3PlayerFragment() {
                         putString(PlaybackService.TITLE, requireArguments().getString(KEY_TITLE))
                         putString(PlaybackService.CHANNEL_NAME, requireArguments().getString(KEY_CHANNEL_NAME))
                         putString(PlaybackService.CHANNEL_LOGO, requireArguments().getString(KEY_CHANNEL_IMAGE))
+                        putString(PlaybackService.GAME_ID, requireArguments().getString(KEY_GAME_ID))
+                        putString(PlaybackService.GAME_NAME, requireArguments().getString(KEY_GAME_NAME))
                     }
                 ), Bundle.EMPTY
             )
@@ -794,6 +818,8 @@ class Media3Fragment : Media3PlayerFragment() {
                         putString(PlaybackService.TITLE, requireArguments().getString(KEY_TITLE))
                         putString(PlaybackService.CHANNEL_NAME, requireArguments().getString(KEY_CHANNEL_NAME))
                         putString(PlaybackService.CHANNEL_LOGO, requireArguments().getString(KEY_CHANNEL_IMAGE))
+                        putString(PlaybackService.GAME_ID, requireArguments().getString(KEY_GAME_ID))
+                        putString(PlaybackService.GAME_NAME, requireArguments().getString(KEY_GAME_NAME))
                     }
                 ), Bundle.EMPTY
             )
@@ -825,6 +851,8 @@ class Media3Fragment : Media3PlayerFragment() {
                         putString(PlaybackService.TITLE, requireArguments().getString(KEY_TITLE))
                         putString(PlaybackService.CHANNEL_NAME, requireArguments().getString(KEY_CHANNEL_NAME))
                         putString(PlaybackService.CHANNEL_LOGO, requireArguments().getString(KEY_CHANNEL_IMAGE))
+                        putString(PlaybackService.GAME_ID, requireArguments().getString(KEY_GAME_ID))
+                        putString(PlaybackService.GAME_NAME, requireArguments().getString(KEY_GAME_NAME))
                     }
                 ), Bundle.EMPTY
             )

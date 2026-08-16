@@ -9,6 +9,35 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 object ViewingStatsMigrations {
 
+    /** Adds interval-level attribution to databases that already have stats. */
+    val FROM_44 = Migration(44, 45) { db ->
+        db.execSQL("ALTER TABLE viewing_intervals ADD COLUMN category_id TEXT")
+        db.execSQL("ALTER TABLE viewing_intervals ADD COLUMN category_name TEXT")
+        db.execSQL("ALTER TABLE viewing_intervals ADD COLUMN category_image TEXT")
+        db.execSQL("ALTER TABLE viewing_intervals ADD COLUMN content_type TEXT NOT NULL DEFAULT 'unknown'")
+        db.execSQL("ALTER TABLE viewing_intervals ADD COLUMN content_id TEXT")
+        db.execSQL("ALTER TABLE viewing_intervals ADD COLUMN stream_title TEXT")
+        // Existing sessions already carry content metadata. Copy it where it
+        // is available; category stays NULL because it was never recorded.
+        db.execSQL(
+            "UPDATE viewing_intervals SET content_type = COALESCE((" +
+                    "SELECT content_type FROM viewing_sessions " +
+                    "WHERE viewing_sessions.id = viewing_intervals.session_id" +
+                    "), 'unknown'), content_id = (" +
+                    "SELECT content_id FROM viewing_sessions " +
+                    "WHERE viewing_sessions.id = viewing_intervals.session_id" +
+                    ")"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_viewing_intervals_category_id_start_at " +
+                    "ON viewing_intervals(category_id, start_at)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_viewing_intervals_content_type_start_at " +
+                    "ON viewing_intervals(content_type, start_at)"
+        )
+    }
+
     /** The current released database is version 38. */
     val FROM_38 = Migration(38, 40) { db ->
         createStatisticsSchema(db)
