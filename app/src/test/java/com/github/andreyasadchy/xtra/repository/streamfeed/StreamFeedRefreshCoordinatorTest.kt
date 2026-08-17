@@ -398,6 +398,55 @@ class StreamFeedRefreshCoordinatorTest {
     }
 
     @Test
+    fun consecutiveAutomaticRefreshesCountOnlyActiveGenerationRows() = runBlocking {
+        val key = StreamFeedKey("top:active-item-count")
+        val cache = FakeCache(
+            key = key,
+            rows = refreshCachedItems(
+                key.value,
+                listOf(Stream(channelId = "active-old")),
+                generation = 1L,
+            ) + refreshCachedItems(
+                key.value,
+                (0 until 4).map { Stream(channelId = "stale-$it") },
+                generation = 0L,
+            ),
+            currentState = StreamFeedState(
+                feedKey = key.value,
+                lastSuccessAt = 0L,
+                activeGeneration = 1L,
+            ),
+        )
+        var now = 1_000_000L
+        var refreshes = 0
+        val loader = object : StreamFeedPageLoader {
+            override suspend fun load(cursor: StreamFeedCursor?): StreamFeedPage {
+                assertEquals(null, cursor)
+                return StreamFeedPage(
+                    listOf(Stream(channelId = "fresh-${refreshes++}")),
+                    nextCursor = null,
+                )
+            }
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val coordinator = StreamFeedRefreshCoordinator(cache, scope, { now }, { 1_000L }, false)
+        val spec = StreamFeedSpec(key, loader)
+
+        coordinator.maybeRefresh(spec, RefreshReason.APP_FOREGROUND)
+        now += StreamFeedFreshnessPolicy.LIVE_STREAM_SOFT_TTL_MS
+        coordinator.maybeRefresh(spec, RefreshReason.APP_FOREGROUND)
+
+        assertEquals(listOf(1, 1), cache.itemCounts)
+        assertEquals(
+            listOf("channel:fresh-1"),
+            cache.rows
+                .filter { it.generation == cache.currentState?.activeGeneration }
+                .map { it.itemKey },
+        )
+        scope.cancel()
+    }
+
+    @Test
     fun speculativeTailPrefetchFailureDoesNotBackoffImmediateAppend() = runBlocking {
         val key = StreamFeedKey("top:speculative-prefetch-failure")
         val cache = FakeCache(
@@ -639,6 +688,7 @@ class StreamFeedRefreshCoordinatorTest {
         var currentState: StreamFeedState?,
     ) : StreamFeedCacheStore {
         var replacementCount = 0
+        val itemCounts = mutableListOf<Int>()
         var appendCommitted: CompletableDeferred<Unit>? = null
         var failureRecorded: CompletableDeferred<Unit>? = null
 
@@ -646,7 +696,10 @@ class StreamFeedRefreshCoordinatorTest {
 
         override suspend fun state(feedKey: StreamFeedKey): StreamFeedState? = currentState
 
-        override suspend fun itemCount(feedKey: StreamFeedKey): Int = rows.size
+        override suspend fun itemCount(feedKey: StreamFeedKey): Int {
+            val generation = currentState?.activeGeneration ?: 0L
+            return rows.count { it.generation == generation }.also(itemCounts::add)
+        }
 
         override suspend fun touchAccess(feedKey: StreamFeedKey, nowMs: Long) {
             currentState = (currentState ?: StreamFeedState(feedKey.value)).copy(lastAccessAt = nowMs)

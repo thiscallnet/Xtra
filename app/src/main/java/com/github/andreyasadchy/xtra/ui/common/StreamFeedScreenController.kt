@@ -50,6 +50,14 @@ class StreamFeedScreenController(
         // player-return signal. A newly resumed screen replaces it.
     }
 
+    fun onDestroyView() {
+        tickerJob?.cancel()
+        tickerJob = null
+        if (!coordinator.isPlayerFullscreen) {
+            specProvider()?.key?.let(coordinator::clearVisibleFeed)
+        }
+    }
+
     fun onSpecChanged(force: Boolean, reason: RefreshReason = RefreshReason.FILTER_CHANGED) {
         val spec = specProvider() ?: return
         coordinator.setVisibleFeed(spec)

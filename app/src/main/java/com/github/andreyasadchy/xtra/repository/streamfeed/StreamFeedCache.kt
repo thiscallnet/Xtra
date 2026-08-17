@@ -217,7 +217,7 @@ class StreamFeedCache(
     }
 
     override suspend fun itemCount(feedKey: StreamFeedKey): Int = withContext(Dispatchers.IO) {
-        dao.itemsForFeed(feedKey.value).size
+        dao.activeItemCount(feedKey.value)
     }
 
     override suspend fun touchAccess(feedKey: StreamFeedKey, nowMs: Long) = withContext(Dispatchers.IO) {

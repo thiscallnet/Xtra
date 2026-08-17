@@ -24,7 +24,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -48,7 +47,7 @@ class StreamFeedPagingIntegrationTest {
     }
 
     @Test
-    fun retainedTailGetsOneFreshPageWithoutPagingWalkingTheWholeStaleTail() = runBlocking {
+    fun refreshShowsOnlyFreshPagesWhileKeepingStaleTailOutOfTheList() = runBlocking {
         val cache = StreamFeedCache(database)
         val feedKey = StreamFeedKey("top:paging-tail")
         cache.replaceAfterRefresh(
@@ -124,8 +123,7 @@ class StreamFeedPagingIntegrationTest {
             listOf(null, StreamFeedCursor(C.GQL, "fresh-page-2")),
             cursors,
         )
-        assertTrue(differ.itemCount >= 90)
-        assertTrue(database.streamFeedDao().itemsForFeed(feedKey.value).any { it.itemKey == "channel:old-80" })
+        assertEquals(60, differ.itemCount)
         assertEquals(null, database.streamFeedDao().state(feedKey.value)?.nextCursor)
 
         collectionJob.cancel()
