@@ -655,9 +655,6 @@ class PlaybackService : MediaSessionService() {
                                             setMediaId("stream:${customCommand.customExtras.getString(STREAM_ID).orEmpty()}")
                                             setUri(uri?.toUri())
                                             setMimeType(MimeTypes.APPLICATION_M3U8)
-                                            setLiveConfiguration(MediaItem.LiveConfiguration.Builder().apply {
-                                                setTargetOffsetMs(2000L)
-                                            }.build())
                                             setMediaMetadata(
                                                 MediaMetadata.Builder().apply {
                                                     setTitle(title)
@@ -1767,7 +1764,6 @@ class PlaybackService : MediaSessionService() {
             .setMediaId("stream:${currentStreamId.orEmpty()}")
             .setUri(url.toUri())
             .setMimeType(MimeTypes.APPLICATION_M3U8)
-            .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(2000L).build())
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(currentTitle)
@@ -1944,9 +1940,6 @@ class PlaybackService : MediaSessionService() {
             setUri(url.toUri())
             if (state.type == BasePlaybackService.STREAM || state.type == BasePlaybackService.VIDEO) {
                 setMimeType(MimeTypes.APPLICATION_M3U8)
-            }
-            if (state.type == BasePlaybackService.STREAM) {
-                setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(2000L).build())
             }
             setMediaMetadata(
                 MediaMetadata.Builder()

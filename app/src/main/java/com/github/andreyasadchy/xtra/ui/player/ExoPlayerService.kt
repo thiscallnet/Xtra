@@ -1208,9 +1208,6 @@ class ExoPlayerService : BasePlaybackService() {
                             MediaItem.Builder().apply {
                                 setUri(url.toUri())
                                 setMimeType(MimeTypes.APPLICATION_M3U8)
-                                setLiveConfiguration(MediaItem.LiveConfiguration.Builder().apply {
-                                    setTargetOffsetMs(2000L)
-                                }.build())
                             }.build()
                         )
                     )

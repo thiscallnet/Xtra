@@ -495,28 +495,6 @@
     </LinearLayout>
 
     <TextView
-        android:id="@+id/liveStatus"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_above="@id/bottomLayout"
-        android:layout_alignParentEnd="true"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="8dp"
-        android:background="@color/chatStatusDark"
-        android:clickable="true"
-        android:focusable="true"
-        android:paddingStart="8dp"
-        android:paddingTop="4dp"
-        android:paddingEnd="8dp"
-        android:paddingBottom="4dp"
-        android:text="@string/player_live_edge"
-        android:textColor="@color/liveStreamRed"
-        android:textSize="12sp"
-        android:textStyle="bold"
-        android:visibility="gone"
-        tools:visibility="visible" />
-
-    <TextView
         android:id="@+id/position"
         android:layout_width="55sp"
         android:layout_height="wrap_content"

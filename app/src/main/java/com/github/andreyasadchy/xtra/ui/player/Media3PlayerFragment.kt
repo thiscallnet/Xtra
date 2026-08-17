@@ -30,7 +30,6 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.RoundedCorner
-import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
@@ -121,11 +120,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var activePointerId = -1
     private var lastX = 0f
     private var lastY = 0f
-    private var velocityTracker: VelocityTracker? = null
     private var isTap = false
     private var tapEventTime = 0L
-    private var startTranslationX = 0f
-    private var startTranslationY = 0f
     private var statusBarSwipe = false
     private var chatStatusBarSwipe = false
     private var isAnimating = false
@@ -140,10 +136,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var backgroundVisible = false
     private var pipPlaying = false
     private var miniScaleMultiplier = 1f
-    private var miniHidden = false
-    private var miniTranslationBeforeHideX = 0f
-    private var miniTranslationBeforeHideY = 0f
-    private var miniHandleOnRight = true
     private var isPinching = false
     private var pinchScale = 1f
     protected var inPictureInPicture = false
@@ -194,10 +186,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         videoType = requireArguments().getString(KEY_TYPE)
         isMaximized = savedInstanceState?.getBoolean(STATE_MAXIMIZED, true) ?: true
         miniScaleMultiplier = savedInstanceState?.getFloat(STATE_MINI_SCALE, 1f) ?: 1f
-        miniHidden = savedInstanceState?.getBoolean(STATE_MINI_HIDDEN, false) ?: false
-        miniHandleOnRight = savedInstanceState?.getBoolean(STATE_MINI_HANDLE_RIGHT, true) ?: true
-        miniTranslationBeforeHideX = savedInstanceState?.getFloat(STATE_MINI_PRE_HIDE_X, 0f) ?: 0f
-        miniTranslationBeforeHideY = savedInstanceState?.getFloat(STATE_MINI_PRE_HIDE_Y, 0f) ?: 0f
         if (videoType == OFFLINE_VIDEO) {
             enableNetworkCheck = false
         }
@@ -284,21 +272,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             configureMiniPlayer()
             if (!isMaximized && savedInstanceState != null) {
                 slidingLayout.post {
-                    slidingLayout.translationX = savedInstanceState.getFloat(STATE_TRANSLATION_X, slidingLayout.translationX)
-                    slidingLayout.translationY = savedInstanceState.getFloat(STATE_TRANSLATION_Y, slidingLayout.translationY)
                     applyMiniScale()
-                }
-                if (miniHidden) {
-                    setMiniHandleSide(miniHandleOnRight)
-                    miniRestoreHandle.visibility = View.VISIBLE
                 }
             }
             changePlayerMode()
             val viewConfiguration = ViewConfiguration.get(requireContext())
             val touchSlop = viewConfiguration.scaledTouchSlop
             val touchSlopRange = -touchSlop.toFloat()..touchSlop.toFloat()
-            val longPressTimeout = ViewConfiguration.getLongPressTimeout()
-            val moveFreely = requireContext().prefs().getBoolean(C.PLAYER_MOVE_FREELY, false)
             val doubleTap = requireContext().prefs().getBoolean(C.PLAYER_DOUBLE_TAP, true)
             val controllerTapDetector = GestureDetector(
                 requireContext(),
@@ -348,12 +328,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 requireContext(),
                 object : GestureDetector.SimpleOnGestureListener() {
                     override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-                        if (!miniHidden) maximize()
+                        maximize()
                         return true
                     }
 
                     override fun onDoubleTap(e: MotionEvent): Boolean {
-                        if (!miniHidden) toggleMiniSize()
+                        toggleMiniSize()
                         return true
                     }
                 }
@@ -375,7 +355,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             } else if (pinchScale < 0.96f) {
                                 setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT)
                             }
-                        } else if (!miniHidden) {
+                        } else {
                             miniScaleMultiplier = (miniScaleMultiplier * detector.scaleFactor).coerceIn(0.75f, 1.35f)
                             applyMiniScale()
                         }
@@ -401,22 +381,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     }
                 } else {
                     miniGestureDetector.onTouchEvent(event)
-                    velocityTracker?.clear()
-                    if (velocityTracker == null) {
-                        velocityTracker = VelocityTracker.obtain()
-                    }
-                    velocityTracker?.addMovement(
-                        MotionEvent.obtain(
-                            event.downTime,
-                            event.eventTime,
-                            event.action,
-                            slidingLayout.translationX,
-                            slidingLayout.translationY,
-                            event.metaState
-                        )
-                    )
-                    startTranslationX = slidingLayout.translationX
-                    startTranslationY = slidingLayout.translationY
                 }
             }
 
@@ -462,65 +426,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         }
                     }
                 } else {
-                    velocityTracker?.computeCurrentVelocity(1000)
-                    val xVelocity = velocityTracker?.xVelocity ?: 0f
-                    velocityTracker?.recycle()
-                    velocityTracker = null
-                    when {
-                        xVelocity > 1500 -> {
-                            hideMiniAtEdge(toRight = true)
-                        }
-                        xVelocity < -1500 -> {
-                            hideMiniAtEdge(toRight = false)
-                        }
-                        else -> {
-                            if (!isTap || (event.eventTime - tapEventTime) >= longPressTimeout) {
-                                if (moveFreely) {
-                                    val windowInsets = ViewCompat.getRootWindowInsets(requireView())
-                                    val insets = windowInsets?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-                                    val scaledXDiff = (slidingLayout.width * (1f - slidingLayout.scaleX)) / 2
-                                    val scaledYDiff = (slidingLayout.height * (1f - slidingLayout.scaleY)) / 2
-                                    val minX = 0f - scaledXDiff - ((insets?.left ?: 0) * slidingLayout.scaleX) + (insets?.left ?: 0)
-                                    val minY = 0f - scaledYDiff - ((insets?.top ?: 0) * slidingLayout.scaleY) + (insets?.top ?: 0)
-                                    val maxX = 0f - scaledXDiff - ((insets?.left ?: 0) * slidingLayout.scaleX) + slidingLayout.width - (playerLayout.width * slidingLayout.scaleX) - (insets?.right ?: 0)
-                                    val maxY = 0f - scaledYDiff - ((insets?.top ?: 0) * slidingLayout.scaleY) + slidingLayout.height - (playerLayout.height * slidingLayout.scaleY) - (insets?.bottom ?: 0)
-                                    val newX = when {
-                                        slidingLayout.translationX < minX -> minX
-                                        slidingLayout.translationX > maxX -> maxX
-                                        else -> null
-                                    }
-                                    val newY = when {
-                                        slidingLayout.translationY < minY -> minY
-                                        slidingLayout.translationY > maxY -> maxY
-                                        else -> null
-                                    }
-                                    if (newX != null || newY != null) {
-                                        moveAnimation = slidingLayout.animate().apply {
-                                            newX?.let { translationX(it) }
-                                            newY?.let { translationY(it) }
-                                            setDuration(250L)
-                                            start()
-                                        }
-                                    }
-                                } else {
-                                    val windowInsets = ViewCompat.getRootWindowInsets(requireView())
-                                    val insets = windowInsets?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-                                    val keyboardInsets = windowInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom?.let { if (it > 0) it - (insets?.bottom ?: 0) else it } ?: 0
-                                    val scaledXDiff = (slidingLayout.width * (1f - slidingLayout.scaleX)) / 2
-                                    val scaledYDiff = (slidingLayout.height * (1f - slidingLayout.scaleY)) / 2
-                                    val navBarHeight = requireView().rootView.findViewById<LinearLayout>(R.id.navBarContainer)?.height?.takeIf { it > 0 }?.let { it - keyboardInsets } ?: (insets?.bottom ?: 0)
-                                    val newX = slidingLayout.width - (insets?.right ?: 0) - (playerLayout.width * slidingLayout.scaleX) - (TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20F, resources.displayMetrics) * slidingLayout.scaleX)
-                                    val newY = slidingLayout.height - navBarHeight - (playerLayout.height * slidingLayout.scaleY) - (TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 30F, resources.displayMetrics) * slidingLayout.scaleY)
-                                    moveAnimation = slidingLayout.animate().apply {
-                                        translationX(0f - scaledXDiff - ((insets?.left ?: 0) * slidingLayout.scaleX) + newX)
-                                        translationY(0f - scaledYDiff - ((insets?.top ?: 0) * slidingLayout.scaleY) + newY)
-                                        setDuration(250L)
-                                        start()
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // Keep the minimized player at its fixed home position.
                 }
             }
 
@@ -578,33 +484,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                         }
                                     }
                                 }
-                            } else if (!isPinching) {
-                                if (activePointerId != -1) {
-                                    val pointerIndex = event.findPointerIndex(activePointerId)
-                                    if (pointerIndex != -1) {
-                                        val x = event.getX(pointerIndex) * slidingLayout.scaleX
-                                        val y = event.getY(pointerIndex) * slidingLayout.scaleY
-                                        val translationX = x - lastX
-                                        val translationY = y - lastY
-                                        slidingLayout.translationX += translationX
-                                        if (moveFreely) {
-                                            slidingLayout.translationY += translationY
-                                        }
-                                        lastX = x - translationX
-                                        lastY = y - translationY
-                                        velocityTracker?.addMovement(
-                                            MotionEvent.obtain(
-                                                event.downTime,
-                                                event.eventTime,
-                                                event.action,
-                                                slidingLayout.translationX,
-                                                slidingLayout.translationY,
-                                                event.metaState
-                                            )
-                                        )
-                                        if (isTap && ((startTranslationX - slidingLayout.translationX) !in touchSlopRange || (startTranslationY - slidingLayout.translationY) !in touchSlopRange)) {
-                                            isTap = false
-                                        }
+                            } else if (!isPinching && activePointerId != -1 && isTap) {
+                                val pointerIndex = event.findPointerIndex(activePointerId)
+                                if (pointerIndex != -1) {
+                                    val x = event.getX(pointerIndex)
+                                    val y = event.getY(pointerIndex)
+                                    if (kotlin.math.abs(x - lastX) > touchSlop || kotlin.math.abs(y - lastY) > touchSlop) {
+                                        isTap = false
                                     }
                                 }
                             }
@@ -1625,7 +1511,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     fun setQualityText() {
-        val label = getQualities()?.find { it.second == viewModel.quality }?.first
+        val label = getQualities()?.find {
+            it.second.name == viewModel.quality?.name && it.second.url == viewModel.quality?.url
+        }?.first
         if (view != null) {
             val vaftActive = isVaftActive()
             binding.playerControls.quality.apply {
@@ -2416,14 +2304,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(STATE_MAXIMIZED, isMaximized)
         outState.putFloat(STATE_MINI_SCALE, miniScaleMultiplier)
-        outState.putBoolean(STATE_MINI_HIDDEN, miniHidden)
-        outState.putBoolean(STATE_MINI_HANDLE_RIGHT, miniHandleOnRight)
-        outState.putFloat(STATE_MINI_PRE_HIDE_X, miniTranslationBeforeHideX)
-        outState.putFloat(STATE_MINI_PRE_HIDE_Y, miniTranslationBeforeHideY)
-        if (view != null) {
-            outState.putFloat(STATE_TRANSLATION_X, binding.slidingLayout.translationX)
-            outState.putFloat(STATE_TRANSLATION_Y, binding.slidingLayout.translationY)
-        }
         super.onSaveInstanceState(outState)
     }
 
@@ -2452,8 +2332,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         with(binding) {
             val wasMaximized = isMaximized
             isMaximized = false
-            miniHidden = false
-            binding.miniRestoreHandle.visibility = View.GONE
             onPresentationChanged(PlayerPresentation.MINI)
             if (wasMaximized) {
                 (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)?.onPlayerReturnedToBrowsing()
@@ -2528,8 +2406,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun maximize() {
         with(binding) {
             isMaximized = true
-            miniHidden = false
-            miniRestoreHandle.visibility = View.GONE
             inPictureInPicture = false
             onPresentationChanged(PlayerPresentation.FULL)
             (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
@@ -2957,48 +2833,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
-    private fun hideMiniAtEdge(toRight: Boolean) {
-        if (miniHidden) return
-        miniHidden = true
-        miniHandleOnRight = toRight
-        miniTranslationBeforeHideX = binding.slidingLayout.translationX
-        miniTranslationBeforeHideY = binding.slidingLayout.translationY
-        setMiniHandleSide(toRight)
-        binding.miniRestoreHandle.visibility = View.VISIBLE
-        isAnimating = true
-        binding.slidingLayout.animate()
-            .translationX(binding.slidingLayout.translationX + if (toRight) binding.slidingLayout.width * 0.72f else -binding.slidingLayout.width * 0.72f)
-            .setDuration(220L)
-            .withEndAction {
-                isAnimating = false
-                activePointerId = -1
-            }
-            .start()
-    }
-
-    private fun restoreMiniFromEdge() {
-        miniHidden = false
-        binding.miniRestoreHandle.visibility = View.GONE
-        isAnimating = true
-        binding.slidingLayout.animate()
-            .translationX(miniTranslationBeforeHideX)
-            .translationY(miniTranslationBeforeHideY)
-            .setDuration(220L)
-            .withEndAction {
-                isAnimating = false
-                activePointerId = -1
-            }
-            .start()
-    }
-
-    private fun setMiniHandleSide(toRight: Boolean) {
-        (binding.miniRestoreHandle.layoutParams as? FrameLayout.LayoutParams)?.let { params ->
-            params.gravity = Gravity.CENTER_VERTICAL or if (toRight) Gravity.END else Gravity.START
-            binding.miniRestoreHandle.layoutParams = params
-        }
-        binding.miniRestoreHandle.rotation = if (toRight) 90f else -90f
-    }
-
     private fun configureMiniPlayer() {
         with(binding) {
             miniPlayPause.setOnClickListener {
@@ -3010,7 +2844,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 close()
                 (activity as? MainActivity)?.closePlayer()
             }
-            miniRestoreHandle.setOnClickListener { restoreMiniFromEdge() }
             updateMiniPlayerChrome()
         }
     }
@@ -3018,7 +2851,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     protected fun updateMiniPlayerChrome() {
         if (view == null) return
         binding.miniPlayerChrome.visibility = if (!isMaximized && !inPictureInPicture) View.VISIBLE else View.GONE
-        binding.miniRestoreHandle.visibility = if (!isMaximized && miniHidden) View.VISIBLE else View.GONE
         if (!isMaximized) {
             val channel = binding.playerControls.channel.text?.toString().orEmpty()
             val title = binding.playerControls.title.text?.toString().orEmpty()
@@ -3110,11 +2942,5 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
         private const val STATE_MAXIMIZED = "player.maximized"
         private const val STATE_MINI_SCALE = "player.mini_scale"
-        private const val STATE_MINI_HIDDEN = "player.mini_hidden"
-        private const val STATE_MINI_HANDLE_RIGHT = "player.mini_handle_right"
-        private const val STATE_MINI_PRE_HIDE_X = "player.mini_pre_hide_x"
-        private const val STATE_MINI_PRE_HIDE_Y = "player.mini_pre_hide_y"
-        private const val STATE_TRANSLATION_X = "player.translation_x"
-        private const val STATE_TRANSLATION_Y = "player.translation_y"
     }
 }
