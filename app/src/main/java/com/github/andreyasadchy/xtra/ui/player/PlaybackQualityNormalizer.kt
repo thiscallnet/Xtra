@@ -8,10 +8,13 @@ import com.github.andreyasadchy.xtra.model.VideoQuality
  * entries belong only to the UI.
  */
 internal fun normalizePlaybackQualities(rawQualities: List<VideoQuality>): List<VideoQuality> {
+    val audio = rawQualities.firstOrNull {
+        it.name?.startsWith("audio", ignoreCase = true) == true
+    }
     val sortedQualities = rawQualities
         .filterNot {
             it.name == BasePlaybackService.AUTO_QUALITY ||
-                it.name == BasePlaybackService.AUDIO_ONLY_QUALITY ||
+                it.name?.startsWith("audio", ignoreCase = true) == true ||
                 it.name == BasePlaybackService.CHAT_ONLY_QUALITY
         }
         .asSequence()
@@ -25,7 +28,6 @@ internal fun normalizePlaybackQualities(rawQualities: List<VideoQuality>): List<
         .toMutableList()
 
     val source = sortedQualities.find { it.name?.equals("source", ignoreCase = true) == true }
-    val audio = sortedQualities.find { it.name?.startsWith("audio", ignoreCase = true) == true }
 
     return sortedQualities.apply {
         add(0, VideoQuality(BasePlaybackService.AUTO_QUALITY))

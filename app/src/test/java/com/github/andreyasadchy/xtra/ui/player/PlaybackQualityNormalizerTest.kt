@@ -7,6 +7,27 @@ import org.junit.Test
 class PlaybackQualityNormalizerTest {
 
     @Test
+    fun rawAudioOnlyVariantKeepsItsPlaybackMetadata() {
+        val normalized = normalizePlaybackQualities(
+            listOf(
+                VideoQuality(
+                    BasePlaybackService.AUDIO_ONLY_QUALITY,
+                    codecs = "mp4a.40.2",
+                    bitrate = 128_000,
+                    url = "audio-url",
+                )
+            )
+        )
+
+        val audio = normalized.last()
+
+        assertEquals(BasePlaybackService.AUDIO_ONLY_QUALITY, audio.name)
+        assertEquals("mp4a.40.2", audio.codecs)
+        assertEquals(128_000, audio.bitrate)
+        assertEquals("audio-url", audio.url)
+    }
+
+    @Test
     fun rawVariantsBecomeTheStableUiQualityContract() {
         val audio = VideoQuality("audio_only_raw", codecs = "audio", bitrate = 128_000, url = "audio")
         val source = VideoQuality("Source", codecs = "h264", bitrate = 8_000_000, url = "source")
