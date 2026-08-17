@@ -18,6 +18,7 @@ import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.RecentEmote
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewModelFactory
 import com.github.andreyasadchy.xtra.ui.view.GridAutofitLayoutManager
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -63,6 +64,7 @@ class EmotesFragment : Fragment() {
             "4",
             "0",
             if (section.supportsFavoriteToggle) ::toggleFavorite else null,
+            consumeLongPress = section == EmotePickerSection.RECENTS,
         )
         with(binding.emotesRecyclerView) {
             itemAnimator = null
@@ -137,6 +139,29 @@ class EmotesFragment : Fragment() {
     }
 
     private fun toggleFavorite(emote: Emote) {
+        if (viewModel.isFavorite(emote)) {
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.remove_emote_from_favorites)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.remove_emote_from_favorites) { _, _ ->
+                    removeFavoriteImmediately(emote)
+                }
+                .show()
+            return
+        }
+        toggleFavoriteImmediately(emote)
+    }
+
+    private fun removeFavoriteImmediately(emote: Emote) {
+        if (viewModel.removeFavorite(emote) == null) return
+        Snackbar.make(
+            binding.root,
+            getString(R.string.removed_emote_from_favorites, emote.name.orEmpty()),
+            Snackbar.LENGTH_SHORT,
+        ).show()
+    }
+
+    private fun toggleFavoriteImmediately(emote: Emote) {
         val added = viewModel.toggleFavorite(emote) ?: return
         Snackbar.make(
             binding.root,

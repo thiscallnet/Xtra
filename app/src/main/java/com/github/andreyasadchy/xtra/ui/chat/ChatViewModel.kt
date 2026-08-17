@@ -1719,6 +1719,14 @@ class ChatViewModel(
         return emote.favoriteKey()?.let { it in favoriteKeys.value } == true
     }
 
+    fun removeFavorite(emote: Emote): Boolean? {
+        val key = emote.favoriteKey() ?: return null
+        viewModelScope.launch {
+            playerRepository.removeFavoriteEmote(key)
+        }
+        return true
+    }
+
     fun toggleFavorite(emote: Emote): Boolean? {
         val key = emote.favoriteKey() ?: return null
         val adding = key !in favoriteKeys.value

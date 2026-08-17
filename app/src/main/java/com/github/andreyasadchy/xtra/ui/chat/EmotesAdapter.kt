@@ -32,6 +32,7 @@ class EmotesAdapter(
     private val emoteQuality: String,
     private val imageLibrary: String?,
     private val favoriteToggleListener: ((Emote) -> Unit)? = null,
+    private val consumeLongPress: Boolean = false,
 ) : ListAdapter<Emote, EmotesAdapter.ViewHolder>(
     object : DiffUtil.ItemCallback<Emote>() {
         override fun areItemsTheSame(oldItem: Emote, newItem: Emote): Boolean {
@@ -148,6 +149,8 @@ class EmotesAdapter(
                                 true
                             },
                         )
+                    } else if (consumeLongPress) {
+                        root.setOnLongClickListener { true }
                     }
                 }
             }
