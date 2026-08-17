@@ -316,6 +316,9 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
     }
 
     override fun onDestroyView() {
+        if (::streamFeedScreenController.isInitialized) {
+            streamFeedScreenController.onDestroyView()
+        }
         super.onDestroyView()
         _binding = null
     }

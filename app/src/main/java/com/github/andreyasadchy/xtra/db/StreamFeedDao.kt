@@ -9,11 +9,47 @@ import androidx.room.Query
 @Dao
 interface StreamFeedDao {
 
-    @Query("SELECT * FROM stream_feed_items WHERE feedKey = :feedKey ORDER BY position ASC, itemKey ASC")
+    @Query(
+        """
+        SELECT items.*
+        FROM stream_feed_items AS items
+        WHERE items.feedKey = :feedKey
+          AND (
+            NOT EXISTS (
+                SELECT 1 FROM stream_feed_states
+                WHERE feedKey = :feedKey
+            )
+            OR items.generation = (
+                SELECT activeGeneration FROM stream_feed_states
+                WHERE feedKey = :feedKey
+            )
+          )
+        ORDER BY items.position ASC, items.itemKey ASC
+        """
+    )
     fun pagingSource(feedKey: String): PagingSource<Int, CachedStreamFeedItem>
 
     @Query("SELECT * FROM stream_feed_items WHERE feedKey = :feedKey ORDER BY position ASC, itemKey ASC")
     fun itemsForFeed(feedKey: String): List<CachedStreamFeedItem>
+
+    @Query(
+        """
+        SELECT COUNT(*)
+        FROM stream_feed_items AS items
+        WHERE items.feedKey = :feedKey
+          AND (
+            NOT EXISTS (
+                SELECT 1 FROM stream_feed_states
+                WHERE feedKey = :feedKey
+            )
+            OR items.generation = (
+                SELECT activeGeneration FROM stream_feed_states
+                WHERE feedKey = :feedKey
+            )
+          )
+        """
+    )
+    fun activeItemCount(feedKey: String): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertItems(items: List<CachedStreamFeedItem>)

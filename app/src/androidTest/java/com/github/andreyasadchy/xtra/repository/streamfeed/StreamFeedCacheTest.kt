@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.repository.streamfeed
 
 import androidx.room.Room
+import androidx.paging.PagingSource
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.github.andreyasadchy.xtra.db.AppDatabase
@@ -94,6 +95,46 @@ class StreamFeedCacheTest {
             feedKey,
             expectedKeys = listOf("a", "b", "x", "d", "y", "f"),
             activeCount = 6,
+        )
+    }
+
+    @Test
+    fun automaticRefreshDoesNotRenderEndedRowsRetainedForCacheFallback() = runBlocking {
+        val cache = StreamFeedCache(database)
+        val feedKey = StreamFeedKey("top:visible-generation")
+
+        cache.replaceAfterRefresh(
+            feedKey,
+            StreamFeedPage(
+                streams("ended", "still-live"),
+                StreamFeedCursor("gql", "old-page-2"),
+            ),
+            nowMs = 1L,
+            preserveTail = false,
+            pruneStaleOnEnd = true,
+        )
+        cache.replaceAfterRefresh(
+            feedKey,
+            StreamFeedPage(streams("still-live"), nextCursor = null),
+            nowMs = 2L,
+            preserveTail = true,
+            pruneStaleOnEnd = false,
+        )
+
+        val allCachedRows = database.streamFeedDao().itemsForFeed(feedKey.value)
+        assertTrue(allCachedRows.any { it.itemKey == "channel:ended" })
+
+        val result = cache.pagingSource(feedKey).load(
+            PagingSource.LoadParams.Refresh(
+                key = null,
+                loadSize = 30,
+                placeholdersEnabled = false,
+            )
+        )
+        assertTrue(result is PagingSource.LoadResult.Page)
+        assertEquals(
+            listOf("channel:still-live"),
+            (result as PagingSource.LoadResult.Page).data.map { it.itemKey },
         )
     }
 

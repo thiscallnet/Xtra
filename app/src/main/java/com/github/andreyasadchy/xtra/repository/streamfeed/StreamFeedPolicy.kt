@@ -163,7 +163,8 @@ internal class StreamFeedSingleFlight<T>(private val scope: CoroutineScope) {
 /** Central policy for volatile live-stream metadata. */
 object StreamFeedFreshnessPolicy {
     const val LIVE_STREAM_SOFT_TTL_MS = 90_000L
-    const val VISIBLE_REVALIDATION_INTERVAL_MS = 2 * 60_000L
+    /** Revalidate at the same cadence as the live-list freshness window. */
+    const val VISIBLE_REVALIDATION_INTERVAL_MS = LIVE_STREAM_SOFT_TTL_MS
     const val APP_BACKGROUND_THRESHOLD_MS = 30_000L
     const val PLAYBACK_RETURN_THRESHOLD_MS = 45_000L
     const val AUTO_REFRESH_DEBOUNCE_MS = 20_000L
