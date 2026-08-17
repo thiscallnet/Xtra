@@ -146,7 +146,6 @@ class Media3Fragment : Media3PlayerFragment() {
                     }
                     setPipActions(!showPlayButton)
                     updateMiniPlaybackButton(showPlayButton)
-                    updateLiveEdgeStatus()
                     updateProgress()
                     controllerAutoHide = !showPlayButton
                     if (videoType != STREAM && useController) {
@@ -171,7 +170,6 @@ class Media3Fragment : Media3PlayerFragment() {
                     }
                     setPipActions(!showPlayButton)
                     updateMiniPlaybackButton(showPlayButton)
-                    updateLiveEdgeStatus()
                     updateProgress()
                     controllerAutoHide = !showPlayButton
                     if (videoType != STREAM && useController) {
@@ -201,7 +199,6 @@ class Media3Fragment : Media3PlayerFragment() {
                         binding.playerControls.duration.text,
                     )
                     updateMiniPlaybackButton(showPlayButton)
-                    updateLiveEdgeStatus()
                     updateProgress()
                 }
 
@@ -225,7 +222,6 @@ class Media3Fragment : Media3PlayerFragment() {
                         binding.playerControls.duration.text,
                     )
                     updateProgress()
-                    updateLiveEdgeStatus()
                     if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                         chatFragment?.updatePosition(newPosition.positionMs)
                     }
@@ -267,7 +263,6 @@ class Media3Fragment : Media3PlayerFragment() {
                         binding.playerControls.duration.text,
                     )
                     updateProgress()
-                    updateLiveEdgeStatus()
                     if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && !timeline.isEmpty && viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
                         viewModel.updateQualities = viewModel.quality?.name != AUDIO_ONLY_QUALITY
                     }
@@ -321,7 +316,6 @@ class Media3Fragment : Media3PlayerFragment() {
                                 // default position and prepares it again. Do not
                                 // flash a generic error while that recovery runs.
                                 clearPlayerError()
-                                updateLiveEdgeStatus()
                                 return
                             }
                             player?.sendCustomCommand(
@@ -565,11 +559,15 @@ class Media3Fragment : Media3PlayerFragment() {
                         .getOrNull()
                         ?.let(::normalizePlaybackQualities)
                 }
-                viewModel.quality = extras.getString(PlaybackService.QUALITY)?.let { value ->
-                    runCatching { Json.decodeFromString<VideoQuality>(value) }.getOrNull()
+                extras.getString(PlaybackService.QUALITY)?.let { value ->
+                    runCatching { Json.decodeFromString<VideoQuality>(value) }.getOrNull()?.let { quality ->
+                        viewModel.quality = quality
+                    }
                 }
-                viewModel.previousQuality = extras.getString(PlaybackService.PREVIOUS_QUALITY)?.let { value ->
-                    runCatching { Json.decodeFromString<VideoQuality>(value) }.getOrNull()
+                extras.getString(PlaybackService.PREVIOUS_QUALITY)?.let { value ->
+                    runCatching { Json.decodeFromString<VideoQuality>(value) }.getOrNull()?.let { quality ->
+                        viewModel.previousQuality = quality
+                    }
                 }
                 if (viewModel.hidden) {
                     binding.playerSurface.visibility = View.GONE
@@ -738,53 +736,6 @@ class Media3Fragment : Media3PlayerFragment() {
         updateMiniPlayerChrome()
     }
 
-    private fun updateLiveEdgeStatus() {
-        if (view == null || videoType != STREAM) {
-            if (view != null) {
-                binding.playerControls.liveStatus.visibility = View.GONE
-                binding.miniLiveStatus.visibility = View.GONE
-            }
-            return
-        }
-        val controller = player
-        if (controller?.isCurrentMediaItemLive != true) {
-            binding.playerControls.liveStatus.visibility = View.GONE
-            binding.miniLiveStatus.visibility = View.GONE
-            return
-        }
-        val liveOffset = controller.currentLiveOffset
-        val atLiveEdge = liveOffset == androidx.media3.common.C.TIME_UNSET || liveOffset <= LIVE_EDGE_TOLERANCE_MS
-        val liveText = getString(if (atLiveEdge) R.string.player_live_edge else R.string.player_live_behind)
-        with(binding.playerControls.liveStatus) {
-            visibility = View.VISIBLE
-            text = liveText
-            contentDescription = getString(R.string.player_seek_live)
-            setTextColor(
-                ContextCompat.getColor(
-                    requireContext(),
-                    if (atLiveEdge) R.color.liveStreamRed else android.R.color.darker_gray,
-                )
-            )
-            setOnClickListener {
-                if (!atLiveEdge) seekToLivePosition()
-            }
-        }
-        binding.miniLiveStatus.apply {
-            visibility = if (!isMaximized && !inPictureInPicture) View.VISIBLE else View.GONE
-            text = liveText
-            contentDescription = getString(R.string.player_seek_live)
-            setOnClickListener {
-                if (!atLiveEdge) seekToLivePosition()
-            }
-            setTextColor(
-                ContextCompat.getColor(
-                    requireContext(),
-                    if (atLiveEdge) R.color.liveStreamRed else android.R.color.darker_gray,
-                )
-            )
-        }
-    }
-
     override fun isSeekable(): Boolean {
         return videoType != STREAM && player?.isCurrentMediaItemSeekable == true &&
             player?.duration?.let { it > 0L && it != androidx.media3.common.C.TIME_UNSET } == true
@@ -831,7 +782,6 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     override fun updateProgress() {
-        updateLiveEdgeStatus()
         with(binding.playerControls) {
             if (root.isVisible && !progressBar.isPressed) {
                 val currentPosition = player?.currentPosition ?: 0
@@ -960,6 +910,7 @@ class Media3Fragment : Media3PlayerFragment() {
     override fun changeQuality(selectedQuality: VideoQuality?) {
         viewModel.previousQuality = viewModel.quality
         viewModel.quality = selectedQuality
+        syncPlaybackStateToService()
         viewModel.quality?.let { quality ->
             player?.let { player ->
                 player.currentMediaItem?.let { mediaItem ->
@@ -1273,8 +1224,6 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     companion object {
-        private const val LIVE_EDGE_TOLERANCE_MS = 5_000L
-
         fun newInstance(item: Stream): Media3Fragment {
             return Media3Fragment().apply {
                 arguments = getStreamArguments(item)

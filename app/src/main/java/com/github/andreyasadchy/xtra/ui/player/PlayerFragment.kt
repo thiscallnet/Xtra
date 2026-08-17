@@ -27,7 +27,6 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.RoundedCorner
-import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
@@ -112,11 +111,8 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     private var activePointerId = -1
     private var lastX = 0f
     private var lastY = 0f
-    private var velocityTracker: VelocityTracker? = null
     private var isTap = false
     private var tapEventTime = 0L
-    private var startTranslationX = 0f
-    private var startTranslationY = 0f
     private var statusBarSwipe = false
     private var chatStatusBarSwipe = false
     private var isAnimating = false
@@ -247,7 +243,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             val touchSlop = viewConfiguration.scaledTouchSlop
             val touchSlopRange = -touchSlop.toFloat()..touchSlop.toFloat()
             val longPressTimeout = ViewConfiguration.getLongPressTimeout()
-            val moveFreely = requireContext().prefs().getBoolean(C.PLAYER_MOVE_FREELY, false)
             val doubleTap = requireContext().prefs().getBoolean(C.PLAYER_DOUBLE_TAP, true) && requireContext().prefs().isChatEnabled()
             val controllerTapDetector = GestureDetector(
                 requireContext(),
@@ -316,22 +311,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                         controllerTapDetector.onTouchEvent(event)
                     }
                 } else {
-                    velocityTracker?.clear()
-                    if (velocityTracker == null) {
-                        velocityTracker = VelocityTracker.obtain()
-                    }
-                    velocityTracker?.addMovement(
-                        MotionEvent.obtain(
-                            event.downTime,
-                            event.eventTime,
-                            event.action,
-                            slidingLayout.translationX,
-                            slidingLayout.translationY,
-                            event.metaState
-                        )
-                    )
-                    startTranslationX = slidingLayout.translationX
-                    startTranslationY = slidingLayout.translationY
+                    // Keep the minimized player at its fixed home position.
                 }
             }
 
@@ -372,82 +352,8 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                             minimize()
                         }
                     }
-                } else {
-                    velocityTracker?.computeCurrentVelocity(1000)
-                    val xVelocity = velocityTracker?.xVelocity ?: 0f
-                    velocityTracker?.recycle()
-                    velocityTracker = null
-                    when {
-                        xVelocity > 1500 -> {
-                            isAnimating = true
-                            slidingLayout.animate().apply {
-                                translationX(slidingLayout.translationX + (slidingLayout.width * slidingLayout.scaleX))
-                                setDuration(250L)
-                                start()
-                            }
-                            close()
-                            (activity as? MainActivity)?.closePlayer()
-                        }
-                        xVelocity < -1500 -> {
-                            isAnimating = true
-                            slidingLayout.animate().apply {
-                                translationX(slidingLayout.translationX - (slidingLayout.width * slidingLayout.scaleX))
-                                setDuration(250L)
-                                start()
-                            }
-                            close()
-                            (activity as? MainActivity)?.closePlayer()
-                        }
-                        else -> {
-                            if (isTap && (event.eventTime - tapEventTime) < longPressTimeout) {
-                                maximize()
-                            } else {
-                                if (moveFreely) {
-                                    val windowInsets = ViewCompat.getRootWindowInsets(requireView())
-                                    val insets = windowInsets?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-                                    val scaledXDiff = (slidingLayout.width * (1f - slidingLayout.scaleX)) / 2
-                                    val scaledYDiff = (slidingLayout.height * (1f - slidingLayout.scaleY)) / 2
-                                    val minX = 0f - scaledXDiff - ((insets?.left ?: 0) * slidingLayout.scaleX) + (insets?.left ?: 0)
-                                    val minY = 0f - scaledYDiff - ((insets?.top ?: 0) * slidingLayout.scaleY) + (insets?.top ?: 0)
-                                    val maxX = 0f - scaledXDiff - ((insets?.left ?: 0) * slidingLayout.scaleX) + slidingLayout.width - (playerLayout.width * slidingLayout.scaleX) - (insets?.right ?: 0)
-                                    val maxY = 0f - scaledYDiff - ((insets?.top ?: 0) * slidingLayout.scaleY) + slidingLayout.height - (playerLayout.height * slidingLayout.scaleY) - (insets?.bottom ?: 0)
-                                    val newX = when {
-                                        slidingLayout.translationX < minX -> minX
-                                        slidingLayout.translationX > maxX -> maxX
-                                        else -> null
-                                    }
-                                    val newY = when {
-                                        slidingLayout.translationY < minY -> minY
-                                        slidingLayout.translationY > maxY -> maxY
-                                        else -> null
-                                    }
-                                    if (newX != null || newY != null) {
-                                        moveAnimation = slidingLayout.animate().apply {
-                                            newX?.let { translationX(it) }
-                                            newY?.let { translationY(it) }
-                                            setDuration(250L)
-                                            start()
-                                        }
-                                    }
-                                } else {
-                                    val windowInsets = ViewCompat.getRootWindowInsets(requireView())
-                                    val insets = windowInsets?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-                                    val keyboardInsets = windowInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom?.let { if (it > 0) it - (insets?.bottom ?: 0) else it } ?: 0
-                                    val scaledXDiff = (slidingLayout.width * (1f - slidingLayout.scaleX)) / 2
-                                    val scaledYDiff = (slidingLayout.height * (1f - slidingLayout.scaleY)) / 2
-                                    val navBarHeight = requireView().rootView.findViewById<LinearLayout>(R.id.navBarContainer)?.height?.takeIf { it > 0 }?.let { it - keyboardInsets } ?: (insets?.bottom ?: 0)
-                                    val newX = slidingLayout.width - (insets?.right ?: 0) - (playerLayout.width * slidingLayout.scaleX) - (TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20F, resources.displayMetrics) * slidingLayout.scaleX)
-                                    val newY = slidingLayout.height - navBarHeight - (playerLayout.height * slidingLayout.scaleY) - (TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 30F, resources.displayMetrics) * slidingLayout.scaleY)
-                                    moveAnimation = slidingLayout.animate().apply {
-                                        translationX(0f - scaledXDiff - ((insets?.left ?: 0) * slidingLayout.scaleX) + newX)
-                                        translationY(0f - scaledYDiff - ((insets?.top ?: 0) * slidingLayout.scaleY) + newY)
-                                        setDuration(250L)
-                                        start()
-                                    }
-                                }
-                            }
-                        }
-                    }
+                } else if (isTap && (event.eventTime - tapEventTime) < longPressTimeout) {
+                    maximize()
                 }
             }
 
@@ -504,33 +410,13 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                         }
                                     }
                                 }
-                            } else {
-                                if (activePointerId != -1) {
-                                    val pointerIndex = event.findPointerIndex(activePointerId)
-                                    if (pointerIndex != -1) {
-                                        val x = event.getX(pointerIndex) * slidingLayout.scaleX
-                                        val y = event.getY(pointerIndex) * slidingLayout.scaleY
-                                        val translationX = x - lastX
-                                        val translationY = y - lastY
-                                        slidingLayout.translationX += translationX
-                                        if (moveFreely) {
-                                            slidingLayout.translationY += translationY
-                                        }
-                                        lastX = x - translationX
-                                        lastY = y - translationY
-                                        velocityTracker?.addMovement(
-                                            MotionEvent.obtain(
-                                                event.downTime,
-                                                event.eventTime,
-                                                event.action,
-                                                slidingLayout.translationX,
-                                                slidingLayout.translationY,
-                                                event.metaState
-                                            )
-                                        )
-                                        if (isTap && ((startTranslationX - slidingLayout.translationX) !in touchSlopRange || (startTranslationY - slidingLayout.translationY) !in touchSlopRange)) {
-                                            isTap = false
-                                        }
+                            } else if (activePointerId != -1 && isTap) {
+                                val pointerIndex = event.findPointerIndex(activePointerId)
+                                if (pointerIndex != -1) {
+                                    val x = event.getX(pointerIndex)
+                                    val y = event.getY(pointerIndex)
+                                    if (kotlin.math.abs(x - lastX) > touchSlop || kotlin.math.abs(y - lastY) > touchSlop) {
+                                        isTap = false
                                     }
                                 }
                             }

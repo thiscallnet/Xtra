@@ -74,20 +74,6 @@
                     android:textSize="13sp"
                     tools:text="channel · stream title" />
 
-                <TextView
-                    android:id="@+id/miniLiveStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="bottom|start"
-                    android:layout_marginStart="12dp"
-                    android:layout_marginBottom="30dp"
-                    android:textColor="@color/liveStreamRed"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:visibility="gone"
-                    tools:text="● LIVE"
-                    tools:visibility="visible" />
-
                 <ImageButton
                     android:id="@+id/miniPlayPause"
                     android:layout_width="48dp"
@@ -110,12 +96,14 @@
 
                 <ImageButton
                     android:id="@+id/miniClose"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
                     android:layout_gravity="top|end"
                     android:background="@android:color/transparent"
                     android:contentDescription="@string/player_miniplayer_close"
                     android:src="@drawable/baseline_close_black_36"
+                    android:padding="4dp"
+                    android:scaleType="fitCenter"
                     app:tint="@android:color/white" />
 
             </FrameLayout>
@@ -236,14 +224,4 @@
 
     </FrameLayout>
 
-    <ImageButton
-        android:id="@+id/miniRestoreHandle"
-        android:layout_width="34dp"
-        android:layout_height="54dp"
-        android:layout_gravity="center|end"
-        android:background="@android:color/transparent"
-        android:contentDescription="@string/player_miniplayer_restore"
-        android:src="@drawable/baseline_expand_more_black_24"
-        android:visibility="gone"
-        app:tint="@android:color/white" />
 </FrameLayout>
