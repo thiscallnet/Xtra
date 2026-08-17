@@ -26,4 +26,39 @@ class PlaybackProxyPolicyTest {
         assertFalse(policy.canEnableAutomatically(proxyConfigured = true))
         assertFalse(policy.sourceUsesMultivariantProxy(preferenceEnabled = true, proxyConfigured = true))
     }
+
+    @Test
+    fun recoveryTransitionRebuildsDirectSourcesAndDiscardsCustomProxyUris() {
+        val mediaProxy = PlaybackProxyPolicy(mediaPlaylistEnabled = true)
+            .prepareForRecovery(customProxyEnabled = false)
+        val customProxy = PlaybackProxyPolicy()
+            .prepareForRecovery(customProxyEnabled = true)
+
+        assertFalse(mediaProxy.policy.sourceUsesMediaPlaylistProxy(proxyConfigured = true))
+        assertTrue(mediaProxy.bypassNetworkProxy)
+        assertFalse(mediaProxy.discardCurrentUri)
+        assertTrue(customProxy.bypassNetworkProxy)
+        assertTrue(customProxy.discardCurrentUri)
+    }
+
+    @Test
+    fun rebuildingTheSourceAfterPolicyTransitionUsesTheNewRoutingSnapshot() {
+        val proxiedSource = PlaybackProxyPolicy(mediaPlaylistEnabled = true)
+            .sourceRouting(preferenceEnabled = true, proxyConfigured = true)
+        val directSource = PlaybackProxyPolicy(mediaPlaylistEnabled = true)
+            .disableAfterCleanPlaylist()
+            .sourceRouting(preferenceEnabled = true, proxyConfigured = true)
+
+        assertTrue(proxiedSource.useNetworkProxy)
+        assertTrue(proxiedSource.useMultivariantPlaylistProxy)
+        assertTrue(proxiedSource.useMediaPlaylistProxy)
+        assertFalse(directSource.useNetworkProxy)
+        assertFalse(directSource.useMultivariantPlaylistProxy)
+        assertFalse(directSource.useMediaPlaylistProxy)
+        assertTrue(
+            PlaybackProxyPolicy(mediaPlaylistEnabled = true)
+                .disableAfterCleanPlaylist()
+                .canEnableAutomatically(proxyConfigured = true)
+        )
+    }
 }

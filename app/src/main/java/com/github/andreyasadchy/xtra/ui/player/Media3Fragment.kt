@@ -258,7 +258,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         )?.let { result ->
                             result.addListener({
                                 if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
-                                    val list = result.get().extras.getStringArray(PlaybackService.NAMES)?.let { names ->
+                                    val rawList = result.get().extras.getStringArray(PlaybackService.NAMES)?.let { names ->
                                         result.get().extras.getStringArray(PlaybackService.CODECS)?.let { codecs ->
                                             result.get().extras.getStringArray(PlaybackService.BITRATES)?.let { bitrates ->
                                                 result.get().extras.getStringArray(PlaybackService.URLS)?.let { urls ->
@@ -269,29 +269,9 @@ class Media3Fragment : Media3PlayerFragment() {
                                             }
                                         }
                                     }
+                                    val list = rawList?.takeIf { it.isNotEmpty() }?.let(::normalizePlaybackQualities)
                                     if (!list.isNullOrEmpty()) {
-                                        viewModel.qualities = list.asSequence()
-                                            .sortedByDescending {
-                                                it.bitrate
-                                            }
-                                            .sortedByDescending {
-                                                it.name?.substringAfter("p", "")?.takeWhile { it.isDigit() }?.toIntOrNull()
-                                            }
-                                            .sortedByDescending {
-                                                it.name?.substringBefore("p", "")?.takeWhile { it.isDigit() }?.toIntOrNull()
-                                            }
-                                            .toMutableList().apply {
-                                                add(0, VideoQuality(AUTO_QUALITY))
-                                                find { it.name.equals("source", true) }?.let { source ->
-                                                    remove(source)
-                                                    add(1, VideoQuality(SOURCE_QUALITY, source.codecs, source.bitrate, source.url))
-                                                }
-                                                val audio = find { it.name?.startsWith("audio", true) == true }
-                                                audio?.let { remove(it) }
-                                                add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
-                                                if (videoType == STREAM) {
-                                                }
-                                            }
+                                        viewModel.qualities = list
                                         if (serviceStateSynchronized && viewModel.quality == null) {
                                             setDefaultQuality()
                                         }
@@ -561,7 +541,9 @@ class Media3Fragment : Media3PlayerFragment() {
                 viewModel.restorePlaylist = extras.getBoolean(PlaybackService.RESTORE_PLAYLIST)
                 viewModel.playlistUrl = extras.getString(PlaybackService.PLAYLIST_URL)?.toUri()
                 viewModel.qualities = extras.getString(PlaybackService.QUALITIES)?.let { value ->
-                    runCatching { Json.decodeFromString<List<VideoQuality>>(value) }.getOrNull()
+                    runCatching { Json.decodeFromString<List<VideoQuality>>(value) }
+                        .getOrNull()
+                        ?.let(::normalizePlaybackQualities)
                 }
                 viewModel.quality = extras.getString(PlaybackService.QUALITY)?.let { value ->
                     runCatching { Json.decodeFromString<VideoQuality>(value) }.getOrNull()
@@ -588,7 +570,6 @@ class Media3Fragment : Media3PlayerFragment() {
         player?.sendCustomCommand(
             SessionCommand(PlaybackService.SYNC_PLAYBACK_STATE, Bundle.EMPTY),
             Bundle().apply {
-                viewModel.qualities?.let { putString(PlaybackService.QUALITIES, Json.encodeToString(it)) }
                 viewModel.quality?.let { putString(PlaybackService.QUALITY, Json.encodeToString(it)) }
                 viewModel.previousQuality?.let { putString(PlaybackService.PREVIOUS_QUALITY, Json.encodeToString(it)) }
                 putBoolean(PlaybackService.RESTORE_QUALITY, viewModel.restoreQuality)

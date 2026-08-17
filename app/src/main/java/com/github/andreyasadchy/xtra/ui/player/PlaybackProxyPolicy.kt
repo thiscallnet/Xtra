@@ -23,6 +23,15 @@ internal data class PlaybackProxyPolicy(
     fun sourceUsesNetworkProxy(proxyConfigured: Boolean): Boolean =
         proxyConfigured && !networkProxyDisabled
 
+    fun sourceRouting(preferenceEnabled: Boolean, proxyConfigured: Boolean): PlaybackSourceRouting {
+        val useNetworkProxy = sourceUsesNetworkProxy(proxyConfigured)
+        return PlaybackSourceRouting(
+            useNetworkProxy = useNetworkProxy,
+            useMultivariantPlaylistProxy = preferenceEnabled && useNetworkProxy,
+            useMediaPlaylistProxy = mediaPlaylistEnabled && useNetworkProxy,
+        )
+    }
+
     fun selectManually(enabled: Boolean): PlaybackProxyPolicy = copy(
         mediaPlaylistEnabled = enabled,
         automaticFallbackDisabled = !enabled,
@@ -45,6 +54,29 @@ internal data class PlaybackProxyPolicy(
 
     fun disableAfterCleanPlaylist(): PlaybackProxyPolicy = copy(
         mediaPlaylistEnabled = false,
-        networkProxyDisabled = false,
+        networkProxyDisabled = true,
     )
+
+    fun prepareForRecovery(customProxyEnabled: Boolean): PlaybackProxyRecoveryDecision {
+        val bypassNetworkProxy =
+            mediaPlaylistEnabled || automaticFallbackDisabled || customProxyEnabled
+        val disableProxyRoute = mediaPlaylistEnabled || customProxyEnabled
+        return PlaybackProxyRecoveryDecision(
+            policy = if (disableProxyRoute) disableAfterFailure() else this,
+            bypassNetworkProxy = bypassNetworkProxy,
+            discardCurrentUri = customProxyEnabled,
+        )
+    }
 }
+
+internal data class PlaybackProxyRecoveryDecision(
+    val policy: PlaybackProxyPolicy,
+    val bypassNetworkProxy: Boolean,
+    val discardCurrentUri: Boolean,
+)
+
+internal data class PlaybackSourceRouting(
+    val useNetworkProxy: Boolean,
+    val useMultivariantPlaylistProxy: Boolean,
+    val useMediaPlaylistProxy: Boolean,
+)

@@ -101,6 +101,7 @@ class PlaybackService : MediaSessionService() {
     private var currentType: String? = null
     private var currentStreamId: String? = null
     private var currentUri: String? = null
+    private var sourceUriDiscardedForRecovery = false
     private var currentTitle: String? = null
     private var currentChannelId: String? = null
     private var currentChannelLogin: String? = null
@@ -116,6 +117,7 @@ class PlaybackService : MediaSessionService() {
     private var hiddenForAd = false
     private var usingAlternateStream = false
     private var selectedQuality: VideoQuality? = null
+    // Raw HLS variants only. Media3Fragment adds Auto/Source/Audio only for UI.
     private var availableQualities: List<VideoQuality>? = null
     private var restoreQuality = false
     private var restorePlaylist = false
@@ -288,7 +290,7 @@ class PlaybackService : MediaSessionService() {
                     override fun onPlaybackResumption(
                         session: MediaSession,
                         controller: MediaSession.ControllerInfo,
-                        playWhenReady: Boolean,
+                        isForPlayback: Boolean,
                     ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
                         val result = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
                         lifecycleScope.launch {
@@ -299,7 +301,7 @@ class PlaybackService : MediaSessionService() {
                                     return@launch
                                 }
                                 restoreCanonicalState(savedState)
-                                val url = if (shouldResolveFreshStreamForResumption(savedState.type, playWhenReady)) {
+                                val url = if (shouldResolveFreshStreamForResumption(savedState.type, isForPlayback)) {
                                     resolveFreshStreamUrl() ?: savedState.videoUrl
                                 } else {
                                     savedState.videoUrl
@@ -386,19 +388,18 @@ class PlaybackService : MediaSessionService() {
                                 val proxyPassword = prefs().getString(C.PROXY_PASSWORD, null)
                                 val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
                                 val proxyConfigured = proxyHost.isNotBlank() && proxyPort != 0
-                                val configuredProxyMultivariantPlaylist = proxyPolicy.sourceUsesMultivariantProxy(
+                                val configuredProxyRouting = proxyPolicy.sourceRouting(
                                     preferenceEnabled = prefs().getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false),
                                     proxyConfigured = proxyConfigured,
                                 )
-                                val configuredProxyMediaPlaylist = proxyPolicy.sourceUsesMediaPlaylistProxy(proxyConfigured)
                                 player.setMediaSource(
                                     HlsMediaSource.Factory(
                                         DefaultDataSource.Factory(
                                             this@PlaybackService,
                                             when {
                                                 networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
-                                                    val proxyMultivariantPlaylist = configuredProxyMultivariantPlaylist
-                                                    val proxyMediaPlaylist = configuredProxyMediaPlaylist
+                                                    val proxyMultivariantPlaylist = configuredProxyRouting.useMultivariantPlaylistProxy
+                                                    val proxyMediaPlaylist = configuredProxyRouting.useMediaPlaylistProxy
                                                     val proxyClient = if (proxyMultivariantPlaylist || proxyMediaPlaylist) {
                                                         val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
                                                             listOf(android.util.Pair("Proxy-Authorization", Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)))
@@ -480,8 +481,8 @@ class PlaybackService : MediaSessionService() {
                                                     HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.cronetExecutor.value, proxyMultivariantPlaylist, proxyMediaPlaylist, proxyClient, multivariantPlaylistProxyClient, mediaPlaylistProxyClient) { proxyMediaPlaylist }
                                                 }
                                                 networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
-                                                    val proxyMultivariantPlaylist = configuredProxyMultivariantPlaylist
-                                                    val proxyMediaPlaylist = configuredProxyMediaPlaylist
+                                                    val proxyMultivariantPlaylist = configuredProxyRouting.useMultivariantPlaylistProxy
+                                                    val proxyMediaPlaylist = configuredProxyRouting.useMediaPlaylistProxy
                                                     val proxyClient = if ((proxyMultivariantPlaylist || proxyMediaPlaylist) && CronetProvider.getAllProviders(application).any { it.isEnabled }) {
                                                         val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
                                                             mapOf("Proxy-Authorization" to Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)).entries.toList()
@@ -568,8 +569,8 @@ class PlaybackService : MediaSessionService() {
                                                     CronetDataSource.Factory(xtraModule.cronetEngine.value, xtraModule.cronetExecutor.value, proxyMultivariantPlaylist, proxyMediaPlaylist, proxyClient, multivariantPlaylistProxyClient, mediaPlaylistProxyClient) { proxyMediaPlaylist }
                                                 }
                                                 else -> {
-                                                    val proxyMediaPlaylist = configuredProxyMediaPlaylist
-                                                    val multivariantPlaylistProxyClient = if (configuredProxyMultivariantPlaylist) {
+                                                    val proxyMediaPlaylist = configuredProxyRouting.useMediaPlaylistProxy
+                                                    val multivariantPlaylistProxyClient = if (configuredProxyRouting.useMultivariantPlaylistProxy) {
                                                         xtraModule.okHttpClient.value.newBuilder().apply {
                                                             proxySelector(
                                                                 object : ProxySelector() {
@@ -593,7 +594,7 @@ class PlaybackService : MediaSessionService() {
                                                             }
                                                         }.build()
                                                     } else null
-                                                    val mediaPlaylistProxyClient = if (configuredProxyMediaPlaylist) {
+                                                    val mediaPlaylistProxyClient = if (configuredProxyRouting.useMediaPlaylistProxy) {
                                                         xtraModule.okHttpClient.value.newBuilder().apply {
                                                             proxySelector(
                                                                 object : ProxySelector() {
@@ -1098,7 +1099,7 @@ class PlaybackService : MediaSessionService() {
         val playlist = (player.currentManifest as? HlsManifest)?.mediaPlaylist ?: return
         val ads = TwitchAdDetector.isAd(playlist)
         val avoidAds = prefs().shouldAvoidTwitchAds()
-        val useProxy = proxyPolicy.sourceUsesNetworkProxy(hasConfiguredMediaProxy())
+        val useProxy = hasConfiguredMediaProxy() && !proxyPolicy.automaticFallbackDisabled
         if (ads != playingAds) {
             playingAds = ads
             Log.d(TAG, "Twitch ad state changed ads=$ads alternate=$usingAlternateStream proxy=${proxyPolicy.mediaPlaylistEnabled}")
@@ -1200,8 +1201,12 @@ class PlaybackService : MediaSessionService() {
                     if (currentType != BasePlaybackService.STREAM || !checkPlaylist(currentUri)) break
                 }
                 if (currentType == BasePlaybackService.STREAM) {
-                    proxyPolicy = proxyPolicy.disableAfterCleanPlaylist()
-                    persistPlaybackState(player.currentPosition, !player.playWhenReady)
+                    val sourceUrl = currentUri ?: player.currentMediaItem?.localConfiguration?.uri?.toString()
+                    if (proxyPolicy.mediaPlaylistEnabled && !sourceUrl.isNullOrBlank()) {
+                        proxyPolicy = proxyPolicy.disableAfterCleanPlaylist()
+                        proxyRestoreJob = null
+                        replaceStreamSource(sourceUrl, preservePosition = true, playWhenReady = player.playWhenReady)
+                    }
                 }
             }
         } else if (suppressAds) {
@@ -1369,37 +1374,47 @@ class PlaybackService : MediaSessionService() {
         restorePlaybackJob?.cancel()
         restorePlaybackJob = lifecycleScope.launch {
             val player = mediaSession?.player ?: return@launch
-            val bypassNetworkProxy = disableProxyForRecovery()
-            val url = resolveFreshStreamUrl(useNetworkProxy = !bypassNetworkProxy)
+            val sourceUrlBeforeRecovery = currentUri
+            val recoveryDecision = disableProxyForRecovery()
+            val url = resolveFreshStreamUrl(useNetworkProxy = !recoveryDecision.bypassNetworkProxy)
             if (url != null) {
                 replaceStreamSource(url, preservePosition = true, playWhenReady = player.playWhenReady)
+            } else if (recoveryDecision.bypassNetworkProxy &&
+                !recoveryDecision.discardCurrentUri &&
+                !sourceUrlBeforeRecovery.isNullOrBlank()
+            ) {
+                replaceStreamSource(
+                    sourceUrlBeforeRecovery,
+                    preservePosition = true,
+                    playWhenReady = player.playWhenReady,
+                )
+            } else if (recoveryDecision.bypassNetworkProxy) {
+                Log.i(TAG, "Direct Twitch recovery URL unavailable; keeping the stale source out of playback")
+                scheduleRecovery(player.playerError)
             } else {
                 player.prepare()
             }
         }
     }
 
-    private fun disableProxyForRecovery(): Boolean {
+    private fun disableProxyForRecovery(): PlaybackProxyRecoveryDecision {
         val customProxyEnabled = canonicalPlaybackState?.useCustomProxy == true
-        val bypassNetworkProxy =
-            proxyPolicy.mediaPlaylistEnabled || proxyPolicy.automaticFallbackDisabled || customProxyEnabled
-        var changed = false
-        if (proxyPolicy.mediaPlaylistEnabled || customProxyEnabled) {
-            proxyPolicy = proxyPolicy.disableAfterFailure()
-            changed = true
-        }
+        val recoveryDecision = proxyPolicy.prepareForRecovery(customProxyEnabled)
+        val policyChanged = recoveryDecision.policy != proxyPolicy
+        proxyPolicy = recoveryDecision.policy
         if (customProxyEnabled) {
-            canonicalPlaybackState = canonicalPlaybackState?.copy(useCustomProxy = false)
-            changed = true
+            sourceUriDiscardedForRecovery = true
+            currentUri = null
+            canonicalPlaybackState = canonicalPlaybackState?.copy(useCustomProxy = false, videoUrl = null)
         }
-        if (changed) {
+        if (policyChanged || customProxyEnabled) {
             val player = mediaSession?.player
             persistPlaybackState(player?.currentPosition, player?.playWhenReady != true)
         }
-        if (bypassNetworkProxy) {
+        if (recoveryDecision.bypassNetworkProxy) {
             Log.i(TAG, "Disabling Twitch proxy for source recovery")
         }
-        return bypassNetworkProxy
+        return recoveryDecision
     }
 
     private fun replaceStreamSource(url: String?, preservePosition: Boolean, playWhenReady: Boolean) {
@@ -1409,6 +1424,7 @@ class PlaybackService : MediaSessionService() {
         recoveryTimer?.cancel()
         recoveryTimer = null
         Log.d(TAG, "Replacing Twitch source type=$currentType preservePosition=$preservePosition alternate=$usingAlternateStream proxy=${proxyPolicy.mediaPlaylistEnabled}")
+        sourceUriDiscardedForRecovery = false
         currentUri = url
         canonicalPlaybackState = canonicalPlaybackState?.copy(videoUrl = url, position = position, paused = !playWhenReady)
         player.setMediaSource(createStreamMediaSource(url))
@@ -1475,13 +1491,12 @@ class PlaybackService : MediaSessionService() {
         val proxyUser = prefs().getString(C.PROXY_USER, null)
         val proxyPassword = prefs().getString(C.PROXY_PASSWORD, null)
         val proxyConfigured = proxyHost.isNotBlank() && proxyPort != 0
-        val proxyMultivariantPlaylist = proxyPolicy.sourceUsesMultivariantProxy(
+        val proxyRouting = proxyPolicy.sourceRouting(
             preferenceEnabled = prefs().getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false),
             proxyConfigured = proxyConfigured,
         )
-        val useMediaPlaylistProxy = proxyPolicy.sourceUsesMediaPlaylistProxy(
-            proxyConfigured = proxyConfigured,
-        )
+        val proxyMultivariantPlaylist = proxyRouting.useMultivariantPlaylistProxy
+        val useMediaPlaylistProxy = proxyRouting.useMediaPlaylistProxy
 
         val factory: HttpDataSource.Factory = when {
             networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -1837,6 +1852,7 @@ class PlaybackService : MediaSessionService() {
             skipAccessToken = extras.getBoolean(SKIP_ACCESS_TOKEN),
         )
         canonicalPlaybackState = state
+        sourceUriDiscardedForRecovery = false
         selectedQuality = null
         availableQualities = null
         restoreQuality = false
@@ -1868,6 +1884,7 @@ class PlaybackService : MediaSessionService() {
         clipId = state.clipId
         offlineVideoId = state.offlineVideoId
         currentUri = state.videoUrl
+        sourceUriDiscardedForRecovery = false
         currentTitle = state.title
         currentChannelId = state.channelId
         currentChannelLogin = state.channelLogin
@@ -1933,9 +1950,10 @@ class PlaybackService : MediaSessionService() {
 
     private fun syncPlaybackState(extras: Bundle) {
         val current = canonicalPlaybackState ?: return
-        mediaSession?.player?.currentMediaItem?.localConfiguration?.uri?.toString()?.let { currentUri = it }
+        if (!sourceUriDiscardedForRecovery) {
+            mediaSession?.player?.currentMediaItem?.localConfiguration?.uri?.toString()?.let { currentUri = it }
+        }
         val updated = current.copy(
-            qualities = extras.getString(QUALITIES) ?: current.qualities,
             quality = extras.getString(QUALITY) ?: current.quality,
             previousQuality = extras.getString(PREVIOUS_QUALITY) ?: current.previousQuality,
             restoreQuality = if (extras.containsKey(RESTORE_QUALITY)) extras.getBoolean(RESTORE_QUALITY) else current.restoreQuality,
@@ -1993,6 +2011,7 @@ class PlaybackService : MediaSessionService() {
         currentType = null
         currentStreamId = null
         currentUri = null
+        sourceUriDiscardedForRecovery = false
         currentTitle = null
         currentChannelId = null
         currentChannelLogin = null

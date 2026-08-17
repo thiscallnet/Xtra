@@ -8,8 +8,8 @@ class PlaybackResumptionPolicyTest {
 
     @Test
     fun onlyPlaybackResumptionForAStreamNeedsFreshNetworkResolution() {
-        assertTrue(shouldResolveFreshStreamForResumption(BasePlaybackService.STREAM, playWhenReady = true))
-        assertFalse(shouldResolveFreshStreamForResumption(BasePlaybackService.STREAM, playWhenReady = false))
-        assertFalse(shouldResolveFreshStreamForResumption(BasePlaybackService.VIDEO, playWhenReady = true))
+        assertTrue(shouldResolveFreshStreamForResumption(BasePlaybackService.STREAM, isForPlayback = true))
+        assertFalse(shouldResolveFreshStreamForResumption(BasePlaybackService.STREAM, isForPlayback = false))
+        assertFalse(shouldResolveFreshStreamForResumption(BasePlaybackService.VIDEO, isForPlayback = true))
     }
 }
