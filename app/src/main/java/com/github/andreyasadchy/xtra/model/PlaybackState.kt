@@ -4,7 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "playback_states")
-data class PlaybackState(
+class PlaybackState(
     val type: String? = null,
     val streamId: String? = null,
     val videoId: String? = null,
@@ -37,6 +37,7 @@ data class PlaybackState(
     val restorePlaylist: Boolean = false,
     val useCustomProxy: Boolean = false,
     val skipAccessToken: Boolean = false,
+) {
     @PrimaryKey(autoGenerate = true)
-    val id: Int = 0,
-)
+    var id = 0
+}

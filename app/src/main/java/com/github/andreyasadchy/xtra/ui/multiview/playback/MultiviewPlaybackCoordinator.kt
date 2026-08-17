@@ -35,8 +35,7 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
-import com.github.andreyasadchy.xtra.ui.player.TwitchHlsPlaylistParserFactory
-import com.github.andreyasadchy.xtra.ui.player.TwitchPlaybackConstants
+import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
 import com.github.andreyasadchy.xtra.ui.player.TwitchAdController
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
@@ -449,7 +448,7 @@ class MultiviewPlaybackCoordinator(
                     .setMediaMetadata(metadata(slot.stream))
                     .build()
                 val source = HlsMediaSource.Factory(createDataSourceFactory(slot))
-                    .setPlaylistParserFactory(TwitchHlsPlaylistParserFactory())
+                    .setPlaylistParserFactory(ExoPlayerService.CustomHlsPlaylistParserFactory())
                     .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))
                     .createMediaSource(mediaItem)
                 slot.player.setMediaSource(source)
@@ -1032,7 +1031,7 @@ class MultiviewPlaybackCoordinator(
             port = proxyPort,
             user = proxyUser,
             password = proxyPassword,
-            regex = TwitchPlaybackConstants.MULTIVARIANT_PLAYLIST_REGEX,
+            regex = MULTIVARIANT_PLAYLIST_REGEX,
         )
         val mediaProxy = selectiveProxyClient(
             enabled = proxyMedia,
@@ -1040,7 +1039,7 @@ class MultiviewPlaybackCoordinator(
             port = proxyPort,
             user = proxyUser,
             password = proxyPassword,
-            regex = TwitchPlaybackConstants.MEDIA_PLAYLIST_REGEX,
+            regex = MEDIA_PLAYLIST_REGEX,
         )
         val upstream = when {
             networkLibrary == C.HTTP_ENGINE && module.httpEngine.value != null -> {
@@ -1231,6 +1230,8 @@ class MultiviewPlaybackCoordinator(
         private const val PRIMARY_RESTORE_INTERVAL_MS = 10_000L
         private const val FRAME_RATE_TOLERANCE = 0.5f
         private val RETRY_DELAYS_MS = longArrayOf(1_500L, 3_000L, 6_000L, 12_000L, 20_000L, 30_000L)
+        private const val MULTIVARIANT_PLAYLIST_REGEX = "^usher\\.ttvnw\\.net$"
+        private const val MEDIA_PLAYLIST_REGEX = "^(?:[a-z0-9-]+\\.playlist\\.(?:live-video|ttvnw)\\.net|video-weaver\\.[a-z0-9-]+\\.hls\\.ttvnw\\.net)$"
     }
 }
 

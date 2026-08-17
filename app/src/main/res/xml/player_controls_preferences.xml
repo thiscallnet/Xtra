@@ -3,5 +3,6 @@
     <Preference android:key="player_speed_options" android:summary="@string/settings_playback_speed_options_summary" android:title="@string/settings_playback_speed_options" app:iconSpaceReserved="false" />
     <Preference android:key="player_seek_controls" android:title="@string/settings_seek_controls" app:iconSpaceReserved="false" />
     <Preference android:key="player_gestures" android:title="@string/settings_gestures" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="player_move_freely" android:summary="@string/settings_free_position_player_summary" android:title="@string/settings_free_position_player" app:iconSpaceReserved="false" />
     <Preference android:key="player_information" android:title="@string/settings_player_information" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>
