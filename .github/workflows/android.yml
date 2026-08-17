@@ -248,6 +248,23 @@ jobs:
           fi
         }
 
+        download_release_asset() {
+          local name="$1"
+          local output_path="$2"
+          local asset_id
+          if ! asset_id="$(jq -er --arg name "$name" '[.assets[] | select(.name == $name)][0].id' <<< "$release_json")"; then
+            echo "Release ${tag} does not expose an asset ID for ${name}" >&2
+            return 1
+          fi
+          if ! gh api \
+              -H "Accept: application/octet-stream" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" \
+              > "$output_path"; then
+            echo "Unable to download ${name} for verification" >&2
+            return 1
+          fi
+        }
+
         verify_metadata_asset() {
           local name=xtra-release-metadata.json
           local verification_dir
@@ -257,8 +274,7 @@ jobs:
             exit 1
           fi
           verification_dir="$(mktemp -d)"
-          if ! gh release download "$tag" --pattern "$name" --dir "$verification_dir"; then
-            echo "Unable to download ${name} for verification" >&2
+          if ! download_release_asset "$name" "$verification_dir/$name"; then
             rm -rf "$verification_dir"
             exit 1
           fi
@@ -299,8 +315,7 @@ jobs:
           # Older GitHub API responses may omit digest. Download the existing
           # asset instead of replacing it, then compare its bytes locally.
           verification_dir="$(mktemp -d)"
-          if ! gh release download "$tag" --pattern "$name" --dir "$verification_dir"; then
-            echo "Unable to download ${name} for digest verification" >&2
+          if ! download_release_asset "$name" "$verification_dir/$name"; then
             rm -rf "$verification_dir"
             exit 1
           fi
