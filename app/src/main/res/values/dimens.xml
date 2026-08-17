@@ -2,4 +2,5 @@
 <resources>
     <dimen name="divider_margin">5dp</dimen>
     <dimen name="settings_section_spacing">8dp</dimen>
+    <dimen name="emote_picker_max_height">300dp</dimen>
 </resources>
