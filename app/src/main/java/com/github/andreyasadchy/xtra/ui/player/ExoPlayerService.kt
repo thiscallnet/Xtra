@@ -53,20 +53,14 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.hls.HlsMediaSource
-import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
-import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
-import androidx.media3.exoplayer.hls.playlist.HlsPlaylist
-import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParserFactory
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
-import androidx.media3.exoplayer.upstream.ParsingLoadable
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
-import com.github.andreyasadchy.xtra.player.lowlatency.HlsPlaylistParser
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -380,7 +374,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                                 }
                                                             )
                                                         ).apply {
-                                                            setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+                                                            setPlaylistParserFactory(TwitchHlsPlaylistParserFactory())
                                                         }.createMediaSource(
                                                             MediaItem.fromUri(url)
                                                         )
@@ -673,7 +667,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                 }
                                             )
                                         ).apply {
-                                            setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+                                            setPlaylistParserFactory(TwitchHlsPlaylistParserFactory())
                                         }.createMediaSource(
                                             MediaItem.fromUri(url)
                                         )
@@ -1001,7 +995,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                 proxySelector(
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
-                                                            return if (Regex(MULTIVARIANT_PLAYLIST_REGEX).matches(u.host)) {
+                                                            return if (Regex(TwitchPlaybackConstants.MULTIVARIANT_PLAYLIST_REGEX).matches(u.host)) {
                                                                 listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
@@ -1025,7 +1019,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                 proxySelector(
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
-                                                            return if (Regex(MEDIA_PLAYLIST_REGEX).matches(u.host)) {
+                                                            return if (Regex(TwitchPlaybackConstants.MEDIA_PLAYLIST_REGEX).matches(u.host)) {
                                                                 listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
@@ -1089,7 +1083,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                 proxySelector(
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
-                                                            return if (Regex(MULTIVARIANT_PLAYLIST_REGEX).matches(u.host)) {
+                                                            return if (Regex(TwitchPlaybackConstants.MULTIVARIANT_PLAYLIST_REGEX).matches(u.host)) {
                                                                 listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
@@ -1113,7 +1107,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                 proxySelector(
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
-                                                            return if (Regex(MEDIA_PLAYLIST_REGEX).matches(u.host)) {
+                                                            return if (Regex(TwitchPlaybackConstants.MEDIA_PLAYLIST_REGEX).matches(u.host)) {
                                                                 listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
@@ -1140,7 +1134,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                 proxySelector(
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
-                                                            return if (Regex(MULTIVARIANT_PLAYLIST_REGEX).matches(u.host)) {
+                                                            return if (Regex(TwitchPlaybackConstants.MULTIVARIANT_PLAYLIST_REGEX).matches(u.host)) {
                                                                 listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
@@ -1164,7 +1158,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                 proxySelector(
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
-                                                            return if (Regex(MEDIA_PLAYLIST_REGEX).matches(u.host)) {
+                                                            return if (Regex(TwitchPlaybackConstants.MEDIA_PLAYLIST_REGEX).matches(u.host)) {
                                                                 listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
@@ -1204,7 +1198,7 @@ class ExoPlayerService : BasePlaybackService() {
                                 }
                             )
                         ).apply {
-                            setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+                            setPlaylistParserFactory(TwitchHlsPlaylistParserFactory())
                             setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))
                         }.createMediaSource(
                             MediaItem.Builder().apply {
@@ -1274,7 +1268,7 @@ class ExoPlayerService : BasePlaybackService() {
                                 }
                             )
                         ).apply {
-                            setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+                            setPlaylistParserFactory(TwitchHlsPlaylistParserFactory())
                         }.createMediaSource(
                             MediaItem.fromUri(url)
                         )
@@ -2274,21 +2268,8 @@ class ExoPlayerService : BasePlaybackService() {
         notificationManager?.cancel(NOTIFICATION_ID)
     }
 
-    class CustomHlsPlaylistParserFactory: HlsPlaylistParserFactory {
-        override fun createPlaylistParser(): ParsingLoadable.Parser<HlsPlaylist> {
-            return HlsPlaylistParser()
-        }
-
-        override fun createPlaylistParser(multivariantPlaylist: HlsMultivariantPlaylist, previousMediaPlaylist: HlsMediaPlaylist?): ParsingLoadable.Parser<HlsPlaylist> {
-            return HlsPlaylistParser(multivariantPlaylist, previousMediaPlaylist)
-        }
-    }
-
     companion object {
         private const val AD_TAG = "XtraAd"
-
-        const val MULTIVARIANT_PLAYLIST_REGEX = "^usher\\.ttvnw\\.net$"
-        const val MEDIA_PLAYLIST_REGEX = "^(?:[a-z0-9-]+\\.playlist\\.(?:live-video|ttvnw)\\.net|video-weaver\\.[a-z0-9-]+\\.hls\\.ttvnw\\.net)$"
 
         private const val NOTIFICATION_ID = 1001
         private const val GROUP_KEY = "com.github.andreyasadchy.xtra.PLAYBACK_NOTIFICATIONS"

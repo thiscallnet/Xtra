@@ -2309,7 +2309,7 @@ class SettingsActivity : AppCompatActivity() {
                 true
             }
             findPreference<SwitchPreferenceCompat>("settings_mix_audio")?.apply {
-                isChecked = !requireContext().prefs().getBoolean(C.PLAYER_AUDIO_FOCUS, false)
+                isChecked = !requireContext().prefs().getBoolean(C.PLAYER_AUDIO_FOCUS, true)
                 setOnPreferenceChangeListener { _, value ->
                     requireContext().prefs().edit { putBoolean(C.PLAYER_AUDIO_FOCUS, !(value as Boolean)) }
                     true

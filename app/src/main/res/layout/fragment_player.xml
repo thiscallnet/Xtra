@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/playerBackground"
@@ -51,6 +51,109 @@
             <include
                 android:id="@+id/playerControls"
                 layout="@layout/player_layout" />
+
+            <FrameLayout
+                android:id="@+id/miniPlayerChrome"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="#66000000"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <TextView
+                    android:id="@+id/miniPlayerInfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|start"
+                    android:layout_marginStart="12dp"
+                    android:layout_marginEnd="96dp"
+                    android:layout_marginBottom="8dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@android:color/white"
+                    android:textSize="13sp"
+                    tools:text="channel · stream title" />
+
+                <TextView
+                    android:id="@+id/miniLiveStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|start"
+                    android:layout_marginStart="12dp"
+                    android:layout_marginBottom="30dp"
+                    android:textColor="@color/liveStreamRed"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    tools:text="● LIVE"
+                    tools:visibility="visible" />
+
+                <ImageButton
+                    android:id="@+id/miniPlayPause"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="center"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/player_play"
+                    android:src="@drawable/baseline_play_arrow_black_48"
+                    app:tint="@android:color/white" />
+
+                <ImageButton
+                    android:id="@+id/miniExpand"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_gravity="top|start"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/player_miniplayer_expand"
+                    android:src="@drawable/baseline_expand_more_black_24"
+                    app:tint="@android:color/white" />
+
+                <ImageButton
+                    android:id="@+id/miniClose"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_gravity="top|end"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/player_miniplayer_close"
+                    android:src="@drawable/baseline_close_black_36"
+                    app:tint="@android:color/white" />
+
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/seekFeedback"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:background="@color/chatStatusDark"
+                android:paddingStart="16dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="8dp"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:text="+10s"
+                tools:visibility="visible" />
+
+            <TextView
+                android:id="@+id/temporarySpeed"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="24dp"
+                android:background="@color/chatStatusDark"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:text="@string/player_temporary_speed"
+                android:textColor="@android:color/white"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:visibility="visible" />
 
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/playerErrorContainer"
@@ -132,4 +235,15 @@
         </com.github.andreyasadchy.xtra.ui.view.ChatLayout>
 
     </FrameLayout>
-</LinearLayout>
+
+    <ImageButton
+        android:id="@+id/miniRestoreHandle"
+        android:layout_width="34dp"
+        android:layout_height="54dp"
+        android:layout_gravity="center|end"
+        android:background="@android:color/transparent"
+        android:contentDescription="@string/player_miniplayer_restore"
+        android:src="@drawable/baseline_expand_more_black_24"
+        android:visibility="gone"
+        app:tint="@android:color/white" />
+</FrameLayout>

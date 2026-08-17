@@ -8,7 +8,6 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.text.format.DateUtils
 import android.util.Log
 import android.view.View
@@ -36,6 +35,7 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Clip
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
@@ -73,11 +73,16 @@ class Media3Fragment : Media3PlayerFragment() {
             }
         }
     private var playerListener: Player.Listener? = null
-    private var streamRecoveryJob: Job? = null
-    private var streamRecoveryAttempt = 0
     private var adAvoidanceJob: Job? = null
     private var primaryStreamRestoreJob: Job? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
+
+    override fun onPresentationChanged(presentation: PlayerPresentation) {
+        player?.sendCustomCommand(
+            SessionCommand(PlaybackService.SET_PRESENTATION, Bundle.EMPTY),
+            Bundle().apply { putString(PlaybackService.PRESENTATION, presentation.name) },
+        )
+    }
 
     override fun onStart() {
         super.onStart()
@@ -101,13 +106,11 @@ class Media3Fragment : Media3PlayerFragment() {
                 return@addListener
             }
             controller.setVideoSurfaceView(binding.playerSurface)
+            Log.d("Media3Fragment", "Attached surface to MediaController")
             val listener = object : Player.Listener {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_READY) {
-                        streamRecoveryJob?.cancel()
-                        streamRecoveryJob = null
-                        streamRecoveryAttempt = 0
                         clearPlayerError()
                     }
                     binding.bufferingIndicator.isVisible = playbackState == Player.STATE_BUFFERING
@@ -125,6 +128,8 @@ class Media3Fragment : Media3PlayerFragment() {
                         }
                     }
                     setPipActions(!showPlayButton)
+                    updateMiniPlaybackButton(showPlayButton)
+                    updateLiveEdgeStatus()
                     updateProgress()
                     controllerAutoHide = !showPlayButton
                     if (videoType != STREAM && useController) {
@@ -148,6 +153,8 @@ class Media3Fragment : Media3PlayerFragment() {
                         }
                     }
                     setPipActions(!showPlayButton)
+                    updateMiniPlaybackButton(showPlayButton)
+                    updateLiveEdgeStatus()
                     updateProgress()
                     controllerAutoHide = !showPlayButton
                     if (videoType != STREAM && useController) {
@@ -176,6 +183,8 @@ class Media3Fragment : Media3PlayerFragment() {
                         R.string.player_duration,
                         binding.playerControls.duration.text,
                     )
+                    updateMiniPlaybackButton(showPlayButton)
+                    updateLiveEdgeStatus()
                     updateProgress()
                 }
 
@@ -199,6 +208,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         binding.playerControls.duration.text,
                     )
                     updateProgress()
+                    updateLiveEdgeStatus()
                     if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                         chatFragment?.updatePosition(newPosition.positionMs)
                     }
@@ -240,6 +250,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         binding.playerControls.duration.text,
                     )
                     updateProgress()
+                    updateLiveEdgeStatus()
                     if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && !timeline.isEmpty && viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
                         viewModel.updateQualities = viewModel.quality?.name != AUDIO_ONLY_QUALITY
                     }
@@ -348,6 +359,14 @@ class Media3Fragment : Media3PlayerFragment() {
                     Log.e(tag, "Player error", error)
                     when (videoType) {
                         STREAM -> {
+                            if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                                // PlaybackService seeks the live item back to its
+                                // default position and prepares it again. Do not
+                                // flash a generic error while that recovery runs.
+                                clearPlayerError()
+                                updateLiveEdgeStatus()
+                                return
+                            }
                             player?.sendCustomCommand(
                                 SessionCommand(PlaybackService.GET_ERROR_CODE, Bundle.EMPTY),
                                 Bundle.EMPTY
@@ -371,16 +390,13 @@ class Media3Fragment : Media3PlayerFragment() {
                                                 viewModel.useCustomProxy && responseCode >= 400 -> {
                                                     showPlayerError(R.string.proxy_error) { restartPlayer() }
                                                     viewModel.useCustomProxy = false
-                                                    scheduleStreamRecovery()
                                                 }
                                                 else -> {
                                                     showPlayerError(R.string.player_error) { restartPlayer() }
-                                                    scheduleStreamRecovery()
                                                 }
                                             }
                                         } else {
                                             showPlayerError(R.string.connection_error) { restartPlayer() }
-                                            scheduleStreamRecovery()
                                         }
                                     }
                                 }, ContextCompat.getMainExecutor(requireContext()))
@@ -444,18 +460,21 @@ class Media3Fragment : Media3PlayerFragment() {
                     }
                 }
             }
-            if (viewModel.backgroundVideoDisabled) {
-                viewModel.backgroundVideoDisabled = false
-                binding.playerSurface.visibility = View.VISIBLE
-            }
             controller.addListener(listener)
             playerListener = listener
             controller.sendCustomCommand(
-                SessionCommand(
-                    PlaybackService.SET_BACKGROUND_PLAYBACK,
-                    Bundle().apply { putBoolean(PlaybackService.BACKGROUND_PLAYBACK, false) }
-                ), Bundle.EMPTY
+                SessionCommand(PlaybackService.SET_PRESENTATION, Bundle.EMPTY),
+                Bundle().apply {
+                    putString(
+                        PlaybackService.PRESENTATION,
+                        if (isMaximized) PlayerPresentation.FULL.name else PlayerPresentation.MINI.name,
+                    )
+                },
             )
+            if (controller.currentMediaItem?.mediaId == expectedMediaId()) {
+                viewModel.started = true
+                viewModel.loaded.value = !controller.currentTracks.isEmpty
+            }
             if (controller.currentMediaItem != null && controller.playbackState == Player.STATE_IDLE) {
                 controller.prepare()
             }
@@ -491,7 +510,6 @@ class Media3Fragment : Media3PlayerFragment() {
                 player?.let { player ->
                     if (player.playbackState != Player.STATE_ENDED) {
                         player.playWhenReady = true
-                        player.prepare()
                     }
                 }
             }
@@ -527,33 +545,6 @@ class Media3Fragment : Media3PlayerFragment() {
                 setPipActions(player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE && player.playWhenReady)
             }
         }, ContextCompat.getMainExecutor(requireContext()))
-    }
-
-    private fun scheduleStreamRecovery() {
-        val context = context ?: return
-        if (!isAdded || view == null
-            || !context.prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
-            || videoType != STREAM
-            || player?.playWhenReady != true
-        ) {
-            return
-        }
-        streamRecoveryJob?.cancel()
-        val delayMs = (1500L shl streamRecoveryAttempt.coerceAtMost(3)).coerceAtMost(12000L)
-        streamRecoveryAttempt = (streamRecoveryAttempt + 1).coerceAtMost(3)
-        streamRecoveryJob = viewLifecycleOwner.lifecycleScope.launch {
-            delay(delayMs)
-            if (context.prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
-                && player?.playWhenReady == true
-                && isAdded
-                && view != null
-            ) {
-                try {
-                    restartPlayer()
-                } catch (_: Exception) {
-                }
-            }
-        }
     }
 
     override fun initialize() {
@@ -746,6 +737,16 @@ class Media3Fragment : Media3PlayerFragment() {
         )
     }
 
+    private fun expectedMediaId(): String? {
+        return when (videoType) {
+            STREAM -> "stream:${requireArguments().getString(KEY_STREAM_ID).orEmpty()}"
+            VIDEO -> "video:${requireArguments().getString(KEY_VIDEO_ID)?.toLongOrNull() ?: 0L}"
+            CLIP -> "clip:${requireArguments().getString(KEY_CLIP_ID).orEmpty()}"
+            OFFLINE_VIDEO -> "offline:${requireArguments().getInt(KEY_OFFLINE_VIDEO_ID)}"
+            else -> null
+        }
+    }
+
     override fun startVideo(url: String?, playbackPosition: Long?, multivariantPlaylist: Boolean) {
         clearPlayerError()
         player?.let { player ->
@@ -833,6 +834,77 @@ class Media3Fragment : Media3PlayerFragment() {
 
     override fun getCurrentPosition() = player?.currentPosition
 
+    private fun updateMiniPlaybackButton(showPlayButton: Boolean = Util.shouldShowPlayButton(player)) {
+        if (view == null) return
+        binding.miniPlayPause.setImageResource(
+            if (showPlayButton) R.drawable.baseline_play_arrow_black_48 else R.drawable.baseline_pause_black_48,
+        )
+        binding.miniPlayPause.contentDescription = getString(
+            if (showPlayButton) R.string.player_play else R.string.player_pause_action,
+        )
+        updateMiniPlayerChrome()
+    }
+
+    private fun updateLiveEdgeStatus() {
+        if (view == null || videoType != STREAM) {
+            if (view != null) {
+                binding.playerControls.liveStatus.visibility = View.GONE
+                binding.miniLiveStatus.visibility = View.GONE
+            }
+            return
+        }
+        val controller = player
+        if (controller?.isCurrentMediaItemLive != true) {
+            binding.playerControls.liveStatus.visibility = View.GONE
+            binding.miniLiveStatus.visibility = View.GONE
+            return
+        }
+        val liveOffset = controller.currentLiveOffset
+        val atLiveEdge = liveOffset == androidx.media3.common.C.TIME_UNSET || liveOffset <= LIVE_EDGE_TOLERANCE_MS
+        val liveText = getString(if (atLiveEdge) R.string.player_live_edge else R.string.player_live_behind)
+        with(binding.playerControls.liveStatus) {
+            visibility = View.VISIBLE
+            text = liveText
+            contentDescription = getString(R.string.player_seek_live)
+            setTextColor(
+                ContextCompat.getColor(
+                    requireContext(),
+                    if (atLiveEdge) R.color.liveStreamRed else android.R.color.darker_gray,
+                )
+            )
+            setOnClickListener {
+                if (!atLiveEdge) seekToLivePosition()
+            }
+        }
+        binding.miniLiveStatus.apply {
+            visibility = if (!isMaximized && !inPictureInPicture) View.VISIBLE else View.GONE
+            text = liveText
+            contentDescription = getString(R.string.player_seek_live)
+            setOnClickListener {
+                if (!atLiveEdge) seekToLivePosition()
+            }
+            setTextColor(
+                ContextCompat.getColor(
+                    requireContext(),
+                    if (atLiveEdge) R.color.liveStreamRed else android.R.color.darker_gray,
+                )
+            )
+        }
+    }
+
+    override fun isSeekable(): Boolean {
+        return videoType != STREAM && player?.isCurrentMediaItemSeekable == true &&
+            player?.duration?.let { it > 0L && it != androidx.media3.common.C.TIME_UNSET } == true
+    }
+
+    override fun canEnterPictureInPicture(): Boolean {
+        val videoSize = player?.videoSize ?: VideoSize.UNKNOWN
+        return super.canEnterPictureInPicture() &&
+            player?.currentMediaItem != null &&
+            videoSize.width > 0 &&
+            videoSize.height > 0
+    }
+
     override fun getCurrentSpeed() = player?.playbackParameters?.speed
 
     override fun getCurrentVolume() = player?.volume
@@ -866,6 +938,7 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     override fun updateProgress() {
+        updateLiveEdgeStatus()
         with(binding.playerControls) {
             if (root.isVisible && !progressBar.isPressed) {
                 val currentPosition = player?.currentPosition ?: 0
@@ -1153,10 +1226,8 @@ class Media3Fragment : Media3PlayerFragment() {
                     }
                 }
                 player.sendCustomCommand(
-                    SessionCommand(
-                        PlaybackService.SET_BACKGROUND_PLAYBACK,
-                        Bundle().apply { putBoolean(PlaybackService.BACKGROUND_PLAYBACK, true) }
-                    ), Bundle.EMPTY
+                    SessionCommand(PlaybackService.SET_PRESENTATION, Bundle.EMPTY),
+                    Bundle().apply { putString(PlaybackService.PRESENTATION, PlayerPresentation.BACKGROUND.name) },
                 )
                 player.sendCustomCommand(
                     SessionCommand(
@@ -1209,6 +1280,10 @@ class Media3Fragment : Media3PlayerFragment() {
     override fun close() {
         savePosition()
         val controller = player
+        controller?.sendCustomCommand(
+            SessionCommand(PlaybackService.CLEAR_PLAYBACK, Bundle.EMPTY),
+            Bundle.EMPTY,
+        )
         controller?.pause()
         controller?.stop()
         if (controller?.mediaItemCount ?: 0 > 0) {
@@ -1218,9 +1293,9 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     private fun releaseController(controller: MediaController? = player) {
-        streamRecoveryJob?.cancel()
-        streamRecoveryJob = null
-        streamRecoveryAttempt = 0
+        if (controller != null) {
+            Log.d("Media3Fragment", "Detaching MediaController; playback remains service-owned")
+        }
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
         if (view != null) {
@@ -1234,7 +1309,19 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     override fun onStop() {
-        super.onStop()
+        val isInPictureInPicture = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                runCatching { requireActivity().isInPictureInPictureMode }.getOrDefault(false)
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> !useController && isMaximized
+            else -> false
+        }
+        val shouldPreservePipConnection = isInPictureInPicture || (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                requireContext().prefs().getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true) &&
+                player?.playWhenReady == true &&
+                canEnterPictureInPicture()
+            )
         player?.let { player ->
             if (player.isConnected) {
                 savePosition()
@@ -1248,28 +1335,25 @@ class Media3Fragment : Media3PlayerFragment() {
                     )
                     viewModel.usingProxy = false
                 }
-                val isInteractive = (requireContext().getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
-                val isInPIPMode = when {
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> requireActivity().isInPictureInPictureMode
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> !useController && isMaximized
-                    else -> false
-                }
-                if (requireContext().prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
-                    if (player.playWhenReady && viewModel.quality?.name != AUDIO_ONLY_QUALITY) {
-                        if (player.currentMediaItem != null) {
-                            viewModel.backgroundVideoDisabled = true
-                            binding.playerSurface.visibility = View.GONE
-                        }
-                    }
-                } else {
+                val keepBackgroundPlayback = requireContext().prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)
+                if (!keepBackgroundPlayback) {
                     viewModel.resume = player.playWhenReady && player.playbackState != Player.STATE_ENDED
                     player.pause()
                 }
                 player.sendCustomCommand(
                     SessionCommand(
-                        PlaybackService.SET_BACKGROUND_PLAYBACK,
-                        Bundle().apply { putBoolean(PlaybackService.BACKGROUND_PLAYBACK, true) }
-                    ), Bundle.EMPTY
+                        PlaybackService.SET_PRESENTATION,
+                        Bundle.EMPTY,
+                    ), Bundle().apply {
+                        putString(
+                            PlaybackService.PRESENTATION,
+                            if (shouldPreservePipConnection) {
+                                PlayerPresentation.PIP.name
+                            } else {
+                                PlayerPresentation.BACKGROUND.name
+                            },
+                        )
+                    }
                 )
                 player.sendCustomCommand(
                     SessionCommand(
@@ -1281,19 +1365,15 @@ class Media3Fragment : Media3PlayerFragment() {
             }
         }
         binding.playerControls.root.removeCallbacks(updateProgressAction)
-        releaseController()
+        if (!shouldPreservePipConnection) {
+            releaseController()
+        }
+        super.onStop()
     }
 
     override fun onNetworkRestored() {
-        if (isResumed) {
-            if (videoType == STREAM) {
-                if (player?.playWhenReady == true) {
-                    restartPlayer()
-                }
-            } else {
-                player?.prepare()
-            }
-        }
+        // PlaybackService owns recovery. Re-preparing here would race its
+        // backoff and can replace a healthy live playlist after a short loss.
     }
 
     override fun onNetworkLost() {
@@ -1303,15 +1383,19 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     companion object {
+        private const val LIVE_EDGE_TOLERANCE_MS = 5_000L
+
         fun newInstance(item: Stream): Media3Fragment {
             return Media3Fragment().apply {
                 arguments = getStreamArguments(item)
             }
         }
 
-        fun newInstance(item: Video, offset: Long?, ignoreSavedPosition: Boolean): Media3Fragment {
+        fun newInstance(item: Video, offset: Long?, ignoreSavedPosition: Boolean, videoUrl: String? = null): Media3Fragment {
             return Media3Fragment().apply {
-                arguments = getVideoArguments(item, offset, ignoreSavedPosition)
+                arguments = getVideoArguments(item, offset, ignoreSavedPosition).apply {
+                    putString(KEY_URL, videoUrl)
+                }
             }
         }
 
@@ -1324,6 +1408,12 @@ class Media3Fragment : Media3PlayerFragment() {
         fun newInstance(item: OfflineVideo): Media3Fragment {
             return Media3Fragment().apply {
                 arguments = getOfflineVideoArguments(item)
+            }
+        }
+
+        fun newInstance(item: PlaybackState): Media3Fragment {
+            return Media3Fragment().apply {
+                arguments = getPlaybackStateArguments(item)
             }
         }
     }
