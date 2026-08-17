@@ -854,13 +854,11 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                     ) {
                                         updateViewerCount(stream.viewerCount)
                                     }
-                                    if (!requireContext().prefs().isChatEnabled() ||
-                                        false ||
-                                        title.text.isNullOrBlank() ||
-                                        category.text.isNullOrBlank()
-                                    ) {
-                                        updateStreamInfo(stream.title, stream.gameId, stream.gameSlug, stream.gameName)
-                                    }
+                                    // Keep the recorder's attribution in sync
+                                    // with refreshed stream metadata even when
+                                    // the title/category views are already
+                                    // populated.
+                                    updateStreamInfo(stream.title, stream.gameId, stream.gameSlug, stream.gameName)
                                     if (requireContext().prefs().getBoolean(C.PLAYER_SHOW_UPTIME, true) &&
                                         !uptimeLayout.isVisible
                                     ) {
@@ -1584,10 +1582,12 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     }
 
     fun updateStreamInfo(title: String?, gameId: String?, gameSlug: String?, gameName: String?) {
-        playbackService?.title = title
-        playbackService?.gameId = gameId
         playbackService?.gameSlug = gameSlug
-        playbackService?.gameName = gameName
+        playbackService?.updateViewingMetadata(
+            categoryId = gameId,
+            categoryName = gameName,
+            title = title,
+        )
         binding.playerControls.title.apply {
             if (!title.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_TITLE, true)) {
                 text = title.trim()

@@ -16,7 +16,10 @@ import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class CombinedChatViewModel(
@@ -32,6 +35,8 @@ class CombinedChatViewModel(
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val updates: SharedFlow<Unit> = _updates
+    private val _streamInfoUpdates = MutableStateFlow<Map<String, CombinedChatStreamInfo>>(emptyMap())
+    val streamInfoUpdates: StateFlow<Map<String, CombinedChatStreamInfo>> = _streamInfoUpdates
 
     fun ensureStreams(streams: List<Stream>) {
         val desired = streams.mapNotNull { stream ->
@@ -39,6 +44,7 @@ class CombinedChatViewModel(
         }.toMap()
         sessions.keys.toList().filterNot(desired::containsKey).forEach { identity ->
             sessions.remove(identity)?.release()
+            _streamInfoUpdates.update { it - identity }
             synchronized(messages) {
                 messages.removeAll { it.identity == identity }
             }
@@ -128,6 +134,20 @@ class CombinedChatViewModel(
             session.viewModel.userEmotesUpdated.collect {
                 session.renderGeneration = CombinedChatPresentationPolicy.nextRenderGeneration(session.renderGeneration)
                 _updates.emit(Unit)
+            }
+        }
+        session.jobs += viewModelScope.launch {
+            session.viewModel.streamInfo.collect { info ->
+                info?.let {
+                    _streamInfoUpdates.update { updates ->
+                        updates + (session.identity to CombinedChatStreamInfo(
+                            identity = session.identity,
+                            title = it.title,
+                            categoryId = it.gameId,
+                            categoryName = it.gameName,
+                        ))
+                    }
+                }
             }
         }
     }
@@ -261,4 +281,11 @@ data class CombinedChatMessage(
     val message: ChatMessage,
     val sequence: Long,
     val renderGeneration: Long = 0L,
+)
+
+data class CombinedChatStreamInfo(
+    val identity: String,
+    val title: String?,
+    val categoryId: String?,
+    val categoryName: String?,
 )

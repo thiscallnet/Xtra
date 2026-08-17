@@ -381,6 +381,10 @@ class XtraModule(application: Application) {
                 StreamFeedMigrations.FROM_41,
                 MetadataCacheMigrations.FROM_42,
                 StreamFeedMigrations.FROM_43,
+                ViewingStatsMigrations.FROM_44,
+                Migration(45, 46) { db ->
+                    db.execSQL("CREATE TABLE IF NOT EXISTS favorite_emotes (provider TEXT NOT NULL, emote_id TEXT NOT NULL, favorited_at INTEGER NOT NULL, PRIMARY KEY (provider, emote_id))")
+                },
             )
         }.build()
     }
@@ -431,7 +435,7 @@ class XtraModule(application: Application) {
     }
 
     val playerRepository by lazy {
-        PlayerRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json, database.recentEmotes(), database.translatedChannels(), database.videoPositions(), database.playbackStates(), graphQLRepository, helixRepository)
+        PlayerRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json, database.recentEmotes(), database.favoriteEmotes(), database.translatedChannels(), database.videoPositions(), database.playbackStates(), graphQLRepository, helixRepository)
     }
 
     val recentSearchesRepository by lazy {

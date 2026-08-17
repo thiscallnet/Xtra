@@ -21,6 +21,11 @@ import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.chat.Chatter
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
+import com.github.andreyasadchy.xtra.model.chat.FavoriteEmote
+import com.github.andreyasadchy.xtra.model.chat.FavoriteEmoteCatalog
+import com.github.andreyasadchy.xtra.model.chat.FavoriteEmoteKey
+import com.github.andreyasadchy.xtra.model.chat.key
+import com.github.andreyasadchy.xtra.model.chat.favoriteKey
 import com.github.andreyasadchy.xtra.model.chat.NamePaint
 import com.github.andreyasadchy.xtra.model.chat.Poll
 import com.github.andreyasadchy.xtra.model.chat.PollVoteState
@@ -83,8 +88,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
@@ -173,8 +183,6 @@ class ChatViewModel(
     private var chatReplayManager: ChatReplayManager? = null
     private var chatReplayManagerLocal: ChatReplayManagerLocal? = null
 
-    val recentEmotes by lazy { playerRepository.loadRecentEmotesFlow() }
-    val hasRecentEmotes = MutableStateFlow(false)
     val userEmotes = mutableListOf<Emote>()
     private val channelEmotes = mutableListOf<Emote>()
     private val channelPointModifiedEmotes = mutableListOf<Emote>()
@@ -222,6 +230,42 @@ class ChatViewModel(
     val stvUsers = mutableListOf<STVUser>()
     var channelSTVEmoteSetId: String? = null
     var userSTVEmoteSetId: String? = null
+
+    private val pickerCatalogRevision = MutableStateFlow(0L)
+    val recentEmotes: StateFlow<List<RecentEmote>> = playerRepository.loadRecentEmotesFlow().stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        emptyList(),
+    )
+    val hasRecentEmotes: StateFlow<Boolean> = recentEmotes.map { it.isNotEmpty() }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        false,
+    )
+    val favoriteEmotes: StateFlow<List<FavoriteEmote>> = playerRepository.loadFavoriteEmotesFlow().stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        emptyList(),
+    )
+    val favoriteKeys: StateFlow<Set<FavoriteEmoteKey>> = favoriteEmotes.map { favorites ->
+        favorites.mapNotNull { it.key() }.toSet()
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        emptySet(),
+    )
+    val availableFavoriteEmotes: StateFlow<List<Emote>> = combine(favoriteEmotes, pickerCatalogRevision) { favorites, _ ->
+        FavoriteEmoteCatalog.availableFavorites(favorites, currentPickerEmotes())
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        emptyList(),
+    )
+    val hasAvailableFavoriteEmotes: StateFlow<Boolean> = availableFavoriteEmotes.map { it.isNotEmpty() }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        false,
+    )
     val translateAllMessages = MutableStateFlow<Boolean?>(null)
     val channelPoints = MutableStateFlow<ChannelPoints?>(null)
     val watchStreak = MutableStateFlow<WatchStreak?>(null)
@@ -245,6 +289,20 @@ class ChatViewModel(
     val chatMessages = mutableListOf<ChatMessage>()
     val autoCompleteList = mutableListOf<Any?>()
     private val chatters = ConcurrentHashMap<String, Chatter>()
+
+    private fun markPickerCatalogChanged() {
+        pickerCatalogRevision.update { it + 1 }
+    }
+
+    private suspend fun emitUserEmotesUpdated() {
+        markPickerCatalogChanged()
+        userEmotesUpdated.emit(Unit)
+    }
+
+    private suspend fun emitThirdPartyEmotesUpdated() {
+        markPickerCatalogChanged()
+        thirdPartyEmotesUpdated.emit(Unit)
+    }
 
     fun startLive(networkLibrary: String?, recentMessagesUrl: String?, channelId: String?, channelLogin: String?, channelName: String?, streamId: String?) {
         if (chatReadIRCSocket == null && chatReadWebSocket == null && eventSub == null && channelLogin != null) {
@@ -322,9 +380,11 @@ class ChatViewModel(
         val animateGifs = applicationContext.prefs().getBoolean(C.ANIMATED_EMOTES, true)
         val useWebp = true
         val enableIntegrity = applicationContext.prefs().getBoolean(C.ENABLE_INTEGRITY, false)
+        // Twitch user emotes are refreshed separately; keep them during third-party reloads.
         synchronized(thirdPartyEmotes) {
             thirdPartyEmotes.clear()
         }
+        markPickerCatalogChanged()
         val saved = savedGlobalBadges
         if (!saved.isNullOrEmpty()) {
             synchronized(globalBadges) {
@@ -371,7 +431,7 @@ class ChatViewModel(
                     reloadMessages.value = true
                 }
                 viewModelScope.launch {
-                    thirdPartyEmotesUpdated.emit(Unit)
+                    emitThirdPartyEmotesUpdated()
                 }
                 synchronized(autoCompleteList) {
                     autoCompleteList.addAll(saved.filter { it !in autoCompleteList })
@@ -400,7 +460,7 @@ class ChatViewModel(
                                 if (!reloadMessages.value) {
                                     reloadMessages.value = true
                                 }
-                                thirdPartyEmotesUpdated.emit(Unit)
+                                emitThirdPartyEmotesUpdated()
                                 synchronized(autoCompleteList) {
                                     autoCompleteList.addAll(emotes.filter { it !in autoCompleteList })
                                 }
@@ -500,7 +560,7 @@ class ChatViewModel(
                                 if (!reloadMessages.value) {
                                     reloadMessages.value = true
                                 }
-                                thirdPartyEmotesUpdated.emit(Unit)
+                                emitThirdPartyEmotesUpdated()
                                 synchronized(autoCompleteList) {
                                     autoCompleteList.addAll(emotes.filter { it !in autoCompleteList })
                                 }
@@ -548,7 +608,7 @@ class ChatViewModel(
                     reloadMessages.value = true
                 }
                 viewModelScope.launch {
-                    thirdPartyEmotesUpdated.emit(Unit)
+                    emitThirdPartyEmotesUpdated()
                 }
                 synchronized(autoCompleteList) {
                     autoCompleteList.addAll(saved.filter { it !in autoCompleteList })
@@ -577,7 +637,7 @@ class ChatViewModel(
                                 if (!reloadMessages.value) {
                                     reloadMessages.value = true
                                 }
-                                thirdPartyEmotesUpdated.emit(Unit)
+                                emitThirdPartyEmotesUpdated()
                                 synchronized(autoCompleteList) {
                                     autoCompleteList.addAll(emotes.filter { it !in autoCompleteList })
                                 }
@@ -625,7 +685,7 @@ class ChatViewModel(
                                 if (!reloadMessages.value) {
                                     reloadMessages.value = true
                                 }
-                                thirdPartyEmotesUpdated.emit(Unit)
+                                emitThirdPartyEmotesUpdated()
                                 synchronized(autoCompleteList) {
                                     autoCompleteList.addAll(emotes.filter { it !in autoCompleteList })
                                 }
@@ -673,7 +733,7 @@ class ChatViewModel(
                     reloadMessages.value = true
                 }
                 viewModelScope.launch {
-                    thirdPartyEmotesUpdated.emit(Unit)
+                    emitThirdPartyEmotesUpdated()
                 }
                 synchronized(autoCompleteList) {
                     autoCompleteList.addAll(saved.filter { it !in autoCompleteList })
@@ -702,7 +762,7 @@ class ChatViewModel(
                                 if (!reloadMessages.value) {
                                     reloadMessages.value = true
                                 }
-                                thirdPartyEmotesUpdated.emit(Unit)
+                                emitThirdPartyEmotesUpdated()
                                 synchronized(autoCompleteList) {
                                     autoCompleteList.addAll(emotes.filter { it !in autoCompleteList })
                                 }
@@ -748,7 +808,7 @@ class ChatViewModel(
                                 if (!reloadMessages.value) {
                                     reloadMessages.value = true
                                 }
-                                thirdPartyEmotesUpdated.emit(Unit)
+                                emitThirdPartyEmotesUpdated()
                                 synchronized(autoCompleteList) {
                                     autoCompleteList.addAll(emotes.filter { it !in autoCompleteList })
                                 }
@@ -842,7 +902,7 @@ class ChatViewModel(
                 )
             }
             viewModelScope.launch {
-                userEmotesUpdated.emit(Unit)
+                emitUserEmotesUpdated()
             }
             synchronized(allEmotes) {
                 allEmotes.addAll(saved.filter { it.name !in allEmotes }.mapNotNull { it.name })
@@ -871,7 +931,7 @@ class ChatViewModel(
                                     sorted.sortedByDescending { it.ownerId == currentChannelId }.map { it.toPickerEmote() },
                                 )
                             }
-                            userEmotesUpdated.emit(Unit)
+                            emitUserEmotesUpdated()
                             synchronized(allEmotes) {
                                 allEmotes.addAll(sorted.filter { it.name !in allEmotes }.mapNotNull { it.name })
                             }
@@ -884,12 +944,6 @@ class ChatViewModel(
                     }
                 }
             }
-        }
-    }
-
-    fun loadRecentEmotes() {
-        viewModelScope.launch {
-            hasRecentEmotes.value = playerRepository.loadRecentEmotes().isNotEmpty()
         }
     }
 
@@ -1629,16 +1683,61 @@ class ChatViewModel(
         }
     }
 
-    fun emotePickerItems(): List<Emote> {
+    fun thirdPartyPickerEmotes(): List<Emote> {
         val personalEmotes = userSTVEmoteSetId?.let { setId ->
             synchronized(personalEmoteSets) { personalEmoteSets[setId].orEmpty() }
         }.orEmpty()
-        return (synchronized(userEmotes) { userEmotes.toList() } +
-                personalEmotes +
+        return FavoriteEmoteCatalog.deduplicate(personalEmotes +
                 synchronized(thirdPartyEmotes) { thirdPartyEmotes.toList() })
-            .filter { !it.name.isNullOrBlank() }
-            .distinctBy { it.name }
+            .filter { !it.name.isNullOrBlank() && isPickerProviderEnabled(it) }
+    }
+
+    fun currentPickerEmotes(): List<Emote> {
+        return FavoriteEmoteCatalog.deduplicate(synchronized(userEmotes) { userEmotes.toList() } +
+                thirdPartyPickerEmotes())
+            .filter { !it.name.isNullOrBlank() && isPickerProviderEnabled(it) }
+    }
+
+    private fun isPickerProviderEnabled(emote: Emote): Boolean {
+        return when (emote.source) {
+            Emote.PERSONAL_STV, Emote.CHANNEL_STV, Emote.GLOBAL_STV ->
+                applicationContext.prefs().getBoolean(C.CHAT_ENABLE_STV, true)
+            Emote.CHANNEL_BTTV, Emote.GLOBAL_BTTV ->
+                applicationContext.prefs().getBoolean(C.CHAT_ENABLE_BTTV, true)
+            Emote.CHANNEL_FFZ, Emote.GLOBAL_FFZ ->
+                applicationContext.prefs().getBoolean(C.CHAT_ENABLE_FFZ, true)
+            else -> true
+        }
+    }
+
+    fun emotePickerItems(): List<Emote> {
+        return currentPickerEmotes()
             .sortedBy { it.name.orEmpty().lowercase() }
+    }
+
+    fun isFavorite(emote: Emote): Boolean {
+        return emote.favoriteKey()?.let { it in favoriteKeys.value } == true
+    }
+
+    fun removeFavorite(emote: Emote): Boolean? {
+        val key = emote.favoriteKey() ?: return null
+        viewModelScope.launch {
+            playerRepository.removeFavoriteEmote(key)
+        }
+        return true
+    }
+
+    fun toggleFavorite(emote: Emote): Boolean? {
+        val key = emote.favoriteKey() ?: return null
+        val adding = key !in favoriteKeys.value
+        viewModelScope.launch {
+            if (adding) {
+                playerRepository.addFavoriteEmote(key)
+            } else {
+                playerRepository.removeFavoriteEmote(key)
+            }
+        }
+        return adding
     }
 
     fun startLiveChat(channelId: String?, channelLogin: String) {
@@ -2732,35 +2831,42 @@ class ChatViewModel(
             if (result != null) {
                 if (result.channelSet) {
                     if (stvLiveUpdates) {
-                        val removedEmotes = (result.removed + result.updated.map { it.first }).map { it.name }
+                        val removedItems = result.removed + result.updated.map { it.first }
+                        val removedEmoteNames = removedItems.map { it.name }.toSet()
                         val newEmotes = result.added + result.updated.map { it.second }
                         synchronized(thirdPartyEmotes) {
-                            thirdPartyEmotes.removeAll { it.name in removedEmotes }
+                            FavoriteEmoteCatalog.removeMatchingScope(thirdPartyEmotes, removedItems, Emote.CHANNEL_STV)
                             thirdPartyEmotes.addAll(newEmotes)
                         }
                         if (!reloadMessages.value) {
                             reloadMessages.value = true
                         }
                         viewModelScope.launch {
-                            thirdPartyEmotesUpdated.emit(Unit)
+                            emitThirdPartyEmotesUpdated()
                         }
                         synchronized(allEmotes) {
-                            allEmotes.removeAll { it in removedEmotes }
+                            allEmotes.removeAll { it in removedEmoteNames }
                             allEmotes.addAll(newEmotes.filter { it.name !in allEmotes }.mapNotNull { it.name })
                         }
                     }
                 } else {
                     if (showPersonalEmotes) {
-                        val removedEmotes = (result.removed + result.updated.map { it.first }).map { it.name }
+                        val removedItems = result.removed + result.updated.map { it.first }
+                        val removedEmoteKeys = removedItems.mapNotNull { it.favoriteKey() }.toSet()
+                        val removedEmoteNames = removedItems.map { it.name }.toSet()
                         synchronized(personalEmoteSets) {
-                            val existingSet = personalEmoteSets[result.setId]?.filter { it.name !in removedEmotes } ?: emptyList()
+                            val existingSet = personalEmoteSets[result.setId]?.filter { emote ->
+                                val key = emote.favoriteKey()
+                                !((key != null && key in removedEmoteKeys) ||
+                                        (key == null && emote.name in removedEmoteNames))
+                            } ?: emptyList()
                             personalEmoteSets.remove(result.setId)
                             val set = existingSet + result.added + result.updated.map { it.second }
                             personalEmoteSets[result.setId] = set
                         }
                         if (isLoggedIn && !accountId.isNullOrBlank() && result.setId == userSTVEmoteSetId) {
                             viewModelScope.launch {
-                                thirdPartyEmotesUpdated.emit(Unit)
+                                emitThirdPartyEmotesUpdated()
                             }
                         }
                     }
@@ -2866,7 +2972,7 @@ class ChatViewModel(
                             if (isLoggedIn && !accountId.isNullOrBlank() && result.userId == accountId) {
                                 userSTVEmoteSetId = result.setId
                                 viewModelScope.launch {
-                                    thirdPartyEmotesUpdated.emit(Unit)
+                                    emitThirdPartyEmotesUpdated()
                                 }
                             }
                         }
@@ -2993,7 +3099,7 @@ class ChatViewModel(
                                 sorted.sortedByDescending { it.ownerId == currentChannelId }.map { it.toPickerEmote() },
                             )
                         }
-                        userEmotesUpdated.emit(Unit)
+                        emitUserEmotesUpdated()
                         synchronized(allEmotes) {
                             allEmotes.addAll(sorted.filter { it.name !in allEmotes }.mapNotNull { it.name })
                         }
@@ -4432,6 +4538,7 @@ class ChatViewModel(
                     thirdPartyEmotes.clear()
                     thirdPartyEmotes.addAll(emotes)
                 }
+                markPickerCatalogChanged()
                 if (emotes.isEmpty()) {
                     viewModelScope.launch {
                         loadEmotes(channelId, channelLogin)

@@ -30,6 +30,7 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.ui.PlayerView
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
+import com.github.andreyasadchy.xtra.model.stats.mergeViewingCategoryPatch
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
@@ -223,6 +224,55 @@ class MultiviewPlaybackCoordinator(
     }
 
     fun player(identity: String): ExoPlayer? = slots[identity]?.player
+
+    /**
+     * Applies metadata received while a tile keeps playing. Updating the
+     * mutable Stream snapshot is enough to make the next recorder update use
+     * the new attribution without restarting the tile or its viewing session.
+     */
+    fun updateStreamMetadata(
+        identity: String,
+        title: String?,
+        categoryId: String?,
+        categoryName: String?,
+    ) {
+        val slot = slots[identity] ?: return
+        val stream = slot.stream
+        val nextTitle = title ?: stream.title
+        val nextCategory = mergeViewingCategoryPatch(
+            currentId = stream.gameId,
+            currentName = stream.gameName,
+            patchId = categoryId,
+            patchName = categoryName,
+        )
+        val nextCategoryId = nextCategory.id
+        val nextCategoryName = nextCategory.name
+        if (stream.title == nextTitle &&
+            stream.gameId == nextCategoryId &&
+            stream.gameName == nextCategoryName
+        ) {
+            return
+        }
+        stream.title = nextTitle
+        stream.gameId = nextCategoryId
+        stream.gameName = nextCategoryName
+        updateViewingStats(slot)
+    }
+
+    fun updateStreamMetadataForChannel(
+        channelId: String?,
+        channelLogin: String?,
+        title: String?,
+        categoryId: String?,
+        categoryName: String?,
+    ) {
+        val slot = slots.values.firstOrNull { slot ->
+            (channelId != null && slot.stream.channelId == channelId) ||
+                (channelId == null && channelLogin != null &&
+                    slot.stream.channelLogin.equals(channelLogin, ignoreCase = true))
+        } ?: return
+        updateStreamMetadata(slot.identity, title, categoryId, categoryName)
+    }
 
     fun availableQualities(identity: String): List<String> = slots[identity]?.availableQualities.orEmpty()
 
@@ -1075,8 +1125,11 @@ class MultiviewPlaybackCoordinator(
                 channelLogin = slot.stream.channelLogin,
                 channelName = slot.stream.channelName,
                 channelImage = slot.stream.channelImage,
+                categoryId = slot.stream.gameId,
+                categoryName = slot.stream.gameName,
                 contentType = ViewingPlaybackMetadata.CONTENT_TYPE_LIVE,
                 contentId = slot.stream.id,
+                title = slot.stream.title,
             ),
             isPlaying = !forceNotPlaying && slot.player.isPlaying,
             isBuffering = slot.player.playbackState == Player.STATE_BUFFERING,

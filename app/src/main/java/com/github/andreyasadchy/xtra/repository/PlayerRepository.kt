@@ -15,6 +15,7 @@ import com.apollographql.apollo.api.json.jsonReader
 import com.apollographql.apollo.api.json.writeObject
 import com.apollographql.apollo.api.parseResponse
 import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.db.FavoriteEmotesDao
 import com.github.andreyasadchy.xtra.db.PlaybackStatesDao
 import com.github.andreyasadchy.xtra.db.RecentEmotesDao
 import com.github.andreyasadchy.xtra.db.TranslatedChannelsDao
@@ -27,6 +28,8 @@ import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
+import com.github.andreyasadchy.xtra.model.chat.FavoriteEmote
+import com.github.andreyasadchy.xtra.model.chat.FavoriteEmoteKey
 import com.github.andreyasadchy.xtra.model.chat.RecentEmote
 import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
@@ -85,6 +88,7 @@ class PlayerRepository(
     private val okHttpClient: Lazy<OkHttpClient>,
     private val json: Json,
     private val recentEmotes: RecentEmotesDao,
+    private val favoriteEmotes: FavoriteEmotesDao,
     private val translatedChannelsDao: TranslatedChannelsDao,
     private val videoPositions: VideoPositionsDao,
     private val playbackStatesDao: PlaybackStatesDao,
@@ -1189,6 +1193,7 @@ class PlayerRepository(
                             }
                             Emote(
                                 name = name,
+                                id = emote.id,
                                 url1x = urls?.getOrNull(0) ?: "https:${template}/1x.webp",
                                 url2x = urls?.getOrNull(1) ?: if (urls.isNullOrEmpty()) "https:${template}/2x.webp" else null,
                                 url3x = urls?.getOrNull(2) ?: if (urls.isNullOrEmpty()) "https:${template}/3x.webp" else null,
@@ -1448,6 +1453,7 @@ class PlayerRepository(
                 emote.id?.takeIf { it.isNotBlank() }?.let { id ->
                     Emote(
                         name = name,
+                        id = id,
                         url1x = if (useWebp) "https://cdn.betterttv.net/emote/$id/1x.webp" else "https://cdn.betterttv.net/emote/$id/1x",
                         url2x = if (useWebp) "https://cdn.betterttv.net/emote/$id/2x.webp" else "https://cdn.betterttv.net/emote/$id/2x",
                         url3x = if (useWebp) "https://cdn.betterttv.net/emote/$id/2x.webp" else "https://cdn.betterttv.net/emote/$id/2x",
@@ -1599,6 +1605,7 @@ class PlayerRepository(
                 }?.let { urls ->
                     Emote(
                         name = name,
+                        id = emote.id?.toString(),
                         url1x = urls.url1x,
                         url2x = urls.url2x,
                         url3x = urls.url2x,
@@ -2081,6 +2088,22 @@ class PlayerRepository(
     }
 
     fun loadRecentEmotesFlow() = recentEmotes.getAllFlow()
+
+    fun loadFavoriteEmotesFlow() = favoriteEmotes.getAllFlow()
+
+    suspend fun addFavoriteEmote(key: FavoriteEmoteKey) = withContext(Dispatchers.IO) {
+        favoriteEmotes.insert(
+            FavoriteEmote(
+                provider = key.provider.name,
+                emoteId = key.emoteId,
+                favoritedAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    suspend fun removeFavoriteEmote(key: FavoriteEmoteKey) = withContext(Dispatchers.IO) {
+        favoriteEmotes.delete(key.provider.name, key.emoteId)
+    }
 
     suspend fun loadRecentEmotes(): List<RecentEmote> = withContext(Dispatchers.IO) {
         recentEmotes.getAll()

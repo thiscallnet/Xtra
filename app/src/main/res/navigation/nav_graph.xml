@@ -223,4 +223,12 @@
     <action
         android:id="@+id/action_global_statisticsFragment"
         app:destination="@id/statisticsFragment" />
+    <fragment
+        android:id="@+id/statisticsDetailFragment"
+        android:name="com.github.andreyasadchy.xtra.ui.statistics.StatisticsDetailFragment"
+        android:label="@string/statistics" />
+    <fragment
+        android:id="@+id/statisticsListFragment"
+        android:name="com.github.andreyasadchy.xtra.ui.statistics.StatisticsListFragment"
+        android:label="@string/statistics" />
 </navigation>

@@ -9,6 +9,7 @@ class STVEmoteSetResponse(
 ) {
     @Serializable
     class Emote(
+        val id: String? = null,
         val name: String? = null,
         val flags: Int? = null,
         val data: Data? = null,

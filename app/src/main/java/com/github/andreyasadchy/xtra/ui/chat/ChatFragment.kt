@@ -59,6 +59,7 @@ import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewModelFactory
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
 import com.github.andreyasadchy.xtra.ui.player.PlayerFragment
 import com.github.andreyasadchy.xtra.ui.view.AutoCompleteAdapter
@@ -105,7 +106,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private var isChatTouched = false
     private var showChatStatus = false
-    private var hasRecentEmotes = false
     private var messagingEnabled = false
     private var channelPointsIconUrl: String? = null
     private var channelPointsIconRequest: Disposable? = null
@@ -379,16 +379,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         }
                     }
                     if (enableMessaging) {
-                        viewModel.loadRecentEmotes()
-                        viewLifecycleOwner.lifecycleScope.launch {
-                            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                                viewModel.hasRecentEmotes.collectLatest {
-                                    if (it) {
-                                        hasRecentEmotes = true
-                                    }
-                                }
-                            }
-                        }
                         viewLifecycleOwner.lifecycleScope.launch {
                             repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 viewModel.channelPoints.collectLatest { points ->
@@ -469,27 +459,31 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         }
                         updateComposerDensity()
                         viewPager.adapter = object : FragmentStateAdapter(this@ChatFragment) {
-                            override fun getItemCount(): Int = 3
+                            override fun getItemCount(): Int = EmotePickerSection.entries.size
 
                             override fun createFragment(position: Int): Fragment {
-                                return EmotesFragment.newInstance(position)
+                                return EmotesFragment.newInstance(EmotePickerSection.fromPosition(position))
                             }
                         }
                         viewPager.offscreenPageLimit = 2
                         viewPager.reduceDragSensitivity()
                         TabLayoutMediator(tabLayout, viewPager) { tab, position ->
-                            tab.text = when (position) {
-                                0 -> getString(R.string.recent_emotes)
-                                1 -> "Twitch"
-                                else -> "7TV/BTTV/FFZ"
+                            tab.text = when (EmotePickerSection.fromPosition(position)) {
+                                EmotePickerSection.FAVORITES -> getString(R.string.favorite_emotes)
+                                EmotePickerSection.RECENTS -> getString(R.string.recent_emotes)
+                                EmotePickerSection.TWITCH -> "Twitch"
+                                EmotePickerSection.THIRD_PARTY -> "7TV/BTTV/FFZ"
                             }
                         }.attach()
                         emotes.setOnClickListener {
                             //TODO add animation
                             if (emoteMenu.isGone) {
-                                if (!hasRecentEmotes && viewPager.currentItem == 0) {
-                                    viewPager.setCurrentItem(1, false)
+                                val defaultSection = when {
+                                    viewModel.hasAvailableFavoriteEmotes.value -> EmotePickerSection.FAVORITES
+                                    viewModel.hasRecentEmotes.value -> EmotePickerSection.RECENTS
+                                    else -> EmotePickerSection.TWITCH
                                 }
+                                viewPager.setCurrentItem(defaultSection.position, false)
                                 toggleEmoteMenu(true)
                             } else {
                                 toggleEmoteMenu(false)
@@ -686,7 +680,17 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
                             viewModel.streamInfo.collectLatest {
                                 if (it != null) {
-                                    (parentFragment as? Media3PlayerFragment)?.updateStreamInfo(it.title, it.gameId, null, it.gameName) ?: (parentFragment as? PlayerFragment)?.updateStreamInfo(it.title, it.gameId, null, it.gameName)
+                                    when (val parent = parentFragment) {
+                                        is Media3PlayerFragment -> parent.updateStreamInfo(it.title, it.gameId, null, it.gameName)
+                                        is PlayerFragment -> parent.updateStreamInfo(it.title, it.gameId, null, it.gameName)
+                                        is MultiviewFragment -> parent.updateViewingMetadata(
+                                            channelId = channelId,
+                                            channelLogin = channelLogin,
+                                            title = it.title,
+                                            categoryId = it.gameId,
+                                            categoryName = it.gameName,
+                                        )
+                                    }
                                 }
                             }
                         }
