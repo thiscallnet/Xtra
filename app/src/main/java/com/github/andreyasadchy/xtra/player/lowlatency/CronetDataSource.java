@@ -43,7 +43,7 @@ import androidx.media3.datasource.HttpDataSource;
 import androidx.media3.datasource.HttpUtil;
 import androidx.media3.datasource.TransferListener;
 
-import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService;
+import com.github.andreyasadchy.xtra.ui.player.TwitchPlaybackConstants;
 import com.google.common.base.Ascii;
 import com.google.common.base.Predicate;
 import com.google.common.io.ByteStreams;
@@ -593,10 +593,10 @@ public class CronetDataSource extends BaseDataSource implements HttpDataSource {
       }
     }
     String host = dataSpec.uri.getHost(); // xtra: proxy
-    if (multivariantPlaylistProxyClient != null && host != null && host.matches(ExoPlayerService.MULTIVARIANT_PLAYLIST_REGEX)) {
+    if (multivariantPlaylistProxyClient != null && host != null && host.matches(TwitchPlaybackConstants.MULTIVARIANT_PLAYLIST_REGEX)) {
       return openOkHttp(dataSpec, multivariantPlaylistProxyClient);
     }
-    if (mediaPlaylistProxyClient != null && host != null && host.matches(ExoPlayerService.MEDIA_PLAYLIST_REGEX) && getProxyMediaPlaylist.invoke()) {
+    if (mediaPlaylistProxyClient != null && host != null && host.matches(TwitchPlaybackConstants.MEDIA_PLAYLIST_REGEX) && getProxyMediaPlaylist.invoke()) {
       return openOkHttp(dataSpec, mediaPlaylistProxyClient);
     }
     urlRequest.start();
@@ -889,8 +889,8 @@ public class CronetDataSource extends BaseDataSource implements HttpDataSource {
     CronetEngine cronetEngine; // xtra: proxy
     String host = dataSpec.uri.getHost();
     if (proxyClient != null && host != null &&
-            ((proxyMultivariantPlaylist && host.matches(ExoPlayerService.MULTIVARIANT_PLAYLIST_REGEX)) ||
-                    (proxyMediaPlaylist && host.matches(ExoPlayerService.MEDIA_PLAYLIST_REGEX) && getProxyMediaPlaylist.invoke()))
+            ((proxyMultivariantPlaylist && host.matches(TwitchPlaybackConstants.MULTIVARIANT_PLAYLIST_REGEX)) ||
+                    (proxyMediaPlaylist && host.matches(TwitchPlaybackConstants.MEDIA_PLAYLIST_REGEX) && getProxyMediaPlaylist.invoke()))
     ) {
       cronetEngine = proxyClient;
     } else {

@@ -338,7 +338,7 @@
     <string name="settings_customize_controls">Customize controls</string>
     <string name="settings_seek_controls">Seek controls</string>
     <string name="settings_gestures">Gestures</string>
-    <string name="settings_double_tap_chat">Double-tap to toggle chat</string>
+    <string name="settings_double_tap_chat">Double-tap to seek</string>
     <string name="settings_free_position_player">Free-position mini player</string>
     <string name="settings_free_position_player_summary">Move the minimized player freely around the screen.</string>
     <string name="settings_playback_speed_options">Playback speed options</string>
@@ -426,6 +426,12 @@
     <string name="player_fast_forward">Fast-forward</string>
     <string name="player_fast_forward_seconds">Fast-forward %1$d seconds</string>
     <string name="player_minimize">Minimize player</string>
+    <string name="player_miniplayer_expand">Expand player</string>
+    <string name="player_miniplayer_close">Close player</string>
+    <string name="player_miniplayer_restore">Restore mini-player</string>
+    <string name="player_live_edge">● LIVE</string>
+    <string name="player_live_behind">LIVE</string>
+    <string name="player_temporary_speed">2×</string>
     <string name="player_download">Download</string>
     <string name="player_follow">Follow channel</string>
     <string name="player_unfollow">Unfollow channel</string>
@@ -1282,6 +1288,6 @@
     <string name="live_notifications_following_summary">Automatically enable live alerts for channels you follow through Xtra.</string>
     <string name="settings_customize_controls_summary">Quick controls, More menu and Hidden</string>
     <string name="settings_playback_speed_options_summary">Choose and reorder speed values</string>
-    <string name="settings_double_tap_chat_summary">Toggle chat with a double tap while watching.</string>
+    <string name="settings_double_tap_chat_summary">Double-tap the left or right side to seek VODs and clips.</string>
     <string name="avoid_rounded_corners_summary">Inset player content so physical curved corners and cutouts do not obscure video or controls.</string>
 </resources>

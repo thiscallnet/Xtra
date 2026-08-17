@@ -70,7 +70,6 @@ import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel.Companion.MainViewModelFactory
 import com.github.andreyasadchy.xtra.ui.player.BasePlaybackService
-import com.github.andreyasadchy.xtra.ui.player.ExoPlayerFragment
 import com.github.andreyasadchy.xtra.ui.player.Media3Fragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
@@ -379,28 +378,20 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         pipActionReceiver = pipReceiver
-        if (prefs.getString(C.PLAYER, C.EXOPLAYER) == C.MEDIA_PLAYER || prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
-            lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.playbackStates.collectLatest { states ->
-                        val savedState = states.firstOrNull()
-                        if (savedState != null) {
-                            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
-                            val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
-                                C.MEDIA_PLAYER -> MediaPlayerFragment()
-                                else -> ExoPlayerFragment()
-                            }.apply {
-                                if (savedState.type == BasePlaybackService.OFFLINE_VIDEO) {
-                                    arguments = Bundle().apply {
-                                        putBoolean(PlayerFragment.KEY_OFFLINE, true)
-                                    }
-                                }
-                            }
-                            (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackEntered(
-                                isLive = savedState.type == BasePlaybackService.STREAM,
-                            )
-                            startPlayer(fragment)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.playbackStates.collectLatest { states ->
+                    val savedState = states.firstOrNull()
+                    if (savedState != null && playerFragment == null) {
+                        val fragment = if (prefs.getString(C.PLAYER, C.EXOPLAYER) == C.MEDIA_PLAYER) {
+                            MediaPlayerFragment()
+                        } else {
+                            Media3Fragment.newInstance(savedState)
                         }
+                        (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackEntered(
+                            isLive = savedState.type == BasePlaybackService.STREAM,
+                        )
+                        startPlayer(fragment)
                     }
                 }
             }
@@ -769,6 +760,13 @@ class MainActivity : AppCompatActivity() {
         // toolbar action is the opt-in path into PiP, so Home never leaves a
         // grid unexpectedly floating over another app.
         if (playerFragment == null && currentMultiviewFragment() != null) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
+            prefs.getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true)
+        ) {
+            (playerFragment as? Media3PlayerFragment)?.takeIf { it.shouldAutoEnterPictureInPicture() }
+                ?.markPipTransitionPending()
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
@@ -973,7 +971,7 @@ class MainActivity : AppCompatActivity() {
                 if (playerFragment != null) {
                     (playerFragment as? Media3PlayerFragment)?.maximize() ?: (playerFragment as? PlayerFragment)?.maximize()
                 } else {
-                    if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
+                    if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER) {
                         viewModel.getPlaybackStates()
                     }
                 }
@@ -999,13 +997,13 @@ class MainActivity : AppCompatActivity() {
 
     fun startStream(stream: Stream) {
         onPlayerEnteredPlayback(isLive = true)
-        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
-            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
+        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER) {
+            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(stream)
             startPlayer(fragment)
             return
         }
-        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close(deleteStates = false)
+        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close(deleteStates = false)
         viewModel.savePlaybackState(PlaybackState(
             type = BasePlaybackService.STREAM,
             streamId = stream.id,
@@ -1021,22 +1019,19 @@ class MainActivity : AppCompatActivity() {
             createdAt = stream.createdAt,
             viewerCount = stream.viewerCount,
         ))
-        val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
-            C.MEDIA_PLAYER -> MediaPlayerFragment()
-            else -> ExoPlayerFragment()
-        }
+        val fragment = MediaPlayerFragment()
         startPlayer(fragment)
     }
 
     fun startVideo(video: Video, offset: Long?, ignoreSavedPosition: Boolean = false, videoUrl: String? = null) {
         onPlayerChangedPlayback(isLive = false)
-        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
-            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
-            val fragment = Media3Fragment.newInstance(video, offset, ignoreSavedPosition)
+        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER) {
+            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
+            val fragment = Media3Fragment.newInstance(video, offset, ignoreSavedPosition, videoUrl)
             startPlayer(fragment)
             return
         }
-        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close(deleteStates = false)
+        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close(deleteStates = false)
         viewModel.savePlaybackState(PlaybackState(
             type = BasePlaybackService.VIDEO,
             videoId = video.id,
@@ -1061,22 +1056,19 @@ class MainActivity : AppCompatActivity() {
                 viewModel.saveVideoPosition(id, offset ?: 0)
             }
         }
-        val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
-            C.MEDIA_PLAYER -> MediaPlayerFragment()
-            else -> ExoPlayerFragment()
-        }
+        val fragment = MediaPlayerFragment()
         startPlayer(fragment)
     }
 
     fun startClip(clip: Clip) {
         onPlayerChangedPlayback(isLive = false)
-        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
-            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
+        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER) {
+            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(clip)
             startPlayer(fragment)
             return
         }
-        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close(deleteStates = false)
+        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close(deleteStates = false)
         viewModel.savePlaybackState(PlaybackState(
             type = BasePlaybackService.CLIP,
             videoId = clip.videoId,
@@ -1096,22 +1088,19 @@ class MainActivity : AppCompatActivity() {
             videoCreatedAt = clip.videoCreatedAt,
             videoAnimatedPreviewURL = clip.videoAnimatedPreviewURL,
         ))
-        val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
-            C.MEDIA_PLAYER -> MediaPlayerFragment()
-            else -> ExoPlayerFragment()
-        }
+        val fragment = MediaPlayerFragment()
         startPlayer(fragment)
     }
 
     fun startOfflineVideo(video: OfflineVideo, offset: Long? = null) {
         onPlayerChangedPlayback(isLive = false)
-        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
-            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
+        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER) {
+            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(video)
             startPlayer(fragment)
             return
         }
-        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close(deleteStates = false)
+        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close(deleteStates = false)
         viewModel.savePlaybackState(PlaybackState(
             type = BasePlaybackService.OFFLINE_VIDEO,
             offlineVideoId = video.id,
@@ -1129,10 +1118,7 @@ class MainActivity : AppCompatActivity() {
         if (offset != null && prefs.getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
             viewModel.saveOfflineVideoPosition(video.id, offset)
         }
-        val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
-            C.MEDIA_PLAYER -> MediaPlayerFragment()
-            else -> ExoPlayerFragment()
-        }.apply {
+        val fragment = MediaPlayerFragment().apply {
             arguments = Bundle().apply {
                 putBoolean(PlayerFragment.KEY_OFFLINE, true)
             }
@@ -1151,7 +1137,9 @@ class MainActivity : AppCompatActivity() {
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
             prefs.getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true)
         ) {
-            setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(true).build())
+            // Media3Fragment enables auto-enter only after the canonical
+            // session has a useful video track and an active play intent.
+            setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(false).build())
         }
     }
 
@@ -1194,7 +1182,7 @@ class MainActivity : AppCompatActivity() {
         if (playerFragment == null) {
             playerFragment = supportFragmentManager.findFragmentById(R.id.playerContainer) as? Media3PlayerFragment ?: supportFragmentManager.findFragmentById(R.id.playerContainer) as? PlayerFragment
             if (playerFragment == null) {
-                if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
+                if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER) {
                     viewModel.getPlaybackStates()
                 }
             }

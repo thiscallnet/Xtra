@@ -67,6 +67,39 @@ class PlaybackPersistenceTest {
         assertEquals(1, store.states.size)
     }
 
+    @Test
+    fun sourceAndPositionUpdatesKeepTheCanonicalStateForUiReattachment() {
+        val state = PlaybackState(
+            type = "stream",
+            streamId = "stream-id",
+            channelName = "channel",
+            gameId = "game-id",
+            gameSlug = "game-slug",
+            gameName = "game",
+            thumbnail = "thumbnail",
+            qualities = "qualities",
+            quality = "quality",
+            previousQuality = "previous-quality",
+            restoreQuality = true,
+            playlistUrl = "playlist",
+            restorePlaylist = true,
+            useCustomProxy = true,
+            skipAccessToken = true,
+            videoUrl = "primary",
+            position = 1_000L,
+        )
+
+        val updated = state.copy(
+            videoUrl = "alternate",
+            position = 2_000L,
+            paused = false,
+        )
+
+        assertEquals("alternate", updated.videoUrl)
+        assertEquals(2_000L, updated.position)
+        assertEquals(state.copy(videoUrl = "alternate", position = 2_000L, paused = false), updated)
+    }
+
     private class FakePlaybackPersistenceStore : PlaybackPersistenceStore {
         val states = mutableListOf<PlaybackState>()
 

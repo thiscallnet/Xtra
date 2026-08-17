@@ -8,8 +8,8 @@ import android.util.Log
 import android.view.KeyEvent
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.XtraApp
-import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
 import com.github.andreyasadchy.xtra.ui.player.MediaPlayerService
+import com.github.andreyasadchy.xtra.ui.player.PlaybackService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,20 +45,14 @@ class MediaButtonReceiver : BroadcastReceiver() {
             onPlaybackAvailable = {
                 val serviceIntent = when (receiverContext.prefs().getString(C.PLAYER, C.EXOPLAYER)) {
                     C.MEDIA_PLAYER -> Intent(receiverContext, MediaPlayerService::class.java)
-                    else -> if (receiverContext.prefs().getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
-                        Intent(receiverContext, ExoPlayerService::class.java)
-                    } else {
-                        null
-                    }
-                }?.apply {
+                    else -> Intent(receiverContext, PlaybackService::class.java)
+                }.apply {
                     fillIn(receiverIntent, 0)
                 }
-                if (serviceIntent != null) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        receiverContext.startForegroundService(serviceIntent)
-                    } else {
-                        receiverContext.startService(serviceIntent)
-                    }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    receiverContext.startForegroundService(serviceIntent)
+                } else {
+                    receiverContext.startService(serviceIntent)
                 }
             },
             onFinished = pendingResult::finish,
