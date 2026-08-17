@@ -33,10 +33,6 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.httpProxyHost
-import com.github.andreyasadchy.xtra.util.httpProxyPort
-import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
-import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -47,7 +43,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.chromium.net.CronetEngine
@@ -81,11 +76,11 @@ class Media3PlayerViewModel(
     val stream = MutableStateFlow<Stream?>(null)
     private var streamJob: Job? = null
     var useCustomProxy = false
+    var skipAccessToken = false
     var playingAds = false
     var usingProxy = false
     var stopProxy = false
     var usingAlternateStream = false
-    private val adController = TwitchAdController()
 
     val videoResult = MutableStateFlow<String?>(null)
     var backupQualities: List<String>? = null
@@ -103,6 +98,7 @@ class Media3PlayerViewModel(
     var quality: VideoQuality? = null
     var previousQuality: VideoQuality? = null
     var playlistUrl: Uri? = null
+    var restorePlaylist = false
     var updateQualities = false
     var started = false
     var restoreQuality = false
@@ -112,101 +108,6 @@ class Media3PlayerViewModel(
     private val _isFollowing = MutableStateFlow<Boolean?>(null)
     val isFollowing: StateFlow<Boolean?> = _isFollowing
     val follow = MutableStateFlow<Pair<Boolean, String?>?>(null)
-
-    suspend fun checkPlaylist(networkLibrary: String?, url: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val playlist = when {
-                networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
-                    val response = suspendCancellableCoroutine { continuation ->
-                        val timeout = NetworkUtils.HttpEngineTimeout()
-                        val request = httpEngine.value!!.newUrlRequestBuilder(
-                            url,
-                            cronetExecutor.value,
-                            NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                        ).build()
-                        timeout.start(request, continuation)
-                        request.start()
-                        continuation.invokeOnCancellation {
-                            request.cancel()
-                            timeout.stop()
-                        }
-                    }
-                    response.body.inputStream().use {
-                        PlaylistUtils.parseMediaPlaylist(it)
-                    }
-                }
-                networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                    val response = suspendCancellableCoroutine { continuation ->
-                        val timeout = NetworkUtils.CronetTimeout()
-                        val request = cronetEngine.value!!.newUrlRequestBuilder(
-                            url,
-                            NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                            cronetExecutor.value
-                        ).build()
-                        timeout.start(request, continuation)
-                        request.start()
-                        continuation.invokeOnCancellation {
-                            request.cancel()
-                            timeout.stop()
-                        }
-                    }
-                    response.body.inputStream().use {
-                        PlaylistUtils.parseMediaPlaylist(it)
-                    }
-                }
-                else -> {
-                    okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
-                        response.body.byteStream().use {
-                            PlaylistUtils.parseMediaPlaylist(it)
-                        }
-                    }
-                }
-            }
-            TwitchAdDetector.isAd(playlist)
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    fun playerTypesForAd(currentPlayerType: String?): List<String> {
-        return adController.playerTypesForAd(currentPlayerType)
-    }
-
-    fun onCleanAdPlaylist() {
-        adController.onCleanPlaylist()
-    }
-
-    fun resetAdController() {
-        adController.reset()
-    }
-
-    suspend fun loadCleanStreamPlaylistUrl(
-        channelLogin: String,
-        playerTypes: List<String>,
-        requireVerifiedClean: Boolean = false,
-    ): PlayerRepository.StreamPlaylistCandidate? {
-        val preferences = applicationContext.prefs()
-        return playerRepository.loadCleanStreamPlaylistUrl(
-            context = applicationContext,
-            networkLibrary = preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-            gqlHeaders = TwitchApiHelper.getGQLHeaders(
-                applicationContext,
-                preferences.getBoolean(C.TOKEN_INCLUDE_TOKEN_STREAM, true),
-            ),
-            channelLogin = channelLogin,
-            randomDeviceId = preferences.getBoolean(C.TOKEN_RANDOM_DEVICE_ID, true),
-            xDeviceId = preferences.getString(C.TOKEN_X_DEVICE_ID, "twitch-web-wall-mason"),
-            playerTypes = playerTypes,
-            supportedCodecs = preferences.getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
-            proxyPlaybackAccessToken = preferences.getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-            proxyHost = preferences.httpProxyHost(),
-            proxyPort = preferences.httpProxyPort(),
-            proxyUser = preferences.getString(C.PROXY_USER, null),
-            proxyPassword = preferences.getString(C.PROXY_PASSWORD, null),
-            enableIntegrity = preferences.getBoolean(C.ENABLE_INTEGRITY, false),
-            requireVerifiedClean = requireVerifiedClean,
-        )
-    }
 
     fun loadStreamResult(networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?, enableIntegrity: Boolean) {
         if (streamResult.value == null) {

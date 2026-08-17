@@ -760,6 +760,13 @@ class MainActivity : AppCompatActivity() {
         // toolbar action is the opt-in path into PiP, so Home never leaves a
         // grid unexpectedly floating over another app.
         if (playerFragment == null && currentMultiviewFragment() != null) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
+            prefs.getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true)
+        ) {
+            (playerFragment as? Media3PlayerFragment)?.takeIf { it.shouldAutoEnterPictureInPicture() }
+                ?.markPipTransitionPending()
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&

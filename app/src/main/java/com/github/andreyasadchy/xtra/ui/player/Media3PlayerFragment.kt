@@ -147,6 +147,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var isPinching = false
     private var pinchScale = 1f
     protected var inPictureInPicture = false
+    private var pipTransitionPending = false
+    private val clearPipTransitionPending = Runnable {
+        pipTransitionPending = false
+        if (!inPictureInPicture && isAdded && view != null) {
+            onPipTransitionTimedOut()
+        }
+    }
     private var temporarySpeed: Float? = null
     private var speedBeforeTemporary: Float? = null
 
@@ -181,6 +188,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     open fun close() {}
     open fun isSeekable(): Boolean = false
     protected open fun onPresentationChanged(presentation: PlayerPresentation) {}
+    protected open fun onPipTransitionTimedOut() {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
         videoType = requireArguments().getString(KEY_TYPE)
@@ -2282,6 +2290,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     protected fun playVideo(skipAccessToken: Boolean, playbackPosition: Long?) {
+        viewModel.skipAccessToken = skipAccessToken
         if (skipAccessToken && !requireArguments().getString(KEY_VIDEO_ANIMATED_PREVIEW).isNullOrBlank()) {
             requireArguments().getString(KEY_VIDEO_ANIMATED_PREVIEW)?.let { preview ->
                 val urls = TwitchApiHelper.getVideoUrlsFromPreview(preview, requireArguments().getString(KEY_VIDEO_TYPE), viewModel.backupQualities)
@@ -2351,6 +2360,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
         with(binding) {
             inPictureInPicture = isInPictureInPictureMode
+            pipTransitionPending = false
+            view?.removeCallbacks(clearPipTransitionPending)
             if (isInPictureInPictureMode) {
                 if (!isMaximized) {
                     isMaximized = true
@@ -2391,6 +2402,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     override fun onStop() {
+        restoreTemporarySpeed()
         super.onStop()
         binding.playerControls.root.removeCallbacks(controllerHideAction)
     }
@@ -2896,13 +2908,28 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         binding.temporarySpeed.visibility = View.VISIBLE
     }
 
-    private fun restoreTemporarySpeed() {
+    protected fun restoreTemporarySpeed() {
         val speed = temporarySpeed ?: return
         temporarySpeed = null
         setPlaybackSpeed(speedBeforeTemporary ?: 1f)
         speedBeforeTemporary = null
         binding.temporarySpeed.visibility = View.GONE
     }
+
+    fun markPipTransitionPending() {
+        pipTransitionPending = true
+        view?.removeCallbacks(clearPipTransitionPending)
+        view?.postDelayed(clearPipTransitionPending, 1500L)
+    }
+
+    fun shouldAutoEnterPictureInPicture(): Boolean = pipPlaying && canEnterPictureInPicture()
+
+    protected fun cancelPipTransitionPending() {
+        pipTransitionPending = false
+        view?.removeCallbacks(clearPipTransitionPending)
+    }
+
+    protected fun isPipTransitionPending(): Boolean = pipTransitionPending
 
     private fun toggleMiniSize() {
         miniScaleMultiplier = if (miniScaleMultiplier > 1f) 0.78f else 1.22f
@@ -3025,6 +3052,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     override fun onDestroyView() {
+        restoreTemporarySpeed()
+        view?.removeCallbacks(clearPipTransitionPending)
         super.onDestroyView()
         _binding = null
     }
