@@ -1042,6 +1042,7 @@
     <string name="channel_follower_emote">%s follower emote</string>
     <string name="bits_reward_emote">%d bits reward</string>
     <string name="show_name_paints">Show 7TV name paints</string>
+    <string name="show_chat_badges">Show chat badges</string>
     <string name="show_stv_badges">Show 7TV badges</string>
     <string name="show_stv_personal_emotes">Show 7TV personal emotes</string>
     <string name="stv_live_updates">7TV live emote updates</string>

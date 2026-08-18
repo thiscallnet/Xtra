@@ -64,7 +64,9 @@ import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
 import com.github.andreyasadchy.xtra.ui.player.PlayerFragment
 import com.github.andreyasadchy.xtra.ui.view.AutoCompleteAdapter
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.DEFAULT_CHAT_BADGE_SIZE_DP
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.isChatEnabled
@@ -308,6 +310,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         nameDisplay = requireContext().prefs().getString(C.UI_NAME_DISPLAY, "0"),
                         useBoldNames = requireContext().prefs().getBoolean(C.CHAT_BOLD_NAMES, false),
                         showNamePaints = requireContext().prefs().getBoolean(C.CHAT_SHOW_PAINTS, true),
+                        showBadges = requireContext().prefs().getBoolean(C.CHAT_SHOW_BADGES, true),
                         showSTVBadges = requireContext().prefs().getBoolean(C.CHAT_SHOW_STV_BADGES, true),
                         showPersonalEmotes = requireContext().prefs().getBoolean(C.CHAT_SHOW_PERSONAL_EMOTES, true),
                         showSystemMessageEmotes = requireContext().prefs().getBoolean(C.CHAT_SYSTEM_MESSAGE_EMOTES, true),
@@ -322,7 +325,16 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         imageLibrary = "0",
                         messageTextSize = (requireContext().prefs().getString(C.CHAT_TEXT_SIZE, "14")?.toFloatOrNull() ?: 14f) * sizeModifier,
                         emoteSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, (requireContext().prefs().getString(C.CHAT_EMOTE_SIZE, "29.5")?.toFloatOrNull() ?: 29.5f) * sizeModifier, resources.displayMetrics).toInt(),
-                        badgeSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 18.5f * sizeModifier, resources.displayMetrics).toInt(),
+                        badgeSize = TypedValue.applyDimension(
+                            TypedValue.COMPLEX_UNIT_DIP,
+                            chatBadgeSizeOrDefault(requireContext().prefs().getString(C.CHAT_BADGE_SIZE, DEFAULT_CHAT_BADGE_SIZE_DP.toString())) * sizeModifier,
+                            resources.displayMetrics,
+                        ).toInt(),
+                        inlineIconSize = TypedValue.applyDimension(
+                            TypedValue.COMPLEX_UNIT_DIP,
+                            DEFAULT_CHAT_BADGE_SIZE_DP * sizeModifier,
+                            resources.displayMetrics,
+                        ).toInt(),
                         emoteQuality = "4",
                         animateGifs = requireContext().prefs().getBoolean(C.ANIMATED_EMOTES, true),
                         enableOverlayEmotes = requireContext().prefs().getBoolean(C.CHAT_ZERO_WIDTH, true),

@@ -98,7 +98,9 @@ import com.github.andreyasadchy.xtra.util.updater.errorTitle
 import com.github.andreyasadchy.xtra.util.updater.primaryAction
 import com.github.andreyasadchy.xtra.util.updater.retryAction
 import com.github.andreyasadchy.xtra.util.applyTheme
+import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.util.parseChatBadgeSize
 import com.github.andreyasadchy.xtra.util.rawPrefs
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -1181,6 +1183,27 @@ class SettingsActivity : AppCompatActivity() {
         private fun configureChatSizePreferences() {
             appendCustomListValue(findPreference(C.CHAT_TEXT_SIZE), "sp")
             appendCustomListValue(findPreference(C.CHAT_EMOTE_SIZE), "dp")
+            val chatAppearanceChangeListener = Preference.OnPreferenceChangeListener { _, _ ->
+                (requireActivity() as? SettingsActivity)?.setResult()
+                true
+            }
+            findPreference<EditTextPreference>(C.CHAT_BADGE_SIZE)?.apply {
+                if (parseChatBadgeSize(text) == null) {
+                    text = chatBadgeSizeOrDefault(text).toString()
+                }
+                setOnBindEditTextListener {
+                    it.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                }
+                setOnPreferenceChangeListener { _, value ->
+                    if (parseChatBadgeSize(value.toString()) == null) {
+                        false
+                    } else {
+                        (requireActivity() as? SettingsActivity)?.setResult()
+                        true
+                    }
+                }
+            }
+            findPreference<SwitchPreferenceCompat>(C.CHAT_SHOW_BADGES)?.onPreferenceChangeListener = chatAppearanceChangeListener
             findPreference<SeekBarPreference>(C.CHAT_WIDTH_PERCENT)?.apply {
                 if (SettingsMigration.synchronizeLandscapeChatWidth(requireContext(), value)) {
                     (requireActivity() as? SettingsActivity)?.setResult()
