@@ -166,6 +166,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     open fun changeQuality(selectedQuality: VideoQuality?) {}
     open fun startAudioOnly() {}
     open fun downloadVideo() {}
+    open fun prepareLiveClip() {}
+    open fun requestLiveClipStatus() {}
     open fun close() {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -838,6 +840,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             showController(force = true)
                             seekToLivePosition()
                         }
+                    }
+                    if (requireContext().prefs().getBoolean(C.PLAYER_CLIP_BUTTON, true)) {
+                        clip.visibility = View.VISIBLE
+                        clip.isEnabled = false
+                        clip.setOnClickListener {
+                            showController(force = true)
+                            prepareLiveClip()
+                        }
+                        requestLiveClipStatus()
                     }
                     if (requireContext().prefs().getBoolean(C.PLAYER_VIEWER_LIST, false)) {
                         viewersLayout.isFocusable = true
@@ -1529,6 +1540,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
         val widthNeededForVideo = (availableHeight * (16f / 9f)).toInt()
         return max(chatWidthLandscape, (availableWidth - widthNeededForVideo).coerceAtLeast(0))
+    }
+
+    protected fun setLiveClipAvailability(available: Boolean) {
+        if (videoType != STREAM || view == null) return
+        binding.playerControls.clip.isEnabled = available
+        binding.playerControls.clip.alpha = if (available) 1f else 0.45f
     }
 
     protected fun setQualityButtonColor(color: Int) {

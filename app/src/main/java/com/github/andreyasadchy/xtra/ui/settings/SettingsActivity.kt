@@ -2137,6 +2137,15 @@ class SettingsActivity : AppCompatActivity() {
                     )
                 }
                 .toMutableList()
+            if (items.none { it.key == "clip" }) {
+                items += SettingsDragListItem(
+                    key = "clip",
+                    text = formatControlText("clip", "quick"),
+                    default = false,
+                    enabled = true,
+                    group = "quick",
+                )
+            }
             val listAdapter = SettingsDragListAdapter()
             val itemTouchHelper = ItemTouchHelper(
                 object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
@@ -2192,6 +2201,7 @@ class SettingsActivity : AppCompatActivity() {
                 "chapters" -> getString(R.string.player_vod_games)
                 "restart" -> getString(R.string.player_restart)
                 "live" -> getString(R.string.player_seek_live)
+                "clip" -> getString(R.string.player_clip)
                 "volume" -> getString(R.string.player_volume)
                 "compressor" -> getString(R.string.player_audio_compressor)
                 "mode" -> getString(R.string.settings_player_mode)
@@ -2227,6 +2237,7 @@ class SettingsActivity : AppCompatActivity() {
                 "chapters" to (C.PLAYER_GAMES_BUTTON to C.PLAYER_MENU_GAMES),
                 "restart" to (C.PLAYER_RESTART to C.PLAYER_MENU_RESTART),
                 "live" to (C.PLAYER_SEEK_LIVE to null),
+                "clip" to (C.PLAYER_CLIP_BUTTON to null),
                 "volume" to (C.PLAYER_VOLUME_BUTTON to C.PLAYER_MENU_VOLUME),
                 "compressor" to (C.PLAYER_AUDIO_COMPRESSOR_BUTTON to null),
                 "mode" to (C.PLAYER_MODE to null),

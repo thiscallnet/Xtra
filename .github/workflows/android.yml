@@ -15,6 +15,35 @@ permissions:
   contents: read
 
 jobs:
+  clip-instrumentation:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout sources
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+    - name: Setup Java
+      uses: actions/setup-java@v5
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v6
+      with:
+        cache-provider: 'basic'
+    - name: Run Media3 clip export instrumentation tests
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 28
+        target: google_apis
+        arch: x86
+        profile: pixel_2
+        force-avd-creation: true
+        disable-animations: true
+        script: |
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.player.clip.ClipExporterInstrumentationTest
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.player.clip.ClipMediaStoreLegacyInstrumentationTest
+
   build:
     runs-on: ubuntu-latest
     steps:

@@ -43,6 +43,7 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.player.clip.ClipEditorDialogFragment
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.httpProxyHost
@@ -77,7 +78,39 @@ class Media3Fragment : Media3PlayerFragment() {
     private var streamRecoveryAttempt = 0
     private var adAvoidanceJob: Job? = null
     private var primaryStreamRestoreJob: Job? = null
+    private var liveClipPreparing = false
+    private var livePlaybackBeforeClipEditor: Boolean? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        livePlaybackBeforeClipEditor = if (savedInstanceState?.containsKey(STATE_LIVE_PLAYBACK_BEFORE_CLIP) == true) {
+            savedInstanceState.getBoolean(STATE_LIVE_PLAYBACK_BEFORE_CLIP)
+        } else {
+            null
+        }
+        childFragmentManager.setFragmentResultListener(
+            ClipEditorDialogFragment.RESULT_KEY,
+            this,
+        ) { _, result ->
+            result.getString(ClipEditorDialogFragment.RESULT_DIRECTORY)?.let { directoryPath ->
+                player?.sendCustomCommand(
+                    SessionCommand(
+                        PlaybackService.RELEASE_LIVE_CLIP,
+                        Bundle().apply { putString(PlaybackService.CLIP_DIRECTORY_PATH, directoryPath) },
+                    ),
+                    Bundle.EMPTY,
+                )
+            }
+            if (videoType == STREAM) {
+                seekToLivePosition()
+                livePlaybackBeforeClipEditor?.let { shouldPlay ->
+                    player?.playWhenReady = shouldPlay
+                }
+            }
+            livePlaybackBeforeClipEditor = null
+        }
+    }
 
     override fun onViewingMetadataChanged(title: String?, gameId: String?, gameName: String?) {
         if (videoType != STREAM) return
@@ -252,6 +285,7 @@ class Media3Fragment : Media3PlayerFragment() {
                 }
 
                 override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                    if (videoType == STREAM) requestLiveClipStatus()
                     val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
                     binding.playerControls.progressBar.setDuration(duration)
                     binding.playerControls.duration.text = DateUtils.formatElapsedTime(duration / 1000)
@@ -747,6 +781,68 @@ class Media3Fragment : Media3PlayerFragment() {
         viewModel.playingAds = false
         setQualityText()
         sendStreamToService(url)
+    }
+
+    override fun requestLiveClipStatus() {
+        player?.sendCustomCommand(
+            SessionCommand(PlaybackService.GET_LIVE_CLIP_STATUS, Bundle.EMPTY),
+            Bundle.EMPTY,
+        )?.let { result ->
+            result.addListener({
+                val sessionResult = runCatching { result.get() }.getOrNull() ?: return@addListener
+                if (!isAdded || view == null || sessionResult.resultCode != SessionResult.RESULT_SUCCESS) return@addListener
+                setLiveClipAvailability(sessionResult.extras.getBoolean(PlaybackService.CLIP_AVAILABLE))
+            }, ContextCompat.getMainExecutor(requireContext()))
+        }
+    }
+
+    override fun prepareLiveClip() {
+        if (liveClipPreparing) return
+        val controller = player ?: return
+        liveClipPreparing = true
+        setLiveClipAvailability(false)
+        controller.sendCustomCommand(
+            SessionCommand(PlaybackService.PREPARE_LIVE_CLIP, Bundle.EMPTY),
+            Bundle.EMPTY,
+        ).let { result ->
+            result.addListener({
+                liveClipPreparing = false
+                if (!isAdded || view == null) return@addListener
+                val sessionResult = runCatching { result.get() }.getOrNull()
+                if (sessionResult?.resultCode == SessionResult.RESULT_SUCCESS) {
+                    val playlistPath = sessionResult.extras.getString(PlaybackService.CLIP_PLAYLIST_PATH)
+                    val directoryPath = sessionResult.extras.getString(PlaybackService.CLIP_DIRECTORY_PATH)
+                    val durationMs = sessionResult.extras.getLong(PlaybackService.CLIP_DURATION_MS)
+                    val boundariesUs = sessionResult.extras.getLongArray(PlaybackService.CLIP_BOUNDARIES_US)
+                    if (playlistPath != null && directoryPath != null && boundariesUs != null) {
+                        if (childFragmentManager.findFragmentByTag(CLIP_EDITOR_TAG) != null) return@addListener
+                        livePlaybackBeforeClipEditor = player?.playWhenReady == true
+                        player?.pause()
+                        ClipEditorDialogFragment.newInstance(
+                            playlistPath = playlistPath,
+                            directoryPath = directoryPath,
+                            durationMs = durationMs,
+                            boundariesUs = boundariesUs,
+                            channelName = requireArguments().getString(KEY_CHANNEL_NAME),
+                        ).show(childFragmentManager, CLIP_EDITOR_TAG)
+                    } else {
+                        Snackbar.make(
+                            binding.root,
+                            getString(R.string.player_clip_prepare_failed),
+                            Snackbar.LENGTH_LONG,
+                        ).show()
+                    }
+                } else {
+                    Snackbar.make(
+                        binding.root,
+                        sessionResult?.extras?.getString(PlaybackService.ERROR)
+                            ?: getString(R.string.player_clip_prepare_failed),
+                        Snackbar.LENGTH_LONG,
+                    ).show()
+                }
+                requestLiveClipStatus()
+            }, ContextCompat.getMainExecutor(requireContext()))
+        }
     }
 
     private fun sendStreamToService(url: String?, playWhenReady: Boolean? = null) {
@@ -1263,6 +1359,13 @@ class Media3Fragment : Media3PlayerFragment() {
 
     override fun onStop() {
         super.onStop()
+        if (liveClipPreparing) {
+            player?.sendCustomCommand(
+                SessionCommand(PlaybackService.CANCEL_LIVE_CLIP, Bundle.EMPTY),
+                Bundle.EMPTY,
+            )
+            liveClipPreparing = false
+        }
         player?.let { player ->
             if (player.isConnected) {
                 savePosition()
@@ -1312,6 +1415,13 @@ class Media3Fragment : Media3PlayerFragment() {
         releaseController()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        livePlaybackBeforeClipEditor?.let {
+            outState.putBoolean(STATE_LIVE_PLAYBACK_BEFORE_CLIP, it)
+        }
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onNetworkRestored() {
         if (isResumed) {
             if (videoType == STREAM) {
@@ -1331,6 +1441,9 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     companion object {
+        private const val CLIP_EDITOR_TAG = "liveClipEditor"
+        private const val STATE_LIVE_PLAYBACK_BEFORE_CLIP = "livePlaybackBeforeClip"
+
         fun newInstance(item: Stream): Media3Fragment {
             return Media3Fragment().apply {
                 arguments = getStreamArguments(item)

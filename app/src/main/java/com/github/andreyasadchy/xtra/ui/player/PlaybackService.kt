@@ -24,6 +24,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -46,6 +47,8 @@ import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.player.clip.ClipPreparationRepository
+import com.github.andreyasadchy.xtra.ui.player.clip.LiveClipBufferManager
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService.Companion.MEDIA_PLAYLIST_REGEX
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService.Companion.MULTIVARIANT_PLAYLIST_REGEX
 import com.github.andreyasadchy.xtra.util.C
@@ -60,6 +63,7 @@ import org.chromium.net.CronetEngine
 import org.chromium.net.CronetProvider
 import org.chromium.net.QuicOptions
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -67,6 +71,8 @@ import java.net.ProxySelector
 import java.net.SocketAddress
 import java.net.URI
 import java.util.Timer
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.concurrent.schedule
 import kotlin.concurrent.scheduleAtFixedRate
@@ -82,6 +88,13 @@ class PlaybackService : MediaSessionService() {
     private var backgroundRecoveryTimer: Timer? = null
     private var backgroundRecoveryAttempt = 0
     private var proxyMediaPlaylist = false
+    /** The exact live network factory is reused for on-demand clip downloads. */
+    private var liveStreamDataSourceFactory: DataSource.Factory? = null
+    private val liveClipBufferManager = LiveClipBufferManager()
+    private var liveStreamActive = false
+    private var liveMediaItemUri: String? = null
+    private var clipPreparationJob: kotlinx.coroutines.Job? = null
+    private var clipPreparationFuture: com.google.common.util.concurrent.SettableFuture<SessionResult>? = null
     private var videoId: Long? = null
     private var offlineVideoId: Int? = null
     private var sleepTimer: Timer? = null
@@ -103,6 +116,9 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         xtraModule = (application as XtraApp).xtraModule
+        lifecycleScope.launch(Dispatchers.IO) {
+            ClipPreparationRepository.cleanupStale(File(cacheDir, LIVE_CLIP_DIRECTORY))
+        }
         val player = ExoPlayer.Builder(this).apply {
             setLoadControl(
                 DefaultLoadControl.Builder().apply {
@@ -159,6 +175,19 @@ class PlaybackService : MediaSessionService() {
                         backgroundRecoveryTimer = null
                         backgroundRecoveryAttempt = 0
                     }
+                }
+
+                override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                    if (liveStreamActive) {
+                        observeLiveMediaItem(player)
+                        (player.currentManifest as? HlsManifest)?.let { manifest ->
+                            liveClipBufferManager.capture(manifest)
+                        }
+                    }
+                }
+
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    if (liveStreamActive) observeLiveMediaItem(player)
                 }
 
                 override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -234,6 +263,10 @@ class PlaybackService : MediaSessionService() {
                             add(SessionCommand(GET_ERROR_CODE, Bundle.EMPTY))
                             add(SessionCommand(GET_MEDIA_PLAYLIST, Bundle.EMPTY))
                             add(SessionCommand(GET_MULTIVARIANT_PLAYLIST, Bundle.EMPTY))
+                            add(SessionCommand(GET_LIVE_CLIP_STATUS, Bundle.EMPTY))
+                            add(SessionCommand(PREPARE_LIVE_CLIP, Bundle.EMPTY))
+                            add(SessionCommand(CANCEL_LIVE_CLIP, Bundle.EMPTY))
+                            add(SessionCommand(RELEASE_LIVE_CLIP, Bundle.EMPTY))
                         }.build()
                         return MediaSession.ConnectionResult.accept(sessionCommands, connectionResult.availablePlayerCommands)
                     }
@@ -246,7 +279,9 @@ class PlaybackService : MediaSessionService() {
                             }
                             START_STREAM -> {
                                 backgroundPlayback = false
+                                liveStreamActive = true
                                 val uri = customCommand.customExtras.getString(URI)
+                                liveMediaItemUri = uri
                                 val title = customCommand.customExtras.getString(TITLE)
                                 val channelName = customCommand.customExtras.getString(CHANNEL_NAME)
                                 val channelLogo = customCommand.customExtras.getString(CHANNEL_LOGO)
@@ -263,9 +298,7 @@ class PlaybackService : MediaSessionService() {
                                 val proxyUser = prefs().getString(C.PROXY_USER, null)
                                 val proxyPassword = prefs().getString(C.PROXY_PASSWORD, null)
                                 val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-                                player.setMediaSource(
-                                    HlsMediaSource.Factory(
-                                        DefaultDataSource.Factory(
+                                val dataSourceFactory = DefaultDataSource.Factory(
                                             this@PlaybackService,
                                             when {
                                                 networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -507,7 +540,10 @@ class PlaybackService : MediaSessionService() {
                                                 }
                                             }
                                         )
-                                    ).apply {
+                                liveStreamDataSourceFactory = dataSourceFactory
+                                liveClipBufferManager.startNewGeneration()
+                                player.setMediaSource(
+                                    HlsMediaSource.Factory(dataSourceFactory).apply {
                                         setPlaylistParserFactory(ExoPlayerService.CustomHlsPlaylistParserFactory())
                                         setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))
                                     }.createMediaSource(
@@ -535,6 +571,10 @@ class PlaybackService : MediaSessionService() {
                             }
                             START_VIDEO -> {
                                 backgroundPlayback = false
+                                liveStreamActive = false
+                                liveMediaItemUri = null
+                                liveClipBufferManager.reset()
+                                liveStreamDataSourceFactory = null
                                 val uri = customCommand.customExtras.getString(URI)
                                 val title = customCommand.customExtras.getString(TITLE)
                                 val channelName = customCommand.customExtras.getString(CHANNEL_NAME)
@@ -593,6 +633,10 @@ class PlaybackService : MediaSessionService() {
                             }
                             START_CLIP -> {
                                 backgroundPlayback = false
+                                liveStreamActive = false
+                                liveMediaItemUri = null
+                                liveClipBufferManager.reset()
+                                liveStreamDataSourceFactory = null
                                 val uri = customCommand.customExtras.getString(URI)
                                 val title = customCommand.customExtras.getString(TITLE)
                                 val channelName = customCommand.customExtras.getString(CHANNEL_NAME)
@@ -642,6 +686,10 @@ class PlaybackService : MediaSessionService() {
                             }
                             START_OFFLINE_VIDEO -> {
                                 backgroundPlayback = false
+                                liveStreamActive = false
+                                liveMediaItemUri = null
+                                liveClipBufferManager.reset()
+                                liveStreamDataSourceFactory = null
                                 val uri = customCommand.customExtras.getString(URI)
                                 val title = customCommand.customExtras.getString(TITLE)
                                 val channelName = customCommand.customExtras.getString(CHANNEL_NAME)
@@ -773,12 +821,114 @@ class PlaybackService : MediaSessionService() {
                                     putStringArray(RESULT, (session.player.currentManifest as? HlsManifest)?.multivariantPlaylist?.tags?.toTypedArray())
                                 }))
                             }
+                            GET_LIVE_CLIP_STATUS -> {
+                                val status = liveClipBufferManager.status()
+                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
+                                    putBoolean(CLIP_AVAILABLE, liveStreamActive && status.available)
+                                    putBoolean(CLIP_DRM_PROTECTED, status.drmProtected)
+                                    putInt(CLIP_SEGMENT_COUNT, status.segmentCount)
+                                    putLong(CLIP_DURATION_MS, status.durationUs / 1000L)
+                                }))
+                            }
+                            PREPARE_LIVE_CLIP -> prepareLiveClip()
+                            CANCEL_LIVE_CLIP -> {
+                                clipPreparationJob?.cancel()
+                                clipPreparationJob = null
+                                clipPreparationFuture?.set(
+                                    SessionResult(SessionResult.RESULT_ERROR_UNKNOWN, Bundle().apply {
+                                        putString(ERROR, "Clip preparation cancelled")
+                                    })
+                                )
+                                clipPreparationFuture = null
+                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                            }
+                            RELEASE_LIVE_CLIP -> {
+                                releaseLiveClip(customCommand.customExtras.getString(CLIP_DIRECTORY_PATH))
+                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                            }
                             else -> super.onCustomCommand(session, controller, customCommand, args)
                         }
                     }
                 }
             )
         }.build()
+    }
+
+    private fun prepareLiveClip(): ListenableFuture<SessionResult> {
+        clipPreparationFuture?.let { current ->
+            if (!current.isDone) return current
+        }
+        val future = com.google.common.util.concurrent.SettableFuture.create<SessionResult>()
+        val snapshot = liveClipBufferManager.snapshot()
+        val dataSourceFactory = liveStreamDataSourceFactory
+        if (!liveStreamActive || snapshot == null || dataSourceFactory == null) {
+            future.set(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED, Bundle().apply {
+                putString(ERROR, "There is not enough live video available for a clip")
+            }))
+            return future
+        }
+        if (snapshot.drmInitDataPresent) {
+            future.set(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED, Bundle().apply {
+                putString(ERROR, "Clipping DRM-protected streams is not supported")
+            }))
+            return future
+        }
+
+        val repository = ClipPreparationRepository(
+            dataSourceFactory = dataSourceFactory,
+            rootDirectory = File(cacheDir, LIVE_CLIP_DIRECTORY),
+        )
+        clipPreparationFuture = future
+        clipPreparationJob = lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val prepared = repository.prepare(snapshot)
+                future.set(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
+                    putString(CLIP_PLAYLIST_PATH, prepared.playlist.absolutePath)
+                    putString(CLIP_DIRECTORY_PATH, prepared.directory.absolutePath)
+                    putLong(CLIP_DURATION_MS, prepared.durationUs / 1000L)
+                    putLongArray(CLIP_BOUNDARIES_US, prepared.boundariesUs)
+                    putLong(CLIP_BYTES, prepared.downloadedBytes)
+                    putLong(CLIP_GENERATION, snapshot.generation)
+                }))
+            } catch (_: CancellationException) {
+                future.set(SessionResult(SessionResult.RESULT_ERROR_UNKNOWN, Bundle().apply {
+                    putString(ERROR, "Clip preparation cancelled")
+                }))
+            } catch (_: Throwable) {
+                future.set(SessionResult(SessionResult.RESULT_ERROR_IO, Bundle().apply {
+                    putString(ERROR, "Unable to prepare the live clip")
+                }))
+            } finally {
+                if (clipPreparationFuture === future) {
+                    clipPreparationFuture = null
+                    clipPreparationJob = null
+                }
+            }
+        }
+        return future
+    }
+
+    /**
+     * Media3Fragment can replace the media item directly for a quality/source change. Treat that
+     * as a new clip generation even though the service did not receive START_STREAM again.
+     */
+    private fun observeLiveMediaItem(player: Player) {
+        val uri = player.currentMediaItem?.localConfiguration?.uri?.toString() ?: return
+        if (liveMediaItemUri != null && liveMediaItemUri != uri) {
+            liveClipBufferManager.startNewGeneration()
+        }
+        liveMediaItemUri = uri
+    }
+
+    private fun releaseLiveClip(directoryPath: String?) {
+        if (directoryPath.isNullOrBlank()) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                val root = File(cacheDir, LIVE_CLIP_DIRECTORY).canonicalFile
+                val target = File(directoryPath).canonicalFile
+                if (target.parentFile == root) target.deleteRecursively()
+            }
+        }
     }
 
     private fun reinitializeDynamicsProcessing(audioSessionId: Int) {
@@ -986,6 +1136,10 @@ class PlaybackService : MediaSessionService() {
         if (::xtraModule.isInitialized) {
             xtraModule.viewingStatsRecorder.release(viewingStatsSourceId)
         }
+        clipPreparationJob?.cancel()
+        clipPreparationJob = null
+        clipPreparationFuture?.cancel(false)
+        clipPreparationFuture = null
         backgroundRecoveryTimer?.cancel()
         backgroundRecoveryTimer = null
         sleepTimer?.cancel()
@@ -1014,6 +1168,10 @@ class PlaybackService : MediaSessionService() {
         const val GET_ERROR_CODE = "getErrorCode"
         const val GET_MEDIA_PLAYLIST = "getMediaPlaylist"
         const val GET_MULTIVARIANT_PLAYLIST = "getMultivariantPlaylist"
+        const val GET_LIVE_CLIP_STATUS = "getLiveClipStatus"
+        const val PREPARE_LIVE_CLIP = "prepareLiveClip"
+        const val CANCEL_LIVE_CLIP = "cancelLiveClip"
+        const val RELEASE_LIVE_CLIP = "releaseLiveClip"
 
         const val RESULT = "result"
         const val URI = "uri"
@@ -1037,6 +1195,17 @@ class PlaybackService : MediaSessionService() {
         const val CODECS = "codecs"
         const val BITRATES = "bitrates"
         const val URLS = "urls"
+        const val ERROR = "error"
+        const val CLIP_AVAILABLE = "clipAvailable"
+        const val CLIP_DRM_PROTECTED = "clipDrmProtected"
+        const val CLIP_SEGMENT_COUNT = "clipSegmentCount"
+        const val CLIP_DURATION_MS = "clipDurationMs"
+        const val CLIP_BOUNDARIES_US = "clipBoundariesUs"
+        const val CLIP_PLAYLIST_PATH = "clipPlaylistPath"
+        const val CLIP_DIRECTORY_PATH = "clipDirectoryPath"
+        const val CLIP_BYTES = "clipBytes"
+        const val CLIP_GENERATION = "clipGeneration"
+        const val LIVE_CLIP_DIRECTORY = "live-clips"
 
         const val REQUEST_CODE_RESUME = 2
     }
