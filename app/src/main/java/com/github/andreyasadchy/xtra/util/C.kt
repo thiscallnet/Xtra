@@ -138,6 +138,7 @@ object C {
     const val PLAYER_SETTINGS = "player_settings"
     const val PLAYER_RESTART = "player_restart"
     const val PLAYER_SEEK_LIVE = "player_seeklive"
+    const val PLAYER_CLIP_BUTTON = "player_clip_button"
     const val PLAYER_MODE = "player_mode"
     const val PLAYER_SUBTITLES = "player_subtitles"
     const val PLAYER_CHAT_BAR_TOGGLE = "player_chatbartoggle"

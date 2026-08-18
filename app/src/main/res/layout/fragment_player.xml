@@ -131,5 +131,23 @@
 
         </com.github.andreyasadchy.xtra.ui.view.ChatLayout>
 
+        <FrameLayout
+            android:id="@+id/clipEditorContainer"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?attr/colorSurface"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone" />
+
+        <View
+            android:id="@+id/clipEditorTransitionCover"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?attr/colorSurface"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone" />
+
     </FrameLayout>
 </LinearLayout>

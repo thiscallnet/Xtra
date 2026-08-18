@@ -2150,7 +2150,12 @@ class SettingsActivity : AppCompatActivity() {
                 .map { item ->
                     val parts = item.split(':')
                     val action = parts[0]
-                    val group = parts.getOrNull(1)?.takeIf { it in setOf("quick", "menu", "hidden") } ?: "hidden"
+                    val requestedGroup = parts.getOrNull(1)?.takeIf { it in setOf("quick", "menu", "hidden") } ?: "hidden"
+                    val group = if (requestedGroup == "menu" && controlMenuKey(action) == null) {
+                        "hidden"
+                    } else {
+                        requestedGroup
+                    }
                     SettingsDragListItem(
                         key = action,
                         text = formatControlText(action, group),
@@ -2160,6 +2165,15 @@ class SettingsActivity : AppCompatActivity() {
                     )
                 }
                 .toMutableList()
+            if (items.none { it.key == "clip" }) {
+                items += SettingsDragListItem(
+                    key = "clip",
+                    text = formatControlText("clip", "quick"),
+                    default = false,
+                    enabled = true,
+                    group = "quick",
+                )
+            }
             val listAdapter = SettingsDragListAdapter()
             val itemTouchHelper = ItemTouchHelper(
                 object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
@@ -2177,7 +2191,7 @@ class SettingsActivity : AppCompatActivity() {
             listAdapter.itemTouchHelper = itemTouchHelper
             listAdapter.cycleGroup = { item ->
                 item.group = when (item.group) {
-                    "quick" -> "menu"
+                    "quick" -> if (controlMenuKey(item.key) == null) "hidden" else "menu"
                     "menu" -> "hidden"
                     else -> "quick"
                 }
@@ -2205,6 +2219,27 @@ class SettingsActivity : AppCompatActivity() {
                 .show()
         }
 
+        private fun controlMenuKey(action: String): String? = when (action) {
+            "download" -> C.PLAYER_MENU_DOWNLOAD
+            "quality" -> C.PLAYER_MENU_QUALITY
+            "speed" -> C.PLAYER_MENU_SPEED
+            "chapters" -> C.PLAYER_MENU_GAMES
+            "restart" -> C.PLAYER_MENU_RESTART
+            "volume" -> C.PLAYER_MENU_VOLUME
+            "subtitles" -> C.PLAYER_MENU_SUBTITLES
+            "chat_input" -> C.PLAYER_MENU_CHAT_BAR
+            "chat" -> C.PLAYER_MENU_CHAT_TOGGLE
+            "viewers" -> C.PLAYER_MENU_VIEWER_LIST
+            "bookmark" -> C.PLAYER_MENU_BOOKMARK
+            "share" -> C.PLAYER_MENU_SHARE
+            "find_vod" -> C.PLAYER_MENU_FIND_VOD
+            "sleep" -> C.PLAYER_MENU_SLEEP
+            "aspect" -> C.PLAYER_MENU_ASPECT
+            "reload_emotes" -> C.PLAYER_MENU_RELOAD_EMOTES
+            "disconnect_chat" -> C.PLAYER_MENU_CHAT_DISCONNECT
+            else -> null
+        }
+
         private fun formatControlText(action: String, group: String): String {
             val title = when (action) {
                 "minimize" -> getString(R.string.player_minimize)
@@ -2215,6 +2250,7 @@ class SettingsActivity : AppCompatActivity() {
                 "chapters" -> getString(R.string.player_vod_games)
                 "restart" -> getString(R.string.player_restart)
                 "live" -> getString(R.string.player_seek_live)
+                "clip" -> getString(R.string.player_clip)
                 "volume" -> getString(R.string.player_volume)
                 "compressor" -> getString(R.string.player_audio_compressor)
                 "mode" -> getString(R.string.settings_player_mode)
@@ -2250,6 +2286,7 @@ class SettingsActivity : AppCompatActivity() {
                 "chapters" to (C.PLAYER_GAMES_BUTTON to C.PLAYER_MENU_GAMES),
                 "restart" to (C.PLAYER_RESTART to C.PLAYER_MENU_RESTART),
                 "live" to (C.PLAYER_SEEK_LIVE to null),
+                "clip" to (C.PLAYER_CLIP_BUTTON to null),
                 "volume" to (C.PLAYER_VOLUME_BUTTON to C.PLAYER_MENU_VOLUME),
                 "compressor" to (C.PLAYER_AUDIO_COMPRESSOR_BUTTON to null),
                 "mode" to (C.PLAYER_MODE to null),

@@ -156,8 +156,16 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     open fun showPlaylistTags(mediaPlaylist: Boolean) {}
     open fun changeQuality(selectedQuality: VideoQuality?) {}
     open fun startAudioOnly() {}
+    open val supportsLiveClipping: Boolean = false
+    open fun prepareLiveClip() {}
+    open fun requestLiveClipStatus() {}
     open fun close(deleteStates: Boolean = true) {}
     open fun retry(item: String) {}
+
+    protected fun setLiveClipAvailability(available: Boolean) {
+        if (_binding == null) return
+        binding.playerControls.clip.isEnabled = available
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         if (arguments?.getBoolean(KEY_OFFLINE) == true) {
@@ -702,6 +710,9 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 changeQuality(playbackService?.previousQuality)
             }
             with(playerControls) {
+                clip.visibility = View.GONE
+                clip.isEnabled = false
+                clip.setOnClickListener(null)
                 val channelLogin = playbackService?.channelLogin
                 val channelName = playbackService?.channelName
                 val displayName = if (channelLogin != null && !channelLogin.equals(channelName, true)) {
@@ -806,6 +817,15 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                     }
                 }
                 if (playbackService?.type == BasePlaybackService.STREAM) {
+                    if (supportsLiveClipping && requireContext().prefs().getBoolean(C.PLAYER_CLIP_BUTTON, true)) {
+                        clip.visibility = View.VISIBLE
+                        clip.isEnabled = false
+                        clip.setOnClickListener {
+                            showController(force = true)
+                            prepareLiveClip()
+                        }
+                        requestLiveClipStatus()
+                    }
                     if (!requireContext().tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
                         (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
                                 !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank())
