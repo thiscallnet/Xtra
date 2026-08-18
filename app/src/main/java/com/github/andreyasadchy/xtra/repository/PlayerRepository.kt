@@ -2092,13 +2092,17 @@ class PlayerRepository(
     fun loadFavoriteEmotesFlow() = favoriteEmotes.getAllFlow()
 
     suspend fun addFavoriteEmote(key: FavoriteEmoteKey) = withContext(Dispatchers.IO) {
-        favoriteEmotes.insert(
+        favoriteEmotes.insertAtEnd(
             FavoriteEmote(
                 provider = key.provider.name,
                 emoteId = key.emoteId,
                 favoritedAt = System.currentTimeMillis(),
             ),
         )
+    }
+
+    suspend fun reorderFavoriteEmotes(order: List<FavoriteEmoteKey>) = withContext(Dispatchers.IO) {
+        favoriteEmotes.updateOrder(order)
     }
 
     suspend fun removeFavoriteEmote(key: FavoriteEmoteKey) = withContext(Dispatchers.IO) {

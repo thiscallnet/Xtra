@@ -12,6 +12,8 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentEmotesBinding
 import com.github.andreyasadchy.xtra.model.chat.Emote
@@ -22,6 +24,11 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+
+internal fun pendingFavoriteItemsToApply(
+    pendingItems: List<Emote>?,
+    orderChanged: Boolean,
+): List<Emote>? = if (orderChanged) null else pendingItems
 
 enum class EmotePickerSection {
     FAVORITES,
@@ -47,6 +54,8 @@ class EmotesFragment : Fragment() {
     private val binding get() = _binding!!
     private val viewModel by viewModels<ChatViewModel>(ownerProducer = { requireParentFragment() }, factoryProducer = { ChatViewModelFactory })
     private var recentEmotes = emptyList<RecentEmote>()
+    private var favoriteDragActive = false
+    private var pendingFavoriteItems: List<Emote>? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentEmotesBinding.inflate(inflater, container, false)
@@ -65,13 +74,67 @@ class EmotesFragment : Fragment() {
             "0",
             if (section.supportsFavoriteToggle) ::toggleFavorite else null,
             consumeLongPress = section == EmotePickerSection.RECENTS,
+            reorderable = section == EmotePickerSection.FAVORITES,
         )
+        val itemTouchHelper = if (section == EmotePickerSection.FAVORITES) {
+            ItemTouchHelper(
+                object : ItemTouchHelper.SimpleCallback(
+                    ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT,
+                    0,
+                ) {
+                    override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+                        super.onSelectedChanged(viewHolder, actionState)
+                        if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                            favoriteDragActive = true
+                        }
+                    }
+
+                    override fun onMove(
+                        recyclerView: RecyclerView,
+                        viewHolder: RecyclerView.ViewHolder,
+                        target: RecyclerView.ViewHolder,
+                    ): Boolean {
+                        val from = viewHolder.bindingAdapterPosition
+                        val to = target.bindingAdapterPosition
+                        if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
+                        return adapter.moveItem(from, to)
+                    }
+
+                    override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) = Unit
+
+                    override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                        super.clearView(recyclerView, viewHolder)
+                        val orderChanged = viewModel.reorderFavorites(adapter.currentItems())
+                        favoriteDragActive = false
+                        pendingFavoriteItemsToApply(pendingFavoriteItems, orderChanged)?.let { pendingItems ->
+                            adapter.submitList(pendingItems)
+                            updateEmptyState(section, pendingItems)
+                        }
+                        pendingFavoriteItems = null
+                    }
+
+                    override fun isLongPressDragEnabled(): Boolean = false
+                },
+            )
+        } else {
+            null
+        }
+        adapter.itemTouchHelper = itemTouchHelper
+        adapter.accessibilityMoveListener = { from, to ->
+            if (!adapter.moveItem(from, to)) {
+                false
+            } else {
+                viewModel.reorderFavorites(adapter.currentItems())
+                true
+            }
+        }
         with(binding.emotesRecyclerView) {
             itemAnimator = null
             this.adapter = adapter
             val columnWidth = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 50f, resources.displayMetrics).toInt()
             layoutManager = GridAutofitLayoutManager(requireContext(), columnWidth)
         }
+        itemTouchHelper?.attachToRecyclerView(binding.emotesRecyclerView)
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
@@ -123,7 +186,16 @@ class EmotesFragment : Fragment() {
             }
             EmotePickerSection.THIRD_PARTY -> viewModel.thirdPartyPickerEmotes()
         }
+        if (section == EmotePickerSection.FAVORITES && favoriteDragActive) {
+            pendingFavoriteItems = list.toList()
+            updateEmptyState(section, list)
+            return
+        }
         adapter.submitList(list)
+        updateEmptyState(section, list)
+    }
+
+    private fun updateEmptyState(section: EmotePickerSection, list: List<Emote>) {
         if (section == EmotePickerSection.FAVORITES && list.isEmpty()) {
             binding.emptyState.setText(
                 if (viewModel.favoriteEmotes.value.isEmpty()) {
