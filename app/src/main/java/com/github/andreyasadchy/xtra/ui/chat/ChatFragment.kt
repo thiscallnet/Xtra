@@ -199,6 +199,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        setupEmotePickerSizing()
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.connectionState.collectLatest { state ->
@@ -938,6 +939,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     fun toggleEmoteMenu(enable: Boolean) {
         if (enable) {
             binding.emoteMenu.visibility = View.VISIBLE
+            binding.emoteMenu.post { updateEmotePickerHeight() }
         } else {
             binding.emoteMenu.visibility = View.GONE
         }
@@ -1070,6 +1072,70 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         if (_binding == null || binding.messageView.width <= 0) return
         val compactWidth = (320 * resources.displayMetrics.density).toInt()
         binding.channelPointsText.isVisible = binding.channelPoints.isVisible && binding.messageView.width >= compactWidth
+    }
+
+    private fun setupEmotePickerSizing() {
+        listOf(
+            binding.root,
+            binding.chatContentColumn,
+            binding.emoteMenu,
+            binding.tabLayout,
+            binding.viewPager,
+            binding.messageView,
+            binding.replyView,
+            binding.channelPointRewardOverlay,
+        ).forEach { view ->
+            view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                updateEmotePickerHeight()
+            }
+        }
+    }
+
+    private fun updateEmotePickerHeight() {
+        val currentBinding = _binding ?: return
+        if (!currentBinding.emoteMenu.isVisible) return
+
+        val contentColumn = currentBinding.chatContentColumn
+        val tabHeight = currentBinding.tabLayout.measuredHeight
+        if (contentColumn.measuredHeight <= 0 || tabHeight <= 0) return
+
+        val historyContainer = currentBinding.recyclerView.parent as? View
+        var fixedContentHeight = contentColumn.paddingTop + contentColumn.paddingBottom
+        for (index in 0 until contentColumn.childCount) {
+            val child = contentColumn.getChildAt(index)
+            val childMargins = verticalMargins(child)
+            if (child === currentBinding.emoteMenu) continue
+            if (child === historyContainer) {
+                // The history area has a weight and can shrink, but its margins cannot.
+                fixedContentHeight += childMargins
+                continue
+            }
+            if (child.visibility != View.GONE) {
+                fixedContentHeight += child.measuredHeight + childMargins
+            }
+        }
+
+        val pickerMargins = verticalMargins(currentBinding.emoteMenu) +
+            verticalMargins(currentBinding.tabLayout) +
+            verticalMargins(currentBinding.viewPager)
+        val targetHeight = calculateEmotePickerPagerHeight(
+            hostHeight = contentColumn.measuredHeight,
+            fixedContentHeight = fixedContentHeight,
+            tabHeight = tabHeight,
+            pickerMargins = pickerMargins,
+            maxHeight = resources.getDimensionPixelSize(R.dimen.emote_picker_max_height),
+        )
+        if (currentBinding.viewPager.layoutParams.height != targetHeight) {
+            currentBinding.viewPager.updateLayoutParams<ViewGroup.LayoutParams> {
+                height = targetHeight
+            }
+        }
+    }
+
+    private fun verticalMargins(view: View): Int {
+        return (view.layoutParams as? ViewGroup.MarginLayoutParams)?.let { params ->
+            params.topMargin + params.bottomMargin
+        } ?: 0
     }
 
     private fun showComposerOverlay(state: ComposerOverlayState) {
