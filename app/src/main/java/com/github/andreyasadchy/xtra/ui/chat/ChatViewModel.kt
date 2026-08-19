@@ -1740,6 +1740,17 @@ class ChatViewModel(
         return adding
     }
 
+    fun reorderFavorites(emotes: List<Emote>): Boolean {
+        val currentOrder = favoriteEmotes.value.mapNotNull { it.key() }
+        val availableOrder = emotes.mapNotNull { it.favoriteKey() }
+        val reordered = FavoriteEmoteCatalog.reorderAvailableFavorites(currentOrder, availableOrder)
+        if (reordered == currentOrder) return false
+        viewModelScope.launch {
+            playerRepository.reorderFavoriteEmotes(reordered)
+        }
+        return true
+    }
+
     fun startLiveChat(channelId: String?, channelLogin: String) {
         stopLiveChat()
         val sessionToken = predictionSessionToken

@@ -13,4 +13,6 @@ data class FavoriteEmote(
     val emoteId: String,
     @ColumnInfo(name = "favorited_at")
     val favoritedAt: Long,
+    @ColumnInfo(name = "sort_order", defaultValue = "0")
+    val sortOrder: Int = 0,
 )

@@ -94,6 +94,35 @@ class FavoriteEmoteKeyTest {
         assertEquals(listOf("bttv", "renamed_7tv"), result.map { it.name })
     }
 
+    @Test
+    fun reorderingAvailableFavoritesKeepsUnavailableSlots() {
+        val hidden = FavoriteEmoteKey(EmoteProvider.FFZ, "hidden")
+        val first = FavoriteEmoteKey(EmoteProvider.TWITCH, "first")
+        val second = FavoriteEmoteKey(EmoteProvider.TWITCH, "second")
+        val third = FavoriteEmoteKey(EmoteProvider.TWITCH, "third")
+
+        val result = FavoriteEmoteCatalog.reorderAvailableFavorites(
+            currentOrder = listOf(first, hidden, second, third),
+            availableOrder = listOf(third, first, second),
+        )
+
+        assertEquals(listOf(third, hidden, first, second), result)
+    }
+
+    @Test
+    fun reorderingIgnoresStaleAvailableKeys() {
+        val first = FavoriteEmoteKey(EmoteProvider.TWITCH, "first")
+        val second = FavoriteEmoteKey(EmoteProvider.TWITCH, "second")
+        val stale = FavoriteEmoteKey(EmoteProvider.BTTV, "stale")
+
+        val result = FavoriteEmoteCatalog.reorderAvailableFavorites(
+            currentOrder = listOf(first, second),
+            availableOrder = listOf(stale, second, first),
+        )
+
+        assertEquals(listOf(second, first), result)
+    }
+
     private fun emote(source: Int, id: String, name: String = "emote") = Emote(
         source = source,
         id = id,

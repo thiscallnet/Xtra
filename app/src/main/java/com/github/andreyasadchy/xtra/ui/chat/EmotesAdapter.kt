@@ -1,13 +1,17 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
+import android.annotation.SuppressLint
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
+import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityViewCommand
+import androidx.recyclerview.widget.AsyncListDiffer
 import androidx.recyclerview.widget.DiffUtil
-import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import coil3.imageLoader
 import coil3.network.NetworkHeaders
@@ -26,6 +30,13 @@ import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmoteKey
 import com.github.andreyasadchy.xtra.model.chat.favoriteKey
 
+internal fun <T> moveListItem(items: MutableList<T>, from: Int, to: Int): Boolean {
+    if (from !in items.indices || to !in items.indices || from == to) return false
+    val item = items.removeAt(from)
+    items.add(to, item)
+    return true
+}
+
 class EmotesAdapter(
     private val fragment: Fragment,
     private val clickListener: (Emote) -> Unit,
@@ -33,30 +44,38 @@ class EmotesAdapter(
     private val imageLibrary: String?,
     private val favoriteToggleListener: ((Emote) -> Unit)? = null,
     private val consumeLongPress: Boolean = false,
-) : ListAdapter<Emote, EmotesAdapter.ViewHolder>(
-    object : DiffUtil.ItemCallback<Emote>() {
-        override fun areItemsTheSame(oldItem: Emote, newItem: Emote): Boolean {
-            val oldKey = oldItem.favoriteKey()
-            val newKey = newItem.favoriteKey()
-            return if (oldKey != null || newKey != null) {
-                oldKey == newKey
-            } else {
-                oldItem.name == newItem.name
-            }
-        }
+    private val reorderable: Boolean = false,
+) : RecyclerView.Adapter<EmotesAdapter.ViewHolder>() {
 
-        override fun areContentsTheSame(oldItem: Emote, newItem: Emote): Boolean {
-            return oldItem.name == newItem.name &&
-                    oldItem.url1x == newItem.url1x &&
-                    oldItem.url2x == newItem.url2x &&
-                    oldItem.url3x == newItem.url3x &&
-                    oldItem.url4x == newItem.url4x &&
-                    oldItem.format == newItem.format
+    private val differ = AsyncListDiffer(this, EMOTE_DIFF_CALLBACK)
+    private val items = mutableListOf<Emote>()
+    private var favoriteKeys: Set<FavoriteEmoteKey> = emptySet()
+    var itemTouchHelper: ItemTouchHelper? = null
+    var accessibilityMoveListener: ((Int, Int) -> Boolean)? = null
+
+    override fun getItemCount(): Int = if (reorderable) items.size else differ.currentList.size
+
+    /**
+     * Copies the list so an active drag can update the adapter's data without
+     * mutating a list owned by a caller or by RecyclerView.
+     */
+    fun submitList(newItems: List<Emote>) {
+        if (reorderable) {
+            items.clear()
+            items.addAll(newItems)
+            notifyDataSetChanged()
+        } else {
+            differ.submitList(newItems.toList())
         }
     }
-) {
 
-    private var favoriteKeys: Set<FavoriteEmoteKey> = emptySet()
+    fun moveItem(from: Int, to: Int): Boolean {
+        if (!moveListItem(items, from, to)) return false
+        notifyItemMoved(from, to)
+        return true
+    }
+
+    fun currentItems(): List<Emote> = items.toList()
 
     fun setFavoriteKeys(keys: Set<FavoriteEmoteKey>) {
         if (favoriteKeys != keys) {
@@ -73,25 +92,41 @@ class EmotesAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(getItem(position))
+        val currentItems = if (reorderable) items else differ.currentList
+        holder.bind(currentItems.getOrNull(position))
     }
 
     inner class ViewHolder(
         private val binding: FragmentEmotesListItemBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
         private var favoriteAccessibilityActionId: Int? = null
+        private val reorderAccessibilityActionIds = mutableListOf<Int>()
 
+        @SuppressLint("ClickableViewAccessibility")
         fun bind(item: Emote?) {
             with(binding) {
                 favoriteAccessibilityActionId?.let {
-                    ViewCompat.removeAccessibilityAction(root, it)
+                    ViewCompat.removeAccessibilityAction(emote, it)
                     favoriteAccessibilityActionId = null
                 }
-                root.setOnClickListener(null)
-                root.setOnLongClickListener(null)
+                reorderAccessibilityActionIds.forEach { actionId ->
+                    ViewCompat.removeAccessibilityAction(emote, actionId)
+                }
+                reorderAccessibilityActionIds.clear()
+                emote.setOnClickListener(null)
+                emote.setOnLongClickListener(null)
+                dragHandle.visibility = if (reorderable) View.VISIBLE else View.GONE
+                dragHandle.setOnTouchListener(if (reorderable) {
+                    { _, event ->
+                        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                            itemTouchHelper?.startDrag(this@ViewHolder)
+                        }
+                        true
+                    }
+                } else null)
                 if (item != null) {
-                    root.contentDescription = fragment.getString(R.string.use_emote, item.name)
-                    root.isFocusable = true
+                    emote.contentDescription = fragment.getString(R.string.use_emote, item.name)
+                    emote.isFocusable = true
                     if (imageLibrary == "0" || (imageLibrary == "1" && !item.format.equals("webp", true))) {
                         fragment.requireContext().imageLoader.enqueue(
                             ImageRequest.Builder(fragment.requireContext()).apply {
@@ -109,7 +144,7 @@ class EmotesAdapter(
                                     }.build())
                                 }
                                 crossfade(true)
-                                target(root)
+                                target(emote)
                             }.build()
                         )
                     } else {
@@ -128,19 +163,19 @@ class EmotesAdapter(
                             )
                             .diskCacheStrategy(DiskCacheStrategy.DATA)
                             .transition(DrawableTransitionOptions.withCrossFade())
-                            .into(root)
+                            .into(emote)
                     }
-                    root.setOnClickListener { clickListener(item) }
+                    emote.setOnClickListener { clickListener(item) }
                     val key = item.favoriteKey()
                     if (favoriteToggleListener != null && key != null) {
                         val isFavorite = key in favoriteKeys
-                        root.setOnLongClickListener {
+                        emote.setOnLongClickListener {
                             it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                             favoriteToggleListener.invoke(item)
                             true
                         }
                         favoriteAccessibilityActionId = ViewCompat.addAccessibilityAction(
-                            root,
+                            emote,
                             fragment.getString(
                                 if (isFavorite) R.string.remove_emote_from_favorites else R.string.add_emote_to_favorites,
                             ),
@@ -150,9 +185,50 @@ class EmotesAdapter(
                             },
                         )
                     } else if (consumeLongPress) {
-                        root.setOnLongClickListener { true }
+                        emote.setOnLongClickListener { true }
+                    }
+                    if (reorderable) {
+                        reorderAccessibilityActionIds += ViewCompat.addAccessibilityAction(
+                            emote,
+                            fragment.getString(R.string.move_favorite_emote_before),
+                            AccessibilityViewCommand { _, _ ->
+                                val position = bindingAdapterPosition
+                                accessibilityMoveListener?.invoke(position, position - 1) == true
+                            },
+                        )
+                        reorderAccessibilityActionIds += ViewCompat.addAccessibilityAction(
+                            emote,
+                            fragment.getString(R.string.move_favorite_emote_after),
+                            AccessibilityViewCommand { _, _ ->
+                                val position = bindingAdapterPosition
+                                accessibilityMoveListener?.invoke(position, position + 1) == true
+                            },
+                        )
                     }
                 }
+            }
+        }
+    }
+
+    private companion object {
+        val EMOTE_DIFF_CALLBACK = object : DiffUtil.ItemCallback<Emote>() {
+            override fun areItemsTheSame(oldItem: Emote, newItem: Emote): Boolean {
+                val oldKey = oldItem.favoriteKey()
+                val newKey = newItem.favoriteKey()
+                return if (oldKey != null || newKey != null) {
+                    oldKey == newKey
+                } else {
+                    oldItem.name == newItem.name
+                }
+            }
+
+            override fun areContentsTheSame(oldItem: Emote, newItem: Emote): Boolean {
+                return oldItem.name == newItem.name &&
+                        oldItem.url1x == newItem.url1x &&
+                        oldItem.url2x == newItem.url2x &&
+                        oldItem.url3x == newItem.url3x &&
+                        oldItem.url4x == newItem.url4x &&
+                        oldItem.format == newItem.format
             }
         }
     }

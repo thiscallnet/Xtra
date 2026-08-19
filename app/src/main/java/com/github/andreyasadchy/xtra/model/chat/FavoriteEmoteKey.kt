@@ -68,6 +68,31 @@ object FavoriteEmoteCatalog {
         }
     }
 
+    /**
+     * Reorders the currently available favorites while keeping unavailable
+     * favorites in their existing global slots.
+     */
+    fun reorderAvailableFavorites(
+        currentOrder: List<FavoriteEmoteKey>,
+        availableOrder: List<FavoriteEmoteKey>,
+    ): List<FavoriteEmoteKey> {
+        val currentKeys = currentOrder.toSet()
+        val reorderedAvailable = availableOrder
+            .filter(currentKeys::contains)
+            .distinct()
+        if (reorderedAvailable.isEmpty()) return currentOrder
+
+        val reorderedKeys = reorderedAvailable.toSet()
+        var nextAvailableIndex = 0
+        return currentOrder.map { key ->
+            if (key in reorderedKeys) {
+                reorderedAvailable[nextAvailableIndex++]
+            } else {
+                key
+            }
+        }
+    }
+
     fun removeMatchingScope(
         emotes: MutableList<Emote>,
         removed: List<Emote>,

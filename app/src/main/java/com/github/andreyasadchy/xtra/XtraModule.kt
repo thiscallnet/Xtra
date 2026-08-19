@@ -385,6 +385,9 @@ class XtraModule(application: Application) {
                 Migration(45, 46) { db ->
                     db.execSQL("CREATE TABLE IF NOT EXISTS favorite_emotes (provider TEXT NOT NULL, emote_id TEXT NOT NULL, favorited_at INTEGER NOT NULL, PRIMARY KEY (provider, emote_id))")
                 },
+                Migration(46, 47) { db ->
+                    db.execSQL("ALTER TABLE favorite_emotes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+                },
             )
         }.build()
     }
