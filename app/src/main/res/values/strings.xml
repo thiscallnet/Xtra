@@ -1054,6 +1054,9 @@
     <string name="removed_emote_from_favorites">Removed %1$s from favorites</string>
     <string name="favorite_emotes_empty">No favorite emotes here yet\nLong-press an emote to add it to Favorites.</string>
     <string name="favorite_emotes_unavailable">None of your favorite emotes are available in this channel.</string>
+    <string name="reorder_favorite_emotes">Reorder</string>
+    <string name="done_reordering_favorite_emotes">Done</string>
+    <string name="reorder_favorite_emote">Reorder %1$s emote</string>
     <string name="move_favorite_emote_before">Move favorite emote before</string>
     <string name="move_favorite_emote_after">Move favorite emote after</string>
     <string name="watch_stream">Watch stream</string>

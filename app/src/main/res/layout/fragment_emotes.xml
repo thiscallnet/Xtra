@@ -13,6 +13,20 @@
         android:paddingRight="10dp"
         android:paddingEnd="10dp" />
 
+    <Button
+        android:id="@+id/editFavorites"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="2dp"
+        android:layout_marginEnd="8dp"
+        android:minWidth="0dp"
+        android:minHeight="40dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:text="@string/reorder_favorite_emotes"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/emptyState"
         android:layout_width="match_parent"
