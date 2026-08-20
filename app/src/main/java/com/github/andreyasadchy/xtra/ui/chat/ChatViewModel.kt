@@ -6,6 +6,7 @@ import android.net.ConnectivityManager
 import android.util.Base64
 import android.util.JsonReader
 import android.util.JsonToken
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
@@ -78,6 +79,7 @@ import com.github.andreyasadchy.xtra.util.chat.STVEventApiUtils
 import com.github.andreyasadchy.xtra.util.chat.STVEventApiWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ViewerParticipationCache
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.watch.WatchCreditTelemetry
 import kotlinx.coroutines.cancel
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.CancellationException
@@ -154,6 +156,7 @@ class ChatViewModel(
     private var hermesWebSocket: HermesWebSocket? = null
     private var pubSubJob: Job? = null
     private var channelPointsJob: Job? = null
+    private var claimJob: Job? = null
     private var watchStreakJob: Job? = null
     private var watchStreakRetryJob: Job? = null
     private var watchStreakSession = 0L
@@ -1914,6 +1917,8 @@ class ChatViewModel(
         }
         channelPointsJob?.cancel()
         channelPointsJob = null
+        claimJob?.cancel()
+        claimJob = null
         watchStreakJob?.cancel()
         watchStreakJob = null
         watchStreakRetryJob?.cancel()
@@ -2650,6 +2655,9 @@ class ChatViewModel(
         private val showWebSocketDebugInfo: Boolean,
         private val sessionToken: Long,
     ) : HermesWebSocket.Listener {
+        @Volatile
+        private var watchCreditLive = true
+
         override suspend fun onConnect() {
             if (showWebSocketDebugInfo) {
                 onMessage(ChatMessage(systemMsg = ContextCompat.getString(applicationContext, R.string.websocket_connected).format("PubSub")))
@@ -2666,15 +2674,26 @@ class ChatViewModel(
         }
 
         override suspend fun onPlaybackMessage(message: JSONObject) {
+            if (!isActiveWatchCreditSession()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "playback message ignored for inactive watch session")
+                return
+            }
             val playbackMessage = PubSubUtils.parsePlaybackMessage(message)
             if (playbackMessage != null) {
                 playbackMessage.live?.let {
                     if (it) {
+                        watchCreditLive = true
+                        this@ChatViewModel.streamId = null
+                        Log.d(WatchCreditTelemetry.LOG_TAG, "watch credit stream-up received; refreshing broadcastId")
+                        refreshWatchCreditStreamId("stream-up")
                         onMessage(ChatMessage(
                             type = ChatMessage.NOTICE_MESSAGE,
                             systemMsg = ContextCompat.getString(applicationContext, R.string.stream_live).format(channelLogin),
                         ))
                     } else {
+                        watchCreditLive = false
+                        this@ChatViewModel.streamId = null
+                        Log.d(WatchCreditTelemetry.LOG_TAG, "watch credit stream-down received; heartbeat paused")
                         onMessage(ChatMessage(
                             type = ChatMessage.NOTICE_MESSAGE,
                             systemMsg = ContextCompat.getString(applicationContext, R.string.stream_offline).format(channelLogin),
@@ -2718,43 +2737,145 @@ class ChatViewModel(
         }
 
         override suspend fun onClaimAvailable() {
-            if (collectPoints) {
-                if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                    viewModelScope.launch {
-                        try {
-                            val response = graphQLRepository.loadChannelPointsContext(networkLibrary, gqlHeaders, channelLogin)
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("refresh")
-                                    return@launch
-                                }
-                            }
-                            updateChannelPoints(response)
-                            response.data?.community?.channel?.self?.communityPoints?.availableClaim?.id?.let { claimId ->
-                                val response = graphQLRepository.loadClaimPoints(networkLibrary, gqlHeaders, channelId, claimId)
-                                if (enableIntegrity) {
-                                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                        integrity.emit("refresh")
-                                        return@launch
-                                    }
-                                }
-                                loadChannelPoints(networkLibrary, gqlHeaders, channelLogin, enableIntegrity)
-                            }
-                        } catch (e: Exception) {
-
-                        }
+            Log.d(
+                WatchCreditTelemetry.LOG_TAG,
+                "claim-available handler invoked collectPoints=$collectPoints gqlTokenPresent=${!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()}",
+            )
+            if (!collectPoints || gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+                return
+            }
+            if (claimJob?.isActive == true) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "claim-available ignored while another claim is in flight")
+                return
+            }
+            val job = viewModelScope.launch {
+                try {
+                    val contextResponse = graphQLRepository.loadChannelPointsContext(networkLibrary, gqlHeaders, channelLogin)
+                    val contextError = contextResponse.errors?.firstOrNull()?.message
+                    val contextIntegrityError = contextResponse.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }
+                    val claimId = contextResponse.data?.community?.channel?.self?.communityPoints?.availableClaim?.id
+                    Log.d(
+                        WatchCreditTelemetry.LOG_TAG,
+                        "ChannelPointsContext result dataPresent=${contextResponse.data != null} claimPresent=${!claimId.isNullOrBlank()} error=${contextError ?: "none"}",
+                    )
+                    if (enableIntegrity && contextIntegrityError != null) {
+                        integrity.emit("refresh")
+                        return@launch
                     }
+                    updateChannelPoints(contextResponse)
+                    if (claimId.isNullOrBlank()) {
+                        return@launch
+                    }
+
+                    val claimResponse = graphQLRepository.loadClaimPoints(networkLibrary, gqlHeaders, channelId, claimId)
+                    val claimError = claimResponse.errors?.firstOrNull()?.message
+                    val claimIntegrityError = claimResponse.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }
+                    Log.d(
+                        WatchCreditTelemetry.LOG_TAG,
+                        "ClaimCommunityPoints result success=${claimError == null} error=${claimError ?: "none"}",
+                    )
+                    if (enableIntegrity && claimIntegrityError != null) {
+                        integrity.emit("refresh")
+                        return@launch
+                    }
+                    if (claimError == null) {
+                        loadChannelPoints(networkLibrary, gqlHeaders, channelLogin, enableIntegrity)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(WatchCreditTelemetry.LOG_TAG, "Channel Points claim handling failed", e)
+                }
+            }
+            claimJob = job
+            job.invokeOnCompletion {
+                if (claimJob === job) {
+                    claimJob = null
                 }
             }
         }
 
-        override suspend fun onMinuteWatched() {
-            if (!streamId.isNullOrBlank()) {
-                try {
-                    playerRepository.sendMinuteWatched(networkLibrary, accountId, streamId, channelId, channelLogin)
-                } catch (e: Exception) {
+        private fun isActiveWatchCreditSession(): Boolean =
+            sessionToken == predictionSessionToken &&
+                    activeChannelLogin == channelLogin &&
+                    activeChannelId == channelId
 
+        private suspend fun refreshWatchCreditStreamId(reason: String): String? {
+            if (!isLoggedIn || accountId.isNullOrBlank()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "broadcastId refresh skipped: authenticated user missing reason=$reason")
+                return null
+            }
+            if (!watchCreditLive || !isActiveWatchCreditSession()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "broadcastId refresh skipped: inactive watch session reason=$reason")
+                return null
+            }
+            return try {
+                val response = graphQLRepository.loadQueryUsersStream(
+                    networkLibrary = networkLibrary,
+                    headers = gqlHeaders,
+                    ids = channelId?.let { listOf(it) },
+                    logins = if (channelId.isNullOrBlank()) listOf(channelLogin) else null,
+                )
+                val error = response.errors?.firstOrNull()?.message
+                val resolvedStreamId = response.data?.users?.firstOrNull()?.stream?.id
+                if (!watchCreditLive || !isActiveWatchCreditSession()) {
+                    return null
                 }
+                if (!resolvedStreamId.isNullOrBlank()) {
+                    val previousStreamId = this@ChatViewModel.streamId
+                    this@ChatViewModel.streamId = resolvedStreamId
+                    Log.d(
+                        WatchCreditTelemetry.LOG_TAG,
+                        "broadcastId refreshed reason=$reason changed=${previousStreamId != resolvedStreamId}",
+                    )
+                } else {
+                    Log.w(
+                        WatchCreditTelemetry.LOG_TAG,
+                        "broadcastId refresh returned no live stream reason=$reason error=${error ?: "none"}",
+                    )
+                }
+                resolvedStreamId
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(WatchCreditTelemetry.LOG_TAG, "broadcastId refresh failed reason=$reason", e)
+                null
+            }
+        }
+
+        override suspend fun onMinuteWatched() {
+            if (!isActiveWatchCreditSession()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: inactive watch session")
+                return
+            }
+            if (!watchCreditLive) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: stream is offline")
+                return
+            }
+            var currentStreamId = streamId
+            Log.d(
+                WatchCreditTelemetry.LOG_TAG,
+                "watch heartbeat callback userIdPresent=${!accountId.isNullOrBlank()} channelIdPresent=${!channelId.isNullOrBlank()} channelLoginPresent=${!channelLogin.isNullOrBlank()} streamIdPresent=${!currentStreamId.isNullOrBlank()}",
+            )
+            if (currentStreamId.isNullOrBlank()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat missing broadcastId; refreshing current stream")
+                currentStreamId = refreshWatchCreditStreamId("heartbeat")
+                if (currentStreamId.isNullOrBlank()) {
+                    Log.w(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: missing broadcastId")
+                    return
+                }
+            }
+            if (!watchCreditLive) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: stream went offline during refresh")
+                return
+            }
+            try {
+                val success = playerRepository.sendMinuteWatched(networkLibrary, accountId, currentStreamId, channelId, channelLogin)
+                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat completed success=$success")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(WatchCreditTelemetry.LOG_TAG, "watch heartbeat failed", e)
             }
         }
 

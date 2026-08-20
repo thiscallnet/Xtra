@@ -1,6 +1,9 @@
 package com.github.andreyasadchy.xtra.util.chat
 
+import android.util.Log
 import com.github.andreyasadchy.xtra.util.WebSocket
+import com.github.andreyasadchy.xtra.util.watch.WatchCreditTelemetry
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,6 +38,7 @@ class HermesWebSocket(
     private val handledMessageIds = mutableListOf<String>()
 
     fun connect(coroutineScope: CoroutineScope): Job {
+        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes connect requested channelIdPresent=${channelId.isNotBlank()} userIdPresent=${!userId.isNullOrBlank()} collectPoints=$collectPoints listenForPoints=$listenForPoints")
         webSocket = WebSocket("wss://hermes.twitch.tv/v1?clientId=${gqlClientId}", trustManager, WebSocketListener())
         webSocket?.coroutineScope = coroutineScope
         return coroutineScope.launch(Dispatchers.IO) {
@@ -43,6 +47,7 @@ class HermesWebSocket(
     }
 
     suspend fun disconnect(job: Job?) = withContext(Dispatchers.IO) {
+        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes disconnect requested")
         pongTimer?.cancel()
         minuteWatchedTimer?.cancel()
         minuteWatchedTimer = null
@@ -61,6 +66,7 @@ class HermesWebSocket(
                 put("timestamp", Clock.System.now().toString())
             }.toString()
             webSocket?.write(authenticate)
+            Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes authentication request sent")
         }
         topics = buildMap {
             put(Uuid.random().toHexString().substring(0, 21), "video-playback-by-id.$channelId")
@@ -95,7 +101,11 @@ class HermesWebSocket(
                 put("timestamp", Clock.System.now().toString())
             }.toString()
             webSocket?.write(subscribe)
+            if (it.value.startsWith("community-points-user")) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes community-points-user subscription sent")
+            }
         }
+        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes subscriptions sent count=${topics.size}")
         listener.onSubscriptionsSent()
     }
 
@@ -110,9 +120,12 @@ class HermesWebSocket(
     }
 
     private suspend fun startMinuteWatchedTimer() = withContext(Dispatchers.IO) {
+        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer started intervalMs=60000")
         minuteWatchedTimer = Timer().apply {
             scheduleAtFixedRate(60000, 60000) {
-                webSocket?.coroutineScope?.launch {
+                val scope = webSocket?.coroutineScope
+                Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer fired scopePresent=${scope != null}")
+                scope?.launch {
                     listener.onMinuteWatched()
                 }
             }
@@ -137,6 +150,7 @@ class HermesWebSocket(
 
     private inner class WebSocketListener : WebSocket.Listener {
         override suspend fun onConnect(webSocket: WebSocket) {
+            Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes connected")
             listener.onConnect()
         }
 
@@ -179,8 +193,14 @@ class HermesWebSocket(
                                 }
                                 topic.startsWith("community-points-user") -> {
                                     when {
-                                        messageType.startsWith("points-earned") -> listener.onPointsEarned(message)
-                                        messageType.startsWith("claim-available") -> listener.onClaimAvailable()
+                                        messageType.startsWith("points-earned") -> {
+                                            Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes points-earned received")
+                                            listener.onPointsEarned(message)
+                                        }
+                                        messageType.startsWith("claim-available") -> {
+                                            Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes claim-available received")
+                                            listener.onClaimAvailable()
+                                        }
                                     }
                                 }
                                 topic.startsWith("raid") -> {
@@ -198,6 +218,9 @@ class HermesWebSocket(
                         pongTimer?.cancel()
                         startPongTimer()
                     }
+                    "authenticated" -> {
+                        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes authentication accepted")
+                    }
                     "reconnect" -> {
                         //val reconnect = json.optJSONObject("reconnect")
                         //val reconnectUrl = if (reconnect?.isNull("url") == false) reconnect.optString("url").takeIf { it.isNotBlank() } else null
@@ -213,18 +236,24 @@ class HermesWebSocket(
                         }
                         pongTimer?.cancel()
                         startPongTimer()
+                        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes welcome received collectPoints=$collectPoints userIdPresent=${!userId.isNullOrBlank()} gqlTokenPresent=${!gqlToken.isNullOrBlank()}")
                         subscribe()
                         if (collectPoints && !userId.isNullOrBlank() && !gqlToken.isNullOrBlank() && minuteWatchedTimer == null) {
                             startMinuteWatchedTimer()
+                        } else if (collectPoints && minuteWatchedTimer == null) {
+                            Log.w(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer not started: missing userId or GQL token")
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-
+                Log.e(WatchCreditTelemetry.LOG_TAG, "Hermes message handling failed", e)
             }
         }
 
         override suspend fun onDisconnect(webSocket: WebSocket, message: String, fullMsg: String?) {
+            Log.w(WatchCreditTelemetry.LOG_TAG, "Hermes disconnected message=$message")
             listener.onDisconnect(message, fullMsg)
         }
     }
