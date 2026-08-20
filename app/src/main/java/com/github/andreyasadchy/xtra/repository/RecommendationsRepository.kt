@@ -34,6 +34,9 @@ class RecommendationsRepository(
             userId = context.tokenPrefs().getString(C.USER_ID, null),
             username = context.tokenPrefs().getString(C.USERNAME, null),
             authenticated = !headers[C.HEADER_TOKEN].isNullOrBlank(),
+            // Keep the identity in memory only; this also protects the cache
+            // while account preferences are still being written during login.
+            authIdentity = headers[C.HEADER_TOKEN]?.hashCode(),
         )
         if (cacheAccountKey != accountKey) {
             cachedRecommendations = emptyList()
@@ -114,6 +117,7 @@ internal data class RecommendationAccountKey(
     val userId: String?,
     val username: String?,
     val authenticated: Boolean,
+    val authIdentity: Int?,
 )
 
 enum class RecommendationSource {
