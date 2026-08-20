@@ -50,6 +50,7 @@ class EmotesAdapter(
     private val differ = AsyncListDiffer(this, EMOTE_DIFF_CALLBACK)
     private val items = mutableListOf<Emote>()
     private var favoriteKeys: Set<FavoriteEmoteKey> = emptySet()
+    private var reorderMode = false
     var itemTouchHelper: ItemTouchHelper? = null
     var accessibilityMoveListener: ((Int, Int) -> Boolean)? = null
 
@@ -69,13 +70,22 @@ class EmotesAdapter(
         }
     }
 
+    fun setReorderMode(enabled: Boolean) {
+        if (!reorderable || reorderMode == enabled) return
+        reorderMode = enabled
+        if (itemCount > 0) {
+            notifyItemRangeChanged(0, itemCount)
+        }
+    }
+
     fun moveItem(from: Int, to: Int): Boolean {
+        if (!reorderMode) return false
         if (!moveListItem(items, from, to)) return false
         notifyItemMoved(from, to)
         return true
     }
 
-    fun currentItems(): List<Emote> = items.toList()
+    fun currentItems(): List<Emote> = if (reorderable) items.toList() else differ.currentList
 
     fun setFavoriteKeys(keys: Set<FavoriteEmoteKey>) {
         if (favoriteKeys != keys) {
@@ -115,8 +125,10 @@ class EmotesAdapter(
                 reorderAccessibilityActionIds.clear()
                 emote.setOnClickListener(null)
                 emote.setOnLongClickListener(null)
-                dragHandle.visibility = if (reorderable) View.VISIBLE else View.GONE
-                dragHandle.setOnTouchListener(if (reorderable) {
+                emote.isClickable = false
+                val canReorder = reorderable && reorderMode
+                dragHandle.visibility = if (canReorder) View.VISIBLE else View.GONE
+                dragHandle.setOnTouchListener(if (canReorder) {
                     { _, event ->
                         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                             itemTouchHelper?.startDrag(this@ViewHolder)
@@ -125,7 +137,10 @@ class EmotesAdapter(
                     }
                 } else null)
                 if (item != null) {
-                    emote.contentDescription = fragment.getString(R.string.use_emote, item.name)
+                    emote.contentDescription = fragment.getString(
+                        if (canReorder) R.string.reorder_favorite_emote else R.string.use_emote,
+                        item.name,
+                    )
                     emote.isFocusable = true
                     if (imageLibrary == "0" || (imageLibrary == "1" && !item.format.equals("webp", true))) {
                         fragment.requireContext().imageLoader.enqueue(
@@ -165,9 +180,11 @@ class EmotesAdapter(
                             .transition(DrawableTransitionOptions.withCrossFade())
                             .into(emote)
                     }
-                    emote.setOnClickListener { clickListener(item) }
+                    if (!canReorder) {
+                        emote.setOnClickListener { clickListener(item) }
+                    }
                     val key = item.favoriteKey()
-                    if (favoriteToggleListener != null && key != null) {
+                    if (!canReorder && favoriteToggleListener != null && key != null) {
                         val isFavorite = key in favoriteKeys
                         emote.setOnLongClickListener {
                             it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -184,10 +201,10 @@ class EmotesAdapter(
                                 true
                             },
                         )
-                    } else if (consumeLongPress) {
+                    } else if (!canReorder && consumeLongPress) {
                         emote.setOnLongClickListener { true }
                     }
-                    if (reorderable) {
+                    if (canReorder) {
                         reorderAccessibilityActionIds += ViewCompat.addAccessibilityAction(
                             emote,
                             fragment.getString(R.string.move_favorite_emote_before),

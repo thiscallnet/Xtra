@@ -55,6 +55,7 @@ class EmotesFragment : Fragment() {
     private val viewModel by viewModels<ChatViewModel>(ownerProducer = { requireParentFragment() }, factoryProducer = { ChatViewModelFactory })
     private var recentEmotes = emptyList<RecentEmote>()
     private var favoriteDragActive = false
+    private var favoriteEditMode = false
     private var pendingFavoriteItems: List<Emote>? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -76,6 +77,9 @@ class EmotesFragment : Fragment() {
             consumeLongPress = section == EmotePickerSection.RECENTS,
             reorderable = section == EmotePickerSection.FAVORITES,
         )
+        binding.editFavorites.setOnClickListener {
+            setFavoriteEditMode(!favoriteEditMode, adapter)
+        }
         val itemTouchHelper = if (section == EmotePickerSection.FAVORITES) {
             ItemTouchHelper(
                 object : ItemTouchHelper.SimpleCallback(
@@ -188,11 +192,39 @@ class EmotesFragment : Fragment() {
         }
         if (section == EmotePickerSection.FAVORITES && favoriteDragActive) {
             pendingFavoriteItems = list.toList()
+            updateFavoriteEditControls(section, list, adapter)
             updateEmptyState(section, list)
             return
         }
         adapter.submitList(list)
+        updateFavoriteEditControls(section, list, adapter)
         updateEmptyState(section, list)
+    }
+
+    private fun setFavoriteEditMode(enabled: Boolean, adapter: EmotesAdapter) {
+        favoriteEditMode = enabled
+        adapter.setReorderMode(enabled)
+        binding.editFavorites.setText(
+            if (enabled) R.string.done_reordering_favorite_emotes else R.string.reorder_favorite_emotes,
+        )
+    }
+
+    private fun updateFavoriteEditControls(
+        section: EmotePickerSection,
+        list: List<Emote>,
+        adapter: EmotesAdapter,
+    ) {
+        val visible = section == EmotePickerSection.FAVORITES && list.isNotEmpty()
+        if (!visible && favoriteEditMode) {
+            setFavoriteEditMode(false, adapter)
+        }
+        binding.editFavorites.isVisible = visible
+        binding.emotesRecyclerView.setPadding(
+            binding.emotesRecyclerView.paddingLeft,
+            if (visible) resources.getDimensionPixelSize(R.dimen.emote_picker_edit_control_space) else 0,
+            binding.emotesRecyclerView.paddingRight,
+            binding.emotesRecyclerView.paddingBottom,
+        )
     }
 
     private fun updateEmptyState(section: EmotePickerSection, list: List<Emote>) {
@@ -252,6 +284,7 @@ class EmotesFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        favoriteEditMode = false
         _binding = null
     }
 
