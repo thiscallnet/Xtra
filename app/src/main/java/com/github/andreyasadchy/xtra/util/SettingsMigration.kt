@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.util
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import com.github.andreyasadchy.xtra.ui.following.FollowingTabs
 
 /**
  * Owns migrations for the settings redesign. The old settings version is
@@ -429,6 +430,14 @@ object SettingsMigration {
                 putString(C.SETTINGS_PLAYER_SPEED_OPTIONS, speeds)
             }
 
+            FollowingTabs.migrateStoredPreference(preferences.getString(C.UI_FOLLOWING_TABS, null))?.let {
+                putString(C.UI_FOLLOWING_TABS, it)
+            }
+
+            if (preferences.getString(C.UI_NAVIGATION_TAB_LIST, null) == LEGACY_NAVIGATION_TABS) {
+                putString(C.UI_NAVIGATION_TAB_LIST, C.DEFAULT_NAVIGATION_TAB_LIST)
+            }
+
             val legacyControlsAllDisabled = legacyControlPreferencesAllDisabled(preferences)
             val serializedControlLayout = migratedControlLayout(
                 existing = preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
@@ -546,6 +555,8 @@ object SettingsMigration {
             "1:${if (defaultTab == "1") "1" else "0"}:1," +
             "2:${if (defaultTab == "2") "1" else "0"}:1," +
             "3:${if (defaultTab == "3") "1" else "0"}:1"
+
+    private const val LEGACY_NAVIGATION_TABS = "0:0:1,1:1:1,2:0:1,3:0:1"
 
     private fun SharedPreferences.Editor.migrateTheme(preferences: SharedPreferences) {
         if (!preferences.contains(C.SETTINGS_THEME_MODE)) {

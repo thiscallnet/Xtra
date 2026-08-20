@@ -20,11 +20,13 @@ import com.github.andreyasadchy.xtra.db.PlaybackStatesDao
 import com.github.andreyasadchy.xtra.db.RecentEmotesDao
 import com.github.andreyasadchy.xtra.db.TranslatedChannelsDao
 import com.github.andreyasadchy.xtra.db.VideoPositionsDao
+import com.github.andreyasadchy.xtra.db.VideoHistoryDao
 import com.github.andreyasadchy.xtra.graphql.StreamPlaybackAccessTokenQuery
 import com.github.andreyasadchy.xtra.graphql.type.BadgeImageSize
 import com.github.andreyasadchy.xtra.graphql.type.EmoteType
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.VideoPosition
+import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
@@ -95,6 +97,7 @@ class PlayerRepository(
     private val favoriteEmotes: FavoriteEmotesDao,
     private val translatedChannelsDao: TranslatedChannelsDao,
     private val videoPositions: VideoPositionsDao,
+    private val videoHistory: VideoHistoryDao,
     private val playbackStatesDao: PlaybackStatesDao,
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
@@ -2224,6 +2227,16 @@ class PlayerRepository(
 
     suspend fun saveVideoPosition(position: VideoPosition) = withContext(Dispatchers.IO) {
         videoPositions.insert(position)
+    }
+
+    fun loadContinueWatching(limit: Int) = videoHistory.getContinueWatching(limit)
+
+    suspend fun saveVideoHistory(item: VideoHistory) = withContext(Dispatchers.IO) {
+        videoHistory.insert(item)
+    }
+
+    suspend fun saveVideoHistoryPosition(id: Long, position: Long) = withContext(Dispatchers.IO) {
+        videoHistory.updatePosition(id, position, System.currentTimeMillis())
     }
 
     suspend fun deleteVideoPositions() = withContext(Dispatchers.IO) {

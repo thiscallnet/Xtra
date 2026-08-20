@@ -346,6 +346,7 @@ class Media3PlayerViewModel(
     fun saveVideoPosition(id: Long, position: Long) {
         if (loaded.value) {
             playbackPersistence.saveVideoPosition(VideoPosition(id, position))
+            playbackPersistence.saveVideoHistoryPosition(id, position)
         }
     }
 

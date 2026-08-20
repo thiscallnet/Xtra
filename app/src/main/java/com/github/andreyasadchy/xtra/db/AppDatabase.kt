@@ -7,6 +7,7 @@ import com.github.andreyasadchy.xtra.model.NotificationEvent
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.ShownNotification
 import com.github.andreyasadchy.xtra.model.VideoPosition
+import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmote
 import com.github.andreyasadchy.xtra.model.chat.RecentEmote
 import com.github.andreyasadchy.xtra.model.stats.ViewingInterval
@@ -28,6 +29,7 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
         RecentEmote::class,
         FavoriteEmote::class,
         VideoPosition::class,
+        VideoHistory::class,
         LocalChannelFollow::class,
         LocalGameFollow::class,
         Bookmark::class,
@@ -47,7 +49,7 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
         StreamFeedState::class,
         MetadataCacheEntry::class,
     ],
-    version = 47,
+    version = 48,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -56,6 +58,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun recentEmotes(): RecentEmotesDao
     abstract fun favoriteEmotes(): FavoriteEmotesDao
     abstract fun videoPositions(): VideoPositionsDao
+    abstract fun videoHistory(): VideoHistoryDao
     abstract fun localChannelFollows(): LocalChannelFollowsDao
     abstract fun localGameFollows(): LocalGameFollowsDao
     abstract fun bookmarks(): BookmarksDao

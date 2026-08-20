@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.following.channels.FollowedChannelsFragment
 import com.github.andreyasadchy.xtra.ui.following.games.FollowedGamesFragment
+import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewFragment
 import com.github.andreyasadchy.xtra.ui.following.streams.FollowedStreamsFragment
 import com.github.andreyasadchy.xtra.ui.following.videos.FollowedVideosFragment
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
@@ -40,6 +41,7 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
     private val binding get() = _binding!!
 
     private var previousItem = -1
+    private var tabKeys: List<String> = emptyList()
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentById(R.id.fragmentContainer)
@@ -95,43 +97,15 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
                 }
             }
             val showVideosTab = !TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank()
-            val tabList = requireContext().prefs().getString(C.UI_FOLLOWING_TABS, null).let { tabPref ->
-                val defaultTabs = C.DEFAULT_FOLLOWING_TABS.split(',')
-                if (tabPref != null) {
-                    val list = tabPref.split(',').filter { item ->
-                        defaultTabs.find { it.first() == item.first() } != null
-                    }.toMutableList()
-                    defaultTabs.forEachIndexed { index, item ->
-                        if (list.find { it.first() == item.first() } == null) {
-                            list.add(index, item)
-                        }
-                    }
-                    list
-                } else defaultTabs
-            }
-            val tabs = tabList.mapNotNull {
-                val split = it.split(':')
-                val key = split[0]
-                val enabled = split[2] != "0"
-                if (enabled && (key != "2" || showVideosTab)) {
-                    key
-                } else {
-                    null
-                }
-            }
+            val tabPreference = requireContext().prefs().getString(C.UI_FOLLOWING_TABS, null)
+            val tabList = FollowingTabs.resolve(tabPreference)
+            val tabs = FollowingTabs.visibleKeys(tabList, showVideosTab)
+            tabKeys = tabs
             if (tabs.size > 1) {
                 spinner.visibility = View.VISIBLE
             }
             (spinner.editText as? MaterialAutoCompleteTextView)?.apply {
-                setSimpleItems(tabs.map {
-                    when (it) {
-                        "0" -> getString(R.string.games)
-                        "1" -> getString(R.string.live)
-                        "2" -> getString(R.string.videos)
-                        "3" -> getString(R.string.channels)
-                        else -> getString(R.string.live)
-                    }
-                }.toTypedArray().ifEmpty { arrayOf(getString(R.string.live)) })
+                setSimpleItems(tabs.map { getString(FollowingTabs.titleRes(it)) }.toTypedArray().ifEmpty { arrayOf(getString(R.string.live)) })
                 setOnItemClickListener { _, _, position, _ ->
                     if (position != previousItem) {
                         childFragmentManager.beginTransaction().replace(R.id.fragmentContainer, onSpinnerItemSelected(tabs, position)).commit()
@@ -181,12 +155,25 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
 
     private fun onSpinnerItemSelected(tabs: List<String>, position: Int): Fragment {
         return when (tabs.getOrNull(position)) {
+            FollowingTabs.OVERVIEW -> FollowingOverviewFragment()
             "0" -> FollowedGamesFragment()
             "1" -> FollowedStreamsFragment()
             "2" -> FollowedVideosFragment()
             "3" -> FollowedChannelsFragment()
             else -> FollowedStreamsFragment()
         }
+    }
+
+    fun selectFollowingTab(key: String) {
+        val position = tabKeys.indexOf(key).takeIf { it >= 0 } ?: return
+        if (position == previousItem) return
+        previousItem = position
+        (binding.spinner.editText as? MaterialAutoCompleteTextView)?.let { spinner ->
+            spinner.setText(spinner.adapter?.getItem(position)?.toString().orEmpty(), false)
+        }
+        childFragmentManager.beginTransaction()
+            .replace(R.id.fragmentContainer, onSpinnerItemSelected(tabKeys, position))
+            .commit()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

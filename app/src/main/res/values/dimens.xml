@@ -3,4 +3,5 @@
     <dimen name="divider_margin">5dp</dimen>
     <dimen name="settings_section_spacing">8dp</dimen>
     <dimen name="emote_picker_max_height">300dp</dimen>
+    <dimen name="following_overview_bottom_padding">16dp</dimen>
 </resources>

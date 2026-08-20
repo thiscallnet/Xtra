@@ -1037,6 +1037,9 @@ class MainActivity : AppCompatActivity() {
 
     fun startVideo(video: Video, offset: Long?, ignoreSavedPosition: Boolean = false, videoUrl: String? = null) {
         onPlayerChangedPlayback(isLive = false)
+        if (prefs.getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
+            viewModel.saveVideoHistory(video, offset ?: 0)
+        }
         if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(video, offset, ignoreSavedPosition)
@@ -1316,8 +1319,8 @@ class MainActivity : AppCompatActivity() {
                     val enabled = split[2] != "0"
                     if (enabled) {
                         when (key) {
-                            "0" -> menu.add(Menu.NONE, R.id.rootGamesFragment, Menu.NONE, R.string.games).setIcon(R.drawable.ic_games_black_24dp)
-                            "1" -> menu.add(Menu.NONE, R.id.rootTopFragment, Menu.NONE, R.string.popular).setIcon(R.drawable.ic_trending_up_black_24dp)
+                            "0" -> menu.add(Menu.NONE, R.id.rootGamesFragment, Menu.NONE, R.string.browse).setIcon(R.drawable.ic_games_black_24dp)
+                            "1" -> menu.add(Menu.NONE, R.id.rootTopFragment, Menu.NONE, R.string.home).setIcon(R.drawable.baseline_home_black_24)
                             "2" -> {
                                 menu.add(Menu.NONE, R.id.followPagerFragment, Menu.NONE, R.string.following).setIcon(R.drawable.ic_favorite_black_24dp)
                             }

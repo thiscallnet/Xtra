@@ -20,7 +20,18 @@
     <string name="lang_zh_cn" translatable="false">中文（简体）</string>
     <string name="games">Games</string>
     <string name="popular">Popular</string>
+    <string name="home">Home</string>
+    <string name="browse">Browse</string>
     <string name="following">Following</string>
+    <string name="following_overview">Overview</string>
+    <string name="following_categories">Categories</string>
+    <string name="following_live_channels">Live channels</string>
+    <string name="following_no_live_channels">No followed channels are live right now.</string>
+    <string name="following_recommended_channels">Recommended channels</string>
+    <string name="following_no_recommended_channels">Recommendations are unavailable right now.</string>
+    <string name="following_continue_watching">Continue Watching</string>
+    <string name="following_no_continue_watching">Videos you start watching will appear here.</string>
+    <string name="following_see_all">See all</string>
     <string name="downloads">Downloads</string>
     <string name="connection_error">Error connecting to the server. Please try again.</string>
     <string name="chat_reconnecting">Reconnecting to chat…</string>
@@ -1148,6 +1159,9 @@
     <string name="filters">Filters</string>
     <string name="sort_by">Sort by: %1$s</string>
     <string name="following_tabs">Following tabs</string>
+    <string name="following_overview_sections">Following Overview shelves</string>
+    <string name="following_overview_sections_summary">Choose shelves and drag to reorder them</string>
+    <string name="following_no_sections_enabled">No Overview shelves are enabled. Open Settings → Following Overview to add one.</string>
     <string name="saved_tabs">Saved tabs</string>
     <string name="channel_tabs">Channel tabs</string>
     <string name="game_tabs">Game tabs</string>

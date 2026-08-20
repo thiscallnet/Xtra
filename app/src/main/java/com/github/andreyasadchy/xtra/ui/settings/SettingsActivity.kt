@@ -79,6 +79,8 @@ import com.github.andreyasadchy.xtra.model.ui.SettingsDragListItem
 import com.github.andreyasadchy.xtra.model.ui.SettingsSearchItem
 import com.github.andreyasadchy.xtra.ui.account.AccountActivity
 import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
+import com.github.andreyasadchy.xtra.ui.following.FollowingTabs
+import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewSections
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationService
@@ -223,7 +225,12 @@ class SettingsActivity : AppCompatActivity() {
         loginResultLauncher?.launch(Intent(this, LoginActivity::class.java))
     }
 
-    fun showDragListDialog(list: List<SettingsDragListItem>, prefKey: String, title: CharSequence?) {
+    fun showDragListDialog(
+        list: List<SettingsDragListItem>,
+        prefKey: String,
+        title: CharSequence?,
+        showDefaultSelector: Boolean = true,
+    ) {
         val listAdapter = SettingsDragListAdapter()
         val itemTouchHelper = ItemTouchHelper(
             object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
@@ -247,17 +254,19 @@ class SettingsActivity : AppCompatActivity() {
             val padding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10F, resources.displayMetrics).toInt()
             setPadding(0, padding, 0, 0)
         }
-        listAdapter.setDefault = { item ->
-            list.find { it.default }?.let { previous ->
-                previous.default = false
-                recyclerView.findViewHolderForAdapterPosition(
-                    list.indexOf(previous)
-                )?.itemView?.findViewById<ImageButton>(R.id.setAsDefault)?.let {
-                    it.setImageResource(R.drawable.outline_home_black_24)
-                    it.isClickable = true
+        if (showDefaultSelector) {
+            listAdapter.setDefault = { item ->
+                list.find { it.default }?.let { previous ->
+                    previous.default = false
+                    recyclerView.findViewHolderForAdapterPosition(
+                        list.indexOf(previous)
+                    )?.itemView?.findViewById<ImageButton>(R.id.setAsDefault)?.let {
+                        it.setImageResource(R.drawable.outline_home_black_24)
+                        it.isClickable = true
+                    }
                 }
+                item.default = true
             }
-            item.default = true
         }
         itemTouchHelper.attachToRecyclerView(recyclerView)
         listAdapter.submitList(list)
@@ -299,8 +308,8 @@ class SettingsActivity : AppCompatActivity() {
             else -> C.DEFAULT_SEARCH_TABS
         }
         val labels = when (prefKey) {
-            C.UI_NAVIGATION_TAB_LIST -> mapOf("0" to getString(R.string.games), "1" to getString(R.string.popular), "2" to getString(R.string.following), "3" to getString(R.string.saved))
-            C.UI_FOLLOWING_TABS -> mapOf("0" to getString(R.string.games), "1" to getString(R.string.live), "2" to getString(R.string.videos), "3" to getString(R.string.channels))
+            C.UI_NAVIGATION_TAB_LIST -> mapOf("0" to getString(R.string.browse), "1" to getString(R.string.home), "2" to getString(R.string.following), "3" to getString(R.string.saved))
+            C.UI_FOLLOWING_TABS -> FollowingTabs.definitions.associate { it.key to getString(it.titleRes) }
             C.UI_SAVED_TABS -> mapOf("0" to getString(R.string.bookmarks), "1" to getString(R.string.downloads), "2" to getString(R.string.filters))
             C.UI_CHANNEL_TABS -> mapOf("0" to getString(R.string.suggestions), "1" to getString(R.string.videos), "2" to getString(R.string.clips), "3" to getString(R.string.chat), "4" to getString(R.string.about))
             C.UI_GAME_TABS -> mapOf("0" to getString(R.string.videos), "1" to getString(R.string.live), "2" to getString(R.string.clips))
@@ -1038,13 +1047,27 @@ class SettingsActivity : AppCompatActivity() {
             listOf(
                 C.UI_NAVIGATION_TAB_LIST,
                 C.UI_FOLLOWING_TABS,
+                C.UI_FOLLOWING_OVERVIEW_SECTIONS,
                 C.UI_SAVED_TABS,
                 C.UI_CHANNEL_TABS,
                 C.UI_GAME_TABS,
                 C.UI_SEARCH_TABS,
             ).forEach { key ->
                 findPreference<Preference>("${key}_dialog")?.setOnPreferenceClickListener {
-                    activity.showTabDialog(key, it.title)
+                    if (key == C.UI_FOLLOWING_OVERVIEW_SECTIONS) {
+                        val sections = FollowingOverviewSections.resolve(requireContext().prefs().getString(key, null)).map { entry ->
+                            val sectionKey = entry.substringBefore(':')
+                            SettingsDragListItem(
+                                key = sectionKey,
+                                text = getString(FollowingOverviewSections.titleRes(sectionKey)),
+                                default = false,
+                                enabled = entry.substringAfterLast(':') != "0",
+                            )
+                        }.toMutableList()
+                        activity.showDragListDialog(sections, key, it.title, showDefaultSelector = false)
+                    } else {
+                        activity.showTabDialog(key, it.title)
+                    }
                     true
                 }
             }
@@ -1764,11 +1787,11 @@ class SettingsActivity : AppCompatActivity() {
                     SettingsDragListItem(
                         key = split[0],
                         text = when (split[0]) {
-                            "0" -> getString(R.string.games)
-                            "1" -> getString(R.string.popular)
+                            "0" -> getString(R.string.browse)
+                            "1" -> getString(R.string.home)
                             "2" -> getString(R.string.following)
                             "3" -> getString(R.string.saved)
-                            else -> getString(R.string.popular)
+                            else -> getString(R.string.home)
                         },
                         default = split[1] != "0",
                         enabled = split[2] != "0",
@@ -1778,31 +1801,12 @@ class SettingsActivity : AppCompatActivity() {
                 true
             }
             findPreference<Preference>("ui_following_tabs_dialog")?.setOnPreferenceClickListener { preference ->
-                val tabList = requireContext().prefs().getString(C.UI_FOLLOWING_TABS, null).let { tabPref ->
-                    val defaultTabs = C.DEFAULT_FOLLOWING_TABS.split(',')
-                    if (tabPref != null) {
-                        val list = tabPref.split(',').filter { item ->
-                            defaultTabs.find { it.first() == item.first() } != null
-                        }.toMutableList()
-                        defaultTabs.forEachIndexed { index, item ->
-                            if (list.find { it.first() == item.first() } == null) {
-                                list.add(index, item)
-                            }
-                        }
-                        list
-                    } else defaultTabs
-                }
+                val tabList = FollowingTabs.resolve(requireContext().prefs().getString(C.UI_FOLLOWING_TABS, null))
                 val tabs = tabList.map {
                     val split = it.split(':')
                     SettingsDragListItem(
                         key = split[0],
-                        text = when (split[0]) {
-                            "0" -> getString(R.string.games)
-                            "1" -> getString(R.string.live)
-                            "2" -> getString(R.string.videos)
-                            "3" -> getString(R.string.channels)
-                            else -> getString(R.string.live)
-                        },
+                        text = getString(FollowingTabs.titleRes(split[0])),
                         default = split[1] != "0",
                         enabled = split[2] != "0",
                     )
