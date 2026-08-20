@@ -55,7 +55,8 @@ jobs:
         with:
           cache-provider: basic
       - name: Build for CodeQL
-        run: ./gradlew assembleRelease
+        # CodeQL only needs a compilable release graph; publishing validates the real ID.
+        run: ./gradlew assembleRelease "-PtwitchPublicClientId=codeql-placeholder"
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:

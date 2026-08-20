@@ -61,6 +61,7 @@ import com.github.andreyasadchy.xtra.model.ui.Clip
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Video
+import com.github.andreyasadchy.xtra.repository.auth.AuthSessionMaintenanceState
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
@@ -68,6 +69,7 @@ import com.github.andreyasadchy.xtra.ui.download.StreamDownloadService
 import com.github.andreyasadchy.xtra.ui.download.VideoDownloadService
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
+import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel.Companion.MainViewModelFactory
 import com.github.andreyasadchy.xtra.ui.player.BasePlaybackService
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerFragment
@@ -127,7 +129,9 @@ class MainActivity : AppCompatActivity() {
     var settingsResultLauncher: ActivityResultLauncher<Intent>? = null
     var loginResultLauncher: ActivityResultLauncher<Intent>? = null
     var logoutResultLauncher: ActivityResultLauncher<Intent>? = null
+    private var authMaintenanceResultLauncher: ActivityResultLauncher<Intent>? = null
     private val updateRepository by lazy { (application as XtraApp).xtraModule.updateRepository }
+    private val authSessionMaintainer by lazy { (application as XtraApp).xtraModule.authSessionMaintainer }
     private var updateDialog: AlertDialog? = null
     private var updateDialogReleaseId: String? = null
     private var networkSnackbar: Snackbar? = null
@@ -190,6 +194,11 @@ class MainActivity : AppCompatActivity() {
         }
         logoutResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             restartActivity()
+        }
+        authMaintenanceResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                restartActivity()
+            }
         }
 
         var initialized = savedInstanceState != null
@@ -326,6 +335,13 @@ class MainActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 updateRepository.automaticPromptEvents.collectLatest { release ->
                     showUpdateDialog(release)
+                }
+            }
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                authSessionMaintainer.state.collectLatest { state ->
+                    handleAuthMaintenanceState(state)
                 }
             }
         }
@@ -517,6 +533,7 @@ class MainActivity : AppCompatActivity() {
         binding.root.postDelayed({
             if (isFinishing || isDestroyed) return@postDelayed
             startupTasksReady = true
+            handleAuthMaintenanceState(authSessionMaintainer.state.value)
             runDeferredStartupTasks()
         }, 250L)
     }
@@ -561,19 +578,44 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleNetworkAvailable() {
         (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.onNetworkRestored()
-        if (!TwitchApiHelper.checkedValidation) {
-            viewModel.validate(
-                prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                TwitchApiHelper.getGQLHeaders(this, true),
-                prefs.getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB),
-                tokenPrefs().getString(C.GQL_TOKEN_WEB, null)?.takeIf { it.isNotBlank() }?.let { TwitchApiHelper.addTokenPrefixGQL(it) },
-                TwitchApiHelper.getHelixHeaders(this),
-                tokenPrefs().getString(C.USER_ID, null),
-                tokenPrefs().getString(C.USERNAME, null),
-                this
-            )
-        }
+        validateSessionIfDue()
         checkUpdatesIfDue()
+    }
+
+    private fun validateSessionIfDue() {
+        if (!startupTasksReady || !hasValidatedNetwork()) return
+        lifecycleScope.launch {
+            authSessionMaintainer.validateIfDue()
+        }
+    }
+
+    private fun handleAuthMaintenanceState(state: AuthSessionMaintenanceState) {
+        if (!startupTasksReady || isFinishing || isDestroyed) return
+        val launcher = authMaintenanceResultLauncher ?: return
+        when (state) {
+            AuthSessionMaintenanceState.REAUTHORIZATION_REQUIRED -> {
+                if (authSessionMaintainer.consumeReauthorizationRequest() == state) {
+                    Toast.makeText(this, R.string.token_expired, Toast.LENGTH_LONG).show()
+                    launcher.launch(
+                        Intent(this, LoginActivity::class.java)
+                            .putExtra(LoginActivity.EXTRA_REAUTHORIZE, true),
+                    )
+                }
+            }
+            AuthSessionMaintenanceState.COMPATIBILITY_REAUTHORIZATION_REQUIRED -> {
+                if (authSessionMaintainer.consumeReauthorizationRequest() == state) {
+                    Toast.makeText(this, R.string.login_compatibility_unavailable, Toast.LENGTH_LONG).show()
+                    launcher.launch(
+                        Intent(this, LoginActivity::class.java)
+                            .putExtra(LoginActivity.EXTRA_COMPATIBILITY_ONLY, true),
+                    )
+                }
+            }
+            AuthSessionMaintenanceState.IDLE,
+            AuthSessionMaintenanceState.VALID,
+            AuthSessionMaintenanceState.TRANSIENT_FAILURE,
+            -> Unit
+        }
     }
 
     private fun showUpdateDialog(release: UpdateRelease) {

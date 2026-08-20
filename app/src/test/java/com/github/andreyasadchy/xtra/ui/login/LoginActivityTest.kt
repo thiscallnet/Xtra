@@ -1,88 +1,251 @@
 package com.github.andreyasadchy.xtra.ui.login
 
+import com.github.andreyasadchy.xtra.model.id.DeviceCodeResponse
+import com.github.andreyasadchy.xtra.model.id.TokenResponse
+import com.github.andreyasadchy.xtra.repository.auth.AuthSession
+import com.github.andreyasadchy.xtra.repository.auth.DeviceAuthorizationPoller
+import com.github.andreyasadchy.xtra.repository.auth.REAUTHORIZATION_ACCOUNT_SCOPES
+import com.github.andreyasadchy.xtra.repository.auth.TwitchAuthHttpException
+import com.github.andreyasadchy.xtra.repository.auth.hasRequiredReauthorizationScopes
+import com.github.andreyasadchy.xtra.repository.auth.isReauthorizationUserAllowed
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LoginActivityTest {
+    private val deviceAuthorization = DeviceCodeResponse(
+        deviceCode = "device-code",
+        userCode = "ABCD-EFGH",
+        verificationUri = "https://www.twitch.tv/activate?public=true&device-code=ABCD-EFGH",
+        expiresIn = 60,
+        interval = 2,
+    )
 
     @Test
-    fun `login API values are bounded and invalid values use Both`() {
-        assertEquals(0, parseLoginApi(null))
-        assertEquals(0, parseLoginApi("0"))
-        assertEquals(1, parseLoginApi("1"))
-        assertEquals(2, parseLoginApi("2"))
-        assertEquals(0, parseLoginApi("not-a-number"))
-        assertEquals(0, parseLoginApi("-1"))
-        assertEquals(2, parseLoginApi("3"))
+    fun `device response parses every field and preserves verification uri`() {
+        val response = Json.decodeFromString<DeviceCodeResponse>(
+            """
+            {
+              "device_code":"device-code",
+              "user_code":"ABCD-EFGH",
+              "verification_uri":"https://www.twitch.tv/activate?public=true&device-code=ABCD-EFGH",
+              "expires_in":600,
+              "interval":5
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("device-code", response.deviceCode)
+        assertEquals("ABCD-EFGH", response.userCode)
+        assertEquals(response.verificationUri, selectVerificationUri(response))
+        assertEquals(600, response.expiresIn)
+        assertEquals(5, response.interval)
     }
 
     @Test
-    fun `reauthorization always uses Helix while normal login preserves the selected mode`() {
-        assertEquals(HELIX_ONLY_LOGIN_API, resolveLoginApi("0", reauthorize = true))
-        assertEquals(HELIX_ONLY_LOGIN_API, resolveLoginApi("1", reauthorize = true))
-        assertEquals(HELIX_ONLY_LOGIN_API, resolveLoginApi("2", reauthorize = true))
-        assertEquals(0, resolveLoginApi("0", reauthorize = false))
-        assertEquals(1, resolveLoginApi("1", reauthorize = false))
-        assertEquals(2, resolveLoginApi("2", reauthorize = false))
+    fun `complete verification uri takes precedence when Twitch returns both urls`() {
+        val response = deviceAuthorization.copy(
+            verificationUriComplete = "https://www.twitch.tv/activate?device-code=complete",
+        )
+
+        assertEquals(response.verificationUriComplete, selectVerificationUri(response))
     }
 
     @Test
-    fun `reauthorization preserves an existing session while normal login clears it`() {
-        assertFalse(shouldClearExistingSession(hasExistingSession = false, reauthorize = false))
-        assertTrue(shouldClearExistingSession(hasExistingSession = true, reauthorize = false))
-        assertFalse(shouldClearExistingSession(hasExistingSession = true, reauthorize = true))
-    }
-
-    @Test
-    fun `reauthorization only accepts the existing Twitch user`() {
-        assertTrue(isReauthorizationUserAllowed(reauthorize = true, previousUserId = "1", newUserId = "1"))
-        assertFalse(isReauthorizationUserAllowed(reauthorize = true, previousUserId = "1", newUserId = "2"))
-        assertTrue(isReauthorizationUserAllowed(reauthorize = false, previousUserId = "1", newUserId = "2"))
-        assertFalse(isReauthorizationUserAllowed(reauthorize = true, previousUserId = null, newUserId = "2"))
-    }
-
-    @Test
-    fun `reauthorization requires a new valid Helix token even when GQL is valid`() {
-        assertFalse(
-            canCompleteReauthorization(
-                reauthorize = true,
-                helixToken = null,
-                helixScopes = REAUTHORIZATION_ACCOUNT_SCOPES,
-                helixValidationFailed = false,
+    fun `poller waits for the returned interval through pending responses`() {
+        var now = 0L
+        val delays = mutableListOf<Long>()
+        val responses = ArrayDeque(
+            listOf(
+                TokenResponse(error = "authorization_pending"),
+                TokenResponse(error = "authorization_pending"),
+                TokenResponse(error = "authorization_pending"),
+                successfulToken(),
             ),
         )
-        assertFalse(
-            canCompleteReauthorization(
-                reauthorize = true,
-                helixToken = "old-helix-token",
-                helixScopes = REAUTHORIZATION_ACCOUNT_SCOPES,
-                helixValidationFailed = true,
-                identityMismatch = true,
-            ),
-        )
-        assertTrue(
-            canCompleteReauthorization(
-                reauthorize = true,
-                helixToken = "new-helix-token",
-                helixScopes = REAUTHORIZATION_ACCOUNT_SCOPES,
-                helixValidationFailed = false,
-            ),
-        )
-        assertTrue(
-            canCompleteReauthorization(
-                reauthorize = false,
-                helixToken = null,
-                helixScopes = emptySet(),
-                helixValidationFailed = true,
-            ),
-        )
+
+        val result = runBlocking {
+            DeviceAuthorizationPoller(
+                requestToken = { _, _ -> responses.removeFirst() },
+                delayMillis = { millis -> delays += millis; now += millis },
+                nowMillis = { now },
+            ).poll(deviceAuthorization, listOf("user:read:follows"))
+        }
+
+        assertEquals("new-access-token", result.accessToken)
+        assertEquals(listOf(2_000L, 2_000L, 2_000L, 2_000L), delays)
     }
 
     @Test
-    fun `reauthorization requires all account scopes`() {
+    fun `poller accepts Twitch documented pending message response`() {
+        var now = 0L
+        val responses = ArrayDeque(
+            listOf(
+                Json.decodeFromString<TokenResponse>(
+                    """{"status":400,"message":"authorization_pending"}""",
+                ),
+                successfulToken(),
+            ),
+        )
+
+        val result = runBlocking {
+            DeviceAuthorizationPoller(
+                requestToken = { _, _ -> responses.removeFirst() },
+                delayMillis = { millis -> now += millis },
+                nowMillis = { now },
+            ).poll(deviceAuthorization, listOf("user:read:follows"))
+        }
+
+        assertEquals("new-access-token", result.accessToken)
+    }
+
+    @Test
+    fun `poller stops at expiration without another request`() {
+        var now = 0L
+        var requests = 0
+        val delays = mutableListOf<Long>()
+        val expiring = deviceAuthorization.copy(expiresIn = 2, interval = 1)
+
+        val error = runCatching {
+            runBlocking {
+                DeviceAuthorizationPoller(
+                    requestToken = { _, _ ->
+                        requests += 1
+                        TokenResponse(error = "authorization_pending")
+                    },
+                    delayMillis = { millis -> delays += millis; now += millis },
+                    nowMillis = { now },
+                ).poll(expiring, listOf("user:read:follows"))
+            }
+        }.exceptionOrNull()
+
+        assertTrue(error?.message?.contains("expired", ignoreCase = true) == true)
+        assertEquals(1, requests)
+        assertEquals(listOf(1_000L, 1_000L), delays)
+    }
+
+    @Test
+    fun `poller retries temporary network failures with a bound`() {
+        var now = 0L
+        var attempts = 0
+        val delays = mutableListOf<Long>()
+
+        val result = runBlocking {
+                DeviceAuthorizationPoller(
+                requestToken = { _, _ ->
+                    attempts += 1
+                    if (attempts < 3) throw IllegalStateException("temporary network error")
+                    successfulToken()
+                },
+                delayMillis = { millis -> delays += millis; now += millis },
+                nowMillis = { now },
+            ).poll(deviceAuthorization, listOf("user:read:follows"))
+        }
+
+        assertEquals("new-access-token", result.accessToken)
+        assertEquals(3, attempts)
+        assertEquals(listOf(2_000L, 2_000L, 2_000L), delays)
+    }
+
+    @Test
+    fun `poller retries Twitch server errors`() {
+        var now = 0L
+        var attempts = 0
+        val delays = mutableListOf<Long>()
+
+        val result = runBlocking {
+                DeviceAuthorizationPoller(
+                requestToken = { _, _ ->
+                    attempts += 1
+                    if (attempts < 3) throw TwitchAuthHttpException(503)
+                    successfulToken()
+                },
+                delayMillis = { millis -> delays += millis; now += millis },
+                nowMillis = { now },
+            ).poll(deviceAuthorization, listOf("user:read:follows"))
+        }
+
+        assertEquals("new-access-token", result.accessToken)
+        assertEquals(3, attempts)
+        assertEquals(listOf(2_000L, 2_000L, 2_000L), delays)
+    }
+
+    @Test
+    fun `poller propagates cancellation instead of retrying`() {
+        var attempts = 0
+        val error = runCatching {
+            runBlocking {
+                DeviceAuthorizationPoller(
+                    requestToken = { _, _ ->
+                        attempts += 1
+                        throw CancellationException("cancelled")
+                    },
+                    delayMillis = {},
+                    nowMillis = { 2_000L },
+                ).poll(deviceAuthorization, listOf("user:read:follows"))
+            }
+        }.exceptionOrNull()
+
+        assertTrue(error is CancellationException)
+        assertEquals(1, attempts)
+    }
+
+    @Test
+    fun `slow down increases the next polling interval`() {
+        var now = 0L
+        val delays = mutableListOf<Long>()
+        val responses = ArrayDeque(
+            listOf(
+                TokenResponse(error = "slow_down"),
+                successfulToken(),
+            ),
+        )
+
+        runBlocking {
+            DeviceAuthorizationPoller(
+                requestToken = { _, _ -> responses.removeFirst() },
+                delayMillis = { millis -> delays += millis; now += millis },
+                nowMillis = { now },
+            ).poll(deviceAuthorization, listOf("user:read:follows"))
+        }
+
+        assertEquals(listOf(2_000L, 7_000L), delays)
+    }
+
+    @Test
+    fun `reauthorization requires the same account and account scopes`() {
+        assertTrue(isReauthorizationUserAllowed(true, "1", "1"))
+        assertFalse(isReauthorizationUserAllowed(true, "1", "2"))
+        assertFalse(isReauthorizationUserAllowed(true, null, "1"))
         assertTrue(hasRequiredReauthorizationScopes(REAUTHORIZATION_ACCOUNT_SCOPES))
         assertFalse(hasRequiredReauthorizationScopes(REAUTHORIZATION_ACCOUNT_SCOPES - "user:edit"))
     }
+
+    @Test
+    fun `session expiry uses a safety window`() {
+        val session = AuthSession(
+            clientId = "client",
+            accessToken = "access",
+            refreshToken = "refresh",
+            expiresAtMillis = 100_000,
+            userId = "1",
+            login = "viewer",
+            scopes = emptySet(),
+        )
+
+        assertFalse(session.isAccessTokenExpired(nowMillis = 38_000))
+        assertTrue(session.isAccessTokenExpired(nowMillis = 40_000))
+    }
+
+    private fun successfulToken() = TokenResponse(
+        accessToken = "new-access-token",
+        refreshToken = "new-refresh-token",
+        expiresIn = 14_400,
+        scopes = listOf("user:read:follows"),
+        tokenType = "bearer",
+    )
 }

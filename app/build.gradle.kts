@@ -13,6 +13,14 @@ val applicationVersionCode = providers.gradleProperty("ciVersionCode")
     .orNull
     ?.toInt()
     ?: defaultVersionCode
+val twitchPublicClientId = providers.gradleProperty("twitchPublicClientId").orElse("").get()
+val releaseTaskRequested = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+
+if (releaseTaskRequested) {
+    require(twitchPublicClientId.isNotBlank()) {
+        "twitchPublicClientId is required for release builds"
+    }
+}
 
 require(applicationVersionCode in 1..2_100_000_000) {
     "versionCode must be between 1 and 2,100,000,000"
@@ -42,6 +50,11 @@ android {
         versionCode = applicationVersionCode
         versionName = applicationVersionName
         buildConfigField("int", "CI_VERSION_CODE_BASE", defaultVersionCode.toString())
+        buildConfigField(
+            "String",
+            "TWITCH_PUBLIC_CLIENT_ID",
+            "\"${twitchPublicClientId.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+        )
     }
 
     buildTypes {
@@ -105,6 +118,7 @@ dependencies {
 
     implementation(libs.activity)
     implementation(libs.appcompat)
+    implementation(libs.browser)
     implementation(libs.constraintlayout)
     implementation(libs.coordinatorlayout)
     implementation(libs.core)

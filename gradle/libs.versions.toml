@@ -3,6 +3,7 @@ activity = "1.13.0"
 android-gradle-plugin = "9.3.1"
 apollo = "5.0.1"
 appcompat = "1.7.1"
+browser = "1.9.0"
 coil = "3.5.0"
 conscrypt = "2.6.1"
 constraintlayout = "2.2.2"
@@ -35,6 +36,7 @@ work = "2.11.2"
 activity = { module = "androidx.activity:activity", version.ref = "activity" }
 apollo-api = { module = "com.apollographql.apollo:apollo-api", version.ref = "apollo" }
 appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
+browser = { module = "androidx.browser:browser", version.ref = "browser" }
 coil = { module = "io.coil-kt.coil3:coil", version.ref = "coil" }
 coil-gif = { module = "io.coil-kt.coil3:coil-gif", version.ref = "coil" }
 coil-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }

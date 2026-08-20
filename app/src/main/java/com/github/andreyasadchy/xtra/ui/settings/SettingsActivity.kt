@@ -144,9 +144,8 @@ class SettingsActivity : AppCompatActivity() {
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
         loginResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val wasLogout = accountActionIsLogout
             accountActionIsLogout = false
-            if (wasLogout || result.resultCode == RESULT_OK) {
+            if (result.resultCode == RESULT_OK) {
                 setResult(RESULT_OK)
                 finish()
             }
@@ -222,7 +221,10 @@ class SettingsActivity : AppCompatActivity() {
 
     fun openAccountAction() {
         accountActionIsLogout = isAccountConnected()
-        loginResultLauncher?.launch(Intent(this, LoginActivity::class.java))
+        loginResultLauncher?.launch(
+            Intent(this, LoginActivity::class.java)
+                .putExtra(LoginActivity.EXTRA_LOGOUT, accountActionIsLogout),
+        )
     }
 
     fun showDragListDialog(

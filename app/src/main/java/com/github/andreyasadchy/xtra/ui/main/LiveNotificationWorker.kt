@@ -4,6 +4,8 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.repository.auth.AuthSessionMaintenanceState
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
@@ -28,6 +30,10 @@ class LiveNotificationWorker(
         val baselineOnly = inputData.getBoolean(INPUT_BASELINE_ONLY, false)
 
         try {
+            val authMaintainer = (context.applicationContext as? XtraApp)?.xtraModule?.authSessionMaintainer
+            if (authMaintainer?.validateIfDue() == AuthSessionMaintenanceState.REAUTHORIZATION_REQUIRED) {
+                return Result.success()
+            }
             val result = monitor.poll(baselineOnly = baselineOnly)
             recordSuccess(startedAt, result.delivered, result.api)
             Log.d(TAG, "Live notification reconciliation completed in ${SystemClock.elapsedRealtime() - startElapsed}ms; delivered=${result.delivered}")

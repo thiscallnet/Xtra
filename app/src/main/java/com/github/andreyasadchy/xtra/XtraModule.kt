@@ -28,6 +28,7 @@ import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.SavedFiltersRepository
 import com.github.andreyasadchy.xtra.repository.ViewingStatsRepository
+import com.github.andreyasadchy.xtra.repository.auth.AuthSessionMaintainer
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPager
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
@@ -415,6 +416,10 @@ class XtraModule(application: Application) {
 
     val authRepository by lazy {
         AuthRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json)
+    }
+
+    val authSessionMaintainer by lazy {
+        AuthSessionMaintainer(application, authRepository)
     }
 
     val bookmarksRepository by lazy {

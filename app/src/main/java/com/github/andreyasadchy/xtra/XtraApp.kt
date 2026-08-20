@@ -51,6 +51,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         INSTANCE = this
         xtraModule = XtraModule(this)
+        xtraModule.authSessionMaintainer.start(applicationScope)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 val wasInBackground = startedActivityCount == 0
