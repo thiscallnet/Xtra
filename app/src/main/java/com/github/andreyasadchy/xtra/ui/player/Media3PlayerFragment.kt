@@ -1524,11 +1524,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (!isMaximized || resizeMode != AspectRatioFrameLayout.RESIZE_MODE_FIT) return chatWidthLandscape
 
         val availableWidth = binding.slidingLayout.width - binding.slidingLayout.paddingLeft - binding.slidingLayout.paddingRight
-        val availableHeight = binding.slidingLayout.height - binding.slidingLayout.paddingTop - binding.slidingLayout.paddingBottom
-        if (availableWidth <= 0 || availableHeight <= 0) return chatWidthLandscape
-
-        val widthNeededForVideo = (availableHeight * (16f / 9f)).toInt()
-        return max(chatWidthLandscape, (availableWidth - widthNeededForVideo).coerceAtLeast(0))
+        return clampLandscapeChatWidth(chatWidthLandscape, availableWidth)
     }
 
     protected fun setQualityButtonColor(color: Int) {

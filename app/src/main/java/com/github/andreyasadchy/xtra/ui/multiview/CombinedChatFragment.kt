@@ -38,6 +38,8 @@ import com.github.andreyasadchy.xtra.ui.chat.ReplyClickedDialog
 import com.github.andreyasadchy.xtra.ui.multiview.chat.CombinedChatMessage
 import com.github.andreyasadchy.xtra.ui.multiview.chat.CombinedChatViewModel
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.DEFAULT_CHAT_BADGE_SIZE_DP
+import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.chip.Chip
 import com.google.android.material.color.MaterialColors
@@ -406,6 +408,7 @@ private class CombinedChatAdapter(
                 nameDisplay = preferences.getString(C.UI_NAME_DISPLAY, "0"),
                 useBoldNames = preferences.getBoolean(C.CHAT_BOLD_NAMES, false),
                 showNamePaints = preferences.getBoolean(C.CHAT_SHOW_PAINTS, true),
+                showBadges = preferences.getBoolean(C.CHAT_SHOW_BADGES, true),
                 showSTVBadges = preferences.getBoolean(C.CHAT_SHOW_STV_BADGES, true),
                 showPersonalEmotes = preferences.getBoolean(C.CHAT_SHOW_PERSONAL_EMOTES, true),
                 showSystemMessageEmotes = preferences.getBoolean(C.CHAT_SYSTEM_MESSAGE_EMOTES, true),
@@ -423,7 +426,12 @@ private class CombinedChatAdapter(
                 ).toInt(),
                 badgeSize = TypedValue.applyDimension(
                     TypedValue.COMPLEX_UNIT_DIP,
-                    18.5f * sizeModifier,
+                    chatBadgeSizeOrDefault(preferences.getString(C.CHAT_BADGE_SIZE, DEFAULT_CHAT_BADGE_SIZE_DP.toString())) * sizeModifier,
+                    fragment.resources.displayMetrics,
+                ).toInt(),
+                inlineIconSize = TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP,
+                    DEFAULT_CHAT_BADGE_SIZE_DP * sizeModifier,
                     fragment.resources.displayMetrics,
                 ).toInt(),
                 emoteQuality = "4",
