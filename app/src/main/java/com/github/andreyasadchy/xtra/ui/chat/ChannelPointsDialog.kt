@@ -504,6 +504,7 @@ class ChannelPointsDialog : DialogFragment() {
                 )
                 val picker = RecyclerView(requireContext()).apply {
                     itemAnimator = null
+                    setPadding(dp(10), 0, dp(10), 0)
                     this.adapter = adapter
                     layoutManager = GridAutofitLayoutManager(requireContext(), dp(50))
                 }

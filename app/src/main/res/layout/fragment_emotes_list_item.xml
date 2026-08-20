@@ -4,11 +4,7 @@
     android:layout_width="48dp"
     android:layout_height="48dp"
     android:layout_marginTop="5dp"
-    android:layout_marginBottom="5dp"
-    android:layout_marginLeft="10dp"
-    android:layout_marginStart="10dp"
-    android:layout_marginRight="10dp"
-    android:layout_marginEnd="10dp">
+    android:layout_marginBottom="5dp">
 
     <ImageButton
         android:id="@+id/emote"
