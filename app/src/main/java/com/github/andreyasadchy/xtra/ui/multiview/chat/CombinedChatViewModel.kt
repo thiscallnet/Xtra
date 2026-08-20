@@ -13,6 +13,8 @@ import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel
 import com.github.andreyasadchy.xtra.ui.multiview.CombinedChatPresentationPolicy
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -31,7 +33,7 @@ class CombinedChatViewModel(
     private var sequence = 0L
     private var lifecycleStarted = false
     private val _updates = MutableSharedFlow<Unit>(
-        extraBufferCapacity = 64,
+        extraBufferCapacity = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val updates: SharedFlow<Unit> = _updates
@@ -90,12 +92,17 @@ class CombinedChatViewModel(
     }
 
     private fun observe(session: ChannelSession) {
-        session.jobs += viewModelScope.launch {
+        // ChatViewModel.onMessage waits for this collector. Keep the work off Main,
+        // but subscribe before startLive can deliver the first message.
+        session.jobs += viewModelScope.launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
             session.viewModel.newMessage.collect { result ->
+                if (result.third > 0) {
+                    session.viewModel.trimMessageOverflow()
+                }
                 append(session, result.first)
             }
         }
-        session.jobs += viewModelScope.launch {
+        session.jobs += viewModelScope.launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
             session.viewModel.addMessages.collect { result ->
                 prependHistory(session, result.first)
             }
@@ -112,7 +119,7 @@ class CombinedChatViewModel(
                         }
                     }
                 }
-                _updates.emit(Unit)
+                _updates.tryEmit(Unit)
             }
         }
         session.jobs += viewModelScope.launch {
@@ -120,20 +127,20 @@ class CombinedChatViewModel(
                 if (reload) {
                     session.renderGeneration = CombinedChatPresentationPolicy.nextRenderGeneration(session.renderGeneration)
                     session.viewModel.reloadMessages.value = false
-                    _updates.emit(Unit)
+                    _updates.tryEmit(Unit)
                 }
             }
         }
         session.jobs += viewModelScope.launch {
             session.viewModel.thirdPartyEmotesUpdated.collect {
                 session.renderGeneration = CombinedChatPresentationPolicy.nextRenderGeneration(session.renderGeneration)
-                _updates.emit(Unit)
+                _updates.tryEmit(Unit)
             }
         }
         session.jobs += viewModelScope.launch {
             session.viewModel.userEmotesUpdated.collect {
                 session.renderGeneration = CombinedChatPresentationPolicy.nextRenderGeneration(session.renderGeneration)
-                _updates.emit(Unit)
+                _updates.tryEmit(Unit)
             }
         }
         session.jobs += viewModelScope.launch {
@@ -164,12 +171,13 @@ class CombinedChatViewModel(
                 channelLogin = channelLogin,
                 channelName = stream.channelName,
                 streamId = stream.id,
+                readOnly = true,
             )
             session.hasStarted = true
         } else {
             // Match ChatFragment.reconnect(): restart the live transport and
             // rehydrate recent messages without recreating the ViewModel.
-            session.viewModel.startLiveChat(stream.channelId, channelLogin)
+            session.viewModel.startLiveChat(stream.channelId, channelLogin, readOnly = true)
             if (preferences.getBoolean(C.CHAT_RECENT, true)) {
                 session.viewModel.loadRecentMessages(
                     preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP),
@@ -228,7 +236,7 @@ class CombinedChatViewModel(
 
     private class ChannelSession(
         val identity: String,
-        var stream: Stream,
+        @Volatile var stream: Stream,
         val viewModel: ChatViewModel,
     ) {
         val jobs = mutableListOf<Job>()
