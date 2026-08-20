@@ -34,6 +34,9 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.concurrent.atomic.AtomicLong
@@ -61,7 +64,10 @@ class UpdateRepository(
     private val settingsPreferences = context.prefs()
     private val scope = CoroutineScope(SupervisorJob() + coroutineDispatcher)
     private val ready = CompletableDeferred<Unit>()
+    private val historyJson = Json { ignoreUnknownKeys = true }
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    private val _releaseHistory = MutableStateFlow<List<UpdateRelease>>(emptyList())
+    private val _releaseHistoryComplete = MutableStateFlow(false)
     /**
      * A one-shot automatic prompt. Checks while MainActivity is not STARTED may lose this event
      * intentionally; the persisted Available state and Settings indicator remain authoritative,
@@ -94,11 +100,17 @@ class UpdateRepository(
     private var lastCheckUrl: String = C.DEFAULT_UPDATE_URL
 
     val state: StateFlow<UpdateState> = _state.asStateFlow()
+    val releaseHistory: StateFlow<List<UpdateRelease>> = _releaseHistory.asStateFlow()
+    val releaseHistoryComplete: StateFlow<Boolean> = _releaseHistoryComplete.asStateFlow()
     val automaticPromptEvents: SharedFlow<UpdateRelease> = _automaticPromptEvents.asSharedFlow()
 
     init {
         scope.launch {
             try {
+                val persistedHistory = loadPersistedReleaseHistory()
+                _releaseHistory.value = persistedHistory
+                _releaseHistoryComplete.value = loadPersistedReleaseHistoryComplete(persistedHistory)
+                compactPersistedReleaseHistory(persistedHistory)
                 recoverPersistedState()
             } finally {
                 ready.complete(Unit)
@@ -140,6 +152,12 @@ class UpdateRepository(
                         ensureCurrentCheck(generation)
                         val release = (parsed as? ReleaseParseResult.Success)?.release
                             ?: throw UpdateException((parsed as ReleaseParseResult.Failure).error, stage = UpdateStage.PARSE)
+                        when (val history = fetchReleaseHistory(url, networkLibrary, generation)) {
+                            is ReleaseHistoryResult.Complete -> updateReleaseHistory(history.releases + release)
+                            is ReleaseHistoryResult.Partial,
+                            ReleaseHistoryResult.Unavailable -> markReleaseHistoryIncomplete()
+                        }
+                        ensureCurrentCheck(generation)
                         val now = System.currentTimeMillis()
                         val deferred = isDeferred(release)
                         when (UpdatePolicy.decide(
@@ -327,7 +345,11 @@ class UpdateRepository(
                             remove(C.UPDATE_LAST_ATTEMPTED)
                             remove(C.UPDATE_NOT_NOW_VERSION)
                             remove(C.UPDATE_NOT_NOW_UNTIL)
+                            remove(C.UPDATE_RELEASE_HISTORY)
+                            remove(C.UPDATE_RELEASE_HISTORY_COMPLETE)
                         }
+                        _releaseHistory.value = emptyList()
+                        _releaseHistoryComplete.value = false
                         _state.value = UpdateState.Idle
                     }
                 }
@@ -678,6 +700,21 @@ class UpdateRepository(
     val ignoredReleaseId: String?
         get() = preferences.getString(C.UPDATE_IGNORED_VERSION, null)
 
+    fun releasesSinceInstalled(fallbackRelease: UpdateRelease? = null): List<UpdateRelease> =
+        if (_releaseHistoryComplete.value) {
+            UpdateReleaseHistory.sinceInstalled(
+                releases = _releaseHistory.value,
+                installedVersionName = BuildConfig.VERSION_NAME,
+                installedBuildNumber = installedBuildNumber,
+                fallbackRelease = fallbackRelease,
+            )
+        } else {
+            emptyList()
+        }
+
+    fun recentReleases(fallbackRelease: UpdateRelease? = null): List<UpdateRelease> =
+        UpdateReleaseHistory.recent(_releaseHistory.value, fallbackRelease)
+
     private val installedBuildNumber: Long?
         get() = UpdateVersionDisplay.installedBuildNumber(
             BuildConfig.VERSION_CODE.toLong(),
@@ -736,6 +773,107 @@ class UpdateRepository(
         val persistedReleaseId = preferences.getString(C.UPDATE_AVAILABLE_VERSION, null)
         if (UpdatePolicy.shouldDiscardPersistedRelease(persistedReleaseId, remoteReleaseId)) {
             clearReleaseAndDownload()
+        }
+    }
+
+    private sealed interface ReleaseHistoryResult {
+        data class Complete(val releases: List<UpdateRelease>) : ReleaseHistoryResult
+        data class Partial(val releases: List<UpdateRelease>) : ReleaseHistoryResult
+        data object Unavailable : ReleaseHistoryResult
+    }
+
+    private suspend fun fetchReleaseHistory(
+        url: String,
+        networkLibrary: String?,
+        generation: Long,
+    ): ReleaseHistoryResult {
+        val releases = mutableListOf<UpdateRelease>()
+        var page = 1
+        while (page <= MAX_RELEASE_HISTORY_PAGES) {
+            ensureCurrentCheck(generation)
+            val response = try {
+                releaseClient.fetchHistory(url, networkLibrary, page)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                runCatching { android.util.Log.w(TAG, "Could not load update history page $page", error) }
+                return releases.takeIf { it.isNotEmpty() }
+                    ?.let(ReleaseHistoryResult::Partial)
+                    ?: ReleaseHistoryResult.Unavailable
+            } ?: return releases.takeIf { it.isNotEmpty() }
+                ?.let(ReleaseHistoryResult::Partial)
+                ?: ReleaseHistoryResult.Unavailable
+            val pageReleases = ReleaseParser.parseHistory(response, url)
+            releases += pageReleases.filter { release ->
+                UpdatePolicy.isNewer(BuildConfig.VERSION_NAME, installedBuildNumber, release)
+            }
+            val reachedInstalledBuild = pageReleases.any { release ->
+                !UpdatePolicy.isNewer(BuildConfig.VERSION_NAME, installedBuildNumber, release)
+            }
+            if (response.size < RELEASE_HISTORY_PAGE_SIZE || reachedInstalledBuild) {
+                return ReleaseHistoryResult.Complete(releases)
+            }
+            page += 1
+        }
+        return releases.takeIf { it.isNotEmpty() }
+            ?.let(ReleaseHistoryResult::Partial)
+            ?: ReleaseHistoryResult.Unavailable
+    }
+
+    private fun updateReleaseHistory(releases: List<UpdateRelease>) {
+        val merged = UpdateReleaseHistory.retainForInstalled(
+            releases = releases + _releaseHistory.value,
+            installedVersionName = BuildConfig.VERSION_NAME,
+            installedBuildNumber = installedBuildNumber,
+        )
+        val compacted = merged
+            .map(UpdateRelease::toCachedHistory)
+            .map(CachedUpdateRelease::toUpdateRelease)
+        _releaseHistory.value = compacted
+        _releaseHistoryComplete.value = true
+        preferences.edit {
+            putString(
+                C.UPDATE_RELEASE_HISTORY,
+                historyJson.encodeToString(compacted.map(UpdateRelease::toCachedHistory)),
+            )
+            putBoolean(C.UPDATE_RELEASE_HISTORY_COMPLETE, true)
+        }
+    }
+
+    private fun markReleaseHistoryIncomplete() {
+        _releaseHistoryComplete.value = false
+        preferences.edit { putBoolean(C.UPDATE_RELEASE_HISTORY_COMPLETE, false) }
+    }
+
+    private fun loadPersistedReleaseHistory(): List<UpdateRelease> = preferences
+        .getString(C.UPDATE_RELEASE_HISTORY, null)
+        ?.let { encoded ->
+            runCatching {
+                UpdateReleaseHistory.retainForInstalled(
+                    releases = historyJson.decodeFromString<List<CachedUpdateRelease>>(encoded)
+                        .map(CachedUpdateRelease::toUpdateRelease),
+                    installedVersionName = BuildConfig.VERSION_NAME,
+                    installedBuildNumber = installedBuildNumber,
+                )
+            }.getOrDefault(emptyList())
+        }
+        .orEmpty()
+
+    private fun loadPersistedReleaseHistoryComplete(history: List<UpdateRelease>): Boolean = preferences
+        .getBoolean(C.UPDATE_RELEASE_HISTORY_COMPLETE, false) && history.isNotEmpty()
+
+    private fun compactPersistedReleaseHistory(history: List<UpdateRelease>) {
+        if (!preferences.contains(C.UPDATE_RELEASE_HISTORY)) return
+        preferences.edit {
+            if (history.isEmpty()) {
+                remove(C.UPDATE_RELEASE_HISTORY)
+                remove(C.UPDATE_RELEASE_HISTORY_COMPLETE)
+            } else {
+                putString(
+                    C.UPDATE_RELEASE_HISTORY,
+                    historyJson.encodeToString(history.map(UpdateRelease::toCachedHistory)),
+                )
+            }
         }
     }
 
@@ -1184,5 +1322,6 @@ class UpdateRepository(
         private const val DAY_MILLIS = 86_400_000L
         private const val NOT_NOW_MILLIS = DAY_MILLIS
         private const val DOWNLOAD_POLL_MILLIS = 500L
+        private const val MAX_RELEASE_HISTORY_PAGES = 20
     }
 }

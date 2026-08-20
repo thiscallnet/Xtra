@@ -86,6 +86,7 @@ import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
+import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.applyTheme
@@ -577,7 +578,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun showUpdateDialog(release: UpdateRelease) {
         dismissUpdateDialogForRefresh()
-        val releaseNotes = release.releaseNotes.joinToString("\n") { "• $it" }
+        val releaseNotes = UpdateReleaseHistory.formatForUpdate(
+            historyComplete = updateRepository.releaseHistoryComplete.value,
+            cumulativeReleases = updateRepository.releasesSinceInstalled(release),
+            latestRelease = release,
+            noReleaseNotes = getString(R.string.update_no_release_notes),
+            incompleteHistoryMessage = getString(R.string.update_history_incomplete),
+        )
         var userActionTaken = false
         fun deferFromUserAction() {
             if (!userActionTaken) {

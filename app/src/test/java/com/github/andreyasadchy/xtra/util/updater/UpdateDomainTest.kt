@@ -432,6 +432,32 @@ class UpdateDomainTest {
     }
 
     @Test
+    fun releaseHistoryRetentionKeepsRecentAndPendingEntriesOnly() {
+        val retained = UpdateReleaseHistory.retainForInstalled(
+            releases = (20 downTo 1).map { build -> parse("v2.58.5-build.$build") },
+            installedVersionName = "2.58.5",
+            installedBuildNumber = 10,
+        )
+
+        assertEquals((20 downTo 11).map(Int::toLong), retained.mapNotNull(UpdateRelease::buildNumber))
+    }
+
+    @Test
+    fun incompleteHistoryStillShowsLatestReleaseNotes() {
+        val formatted = UpdateReleaseHistory.formatForUpdate(
+            historyComplete = false,
+            cumulativeReleases = emptyList(),
+            latestRelease = parse("v2.58.5-build.300", body = "Fix playback issue"),
+            noReleaseNotes = "No release notes",
+            incompleteHistoryMessage = "Complete update notes could not be loaded",
+        )
+
+        assertTrue(formatted.contains("2.58.5 (build 300)"))
+        assertTrue(formatted.contains("Fixed playback issue"))
+        assertTrue(formatted.contains("Complete update notes could not be loaded"))
+    }
+
+    @Test
     fun localFailuresUseDownloadAndInstallErrorMappings() {
         assertEquals(UpdateError.DownloadFailed, UpdateErrorMapper.fromDownloadThrowable(IOException()))
         assertEquals(UpdateError.DownloadedFileMissing, UpdateErrorMapper.fromDownloadThrowable(FileNotFoundException()))

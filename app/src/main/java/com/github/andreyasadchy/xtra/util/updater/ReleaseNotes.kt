@@ -47,3 +47,70 @@ object ReleaseNotes {
         return withArticle.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
     }
 }
+
+object UpdateReleaseHistory {
+
+    const val RECENT_RELEASE_COUNT = 5
+
+    fun merge(releases: List<UpdateRelease>): List<UpdateRelease> = releases
+        .asSequence()
+        .filter { !it.draft && !it.prerelease }
+        .distinctBy(UpdateRelease::id)
+        .sortedWith { left, right -> compareNewestFirst(left, right) }
+        .toList()
+
+    fun sinceInstalled(
+        releases: List<UpdateRelease>,
+        installedVersionName: String,
+        installedBuildNumber: Long?,
+        fallbackRelease: UpdateRelease? = null,
+    ): List<UpdateRelease> = merge(releases + listOfNotNull(fallbackRelease))
+        .filter { release -> UpdatePolicy.isNewer(installedVersionName, installedBuildNumber, release) }
+
+    fun recent(
+        releases: List<UpdateRelease>,
+        fallbackRelease: UpdateRelease? = null,
+    ): List<UpdateRelease> = merge(releases + listOfNotNull(fallbackRelease))
+        .take(RECENT_RELEASE_COUNT)
+
+    fun retainForInstalled(
+        releases: List<UpdateRelease>,
+        installedVersionName: String,
+        installedBuildNumber: Long?,
+    ): List<UpdateRelease> {
+        val merged = merge(releases)
+        val pending = merged.filter { release ->
+            UpdatePolicy.isNewer(installedVersionName, installedBuildNumber, release)
+        }
+        return merge(merged.take(RECENT_RELEASE_COUNT) + pending)
+    }
+
+    fun formatGrouped(releases: List<UpdateRelease>, noReleaseNotes: String): String = releases.joinToString("\n\n") { release ->
+        val notes = release.releaseNotes
+            .ifEmpty { listOf(noReleaseNotes) }
+            .joinToString("\n") { "\u2022 $it" }
+        "${release.displayVersion}\n$notes"
+    }
+
+    fun formatForUpdate(
+        historyComplete: Boolean,
+        cumulativeReleases: List<UpdateRelease>,
+        latestRelease: UpdateRelease,
+        noReleaseNotes: String,
+        incompleteHistoryMessage: String,
+    ): String = if (historyComplete) {
+        formatGrouped(cumulativeReleases, noReleaseNotes)
+    } else {
+        buildString {
+            append(formatGrouped(listOf(latestRelease), noReleaseNotes))
+            append("\n\n")
+            append(incompleteHistoryMessage)
+        }
+    }
+
+    private fun compareNewestFirst(left: UpdateRelease, right: UpdateRelease): Int {
+        val versionComparison = UpdatePolicy.compareSemanticVersions(right.versionName, left.versionName)
+        if (versionComparison != 0) return versionComparison
+        return compareValues(right.buildNumber ?: -1L, left.buildNumber ?: -1L)
+    }
+}

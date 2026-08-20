@@ -8,6 +8,7 @@ import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.github.andreyasadchy.xtra.util.C
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
@@ -35,6 +36,69 @@ import java.util.concurrent.TimeUnit
 class UpdateRepositoryTest {
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Test
+    fun completeHistoryPaginatesStopsAtInstalledBuildAndSurvivesRecovery() {
+        val preferences = MemoryPreferences()
+        val source = HistoryReleaseSource(
+            latest = response("v2.58.5-build.300"),
+            pages = listOf(
+                Result.success(historyPage(*(300 downTo 201).map(::buildTag).toTypedArray())),
+                Result.success(
+                    historyPage(
+                        *((200 downTo 122).map(::buildTag) +
+                            listOf("v2.58.5") +
+                            (20 downTo 1).map { "v2.58.4-build.$it" }).toTypedArray(),
+                    ),
+                ),
+            ),
+        )
+        val repository = UpdateRepository(TestContext(preferences), source, null)
+
+        repository.check(null)
+        val available = awaitState(repository) { it is UpdateState.Available } as UpdateState.Available
+
+        assertEquals(2, source.historyCalls)
+        assertTrue(repository.releaseHistoryComplete.value)
+        assertEquals(179, repository.releasesSinceInstalled(available.release).size)
+        assertEquals(5, repository.recentReleases().size)
+
+        val persisted = preferences.getString(C.UPDATE_RELEASE_HISTORY, null).orEmpty()
+        assertFalse(persisted.contains("rawBody"))
+        assertFalse(persisted.contains("browser_download_url"))
+
+        val recovered = UpdateRepository(TestContext(preferences), QueueReleaseSource(emptyList()), null)
+        awaitCondition { recovered.releaseHistoryComplete.value }
+        assertTrue(recovered.releaseHistoryComplete.value)
+        val recoveredNotes = UpdateReleaseHistory.formatGrouped(
+            recovered.releasesSinceInstalled(),
+            "No notes",
+        )
+        assertEquals(179, recovered.releasesSinceInstalled().size)
+        assertTrue(recoveredNotes.contains("2.58.5 (build 300)"))
+        assertTrue(recoveredNotes.contains("2.58.5 (build 122)"))
+        assertFalse(recoveredNotes.contains("2.58.5 (build 121)"))
+    }
+
+    @Test
+    fun partialHistoryDoesNotPresentAFalseCumulativeChangelog() {
+        val source = HistoryReleaseSource(
+            latest = response("v2.58.5-build.300"),
+            pages = listOf(
+                Result.success(historyPage(*(300 downTo 201).map(::buildTag).toTypedArray())),
+                Result.failure(IOException("history page failed")),
+            ),
+        )
+        val repository = UpdateRepository(TestContext(MemoryPreferences()), source, null)
+
+        repository.check(null)
+        val available = awaitState(repository) { it is UpdateState.Available } as UpdateState.Available
+
+        assertEquals(2, source.historyCalls)
+        assertFalse(repository.releaseHistoryComplete.value)
+        assertTrue(repository.releasesSinceInstalled(available.release).isEmpty())
+        assertEquals(listOf("v2.58.5-build.300"), repository.recentReleases(available.release).map { it.id })
+    }
 
     @Test
     fun failedCheckRetryChecksInsteadOfDownloadingThePersistedRelease() {
@@ -1191,6 +1255,10 @@ class UpdateRepositoryTest {
         ).jsonObject
     }
 
+    private fun buildTag(build: Int): String = "v2.58.5-build.$build"
+
+    private fun historyPage(vararg tags: String): JsonArray = JsonArray(tags.map(::response))
+
     private fun MemoryPreferences.persistRelease(tag: String) {
         edit {
             putString(C.UPDATE_AVAILABLE_VERSION, tag)
@@ -1249,6 +1317,22 @@ class UpdateRepositoryTest {
             calls++
             return results.getOrNull(calls - 1)?.getOrThrow()
                 ?: throw AssertionError("Unexpected release request")
+        }
+    }
+
+    private class HistoryReleaseSource(
+        private val latest: JsonObject,
+        private val pages: List<Result<JsonArray>>,
+    ) : ReleaseSource {
+        var historyCalls = 0
+            private set
+
+        override suspend fun fetch(url: String, networkLibrary: String?): JsonObject = latest
+
+        override suspend fun fetchHistory(url: String, networkLibrary: String?, page: Int): JsonArray {
+            historyCalls++
+            return pages.getOrNull(page - 1)?.getOrThrow()
+                ?: throw AssertionError("Unexpected release history request for page $page")
         }
     }
 

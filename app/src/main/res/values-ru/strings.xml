@@ -588,4 +588,6 @@
     <string name="settings_playback_speed_options_summary">Выбирать и менять порядок значений скорости</string>
     <string name="settings_double_tap_chat_summary">Переключать чат двойным нажатием во время просмотра.</string>
     <string name="avoid_rounded_corners_summary">Сместить содержимое плеера внутрь, чтобы физические закругленные углы и вырезы не закрывали видео или элементы управления.</string>
+    <string name="recent_updates">Recent updates</string>
+    <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
 </resources>

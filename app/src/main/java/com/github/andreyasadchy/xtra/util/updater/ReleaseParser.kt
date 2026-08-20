@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.util.updater
 
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -66,6 +67,11 @@ object ReleaseParser {
             expectedVersionCode = expectedVersionCode,
         )
         return ReleaseParseResult.Success(release)
+    }
+
+    fun parseHistory(response: JsonArray, fallbackUrl: String): List<UpdateRelease> = response.mapNotNull { element ->
+        val release = (element as? JsonObject) ?: return@mapNotNull null
+        (parse(release, fallbackUrl) as? ReleaseParseResult.Success)?.release
     }
 
     private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull

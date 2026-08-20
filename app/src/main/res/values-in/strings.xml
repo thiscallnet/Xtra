@@ -589,4 +589,6 @@
     <string name="settings_playback_speed_options_summary">Pilih dan urutkan ulang nilai kecepatan</string>
     <string name="settings_double_tap_chat_summary">Alihkan chat dengan mengetuk dua kali saat menonton.</string>
     <string name="avoid_rounded_corners_summary">Atur jarak konten pemutar agar sudut melengkung fisik dan potongan layar tidak menutupi video atau kontrol.</string>
+    <string name="recent_updates">Recent updates</string>
+    <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
 </resources>
