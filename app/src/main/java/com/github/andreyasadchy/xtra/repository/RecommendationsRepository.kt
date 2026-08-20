@@ -6,6 +6,7 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -22,20 +23,41 @@ class RecommendationsRepository(
 
     private var cachedRecommendations: List<Stream> = emptyList()
     private var cacheExpiresAt = 0L
+    private var cacheAccountKey: RecommendationAccountKey? = null
+    var lastSource: RecommendationSource = RecommendationSource.UNAVAILABLE
+        private set
 
-    suspend fun getLiveRecommendations(limit: Int): List<Stream> {
+    suspend fun getLiveRecommendations(limit: Int, excludedChannelIds: Set<String> = emptySet()): List<Stream> {
         val now = System.currentTimeMillis()
-        if (cacheExpiresAt > now) {
-            return cachedRecommendations.take(limit)
-        }
         val headers = TwitchApiHelper.getGQLHeaders(context, true)
+        val accountKey = RecommendationAccountKey(
+            userId = context.tokenPrefs().getString(C.USER_ID, null),
+            username = context.tokenPrefs().getString(C.USERNAME, null),
+            authenticated = !headers[C.HEADER_TOKEN].isNullOrBlank(),
+        )
+        if (cacheAccountKey != accountKey) {
+            cachedRecommendations = emptyList()
+            cacheExpiresAt = 0L
+            cacheAccountKey = accountKey
+        }
+        if (cacheExpiresAt > now) {
+            return cachedRecommendations.filterNot { it.channelId in excludedChannelIds }.take(limit)
+        }
         val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val personalized = runCatching {
             parsePersonalSections(graphQLRepository.loadPersonalSections(networkLibrary, headers))
-        }.getOrNull().orEmpty()
-        val result = (personalized.ifEmpty { fallback(networkLibrary, headers, limit) })
+        }.getOrNull()?.filterNot { it.channelId in excludedChannelIds }
+        val result = if (!personalized.isNullOrEmpty()) {
+            lastSource = RecommendationSource.PERSONALIZED
+            personalized
+        } else {
+            lastSource = RecommendationSource.FALLBACK
+            fallback(networkLibrary, headers, limit, excludedChannelIds)
+        }
+            .filterNot { it.channelId in excludedChannelIds }
             .distinctBy { it.channelId ?: it.id }
             .take(limit)
+        if (result.isEmpty()) lastSource = RecommendationSource.UNAVAILABLE
         if (result.isNotEmpty()) {
             cachedRecommendations = result
             cacheExpiresAt = now + RECOMMENDATIONS_CACHE_MILLIS
@@ -43,8 +65,13 @@ class RecommendationsRepository(
         return result
     }
 
-    private suspend fun fallback(networkLibrary: String?, headers: Map<String, String>, limit: Int): List<Stream> {
-        val followedIds = localChannelFollowsRepository.getAll().mapNotNull { it.userId }.toSet()
+    private suspend fun fallback(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        limit: Int,
+        excludedChannelIds: Set<String>,
+    ): List<Stream> {
+        val followedIds = localChannelFollowsRepository.getAll().mapNotNull { it.userId }.toSet() + excludedChannelIds
         val response = graphQLRepository.loadTopStreams(
             networkLibrary = networkLibrary,
             headers = headers,
@@ -57,34 +84,6 @@ class RecommendationsRepository(
         return response.data?.streams?.edges.orEmpty().mapNotNull { it.node.toStream() }
             .filterNot { it.channelId in followedIds }
             .take(limit)
-    }
-
-    private fun parsePersonalSections(root: JsonObject): List<Stream> {
-        return root["data"]?.jsonObject?.get("personalSections")?.jsonArray.orEmpty()
-            .filter { it.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "RECOMMENDED_SECTION" }
-            .flatMap { section ->
-                section.jsonObject["items"]?.jsonArray.orEmpty().mapNotNull { item ->
-                    val itemObject = item.jsonObject
-                    val user = itemObject["user"]?.jsonObject ?: return@mapNotNull null
-                    val content = itemObject["content"]?.jsonObject ?: return@mapNotNull null
-                    if (content["__typename"]?.jsonPrimitive?.contentOrNull != "Stream") return@mapNotNull null
-                    Stream(
-                        id = content.string("id"),
-                        channelId = user.string("id"),
-                        channelLogin = user.string("login"),
-                        channelName = user.string("displayName"),
-                        channelImageURL = user.string("profileImageURL"),
-                        gameId = content["game"]?.jsonObject?.string("id"),
-                        gameSlug = content["game"]?.jsonObject?.string("slug"),
-                        gameName = content["game"]?.jsonObject?.string("displayName"),
-                        title = content.string("title"),
-                        thumbnailURL = content.string("previewImageURL"),
-                        createdAt = content.string("createdAt"),
-                        viewerCount = content["viewersCount"]?.jsonPrimitive?.intOrNull,
-                        tags = content["freeformTags"]?.jsonArray?.mapNotNull { it.jsonObject.string("name") },
-                    )
-                }
-            }
     }
 
     private fun StreamsResponse.Stream.toStream(): Stream? {
@@ -106,9 +105,49 @@ class RecommendationsRepository(
         )
     }
 
-    private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull
-
     private companion object {
         const val RECOMMENDATIONS_CACHE_MILLIS = 5 * 60 * 1000L
     }
 }
+
+internal data class RecommendationAccountKey(
+    val userId: String?,
+    val username: String?,
+    val authenticated: Boolean,
+)
+
+enum class RecommendationSource {
+    PERSONALIZED,
+    FALLBACK,
+    UNAVAILABLE,
+}
+
+internal fun parsePersonalSections(root: JsonObject): List<Stream> {
+    return root["data"]?.jsonObject?.get("personalSections")?.jsonArray.orEmpty()
+        .filter { it.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "RECOMMENDED_SECTION" }
+        .flatMap { section ->
+            section.jsonObject["items"]?.jsonArray.orEmpty().mapNotNull { item ->
+                val itemObject = item.jsonObject
+                val user = itemObject["user"]?.jsonObject ?: return@mapNotNull null
+                val content = itemObject["content"]?.jsonObject ?: return@mapNotNull null
+                if (content["__typename"]?.jsonPrimitive?.contentOrNull != "Stream") return@mapNotNull null
+                Stream(
+                    id = content.string("id"),
+                    channelId = user.string("id"),
+                    channelLogin = user.string("login"),
+                    channelName = user.string("displayName"),
+                    channelImageURL = user.string("profileImageURL"),
+                    gameId = content["game"]?.jsonObject?.string("id"),
+                    gameSlug = content["game"]?.jsonObject?.string("slug"),
+                    gameName = content["game"]?.jsonObject?.string("displayName"),
+                    title = content.string("title"),
+                    thumbnailURL = content.string("previewImageURL"),
+                    createdAt = content.string("createdAt"),
+                    viewerCount = content["viewersCount"]?.jsonPrimitive?.intOrNull,
+                    tags = content["freeformTags"]?.jsonArray?.mapNotNull { it.jsonObject.string("name") },
+                )
+            }
+        }
+}
+
+private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull

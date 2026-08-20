@@ -64,6 +64,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -74,6 +75,7 @@ import org.chromium.net.CronetEngine
 import org.chromium.net.CronetProvider
 import org.chromium.net.QuicOptions
 import org.chromium.net.apihelpers.UploadDataProviders
+
 import org.json.JSONException
 import org.json.JSONObject
 import java.net.InetSocketAddress
@@ -84,6 +86,7 @@ import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlin.uuid.Uuid
 
+private const val MAX_VIDEO_HISTORY_ITEMS = 100
 private const val AD_TAG = "XtraAd"
 
 @OptIn(UnstableApi::class)
@@ -2232,15 +2235,17 @@ class PlayerRepository(
     fun loadContinueWatching(limit: Int) = videoHistory.getContinueWatching(limit)
 
     suspend fun saveVideoHistory(item: VideoHistory) = withContext(Dispatchers.IO) {
-        videoHistory.insert(item)
+        videoHistory.upsertMetadata(item)
     }
 
     suspend fun saveVideoHistoryPosition(id: Long, position: Long) = withContext(Dispatchers.IO) {
         videoHistory.updatePosition(id, position, System.currentTimeMillis())
+        videoHistory.prune(MAX_VIDEO_HISTORY_ITEMS)
     }
 
     suspend fun deleteVideoPositions() = withContext(Dispatchers.IO) {
         videoPositions.deleteAll()
+        videoHistory.deleteAll()
     }
 
     suspend fun getPlaybackStates() = withContext(Dispatchers.IO) {

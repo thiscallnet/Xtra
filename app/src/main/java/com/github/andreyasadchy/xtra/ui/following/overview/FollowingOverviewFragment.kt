@@ -91,9 +91,11 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                 combine(
                     viewModel.liveStreams,
                     viewModel.recommendedStreams,
+                    viewModel.recommendationsLoading,
                     viewModel.continueWatching,
                     viewModel.overviewSectionKeys,
-                ) { live, recommended, continueWatching, sectionKeys ->
+                ) { live, recommended, recommendationsLoading, continueWatching, sectionKeys ->
+                    val liveChannelIds = live.mapNotNull { it.channelId }.toSet()
                     val availableSections = mapOf(
                         FollowingOverviewSections.LIVE to FollowingOverviewSection(
                             key = FollowingOverviewSections.LIVE,
@@ -105,7 +107,9 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                             key = FollowingOverviewSections.RECOMMENDED,
                             titleRes = R.string.following_recommended_channels,
                             emptyRes = R.string.following_no_recommended_channels,
-                            streams = recommended,
+                            streams = recommended.filterNot { it.channelId in liveChannelIds },
+                            isLoading = recommendationsLoading && recommended.isEmpty(),
+                            showSeeAll = false,
                         ),
                         FollowingOverviewSections.CONTINUE to FollowingOverviewSection(
                             key = FollowingOverviewSections.CONTINUE,
@@ -159,8 +163,14 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
 
     private fun showAll(key: String) {
         when (val parent = parentFragment) {
-            is FollowPagerFragment -> parent.selectFollowingTab(if (key == FollowingOverviewSections.CONTINUE) "2" else "1")
-            is FollowMediaFragment -> parent.selectFollowingTab(if (key == FollowingOverviewSections.CONTINUE) "2" else "1")
+            is FollowPagerFragment -> when (key) {
+                FollowingOverviewSections.LIVE -> parent.selectFollowingTab("1")
+                FollowingOverviewSections.CONTINUE -> parent.selectFollowingTab("2")
+            }
+            is FollowMediaFragment -> when (key) {
+                FollowingOverviewSections.LIVE -> parent.selectFollowingTab("1")
+                FollowingOverviewSections.CONTINUE -> parent.selectFollowingTab("2")
+            }
         }
     }
 

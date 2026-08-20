@@ -70,8 +70,8 @@ object FollowingTabs {
         return resolve(stored).joinToString(",") { entry ->
             val parts = entry.split(':').toMutableList()
             if (parts.firstOrNull() == OVERVIEW) {
-                parts[1] = "1"
-            } else {
+                // A custom layout should keep its chosen landing tab. Overview is
+                // available after migration, but must not silently replace it.
                 parts[1] = "0"
             }
             parts.joinToString(":")

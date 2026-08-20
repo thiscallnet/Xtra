@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.util
 
 import com.github.andreyasadchy.xtra.model.PlaybackState
+import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistenceStore
@@ -85,6 +86,10 @@ class MediaButtonReceiverTest {
         }
 
         override suspend fun saveVideoPosition(position: VideoPosition) = Unit
+
+        override suspend fun saveVideoHistory(item: VideoHistory) = Unit
+
+        override suspend fun saveVideoHistoryPosition(id: Long, position: Long) = Unit
 
         override suspend fun saveOfflineVideoPosition(videoId: Int, position: Long) = Unit
     }

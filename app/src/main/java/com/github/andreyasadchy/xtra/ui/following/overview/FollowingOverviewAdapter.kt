@@ -6,6 +6,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ItemFollowingSectionBinding
 import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.ui.Stream
@@ -16,6 +17,8 @@ data class FollowingOverviewSection(
     val emptyRes: Int,
     val streams: List<Stream> = emptyList(),
     val videos: List<VideoHistory> = emptyList(),
+    val isLoading: Boolean = false,
+    val showSeeAll: Boolean = true,
 )
 
 class FollowingOverviewAdapter(
@@ -46,6 +49,7 @@ class FollowingOverviewAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
         private val shelfAdapter = StreamShelfAdapter(onStreamClick)
         private val videoShelfAdapter = VideoShelfAdapter(onVideoClick)
+        private var shelfType: ShelfType? = null
 
         init {
             binding.shelfRecyclerView.apply {
@@ -60,23 +64,32 @@ class FollowingOverviewAdapter(
 
         fun bind(section: FollowingOverviewSection) {
             binding.sectionTitle.setText(section.titleRes)
-            binding.emptyMessage.setText(section.emptyRes)
+            binding.emptyMessage.setText(if (section.isLoading) R.string.loading else section.emptyRes)
             val hasItems = section.streams.isNotEmpty() || section.videos.isNotEmpty()
             binding.emptyMessage.visibility = if (hasItems) android.view.View.GONE else android.view.View.VISIBLE
             binding.shelfRecyclerView.visibility = if (hasItems) android.view.View.VISIBLE else android.view.View.GONE
-            binding.seeAll.visibility = if (hasItems) android.view.View.VISIBLE else android.view.View.GONE
+            binding.seeAll.visibility = if (hasItems && section.showSeeAll) android.view.View.VISIBLE else android.view.View.GONE
             binding.seeAll.setOnClickListener { onSeeAll(section.key) }
-            if (section.videos.isNotEmpty()) {
-                binding.shelfRecyclerView.setRecycledViewPool(videoRecycledViewPool)
-                binding.shelfRecyclerView.adapter = videoShelfAdapter
+            val nextShelfType = if (section.videos.isNotEmpty()) ShelfType.VIDEO else ShelfType.STREAM
+            if (shelfType != nextShelfType) {
+                if (nextShelfType == ShelfType.VIDEO) {
+                    binding.shelfRecyclerView.setRecycledViewPool(videoRecycledViewPool)
+                    binding.shelfRecyclerView.adapter = videoShelfAdapter
+                } else {
+                    binding.shelfRecyclerView.setRecycledViewPool(recycledViewPool)
+                    binding.shelfRecyclerView.adapter = shelfAdapter
+                }
+                shelfType = nextShelfType
+            }
+            if (nextShelfType == ShelfType.VIDEO) {
                 videoShelfAdapter.submitList(section.videos)
             } else {
-                binding.shelfRecyclerView.setRecycledViewPool(recycledViewPool)
-                binding.shelfRecyclerView.adapter = shelfAdapter
                 shelfAdapter.submitList(section.streams)
             }
         }
     }
+
+    private enum class ShelfType { STREAM, VIDEO }
 
     private companion object {
         val DIFF_CALLBACK = object : DiffUtil.ItemCallback<FollowingOverviewSection>() {

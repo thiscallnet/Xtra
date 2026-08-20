@@ -31,22 +31,30 @@ class VideoShelfAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = ItemVideoShelfBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        val availableWidth = (parent.width - parent.paddingLeft - parent.paddingRight).coerceAtLeast(1)
-        val density = parent.resources.displayMetrics.density
-        val widthDp = availableWidth / density
-        val cardWidthDp = when {
-            widthDp < 600f -> (availableWidth / 1.45f / density).coerceIn(220f, 260f)
-            widthDp < 840f -> (availableWidth / 2.6f / density).coerceIn(200f, 260f)
-            else -> (availableWidth / 4.25f / density).coerceIn(220f, 280f)
-        }
-        binding.root.layoutParams = binding.root.layoutParams.apply {
-            width = (cardWidthDp * density).toInt()
-        }
+        (parent as? RecyclerView)?.let { ShelfCardSizing.apply(binding.root, it) }
         return ViewHolder(binding)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
         holder.bind(getItem(position))
+    }
+
+    private val layoutChangeListener = View.OnLayoutChangeListener { view, left, _, right, _, oldLeft, _, oldRight, _ ->
+        if (right - left != oldRight - oldLeft) {
+            val shelf = view as RecyclerView
+            repeat(shelf.childCount) { index -> ShelfCardSizing.apply(shelf.getChildAt(index), shelf) }
+        }
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        recyclerView.addOnLayoutChangeListener(layoutChangeListener)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        recyclerView.removeOnLayoutChangeListener(layoutChangeListener)
+        super.onDetachedFromRecyclerView(recyclerView)
     }
 
     inner class ViewHolder(
@@ -66,8 +74,7 @@ class VideoShelfAdapter(
             binding.category.text = item.gameName.orEmpty()
             binding.channel.visibility = if (binding.channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
             binding.category.visibility = if (binding.category.text.isNullOrBlank()) View.GONE else View.VISIBLE
-            val remaining = item.durationSeconds?.let { (it * 1000L - item.position).coerceAtLeast(0) }
-            binding.duration.text = remaining?.let { DateUtils.formatElapsedTime(it / 1000) }.orEmpty()
+            binding.duration.text = item.durationSeconds?.let { DateUtils.formatElapsedTime(it.toLong()) }.orEmpty()
             binding.duration.visibility = if (binding.duration.text.isNullOrBlank()) View.GONE else View.VISIBLE
             val progress = item.durationSeconds?.takeIf { it > 0 }?.let { item.position.toFloat() / (it * 1000L) }
             binding.progress.visibility = if (progress != null) View.VISIBLE else View.GONE

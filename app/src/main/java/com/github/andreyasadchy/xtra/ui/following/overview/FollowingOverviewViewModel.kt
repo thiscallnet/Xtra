@@ -24,11 +24,13 @@ import com.github.andreyasadchy.xtra.repository.streamfeed.toStream
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -62,6 +64,9 @@ class FollowingOverviewViewModel(
     private val _recommendedStreams = MutableStateFlow<List<Stream>>(emptyList())
     val recommendedStreams: Flow<List<Stream>> = _recommendedStreams
 
+    private val _recommendationsLoading = MutableStateFlow(false)
+    val recommendationsLoading: StateFlow<Boolean> = _recommendationsLoading
+
     fun syncCurrentAccount() {
         accountId.value = readCurrentUserId()
     }
@@ -71,16 +76,26 @@ class FollowingOverviewViewModel(
         _overviewSectionKeys.value = keys
         if (FollowingOverviewSections.RECOMMENDED !in keys) {
             _recommendedStreams.value = emptyList()
+            _recommendationsLoading.value = false
         } else {
+            _recommendationsLoading.value = true
             refreshRecommendations()
         }
     }
 
     fun refreshRecommendations() {
         viewModelScope.launch {
-            _recommendedStreams.value = runCatching {
-                recommendationsRepository.getLiveRecommendations(RECOMMENDED_LIMIT)
-            }.getOrDefault(emptyList())
+            _recommendationsLoading.value = true
+            try {
+                val liveChannelIds = liveStreams.first().mapNotNull { it.channelId }.toSet()
+                _recommendedStreams.value = recommendationsRepository.getLiveRecommendations(RECOMMENDED_LIMIT, liveChannelIds)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _recommendedStreams.value = emptyList()
+            } finally {
+                _recommendationsLoading.value = false
+            }
         }
     }
 

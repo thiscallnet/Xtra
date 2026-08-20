@@ -1038,7 +1038,10 @@ class MainActivity : AppCompatActivity() {
     fun startVideo(video: Video, offset: Long?, ignoreSavedPosition: Boolean = false, videoUrl: String? = null) {
         onPlayerChangedPlayback(isLive = false)
         if (prefs.getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
-            viewModel.saveVideoHistory(video, offset ?: 0)
+            viewModel.saveVideoHistory(video)
+            if (offset != null) {
+                video.id?.toLongOrNull()?.let { viewModel.saveVideoPosition(it, offset) }
+            }
         }
         if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
@@ -1066,11 +1069,6 @@ class MainActivity : AppCompatActivity() {
             videoUrl = videoUrl,
             position = offset,
         ))
-        if (ignoreSavedPosition && prefs.getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
-            video.id?.toLongOrNull()?.let { id ->
-                viewModel.saveVideoPosition(id, offset ?: 0)
-            }
-        }
         val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
             C.MEDIA_PLAYER -> MediaPlayerFragment()
             else -> ExoPlayerFragment()

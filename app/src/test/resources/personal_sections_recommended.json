@@ -1,0 +1,50 @@
+{
+  "data": {
+    "personalSections": [
+      {
+        "type": "RECOMMENDED_SECTION",
+        "items": [
+          {
+            "user": {
+              "id": "42",
+              "login": "recommended_channel",
+              "displayName": "Recommended Channel",
+              "profileImageURL": "https://static-cdn.example/avatar.png"
+            },
+            "content": {
+              "__typename": "Stream",
+              "id": "stream-42",
+              "title": "A recommended stream",
+              "viewersCount": 123,
+              "createdAt": "2026-08-20T10:00:00Z",
+              "previewImageURL": "https://static-cdn.example/preview.jpg",
+              "game": {
+                "id": "game-1",
+                "slug": "example-game",
+                "displayName": "Example Game"
+              },
+              "freeformTags": [
+                { "name": "English" }
+              ]
+            }
+          },
+          {
+            "user": {
+              "id": "43",
+              "login": "not_live_content",
+              "displayName": "Not Live Content"
+            },
+            "content": {
+              "__typename": "Video",
+              "id": "video-43"
+            }
+          }
+        ]
+      },
+      {
+        "type": "FOLLOWED_SECTION",
+        "items": []
+      }
+    ]
+  }
+}

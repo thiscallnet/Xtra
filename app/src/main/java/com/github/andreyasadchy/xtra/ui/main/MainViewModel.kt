@@ -277,14 +277,15 @@ class MainViewModel(
 
     fun saveVideoPosition(id: Long, position: Long) {
         playbackPersistence.saveVideoPosition(VideoPosition(id, position))
+        playbackPersistence.saveVideoHistoryPosition(id, position)
     }
 
-    fun saveVideoHistory(video: Video, position: Long) {
+    fun saveVideoHistory(video: Video) {
         video.id?.toLongOrNull()?.let { id ->
             playbackPersistence.saveVideoHistory(
                 VideoHistory(
                     id = id,
-                    position = position,
+                    position = 0,
                     durationSeconds = video.durationSeconds,
                     channelId = video.channelId,
                     channelLogin = video.channelLogin,
@@ -296,7 +297,7 @@ class MainViewModel(
                     gameSlug = video.gameSlug,
                     gameName = video.gameName,
                     createdAt = video.createdAt,
-                    updatedAt = System.currentTimeMillis(),
+                    updatedAt = 0,
                 ),
             )
         }

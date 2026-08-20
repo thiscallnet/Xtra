@@ -1773,7 +1773,7 @@ class GraphQLRepository(
                       id
                       login
                       displayName
-                      profileImageURL
+                      profileImageURL(width: 300)
                     }
                     content {
                       __typename
