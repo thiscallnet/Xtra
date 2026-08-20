@@ -26,6 +26,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +50,8 @@ class FollowingOverviewViewModel(
 
     private val applicationContext = applicationContext
     private val accountId = MutableStateFlow(readCurrentUserId())
+    private var recommendationsJob: Job? = null
+    private var recommendationsGeneration = 0L
 
     val liveStreams: Flow<List<Stream>> = accountId.flatMapLatest { userId ->
         streamFeedCache.activeItemsFlow(
@@ -76,35 +79,60 @@ class FollowingOverviewViewModel(
     val recommendationsLoading: StateFlow<Boolean> = _recommendationsLoading
 
     fun syncCurrentAccount() {
-        accountId.value = readCurrentUserId()
+        val newAccountId = readCurrentUserId()
+        if (accountId.value != newAccountId) {
+            accountId.value = newAccountId
+            cancelRecommendations()
+        }
     }
 
     fun refreshOverviewSections() {
         val keys = readOverviewSectionKeys()
         _overviewSectionKeys.value = keys
         if (FollowingOverviewSections.RECOMMENDED !in keys) {
-            _recommendedStreams.value = emptyList()
-            _recommendationsLoading.value = false
+            cancelRecommendations()
         } else {
-            _recommendationsLoading.value = true
             refreshRecommendations()
         }
     }
 
     fun refreshRecommendations() {
-        viewModelScope.launch {
+        syncCurrentAccount()
+        val generation = ++recommendationsGeneration
+        recommendationsJob?.cancel()
+        val requestAccountId = accountId.value
+        recommendationsJob = viewModelScope.launch {
             _recommendationsLoading.value = true
             try {
                 val liveChannelIds = allLiveChannelIds.first()
-                _recommendedStreams.value = recommendationsRepository.getLiveRecommendations(RECOMMENDED_LIMIT, liveChannelIds)
+                val result = recommendationsRepository.getLiveRecommendations(RECOMMENDED_LIMIT, liveChannelIds)
+                if (isCurrentRecommendationRequest(generation, requestAccountId)) {
+                    _recommendedStreams.value = result
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                _recommendedStreams.value = emptyList()
+                if (isCurrentRecommendationRequest(generation, requestAccountId)) {
+                    _recommendedStreams.value = emptyList()
+                }
             } finally {
-                _recommendationsLoading.value = false
+                if (isCurrentRecommendationRequest(generation, requestAccountId)) {
+                    _recommendationsLoading.value = false
+                }
             }
         }
+    }
+
+    private fun cancelRecommendations() {
+        recommendationsGeneration++
+        recommendationsJob?.cancel()
+        recommendationsJob = null
+        _recommendedStreams.value = emptyList()
+        _recommendationsLoading.value = false
+    }
+
+    private fun isCurrentRecommendationRequest(generation: Long, requestAccountId: String?): Boolean {
+        return recommendationsGeneration == generation && accountId.value == requestAccountId
     }
 
     fun currentFeedSpec(): StreamFeedSpec {
