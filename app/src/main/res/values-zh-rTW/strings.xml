@@ -588,4 +588,6 @@
     <string name="settings_playback_speed_options_summary">選擇並重新排列速度值</string>
     <string name="settings_double_tap_chat_summary">觀看時點兩下切換聊天。</string>
     <string name="avoid_rounded_corners_summary">將播放器內容向內嵌入，避免實體圓角和缺口遮擋影片或控制項。</string>
+    <string name="recent_updates">Recent updates</string>
+    <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
 </resources>

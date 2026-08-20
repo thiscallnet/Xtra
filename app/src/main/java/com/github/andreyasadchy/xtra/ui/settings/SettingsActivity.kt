@@ -89,6 +89,7 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.updater.UpdateError
 import com.github.andreyasadchy.xtra.util.updater.UpdatePrimaryAction
+import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.updater.UpdateRetryAction
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
 import com.github.andreyasadchy.xtra.util.updater.UpdateTimeFormatter
@@ -1496,7 +1497,9 @@ class SettingsActivity : AppCompatActivity() {
             }
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    repository.state.collectLatest(::render)
+                    launch { repository.state.collectLatest(::render) }
+                    launch { repository.releaseHistory.collectLatest { render(repository.state.value) } }
+                    launch { repository.releaseHistoryComplete.collectLatest { render(repository.state.value) } }
                 }
             }
         }
@@ -1518,6 +1521,10 @@ class SettingsActivity : AppCompatActivity() {
                 is UpdateState.AwaitingUserAction -> state.release
                 is UpdateState.Error -> state.release
                 else -> null
+            }
+            val recentRelease = when (state) {
+                is UpdateState.UpToDate -> state.release
+                else -> release
             }
             binding.statusTitle.text = when (state) {
                 UpdateState.Idle -> getString(R.string.settings_updates)
@@ -1551,9 +1558,17 @@ class SettingsActivity : AppCompatActivity() {
             val showReleaseDetails = release != null && state !is UpdateState.UpToDate
             binding.notesTitle.visibility = if (showReleaseDetails) View.VISIBLE else View.GONE
             binding.notesText.visibility = if (showReleaseDetails) View.VISIBLE else View.GONE
-            binding.notesText.text = release?.releaseNotes?.joinToString("\n") { "• $it" }
-                ?.ifBlank { getString(R.string.update_no_release_notes) }
-                ?: ""
+            binding.notesText.text = if (release != null && state !is UpdateState.UpToDate) {
+                UpdateReleaseHistory.formatForUpdate(
+                    historyComplete = repository.releaseHistoryComplete.value,
+                    cumulativeReleases = repository.releasesSinceInstalled(release),
+                    latestRelease = release,
+                    noReleaseNotes = getString(R.string.update_no_release_notes),
+                    incompleteHistoryMessage = getString(R.string.update_history_incomplete),
+                )
+            } else {
+                ""
+            }
             binding.statusMessage.text = when (state) {
                 UpdateState.Checking -> getString(R.string.update_checking)
                 is UpdateState.Available -> when {
@@ -1631,6 +1646,12 @@ class SettingsActivity : AppCompatActivity() {
                     }
                 }
             }.orEmpty()
+            val recentReleases = repository.recentReleases(recentRelease)
+            binding.recentUpdatesCard.visibility = if (recentReleases.isEmpty()) View.GONE else View.VISIBLE
+            binding.recentUpdatesText.text = UpdateReleaseHistory.formatGrouped(
+                recentReleases,
+                getString(R.string.update_no_release_notes),
+            )
         }
 
         private fun errorTitle(stage: com.github.andreyasadchy.xtra.util.updater.UpdateStage): String = getString(

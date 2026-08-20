@@ -588,4 +588,6 @@
     <string name="settings_playback_speed_options_summary">Scegli e riordina i valori della velocità</string>
     <string name="settings_double_tap_chat_summary">Attiva o disattiva la chat con un doppio tocco durante la visione.</string>
     <string name="avoid_rounded_corners_summary">Rientra il contenuto del lettore per evitare che angoli arrotondati fisici e ritagli nascondano il video o i controlli.</string>
+    <string name="recent_updates">Recent updates</string>
+    <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
 </resources>

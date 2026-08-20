@@ -588,4 +588,6 @@
     <string name="settings_playback_speed_options_summary">速度の値を選択して並べ替えます</string>
     <string name="settings_double_tap_chat_summary">視聴中にダブルタップしてチャットを切り替えます。</string>
     <string name="avoid_rounded_corners_summary">物理的な曲面や切り欠きで動画や操作が隠れないよう、プレーヤーのコンテンツを内側に配置します。</string>
+    <string name="recent_updates">Recent updates</string>
+    <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
 </resources>

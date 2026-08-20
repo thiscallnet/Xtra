@@ -1,7 +1,9 @@
 package com.github.andreyasadchy.xtra.util.updater
 
 import android.net.Uri
+import kotlinx.serialization.Serializable
 
+@Serializable
 data class UpdateAsset(
     val name: String,
     val contentType: String?,
@@ -9,6 +11,7 @@ data class UpdateAsset(
     val size: Long?,
 )
 
+@Serializable
 data class UpdateRelease(
     val tagName: String,
     val versionName: String,
@@ -31,6 +34,35 @@ data class UpdateRelease(
             ?: versionName
 
 }
+
+@Serializable
+data class CachedUpdateRelease(
+    val tagName: String,
+    val versionName: String,
+    val buildNumber: Long?,
+    val releaseNotes: List<String>,
+)
+
+fun UpdateRelease.toCachedHistory(): CachedUpdateRelease = CachedUpdateRelease(
+    tagName = tagName,
+    versionName = versionName,
+    buildNumber = buildNumber,
+    releaseNotes = releaseNotes,
+)
+
+fun CachedUpdateRelease.toUpdateRelease(): UpdateRelease = UpdateRelease(
+    tagName = tagName,
+    versionName = versionName,
+    buildNumber = buildNumber,
+    title = "",
+    releaseNotes = releaseNotes,
+    rawBody = "",
+    releaseUrl = "",
+    publishedAt = null,
+    assets = emptyList(),
+    prerelease = false,
+    draft = false,
+)
 
 data class DownloadProgress(
     val downloadedBytes: Long,

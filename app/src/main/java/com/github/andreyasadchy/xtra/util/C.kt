@@ -286,6 +286,8 @@ object C {
     const val UPDATE_AVAILABLE_ASSET_NAME = "update_available_asset_name"
     const val UPDATE_AVAILABLE_SIZE = "update_available_size"
     const val UPDATE_AVAILABLE_EXPECTED_VERSION_CODE = "update_available_expected_version_code"
+    const val UPDATE_RELEASE_HISTORY = "update_release_history"
+    const val UPDATE_RELEASE_HISTORY_COMPLETE = "update_release_history_complete"
     const val UPDATE_IGNORED_VERSION = "update_ignored_version"
     const val UPDATE_DOWNLOADED_VERSION = "update_downloaded_version"
     const val UPDATE_DOWNLOAD_ID = "update_download_id"

@@ -593,4 +593,6 @@
     <string name="settings_playback_speed_options_summary">Elegir y reordenar los valores de velocidad</string>
     <string name="settings_double_tap_chat_summary">Alternar el chat con un doble toque mientras miras.</string>
     <string name="avoid_rounded_corners_summary">Ajustar el contenido del reproductor para que las esquinas curvas físicas y los recortes no oculten el vídeo ni los controles.</string>
+    <string name="recent_updates">Recent updates</string>
+    <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
 </resources>

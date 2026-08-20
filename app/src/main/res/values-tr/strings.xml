@@ -589,4 +589,6 @@
     <string name="settings_playback_speed_options_summary">Hız değerlerini seç ve yeniden sırala</string>
     <string name="settings_double_tap_chat_summary">İzlerken iki kez dokunarak sohbeti aç veya kapat.</string>
     <string name="avoid_rounded_corners_summary">Fiziksel yuvarlatılmış köşeler ve kamera kesikleri videoyu veya kontrolleri kapatmasın diye oynatıcı içeriğini içeri al.</string>
+    <string name="recent_updates">Recent updates</string>
+    <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
 </resources>
