@@ -118,6 +118,18 @@ import javax.net.ssl.X509TrustManager
 import kotlin.concurrent.scheduleAtFixedRate
 import kotlin.time.Instant
 
+internal fun shouldResumeLiveChat(
+    liveChatInitialized: Boolean,
+    chatReadJobActive: Boolean?,
+    channelLogin: String?,
+    autoReconnect: Boolean,
+): Boolean {
+    return liveChatInitialized &&
+            chatReadJobActive != true &&
+            channelLogin != null &&
+            autoReconnect
+}
+
 class ChatViewModel(
     private val applicationContext: Context,
     private val graphQLRepository: GraphQLRepository,
@@ -176,6 +188,8 @@ class ChatViewModel(
     private var predictionSessionToken = 0L
     private var predictionSubscriptionSessionToken: Long? = null
     private var started = false
+    private var liveChatReadOnly = false
+    private var liveChatInitialized = false
     private var activeChannelId: String? = null
     private var activeChannelLogin: String? = null
     var autoReconnect = true
@@ -307,11 +321,19 @@ class ChatViewModel(
         thirdPartyEmotesUpdated.emit(Unit)
     }
 
-    fun startLive(networkLibrary: String?, recentMessagesUrl: String?, channelId: String?, channelLogin: String?, channelName: String?, streamId: String?) {
+    fun startLive(
+        networkLibrary: String?,
+        recentMessagesUrl: String?,
+        channelId: String?,
+        channelLogin: String?,
+        channelName: String?,
+        streamId: String?,
+        readOnly: Boolean = false,
+    ) {
         if (chatReadIRCSocket == null && chatReadWebSocket == null && eventSub == null && channelLogin != null) {
             messageLimit = 600
             this.streamId = streamId
-            startLiveChat(channelId, channelLogin)
+            startLiveChat(channelId, channelLogin, readOnly)
             addChatter(channelName)
             loadEmotes(channelId, channelLogin)
             if (applicationContext.prefs().getBoolean(C.CHAT_RECENT, true)) {
@@ -337,8 +359,9 @@ class ChatViewModel(
     }
 
     fun resumeLive(channelId: String?, channelLogin: String?) {
-        if ((chatReadJob?.isActive == false) && channelLogin != null && autoReconnect) {
-            startLiveChat(channelId, channelLogin)
+        val login = channelLogin ?: return
+        if (shouldResumeLiveChat(liveChatInitialized, chatReadJob?.isActive, login, autoReconnect)) {
+            startLiveChat(channelId, login, readOnly = liveChatReadOnly)
         }
     }
 
@@ -347,7 +370,7 @@ class ChatViewModel(
         val channelLogin = activeChannelLogin
         if (!channelLogin.isNullOrBlank()) {
             autoReconnect = true
-            startLiveChat(channelId, channelLogin)
+            startLiveChat(channelId, channelLogin, readOnly = liveChatReadOnly)
         }
     }
 
@@ -1103,6 +1126,16 @@ class ChatViewModel(
         }
     }
 
+    /** Trims history after a subscriber has consumed a message overflow. */
+    fun trimMessageOverflow() {
+        synchronized(chatMessages) {
+            val overflow = chatMessages.size - messageLimit
+            if (overflow > 0) {
+                chatMessages.subList(0, overflow).clear()
+            }
+        }
+    }
+
     private fun updateChannelPoints(response: ChannelPointContextResponse) {
         val channel = response.data?.community?.channel ?: return
         val balance = channel.self.communityPoints?.balance ?: return
@@ -1754,8 +1787,14 @@ class ChatViewModel(
         return true
     }
 
-    fun startLiveChat(channelId: String?, channelLogin: String) {
+    fun startLiveChat(
+        channelId: String?,
+        channelLogin: String,
+        readOnly: Boolean = liveChatReadOnly,
+    ) {
+        liveChatInitialized = true
         stopLiveChat()
+        liveChatReadOnly = readOnly
         val sessionToken = predictionSessionToken
         started = true
         _connectionState.value = ConnectionState.CONNECTING
@@ -1824,7 +1863,7 @@ class ChatViewModel(
             val helixToken = helixHeaders[C.HEADER_TOKEN]?.removePrefix("Bearer ")
             chatReadWebSocket = ChatReadWebSocket(channelLogin, trustManager, ChatReadListener(channelLogin, nameDisplay, showUserNotice, showClearMsg, showClearChat, usePubSub, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId))
             chatReadJob = chatReadWebSocket?.connect(viewModelScope)
-            if (isLoggedIn && (!gqlToken.isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !useApiChatMessages)) {
+            if (!readOnly && isLoggedIn && (!gqlToken.isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !useApiChatMessages)) {
                 chatWriteWebSocket = ChatWriteWebSocket(
                     userLogin = accountLogin,
                     userToken = gqlToken?.takeIf { it.isNotBlank() } ?: helixToken,
@@ -1939,44 +1978,50 @@ class ChatViewModel(
         _predictionBetState.value = PredictionBetState()
         if (started) {
             started = false
-            if (chatReadIRCSocket != null) {
-                MainScope().launch(Dispatchers.IO) {
-                    chatReadIRCSocket?.disconnect(chatReadJob)
-                }
-            } else {
-                if (chatReadWebSocket != null) {
-                    MainScope().launch(Dispatchers.IO) {
-                        chatReadWebSocket?.disconnect(chatReadJob)
-                    }
-                } else {
-                    if (eventSub != null) {
-                        MainScope().launch(Dispatchers.IO) {
-                            eventSub?.disconnect(chatReadJob)
-                        }
-                    }
-                }
+            val readIrcSocket = chatReadIRCSocket
+            val readWebSocket = chatReadWebSocket
+            val readEventSub = eventSub
+            val readJob = chatReadJob
+            val writeIrcSocket = chatWriteIRCSocket
+            val writeWebSocket = chatWriteWebSocket
+            val writeJob = chatWriteJob
+            val oldHermesWebSocket = hermesWebSocket
+            val oldPubSubJob = pubSubJob
+            val oldStvEventApi = stvEventApi
+            val oldStvEventApiJob = stvEventApiJob
+
+            chatReadIRCSocket = null
+            chatReadWebSocket = null
+            eventSub = null
+            chatReadJob = null
+            chatWriteIRCSocket = null
+            chatWriteWebSocket = null
+            chatWriteJob = null
+            hermesWebSocket = null
+            pubSubJob = null
+            stvEventApi = null
+            stvEventApiJob = null
+
+            readJob?.cancel()
+            writeJob?.cancel()
+            oldPubSubJob?.cancel()
+            oldStvEventApiJob?.cancel()
+
+            fun launchCleanup(block: suspend () -> Unit) {
+                MainScope().launch(Dispatchers.IO) { block() }
             }
-            if (chatWriteIRCSocket != null) {
-                MainScope().launch(Dispatchers.IO) {
-                    chatWriteIRCSocket?.disconnect(chatWriteJob)
-                }
-            } else {
-                if (chatWriteWebSocket != null) {
-                    MainScope().launch(Dispatchers.IO) {
-                        chatWriteWebSocket?.disconnect(chatWriteJob)
-                    }
-                }
+
+            when {
+                readIrcSocket != null -> launchCleanup { readIrcSocket.disconnect(readJob) }
+                readWebSocket != null -> launchCleanup { readWebSocket.disconnect(readJob) }
+                readEventSub != null -> launchCleanup { readEventSub.disconnect(readJob) }
             }
-            if (hermesWebSocket != null) {
-                MainScope().launch(Dispatchers.IO) {
-                    hermesWebSocket?.disconnect(pubSubJob)
-                }
+            when {
+                writeIrcSocket != null -> launchCleanup { writeIrcSocket.disconnect(writeJob) }
+                writeWebSocket != null -> launchCleanup { writeWebSocket.disconnect(writeJob) }
             }
-            if (stvEventApi != null) {
-                MainScope().launch(Dispatchers.IO) {
-                    stvEventApi?.disconnect(stvEventApiJob)
-                }
-            }
+            oldHermesWebSocket?.let { socket -> launchCleanup { socket.disconnect(oldPubSubJob) } }
+            oldStvEventApi?.let { api -> launchCleanup { api.disconnect(oldStvEventApiJob) } }
         }
     }
 

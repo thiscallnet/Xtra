@@ -49,6 +49,7 @@ import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -66,6 +67,15 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
     private var interactionIdentity: String? = null
     private var languageIdentifier: LanguageIdentifier? = null
     private val translators = mutableMapOf<String, Translator>()
+    private var renderPosted = false
+    private val renderRunnable = Runnable {
+        renderPosted = false
+        val layoutManager = _binding?.combinedChatRecyclerView?.layoutManager as? LinearLayoutManager
+        if (layoutManager != null && _binding != null) {
+            val wasAtBottom = isAtBottom(layoutManager)
+            submitMessages(forceScroll = CombinedChatPresentationPolicy.shouldAutoScroll(wasAtBottom))
+        }
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -83,10 +93,8 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.updates.collectLatest {
-                    // Capture the position before DiffUtil applies the new list.
-                    val wasAtBottom = isAtBottom(layoutManager)
-                    submitMessages(forceScroll = CombinedChatPresentationPolicy.shouldAutoScroll(wasAtBottom))
+                viewModel.updates.collect {
+                    scheduleMessagesRender()
                 }
             }
         }
@@ -170,6 +178,8 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
     }
 
     private fun submitMessages(forceScroll: Boolean) {
+        _binding?.combinedChatRecyclerView?.removeCallbacks(renderRunnable)
+        renderPosted = false
         if (!::adapter.isInitialized || _binding == null) return
         val items = viewModel.snapshot(filterIdentity)
         adapter.submitList(items) {
@@ -179,6 +189,13 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
             }
         }
         binding.combinedChatEmpty.isVisible = items.isEmpty()
+    }
+
+    private fun scheduleMessagesRender() {
+        val recyclerView = _binding?.combinedChatRecyclerView ?: return
+        if (renderPosted) return
+        renderPosted = true
+        recyclerView.postOnAnimation(renderRunnable)
     }
 
     private fun isAtBottom(layoutManager: LinearLayoutManager): Boolean {
@@ -312,6 +329,8 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
     }
 
     override fun onDestroyView() {
+        _binding?.combinedChatRecyclerView?.removeCallbacks(renderRunnable)
+        renderPosted = false
         interactionAdapter = null
         interactionIdentity = null
         languageIdentifier = null
