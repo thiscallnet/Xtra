@@ -217,6 +217,10 @@ class StreamFeedCache(
         return dao.activeItemsFlow(feedKey.value, limit)
     }
 
+    fun allActiveItemsFlow(feedKey: StreamFeedKey): Flow<List<CachedStreamFeedItem>> {
+        return dao.allActiveItemsFlow(feedKey.value)
+    }
+
     override suspend fun state(feedKey: StreamFeedKey): StreamFeedState? = withContext(Dispatchers.IO) {
         dao.state(feedKey.value)
     }

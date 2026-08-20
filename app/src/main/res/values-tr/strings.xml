@@ -591,4 +591,18 @@
     <string name="avoid_rounded_corners_summary">Fiziksel yuvarlatılmış köşeler ve kamera kesikleri videoyu veya kontrolleri kapatmasın diye oynatıcı içeriğini içeri al.</string>
     <string name="recent_updates">Recent updates</string>
     <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
+    <string name="home">Ana sayfa</string>
+    <string name="browse">Göz at</string>
+    <string name="following_overview">Genel bakış</string>
+    <string name="following_categories">Kategoriler</string>
+    <string name="following_live_channels">Canlı kanallar</string>
+    <string name="following_no_live_channels">Takip ettiğiniz kanalların hiçbiri şu anda canlı değil.</string>
+    <string name="following_recommended_channels">Önerilen kanallar</string>
+    <string name="following_no_recommended_channels">Öneriler şu anda kullanılamıyor.</string>
+    <string name="following_continue_watching">İzlemeye devam et</string>
+    <string name="following_no_continue_watching">İzlemeye başladığınız videolar burada görünür.</string>
+    <string name="following_see_all">Tümünü gör</string>
+    <string name="following_overview_sections">Takip genel bakış bölümleri</string>
+    <string name="following_overview_sections_summary">Bölümleri seçip yeniden sıralamak için sürükleyin</string>
+    <string name="following_no_sections_enabled">Etkin genel bakış bölümü yok. Bir bölüm eklemek için Ayarlar → Takip genel bakışı bölümünü açın.</string>
 </resources>

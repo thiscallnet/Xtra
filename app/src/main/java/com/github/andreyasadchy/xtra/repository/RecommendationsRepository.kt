@@ -1,6 +1,8 @@
 package com.github.andreyasadchy.xtra.repository
 
 import android.content.Context
+import android.util.Log
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.model.gql.stream.StreamsResponse
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.util.C
@@ -13,6 +15,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.intOrNull
+import kotlinx.coroutines.CancellationException
 
 /** Provides a real Twitch recommendation source with a documented-data fallback. */
 class RecommendationsRepository(
@@ -44,23 +47,46 @@ class RecommendationsRepository(
             cacheAccountKey = accountKey
         }
         if (cacheExpiresAt > now) {
-            return cachedRecommendations.filterNot { it.channelId in excludedChannelIds }.take(limit)
+            return cachedRecommendations
+                .filterNot { it.channelId in excludedChannelIds }
+                .take(limit)
+                .also { debug("source=$lastSource cache-hit count=${it.size}") }
         }
         val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-        val personalized = runCatching {
-            parsePersonalSections(graphQLRepository.loadPersonalSections(networkLibrary, headers))
-        }.getOrNull()?.filterNot { it.channelId in excludedChannelIds }
+        val personalized = try {
+            val response = graphQLRepository.loadPersonalSections(networkLibrary, headers)
+            if (response["errors"]?.jsonArray?.isNotEmpty() == true) {
+                throw IllegalStateException("PersonalSections returned GraphQL errors")
+            }
+            parsePersonalSections(response)
+                .filterNot { it.channelId in excludedChannelIds }
+                .also { debug("PersonalSections parsed count=${it.size}") }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            debugFailure("PersonalSections failed; using fallback", error)
+            null
+        }
         val result = if (!personalized.isNullOrEmpty()) {
             lastSource = RecommendationSource.PERSONALIZED
             personalized
         } else {
             lastSource = RecommendationSource.FALLBACK
-            fallback(networkLibrary, headers, limit, excludedChannelIds)
+            debug("source=FALLBACK reason=${if (personalized == null) "personalized-error" else "personalized-empty"}")
+            try {
+                fallback(networkLibrary, headers, limit, excludedChannelIds)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                debugFailure("Fallback recommendations failed", error)
+                emptyList()
+            }
         }
             .filterNot { it.channelId in excludedChannelIds }
             .distinctBy { it.channelId ?: it.id }
             .take(limit)
         if (result.isEmpty()) lastSource = RecommendationSource.UNAVAILABLE
+        debug("source=$lastSource count=${result.size}")
         if (result.isNotEmpty()) {
             cachedRecommendations = result
             cacheExpiresAt = now + RECOMMENDATIONS_CACHE_MILLIS
@@ -108,7 +134,18 @@ class RecommendationsRepository(
         )
     }
 
+    private fun debug(message: String) {
+        if (BuildConfig.DEBUG) Log.d(LOG_TAG, message)
+    }
+
+    private fun debugFailure(message: String, error: Exception) {
+        if (BuildConfig.DEBUG) {
+            Log.w(LOG_TAG, "$message: ${error::class.simpleName}: ${error.message}")
+        }
+    }
+
     private companion object {
+        const val LOG_TAG = "FollowingRecommendations"
         const val RECOMMENDATIONS_CACHE_MILLIS = 5 * 60 * 1000L
     }
 }

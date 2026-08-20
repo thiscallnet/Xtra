@@ -590,4 +590,18 @@
     <string name="avoid_rounded_corners_summary">Inserir o contido do reprodutor para que as esquinas curvas físicas e os recortes non oculten o vídeo nin os controis.</string>
     <string name="recent_updates">Recent updates</string>
     <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
+    <string name="home">Inicio</string>
+    <string name="browse">Explorar</string>
+    <string name="following_overview">Vista xeral</string>
+    <string name="following_categories">Categorías</string>
+    <string name="following_live_channels">Canles en directo</string>
+    <string name="following_no_live_channels">Ningunha das canles que segues está en directo agora.</string>
+    <string name="following_recommended_channels">Canles recomendadas</string>
+    <string name="following_no_recommended_channels">As recomendacións non están dispoñibles agora.</string>
+    <string name="following_continue_watching">Continuar vendo</string>
+    <string name="following_no_continue_watching">Os vídeos que comeces a ver aparecerán aquí.</string>
+    <string name="following_see_all">Ver todo</string>
+    <string name="following_overview_sections">Seccións da vista xeral de seguidos</string>
+    <string name="following_overview_sections_summary">Escolle seccións e arrástraas para reordenalas</string>
+    <string name="following_no_sections_enabled">Non hai seccións da vista xeral activadas. Abre Configuración → Vista xeral de seguidos para engadir unha.</string>
 </resources>

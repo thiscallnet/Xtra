@@ -56,6 +56,11 @@ class FollowingOverviewViewModel(
         ).map { items -> items.map { it.toStream() } }
     }
 
+    private val allLiveChannelIds: Flow<Set<String>> = accountId.flatMapLatest { userId ->
+        streamFeedCache.allActiveItemsFlow(StreamFeedKey.followed(userId))
+            .map { items -> items.mapNotNull { it.channelId }.toSet() }
+    }
+
     val continueWatching: Flow<List<VideoHistory>> = playerRepository.loadContinueWatching(CONTINUE_WATCHING_LIMIT)
 
     private val _overviewSectionKeys = MutableStateFlow(readOverviewSectionKeys())
@@ -87,7 +92,7 @@ class FollowingOverviewViewModel(
         viewModelScope.launch {
             _recommendationsLoading.value = true
             try {
-                val liveChannelIds = liveStreams.first().mapNotNull { it.channelId }.toSet()
+                val liveChannelIds = allLiveChannelIds.first()
                 _recommendedStreams.value = recommendationsRepository.getLiveRecommendations(RECOMMENDED_LIMIT, liveChannelIds)
             } catch (e: CancellationException) {
                 throw e

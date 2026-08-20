@@ -2235,12 +2235,13 @@ class PlayerRepository(
     fun loadContinueWatching(limit: Int) = videoHistory.getContinueWatching(limit)
 
     suspend fun saveVideoHistory(item: VideoHistory) = withContext(Dispatchers.IO) {
-        videoHistory.upsertMetadata(item)
+        if (videoHistory.upsertMetadata(item)) {
+            videoHistory.prune(MAX_VIDEO_HISTORY_ITEMS)
+        }
     }
 
     suspend fun saveVideoHistoryPosition(id: Long, position: Long) = withContext(Dispatchers.IO) {
         videoHistory.updatePosition(id, position, System.currentTimeMillis())
-        videoHistory.prune(MAX_VIDEO_HISTORY_ITEMS)
     }
 
     suspend fun deleteVideoPositions() = withContext(Dispatchers.IO) {

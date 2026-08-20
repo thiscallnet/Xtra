@@ -590,4 +590,18 @@
     <string name="avoid_rounded_corners_summary">将播放器内容向内缩进，避免物理圆角和缺口遮挡视频或控件。</string>
     <string name="recent_updates">Recent updates</string>
     <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
+    <string name="home">首页</string>
+    <string name="browse">浏览</string>
+    <string name="following_overview">概览</string>
+    <string name="following_categories">分类</string>
+    <string name="following_live_channels">直播频道</string>
+    <string name="following_no_live_channels">你关注的频道目前都未直播。</string>
+    <string name="following_recommended_channels">推荐频道</string>
+    <string name="following_no_recommended_channels">推荐内容暂时不可用。</string>
+    <string name="following_continue_watching">继续观看</string>
+    <string name="following_no_continue_watching">你开始观看的视频会显示在这里。</string>
+    <string name="following_see_all">查看全部</string>
+    <string name="following_overview_sections">关注概览分区</string>
+    <string name="following_overview_sections_summary">选择分区并拖动以重新排序</string>
+    <string name="following_no_sections_enabled">没有启用概览分区。打开设置 → 关注概览以添加分区。</string>
 </resources>

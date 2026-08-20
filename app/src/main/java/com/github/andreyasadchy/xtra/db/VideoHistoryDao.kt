@@ -21,7 +21,7 @@ interface VideoHistoryDao {
     fun getContinueWatching(limit: Int): Flow<List<VideoHistory>>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    fun insertIfMissing(item: VideoHistory)
+    fun insertIfMissing(item: VideoHistory): Long
 
     @Query("""
         UPDATE video_history SET
@@ -54,8 +54,8 @@ interface VideoHistoryDao {
     )
 
     @Transaction
-    fun upsertMetadata(item: VideoHistory) {
-        insertIfMissing(item)
+    fun upsertMetadata(item: VideoHistory): Boolean {
+        val inserted = insertIfMissing(item) != -1L
         updateMetadata(
             id = item.id,
             durationSeconds = item.durationSeconds,
@@ -70,6 +70,7 @@ interface VideoHistoryDao {
             gameName = item.gameName,
             createdAt = item.createdAt,
         )
+        return inserted
     }
 
     @Query("UPDATE video_history SET position = :position, updatedAt = :updatedAt WHERE id = :id")

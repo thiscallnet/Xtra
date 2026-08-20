@@ -59,7 +59,7 @@ object FollowingTabs {
     @StringRes
     fun titleRes(key: String): Int = definitions.firstOrNull { it.key == key }?.titleRes ?: R.string.live
 
-    /** Adds Overview to a pre-redesign preference while making it the new landing tab. */
+    /** Adds Overview to a pre-redesign preference while preserving custom landing tabs. */
     fun migrateStoredPreference(stored: String?): String? {
         if (stored == null || stored.split(',').any { isValidEntry(it) && keyOf(it) == OVERVIEW }) {
             return stored
