@@ -95,7 +95,6 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                     viewModel.continueWatching,
                     viewModel.overviewSectionKeys,
                 ) { live, recommended, recommendationsLoading, continueWatching, sectionKeys ->
-                    val liveChannelIds = live.mapNotNull { it.channelId }.toSet()
                     val availableSections = mapOf(
                         FollowingOverviewSections.LIVE to FollowingOverviewSection(
                             key = FollowingOverviewSections.LIVE,
@@ -107,7 +106,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                             key = FollowingOverviewSections.RECOMMENDED,
                             titleRes = R.string.following_recommended_channels,
                             emptyRes = R.string.following_no_recommended_channels,
-                            streams = recommended.filterNot { it.channelId in liveChannelIds },
+                            streams = recommended,
                             isLoading = recommendationsLoading && recommended.isEmpty(),
                             showSeeAll = false,
                         ),

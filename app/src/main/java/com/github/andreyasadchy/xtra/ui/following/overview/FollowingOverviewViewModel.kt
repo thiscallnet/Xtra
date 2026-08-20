@@ -29,6 +29,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -67,7 +68,9 @@ class FollowingOverviewViewModel(
     val overviewSectionKeys: StateFlow<List<String>> = _overviewSectionKeys
 
     private val _recommendedStreams = MutableStateFlow<List<Stream>>(emptyList())
-    val recommendedStreams: Flow<List<Stream>> = _recommendedStreams
+    val recommendedStreams: Flow<List<Stream>> = combine(_recommendedStreams, allLiveChannelIds) { recommended, liveChannelIds ->
+        recommended.filterNot { it.channelId in liveChannelIds }
+    }
 
     private val _recommendationsLoading = MutableStateFlow(false)
     val recommendationsLoading: StateFlow<Boolean> = _recommendationsLoading

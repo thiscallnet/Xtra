@@ -16,6 +16,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Provides a real Twitch recommendation source with a documented-data fallback. */
 class RecommendationsRepository(
@@ -24,9 +26,10 @@ class RecommendationsRepository(
     private val localChannelFollowsRepository: LocalChannelFollowsRepository,
 ) {
 
-    private var cachedRecommendations: List<Stream> = emptyList()
-    private var cacheExpiresAt = 0L
-    private var cacheAccountKey: RecommendationAccountKey? = null
+    private val cacheMutex = Mutex()
+    // The cache entry keeps identity, data, source, and expiry inseparable.
+    private var cache: RecommendationCache? = null
+    // Diagnostic state only; it is never used to decide whether cached data is valid.
     var lastSource: RecommendationSource = RecommendationSource.UNAVAILABLE
         private set
 
@@ -41,16 +44,16 @@ class RecommendationsRepository(
             // while account preferences are still being written during login.
             authIdentity = headers[C.HEADER_TOKEN]?.hashCode(),
         )
-        if (cacheAccountKey != accountKey) {
-            cachedRecommendations = emptyList()
-            cacheExpiresAt = 0L
-            cacheAccountKey = accountKey
-        }
-        if (cacheExpiresAt > now) {
-            return cachedRecommendations
-                .filterNot { it.channelId in excludedChannelIds }
-                .take(limit)
-                .also { debug("source=$lastSource cache-hit count=${it.size}") }
+        cacheMutex.withLock {
+            cache
+                ?.takeIf { it.accountKey == accountKey && it.expiresAt > now }
+                ?.let { entry ->
+                    lastSource = entry.source
+                    return entry.recommendations
+                        .filterNot { it.channelId in excludedChannelIds }
+                        .take(limit)
+                        .also { debug("source=${entry.source} cache-hit count=${it.size}") }
+                }
         }
         val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val personalized = try {
@@ -67,11 +70,15 @@ class RecommendationsRepository(
             debugFailure("PersonalSections failed; using fallback", error)
             null
         }
+        val source = if (!personalized.isNullOrEmpty()) {
+            RecommendationSource.PERSONALIZED
+        } else {
+            RecommendationSource.FALLBACK
+        }
+        lastSource = source
         val result = if (!personalized.isNullOrEmpty()) {
-            lastSource = RecommendationSource.PERSONALIZED
             personalized
         } else {
-            lastSource = RecommendationSource.FALLBACK
             debug("source=FALLBACK reason=${if (personalized == null) "personalized-error" else "personalized-empty"}")
             try {
                 fallback(networkLibrary, headers, limit, excludedChannelIds)
@@ -85,13 +92,48 @@ class RecommendationsRepository(
             .filterNot { it.channelId in excludedChannelIds }
             .distinctBy { it.channelId ?: it.id }
             .take(limit)
-        if (result.isEmpty()) lastSource = RecommendationSource.UNAVAILABLE
-        debug("source=$lastSource count=${result.size}")
+        val resultSource = if (result.isEmpty()) RecommendationSource.UNAVAILABLE else source
+        lastSource = resultSource
+        debug("source=$resultSource count=${result.size}")
         if (result.isNotEmpty()) {
-            cachedRecommendations = result
-            cacheExpiresAt = now + RECOMMENDATIONS_CACHE_MILLIS
+            publishCacheIfCurrent(
+                requestAccountKey = accountKey,
+                recommendations = result,
+                source = resultSource,
+            )
         }
         return result
+    }
+
+    private suspend fun publishCacheIfCurrent(
+        requestAccountKey: RecommendationAccountKey,
+        recommendations: List<Stream>,
+        source: RecommendationSource,
+    ) {
+        cacheMutex.withLock {
+            // A request may finish after login/logout or account switching. Never
+            // publish its result into the cache of the account that is current now.
+            if (currentAccountKey() == requestAccountKey) {
+                cache = RecommendationCache(
+                    accountKey = requestAccountKey,
+                    recommendations = recommendations,
+                    source = source,
+                    expiresAt = System.currentTimeMillis() + RECOMMENDATIONS_CACHE_MILLIS,
+                )
+            } else {
+                debug("cache publication skipped after account change")
+            }
+        }
+    }
+
+    private fun currentAccountKey(): RecommendationAccountKey {
+        val headers = TwitchApiHelper.getGQLHeaders(context, true)
+        return RecommendationAccountKey(
+            userId = context.tokenPrefs().getString(C.USER_ID, null),
+            username = context.tokenPrefs().getString(C.USERNAME, null),
+            authenticated = !headers[C.HEADER_TOKEN].isNullOrBlank(),
+            authIdentity = headers[C.HEADER_TOKEN]?.hashCode(),
+        )
     }
 
     private suspend fun fallback(
@@ -149,6 +191,13 @@ class RecommendationsRepository(
         const val RECOMMENDATIONS_CACHE_MILLIS = 5 * 60 * 1000L
     }
 }
+
+private data class RecommendationCache(
+    val accountKey: RecommendationAccountKey,
+    val recommendations: List<Stream>,
+    val source: RecommendationSource,
+    val expiresAt: Long,
+)
 
 internal data class RecommendationAccountKey(
     val userId: String?,
