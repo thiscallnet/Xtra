@@ -310,6 +310,20 @@
             tools:visibility="visible" />
 
         <ImageButton
+            android:id="@+id/clip"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_clip"
+            android:enabled="false"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_content_cut_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
             android:id="@+id/vodGames"
             android:layout_width="40dp"
             android:layout_height="40dp"

@@ -47,6 +47,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -70,6 +71,8 @@ import com.github.andreyasadchy.xtra.player.lowlatency.HlsPlaylistParser
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.player.clip.ClipPreparationRepository
+import com.github.andreyasadchy.xtra.ui.player.clip.LiveClipBufferManager
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.MediaButtonReceiver
 import com.github.andreyasadchy.xtra.util.NetworkUtils
@@ -82,8 +85,11 @@ import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -94,6 +100,7 @@ import org.chromium.net.CronetEngine
 import org.chromium.net.CronetProvider
 import org.chromium.net.QuicOptions
 import org.json.JSONObject
+import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.net.InetSocketAddress
@@ -140,6 +147,10 @@ class ExoPlayerService : BasePlaybackService() {
     private var backgroundVideoDisabled = false
     private var streamRecoveryJob: Job? = null
     private var streamRecoveryAttempt = 0
+    private val initialRestore = CompletableDeferred<Unit>()
+    private val liveClipBufferManager = LiveClipBufferManager()
+    private var liveClipDataSourceFactory: DataSource.Factory? = null
+    private var liveClipPreparation: Deferred<ClipPreparationRepository.PreparedLiveClip>? = null
 
     override fun isViewingPlaybackPlaying(): Boolean = player?.isPlaying == true
 
@@ -153,6 +164,7 @@ class ExoPlayerService : BasePlaybackService() {
         fun loaded()
         fun changePlayerMode()
         fun updateQualityStatus() {}
+        fun updateLiveClipStatus() {}
         fun toast(resId: Int, duration: Int)
         fun updateVideoInfo()
         fun changeSurfaceVisibility(visible: Boolean) {}
@@ -163,6 +175,9 @@ class ExoPlayerService : BasePlaybackService() {
     override fun onCreate() {
         super.onCreate()
         xtraModule = (application as XtraApp).xtraModule
+        lifecycleScope.launch(Dispatchers.IO) {
+            ClipPreparationRepository.cleanupStale(File(cacheDir, LIVE_CLIP_DIRECTORY))
+        }
     }
 
     private fun create(restorePauseState: Boolean) {
@@ -197,7 +212,7 @@ class ExoPlayerService : BasePlaybackService() {
                             toggleSubtitles(prefs().getBoolean(C.PLAYER_SUBTITLES_ENABLED, false))
                         }
                         if (qualities?.find { it.name == AUTO_QUALITY } != null && quality?.name != AUDIO_ONLY_QUALITY && !hidden) {
-                            changeQuality(quality)
+                            changeQuality(quality, resetLiveClipGeneration = false)
                         }
                     }
                 }
@@ -206,6 +221,12 @@ class ExoPlayerService : BasePlaybackService() {
                     updatePlaybackState()
                     updateMetadata()
                     updateNotification()
+                    if (type == STREAM) {
+                        (player?.currentManifest as? HlsManifest)?.let { manifest ->
+                            liveClipBufferManager.capture(manifest)
+                            serviceListener?.updateLiveClipStatus()
+                        }
+                    }
                     if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && !timeline.isEmpty && qualities?.find { it.name == AUTO_QUALITY } != null) {
                         updateQualities = quality?.name != AUDIO_ONLY_QUALITY
                     }
@@ -604,8 +625,15 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     private fun start(restorePauseState: Boolean) {
+        if (type != STREAM) {
+            clearLiveClipState()
+        }
         lifecycleScope.launch {
-            restorePlaybackState()
+            try {
+                restorePlaybackState()
+            } finally {
+                initialRestore.complete(Unit)
+            }
             when (type) {
                 STREAM -> {
                     started = true
@@ -775,14 +803,14 @@ class ExoPlayerService : BasePlaybackService() {
         logAd("fallback channel=${channelLogin ?: "null"} usingProxy=$proxyMediaPlaylist useProxy=$useProxy suppress=$suppressAds")
         if (proxyMediaPlaylist) {
             if (!stopProxy) {
-                proxyMediaPlaylist = false
+                setProxyMediaPlaylist(false)
                 stopProxy = true
             }
             return
         }
         val playlist = quality?.url
         if (!stopProxy && !playlist.isNullOrBlank() && useProxy) {
-            proxyMediaPlaylist = true
+            setProxyMediaPlaylist(true)
             lifecycleScope.launch {
                 for (i in 0 until 10) {
                     delay(10.seconds)
@@ -790,7 +818,7 @@ class ExoPlayerService : BasePlaybackService() {
                         break
                     }
                 }
-                proxyMediaPlaylist = false
+                setProxyMediaPlaylist(false)
             }
         } else if (suppressAds) {
             suppressAdPlayback()
@@ -956,15 +984,13 @@ class ExoPlayerService : BasePlaybackService() {
             val url = playlistUrl
             if (url != null) {
                 player?.let { player ->
-                    proxyMediaPlaylist = false
+                    advanceLiveClipGeneration(clearDataSourceFactory = true, proxyMediaPlaylist = false)
                     val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
                     val proxyHost = prefs().httpProxyHost()
                     val proxyPort = prefs().httpProxyPort()
                     val proxyUser = prefs().getString(C.PROXY_USER, null)
                     val proxyPassword = prefs().getString(C.PROXY_PASSWORD, null)
-                    player.setMediaSource(
-                        HlsMediaSource.Factory(
-                            DefaultDataSource.Factory(
+                    val dataSourceFactory = DefaultDataSource.Factory(
                                 this@ExoPlayerService,
                                 when {
                                     networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -1207,7 +1233,9 @@ class ExoPlayerService : BasePlaybackService() {
                                     }
                                 }
                             )
-                        ).apply {
+                    liveClipDataSourceFactory = dataSourceFactory
+                    player.setMediaSource(
+                        HlsMediaSource.Factory(dataSourceFactory).apply {
                             setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
                             setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))
                         }.createMediaSource(
@@ -1225,6 +1253,8 @@ class ExoPlayerService : BasePlaybackService() {
                     player.prepare()
                     player.playWhenReady = !restorePauseState || !paused
                 }
+            } else {
+                clearLiveClipState()
             }
         }
     }
@@ -1451,6 +1481,86 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
+    fun liveClipStatus(): LiveClipBufferManager.Status? =
+        if (type == STREAM && liveClipDataSourceFactory != null) liveClipBufferManager.status() else null
+
+    suspend fun awaitInitialRestore() {
+        initialRestore.await()
+    }
+
+    fun prepareLiveClip(): Deferred<ClipPreparationRepository.PreparedLiveClip> {
+        liveClipPreparation?.takeUnless { it.isCompleted }?.let { return it }
+        val snapshot = liveClipBufferManager.snapshot()
+        val dataSourceFactory = liveClipDataSourceFactory
+        val preparation = lifecycleScope.async(Dispatchers.IO) {
+            check(type == STREAM && dataSourceFactory != null && snapshot != null) {
+                "There is not enough live video available for a clip"
+            }
+            check(snapshot.durationUs >= LiveClipBufferManager.MIN_CLIP_BUFFER_US) {
+                "There is not enough live video available for a clip"
+            }
+            check(!snapshot.drmInitDataPresent) {
+                "Clipping DRM-protected streams is not supported"
+            }
+            ClipPreparationRepository(
+                dataSourceFactory = dataSourceFactory,
+                rootDirectory = File(cacheDir, LIVE_CLIP_DIRECTORY),
+            ).prepare(snapshot)
+        }
+        liveClipPreparation = preparation
+        preparation.invokeOnCompletion {
+            if (liveClipPreparation === preparation) {
+                liveClipPreparation = null
+            }
+        }
+        return preparation
+    }
+
+    fun cancelLiveClipPreparation() {
+        liveClipPreparation?.cancel()
+        liveClipPreparation = null
+    }
+
+    fun releaseLiveClip(directoryPath: String?) {
+        if (directoryPath.isNullOrBlank()) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                val root = File(cacheDir, LIVE_CLIP_DIRECTORY).canonicalFile
+                val target = File(directoryPath).canonicalFile
+                if (target.parentFile == root) {
+                    target.deleteRecursively()
+                }
+            }
+        }
+    }
+
+    private fun advanceLiveClipGeneration(
+        clearDataSourceFactory: Boolean = false,
+        proxyMediaPlaylist: Boolean? = null,
+    ) {
+        cancelLiveClipPreparation()
+        if (clearDataSourceFactory) {
+            liveClipDataSourceFactory = null
+        }
+        proxyMediaPlaylist?.let { this.proxyMediaPlaylist = it }
+        liveClipBufferManager.startNewGeneration()
+        if (type == STREAM) {
+            serviceListener?.updateLiveClipStatus()
+        }
+    }
+
+    private fun setProxyMediaPlaylist(value: Boolean) {
+        if (proxyMediaPlaylist == value) return
+        proxyMediaPlaylist = value
+        advanceLiveClipGeneration()
+    }
+
+    private fun clearLiveClipState() {
+        cancelLiveClipPreparation()
+        liveClipDataSourceFactory = null
+        liveClipBufferManager.reset()
+    }
+
     fun retry(item: String) {
         when (item) {
             "refreshStream" -> {
@@ -1471,7 +1581,26 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
-    fun changeQuality(selectedQuality: VideoQuality?) {
+    private fun setQualityMediaItem(player: ExoPlayer, mediaItem: MediaItem, uri: String) {
+        val updatedMediaItem = mediaItem.buildUpon().setUri(uri).build()
+        val dataSourceFactory = liveClipDataSourceFactory
+        if (type == STREAM && dataSourceFactory != null) {
+            player.setMediaSource(
+                HlsMediaSource.Factory(dataSourceFactory).apply {
+                    setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+                    setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))
+                }.createMediaSource(updatedMediaItem)
+            )
+        } else {
+            player.setMediaItem(updatedMediaItem)
+        }
+    }
+
+    fun changeQuality(selectedQuality: VideoQuality?, resetLiveClipGeneration: Boolean = true) {
+        val qualityChanged = quality?.name != selectedQuality?.name || quality?.url != selectedQuality?.url
+        if (type == STREAM && qualityChanged && resetLiveClipGeneration) {
+            advanceLiveClipGeneration()
+        }
         previousQuality = quality
         quality = selectedQuality
         quality?.let { quality ->
@@ -1484,7 +1613,7 @@ class ExoPlayerService : BasePlaybackService() {
                                 playlistUrl?.let { uri ->
                                     if (mediaItem.localConfiguration?.uri != uri.toUri()) {
                                         val position = player.currentPosition
-                                        player.setMediaItem(mediaItem.buildUpon().setUri(uri).build())
+                                        setQualityMediaItem(player, mediaItem, uri)
                                         player.prepare()
                                         player.seekTo(position)
                                     }
@@ -1498,7 +1627,7 @@ class ExoPlayerService : BasePlaybackService() {
                             }.build()
                         }
                         AUDIO_ONLY_QUALITY -> {
-                            proxyMediaPlaylist = false
+                            setProxyMediaPlaylist(false)
                             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                             }.build()
@@ -1507,13 +1636,13 @@ class ExoPlayerService : BasePlaybackService() {
                                 if (qualities?.find { it.name == AUTO_QUALITY } != null) {
                                     restorePlaylist = true
                                 }
-                                player.setMediaItem(mediaItem.buildUpon().setUri(it).build())
+                                setQualityMediaItem(player, mediaItem, it)
                                 player.prepare()
                                 player.seekTo(position)
                             }
                         }
                         CHAT_ONLY_QUALITY -> {
-                            proxyMediaPlaylist = false
+                            setProxyMediaPlaylist(false)
                             player.stop()
                         }
                         else -> {
@@ -1522,7 +1651,7 @@ class ExoPlayerService : BasePlaybackService() {
                                     restorePlaylist = false
                                     playlistUrl?.let { uri ->
                                         val position = player.currentPosition
-                                        player.setMediaItem(mediaItem.buildUpon().setUri(uri).build())
+                                        setQualityMediaItem(player, mediaItem, uri)
                                         player.prepare()
                                         player.seekTo(position)
                                     }
@@ -1564,12 +1693,14 @@ class ExoPlayerService : BasePlaybackService() {
                                     }
                                 }.build()
                             } else {
-                                player.currentMediaItem?.let {
-                                    if (it.localConfiguration?.uri?.toString() != quality.url) {
-                                        val position = player.currentPosition
-                                        player.setMediaItem(it.buildUpon().setUri(quality.url).build())
-                                        player.prepare()
-                                        player.seekTo(position)
+                                player.currentMediaItem?.let { mediaItem ->
+                                    quality.url?.let { qualityUri ->
+                                        if (mediaItem.localConfiguration?.uri?.toString() != qualityUri) {
+                                            val position = player.currentPosition
+                                            setQualityMediaItem(player, mediaItem, qualityUri)
+                                            player.prepare()
+                                            player.seekTo(position)
+                                        }
                                     }
                                 }
                                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
@@ -1693,8 +1824,11 @@ class ExoPlayerService : BasePlaybackService() {
 
     fun startAudioOnly() {
         player?.let { player ->
-            proxyMediaPlaylist = false
+            setProxyMediaPlaylist(false)
             if (quality?.name != AUDIO_ONLY_QUALITY) {
+                if (type == STREAM) {
+                    advanceLiveClipGeneration()
+                }
                 restoreQuality = true
                 previousQuality = quality
                 quality = qualities?.find { it.name == AUDIO_ONLY_QUALITY }
@@ -1711,7 +1845,7 @@ class ExoPlayerService : BasePlaybackService() {
 
     fun stop(isInPIPMode: Boolean) {
         player?.let { player ->
-            proxyMediaPlaylist = false
+            setProxyMediaPlaylist(false)
             resumeWhenForeground = false
             val isInteractive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
             if (prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
@@ -2238,6 +2372,9 @@ class ExoPlayerService : BasePlaybackService() {
 
     override fun onBind(intent: Intent): IBinder {
         super.onBind(intent)
+        if (intent.action == INTENT_START && !created) {
+            create(restorePauseState = true)
+        }
         return ServiceBinder()
     }
 
@@ -2263,7 +2400,7 @@ class ExoPlayerService : BasePlaybackService() {
 
     override fun onDestroy() {
         releaseViewingStats()
-        super.onDestroy()
+        clearLiveClipState()
         streamRecoveryJob?.cancel()
         streamRecoveryJob = null
         adAvoidanceJob?.cancel()
@@ -2276,6 +2413,7 @@ class ExoPlayerService : BasePlaybackService() {
         session?.release()
         bitmapLoadJob?.cancel()
         notificationManager?.cancel(NOTIFICATION_ID)
+        super.onDestroy()
     }
 
     class CustomHlsPlaylistParserFactory: HlsPlaylistParserFactory {
@@ -2289,6 +2427,7 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     companion object {
+        private const val LIVE_CLIP_DIRECTORY = "live-clips"
         private const val AD_TAG = "XtraAd"
 
         const val MULTIVARIANT_PLAYLIST_REGEX = "^usher\\.ttvnw\\.net$"

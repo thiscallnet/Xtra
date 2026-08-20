@@ -8,8 +8,10 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.graphics.Color
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
 import android.text.format.DateUtils
+import android.util.Log
 import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.TextView
@@ -19,6 +21,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.core.widget.NestedScrollView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
@@ -30,22 +34,68 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.navigation.fragment.findNavController
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.player.clip.ClipEditorDialogFragment
+import com.github.andreyasadchy.xtra.ui.player.clip.ClipEditorRestorationState
+import com.github.andreyasadchy.xtra.ui.player.clip.ClipPreparationRepository
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.snackbar.Snackbar
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import java.io.File
 
 @OptIn(UnstableApi::class)
 class ExoPlayerFragment : PlayerFragment() {
 
+    override val supportsLiveClipping = true
     override var playbackService: ExoPlayerService? = null
     private var serviceConnection: ServiceConnection? = null
     private var playerListener: Player.Listener? = null
+    private var serviceSetupJob: Job? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
+    private var clipPreparationJob: Job? = null
+    private var clipPreparationSnackbar: Snackbar? = null
+    private var livePlaybackBeforeClipEditor: Boolean? = null
+    private var liveClipDirectoryPath: String? = null
+    private var liveSurfaceRestoreListener: Player.Listener? = null
+    private var liveSurfaceRestoreTimeout: Runnable? = null
+    private var clipEditorCoverTimeout: Runnable? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        liveClipDirectoryPath = savedInstanceState?.getString(STATE_CLIP_DIRECTORY)
+        livePlaybackBeforeClipEditor = savedInstanceState
+            ?.takeIf { it.containsKey(STATE_CLIP_PLAYING) }
+            ?.getBoolean(STATE_CLIP_PLAYING)
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        childFragmentManager.setFragmentResultListener(
+            ClipEditorDialogFragment.RESULT_KEY,
+            viewLifecycleOwner,
+        ) { _, result ->
+            closeClipEditor(result.getString(ClipEditorDialogFragment.RESULT_DIRECTORY))
+        }
+        childFragmentManager.setFragmentResultListener(
+            ClipEditorDialogFragment.PREVIEW_READY_KEY,
+            viewLifecycleOwner,
+        ) { _, _ ->
+            hideClipEditorTransitionCover()
+        }
+        if (childFragmentManager.findFragmentByTag(CLIP_EDITOR_TAG) is ClipEditorDialogFragment) {
+            binding.clipEditorContainer.visibility = View.VISIBLE
+            binding.clipEditorTransitionCover.visibility = View.VISIBLE
+            scheduleClipEditorCoverFallback()
+        }
+    }
 
     override fun onStart() {
         super.onStart()
@@ -182,6 +232,7 @@ class ExoPlayerFragment : PlayerFragment() {
             }
 
             override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
+                if (isClipEditorVisible()) return
                 if (parameters.disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_VIDEO)) {
                     binding.playerSurface.visibility = View.GONE
                 } else {
@@ -233,8 +284,14 @@ class ExoPlayerFragment : PlayerFragment() {
                 }
             }
 
-            override fun changeSurfaceVisibility(visible: Boolean) {
+            override fun updateLiveClipStatus() {
                 if (view != null) {
+                    setLiveClipAvailability(playbackService?.liveClipStatus()?.available == true)
+                }
+            }
+
+            override fun changeSurfaceVisibility(visible: Boolean) {
+                if (view != null && !isClipEditorVisible()) {
                     binding.playerSurface.visibility = if (visible) View.VISIBLE else View.GONE
                 }
             }
@@ -283,65 +340,89 @@ class ExoPlayerFragment : PlayerFragment() {
             override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
                 if (view != null) {
                     val binder = service as ExoPlayerService.ServiceBinder
-                    playbackService = binder.getService()
-                    playbackService?.serviceListener = serviceListener
-                    playbackService?.player?.setVideoSurfaceView(binding.playerSurface)
-                    playbackService?.restoreBackgroundVideoIfNeeded()
-                    playbackService?.player?.addListener(listener)
-                    playerListener = listener
-                    val endTime = playbackService?.setSleepTimer(-1)
-                    if (endTime != null && endTime > 0L) {
-                        val duration = endTime - System.currentTimeMillis()
-                        if (duration > 0L) {
-                            (activity as? MainActivity)?.setSleepTimer(duration)
+                    val connectedService = binder.getService()
+                    val connectedServiceConnection = this
+                    playbackService = connectedService
+                    serviceSetupJob?.cancel()
+                    serviceSetupJob = viewLifecycleOwner.lifecycleScope.launch {
+                        connectedService.awaitInitialRestore()
+                        if (view == null ||
+                            !isAdded ||
+                            !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) ||
+                            playbackService !== connectedService ||
+                            serviceConnection !== connectedServiceConnection
+                        ) return@launch
+
+                        val editorRestored = restoreClipEditorIfNeeded()
+                        if (!editorRestored) {
+                            connectedService.player?.setVideoSurfaceView(binding.playerSurface)
+                            connectedService.restoreBackgroundVideoIfNeeded()
                         } else {
-                            minimize()
-                            close()
-                            (activity as? MainActivity)?.closePlayer()
+                            pauseLiveClipPlayback()
                         }
-                    }
-                    playbackService?.setStopServiceTimer(false)
-                    playbackService?.resumePlaybackIfNeeded()
-                    playbackService?.player?.let { player ->
-                        if (canEnterPictureInPicture()) {
-                            requireView().keepScreenOn = player.isPlaying
-                        }
-                        updateProgress()
-                        val showPlayButton = Util.shouldShowPlayButton(player)
-                        binding.playerControls.playPause.contentDescription = getString(
-                            if (showPlayButton) R.string.player_play else R.string.player_pause_action,
-                        )
-                        if (showPlayButton) {
-                            binding.playerControls.playPause.setImageResource(R.drawable.baseline_play_arrow_black_48)
-                            binding.playerControls.playPause.visibility = View.VISIBLE
-                        } else {
-                            binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                            if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
-                                binding.playerControls.playPause.visibility = View.GONE
+                        connectedService.serviceListener = serviceListener
+                        connectedService.player?.addListener(listener)
+                        playerListener = listener
+                        val endTime = connectedService.setSleepTimer(-1)
+                        if (endTime > 0L) {
+                            val duration = endTime - System.currentTimeMillis()
+                            if (duration > 0L) {
+                                (activity as? MainActivity)?.setSleepTimer(duration)
+                            } else {
+                                minimize()
+                                close()
+                                (activity as? MainActivity)?.closePlayer()
                             }
                         }
-                    }
-                    if (playbackService?.started == true) {
-                        if (!started) {
-                            if (isInitialized || !enableNetworkCheck) {
-                                started = true
-                                start()
-                            }
+                        connectedService.setStopServiceTimer(false)
+                        if (!editorRestored) {
+                            connectedService.resumePlaybackIfNeeded()
                         } else {
-                            chatFragment?.startReplayChatLoad()
-                            if (playbackService?.restoreQuality == true) {
-                                playbackService?.restoreQuality = false
-                                changeQuality(playbackService?.previousQuality)
+                            pauseLiveClipPlayback()
+                        }
+                        connectedService.player?.let { player ->
+                            if (canEnterPictureInPicture()) {
+                                requireView().keepScreenOn = player.isPlaying
+                            }
+                            updateProgress()
+                            val showPlayButton = Util.shouldShowPlayButton(player)
+                            binding.playerControls.playPause.contentDescription = getString(
+                                if (showPlayButton) R.string.player_play else R.string.player_pause_action,
+                            )
+                            if (showPlayButton) {
+                                binding.playerControls.playPause.setImageResource(R.drawable.baseline_play_arrow_black_48)
+                                binding.playerControls.playPause.visibility = View.VISIBLE
+                            } else {
+                                binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
+                                if (connectedService.type == BasePlaybackService.STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                                    binding.playerControls.playPause.visibility = View.GONE
+                                }
                             }
                         }
-                    }
-                    playbackService?.player?.let { player ->
-                        setPipActions(player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE && player.playWhenReady)
+                        if (connectedService.started) {
+                            if (!started) {
+                                if (isInitialized || !enableNetworkCheck) {
+                                    started = true
+                                    start()
+                                }
+                            } else {
+                                chatFragment?.startReplayChatLoad()
+                                if (connectedService.restoreQuality) {
+                                    connectedService.restoreQuality = false
+                                    changeQuality(connectedService.previousQuality)
+                                }
+                            }
+                        }
+                        connectedService.player?.let { player ->
+                            setPipActions(player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE && player.playWhenReady)
+                        }
                     }
                 }
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
+                serviceSetupJob?.cancel()
+                serviceSetupJob = null
                 playbackService = null
             }
         }
@@ -379,6 +460,223 @@ class ExoPlayerFragment : PlayerFragment() {
 
     override fun seekToLivePosition() {
         playbackService?.player?.seekToDefaultPosition()
+    }
+
+    override fun requestLiveClipStatus() {
+        setLiveClipAvailability(playbackService?.liveClipStatus()?.available == true)
+    }
+
+    override fun prepareLiveClip() {
+        val service = playbackService ?: return
+        if (clipPreparationJob?.isActive == true || childFragmentManager.findFragmentByTag(CLIP_EDITOR_TAG) != null) {
+            return
+        }
+        clipDebug("editor open requested")
+        binding.playerControls.clip.isEnabled = false
+        clipPreparationSnackbar?.dismiss()
+        clipPreparationSnackbar = Snackbar.make(
+            binding.playerBackground,
+            R.string.clip_editor_exporting,
+            Snackbar.LENGTH_INDEFINITE,
+        ).setAction(R.string.cancel) {
+            service.cancelLiveClipPreparation()
+            clipPreparationJob?.cancel()
+        }.also { it.show() }
+        clipPreparationJob = viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val prepared = service.prepareLiveClip().await()
+                clipPreparationSnackbar?.dismiss()
+                clipPreparationSnackbar = null
+                if (view == null || !isAdded) {
+                    service.releaseLiveClip(prepared.directory.absolutePath)
+                } else {
+                    openClipEditor(prepared)
+                }
+            } catch (_: CancellationException) {
+                clipPreparationSnackbar?.dismiss()
+                clipPreparationSnackbar = null
+            } catch (_: Throwable) {
+                clipPreparationSnackbar?.dismiss()
+                clipPreparationSnackbar = null
+                if (view != null) {
+                    Snackbar.make(binding.playerBackground, R.string.player_clip_prepare_failed, Snackbar.LENGTH_LONG).show()
+                }
+            } finally {
+                clipPreparationJob = null
+                requestLiveClipStatus()
+            }
+        }
+    }
+
+    private fun openClipEditor(prepared: ClipPreparationRepository.PreparedLiveClip) {
+        if (childFragmentManager.findFragmentByTag(CLIP_EDITOR_TAG) != null) {
+            playbackService?.releaseLiveClip(prepared.directory.absolutePath)
+            return
+        }
+        if (!canOpenClipEditor()) {
+            playbackService?.releaseLiveClip(prepared.directory.absolutePath)
+            return
+        }
+        livePlaybackBeforeClipEditor = playbackService?.player?.playWhenReady == true
+        liveClipDirectoryPath = prepared.directory.absolutePath
+        clipDebug("editor entry cover visible playing=$livePlaybackBeforeClipEditor")
+        binding.clipEditorTransitionCover.visibility = View.VISIBLE
+        binding.clipEditorContainer.visibility = View.VISIBLE
+        scheduleClipEditorCoverFallback()
+        pauseLiveClipPlayback()
+        try {
+            childFragmentManager.beginTransaction()
+                .replace(
+                    R.id.clipEditorContainer,
+                    ClipEditorDialogFragment.newInstance(
+                        playlistPath = prepared.playlist.absolutePath,
+                        directoryPath = prepared.directory.absolutePath,
+                        boundariesUs = prepared.boundariesUs,
+                        channelName = playbackService?.channelName,
+                    ),
+                    CLIP_EDITOR_TAG,
+                )
+                .commitNow()
+        } catch (_: IllegalStateException) {
+            playbackService?.releaseLiveClip(prepared.directory.absolutePath)
+            liveClipDirectoryPath = null
+            binding.clipEditorContainer.visibility = View.GONE
+            clipEditorCoverTimeout?.let(binding.root::removeCallbacks)
+            clipEditorCoverTimeout = null
+            restoreLiveClipPlayback()
+        }
+    }
+
+    private fun canOpenClipEditor(): Boolean =
+        view != null &&
+            isAdded &&
+            viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+            !childFragmentManager.isStateSaved
+
+    private fun pauseLiveClipPlayback() {
+        val livePlayer = playbackService?.player
+        livePlayer?.playWhenReady = false
+        livePlayer?.pause()
+        clipDebug("live player paused")
+        binding.playerSurface.visibility = View.GONE
+        clipDebug("live surface hidden parentVisible=${binding.playerSurface.visibility == View.VISIBLE}")
+        livePlayer?.clearVideoSurfaceView(binding.playerSurface)
+        clipDebug("live surface cleared parentVisible=${binding.playerSurface.visibility == View.VISIBLE}")
+        binding.playerLayout.visibility = View.GONE
+    }
+
+    private fun isClipEditorVisible(): Boolean = view != null && binding.clipEditorContainer.isVisible
+
+    private fun closeClipEditor(directoryPath: String?) {
+        if (binding.clipEditorContainer.visibility != View.VISIBLE && liveClipDirectoryPath == null) return
+        clipDebug("editor close requested")
+        binding.clipEditorTransitionCover.visibility = View.VISIBLE
+        binding.clipEditorContainer.visibility = View.GONE
+        clipEditorCoverTimeout?.let(binding.root::removeCallbacks)
+        clipEditorCoverTimeout = null
+        val directoryToRelease = directoryPath ?: liveClipDirectoryPath
+        binding.root.post {
+            playbackService?.releaseLiveClip(directoryToRelease)
+        }
+        liveClipDirectoryPath = null
+        restoreLiveClipPlayback()
+    }
+
+    private fun restoreClipEditorIfNeeded(): Boolean {
+        val editor = childFragmentManager.findFragmentByTag(CLIP_EDITOR_TAG) as? ClipEditorDialogFragment
+        val restoration = ClipEditorRestorationState(
+            savedDirectoryPath = liveClipDirectoryPath,
+            childDirectoryPath = editor?.preparedDirectoryPath,
+        )
+        restoration.staleParentDirectoryPath?.let { playbackService?.releaseLiveClip(it) }
+        val directoryPath = restoration.directoryPath
+        val validEditor = playbackService?.type == BasePlaybackService.STREAM &&
+            restoration.shouldRestoreEditor &&
+            directoryPath != null &&
+            File(directoryPath).isDirectory &&
+            File(directoryPath, "clip.json").isFile
+        if (!validEditor) {
+            restoration.orphanDirectoryPath?.let { playbackService?.releaseLiveClip(it) }
+            if (editor != null) {
+                childFragmentManager.beginTransaction()
+                    .remove(editor)
+                    .commitNowAllowingStateLoss()
+            }
+            liveClipDirectoryPath = null
+            livePlaybackBeforeClipEditor = null
+            binding.clipEditorContainer.visibility = View.GONE
+            binding.clipEditorTransitionCover.visibility = View.GONE
+            clipEditorCoverTimeout?.let(binding.root::removeCallbacks)
+            clipEditorCoverTimeout = null
+            return false
+        }
+        liveClipDirectoryPath = directoryPath
+        binding.clipEditorContainer.visibility = View.VISIBLE
+        binding.clipEditorTransitionCover.visibility = View.VISIBLE
+        scheduleClipEditorCoverFallback()
+        return true
+    }
+
+    private fun scheduleClipEditorCoverFallback() {
+        clipEditorCoverTimeout?.let(binding.root::removeCallbacks)
+        val timeout = Runnable {
+            if (binding.clipEditorContainer.visibility == View.VISIBLE) {
+                binding.clipEditorTransitionCover.visibility = View.GONE
+            }
+        }
+        clipEditorCoverTimeout = timeout
+        binding.root.postDelayed(timeout, CLIP_EDITOR_COVER_TIMEOUT_MS)
+    }
+
+    private fun hideClipEditorTransitionCover() {
+        if (binding.clipEditorContainer.visibility == View.VISIBLE) {
+            clipEditorCoverTimeout?.let(binding.root::removeCallbacks)
+            clipEditorCoverTimeout = null
+            binding.clipEditorTransitionCover.visibility = View.GONE
+            clipDebug("editor preview first frame cover hidden")
+        }
+    }
+
+    private fun restoreLiveClipPlayback() {
+        val livePlayer = playbackService?.player
+        if (livePlayer == null) {
+            livePlaybackBeforeClipEditor = null
+            binding.clipEditorTransitionCover.visibility = View.GONE
+            return
+        }
+        liveSurfaceRestoreTimeout?.let(binding.root::removeCallbacks)
+        liveSurfaceRestoreListener?.let(livePlayer::removeListener)
+        val resumePlayback = livePlaybackBeforeClipEditor == true
+        val firstFrameListener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                finishLiveSurfaceRestore(livePlayer)
+            }
+        }
+        liveSurfaceRestoreListener = firstFrameListener
+        livePlayer.addListener(firstFrameListener)
+        binding.playerLayout.visibility = View.VISIBLE
+        binding.playerSurface.visibility = View.VISIBLE
+        clipDebug("live surface reattach")
+        livePlayer.setVideoSurfaceView(binding.playerSurface)
+        if (resumePlayback) {
+            livePlayer.seekToDefaultPosition()
+            livePlayer.playWhenReady = true
+        } else {
+            livePlayer.playWhenReady = false
+        }
+        val timeout = Runnable { finishLiveSurfaceRestore(livePlayer) }
+        liveSurfaceRestoreTimeout = timeout
+        binding.root.postDelayed(timeout, LIVE_SURFACE_RESTORE_TIMEOUT_MS)
+    }
+
+    private fun finishLiveSurfaceRestore(livePlayer: Player) {
+        liveSurfaceRestoreTimeout?.let(binding.root::removeCallbacks)
+        liveSurfaceRestoreTimeout = null
+        liveSurfaceRestoreListener?.let(livePlayer::removeListener)
+        liveSurfaceRestoreListener = null
+        livePlaybackBeforeClipEditor = null
+        binding.clipEditorTransitionCover.visibility = View.GONE
+        clipDebug("live first frame/timeout cover hidden")
     }
 
     override fun setPlaybackSpeed(speed: Float) {
@@ -502,6 +800,9 @@ class ExoPlayerFragment : PlayerFragment() {
     }
 
     override fun close(deleteStates: Boolean) {
+        playbackService?.cancelLiveClipPreparation()
+        liveClipDirectoryPath?.let { playbackService?.releaseLiveClip(it) }
+        liveClipDirectoryPath = null
         playbackService?.player?.pause()
         playbackService?.player?.stop()
         if (deleteStates) {
@@ -521,6 +822,8 @@ class ExoPlayerFragment : PlayerFragment() {
     }
 
     override fun onStop() {
+        serviceSetupJob?.cancel()
+        serviceSetupJob = null
         super.onStop()
         if (playbackService != null) {
             val isInPIPMode = when {
@@ -528,7 +831,12 @@ class ExoPlayerFragment : PlayerFragment() {
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> !useController && isMaximized
                 else -> false
             }
-            playbackService?.stop(isInPIPMode)
+            if (view != null && binding.clipEditorContainer.isVisible) {
+                playbackService?.player?.playWhenReady = false
+                playbackService?.player?.pause()
+            } else {
+                playbackService?.stop(isInPIPMode)
+            }
             playbackService?.setSleepTimer((activity as? MainActivity)?.getSleepTimerTimeLeft() ?: 0)
             playbackService?.setStopServiceTimer(true)
         }
@@ -538,6 +846,34 @@ class ExoPlayerFragment : PlayerFragment() {
         playbackService?.serviceListener = null
         serviceConnection?.let { requireContext().unbindService(it) }
         serviceConnection = null
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_CLIP_DIRECTORY, liveClipDirectoryPath)
+        livePlaybackBeforeClipEditor?.let { outState.putBoolean(STATE_CLIP_PLAYING, it) }
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onDestroyView() {
+        clipDebug("parent editor view destroyed")
+        serviceSetupJob?.cancel()
+        serviceSetupJob = null
+        clipPreparationSnackbar?.dismiss()
+        clipPreparationSnackbar = null
+        clipPreparationJob?.cancel()
+        clipPreparationJob = null
+        clipEditorCoverTimeout?.let { binding.root.removeCallbacks(it) }
+        clipEditorCoverTimeout = null
+        liveSurfaceRestoreTimeout?.let { binding.root.removeCallbacks(it) }
+        liveSurfaceRestoreTimeout = null
+        liveSurfaceRestoreListener?.let { listener -> playbackService?.player?.removeListener(listener) }
+        liveSurfaceRestoreListener = null
+        super.onDestroyView()
+    }
+
+    override fun onDestroy() {
+        playbackService?.cancelLiveClipPreparation()
+        super.onDestroy()
     }
 
     override fun onNetworkRestored() {
@@ -554,5 +890,20 @@ class ExoPlayerFragment : PlayerFragment() {
 
     override fun onNetworkLost() {
         // Keep the timeline alive so ExoPlayer can buffer and retry after a transient loss.
+    }
+
+    companion object {
+        private const val CLIP_EDITOR_TAG = "liveClipEditor"
+        private const val STATE_CLIP_DIRECTORY = "liveClipDirectory"
+        private const val STATE_CLIP_PLAYING = "liveClipPlaying"
+        private const val LIVE_SURFACE_RESTORE_TIMEOUT_MS = 4_000L
+        private const val CLIP_EDITOR_COVER_TIMEOUT_MS = 5_000L
+        private const val CLIP_LOG_TAG = "XtraClipPlayer"
+    }
+
+    private fun clipDebug(message: String) {
+        if (BuildConfig.DEBUG && Log.isLoggable(CLIP_LOG_TAG, Log.DEBUG)) {
+            Log.d(CLIP_LOG_TAG, "[CLIP-UI] $message")
+        }
     }
 }
