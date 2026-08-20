@@ -590,4 +590,18 @@
     <string name="avoid_rounded_corners_summary">أزح محتوى المشغل حتى لا تحجب الزوايا المنحنية الفعلية وفتحات الشاشة الفيديو أو عناصر التحكم.</string>
     <string name="recent_updates">Recent updates</string>
     <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
+    <string name="home">الرئيسية</string>
+    <string name="browse">تصفح</string>
+    <string name="following_overview">نظرة عامة</string>
+    <string name="following_categories">الفئات</string>
+    <string name="following_live_channels">القنوات المباشرة</string>
+    <string name="following_no_live_channels">لا توجد قنوات تتابعها تبث الآن.</string>
+    <string name="following_recommended_channels">القنوات المقترحة</string>
+    <string name="following_no_recommended_channels">التوصيات غير متاحة الآن.</string>
+    <string name="following_continue_watching">متابعة المشاهدة</string>
+    <string name="following_no_continue_watching">ستظهر هنا مقاطع الفيديو التي تبدأ بمشاهدتها.</string>
+    <string name="following_see_all">عرض الكل</string>
+    <string name="following_overview_sections">أقسام نظرة عامة على المتابعة</string>
+    <string name="following_overview_sections_summary">اختر الأقسام واسحبها لإعادة ترتيبها</string>
+    <string name="following_no_sections_enabled">لا توجد أقسام مفعلة. افتح الإعدادات ← نظرة عامة على المتابعة لإضافة قسم.</string>
 </resources>

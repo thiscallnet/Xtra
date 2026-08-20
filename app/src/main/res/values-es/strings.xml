@@ -595,4 +595,18 @@
     <string name="avoid_rounded_corners_summary">Ajustar el contenido del reproductor para que las esquinas curvas físicas y los recortes no oculten el vídeo ni los controles.</string>
     <string name="recent_updates">Recent updates</string>
     <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
+    <string name="home">Inicio</string>
+    <string name="browse">Explorar</string>
+    <string name="following_overview">Resumen</string>
+    <string name="following_categories">Categorías</string>
+    <string name="following_live_channels">Canales en directo</string>
+    <string name="following_no_live_channels">No hay canales que sigues en directo ahora.</string>
+    <string name="following_recommended_channels">Canales recomendados</string>
+    <string name="following_no_recommended_channels">Las recomendaciones no están disponibles ahora.</string>
+    <string name="following_continue_watching">Seguir viendo</string>
+    <string name="following_no_continue_watching">Los vídeos que empieces a ver aparecerán aquí.</string>
+    <string name="following_see_all">Ver todo</string>
+    <string name="following_overview_sections">Secciones del resumen de seguidos</string>
+    <string name="following_overview_sections_summary">Elige secciones y arrástralas para reordenarlas</string>
+    <string name="following_no_sections_enabled">No hay secciones del resumen activadas. Abre Ajustes → Resumen de seguidos para añadir una.</string>
 </resources>

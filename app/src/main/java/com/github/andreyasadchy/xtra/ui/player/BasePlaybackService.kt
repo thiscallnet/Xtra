@@ -155,6 +155,7 @@ abstract class BasePlaybackService : LifecycleService() {
             xtraModule.playbackPersistence.saveVideoPosition(
                 VideoPosition(it, position),
             )
+            xtraModule.playbackPersistence.saveVideoHistoryPosition(it, position)
         } ?: offlineVideoId?.let {
             xtraModule.playbackPersistence.saveOfflineVideoPosition(it, position)
         }

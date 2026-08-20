@@ -7,6 +7,7 @@ import com.github.andreyasadchy.xtra.db.StreamFeedState
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.datasource.StreamFeedPage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 
@@ -211,6 +212,14 @@ class StreamFeedCache(
 ) : StreamFeedCacheStore {
 
     override fun pagingSource(feedKey: StreamFeedKey) = dao.pagingSource(feedKey.value)
+
+    fun activeItemsFlow(feedKey: StreamFeedKey, limit: Int): Flow<List<CachedStreamFeedItem>> {
+        return dao.activeItemsFlow(feedKey.value, limit)
+    }
+
+    fun allActiveItemsFlow(feedKey: StreamFeedKey): Flow<List<CachedStreamFeedItem>> {
+        return dao.allActiveItemsFlow(feedKey.value)
+    }
 
     override suspend fun state(feedKey: StreamFeedKey): StreamFeedState? = withContext(Dispatchers.IO) {
         dao.state(feedKey.value)

@@ -38,6 +38,7 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
     private var _binding: FragmentMediaPagerBinding? = null
     private val binding get() = _binding!!
     private var firstLaunch = true
+    private var tabKeys: List<String> = emptyList()
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
@@ -93,30 +94,10 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
                 }
             }
             val showVideosTab = !TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank()
-            val tabList = requireContext().prefs().getString(C.UI_FOLLOWING_TABS, null).let { tabPref ->
-                val defaultTabs = C.DEFAULT_FOLLOWING_TABS.split(',')
-                if (tabPref != null) {
-                    val list = tabPref.split(',').filter { item ->
-                        defaultTabs.find { it.first() == item.first() } != null
-                    }.toMutableList()
-                    defaultTabs.forEachIndexed { index, item ->
-                        if (list.find { it.first() == item.first() } == null) {
-                            list.add(index, item)
-                        }
-                    }
-                    list
-                } else defaultTabs
-            }
-            val tabs = tabList.mapNotNull {
-                val split = it.split(':')
-                val key = split[0]
-                val enabled = split[2] != "0"
-                if (enabled && (key != "2" || showVideosTab)) {
-                    key
-                } else {
-                    null
-                }
-            }
+            val tabPreference = requireContext().prefs().getString(C.UI_FOLLOWING_TABS, null)
+            val tabList = FollowingTabs.resolve(tabPreference)
+            val tabs = FollowingTabs.visibleKeys(tabList, showVideosTab)
+            tabKeys = tabs
             if (tabs.size <= 1) {
                 tabLayout.visibility = View.GONE
             } else {
@@ -160,16 +141,9 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
                 )
                 firstLaunch = false
             }
-            viewPager.offscreenPageLimit = adapter.itemCount
             viewPager.reduceDragSensitivity()
             TabLayoutMediator(tabLayout, viewPager) { tab, position ->
-                tab.text = when (tabs.getOrNull(position)) {
-                    "0" -> getString(R.string.games)
-                    "1" -> getString(R.string.live)
-                    "2" -> getString(R.string.videos)
-                    "3" -> getString(R.string.channels)
-                    else -> getString(R.string.live)
-                }
+                tab.text = getString(FollowingTabs.titleRes(tabs.getOrNull(position).orEmpty()))
             }.attach()
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
@@ -184,6 +158,10 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
     override fun scrollToTop() {
         binding.appBar.setExpanded(true, true)
         (currentFragment as? Scrollable)?.scrollToTop()
+    }
+
+    fun selectFollowingTab(key: String) {
+        tabKeys.indexOf(key).takeIf { it >= 0 }?.let { binding.viewPager.setCurrentItem(it, true) }
     }
 
     override fun onDestroyView() {

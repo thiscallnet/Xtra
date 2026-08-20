@@ -4,6 +4,7 @@ import android.util.Log
 import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.VideoPosition
+import com.github.andreyasadchy.xtra.model.VideoHistory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +40,14 @@ class PlaybackPersistence internal constructor(
                 xtraModule.playerRepository.saveVideoPosition(position)
             }
 
+            override suspend fun saveVideoHistory(item: VideoHistory) {
+                xtraModule.playerRepository.saveVideoHistory(item)
+            }
+
+            override suspend fun saveVideoHistoryPosition(id: Long, position: Long) {
+                xtraModule.playerRepository.saveVideoHistoryPosition(id, position)
+            }
+
             override suspend fun saveOfflineVideoPosition(videoId: Int, position: Long) {
                 xtraModule.offlineVideosRepository.updatePosition(videoId, position)
             }
@@ -70,6 +79,18 @@ class PlaybackPersistence internal constructor(
     fun saveOfflineVideoPosition(videoId: Int, position: Long) {
         enqueue {
             store.saveOfflineVideoPosition(videoId, position)
+        }
+    }
+
+    fun saveVideoHistory(item: VideoHistory) {
+        enqueue {
+            store.saveVideoHistory(item)
+        }
+    }
+
+    fun saveVideoHistoryPosition(id: Long, position: Long) {
+        enqueue {
+            store.saveVideoHistoryPosition(id, position)
         }
     }
 
@@ -154,5 +175,7 @@ internal interface PlaybackPersistenceStore {
     suspend fun savePlaybackStates(items: List<PlaybackState>)
     suspend fun deletePlaybackStates()
     suspend fun saveVideoPosition(position: VideoPosition)
+    suspend fun saveVideoHistory(item: VideoHistory)
+    suspend fun saveVideoHistoryPosition(id: Long, position: Long)
     suspend fun saveOfflineVideoPosition(videoId: Int, position: Long)
 }

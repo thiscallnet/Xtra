@@ -5,6 +5,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface StreamFeedDao {
@@ -31,6 +32,47 @@ interface StreamFeedDao {
 
     @Query("SELECT * FROM stream_feed_items WHERE feedKey = :feedKey ORDER BY position ASC, itemKey ASC")
     fun itemsForFeed(feedKey: String): List<CachedStreamFeedItem>
+
+    @Query(
+        """
+        SELECT items.*
+        FROM stream_feed_items AS items
+        WHERE items.feedKey = :feedKey
+          AND (
+            NOT EXISTS (
+                SELECT 1 FROM stream_feed_states
+                WHERE feedKey = :feedKey
+            )
+            OR items.generation = (
+                SELECT activeGeneration FROM stream_feed_states
+                WHERE feedKey = :feedKey
+            )
+          )
+        ORDER BY items.position ASC, items.itemKey ASC
+        LIMIT :limit
+        """
+    )
+    fun activeItemsFlow(feedKey: String, limit: Int): Flow<List<CachedStreamFeedItem>>
+
+    @Query(
+        """
+        SELECT items.*
+        FROM stream_feed_items AS items
+        WHERE items.feedKey = :feedKey
+          AND (
+            NOT EXISTS (
+                SELECT 1 FROM stream_feed_states
+                WHERE feedKey = :feedKey
+            )
+            OR items.generation = (
+                SELECT activeGeneration FROM stream_feed_states
+                WHERE feedKey = :feedKey
+            )
+          )
+        ORDER BY items.position ASC, items.itemKey ASC
+        """
+    )
+    fun allActiveItemsFlow(feedKey: String): Flow<List<CachedStreamFeedItem>>
 
     @Query(
         """

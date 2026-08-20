@@ -111,8 +111,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -947,6 +949,27 @@ class GraphQLRepository(
         json.decodeFromString<StreamsResponse>(sendPersistedQuery(networkLibrary, headers, body))
     }
 
+    /** Twitch's web-only personalized channel shelf. Keep callers behind a fallback. */
+    suspend fun loadPersonalSections(networkLibrary: String?, headers: Map<String, String>): JsonObject = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("operationName", "PersonalSections")
+            put("query", PERSONAL_SECTIONS_QUERY)
+            putJsonObject("variables") {
+                putJsonObject("input") {
+                    putJsonArray("sectionInputs") {
+                        add("RECOMMENDED_SECTION")
+                    }
+                    putJsonObject("recommendationContext") {
+                        put("platform", "android")
+                        put("clientApp", "xtra")
+                        put("location", "following")
+                    }
+                }
+            }
+        }.toString()
+        json.parseToJsonElement(sendPersistedQuery(networkLibrary, headers, body)).jsonObject
+    }
+
     suspend fun loadGameStreams(networkLibrary: String?, headers: Map<String, String>, gameSlug: String?, sort: String?, tags: List<String>?, languages: List<String>?, limit: Int?, cursor: String?): GameStreamsResponse = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
             putJsonObject("extensions") {
@@ -1737,6 +1760,44 @@ class GraphQLRepository(
             }
         }.toString()
         json.decodeFromString<ErrorResponse>(sendPersistedQuery(networkLibrary, headers, body))
+    }
+
+    private companion object {
+        const val PERSONAL_SECTIONS_QUERY = """
+            query PersonalSections(${'$'}input: PersonalSectionInput!) {
+              personalSections(input: ${'$'}input) {
+                type
+                items {
+                  ... on PersonalSectionChannel {
+                    user {
+                      id
+                      login
+                      displayName
+                      profileImageURL(width: 300)
+                    }
+                    content {
+                      __typename
+                      ... on Stream {
+                        id
+                        title
+                        viewersCount
+                        createdAt
+                        previewImageURL
+                        game {
+                          id
+                          slug
+                          displayName
+                        }
+                        freeformTags {
+                          name
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+        """
     }
 
     suspend fun loadJoinRaid(networkLibrary: String?, headers: Map<String, String>, raidId: String?): ErrorResponse = withContext(Dispatchers.IO) {

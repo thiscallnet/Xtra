@@ -19,6 +19,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.VideoPosition
+import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.ui.Clip
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
@@ -276,6 +277,30 @@ class MainViewModel(
 
     fun saveVideoPosition(id: Long, position: Long) {
         playbackPersistence.saveVideoPosition(VideoPosition(id, position))
+        playbackPersistence.saveVideoHistoryPosition(id, position)
+    }
+
+    fun saveVideoHistory(video: Video) {
+        video.id?.toLongOrNull()?.let { id ->
+            playbackPersistence.saveVideoHistory(
+                VideoHistory(
+                    id = id,
+                    position = 0,
+                    durationSeconds = video.durationSeconds,
+                    channelId = video.channelId,
+                    channelLogin = video.channelLogin,
+                    channelName = video.channelName,
+                    channelImageURL = video.channelImageURL,
+                    title = video.title,
+                    thumbnailURL = video.thumbnailURL,
+                    gameId = video.gameId,
+                    gameSlug = video.gameSlug,
+                    gameName = video.gameName,
+                    createdAt = video.createdAt,
+                    updatedAt = 0,
+                ),
+            )
+        }
     }
 
     suspend fun savePosition(id: Long, position: Long) {

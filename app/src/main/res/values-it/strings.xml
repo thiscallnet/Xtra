@@ -590,4 +590,18 @@
     <string name="avoid_rounded_corners_summary">Rientra il contenuto del lettore per evitare che angoli arrotondati fisici e ritagli nascondano il video o i controlli.</string>
     <string name="recent_updates">Recent updates</string>
     <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
+    <string name="home">Home</string>
+    <string name="browse">Esplora</string>
+    <string name="following_overview">Panoramica</string>
+    <string name="following_categories">Categorie</string>
+    <string name="following_live_channels">Canali in diretta</string>
+    <string name="following_no_live_channels">Nessun canale seguito è in diretta al momento.</string>
+    <string name="following_recommended_channels">Canali consigliati</string>
+    <string name="following_no_recommended_channels">I consigli non sono disponibili al momento.</string>
+    <string name="following_continue_watching">Continua a guardare</string>
+    <string name="following_no_continue_watching">I video che inizi a guardare appariranno qui.</string>
+    <string name="following_see_all">Vedi tutto</string>
+    <string name="following_overview_sections">Sezioni della panoramica dei seguiti</string>
+    <string name="following_overview_sections_summary">Scegli le sezioni e trascinale per riordinarle</string>
+    <string name="following_no_sections_enabled">Nessuna sezione della panoramica è attiva. Apri Impostazioni → Panoramica dei seguiti per aggiungerne una.</string>
 </resources>

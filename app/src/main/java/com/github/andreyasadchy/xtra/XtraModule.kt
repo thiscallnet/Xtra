@@ -25,6 +25,7 @@ import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
+import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.SavedFiltersRepository
 import com.github.andreyasadchy.xtra.repository.ViewingStatsRepository
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
@@ -388,6 +389,26 @@ class XtraModule(application: Application) {
                 Migration(46, 47) { db ->
                     db.execSQL("ALTER TABLE favorite_emotes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
                 },
+                Migration(47, 48) { db ->
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS video_history (
+                            id INTEGER NOT NULL PRIMARY KEY,
+                            position INTEGER NOT NULL,
+                            durationSeconds INTEGER,
+                            channelId TEXT,
+                            channelLogin TEXT,
+                            channelName TEXT,
+                            channelImageURL TEXT,
+                            title TEXT,
+                            thumbnailURL TEXT,
+                            gameId TEXT,
+                            gameSlug TEXT,
+                            gameName TEXT,
+                            createdAt TEXT,
+                            updatedAt INTEGER NOT NULL
+                        )
+                    """.trimIndent())
+                },
             )
         }.build()
     }
@@ -429,6 +450,10 @@ class XtraModule(application: Application) {
         LocalGameFollowsRepository(database.localGameFollows())
     }
 
+    val recommendationsRepository by lazy {
+        RecommendationsRepository(application, graphQLRepository, localChannelFollowsRepository)
+    }
+
     val notificationsRepository by lazy {
         NotificationsRepository(database.shownNotifications(), database.notificationUsers(), database.notificationEvents(), database, graphQLRepository, helixRepository)
     }
@@ -438,7 +463,7 @@ class XtraModule(application: Application) {
     }
 
     val playerRepository by lazy {
-        PlayerRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json, database.recentEmotes(), database.favoriteEmotes(), database.translatedChannels(), database.videoPositions(), database.playbackStates(), graphQLRepository, helixRepository)
+        PlayerRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json, database.recentEmotes(), database.favoriteEmotes(), database.translatedChannels(), database.videoPositions(), database.videoHistory(), database.playbackStates(), graphQLRepository, helixRepository)
     }
 
     val recentSearchesRepository by lazy {

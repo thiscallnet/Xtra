@@ -20,11 +20,13 @@ import com.github.andreyasadchy.xtra.db.PlaybackStatesDao
 import com.github.andreyasadchy.xtra.db.RecentEmotesDao
 import com.github.andreyasadchy.xtra.db.TranslatedChannelsDao
 import com.github.andreyasadchy.xtra.db.VideoPositionsDao
+import com.github.andreyasadchy.xtra.db.VideoHistoryDao
 import com.github.andreyasadchy.xtra.graphql.StreamPlaybackAccessTokenQuery
 import com.github.andreyasadchy.xtra.graphql.type.BadgeImageSize
 import com.github.andreyasadchy.xtra.graphql.type.EmoteType
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.VideoPosition
+import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
@@ -62,6 +64,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -72,6 +75,7 @@ import org.chromium.net.CronetEngine
 import org.chromium.net.CronetProvider
 import org.chromium.net.QuicOptions
 import org.chromium.net.apihelpers.UploadDataProviders
+
 import org.json.JSONException
 import org.json.JSONObject
 import java.net.InetSocketAddress
@@ -82,6 +86,7 @@ import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlin.uuid.Uuid
 
+private const val MAX_VIDEO_HISTORY_ITEMS = 100
 private const val AD_TAG = "XtraAd"
 
 @OptIn(UnstableApi::class)
@@ -95,6 +100,7 @@ class PlayerRepository(
     private val favoriteEmotes: FavoriteEmotesDao,
     private val translatedChannelsDao: TranslatedChannelsDao,
     private val videoPositions: VideoPositionsDao,
+    private val videoHistory: VideoHistoryDao,
     private val playbackStatesDao: PlaybackStatesDao,
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
@@ -2226,8 +2232,21 @@ class PlayerRepository(
         videoPositions.insert(position)
     }
 
+    fun loadContinueWatching(limit: Int) = videoHistory.getContinueWatching(limit)
+
+    suspend fun saveVideoHistory(item: VideoHistory) = withContext(Dispatchers.IO) {
+        if (videoHistory.upsertMetadata(item)) {
+            videoHistory.prune(MAX_VIDEO_HISTORY_ITEMS)
+        }
+    }
+
+    suspend fun saveVideoHistoryPosition(id: Long, position: Long) = withContext(Dispatchers.IO) {
+        videoHistory.updatePosition(id, position, System.currentTimeMillis())
+    }
+
     suspend fun deleteVideoPositions() = withContext(Dispatchers.IO) {
         videoPositions.deleteAll()
+        videoHistory.deleteAll()
     }
 
     suspend fun getPlaybackStates() = withContext(Dispatchers.IO) {

@@ -590,4 +590,18 @@
     <string name="avoid_rounded_corners_summary">Сместить содержимое плеера внутрь, чтобы физические закругленные углы и вырезы не закрывали видео или элементы управления.</string>
     <string name="recent_updates">Recent updates</string>
     <string name="update_history_incomplete">Complete update notes could not be loaded. Check again to retry.</string>
+    <string name="home">Главная</string>
+    <string name="browse">Обзор</string>
+    <string name="following_overview">Обзор</string>
+    <string name="following_categories">Категории</string>
+    <string name="following_live_channels">Каналы в прямом эфире</string>
+    <string name="following_no_live_channels">Сейчас нет каналов, на которые вы подписаны, в эфире.</string>
+    <string name="following_recommended_channels">Рекомендованные каналы</string>
+    <string name="following_no_recommended_channels">Рекомендации сейчас недоступны.</string>
+    <string name="following_continue_watching">Продолжить просмотр</string>
+    <string name="following_no_continue_watching">Начатые вами видео появятся здесь.</string>
+    <string name="following_see_all">Показать все</string>
+    <string name="following_overview_sections">Разделы обзора подписок</string>
+    <string name="following_overview_sections_summary">Выберите разделы и перетащите их, чтобы изменить порядок</string>
+    <string name="following_no_sections_enabled">Нет включённых разделов обзора. Откройте Настройки → Обзор подписок, чтобы добавить раздел.</string>
 </resources>

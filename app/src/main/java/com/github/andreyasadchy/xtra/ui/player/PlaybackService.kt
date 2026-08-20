@@ -811,6 +811,7 @@ class PlaybackService : MediaSessionService() {
             if (!player.currentTracks.isEmpty && prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
                 videoId?.let {
                     xtraModule.playbackPersistence.saveVideoPosition(VideoPosition(it, player.currentPosition))
+                    xtraModule.playbackPersistence.saveVideoHistoryPosition(it.toLong(), player.currentPosition)
                 } ?:
                 offlineVideoId?.let {
                     xtraModule.playbackPersistence.saveOfflineVideoPosition(it, player.currentPosition)
@@ -835,6 +836,7 @@ class PlaybackService : MediaSessionService() {
                     lastSavedPosition = currentPosition
                     videoId?.let {
                         xtraModule.playbackPersistence.saveVideoPosition(VideoPosition(it, currentPosition))
+                        xtraModule.playbackPersistence.saveVideoHistoryPosition(it.toLong(), currentPosition)
                     } ?:
                     offlineVideoId?.let {
                         xtraModule.playbackPersistence.saveOfflineVideoPosition(it, currentPosition)
