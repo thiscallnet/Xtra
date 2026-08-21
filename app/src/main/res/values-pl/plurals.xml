@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="views">
+        <item quantity="one">%s wyświetlenie</item>
+        <item quantity="few">%s wyświetlenia</item>
+        <item quantity="many">%s wyświetleń</item>
+        <item quantity="other">%s wyświetlenia</item>
+    </plurals>
+    <plurals name="viewers">
+        <item quantity="one">%s widz</item>
+        <item quantity="few">%s widzowie</item>
+        <item quantity="many">%s widzów</item>
+        <item quantity="other">%s widza</item>
+    </plurals>
+    <plurals name="hours">
+        <item quantity="one">%d godzina</item>
+        <item quantity="few">%d godziny</item>
+        <item quantity="many">%d godzin</item>
+        <item quantity="other">%d godziny</item>
+    </plurals>
+    <plurals name="minutes">
+        <item quantity="one">%d minuta</item>
+        <item quantity="few">%d minuty</item>
+        <item quantity="many">%d minut</item>
+        <item quantity="other">%d minuty</item>
+    </plurals>
+    <plurals name="broadcasters">
+        <item quantity="one">%s nadawca</item>
+        <item quantity="few">%s nadawcy</item>
+        <item quantity="many">%s nadawców</item>
+        <item quantity="other">%s nadawcy</item>
+    </plurals>
+    <plurals name="languages">
+        <item quantity="one">Język: %s</item>
+        <item quantity="few">Języki: %s</item>
+        <item quantity="many">Języków: %s</item>
+        <item quantity="other">Języka: %s</item>
+    </plurals>
+    <plurals name="tags">
+        <item quantity="one">Tag: %s</item>
+        <item quantity="few">Tagi: %s</item>
+        <item quantity="many">Tagów: %s</item>
+        <item quantity="other">Tagu: %s</item>
+    </plurals>
+    <plurals name="followers">
+        <item quantity="one">%s obserwujący</item>
+        <item quantity="few">%s obserwujących</item>
+        <item quantity="many">%s obserwujących</item>
+        <item quantity="other">%s obserwującego</item>
+    </plurals>
+    <plurals name="members">
+        <item quantity="one">%s członek</item>
+        <item quantity="few">%s członkowie</item>
+        <item quantity="many">%s członków</item>
+        <item quantity="other">%s członka</item>
+    </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="one">%d dzień aktywnej passy</item>
+        <item quantity="few">%d dni aktywnej passy</item>
+        <item quantity="many">%d dni aktywnej passy</item>
+        <item quantity="other">%d dnia aktywnej passy</item>
+    </plurals>
+</resources>

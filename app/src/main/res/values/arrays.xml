@@ -311,6 +311,9 @@
         <item>@string/lang_ja</item>
         <item>@string/lang_zh_tw</item>
         <item>@string/lang_zh_cn</item>
+        <item>@string/lang_sk</item>
+        <item>@string/lang_cs</item>
+        <item>@string/lang_pl</item>
     </string-array>
 
     <string-array name="language" translatable="false">
@@ -329,6 +332,9 @@
         <item>ja</item>
         <item>zh-TW</item>
         <item>zh-CN</item>
+        <item>sk</item>
+        <item>cs</item>
+        <item>pl</item>
     </string-array>
 
     <string-array name="miscValues" translatable="false">

@@ -332,7 +332,7 @@
     <string name="proxy_host">المضيف</string>
     <string name="proxy_port">المنفذ</string>
     <string name="proxy_user">اسم المستخدم</string>
-    <string name="proxy_password"></string>
+    <string name="proxy_password">كلمة المرور</string>
     <string name="proxy_settings">إعدادات وكيل HTTP</string>
     <string name="stop_download">إيقاف التنزيل</string>
     <string name="resume_download">استئناف التنزيل</string>
