@@ -1047,7 +1047,9 @@ class MainActivity : AppCompatActivity() {
 //Navigation listeners
 
     fun startStream(stream: Stream) {
+        (application as XtraApp).xtraModule.streamPreloadCoordinator.onStreamSelected(stream)
         onPlayerEnteredPlayback(isLive = true)
+        (application as XtraApp).xtraModule.streamPreloadCoordinator.onPlaybackEntered()
         if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(stream)

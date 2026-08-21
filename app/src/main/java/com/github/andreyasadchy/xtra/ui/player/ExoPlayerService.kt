@@ -953,7 +953,7 @@ class ExoPlayerService : BasePlaybackService() {
                     playlistUrl = proxyUrl.replace("\$channel", channelLogin)
                 } else {
                     useCustomProxy = false
-                    val url = try {
+                    val url = xtraModule.streamPreloadCoordinator.resolveForPlayback(channelLogin) ?: try {
                         xtraModule.playerRepository.loadStreamPlaylistUrl(
                             context = this,
                             networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),

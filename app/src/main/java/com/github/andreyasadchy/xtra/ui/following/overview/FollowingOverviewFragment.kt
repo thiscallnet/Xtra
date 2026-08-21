@@ -13,7 +13,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentFollowingOverviewBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.VideoHistory
@@ -21,6 +23,7 @@ import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
+import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.following.FollowMediaFragment
 import com.github.andreyasadchy.xtra.ui.following.FollowPagerFragment
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -38,6 +41,8 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
     private val viewModel: FollowingOverviewViewModel by viewModels { FollowingOverviewViewModelFactory }
     private lateinit var overviewAdapter: FollowingOverviewAdapter
     private lateinit var streamFeedScreenController: StreamFeedScreenController
+    private val streamShelfPreloadControllers = mutableMapOf<String, StreamPreloadViewportController>()
+    private var overviewScrolling = false
     private var initialized = false
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -53,12 +58,35 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                 item.toVideo().let { video -> (activity as? MainActivity)?.startVideo(video, item.position, ignoreSavedPosition = true) }
             },
             onSeeAll = ::showAll,
+            onStreamShelfAttached = { key, recyclerView, streamAtPosition ->
+                streamShelfPreloadControllers.remove(key)?.stop()
+                StreamPreloadViewportController(
+                    fragment = this,
+                    coordinator = (requireActivity().application as XtraApp).xtraModule.streamPreloadCoordinator,
+                    viewportKey = "following-overview:$key",
+                    recyclerView = recyclerView,
+                    streamAtPosition = streamAtPosition,
+                    isParentScrolling = { overviewScrolling },
+                ).also {
+                    streamShelfPreloadControllers[key] = it
+                    it.start()
+                }
+            },
+            onStreamShelfDetached = { key ->
+                streamShelfPreloadControllers.remove(key)?.stop()
+            },
         )
         binding.recyclerView.apply {
             layoutManager = LinearLayoutManager(context)
             adapter = overviewAdapter
             itemAnimator = null
             clipToPadding = false
+            addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                    overviewScrolling = newState != RecyclerView.SCROLL_STATE_IDLE
+                    streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::onParentScrollStateChanged)
+                }
+            })
             addOnLayoutChangeListener { recyclerView, _, _, right, _, _, _, _, _ ->
                 val density = resources.displayMetrics.density
                 val maxContentWidth = (1200 * density).toInt()
@@ -143,12 +171,14 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
         if (::streamFeedScreenController.isInitialized) {
             streamFeedScreenController.onResume()
         }
+        streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::onResume)
     }
 
     override fun onPause() {
         if (::streamFeedScreenController.isInitialized) {
             streamFeedScreenController.onPause()
         }
+        streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::onPause)
         super.onPause()
     }
 
@@ -156,6 +186,9 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
         if (::streamFeedScreenController.isInitialized) {
             streamFeedScreenController.onDestroyView()
         }
+        streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::stop)
+        streamShelfPreloadControllers.clear()
+        overviewScrolling = false
         super.onDestroyView()
         _binding = null
     }

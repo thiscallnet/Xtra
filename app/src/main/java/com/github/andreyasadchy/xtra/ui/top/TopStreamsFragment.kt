@@ -22,6 +22,7 @@ import androidx.navigation.ui.setupWithNavController
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentGamesBinding
 import com.github.andreyasadchy.xtra.model.ui.GameSort
 import com.github.andreyasadchy.xtra.model.ui.SavedFilter
@@ -35,6 +36,7 @@ import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.RECEN
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.SORT_VIEWERS
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.SORT_VIEWERS_ASC
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
+import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentArgs
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -60,6 +62,7 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
     private val viewModel: TopStreamsViewModel by viewModels { TopStreamsViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
     private lateinit var streamFeedScreenController: StreamFeedScreenController
+    private lateinit var streamPreloadViewportController: StreamPreloadViewportController
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentGamesBinding.inflate(inflater, container, false)
@@ -136,6 +139,13 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
             StreamsAdapter(this, { addTag(it) })
         }
         setAdapter(binding.recyclerViewLayout.recyclerView, pagingAdapter)
+        streamPreloadViewportController = StreamPreloadViewportController(
+            fragment = this,
+            coordinator = (requireActivity().application as XtraApp).xtraModule.streamPreloadCoordinator,
+            viewportKey = "top-streams",
+            recyclerView = binding.recyclerViewLayout.recyclerView,
+            streamAtPosition = pagingAdapter::peek,
+        ).also { it.start() }
         streamFeedScreenController = StreamFeedScreenController(
             fragment = this,
             coordinator = viewModel.refreshCoordinator,
@@ -340,11 +350,17 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
         if (::streamFeedScreenController.isInitialized) {
             streamFeedScreenController.onResume()
         }
+        if (::streamPreloadViewportController.isInitialized) {
+            streamPreloadViewportController.onResume()
+        }
     }
 
     override fun onPause() {
         if (::streamFeedScreenController.isInitialized) {
             streamFeedScreenController.onPause()
+        }
+        if (::streamPreloadViewportController.isInitialized) {
+            streamPreloadViewportController.onPause()
         }
         super.onPause()
     }
@@ -360,6 +376,9 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
     override fun onDestroyView() {
         if (::streamFeedScreenController.isInitialized) {
             streamFeedScreenController.onDestroyView()
+        }
+        if (::streamPreloadViewportController.isInitialized) {
+            streamPreloadViewportController.stop()
         }
         super.onDestroyView()
         _binding = null

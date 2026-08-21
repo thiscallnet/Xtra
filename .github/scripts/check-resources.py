@@ -40,6 +40,10 @@ OPTIONAL_TRANSLATION_FALLBACK_KEYS = {
     "login_compatibility_message",
     "login_compatibility_polling",
     "login_compatibility_unavailable",
+    "settings_stream_preloading",
+    "stream_preload_off",
+    "stream_preload_wifi",
+    "stream_preload_all",
 }
 
 

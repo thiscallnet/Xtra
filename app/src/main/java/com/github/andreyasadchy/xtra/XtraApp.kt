@@ -65,6 +65,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                     }
                     backgroundStartedElapsedMs = null
                     StreamFeedPrewarmScheduler.cancel(this@XtraApp)
+                    xtraModule.onStreamPreloadAppForeground()
                 }
             }
 
@@ -74,6 +75,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                 if (!isInForeground) {
                     backgroundStartedElapsedMs = SystemClock.elapsedRealtime()
                     StreamFeedPrewarmScheduler.schedule(this@XtraApp)
+                    xtraModule.onStreamPreloadAppBackground()
                 }
             }
 

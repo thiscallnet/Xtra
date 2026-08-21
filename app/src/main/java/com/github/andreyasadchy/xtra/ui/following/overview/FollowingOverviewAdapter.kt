@@ -25,6 +25,8 @@ class FollowingOverviewAdapter(
     private val onStreamClick: (Stream) -> Unit,
     private val onVideoClick: (VideoHistory) -> Unit,
     private val onSeeAll: (String) -> Unit,
+    private val onStreamShelfAttached: ((String, RecyclerView, (Int) -> Stream?) -> Unit)? = null,
+    private val onStreamShelfDetached: ((String) -> Unit)? = null,
 ) : ListAdapter<FollowingOverviewSection, FollowingOverviewAdapter.ViewHolder>(DIFF_CALLBACK) {
 
     private val recycledViewPool = RecyclerView.RecycledViewPool()
@@ -44,12 +46,18 @@ class FollowingOverviewAdapter(
         holder.bind(getItem(position))
     }
 
+    override fun onViewRecycled(holder: ViewHolder) {
+        holder.detachStreamShelf()
+        super.onViewRecycled(holder)
+    }
+
     inner class ViewHolder(
         private val binding: ItemFollowingSectionBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
         private val shelfAdapter = StreamShelfAdapter(onStreamClick)
         private val videoShelfAdapter = VideoShelfAdapter(onVideoClick)
         private var shelfType: ShelfType? = null
+        private var boundStreamShelfKey: String? = null
 
         init {
             binding.shelfRecyclerView.apply {
@@ -71,6 +79,9 @@ class FollowingOverviewAdapter(
             binding.seeAll.visibility = if (hasItems && section.showSeeAll) android.view.View.VISIBLE else android.view.View.GONE
             binding.seeAll.setOnClickListener { onSeeAll(section.key) }
             val nextShelfType = if (section.videos.isNotEmpty()) ShelfType.VIDEO else ShelfType.STREAM
+            if (nextShelfType != ShelfType.STREAM || section.streams.isEmpty()) {
+                detachStreamShelf()
+            }
             if (shelfType != nextShelfType) {
                 if (nextShelfType == ShelfType.VIDEO) {
                     binding.shelfRecyclerView.setRecycledViewPool(videoRecycledViewPool)
@@ -85,7 +96,19 @@ class FollowingOverviewAdapter(
                 videoShelfAdapter.submitList(section.videos)
             } else {
                 shelfAdapter.submitList(section.streams)
+                if (hasItems && boundStreamShelfKey != section.key) {
+                    detachStreamShelf()
+                    boundStreamShelfKey = section.key
+                    onStreamShelfAttached?.invoke(section.key, binding.shelfRecyclerView) { position ->
+                        shelfAdapter.currentList.getOrNull(position)
+                    }
+                }
             }
+        }
+
+        fun detachStreamShelf() {
+            boundStreamShelfKey?.let(onStreamShelfDetached ?: {})
+            boundStreamShelfKey = null
         }
     }
 

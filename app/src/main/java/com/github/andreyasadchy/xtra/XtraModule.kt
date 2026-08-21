@@ -24,6 +24,7 @@ import com.github.andreyasadchy.xtra.repository.MetadataCache
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
+import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadCoordinator
 import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.SavedFiltersRepository
@@ -66,6 +67,24 @@ class XtraModule(application: Application) {
 
     val streamFeedPager by lazy {
         StreamFeedPager(streamFeedCache, streamFeedRefreshCoordinator)
+    }
+
+    private val streamPreloadCoordinatorLazy = lazy {
+        StreamPreloadCoordinator(
+            context = application,
+            playerRepository = playerRepository,
+            streamFeedRefreshCoordinator = streamFeedRefreshCoordinator,
+        )
+    }
+
+    val streamPreloadCoordinator by streamPreloadCoordinatorLazy
+
+    fun onStreamPreloadAppForeground() {
+        if (streamPreloadCoordinatorLazy.isInitialized()) streamPreloadCoordinator.onAppForeground()
+    }
+
+    fun onStreamPreloadAppBackground() {
+        if (streamPreloadCoordinatorLazy.isInitialized()) streamPreloadCoordinator.onAppBackground()
     }
 
     val metadataCache by lazy {
