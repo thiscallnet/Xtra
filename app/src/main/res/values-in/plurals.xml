@@ -16,15 +16,18 @@
         <item quantity="other">%s penyiar</item>
     </plurals>
     <plurals name="languages">
-        <item quantity="other">Languages: %s</item>
+        <item quantity="other">Bahasa: %s</item>
     </plurals>
     <plurals name="tags">
-        <item quantity="other">Tags: %s</item>
+        <item quantity="other">Tag: %s</item>
     </plurals>
     <plurals name="followers">
         <item quantity="other">%s pengikut</item>
     </plurals>
     <plurals name="members">
-        <item quantity="other">%s members</item>
+        <item quantity="other">Anggota %s</item>
+    </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="other">Hari aktif berturut-turut %d</item>
     </plurals>
 </resources>

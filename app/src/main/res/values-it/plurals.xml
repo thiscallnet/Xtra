@@ -26,14 +26,14 @@
         <item quantity="other">%s emittenti</item>
     </plurals>
     <plurals name="languages">
-        <item quantity="one">Language: %s</item>
-        <item quantity="many">Languages: %s</item>
-        <item quantity="other">Languages: %s</item>
+        <item quantity="one">Lingua: %s</item>
+        <item quantity="many">Lingue: %s</item>
+        <item quantity="other">Lingue: %s</item>
     </plurals>
     <plurals name="tags">
-        <item quantity="one">Tag: %s</item>
-        <item quantity="many">Tags: %s</item>
-        <item quantity="other">Tags: %s</item>
+        <item quantity="one">Etichetta: %s</item>
+        <item quantity="many">Etichette: %s</item>
+        <item quantity="other">Etichette: %s</item>
     </plurals>
     <plurals name="followers">
         <item quantity="one">%s follower</item>
@@ -41,8 +41,13 @@
         <item quantity="other">%s seguaci</item>
     </plurals>
     <plurals name="members">
-        <item quantity="one">%s member</item>
-        <item quantity="many">%s members</item>
-        <item quantity="other">%s members</item>
+        <item quantity="one">%s membro</item>
+        <item quantity="many">%s membri</item>
+        <item quantity="other">%s membri</item>
+    </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="one">Serie di giorni attivi: %d</item>
+        <item quantity="many">Serie di giorni attivi: %d</item>
+        <item quantity="other">Serie di giorni attivi: %d</item>
     </plurals>
 </resources>

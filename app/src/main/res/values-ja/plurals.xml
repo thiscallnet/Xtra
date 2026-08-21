@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <plurals name="views">
         <item quantity="other">%s 回視聴</item>
@@ -26,5 +26,8 @@
     </plurals>
     <plurals name="members">
         <item quantity="other">%s メンバー</item>
+    </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="other">%d 日のアクティブ日連続記録</item>
     </plurals>
 </resources>

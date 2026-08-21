@@ -1,39 +1,83 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingQuantity">
     <plurals name="views">
-        <item quantity="one">مُشاهد %s</item>
-        <item quantity="other">مُشاهدة %s</item>
+        <item quantity="zero">لا توجد مشاهدات %s</item>
+        <item quantity="one">%s مشاهدة</item>
+        <item quantity="two">%s مشاهدتان</item>
+        <item quantity="few">%s مشاهدات</item>
+        <item quantity="many">%s مشاهدة</item>
+        <item quantity="other">%s مشاهدة</item>
     </plurals>
     <plurals name="viewers">
-        <item quantity="one">مُشاهدين %s</item>
-        <item quantity="other">المُشاهِدين %s</item>
+        <item quantity="zero">لا يوجد مشاهدون %s</item>
+        <item quantity="one">%s مشاهد</item>
+        <item quantity="two">%s مشاهدان</item>
+        <item quantity="few">%s مشاهدون</item>
+        <item quantity="many">%s مشاهد</item>
+        <item quantity="other">%s مشاهد</item>
     </plurals>
     <plurals name="hours">
-        <item quantity="one">ساعة %d</item>
-        <item quantity="other">ساعات %d</item>
+        <item quantity="zero">لا ساعات %d</item>
+        <item quantity="one">%d ساعة</item>
+        <item quantity="two">%d ساعتان</item>
+        <item quantity="few">%d ساعات</item>
+        <item quantity="many">%d ساعة</item>
+        <item quantity="other">%d ساعات</item>
     </plurals>
     <plurals name="minutes">
-        <item quantity="one">دقيقة %d</item>
-        <item quantity="other">دقائق %d</item>
+        <item quantity="zero">لا دقائق %d</item>
+        <item quantity="one">%d دقيقة</item>
+        <item quantity="two">%d دقيقتان</item>
+        <item quantity="few">%d دقائق</item>
+        <item quantity="many">%d دقيقة</item>
+        <item quantity="other">%d دقائق</item>
     </plurals>
     <plurals name="broadcasters">
-        <item quantity="one">%s broadcaster</item>
-        <item quantity="other">%s broadcasters</item>
+        <item quantity="zero">لا يوجد مذيعون %s</item>
+        <item quantity="one">%s مذيع</item>
+        <item quantity="two">%s مذيعان</item>
+        <item quantity="few">%s مذيعون</item>
+        <item quantity="many">%s مذيع</item>
+        <item quantity="other">%s مذيع</item>
     </plurals>
     <plurals name="languages">
-        <item quantity="one">Language: %s</item>
-        <item quantity="other">Languages: %s</item>
+        <item quantity="zero">لا لغات: %s</item>
+        <item quantity="one">اللغة: %s</item>
+        <item quantity="two">اللغتان: %s</item>
+        <item quantity="few">اللغات: %s</item>
+        <item quantity="many">اللغة: %s</item>
+        <item quantity="other">اللغات: %s</item>
     </plurals>
     <plurals name="tags">
-        <item quantity="one">Tag: %s</item>
-        <item quantity="other">Tags: %s</item>
+        <item quantity="zero">لا علامات: %s</item>
+        <item quantity="one">العلامة: %s</item>
+        <item quantity="two">العلامتان: %s</item>
+        <item quantity="few">العلامات: %s</item>
+        <item quantity="many">العلامة: %s</item>
+        <item quantity="other">العلامات: %s</item>
     </plurals>
     <plurals name="followers">
-        <item quantity="one">%s follower</item>
-        <item quantity="other">%s followers</item>
+        <item quantity="zero">لا يوجد متابعون %s</item>
+        <item quantity="one">%s متابع</item>
+        <item quantity="two">%s متابعان</item>
+        <item quantity="few">%s متابعون</item>
+        <item quantity="many">%s متابع</item>
+        <item quantity="other">%s متابع</item>
     </plurals>
     <plurals name="members">
-        <item quantity="one">%s member</item>
-        <item quantity="other">%s members</item>
+        <item quantity="zero">لا يوجد أعضاء %s</item>
+        <item quantity="one">%s عضو</item>
+        <item quantity="two">%s عضوان</item>
+        <item quantity="few">%s أعضاء</item>
+        <item quantity="many">%s عضو</item>
+        <item quantity="other">%s عضو</item>
+    </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="zero">سلسلة نشاط لمدة %d يوم</item>
+        <item quantity="one">سلسلة نشاط لمدة %d يوم</item>
+        <item quantity="two">سلسلة نشاط لمدة %d يومين</item>
+        <item quantity="few">سلسلة نشاط لمدة %d أيام</item>
+        <item quantity="many">سلسلة نشاط لمدة %d يومًا</item>
+        <item quantity="other">سلسلة نشاط لمدة %d يوم</item>
     </plurals>
 </resources>

@@ -36,4 +36,8 @@
         <item quantity="one">%s membro</item>
         <item quantity="other">%s membros</item>
     </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="one">Racha de días activos de %d</item>
+        <item quantity="other">Racha de días activos de %d</item>
+    </plurals>
 </resources>

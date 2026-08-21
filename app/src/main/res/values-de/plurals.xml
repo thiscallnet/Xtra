@@ -25,15 +25,19 @@
         <item quantity="other">Sprachen: %s</item>
     </plurals>
     <plurals name="tags">
-        <item quantity="one">Tag: %s</item>
-        <item quantity="other">Tags: %s</item>
+        <item quantity="one">Schlagwort: %s</item>
+        <item quantity="other">Schlagwörter: %s</item>
     </plurals>
     <plurals name="followers">
-        <item quantity="one">%s follower</item>
-        <item quantity="other">%s followers</item>
+        <item quantity="one">%s Follower</item>
+        <item quantity="other">%s Follower</item>
     </plurals>
     <plurals name="members">
         <item quantity="one">%s Mitglied</item>
         <item quantity="other">%s Mitglieder</item>
+    </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="one">%d aktive Tage in Folge</item>
+        <item quantity="other">%d aktive Tage in Folge</item>
     </plurals>
 </resources>
