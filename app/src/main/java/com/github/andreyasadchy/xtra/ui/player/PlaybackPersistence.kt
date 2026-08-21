@@ -54,7 +54,10 @@ class PlaybackPersistence internal constructor(
         },
     )
 
-    private val operations = Channel<suspend () -> Unit>(Channel.UNLIMITED)
+    private val operations = Channel<suspend () -> Unit>(Channel.BUFFERED)
+    private val pendingVideoPositions = mutableMapOf<Long, VideoPosition>()
+    private val videoPositionLock = Any()
+    private var videoPositionOperationQueued = false
 
     init {
         scope.launch {
@@ -65,15 +68,18 @@ class PlaybackPersistence internal constructor(
                     throw e
                 } catch (e: Exception) {
                     Log.w(TAG, "Playback persistence failed", e)
+                } finally {
+                    schedulePendingVideoPositions()
                 }
             }
         }
     }
 
     fun saveVideoPosition(position: VideoPosition) {
-        enqueue {
-            store.saveVideoPosition(position)
+        synchronized(videoPositionLock) {
+            pendingVideoPositions[position.id] = position
         }
+        schedulePendingVideoPositions()
     }
 
     fun saveOfflineVideoPosition(videoId: Int, position: Long) {
@@ -139,7 +145,38 @@ class PlaybackPersistence internal constructor(
 
     private fun enqueue(operation: suspend () -> Unit) {
         if (operations.trySend(operation).isFailure) {
-            Log.w(TAG, "Unable to queue playback persistence operation")
+            scope.launch {
+                operations.send(operation)
+            }
+        }
+    }
+
+    private fun schedulePendingVideoPositions() {
+        val shouldQueue = synchronized(videoPositionLock) {
+            if (pendingVideoPositions.isEmpty() || videoPositionOperationQueued) {
+                false
+            } else {
+                videoPositionOperationQueued = true
+                true
+            }
+        }
+        if (shouldQueue && operations.trySend { drainPendingVideoPositions() }.isFailure) {
+            synchronized(videoPositionLock) {
+                videoPositionOperationQueued = false
+            }
+        }
+    }
+
+    private suspend fun drainPendingVideoPositions() {
+        while (true) {
+            val positions = synchronized(videoPositionLock) {
+                if (pendingVideoPositions.isEmpty()) {
+                    videoPositionOperationQueued = false
+                    return
+                }
+                pendingVideoPositions.values.toList().also { pendingVideoPositions.clear() }
+            }
+            positions.forEach { store.saveVideoPosition(it) }
         }
     }
 

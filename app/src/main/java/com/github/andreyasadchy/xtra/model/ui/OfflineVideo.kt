@@ -76,5 +76,6 @@ class OfflineVideo(
         const val STATUS_WAITING_FOR_NETWORK = 7
         const val STATUS_WAITING_FOR_WIFI = 8
         const val STATUS_WAITING_FOR_STREAM = 9
+        const val STATUS_FAILED = 10
     }
 }

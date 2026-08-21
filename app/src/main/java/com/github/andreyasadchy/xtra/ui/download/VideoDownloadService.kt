@@ -9,6 +9,7 @@ import android.content.ContentResolver
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
+import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Binder
@@ -34,9 +35,12 @@ import com.github.andreyasadchy.xtra.model.ui.DownloadProgress
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.DownloadStorageException
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.createOrFindDirectory
+import com.github.andreyasadchy.xtra.util.createOrFindDocument
 import com.github.andreyasadchy.xtra.util.m3u8.MediaPlaylist
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.Segment
@@ -60,10 +64,29 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 
 class VideoDownloadService : LifecycleService() {
+
+    private fun openOutputStream(uri: Uri, mode: String = "w") = try {
+        contentResolver.openOutputStream(uri, mode)
+            ?: throw DownloadStorageException("Unable to open download output")
+    } catch (e: DownloadStorageException) {
+        throw e
+    } catch (e: Exception) {
+        throw DownloadStorageException("Unable to open download output", e)
+    }
+
+    private fun openFileDescriptor(uri: Uri, mode: String) = try {
+        contentResolver.openFileDescriptor(uri, mode)
+            ?: throw DownloadStorageException("Unable to open download file")
+    } catch (e: DownloadStorageException) {
+        throw e
+    } catch (e: Exception) {
+        throw DownloadStorageException("Unable to open download file", e)
+    }
 
     lateinit var xtraModule: XtraModule
     private val okHttpClient = lazy {
@@ -110,6 +133,7 @@ class VideoDownloadService : LifecycleService() {
                     offlineVideos.add(offlineVideo)
                     activeDownloads.add(downloadProgress)
                     if (downloadSemaphore.availablePermits <= 0) {
+                        // Keep provider and storage failures visible instead of silently requeueing them.
                         xtraModule.offlineVideosRepository.update(offlineVideo.apply {
                             status = OfflineVideo.STATUS_QUEUED
                         })
@@ -132,6 +156,7 @@ class VideoDownloadService : LifecycleService() {
                             )
                         }
                         sendNotification(offlineVideo, downloadProgress)
+                        var failed = false
                         try {
                             val sourceUrl = offlineVideo.sourceUrl!!
                             if (sourceUrl.endsWith(".m3u8")) {
@@ -141,25 +166,30 @@ class VideoDownloadService : LifecycleService() {
                             }
                         } catch (e: CancellationException) {
                             ensureActive()
+                        } catch (e: DownloadStorageException) {
+                            failed = true
+                            Log.e("VideoDownloadService", "Download storage failed", e)
                         } catch (e: Exception) {
-                            Log.e("VideoDownloadService", "Download failed", e)
+                            Log.w("VideoDownloadService", "Download interrupted; will retry", e)
                         }
                         offlineVideos.remove(offlineVideo)
                         activeDownloads.remove(downloadProgress)
                         val done = downloadProgress.progress >= downloadProgress.maxProgress && (!offlineVideo.downloadChat || downloadProgress.chatProgress >= downloadProgress.maxChatProgress)
                         xtraModule.offlineVideosRepository.update(offlineVideo.apply {
-                            status = if (done) {
-                                OfflineVideo.STATUS_DOWNLOADED
-                            } else {
-                                val waitForWifi = if (prefs().getBoolean(C.DOWNLOAD_WIFI_ONLY, false)) {
-                                    val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-                                    val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-                                    networkCapabilities != null && networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-                                } else false
-                                if (waitForWifi) {
-                                    OfflineVideo.STATUS_WAITING_FOR_WIFI
-                                } else {
-                                    OfflineVideo.STATUS_PENDING
+                            status = when {
+                                done -> OfflineVideo.STATUS_DOWNLOADED
+                                failed -> OfflineVideo.STATUS_FAILED
+                                else -> {
+                                    val waitForWifi = if (prefs().getBoolean(C.DOWNLOAD_WIFI_ONLY, false)) {
+                                        val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                                        val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+                                        networkCapabilities != null && networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                                    } else false
+                                    if (waitForWifi) {
+                                        OfflineVideo.STATUS_WAITING_FOR_WIFI
+                                    } else {
+                                        OfflineVideo.STATUS_PENDING
+                                    }
                                 }
                             }
                             progress = downloadProgress.progress
@@ -313,7 +343,7 @@ class VideoDownloadService : LifecycleService() {
         val videoFileUri = if (!offlineVideo.url.isNullOrBlank()) {
             val fileUri = offlineVideo.url!!
             if (isShared) {
-                contentResolver.openFileDescriptor(fileUri.toUri(), "rw")!!.use {
+                openFileDescriptor(fileUri.toUri(), "rw").use {
                     FileOutputStream(it.fileDescriptor).use { output ->
                         output.channel.truncate(downloadProgress.bytes)
                     }
@@ -329,13 +359,7 @@ class VideoDownloadService : LifecycleService() {
             val fileUri = if (isShared) {
                 val documentId = DocumentsContract.getTreeDocumentId(path.toUri())
                 val directoryUri = DocumentsContract.buildDocumentUriUsingTree(path.toUri(), documentId)
-                val fileUri = directoryUri.toString() + (if (!directoryUri.toString().endsWith("%3A")) "%2F" else "") + fileName
-                try {
-                    contentResolver.openOutputStream(fileUri.toUri())!!.close()
-                } catch (e: IllegalArgumentException) {
-                    DocumentsContract.createDocument(contentResolver, directoryUri, "", fileName)
-                }
-                fileUri
+                contentResolver.createOrFindDocument(directoryUri, "video/mp4", fileName).toString()
             } else {
                 "$path${File.separator}$fileName"
             }
@@ -358,7 +382,7 @@ class VideoDownloadService : LifecycleService() {
                             }
                         }
                         if (isShared) {
-                            contentResolver.openOutputStream(fileUri.toUri(), "wa")!!
+                            openOutputStream(fileUri.toUri(), "wa")
                         } else {
                             FileOutputStream(fileUri, true)
                         }.use {
@@ -382,7 +406,7 @@ class VideoDownloadService : LifecycleService() {
                             }
                         }
                         if (isShared) {
-                            contentResolver.openOutputStream(fileUri.toUri(), "wa")!!
+                            openOutputStream(fileUri.toUri(), "wa")
                         } else {
                             FileOutputStream(fileUri, true)
                         }.use {
@@ -393,7 +417,7 @@ class VideoDownloadService : LifecycleService() {
                     else -> {
                         okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
                             if (isShared) {
-                                contentResolver.openOutputStream(fileUri.toUri(), "wa")!!
+                            openOutputStream(fileUri.toUri(), "wa")
                             } else {
                                 FileOutputStream(fileUri)
                             }.use { outputStream ->
@@ -449,7 +473,7 @@ class VideoDownloadService : LifecycleService() {
                         }
                         mutex.withLock {
                             if (isShared) {
-                                contentResolver.openOutputStream(videoFileUri.toUri(), "wa")!!
+                                openOutputStream(videoFileUri.toUri(), "wa")
                             } else {
                                 FileOutputStream(videoFileUri, true)
                             }.use {
@@ -483,7 +507,7 @@ class VideoDownloadService : LifecycleService() {
                         }
                         mutex.withLock {
                             if (isShared) {
-                                contentResolver.openOutputStream(videoFileUri.toUri(), "wa")!!
+                                openOutputStream(videoFileUri.toUri(), "wa")
                             } else {
                                 FileOutputStream(videoFileUri, true)
                             }.use {
@@ -504,7 +528,7 @@ class VideoDownloadService : LifecycleService() {
                             }
                             mutex.withLock {
                                 if (isShared) {
-                                    contentResolver.openOutputStream(videoFileUri.toUri(), "wa")!!
+                                    openOutputStream(videoFileUri.toUri(), "wa")
                                 } else {
                                     FileOutputStream(videoFileUri)
                                 }.use { outputStream ->
@@ -555,38 +579,55 @@ class VideoDownloadService : LifecycleService() {
         val videoDirectoryUri = if (isShared) {
             val documentId = DocumentsContract.getTreeDocumentId(path.toUri())
             val directoryUri = DocumentsContract.buildDocumentUriUsingTree(path.toUri(), documentId)
-            val videoDirectoryUri = directoryUri.toString() + (if (!directoryUri.toString().endsWith("%3A")) "%2F" else "") + videoDirectoryName
-            try {
-                contentResolver.openOutputStream(videoDirectoryUri.toUri())!!.close()
-            } catch (e: Exception) {
-                if (e is IllegalArgumentException) {
-                    DocumentsContract.createDocument(contentResolver, directoryUri, DocumentsContract.Document.MIME_TYPE_DIR, videoDirectoryName)
-                }
-            }
-            videoDirectoryUri
+            contentResolver.createOrFindDirectory(directoryUri, videoDirectoryName).toString()
         } else {
             val videoDirectoryUri = "$path${File.separator}$videoDirectoryName${File.separator}"
             File(videoDirectoryUri).mkdir()
             videoDirectoryUri
         }
+        val sharedSegmentUris = if (isShared) {
+            segments.associate { segment ->
+                val fileName = segment.uri.substringAfterLast("%2F").substringAfterLast("/")
+                fileName to contentResolver.createOrFindDocument(
+                    videoDirectoryUri.toUri(),
+                    "application/octet-stream",
+                    fileName,
+                )
+            }
+        } else emptyMap()
+        val sharedInitSegmentUri = if (isShared) {
+            playlist.initSegmentUri?.let { uri ->
+                val fileName = uri.substringAfterLast("%2F").substringAfterLast("/")
+                contentResolver.createOrFindDocument(
+                    videoDirectoryUri.toUri(),
+                    "application/octet-stream",
+                    fileName,
+                )
+            }
+        } else null
+        val storedSegments = if (isShared) {
+            segments.map { segment ->
+                val fileName = segment.uri.substringAfterLast("%2F").substringAfterLast("/")
+                segment.copy(uri = sharedSegmentUris.getValue(fileName).toString())
+            }
+        } else segments
         val playlistFileUri = if (!offlineVideo.url.isNullOrBlank()) {
             offlineVideo.url!!
         } else {
             val playlistFileUri = if (isShared) {
                 val fileName = "${offlineVideo.downloadDate}.m3u8"
-                val playlistFileUri = "$videoDirectoryUri%2F$fileName"
-                try {
-                    contentResolver.openOutputStream(playlistFileUri.toUri())!!
-                } catch (e: IllegalArgumentException) {
-                    DocumentsContract.createDocument(contentResolver, videoDirectoryUri.toUri(), "", fileName)
-                    contentResolver.openOutputStream(playlistFileUri.toUri())!!
-                }.use {
+                val playlistDocumentUri = contentResolver.createOrFindDocument(
+                    videoDirectoryUri.toUri(),
+                    "application/vnd.apple.mpegurl",
+                    fileName,
+                )
+                openOutputStream(playlistDocumentUri, "wt").use {
                     PlaylistUtils.writeMediaPlaylist(playlist.copy(
-                        initSegmentUri = playlist.initSegmentUri?.let { uri -> "$videoDirectoryUri%2F$uri" },
-                        segments = segments.map { segment -> segment.copy(uri = videoDirectoryUri + "%2F" + segment.uri) }
+                        initSegmentUri = sharedInitSegmentUri?.toString(),
+                        segments = storedSegments,
                     ), it)
                 }
-                playlistFileUri
+                playlistDocumentUri.toString()
             } else {
                 val playlistFileUri = "$videoDirectoryUri${offlineVideo.downloadDate}.m3u8"
                 FileOutputStream(playlistFileUri).use {
@@ -596,7 +637,7 @@ class VideoDownloadService : LifecycleService() {
             }
             if (playlist.initSegmentUri != null) {
                 val initSegmentFileUri = if (isShared) {
-                    videoDirectoryUri + "%2F" + playlist.initSegmentUri
+                    sharedInitSegmentUri!!.toString()
                 } else {
                     videoDirectoryUri + playlist.initSegmentUri
                 }
@@ -618,12 +659,7 @@ class VideoDownloadService : LifecycleService() {
                             }
                         }
                         if (isShared) {
-                            try {
-                                contentResolver.openOutputStream(initSegmentFileUri.toUri())!!
-                            } catch (e: IllegalArgumentException) {
-                                DocumentsContract.createDocument(contentResolver, videoDirectoryUri.toUri(), "", playlist.initSegmentUri)
-                                contentResolver.openOutputStream(initSegmentFileUri.toUri())!!
-                            }
+                            openOutputStream(initSegmentFileUri.toUri())
                         } else {
                             FileOutputStream(initSegmentFileUri)
                         }.use {
@@ -646,12 +682,7 @@ class VideoDownloadService : LifecycleService() {
                             }
                         }
                         if (isShared) {
-                            try {
-                                contentResolver.openOutputStream(initSegmentFileUri.toUri())!!
-                            } catch (e: IllegalArgumentException) {
-                                DocumentsContract.createDocument(contentResolver, videoDirectoryUri.toUri(), "", playlist.initSegmentUri)
-                                contentResolver.openOutputStream(initSegmentFileUri.toUri())!!
-                            }
+                            openOutputStream(initSegmentFileUri.toUri())
                         } else {
                             FileOutputStream(initSegmentFileUri)
                         }.use {
@@ -661,12 +692,7 @@ class VideoDownloadService : LifecycleService() {
                     else -> {
                         okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
                             if (isShared) {
-                                try {
-                                    contentResolver.openOutputStream(initSegmentFileUri.toUri())!!
-                                } catch (e: IllegalArgumentException) {
-                                    DocumentsContract.createDocument(contentResolver, videoDirectoryUri.toUri(), "", playlist.initSegmentUri)
-                                    contentResolver.openOutputStream(initSegmentFileUri.toUri())!!
-                                }
+                                openOutputStream(initSegmentFileUri.toUri())
                             } else {
                                 FileOutputStream(initSegmentFileUri)
                             }.use { outputStream ->
@@ -720,21 +746,18 @@ class VideoDownloadService : LifecycleService() {
             requestSemaphore.acquire()
             launch(Dispatchers.IO) {
                 val fileUri = if (isShared) {
-                    videoDirectoryUri + "%2F" + segment.uri
+                    val fileName = segment.uri.substringAfterLast("%2F").substringAfterLast("/")
+                    sharedSegmentUris.getValue(fileName).toString()
                 } else {
                     videoDirectoryUri + segment.uri
                 }
+                val fileName = segment.uri.substringAfterLast("%2F").substringAfterLast("/")
                 val exists = if (isShared) {
-                    try {
-                        contentResolver.openOutputStream(fileUri.toUri())!!.close()
-                        true
-                    } catch (e: IllegalArgumentException) {
-                        false
-                    }
+                    true
                 } else {
                     File(fileUri).exists()
                 }
-                if (!exists || !downloadedSegments.contains(segment.uri)) {
+                if (!exists || !downloadedSegments.contains(fileName)) {
                     val url = urlPath + segment.uri
                     when {
                         networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -753,12 +776,7 @@ class VideoDownloadService : LifecycleService() {
                                 }
                             }
                             if (isShared) {
-                                try {
-                                    contentResolver.openOutputStream(fileUri.toUri())!!
-                                } catch (e: IllegalArgumentException) {
-                                    DocumentsContract.createDocument(contentResolver, videoDirectoryUri.toUri(), "", segment.uri)
-                                    contentResolver.openOutputStream(fileUri.toUri())!!
-                                }
+                                openOutputStream(fileUri.toUri(), "wt")
                             } else {
                                 FileOutputStream(fileUri)
                             }.use {
@@ -781,12 +799,7 @@ class VideoDownloadService : LifecycleService() {
                                 }
                             }
                             if (isShared) {
-                                try {
-                                    contentResolver.openOutputStream(fileUri.toUri())!!
-                                } catch (e: IllegalArgumentException) {
-                                    DocumentsContract.createDocument(contentResolver, videoDirectoryUri.toUri(), "", segment.uri)
-                                    contentResolver.openOutputStream(fileUri.toUri())!!
-                                }
+                                openOutputStream(fileUri.toUri(), "wt")
                             } else {
                                 FileOutputStream(fileUri)
                             }.use {
@@ -796,12 +809,7 @@ class VideoDownloadService : LifecycleService() {
                         else -> {
                             okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
                                 if (isShared) {
-                                    try {
-                                        contentResolver.openOutputStream(fileUri.toUri())!!
-                                    } catch (e: IllegalArgumentException) {
-                                        DocumentsContract.createDocument(contentResolver, videoDirectoryUri.toUri(), "", segment.uri)
-                                        contentResolver.openOutputStream(fileUri.toUri())!!
-                                    }
+                                    openOutputStream(fileUri.toUri(), "wt")
                                 } else {
                                     FileOutputStream(fileUri)
                                 }.use { outputStream ->
@@ -863,13 +871,7 @@ class VideoDownloadService : LifecycleService() {
             val fileUri = if (isShared) {
                 val documentId = DocumentsContract.getTreeDocumentId(path.toUri())
                 val directoryUri = DocumentsContract.buildDocumentUriUsingTree(path.toUri(), documentId)
-                val fileUri = directoryUri.toString() + (if (!directoryUri.toString().endsWith("%3A")) "%2F" else "") + fileName
-                try {
-                    contentResolver.openOutputStream(fileUri.toUri())!!.close()
-                } catch (e: IllegalArgumentException) {
-                    DocumentsContract.createDocument(contentResolver, directoryUri, "", fileName)
-                }
-                fileUri
+                contentResolver.createOrFindDocument(directoryUri, "video/mp4", fileName).toString()
             } else {
                 "$path${File.separator}$fileName"
             }
@@ -901,7 +903,7 @@ class VideoDownloadService : LifecycleService() {
                             }
                         }
                         if (isShared) {
-                            contentResolver.openOutputStream(videoFileUri.toUri())!!
+                            openOutputStream(videoFileUri.toUri())
                         } else {
                             FileOutputStream(videoFileUri)
                         }.use {
@@ -924,7 +926,7 @@ class VideoDownloadService : LifecycleService() {
                             }
                         }
                         if (isShared) {
-                            contentResolver.openOutputStream(videoFileUri.toUri())!!
+                            openOutputStream(videoFileUri.toUri())
                         } else {
                             FileOutputStream(videoFileUri)
                         }.use {
@@ -934,7 +936,7 @@ class VideoDownloadService : LifecycleService() {
                     else -> {
                         okHttpClient.value.newCall(Request.Builder().url(sourceUrl).build()).executeAsync().use { response ->
                             if (isShared) {
-                                contentResolver.openOutputStream(videoFileUri.toUri())!!
+                                openOutputStream(videoFileUri.toUri())
                             } else {
                                 FileOutputStream(videoFileUri)
                             }.use { outputStream ->
@@ -970,13 +972,7 @@ class VideoDownloadService : LifecycleService() {
                     val fileUri = if (isShared) {
                         val documentId = DocumentsContract.getTreeDocumentId(path.toUri())
                         val directoryUri = DocumentsContract.buildDocumentUriUsingTree(path.toUri(), documentId)
-                        val fileUri = directoryUri.toString() + (if (!directoryUri.toString().endsWith("%3A")) "%2F" else "") + fileName
-                        try {
-                            contentResolver.openOutputStream(fileUri.toUri())!!.close()
-                        } catch (e: IllegalArgumentException) {
-                            DocumentsContract.createDocument(contentResolver, directoryUri, "", fileName)
-                        }
-                        fileUri
+                        contentResolver.createOrFindDocument(directoryUri, "application/json", fileName).toString()
                     } else {
                         "$path${File.separator}$fileName"
                     }
@@ -1111,7 +1107,7 @@ class VideoDownloadService : LifecycleService() {
                 val savedEmotes = mutableListOf<String>()
                 if (resumed) {
                     if (isShared) {
-                        contentResolver.openFileDescriptor(fileUri.toUri(), "rw")!!.use {
+                        openFileDescriptor(fileUri.toUri(), "rw").use {
                             FileOutputStream(it.fileDescriptor).use { output ->
                                 output.channel.truncate(downloadProgress.chatBytes)
                             }
@@ -1122,7 +1118,7 @@ class VideoDownloadService : LifecycleService() {
                         }
                     }
                     if (isShared) {
-                        contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                        openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                     } else {
                         FileOutputStream(fileUri, true).bufferedWriter()
                     }.use { writer ->
@@ -1252,7 +1248,7 @@ class VideoDownloadService : LifecycleService() {
                         }
                     }
                     if (isShared) {
-                        contentResolver.openFileDescriptor(fileUri.toUri(), "rw")!!.use {
+                        openFileDescriptor(fileUri.toUri(), "rw").use {
                             FileOutputStream(it.fileDescriptor).use { output ->
                                 output.channel.truncate(downloadProgress.chatBytes)
                             }
@@ -1264,7 +1260,7 @@ class VideoDownloadService : LifecycleService() {
                     }
                 } else {
                     if (isShared) {
-                        contentResolver.openOutputStream(fileUri.toUri())!!.bufferedWriter()
+                        openOutputStream(fileUri.toUri()).bufferedWriter()
                     } else {
                         FileOutputStream(fileUri).bufferedWriter()
                     }.use { writer ->
@@ -1307,7 +1303,7 @@ class VideoDownloadService : LifecycleService() {
                     cursor = if (comments.pageInfo?.hasNextPage != false) comments.edges.lastOrNull()?.cursor else null
                     if (messages.isNotEmpty()) {
                         if (isShared) {
-                            contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                            openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                         } else {
                             FileOutputStream(fileUri, true).bufferedWriter()
                         }.use { writer ->
@@ -1445,7 +1441,7 @@ class VideoDownloadService : LifecycleService() {
                                         }
                                         mutex.withLock {
                                             if (isShared) {
-                                                contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                                                openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                                             } else {
                                                 FileOutputStream(fileUri, true).bufferedWriter()
                                             }.use { writer ->
@@ -1535,7 +1531,7 @@ class VideoDownloadService : LifecycleService() {
                                         }
                                         mutex.withLock {
                                             if (isShared) {
-                                                contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                                                openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                                             } else {
                                                 FileOutputStream(fileUri, true).bufferedWriter()
                                             }.use { writer ->
@@ -1626,7 +1622,7 @@ class VideoDownloadService : LifecycleService() {
                                         }
                                         mutex.withLock {
                                             if (isShared) {
-                                                contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                                                openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                                             } else {
                                                 FileOutputStream(fileUri, true).bufferedWriter()
                                             }.use { writer ->
@@ -1718,7 +1714,7 @@ class VideoDownloadService : LifecycleService() {
                                         }
                                         mutex.withLock {
                                             if (isShared) {
-                                                contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                                                openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                                             } else {
                                                 FileOutputStream(fileUri, true).bufferedWriter()
                                             }.use { writer ->
@@ -1775,7 +1771,7 @@ class VideoDownloadService : LifecycleService() {
                         }
                     } else {
                         if (isShared) {
-                            contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                            openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                         } else {
                             FileOutputStream(fileUri, true).bufferedWriter()
                         }.use { writer ->
