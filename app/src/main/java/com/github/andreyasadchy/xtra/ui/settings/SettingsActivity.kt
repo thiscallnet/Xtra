@@ -895,6 +895,7 @@ class SettingsActivity : AppCompatActivity() {
                     SCREEN_BROWSING_INFORMATION -> R.xml.browsing_information_preferences
                     SCREEN_BROWSING_SEARCH -> R.xml.browsing_search_preferences
                     SCREEN_TABS -> R.xml.tabs_preferences
+                    SCREEN_CLIP -> R.xml.clip_preferences
                     SCREEN_PLAYER_SEEK -> R.xml.player_seek_preferences
                     SCREEN_PLAYER_GESTURES -> R.xml.player_gestures_preferences
                     SCREEN_PLAYER_INFORMATION -> R.xml.player_information_preferences
@@ -1445,6 +1446,7 @@ class SettingsActivity : AppCompatActivity() {
             const val SCREEN_BROWSING_INFORMATION = "browsing_information"
             const val SCREEN_BROWSING_SEARCH = "browsing_search"
             const val SCREEN_TABS = "tabs"
+            const val SCREEN_CLIP = "clip"
             const val SCREEN_PLAYER_SEEK = "player_seek"
             const val SCREEN_PLAYER_GESTURES = "player_gestures"
             const val SCREEN_PLAYER_INFORMATION = "player_information"
@@ -2064,6 +2066,7 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<Preference>("player_seek_controls")?.setOnPreferenceClickListener { findNavController().navigate(R.id.playerSeekFragment); true }
             findPreference<Preference>("player_gestures")?.setOnPreferenceClickListener { findNavController().navigate(R.id.playerGesturesFragment); true }
             findPreference<Preference>("player_information")?.setOnPreferenceClickListener { findNavController().navigate(R.id.playerInformationFragment); true }
+            findPreference<Preference>("clip_settings")?.setOnPreferenceClickListener { findNavController().navigate(R.id.clipSettingsFragment); true }
             findPreference<Preference>("player_speed_options")?.setOnPreferenceClickListener { showSpeedOptionsDialog(); true }
             findPreference<Preference>("customize_controls")?.setOnPreferenceClickListener { showControlLayoutDialog(); true }
         }
@@ -2485,6 +2488,7 @@ class SettingsActivity : AppCompatActivity() {
                     Triple(R.xml.tabs_preferences, SettingsNavDirections(R.id.browsingTabsFragment), "Browsing › Navigation › Customize tabs"),
                     Triple(R.xml.playback_preferences, SettingsNavGraphDirections.actionGlobalPlayerSettingsFragment(), getString(R.string.settings_section_playback)),
                     Triple(R.xml.player_controls_preferences, SettingsNavGraphDirections.actionGlobalPlayerButtonSettingsFragment(), getString(R.string.settings_home_controls)),
+                    Triple(R.xml.clip_preferences, SettingsNavDirections(R.id.clipSettingsFragment), "Player controls › Local clips"),
                     Triple(R.xml.player_seek_preferences, SettingsNavDirections(R.id.playerSeekFragment), "Player controls › Seek controls"),
                     Triple(R.xml.player_gestures_preferences, SettingsNavDirections(R.id.playerGesturesFragment), "Player controls › Gestures"),
                     Triple(R.xml.player_information_preferences, SettingsNavDirections(R.id.playerInformationFragment), "Player controls › Player information"),

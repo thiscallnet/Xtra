@@ -605,4 +605,11 @@
     <string name="following_overview_sections">Takip genel bakış bölümleri</string>
     <string name="following_overview_sections_summary">Bölümleri seçip yeniden sıralamak için sürükleyin</string>
     <string name="following_no_sections_enabled">Etkin genel bakış bölümü yok. Bir bölüm eklemek için Ayarlar → Takip genel bakışı bölümünü açın.</string>
+    <string name="settings_clip_capture">Yerel klipler</string>
+    <string name="settings_clip_capture_summary">Klip düzenleyicide ne kadar canlı videonun kullanılabilir tutulacağını seçin.</string>
+    <string name="settings_clip_max_duration">Maksimum klip uzunluğu</string>
+    <string name="settings_clip_preview_seek">Önizleme arama aralığı</string>
+    <string name="settings_clip_storage">Depolama</string>
+    <string name="settings_clip_storage_location">Kayıt konumu</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>

@@ -609,4 +609,11 @@
     <string name="following_overview_sections">Secciones del resumen de seguidos</string>
     <string name="following_overview_sections_summary">Elige secciones y arrástralas para reordenarlas</string>
     <string name="following_no_sections_enabled">No hay secciones del resumen activadas. Abre Ajustes → Resumen de seguidos para añadir una.</string>
+    <string name="settings_clip_capture">Clips locales</string>
+    <string name="settings_clip_capture_summary">Elige cuánto vídeo en directo conserva disponible el editor de clips.</string>
+    <string name="settings_clip_max_duration">Duración máxima del clip</string>
+    <string name="settings_clip_preview_seek">Intervalo de avance en la vista previa</string>
+    <string name="settings_clip_storage">Almacenamiento</string>
+    <string name="settings_clip_storage_location">Ubicación de guardado</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>

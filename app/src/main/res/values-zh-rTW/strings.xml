@@ -604,4 +604,11 @@
     <string name="following_overview_sections">追蹤概覽區段</string>
     <string name="following_overview_sections_summary">選擇區段並拖曳以重新排序</string>
     <string name="following_no_sections_enabled">沒有啟用概覽區段。開啟設定 → 追蹤概覽來新增區段。</string>
+    <string name="settings_clip_capture">本機剪輯</string>
+    <string name="settings_clip_capture_summary">選擇剪輯編輯器保留多少直播影片供使用。</string>
+    <string name="settings_clip_max_duration">剪輯最大長度</string>
+    <string name="settings_clip_preview_seek">預覽跳轉間隔</string>
+    <string name="settings_clip_storage">儲存空間</string>
+    <string name="settings_clip_storage_location">儲存位置</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>

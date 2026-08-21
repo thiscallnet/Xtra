@@ -110,7 +110,7 @@
     <string name="settings_home_appearance_summary">Theme, colors &amp; layout</string>
     <string name="settings_home_browsing_summary">Tabs, lists, content &amp; search</string>
     <string name="settings_home_playback_summary">Quality, background playback &amp; playback sources</string>
-    <string name="settings_home_controls_summary">Customize controls, menus &amp; player information</string>
+    <string name="settings_home_controls_summary">Customize controls, clip capture &amp; player information</string>
     <string name="settings_home_chat_summary">Messages, emotes &amp; Twitch features</string>
     <string name="settings_home_downloads_summary">Download behavior, live streams &amp; imports</string>
     <string name="settings_home_account_network_summary">Login, tokens, proxies &amp; connection</string>
@@ -349,6 +349,13 @@
     <string name="settings_customize_controls">Customize controls</string>
     <string name="settings_seek_controls">Seek controls</string>
     <string name="settings_gestures">Gestures</string>
+    <string name="settings_clip_capture">Local clips</string>
+    <string name="settings_clip_capture_summary">Choose how much live video the clip editor keeps available.</string>
+    <string name="settings_clip_max_duration">Maximum clip length</string>
+    <string name="settings_clip_preview_seek">Preview seek amount</string>
+    <string name="settings_clip_storage">Storage</string>
+    <string name="settings_clip_storage_location">Save location</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
     <string name="settings_double_tap_chat">Double-tap to toggle chat</string>
     <string name="settings_free_position_player">Free-position mini player</string>
     <string name="settings_free_position_player_summary">Move the minimized player freely around the screen.</string>

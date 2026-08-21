@@ -38,6 +38,8 @@ import androidx.media3.ui.TimeBar
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.databinding.FragmentClipEditorBinding
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.slider.RangeSlider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -82,6 +84,7 @@ class ClipEditorDialogFragment : Fragment() {
     private var storagePermissionRequestPending = false
     private var resultSent = false
     private var previewHovered = false
+    private var previewSeekMs = 5_000L
     private val previewHandler = Handler(Looper.getMainLooper())
 
     private data class Selection(
@@ -116,6 +119,12 @@ class ClipEditorDialogFragment : Fragment() {
         )
         durationUs = boundariesUs.last()
         channelName = requireArguments().getString(ARG_CHANNEL_NAME)
+        previewSeekMs = requireContext().prefs()
+            .getString(C.CLIP_PREVIEW_SEEK_SECONDS, "5")
+            ?.toLongOrNull()
+            ?.coerceIn(1L, 60L)
+            ?.times(1_000L)
+            ?: 5_000L
         defaultFileBaseName = "${sanitize(channelName)}_${SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())}"
         startUs = savedInstanceState
             ?.takeIf { it.containsKey(STATE_START_US) }
@@ -157,19 +166,19 @@ class ClipEditorDialogFragment : Fragment() {
         binding.save.setOnClickListener { exportClip() }
         binding.previewRewind.setOnClickListener {
             showPreviewControls()
-            seekPreviewBy(-PREVIEW_SEEK_MS)
+            seekPreviewBy(-previewSeekMs)
         }
         binding.previewFastForward.setOnClickListener {
             showPreviewControls()
-            seekPreviewBy(PREVIEW_SEEK_MS)
+            seekPreviewBy(previewSeekMs)
         }
         binding.previewRewind.contentDescription = getString(
             R.string.player_rewind_seconds,
-            PREVIEW_SEEK_MS / 1_000L,
+            previewSeekMs / 1_000L,
         )
         binding.previewFastForward.contentDescription = getString(
             R.string.player_fast_forward_seconds,
-            PREVIEW_SEEK_MS / 1_000L,
+            previewSeekMs / 1_000L,
         )
 
         val durationMs = durationUs / 1_000f
@@ -766,7 +775,6 @@ class ClipEditorDialogFragment : Fragment() {
         private const val STORAGE_PERMISSION_REQUEST = 1001
         private const val PREVIEW_POLL_MS = 100L
         private const val PREVIEW_CONTROLS_HIDE_MS = 3_000L
-        private const val PREVIEW_SEEK_MS = 5_000L
         private const val CLIP_LOCATION = "Movies/Xtra/Clips"
         private const val CLIP_LOG_TAG = "XtraClipEditor"
 

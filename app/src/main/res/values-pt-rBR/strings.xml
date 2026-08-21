@@ -604,4 +604,11 @@
     <string name="following_overview_sections">Seções da visão geral dos seguidos</string>
     <string name="following_overview_sections_summary">Escolha as seções e arraste para reordená-las</string>
     <string name="following_no_sections_enabled">Nenhuma seção da visão geral está ativada. Abra Configurações → Visão geral dos seguidos para adicionar uma.</string>
+    <string name="settings_clip_capture">Clipes locais</string>
+    <string name="settings_clip_capture_summary">Escolha quanto vídeo ao vivo o editor de clipes deve manter disponível.</string>
+    <string name="settings_clip_max_duration">Duração máxima do clipe</string>
+    <string name="settings_clip_preview_seek">Intervalo de avanço da prévia</string>
+    <string name="settings_clip_storage">Armazenamento</string>
+    <string name="settings_clip_storage_location">Local de salvamento</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>

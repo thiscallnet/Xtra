@@ -38,6 +38,17 @@ class LiveClipBufferManagerTest {
     }
 
     @Test
+    fun snapshotDoesNotExceedConfiguredDurationAtSegmentBoundary() {
+        val selected = LiveClipBufferManager.selectContiguousLatest(
+            candidates = (0L..9L).map(::segment),
+            maxDurationUs = 15_000_000L,
+        )
+
+        assertEquals(listOf(3L, 4L, 5L, 6L, 7L, 8L, 9L), selected?.map { it.mediaSequence })
+        assertEquals(14_000_000L, selected?.sumOf { it.durationUs })
+    }
+
+    @Test
     fun snapshotStopsAtASequenceGap() {
         val selected = LiveClipBufferManager.selectContiguousLatest(
             candidates = listOf(segment(100), segment(101), segment(103)),

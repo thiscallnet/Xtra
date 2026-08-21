@@ -44,6 +44,8 @@ object SettingsMigration {
         C.SETTINGS_PLAYER_SPEED_OPTIONS,
         C.SETTINGS_DEVELOPER_UNLOCKED,
         C.SETTINGS_DEVELOPER_ENABLED,
+        C.CLIP_MAX_DURATION_SECONDS,
+        C.CLIP_PREVIEW_SEEK_SECONDS,
         C.CHAT_WIDTH_PERCENT,
         C.LANDSCAPE_CHAT_WIDTH,
         C.KEY_CHAT_OPENED,
@@ -444,7 +446,7 @@ object SettingsMigration {
                 legacyControlsAllDisabled = legacyControlsAllDisabled,
                 legacyLayout = controlLayout(preferences),
             )
-            if (!preferences.contains(C.SETTINGS_PLAYER_CONTROL_LAYOUT)) {
+            if (preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null) != serializedControlLayout) {
                 putString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, serializedControlLayout)
             }
             syncLegacyControlVisibility(serializedControlLayout)
@@ -639,8 +641,12 @@ object SettingsMigration {
         existing == null && legacyControlsAllDisabled -> defaultControlLayout()
         existing == null -> legacyLayout
         existing.isBlank() -> defaultControlLayout()
-        else -> existing
+        else -> existing.addMissingClipAction()
     }
+
+    /** New controls must be added to saved layouts without changing existing choices. */
+    private fun String.addMissingClipAction(): String =
+        if (split(',').any { it.substringBefore(':') == "clip" }) this else "$this,clip:quick"
 
     internal fun defaultControlLayout(): String = controlSources.joinToString(",") {
         "${it.action}:${controlGroup(it.quickDefault, it.menuDefault)}"

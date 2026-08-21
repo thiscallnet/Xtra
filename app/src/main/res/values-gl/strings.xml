@@ -604,4 +604,11 @@
     <string name="following_overview_sections">Seccións da vista xeral de seguidos</string>
     <string name="following_overview_sections_summary">Escolle seccións e arrástraas para reordenalas</string>
     <string name="following_no_sections_enabled">Non hai seccións da vista xeral activadas. Abre Configuración → Vista xeral de seguidos para engadir unha.</string>
+    <string name="settings_clip_capture">Clips locais</string>
+    <string name="settings_clip_capture_summary">Elixe canto vídeo en directo mantén dispoñible o editor de clips.</string>
+    <string name="settings_clip_max_duration">Duración máxima do clip</string>
+    <string name="settings_clip_preview_seek">Cantidade de avance da vista previa</string>
+    <string name="settings_clip_storage">Almacenamento</string>
+    <string name="settings_clip_storage_location">Localización para gardar</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>

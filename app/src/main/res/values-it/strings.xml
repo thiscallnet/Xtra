@@ -604,4 +604,11 @@
     <string name="following_overview_sections">Sezioni della panoramica dei seguiti</string>
     <string name="following_overview_sections_summary">Scegli le sezioni e trascinale per riordinarle</string>
     <string name="following_no_sections_enabled">Nessuna sezione della panoramica è attiva. Apri Impostazioni → Panoramica dei seguiti per aggiungerne una.</string>
+    <string name="settings_clip_capture">Clip locali</string>
+    <string name="settings_clip_capture_summary">Scegli quanta parte del video in diretta deve restare disponibile nell\'editor dei clip.</string>
+    <string name="settings_clip_max_duration">Durata massima del clip</string>
+    <string name="settings_clip_preview_seek">Intervallo di spostamento dell\'anteprima</string>
+    <string name="settings_clip_storage">Archiviazione</string>
+    <string name="settings_clip_storage_location">Posizione di salvataggio</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>

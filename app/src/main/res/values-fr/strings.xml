@@ -604,4 +604,11 @@
     <string name="following_overview_sections">Sections de la vue d’ensemble des suivis</string>
     <string name="following_overview_sections_summary">Choisissez des sections et faites-les glisser pour les réorganiser</string>
     <string name="following_no_sections_enabled">Aucune section de la vue d’ensemble n’est activée. Ouvrez Paramètres → Vue d’ensemble des suivis pour en ajouter une.</string>
+    <string name="settings_clip_capture">Clips locaux</string>
+    <string name="settings_clip_capture_summary">Choisissez la durée de vidéo en direct que l\'éditeur de clips conserve.</string>
+    <string name="settings_clip_max_duration">Durée maximale du clip</string>
+    <string name="settings_clip_preview_seek">Intervalle de déplacement de l\'aperçu</string>
+    <string name="settings_clip_storage">Stockage</string>
+    <string name="settings_clip_storage_location">Emplacement d\'enregistrement</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>

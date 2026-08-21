@@ -604,4 +604,11 @@
     <string name="following_overview_sections">Разделы обзора подписок</string>
     <string name="following_overview_sections_summary">Выберите разделы и перетащите их, чтобы изменить порядок</string>
     <string name="following_no_sections_enabled">Нет включённых разделов обзора. Откройте Настройки → Обзор подписок, чтобы добавить раздел.</string>
+    <string name="settings_clip_capture">Локальные клипы</string>
+    <string name="settings_clip_capture_summary">Выберите, сколько видео трансляции хранить доступным в редакторе клипов.</string>
+    <string name="settings_clip_max_duration">Максимальная длина клипа</string>
+    <string name="settings_clip_preview_seek">Шаг перемотки в предпросмотре</string>
+    <string name="settings_clip_storage">Хранилище</string>
+    <string name="settings_clip_storage_location">Место сохранения</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>

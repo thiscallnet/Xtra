@@ -604,4 +604,11 @@
     <string name="following_overview_sections">Following-Übersichtsbereiche</string>
     <string name="following_overview_sections_summary">Bereiche auswählen und zum Neuordnen ziehen</string>
     <string name="following_no_sections_enabled">Keine Übersichtsbereiche sind aktiviert. Öffne Einstellungen → Following-Übersicht, um einen hinzuzufügen.</string>
+    <string name="settings_clip_capture">Lokale Clips</string>
+    <string name="settings_clip_capture_summary">Wähle, wie viel Live-Video der Clip-Editor verfügbar hält.</string>
+    <string name="settings_clip_max_duration">Maximale Clip-Länge</string>
+    <string name="settings_clip_preview_seek">Vorspulschritt in der Vorschau</string>
+    <string name="settings_clip_storage">Speicher</string>
+    <string name="settings_clip_storage_location">Speicherort</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>
