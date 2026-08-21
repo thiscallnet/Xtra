@@ -290,12 +290,6 @@ class ExoPlayerFragment : PlayerFragment() {
                 }
             }
 
-            override fun changeSurfaceVisibility(visible: Boolean) {
-                if (view != null && !isClipEditorVisible()) {
-                    binding.playerSurface.visibility = if (visible) View.VISIBLE else View.GONE
-                }
-            }
-
             override fun toast(resId: Int, duration: Int) {
                 if (view != null) {
                     when (resId) {
@@ -354,13 +348,24 @@ class ExoPlayerFragment : PlayerFragment() {
                         ) return@launch
 
                         val editorRestored = restoreClipEditorIfNeeded()
+                        connectedService.serviceListener = serviceListener
                         if (!editorRestored) {
-                            connectedService.player?.setVideoSurfaceView(binding.playerSurface)
-                            connectedService.restoreBackgroundVideoIfNeeded()
+                            val restored = connectedService.restoreVideoOutputIfNeeded {
+                                val player = connectedService.player
+                                if (player == null) {
+                                    false
+                                } else {
+                                    binding.playerSurface.visibility = View.VISIBLE
+                                    player.setVideoSurfaceView(binding.playerSurface)
+                                    true
+                                }
+                            }
+                            if (!restored) {
+                                connectedService.player?.setVideoSurfaceView(binding.playerSurface)
+                            }
                         } else {
                             pauseLiveClipPlayback()
                         }
-                        connectedService.serviceListener = serviceListener
                         connectedService.player?.addListener(listener)
                         playerListener = listener
                         val endTime = connectedService.setSleepTimer(-1)
@@ -835,7 +840,13 @@ class ExoPlayerFragment : PlayerFragment() {
                 playbackService?.player?.playWhenReady = false
                 playbackService?.player?.pause()
             } else {
-                playbackService?.stop(isInPIPMode)
+                val videoDetachedForBackground = playbackService?.stop(isInPIPMode) == true
+                if (view != null && !isInPIPMode) {
+                    playbackService?.player?.clearVideoSurfaceView(binding.playerSurface)
+                    if (videoDetachedForBackground) {
+                        binding.playerSurface.visibility = View.GONE
+                    }
+                }
             }
             playbackService?.setSleepTimer((activity as? MainActivity)?.getSleepTimerTimeLeft() ?: 0)
             playbackService?.setStopServiceTimer(true)
@@ -874,6 +885,7 @@ class ExoPlayerFragment : PlayerFragment() {
     override fun onDestroy() {
         playbackService?.cancelLiveClipPreparation()
         super.onDestroy()
+        playbackService = null
     }
 
     override fun onNetworkRestored() {
