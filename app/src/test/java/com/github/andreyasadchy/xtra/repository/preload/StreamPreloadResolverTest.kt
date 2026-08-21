@@ -119,7 +119,7 @@ class StreamPreloadResolverTest {
             canStart = { canStart },
         )
 
-        val first = scope.async {
+        val first = scope.async(start = CoroutineStart.UNDISPATCHED) {
             resolver.preload("first", "first", "config") {
                 calls.incrementAndGet()
                 firstStarted.complete(Unit)
@@ -129,7 +129,7 @@ class StreamPreloadResolverTest {
         }
         firstStarted.await()
         assertTrue(resolver.promoteForPlayback("first", "config"))
-        val selected = scope.async {
+        val selected = scope.async(start = CoroutineStart.UNDISPATCHED) {
             resolver.preload("selected", "selected", "config") {
                 calls.incrementAndGet()
                 "selected-url"
