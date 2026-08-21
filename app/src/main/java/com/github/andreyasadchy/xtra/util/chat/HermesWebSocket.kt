@@ -27,6 +27,7 @@ class HermesWebSocket(
     private val showRaids: Boolean,
     private val showPolls: Boolean,
     private val showPredictions: Boolean,
+    private val includeChannelTopics: Boolean = true,
     private val trustManager: Lazy<X509TrustManager>,
     private val listener: Listener,
 ) {
@@ -69,9 +70,9 @@ class HermesWebSocket(
             Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes authentication request sent")
         }
         topics = buildMap {
-            put(Uuid.random().toHexString().substring(0, 21), "video-playback-by-id.$channelId")
-            put(Uuid.random().toHexString().substring(0, 21), "broadcast-settings-update.$channelId")
-            put(Uuid.random().toHexString().substring(0, 21), "community-points-channel-v1.$channelId")
+            hermesChannelTopics(channelId, includeChannelTopics).forEach { topic ->
+                put(Uuid.random().toHexString().substring(0, 21), topic)
+            }
             if (showRaids) {
                 put(Uuid.random().toHexString().substring(0, 21), "raid.$channelId")
             }
@@ -257,4 +258,13 @@ class HermesWebSocket(
             listener.onDisconnect(message, fullMsg)
         }
     }
+}
+
+internal fun hermesChannelTopics(channelId: String, includeChannelTopics: Boolean): List<String> {
+    if (!includeChannelTopics) return emptyList()
+    return listOf(
+        "video-playback-by-id.$channelId",
+        "broadcast-settings-update.$channelId",
+        "community-points-channel-v1.$channelId",
+    )
 }

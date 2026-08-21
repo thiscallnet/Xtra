@@ -284,6 +284,7 @@
     <string name="raid_text">Raid sur %1$s avec %2$d spectateurs</string>
     <string name="show_raids">Afficher les raids et les hôtes</string>
     <string name="auto_switch_raids">Basculer automatiquement le stream lors d\'un raid</string>
+    <string name="multiview_raids">Changer de stream lors d\'un raid en multivue</string>
     <string name="reload_emotes">Recharger les emotes</string>
     <string name="api_current_login">Session actuelle</string>
     <string name="api_user_id">Identifiant de compte</string>

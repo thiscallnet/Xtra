@@ -285,6 +285,7 @@
     <string name="raid_text">%1$s kanalına %2$d izleyici ile baskın yapılıyor</string>
     <string name="show_raids">Baskınları göster</string>
     <string name="auto_switch_raids">Baskın sırasında yayını otomatik olarak değiştir</string>
+    <string name="multiview_raids">Çoklu görünümde baskın olduğunda yayını değiştir</string>
     <string name="reload_emotes">İfadeleri yeniden yükle</string>
     <string name="api_current_login">Mevcut giriş</string>
     <string name="api_user_id">Hesap kimliği</string>

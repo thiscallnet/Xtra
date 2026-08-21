@@ -83,4 +83,40 @@ class MultiviewSessionReducerTest {
         assertEquals(listOf("id:100", "id:200", "id:300", "id:500"), state.identities)
         assertEquals("id:500", state.activeIdentity)
     }
+
+    @Test
+    fun replaceRaidedStreamKeepsTilePositionAndSelectsTarget() {
+        var state = MultiviewSessionState()
+        state = MultiviewSessionReducer.add(state, first, initialAudioVolume = 0.75f)
+        state = MultiviewSessionReducer.add(state, second, initialAudioVolume = 0f)
+        state = state.copy(focusedIdentity = "id:100")
+
+        val target = Stream(id = "stream-6", channelId = "600", channelLogin = "Zeta", channelName = "Zeta")
+        state = MultiviewSessionReducer.replace(state, "id:100", target)
+
+        assertEquals(listOf("id:600", "id:200"), state.identities)
+        assertEquals("id:600", state.activeIdentity)
+        assertEquals("id:600", state.focusedIdentity)
+        assertEquals("id:600", state.chatIdentity)
+        assertEquals(0.75f, state.audioVolumes["id:600"])
+    }
+
+    @Test
+    fun replaceRaidWithExistingTargetRemovesSourceAndSelectsTarget() {
+        var state = MultiviewSessionState()
+        state = MultiviewSessionReducer.add(state, first, initialAudioVolume = 0.75f)
+        state = MultiviewSessionReducer.add(state, second, initialAudioVolume = 0f)
+        state = state.copy(
+            focusedIdentity = "id:100",
+            chatIdentity = "id:100",
+        )
+
+        state = MultiviewSessionReducer.replace(state, "id:100", second)
+
+        assertEquals(listOf("id:200"), state.identities)
+        assertEquals("id:200", state.activeIdentity)
+        assertEquals("id:200", state.focusedIdentity)
+        assertEquals("id:200", state.chatIdentity)
+        assertEquals(false, state.audioVolumes.containsKey("id:100"))
+    }
 }

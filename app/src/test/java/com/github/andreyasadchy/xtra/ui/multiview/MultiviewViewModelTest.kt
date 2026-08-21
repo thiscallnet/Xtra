@@ -2,7 +2,10 @@ package com.github.andreyasadchy.xtra.ui.multiview
 
 import androidx.lifecycle.SavedStateHandle
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.ui.multiview.playback.MultiviewPlaybackSnapshot
+import com.github.andreyasadchy.xtra.ui.multiview.playback.MultiviewSlotStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class MultiviewViewModelTest {
@@ -18,6 +21,21 @@ class MultiviewViewModelTest {
         channelLogin = "Beta",
         channelName = "Beta",
     )
+
+    @Test
+    fun replacingStreamRemovesPlaybackSnapshotWhenSourceDisappears() {
+        val snapshot = MultiviewPlaybackSnapshot(MultiviewSlotStatus.LIVE, "720p")
+        val state = MultiviewSessionState(streams = listOf(otherStream))
+
+        val playback = MultiviewViewModel.cleanupPlaybackSnapshots(
+            playback = mapOf("id:100" to snapshot, "id:200" to snapshot),
+            sourceIdentity = "id:100",
+            state = state,
+        )
+
+        assertFalse(playback.containsKey("id:100"))
+        assertEquals(snapshot, playback["id:200"])
+    }
 
     @Test
     fun restoredActiveStreamIsNotResetBySecondInitialize() {

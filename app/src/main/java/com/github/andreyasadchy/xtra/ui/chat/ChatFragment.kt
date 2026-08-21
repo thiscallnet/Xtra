@@ -610,7 +610,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 if (raid != null) {
                                     if (!viewModel.raidClosed) {
                                         if (raid.openStream) {
-                                            if (requireContext().prefs().getBoolean(C.CHAT_RAIDS_AUTO_SWITCH, false) && (parentFragment is Media3PlayerFragment || parentFragment is PlayerFragment)) {
+                                            if (requireContext().prefs().getBoolean(C.CHAT_RAIDS_AUTO_SWITCH, false) &&
+                                                (parentFragment is Media3PlayerFragment || parentFragment is PlayerFragment)
+                                            ) {
                                                 (requireActivity() as? MainActivity)?.startStream(
                                                     Stream(
                                                         channelId = raid.targetId,
@@ -845,7 +847,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     channelId,
                     channelLogin,
                     args.getString(KEY_CHANNEL_NAME),
-                    args.getString(KEY_STREAM_ID)
+                    args.getString(KEY_STREAM_ID),
                 )
             } else {
                 val videoId = args.getString(KEY_VIDEO_ID)
@@ -897,7 +899,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     fun reconnect() {
         val channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN)
         if (channelLogin != null) {
-            viewModel.startLiveChat(requireArguments().getString(KEY_CHANNEL_ID), channelLogin)
+            viewModel.startLiveChat(
+                requireArguments().getString(KEY_CHANNEL_ID),
+                channelLogin,
+            )
             if (requireContext().prefs().getBoolean(C.CHAT_RECENT, true)) {
                 viewModel.loadRecentMessages(
                     requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
@@ -1714,7 +1719,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         private const val KEY_START_TIME = "startTime"
         private const val KEY_COMPOSER_DRAFT = "composerDraft"
 
-        fun newInstance(channelId: String?, channelLogin: String?, channelName: String?, streamId: String?): ChatFragment {
+        fun newInstance(
+            channelId: String?,
+            channelLogin: String?,
+            channelName: String?,
+            streamId: String?,
+        ): ChatFragment {
             return ChatFragment().apply {
                 arguments = Bundle().apply {
                     putBoolean(KEY_IS_LIVE, true)

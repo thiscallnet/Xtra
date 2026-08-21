@@ -1,13 +1,16 @@
 package com.github.andreyasadchy.xtra.ui.multiview
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.model.chat.Raid
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
@@ -22,9 +25,13 @@ import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import javax.net.ssl.X509TrustManager
 
 class MultiviewViewModel(
     private val applicationContext: Context,
@@ -32,12 +39,22 @@ class MultiviewViewModel(
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
     private val playerRepository: PlayerRepository,
+    private val trustManager: Lazy<X509TrustManager>,
 ) : ViewModel() {
     private val _state = MutableStateFlow(loadState())
     val state: StateFlow<MultiviewSessionState> = _state.asStateFlow()
 
     private val _playback = MutableStateFlow<Map<String, MultiviewPlaybackSnapshot>>(emptyMap())
     val playback: StateFlow<Map<String, MultiviewPlaybackSnapshot>> = _playback.asStateFlow()
+    private var raidMonitoringJob: Job? = null
+    private var raidMonitor: MultiviewRaidMonitor? = null
+    private var raidMonitoringGeneration: Any? = null
+    private var raidPreferenceListenerRegistered = false
+    private val raidPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == C.MULTIVIEW_RAIDS || key == C.CHAT_RAIDS_SHOW) {
+            viewModelScope.launch { syncRaidMonitoring() }
+        }
+    }
 
     val playbackCoordinator = MultiviewPlaybackCoordinator(
         context = applicationContext,
@@ -57,6 +74,66 @@ class MultiviewViewModel(
         if (next != current) update(next)
     }
 
+    fun startRaidMonitoring() {
+        if (raidMonitoringJob != null) return
+        applicationContext.prefs().registerOnSharedPreferenceChangeListener(raidPreferenceListener)
+        raidPreferenceListenerRegistered = true
+        raidMonitoringJob = viewModelScope.launch {
+            state.collect { syncRaidMonitoring() }
+        }
+    }
+
+    fun stopRaidMonitoring() {
+        if (raidPreferenceListenerRegistered) {
+            applicationContext.prefs().unregisterOnSharedPreferenceChangeListener(raidPreferenceListener)
+            raidPreferenceListenerRegistered = false
+        }
+        raidMonitoringGeneration = null
+        raidMonitoringJob?.cancel()
+        raidMonitoringJob = null
+        raidMonitor?.close()
+        raidMonitor = null
+    }
+
+    private fun syncRaidMonitoring() {
+        if (!isRaidMonitoringEnabled()) {
+            raidMonitoringGeneration = null
+            raidMonitor?.close()
+            raidMonitor = null
+            return
+        }
+
+        val monitor = raidMonitor ?: run {
+            val generation = Any()
+            val created = MultiviewRaidMonitor.create(
+                context = applicationContext,
+                trustManager = trustManager,
+                scope = viewModelScope,
+                resolveChannelId = { stream ->
+                    stream.channelLogin
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { resolveLiveStream(it)?.channelId }
+                },
+                onRaid = { identity, raid ->
+                    if (raidMonitoringGeneration === generation) {
+                        viewModelScope.launch { handleRaid(identity, raid) }
+                    }
+                },
+            )
+            raidMonitoringGeneration = generation
+            raidMonitor = created
+            created
+        }
+        monitor.sync(_state.value.streams)
+    }
+
+    private fun isRaidMonitoringEnabled(): Boolean {
+        val preferences = applicationContext.prefs()
+        return preferences.getBoolean(C.MULTIVIEW_RAIDS, true) &&
+            preferences.getBoolean(C.CHAT_RAIDS_SHOW, true)
+    }
+
     fun addStreams(streams: Collection<Stream>) {
         val next = streams.fold(_state.value) { state, stream ->
             MultiviewSessionReducer.add(
@@ -66,6 +143,23 @@ class MultiviewViewModel(
             )
         }
         update(next)
+    }
+
+    fun replaceStream(identity: String, stream: Stream) {
+        val current = _state.value
+        update(
+            MultiviewSessionReducer.replace(
+                state = current,
+                identity = identity,
+                stream = stream,
+                initialAudioVolume = if (current.activeIdentity.equals(identity, true)) {
+                    defaultAudioVolume()
+                } else {
+                    0f
+                },
+            ),
+        )
+        _playback.value = cleanupPlaybackSnapshots(_playback.value, identity, _state.value)
     }
 
     fun remove(identity: String) {
@@ -79,7 +173,7 @@ class MultiviewViewModel(
                 next
             },
         )
-        _playback.value = _playback.value - identity
+        _playback.value = cleanupPlaybackSnapshots(_playback.value, identity, _state.value)
     }
 
     fun reorder(identity: String, targetIndex: Int) {
@@ -294,7 +388,26 @@ class MultiviewViewModel(
     }
 
     override fun onCleared() {
+        stopRaidMonitoring()
         playbackCoordinator.releaseAll()
+    }
+
+    private fun handleRaid(sourceIdentity: String, raid: Raid) {
+        val preferences = applicationContext.prefs()
+        if (!raid.openStream ||
+            !preferences.getBoolean(C.MULTIVIEW_RAIDS, true) ||
+            !preferences.getBoolean(C.CHAT_RAIDS_SHOW, true)
+        ) return
+        if (raid.targetId.isNullOrBlank() && raid.targetLogin.isNullOrBlank()) return
+        replaceStream(
+            sourceIdentity,
+            Stream(
+                channelId = raid.targetId,
+                channelLogin = raid.targetLogin,
+                channelName = raid.targetName,
+                channelImageURL = raid.targetImageURL,
+            ),
+        )
     }
 
     private fun updatePlaybackSnapshot(identity: String, snapshot: MultiviewPlaybackSnapshot) {
@@ -408,6 +521,18 @@ class MultiviewViewModel(
             )
         }
 
+        internal fun cleanupPlaybackSnapshots(
+            playback: Map<String, MultiviewPlaybackSnapshot>,
+            sourceIdentity: String,
+            state: MultiviewSessionState,
+        ): Map<String, MultiviewPlaybackSnapshot> {
+            return if (state.identities.any { it.equals(sourceIdentity, true) }) {
+                playback
+            } else {
+                playback.filterKeys { !it.equals(sourceIdentity, true) }
+            }
+        }
+
         val MultiviewViewModelFactory = viewModelFactory {
             initializer {
                 val application = this[APPLICATION_KEY] as XtraApp
@@ -418,6 +543,7 @@ class MultiviewViewModel(
                     graphQLRepository = xtraModule.graphQLRepository,
                     helixRepository = xtraModule.helixRepository,
                     playerRepository = xtraModule.playerRepository,
+                    trustManager = xtraModule.trustManager,
                 )
             }
         }

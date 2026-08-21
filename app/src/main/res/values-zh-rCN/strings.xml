@@ -284,6 +284,7 @@
     <string name="raid_text">与 %2$d 观众揪团至 %1$s</string>
     <string name="show_raids">显示揪团</string>
     <string name="auto_switch_raids">自动地在揪团上切换串流</string>
+    <string name="multiview_raids">在多视图中收到揪团时切换串流</string>
     <string name="reload_emotes">重新载入表情符号</string>
     <string name="api_current_login">目前的登录</string>
     <string name="api_user_id">账户 ID</string>

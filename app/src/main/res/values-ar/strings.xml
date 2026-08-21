@@ -284,6 +284,7 @@
     <string name="raid_text">مهاجمة%1$sمع مشاهدي%2$d</string>
     <string name="show_raids">عرض الغارات</string>
     <string name="auto_switch_raids">تبديل الدفق عند الغارة تلقائيًا</string>
+    <string name="multiview_raids">تبديل الدفق عند الغارة في العرض المتعدد</string>
     <string name="reload_emotes">إعادة تحميل المشاعر</string>
     <string name="api_current_login">تسجيل الدخول الحالي</string>
     <string name="api_user_id">معرف الحساب</string>

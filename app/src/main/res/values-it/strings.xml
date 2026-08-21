@@ -284,6 +284,7 @@
     <string name="raid_text">Stai facendo una incursione su %1$s con %2$d spettatori</string>
     <string name="show_raids">Mostra incursioni</string>
     <string name="auto_switch_raids">Passa automaticamente allo streaming durante un\'incursione</string>
+    <string name="multiview_raids">Cambia stream durante un\'incursione nella visualizzazione multipla</string>
     <string name="reload_emotes">Ricarica emote</string>
     <string name="api_current_login">Accesso corrente</string>
     <string name="api_user_id">ID account</string>

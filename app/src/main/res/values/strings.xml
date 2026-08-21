@@ -792,6 +792,7 @@
     <string name="raid_text">Raiding %1$s with %2$d viewers</string>
     <string name="show_raids">Show raids</string>
     <string name="auto_switch_raids">Switch stream on raid automatically</string>
+    <string name="multiview_raids">Switch stream on raid in multiview</string>
     <string name="reload_emotes">Reload emotes</string>
     <string name="api_current_login">Current login</string>
     <string name="api_user_id">Account ID</string>

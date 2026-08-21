@@ -107,6 +107,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
 
         val initialStream = requireArguments().parcelable<Stream>(ARG_STREAM)
         viewModel.initialize(initialStream)
+        viewModel.startRaidMonitoring()
         updateOrientationLayout()
         revealControls()
 
@@ -173,6 +174,7 @@ class MultiviewFragment : Fragment(R.layout.fragment_multiview) {
     }
 
     override fun onDestroyView() {
+        viewModel.stopRaidMonitoring()
         controlsHandler.removeCallbacks(hideControls)
         controlsLockCount = 0
         slotViews.forEach { (identity, slotView) ->

@@ -76,6 +76,44 @@ object MultiviewSessionReducer {
         )
     }
 
+    fun replace(
+        state: MultiviewSessionState,
+        identity: String,
+        stream: Stream,
+        initialAudioVolume: Float = 1f,
+    ): MultiviewSessionState {
+        val targetIdentity = stableIdentity(stream) ?: return state
+        val sourceIndex = state.streams.indexOfFirst { stableIdentity(it).equals(identity, true) }
+        if (sourceIndex < 0) return state
+        val replacedIdentity = stableIdentity(state.streams[sourceIndex]) ?: return state
+        if (targetIdentity.equals(replacedIdentity, true)) {
+            return state.copy(activeIdentity = targetIdentity)
+        }
+        if (state.identities.any { it.equals(targetIdentity, true) }) {
+            val remaining = state.streams.filterNot { stableIdentity(it).equals(replacedIdentity, true) }
+            return state.copy(
+                streams = remaining,
+                activeIdentity = targetIdentity,
+                focusedIdentity = if (state.focusedIdentity.equals(identity, true)) targetIdentity else state.focusedIdentity,
+                chatIdentity = if (state.chatIdentity.equals(identity, true)) targetIdentity else state.chatIdentity,
+                qualityOverrides = state.qualityOverrides.filterKeys { !it.equals(replacedIdentity, true) },
+                audioVolumes = state.audioVolumes.filterKeys { !it.equals(replacedIdentity, true) },
+            )
+        }
+
+        val streams = state.streams.toMutableList().apply { this[sourceIndex] = stream }
+        val volume = state.audioVolumes[replacedIdentity] ?: initialAudioVolume
+        return state.copy(
+            streams = streams,
+            activeIdentity = targetIdentity,
+            focusedIdentity = if (state.focusedIdentity.equals(identity, true)) targetIdentity else state.focusedIdentity,
+            chatIdentity = if (state.chatIdentity.equals(identity, true)) targetIdentity else state.chatIdentity,
+            qualityOverrides = state.qualityOverrides.filterKeys { !it.equals(replacedIdentity, true) },
+            audioVolumes = state.audioVolumes.filterKeys { !it.equals(replacedIdentity, true) } +
+                (targetIdentity to volume.coerceIn(0f, 1f)),
+        )
+    }
+
     fun remove(state: MultiviewSessionState, identity: String): MultiviewSessionState {
         val remaining = state.streams.filterNot { stableIdentity(it).equals(identity, true) }
         if (remaining.isEmpty()) {

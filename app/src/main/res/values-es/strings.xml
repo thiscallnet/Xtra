@@ -289,6 +289,7 @@
     <string name="raid_text">Raid %1$s con %2$d espectadores</string>
     <string name="show_raids">Mostrar incursiones y anfitriones</string>
     <string name="auto_switch_raids">Cambiar la transmisión a la incursión automáticamente</string>
+    <string name="multiview_raids">Cambiar la transmisión a la incursión en la vista múltiple</string>
     <string name="reload_emotes">Recargar emotes</string>
     <string name="api_current_login">Inicio de sesión actual</string>
     <string name="api_user_id">Identificación de la cuenta</string>
