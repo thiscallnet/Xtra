@@ -1,21 +1,16 @@
 package com.github.andreyasadchy.xtra.ui.main
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
 import android.content.Context.CONNECTIVITY_SERVICE
-import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.http.HttpEngine
-import android.widget.Toast
-import androidx.core.content.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.VideoPosition
@@ -26,19 +21,16 @@ import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.model.ui.Video
-import com.github.andreyasadchy.xtra.repository.AuthRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
@@ -68,7 +60,6 @@ class MainViewModel(
     private val playbackPersistence: PlaybackPersistence,
     private val offlineVideosRepository: OfflineVideosRepository,
     private val localChannelFollowsRepository: LocalChannelFollowsRepository,
-    private val authRepository: AuthRepository,
     private val httpEngine: Lazy<HttpEngine?>,
     private val cronetEngine: Lazy<CronetEngine?>,
     private val cronetExecutor: Lazy<ExecutorService>,
@@ -1080,60 +1071,6 @@ class MainViewModel(
         }
     }
 
-    fun validate(networkLibrary: String?, gqlHeaders: Map<String, String>, gqlWebClientId: String?, gqlWebToken: String?, helixHeaders: Map<String, String>, accountId: String?, accountLogin: String?, activity: Activity) {
-        viewModelScope.launch {
-            try {
-                val helixToken = helixHeaders[C.HEADER_TOKEN]
-                if (!helixToken.isNullOrBlank()) {
-                    val response = authRepository.validate(networkLibrary, helixToken)
-                    if (response.clientId.isNotBlank() && response.clientId == helixHeaders[C.HEADER_CLIENT_ID]) {
-                        if ((!response.userId.isNullOrBlank() && response.userId != accountId) || (!response.login.isNullOrBlank() && response.login != accountLogin)) {
-                            activity.tokenPrefs().edit {
-                                putString(C.USER_ID, response.userId?.takeIf { it.isNotBlank() } ?: accountId)
-                                putString(C.USERNAME, response.login?.takeIf { it.isNotBlank() } ?: accountLogin)
-                            }
-                        }
-                    } else {
-                        throw IllegalStateException("401")
-                    }
-                }
-                val gqlToken = gqlHeaders[C.HEADER_TOKEN]
-                if (!gqlToken.isNullOrBlank()) {
-                    val response = authRepository.validate(networkLibrary, gqlToken)
-                    if (response.clientId.isNotBlank() && (response.clientId == gqlHeaders[C.HEADER_CLIENT_ID] || response.clientId == gqlWebClientId)) {
-                        if ((!response.userId.isNullOrBlank() && response.userId != accountId) || (!response.login.isNullOrBlank() && response.login != accountLogin)) {
-                            activity.tokenPrefs().edit {
-                                putString(C.USER_ID, response.userId?.takeIf { it.isNotBlank() } ?: accountId)
-                                putString(C.USERNAME, response.login?.takeIf { it.isNotBlank() } ?: accountLogin)
-                            }
-                        }
-                    } else {
-                        throw IllegalStateException("401")
-                    }
-                }
-                if (!gqlWebToken.isNullOrBlank() && gqlWebToken != gqlToken) {
-                    val response = authRepository.validate(networkLibrary, gqlWebToken)
-                    if (response.clientId.isNotBlank() && response.clientId == gqlWebClientId) {
-                        if ((!response.userId.isNullOrBlank() && response.userId != accountId) || (!response.login.isNullOrBlank() && response.login != accountLogin)) {
-                            activity.tokenPrefs().edit {
-                                putString(C.USER_ID, response.userId?.takeIf { it.isNotBlank() } ?: accountId)
-                                putString(C.USERNAME, response.login?.takeIf { it.isNotBlank() } ?: accountLogin)
-                            }
-                        }
-                    } else {
-                        throw IllegalStateException("401")
-                    }
-                }
-            } catch (e: Exception) {
-                if (e is IllegalStateException && e.message == "401") {
-                    Toast.makeText(activity, R.string.token_expired, Toast.LENGTH_LONG).show()
-                    (activity as? MainActivity)?.logoutResultLauncher?.launch(Intent(activity, LoginActivity::class.java))
-                }
-            }
-        }
-        TwitchApiHelper.checkedValidation = true
-    }
-
     fun deleteOldImages() {
         viewModelScope.launch(Dispatchers.IO) {
             localChannelFollowsRepository.deleteOldImages()
@@ -1145,7 +1082,7 @@ class MainViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                MainViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.playbackPersistence, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.authRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient)
+                MainViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.playbackPersistence, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient)
             }
         }
     }

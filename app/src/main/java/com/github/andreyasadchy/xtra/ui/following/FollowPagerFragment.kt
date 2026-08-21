@@ -83,7 +83,7 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
                                 setTitle(getString(R.string.logout_title))
                                 requireContext().tokenPrefs().getString(C.USERNAME, null)?.let { setMessage(getString(R.string.logout_msg, it)) }
                                 setNegativeButton(getString(R.string.no), null)
-                                setPositiveButton(getString(R.string.yes)) { _, _ -> activity.logoutResultLauncher?.launch(Intent(activity, LoginActivity::class.java)) }
+                                setPositiveButton(getString(R.string.yes)) { _, _ -> activity.logoutResultLauncher?.launch(Intent(activity, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_LOGOUT, true)) }
                             }.show()
                         } else {
                             activity.loginResultLauncher?.launch(Intent(activity, LoginActivity::class.java))

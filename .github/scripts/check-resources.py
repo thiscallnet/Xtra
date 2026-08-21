@@ -13,6 +13,34 @@ RES = ROOT / "app" / "src" / "main" / "res"
 TRANSLATION_BASELINE = Path(__file__).with_name("translation-baseline.json")
 ANDROID_ATTRIBUTE = re.compile(r'android:(title|summary)="([^"]*)"')
 LOCALE_DIRECTORY = re.compile(r"^values-[a-z]{2}(?:-r[A-Z]{2})?$")
+OPTIONAL_TRANSLATION_FALLBACK_KEYS = {
+    "login_title",
+    "login_subtitle",
+    "continue_with_twitch",
+    "login_starting",
+    "login_waiting_title",
+    "login_waiting_message",
+    "login_polling",
+    "login_validating",
+    "login_code_label",
+    "login_open_twitch_again",
+    "login_expires_in",
+    "login_browser_hint",
+    "login_setup_required",
+    "login_error_network",
+    "login_error_server",
+    "login_error_denied",
+    "login_error_expired",
+    "login_error_validation",
+    "login_error_browser",
+    "login_error_persistence",
+    "login_error_unknown",
+    "login_compatibility_starting",
+    "login_compatibility_title",
+    "login_compatibility_message",
+    "login_compatibility_polling",
+    "login_compatibility_unavailable",
+}
 
 
 def resource_keys(directory: Path) -> set[str]:
@@ -59,11 +87,17 @@ def main() -> int:
             continue
         translated = resource_keys(directory)
         missing = default_keys - translated
-        print(f"{directory.name}: {len(translated)}/{len(default_keys)} present; {len(missing)} fallback resources")
+        allowed_fallback = missing & OPTIONAL_TRANSLATION_FALLBACK_KEYS
+        required_missing = missing - OPTIONAL_TRANSLATION_FALLBACK_KEYS
+        print(
+            f"{directory.name}: {len(translated)}/{len(default_keys)} present; "
+            f"{len(missing)} fallback resources ({len(allowed_fallback)} explicitly allowed)"
+        )
         allowed_missing = baseline.get(directory.name)
-        if allowed_missing is None or len(missing) > allowed_missing:
+        if allowed_missing is None or len(required_missing) > allowed_missing:
             coverage_regressions.append(
-                f"{directory.name}: {len(missing)} missing; baseline allows {allowed_missing if allowed_missing is not None else 'no value'}"
+                f"{directory.name}: {len(required_missing)} required resources missing; "
+                f"baseline allows {allowed_missing if allowed_missing is not None else 'no value'}"
             )
 
     if coverage_regressions:

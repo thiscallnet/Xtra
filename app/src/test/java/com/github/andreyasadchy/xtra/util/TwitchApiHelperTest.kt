@@ -2,11 +2,26 @@ package com.github.andreyasadchy.xtra.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Locale
 import java.util.TimeZone
 
 class TwitchApiHelperTest {
+
+    @Test
+    fun `structured compatibility client id is added when integrity headers are absent`() {
+        val headers = mutableMapOf<String, String>()
+
+        TwitchApiHelper.addStructuredGqlClientId(
+            headers = headers,
+            storedClientId = "structured-compatibility-client",
+            configuredClientId = "configured-client",
+        )
+
+        assertEquals("structured-compatibility-client", headers[C.HEADER_CLIENT_ID])
+        assertTrue(headers.containsKey(C.HEADER_CLIENT_ID))
+    }
 
     @Test
     fun `new timestamp values use the four supported formats`() {

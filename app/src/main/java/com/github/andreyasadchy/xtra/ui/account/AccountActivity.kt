@@ -75,8 +75,12 @@ class AccountActivity : AppCompatActivity() {
     private val loginLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (logoutPending) {
             logoutPending = false
-            setResult(RESULT_OK)
-            finish()
+            if (result.resultCode == RESULT_OK) {
+                setResult(RESULT_OK)
+                finish()
+            } else {
+                viewModel.refresh()
+            }
             return@registerForActivityResult
         }
         if (result.resultCode == RESULT_OK) {
@@ -712,7 +716,10 @@ class AccountActivity : AppCompatActivity() {
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(R.string.log_out) { _, _ ->
                 logoutPending = true
-                loginLauncher.launch(Intent(this, LoginActivity::class.java))
+                loginLauncher.launch(
+                    Intent(this, LoginActivity::class.java)
+                        .putExtra(LoginActivity.EXTRA_LOGOUT, true),
+                )
             }
             .show()
     }

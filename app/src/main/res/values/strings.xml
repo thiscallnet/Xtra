@@ -1319,4 +1319,31 @@
     <string name="settings_playback_speed_options_summary">Choose and reorder speed values</string>
     <string name="settings_double_tap_chat_summary">Toggle chat with a double tap while watching.</string>
     <string name="avoid_rounded_corners_summary">Inset player content so physical curved corners and cutouts do not obscure video or controls.</string>
+    <string name="login_brand" translatable="false">XTRA / TWITCH</string>
+    <string name="login_title">Sign in to Twitch</string>
+    <string name="login_subtitle">Connect Xtra to Twitch to access your follows, chat, and account features.</string>
+    <string name="continue_with_twitch">Continue with Twitch</string>
+    <string name="login_starting">Getting ready…</string>
+    <string name="login_waiting_title">Finish in your browser</string>
+    <string name="login_waiting_message">Approve access in Twitch. Xtra will finish signing you in automatically.</string>
+    <string name="login_polling">Waiting for Twitch approval…</string>
+    <string name="login_validating">Checking your Twitch account…</string>
+    <string name="login_code_label">Code (fallback)</string>
+    <string name="login_open_twitch_again">Open Twitch again</string>
+    <string name="login_expires_in">Code expires in %1$d minutes</string>
+    <string name="login_browser_hint">Your Twitch password stays in your browser.</string>
+    <string name="login_setup_required">This build is missing its Twitch public client ID. Configure twitchPublicClientId before shipping it.</string>
+    <string name="login_error_network">Twitch could not be reached. Check your connection and try again.</string>
+    <string name="login_error_server">Twitch is having trouble right now. Try again in a moment.</string>
+    <string name="login_error_denied">Twitch authorization was denied. You can try again when you are ready.</string>
+    <string name="login_error_expired">The Twitch code expired. Start a new sign-in.</string>
+    <string name="login_error_validation">Twitch returned a response Xtra could not verify.</string>
+    <string name="login_error_browser">No browser that can open Twitch was found.</string>
+    <string name="login_error_persistence">Xtra could not save this Twitch session.</string>
+    <string name="login_error_unknown">Xtra could not finish signing in. Try again.</string>
+    <string name="login_compatibility_starting">Getting full Twitch compatibility ready…</string>
+    <string name="login_compatibility_title">Enable full Twitch compatibility</string>
+    <string name="login_compatibility_message">Approve the additional Twitch access so channel interactions and watch features work in Xtra.</string>
+    <string name="login_compatibility_polling">Waiting for Twitch compatibility approval…</string>
+    <string name="login_compatibility_unavailable">Twitch account connected, but full Twitch compatibility could not be enabled.</string>
 </resources>

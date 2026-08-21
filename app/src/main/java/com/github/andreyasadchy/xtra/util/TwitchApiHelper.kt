@@ -246,18 +246,29 @@ object TwitchApiHelper {
     fun getGQLHeaders(context: Context, includeToken: Boolean = false): Map<String, String> {
         return mutableMapOf<String, String>().apply {
             if (context.prefs().getBoolean(C.ENABLE_INTEGRITY, false)) {
-                context.tokenPrefs().getString(C.GQL_HEADERS, null)?.let {
-                    try {
-                        val json = JSONObject(it)
+                context.tokenPrefs().getString(C.GQL_HEADERS, null)
+                    ?.let { runCatching { JSONObject(it) }.getOrNull() }
+                    ?.let { json ->
                         json.keys().forEach { key ->
                             put(key, json.optString(key))
                         }
-                    } catch (e: Exception) {
-
+                    }
+                if (includeToken && get(C.HEADER_TOKEN).isNullOrBlank()) {
+                    context.tokenPrefs().getString(C.GQL_TOKEN2, null)
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { put(C.HEADER_TOKEN, addTokenPrefixGQL(it)) }
+                    if (get(C.HEADER_CLIENT_ID).isNullOrBlank()) {
+                        addStructuredGqlClientId(
+                            headers = this,
+                            storedClientId = context.tokenPrefs().getString(C.GQL_TOKEN2_CLIENT_ID, null),
+                            configuredClientId = context.prefs().getString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2),
+                        )
                     }
                 }
             } else {
-                val gqlClientId = context.prefs().getString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2)
+                val gqlClientId = context.tokenPrefs().getString(C.GQL_TOKEN2_CLIENT_ID, null)
+                    ?.takeIf { it.isNotBlank() }
+                    ?: context.prefs().getString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2)
                 val gqlToken = if (includeToken) {
                     context.tokenPrefs().getString(C.GQL_TOKEN2, null)?.takeIf { it.isNotBlank() }
                 } else {
@@ -311,7 +322,10 @@ object TwitchApiHelper {
 
     fun getHelixHeaders(context: Context): Map<String, String> {
         return mutableMapOf<String, String>().apply {
-            context.prefs().getString(C.HELIX_CLIENT_ID, C.DEFAULT_HELIX_CLIENT_ID)?.let {
+            val clientId = context.tokenPrefs().getString(C.TOKEN_CLIENT_ID, null)
+                ?.takeIf { it.isNotBlank() }
+                ?: context.prefs().getString(C.HELIX_CLIENT_ID, C.DEFAULT_HELIX_CLIENT_ID)
+            clientId?.let {
                 if (it.isNotBlank()) {
                     put(C.HEADER_CLIENT_ID, it)
                 }
@@ -327,6 +341,28 @@ object TwitchApiHelper {
     fun isIntegrityTokenExpired(context: Context): Boolean {
         return System.currentTimeMillis() >= context.tokenPrefs().getLong(C.INTEGRITY_EXPIRATION, 0)
     }
+
+    fun isSessionValidationDue(context: Context): Boolean {
+        if (context.tokenPrefs().getString(C.TOKEN, null).isNullOrBlank()) return false
+        val lastValidatedAt = context.tokenPrefs().getLong(C.TOKEN_VALIDATED_AT, 0)
+        return !checkedValidation || lastValidatedAt <= 0 ||
+            System.currentTimeMillis() - lastValidatedAt >= SESSION_VALIDATION_INTERVAL_MILLIS
+    }
+
+    internal fun addStructuredGqlClientId(
+        headers: MutableMap<String, String>,
+        storedClientId: String?,
+        configuredClientId: String?,
+    ) {
+        if (headers[C.HEADER_CLIENT_ID].isNullOrBlank()) {
+            val clientId = storedClientId
+                ?.takeIf { it.isNotBlank() }
+                ?: configuredClientId?.takeIf { it.isNotBlank() }
+            clientId?.let { headers[C.HEADER_CLIENT_ID] = it }
+        }
+    }
+
+    private const val SESSION_VALIDATION_INTERVAL_MILLIS = 60 * 60 * 1_000L
 
     fun getVideoUrlsFromPreview(url: String, type: String?, list: List<String>?): Map<String, String> {
         val qualityList = list ?: listOf("chunked", "1080p60", "1080p30", "720p60", "720p30", "480p30", "360p30", "160p30", "144p30", "high", "medium", "low", "mobile", "audio_only")

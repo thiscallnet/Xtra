@@ -149,7 +149,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
             val validation = try {
                 module.authRepository.validate(networkLibrary, token).also { response ->
-                    val expectedClientId = context.prefs().getString(C.HELIX_CLIENT_ID, C.DEFAULT_HELIX_CLIENT_ID)
+                    val expectedClientId = headers[C.HEADER_CLIENT_ID]
                     check(response.clientId == expectedClientId) { "The Twitch Helix token belongs to another client" }
                 }
             } catch (error: Exception) {
