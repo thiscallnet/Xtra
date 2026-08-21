@@ -284,6 +284,7 @@
     <string name="raid_text">Происходит рейд %1$s с %2$d зрителями</string>
     <string name="show_raids">Показывать рейды и хосты</string>
     <string name="auto_switch_raids">Автоматически переключать трансляции при рейде</string>
+    <string name="multiview_raids">Переключать трансляцию при рейде в мультипросмотре</string>
     <string name="reload_emotes">Перезагрузить смайлы</string>
     <string name="api_current_login">Текущий логин</string>
     <string name="api_user_id">Идентификатор уч. записи</string>

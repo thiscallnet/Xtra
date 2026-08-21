@@ -3,6 +3,7 @@
     <SwitchPreferenceCompat android:defaultValue="false" android:key="chat_points_notify" android:title="@string/points_notify" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_raids_show" android:title="@string/show_raids" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:dependency="chat_raids_show" android:key="chat_raids_auto_switch" android:title="@string/auto_switch_raids" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:dependency="chat_raids_show" android:key="multiview_raids" android:title="@string/multiview_raids" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_polls_show" android:title="@string/show_polls" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_predictions_show" android:title="@string/show_predictions" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

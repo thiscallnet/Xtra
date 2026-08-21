@@ -284,6 +284,7 @@
     <string name="raid_text">%1$s wird mit %2$d Zuschauern geraidet</string>
     <string name="show_raids">Raids anzeigen</string>
     <string name="auto_switch_raids">Übertragung bei Raid automatisch wechseln</string>
+    <string name="multiview_raids">Stream bei einem Raid in der Mehrfachansicht wechseln</string>
     <string name="reload_emotes">Emotes neu laden</string>
     <string name="api_current_login">Aktuelle Anmeldung</string>
     <string name="api_user_id">Konto-ID</string>

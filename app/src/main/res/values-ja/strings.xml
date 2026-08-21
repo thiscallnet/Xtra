@@ -284,6 +284,7 @@
     <string name="raid_text">%1$s は %2$d 人のパーティーと Raid 中です</string>
     <string name="show_raids">Raid の表示</string>
     <string name="auto_switch_raids">Raid 時に自動で配信を切り替え</string>
+    <string name="multiview_raids">マルチビューで Raid 時に配信を切り替える</string>
     <string name="reload_emotes">スタンプを再読み込み</string>
     <string name="api_current_login">現在のログイン</string>
     <string name="api_user_id">アカウント ID</string>

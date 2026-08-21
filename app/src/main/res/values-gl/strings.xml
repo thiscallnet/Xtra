@@ -284,6 +284,7 @@
     <string name="raid_text">Asaltando %1$s con %2$d espectadores</string>
     <string name="show_raids">Amosar raids</string>
     <string name="auto_switch_raids">Cambiar automaticamente de transmisión nun raid</string>
+    <string name="multiview_raids">Cambiar de emisión nun raid na vista múltiple</string>
     <string name="reload_emotes">Recargar emoticonas</string>
     <string name="api_current_login">Inicio de sesión actual</string>
     <string name="api_user_id">ID da conta</string>

@@ -177,7 +177,11 @@ class CombinedChatViewModel(
         } else {
             // Match ChatFragment.reconnect(): restart the live transport and
             // rehydrate recent messages without recreating the ViewModel.
-            session.viewModel.startLiveChat(stream.channelId, channelLogin, readOnly = true)
+            session.viewModel.startLiveChat(
+                stream.channelId,
+                channelLogin,
+                readOnly = true,
+            )
             if (preferences.getBoolean(C.CHAT_RECENT, true)) {
                 session.viewModel.loadRecentMessages(
                     preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP),

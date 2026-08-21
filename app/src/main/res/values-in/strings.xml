@@ -283,6 +283,7 @@
     <string name="raid_text">Raiding %1$s dengan %2$d penonton</string>
     <string name="show_raids">Tampilkan raid dan host</string>
     <string name="auto_switch_raids">Beralih streaming pada raid secara otomatis</string>
+    <string name="multiview_raids">Beralih streaming saat raid dalam multiview</string>
     <string name="reload_emotes">Muat ulang emotes</string>
     <string name="api_current_login">Login saat ini</string>
     <string name="api_user_id">Akun id</string>

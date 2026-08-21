@@ -333,7 +333,7 @@ class ChatViewModel(
         if (chatReadIRCSocket == null && chatReadWebSocket == null && eventSub == null && channelLogin != null) {
             messageLimit = 600
             this.streamId = streamId
-            startLiveChat(channelId, channelLogin, readOnly)
+            startLiveChat(channelId, channelLogin, readOnly = readOnly)
             addChatter(channelName)
             loadEmotes(channelId, channelLogin)
             if (applicationContext.prefs().getBoolean(C.CHAT_RECENT, true)) {
@@ -1897,7 +1897,7 @@ class ChatViewModel(
                 },
                 collectPoints = collectPoints,
                 listenForPoints = isLoggedIn,
-                showRaids = applicationContext.prefs().getBoolean(C.CHAT_RAIDS_SHOW, true),
+                showRaids = showRaids,
                 showPolls = showPolls,
                 showPredictions = showPredictions,
                 trustManager = trustManager,
