@@ -31,6 +31,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.Segment
+import com.github.andreyasadchy.xtra.util.createOrFindDocument
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
 import kotlinx.coroutines.Dispatchers
@@ -249,16 +250,20 @@ class SettingsViewModel(
 
     fun backupSettings(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val documentId = DocumentsContract.getTreeDocumentId(url.toUri())
-            val directoryUri = DocumentsContract.buildDocumentUriUsingTree(url.toUri(), documentId)
+            val treeUri = url.toUri()
+            val directoryUri = DocumentsContract.buildDocumentUriUsingTree(
+                treeUri,
+                DocumentsContract.getTreeDocumentId(treeUri),
+            )
             val preferences = File("${applicationContext.applicationInfo.dataDir}/shared_prefs/${applicationContext.packageName}_preferences.xml")
-            val preferencesUri = directoryUri.toString() + (if (!directoryUri.toString().endsWith("%3A")) "%2F" else "") + preferences.name
-            try {
-                applicationContext.contentResolver.openOutputStream(preferencesUri.toUri())!!
-            } catch (e: IllegalArgumentException) {
-                DocumentsContract.createDocument(applicationContext.contentResolver, directoryUri, "", preferences.name)
-                applicationContext.contentResolver.openOutputStream(preferencesUri.toUri())!!
-            }.use { outputStream ->
+            val preferencesUri = applicationContext.contentResolver.createOrFindDocument(
+                directoryUri,
+                "application/xml",
+                preferences.name,
+            )
+            val preferencesOutput = applicationContext.contentResolver.openOutputStream(preferencesUri, "wt")
+                ?: error("Unable to open backup preferences")
+            preferencesOutput.use { outputStream ->
                 preferences.inputStream().use { inputStream ->
                     inputStream.copyTo(outputStream)
                 }
@@ -267,13 +272,14 @@ class SettingsViewModel(
                 it.moveToPosition(-1)
             }
             val database = applicationContext.getDatabasePath("database")
-            val databaseUri = directoryUri.toString() + (if (!directoryUri.toString().endsWith("%3A")) "%2F" else "") + database.name
-            try {
-                applicationContext.contentResolver.openOutputStream(databaseUri.toUri())!!
-            } catch (e: IllegalArgumentException) {
-                DocumentsContract.createDocument(applicationContext.contentResolver, directoryUri, "", database.name)
-                applicationContext.contentResolver.openOutputStream(databaseUri.toUri())!!
-            }.use { outputStream ->
+            val databaseUri = applicationContext.contentResolver.createOrFindDocument(
+                directoryUri,
+                "application/vnd.sqlite3",
+                database.name,
+            )
+            val databaseOutput = applicationContext.contentResolver.openOutputStream(databaseUri, "wt")
+                ?: error("Unable to open backup database")
+            databaseOutput.use { outputStream ->
                 database.inputStream().use { inputStream ->
                     inputStream.copyTo(outputStream)
                 }

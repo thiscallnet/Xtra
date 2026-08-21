@@ -383,6 +383,7 @@
     <string name="settings_wait_for_stream">Wait for stream to start</string>
     <string name="settings_capture_restarts">Capture stream restarts</string>
     <string name="settings_backup_action">Back up Xtra</string>
+    <string name="settings_backup_summary" translatable="false">Manual backups include local playback and download records. Keep the selected destination private.</string>
     <string name="settings_restore_action">Restore backup</string>
     <string name="settings_reset_action">Reset settings to defaults</string>
     <string name="settings_reset_summary">Keeps your account, downloads and app content.</string>
@@ -884,6 +885,7 @@
     <string name="download_blocked_wifi">Waiting for Wi-Fi connection</string>
     <string name="download_wifi_only">Download using Wi-Fi only</string>
     <string name="download_waiting_for_stream">Waiting for stream</string>
+    <string name="download_failed" translatable="false">Download failed. Tap retry.</string>
     <string name="download_live_check">Stream playlist check frequency</string>
     <string name="download_live_check_summary">Seconds to wait between checks to see if the playlist has new segments</string>
     <string name="download_offline_check">Live check frequency</string>

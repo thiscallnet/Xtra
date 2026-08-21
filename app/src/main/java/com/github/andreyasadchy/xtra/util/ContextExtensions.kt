@@ -19,9 +19,98 @@ import java.util.Locale
 
 fun Context.rawPrefs(): SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
 
-fun Context.prefs(): SharedPreferences = DeveloperGatedPreferences(rawPrefs())
+fun Context.prefs(): SharedPreferences = DeveloperGatedPreferences(ProxyAwarePreferences(rawPrefs(), proxyPrefs()))
 
 fun Context.tokenPrefs(): SharedPreferences = getSharedPreferences("prefs2", Context.MODE_PRIVATE)
+
+fun Context.proxyPrefs(): SharedPreferences = getSharedPreferences("proxy_credentials", Context.MODE_PRIVATE)
+
+private class ProxyAwarePreferences(
+    private val delegate: SharedPreferences,
+    private val proxyPreferences: SharedPreferences,
+) : SharedPreferences {
+
+    private fun preferencesFor(key: String?): SharedPreferences =
+        if (key in PROXY_KEYS) proxyPreferences else delegate
+
+    override fun getAll(): MutableMap<String, *> = delegate.all.toMutableMap().apply {
+        putAll(proxyPreferences.all)
+    }
+
+    override fun getString(key: String?, defValue: String?): String? = preferencesFor(key).getString(key, defValue)
+
+    override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
+        preferencesFor(key).getStringSet(key, defValues)
+
+    override fun getInt(key: String?, defValue: Int): Int = preferencesFor(key).getInt(key, defValue)
+
+    override fun getLong(key: String?, defValue: Long): Long = preferencesFor(key).getLong(key, defValue)
+
+    override fun getFloat(key: String?, defValue: Float): Float = preferencesFor(key).getFloat(key, defValue)
+
+    override fun getBoolean(key: String?, defValue: Boolean): Boolean = preferencesFor(key).getBoolean(key, defValue)
+
+    override fun contains(key: String?): Boolean = preferencesFor(key).contains(key)
+
+    override fun edit(): SharedPreferences.Editor = ProxyAwareEditor(delegate.edit(), proxyPreferences.edit())
+
+    override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {
+        delegate.registerOnSharedPreferenceChangeListener(listener)
+        proxyPreferences.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {
+        delegate.unregisterOnSharedPreferenceChangeListener(listener)
+        proxyPreferences.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
+    private class ProxyAwareEditor(
+        private val delegate: SharedPreferences.Editor,
+        private val proxy: SharedPreferences.Editor,
+    ) : SharedPreferences.Editor {
+
+        private fun editorFor(key: String?): SharedPreferences.Editor =
+            if (key in PROXY_KEYS) proxy else delegate
+
+        override fun putString(key: String?, value: String?): SharedPreferences.Editor =
+            editorFor(key).putString(key, value).let { this }
+
+        override fun putStringSet(key: String?, values: MutableSet<String>?): SharedPreferences.Editor =
+            editorFor(key).putStringSet(key, values).let { this }
+
+        override fun putInt(key: String?, value: Int): SharedPreferences.Editor =
+            editorFor(key).putInt(key, value).let { this }
+
+        override fun putLong(key: String?, value: Long): SharedPreferences.Editor =
+            editorFor(key).putLong(key, value).let { this }
+
+        override fun putFloat(key: String?, value: Float): SharedPreferences.Editor =
+            editorFor(key).putFloat(key, value).let { this }
+
+        override fun putBoolean(key: String?, value: Boolean): SharedPreferences.Editor =
+            editorFor(key).putBoolean(key, value).let { this }
+
+        override fun remove(key: String?): SharedPreferences.Editor =
+            editorFor(key).remove(key).let { this }
+
+        override fun clear(): SharedPreferences.Editor {
+            delegate.clear()
+            proxy.clear()
+            return this
+        }
+
+        override fun commit(): Boolean = delegate.commit() && proxy.commit()
+
+        override fun apply() {
+            delegate.apply()
+            proxy.apply()
+        }
+    }
+
+    private companion object {
+        val PROXY_KEYS = setOf(C.PROXY_HOST, C.PROXY_PORT, C.PROXY_USER, C.PROXY_PASSWORD)
+    }
+}
 
 private class DeveloperGatedPreferences(
     private val delegate: SharedPreferences,
@@ -113,7 +202,6 @@ internal fun developerBooleanValue(key: String?, storedValue: Boolean, enabled: 
         C.DEBUG_EVENT_SUB_CHAT,
         C.DEBUG_PLAYER_MENU_PLAYLIST_TAGS,
         C.ENABLE_INTEGRITY,
-        C.GET_ALL_GQL_HEADERS,
         C.PROXY_PLAYBACK_ACCESS_TOKEN,
         C.PROXY_MULTIVARIANT_PLAYLIST,
         C.PROXY_MEDIA_PLAYLIST -> false

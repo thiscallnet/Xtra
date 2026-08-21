@@ -267,8 +267,10 @@ class StreamPreloadCoordinator(
 
     private fun pruneDwellStarts(now: Long) {
         val visible = currentCandidates().map { it.streamKey.ifBlank { it.channelLogin.trim().lowercase() } }.toSet()
-        dwellStarts.entries.removeIf { (key, startedAt) ->
-            key !in visible && now - startedAt > StreamPreloadPolicy.EVICTION_GRACE_MS
+        dwellStarts.entries.toList().forEach { (key, startedAt) ->
+            if (key !in visible && now - startedAt > StreamPreloadPolicy.EVICTION_GRACE_MS) {
+                dwellStarts.remove(key)
+            }
         }
     }
 

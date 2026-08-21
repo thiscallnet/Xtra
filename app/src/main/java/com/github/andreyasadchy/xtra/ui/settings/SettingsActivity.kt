@@ -61,6 +61,7 @@ import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
+import androidx.preference.PreferenceDataStore
 import androidx.preference.PreferenceManager
 import androidx.preference.SeekBarPreference
 import androidx.preference.SwitchPreferenceCompat
@@ -104,6 +105,7 @@ import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.parseChatBadgeSize
+import com.github.andreyasadchy.xtra.util.proxyPrefs
 import com.github.andreyasadchy.xtra.util.rawPrefs
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -885,6 +887,11 @@ class SettingsActivity : AppCompatActivity() {
             if (settingsScreen == SCREEN_LIVE_NOTIFICATIONS) {
                 LiveNotificationScheduler.migrateMode(requireContext())
             }
+            if (settingsScreen == SCREEN_PROXY) {
+                // The data store must be installed before inflation. Preference only
+                // reads its initial value while it is being attached.
+                preferenceManager.preferenceDataStore = createProxyPreferenceDataStore()
+            }
             setPreferencesFromResource(
                 when (settingsScreen) {
                     SCREEN_LIVE_NOTIFICATIONS -> R.xml.live_notification_preferences
@@ -1017,6 +1024,57 @@ class SettingsActivity : AppCompatActivity() {
             )
             findPreference<Preference>("app_package")?.summary = BuildConfig.APPLICATION_ID
             configureRedesignedPreferences()
+        }
+
+        private fun createProxyPreferenceDataStore(): PreferenceDataStore {
+            val normalPreferences = requireContext().rawPrefs()
+            val proxyPreferences = requireContext().proxyPrefs()
+            val proxyKeys = setOf(C.PROXY_HOST, C.PROXY_PORT, C.PROXY_USER, C.PROXY_PASSWORD)
+            fun preferencesFor(key: String) = if (key in proxyKeys) proxyPreferences else normalPreferences
+
+            return object : PreferenceDataStore() {
+                override fun getBoolean(key: String, defaultValue: Boolean): Boolean =
+                    preferencesFor(key).getBoolean(key, defaultValue)
+
+                override fun getFloat(key: String, defaultValue: Float): Float =
+                    preferencesFor(key).getFloat(key, defaultValue)
+
+                override fun getInt(key: String, defaultValue: Int): Int =
+                    preferencesFor(key).getInt(key, defaultValue)
+
+                override fun getLong(key: String, defaultValue: Long): Long =
+                    preferencesFor(key).getLong(key, defaultValue)
+
+                override fun getString(key: String, defaultValue: String?): String? =
+                    preferencesFor(key).getString(key, defaultValue)
+
+                override fun getStringSet(key: String, defaultValue: Set<String>?): Set<String>? =
+                    preferencesFor(key).getStringSet(key, defaultValue?.toMutableSet())
+
+                override fun putBoolean(key: String, value: Boolean) {
+                    preferencesFor(key).edit { putBoolean(key, value) }
+                }
+
+                override fun putFloat(key: String, value: Float) {
+                    preferencesFor(key).edit { putFloat(key, value) }
+                }
+
+                override fun putInt(key: String, value: Int) {
+                    preferencesFor(key).edit { putInt(key, value) }
+                }
+
+                override fun putLong(key: String, value: Long) {
+                    preferencesFor(key).edit { putLong(key, value) }
+                }
+
+                override fun putString(key: String, value: String?) {
+                    preferencesFor(key).edit { putString(key, value) }
+                }
+
+                override fun putStringSet(key: String, value: Set<String>?) {
+                    preferencesFor(key).edit { putStringSet(key, value?.toMutableSet()) }
+                }
+            }
         }
 
         private fun configureRedesignedPreferences() {

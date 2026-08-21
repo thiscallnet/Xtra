@@ -98,6 +98,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.snackbar.Snackbar
+import java.util.Locale
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.chromium.net.CronetProvider
@@ -866,131 +867,81 @@ class MainActivity : AppCompatActivity() {
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
             Intent.ACTION_VIEW -> {
-                val url = intent.data?.toString()
-                if (url != null) {
-                    when {
-                        url.contains("twitch.tv/videos/") -> {
-                            val id = url.substringAfter("twitch.tv/videos/").takeIf { it.isNotBlank() }?.let { it.substringBefore("?", it.substringBefore("/")) }
-                            val offset = url.substringAfter("?t=", "").takeIf { it.isNotBlank() }?.let { TwitchApiHelper.getDuration(it).toLong() * 1000 }
-                            if (!id.isNullOrBlank()) {
-                                viewModel.loadVideo(
-                                    id,
-                                    offset,
-                                    prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                    TwitchApiHelper.getGQLHeaders(this),
-                                    TwitchApiHelper.getHelixHeaders(this),
-                                    prefs.getBoolean(C.ENABLE_INTEGRITY, false),
-                                )
-                            }
+                val uri = intent.data ?: return
+                if (!isTwitchWebUri(uri)) return
+                val path = uri.pathSegments
+                val networkLibrary = prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                val gqlHeaders = TwitchApiHelper.getGQLHeaders(this)
+                val helixHeaders = TwitchApiHelper.getHelixHeaders(this)
+                val enableIntegrity = prefs.getBoolean(C.ENABLE_INTEGRITY, false)
+                val clipId = when {
+                    uri.host.equals("clips.twitch.tv", ignoreCase = true) -> path.firstOrNull()
+                    path.firstOrNull() == "clip" -> path.getOrNull(1)
+                    path.getOrNull(1) == "clip" -> path.getOrNull(2)
+                    else -> null
+                }
+                if (!clipId.isNullOrBlank()) {
+                    viewModel.loadClip(clipId, networkLibrary, gqlHeaders, helixHeaders, enableIntegrity)
+                } else when {
+                    path.firstOrNull() == "videos" -> {
+                        path.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { id ->
+                            val offset = uri.getQueryParameter("t")
+                                ?.let { TwitchApiHelper.getDuration(it).toLong() * 1000 }
+                            viewModel.loadVideo(id, offset, networkLibrary, gqlHeaders, helixHeaders, enableIntegrity)
                         }
-                        url.contains("/clip/") -> {
-                            val id = url.substringAfter("/clip/").takeIf { it.isNotBlank() }?.let { it.substringBefore("?", it.substringBefore("/")) }
-                            if (!id.isNullOrBlank()) {
-                                viewModel.loadClip(
-                                    id,
-                                    prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                    TwitchApiHelper.getGQLHeaders(this),
-                                    TwitchApiHelper.getHelixHeaders(this),
-                                    prefs.getBoolean(C.ENABLE_INTEGRITY, false),
-                                )
-                            }
-                        }
-                        url.contains("clips.twitch.tv/") -> {
-                            val id = url.substringAfter("clips.twitch.tv/").takeIf { it.isNotBlank() }?.let { it.substringBefore("?", it.substringBefore("/")) }
-                            if (!id.isNullOrBlank()) {
-                                viewModel.loadClip(
-                                    id,
-                                    prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                    TwitchApiHelper.getHelixHeaders(this),
-                                    TwitchApiHelper.getGQLHeaders(this),
-                                    prefs.getBoolean(C.ENABLE_INTEGRITY, false),
-                                )
-                            }
-                        }
-                        url.contains("twitch.tv/directory/category/") -> {
-                            val slug = url.substringAfter("twitch.tv/directory/category/").takeIf { it.isNotBlank() }?.let { it.substringBefore("?", it.substringBefore("/")) }
-                            val tag = url.substringAfter("?tl=", "").takeIf { it.isNotBlank() }?.substringBefore("&")
-                            if (!slug.isNullOrBlank()) {
-                                viewModel.loadGame(
-                                    gameSlug = slug,
-                                    tag = tag?.let { Uri.decode(it) },
-                                    networkLibrary = prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                    gqlHeaders = TwitchApiHelper.getGQLHeaders(this),
-                                    helixHeaders = TwitchApiHelper.getHelixHeaders(this),
-                                    enableIntegrity = prefs.getBoolean(C.ENABLE_INTEGRITY, false),
-                                )
-                            }
-                        }
-                        url.contains("twitch.tv/directory/game/") -> {
-                            val name = url.substringAfter("twitch.tv/directory/game/").takeIf { it.isNotBlank() }?.let { it.substringBefore("?", it.substringBefore("/")) }
-                            val tag = url.substringAfter("?tl=", "").takeIf { it.isNotBlank() }?.substringBefore("&")
-                            if (!name.isNullOrBlank()) {
-                                viewModel.loadGame(
-                                    gameName = Uri.decode(name),
-                                    tag = tag?.let { Uri.decode(it) },
-                                    networkLibrary = prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                    gqlHeaders = TwitchApiHelper.getGQLHeaders(this),
-                                    helixHeaders = TwitchApiHelper.getHelixHeaders(this),
-                                    enableIntegrity = prefs.getBoolean(C.ENABLE_INTEGRITY, false),
-                                )
-                            }
-                        }
-                        url.contains("twitch.tv/directory/all/tags/") -> {
-                            val tag = url.substringAfter("twitch.tv/directory/all/tags/").takeIf { it.isNotBlank() }?.let { it.substringBefore("?", it.substringBefore("/")) }
-                            if (!tag.isNullOrBlank()) {
-                                (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
-                                navController.navigate(
-                                    TopStreamsFragmentDirections.actionGlobalTopFragment(
-                                        tags = arrayOf(Uri.decode(tag))
-                                    )
-                                )
-                            }
-                        }
-                        url.contains("twitch.tv/directory/all") -> {
-                            (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
-                            navController.navigate(
-                                TopStreamsFragmentDirections.actionGlobalTopFragment()
+                    }
+                    path.take(2) == listOf("directory", "category") -> {
+                        path.getOrNull(2)?.takeIf { it.isNotBlank() }?.let {
+                            viewModel.loadGame(
+                                gameSlug = it,
+                                tag = uri.getQueryParameter("tl"),
+                                networkLibrary = networkLibrary,
+                                gqlHeaders = gqlHeaders,
+                                helixHeaders = helixHeaders,
+                                enableIntegrity = enableIntegrity,
                             )
                         }
-                        url.contains("twitch.tv/directory/tags/") -> {
-                            val tagId = url.substringAfter("twitch.tv/directory/tags/").takeIf { it.isNotBlank() }?.let { it.substringBefore("?", it.substringBefore("/")) }
-                            if (!tagId.isNullOrBlank()) {
-                                viewModel.loadTag(
-                                    tagId,
-                                    prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                    TwitchApiHelper.getGQLHeaders(this),
-                                    prefs.getBoolean(C.ENABLE_INTEGRITY, false),
-                                )
-                            }
-                        }
-                        url.contains("twitch.tv/directory") -> {
-                            (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
-                            navController.navigate(
-                                GamesFragmentDirections.actionGlobalGamesFragment()
+                    }
+                    path.take(2) == listOf("directory", "game") -> {
+                        path.getOrNull(2)?.takeIf { it.isNotBlank() }?.let {
+                            viewModel.loadGame(
+                                gameName = it,
+                                tag = uri.getQueryParameter("tl"),
+                                networkLibrary = networkLibrary,
+                                gqlHeaders = gqlHeaders,
+                                helixHeaders = helixHeaders,
+                                enableIntegrity = enableIntegrity,
                             )
                         }
-                        url.contains("twitch.tv/team/") -> {
-                            val teamName = url.substringAfter("twitch.tv/team/").takeIf { it.isNotBlank() }?.let { it.substringBefore("?", it.substringBefore("/")) }
-                            if (!teamName.isNullOrBlank()) {
-                                (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
-                                navController.navigate(
-                                    TeamFragmentDirections.actionGlobalTeamFragment(
-                                        teamName = Uri.decode(teamName)
-                                    )
-                                )
-                            }
+                    }
+                    path.take(3) == listOf("directory", "all", "tags") -> {
+                        path.getOrNull(3)?.takeIf { it.isNotBlank() }?.let {
+                            (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
+                            navController.navigate(TopStreamsFragmentDirections.actionGlobalTopFragment(tags = arrayOf(it)))
                         }
-                        else -> {
-                            val login = url.substringAfter("twitch.tv/").takeIf { it.isNotBlank() }?.let { it.substringBefore("?", it.substringBefore("/")) }
-                            if (!login.isNullOrBlank()) {
-                                viewModel.loadUser(
-                                    login,
-                                    prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                    TwitchApiHelper.getGQLHeaders(this),
-                                    TwitchApiHelper.getHelixHeaders(this),
-                                    prefs.getBoolean(C.ENABLE_INTEGRITY, false),
-                                )
-                            }
+                    }
+                    path == listOf("directory", "all") -> {
+                        (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
+                        navController.navigate(TopStreamsFragmentDirections.actionGlobalTopFragment())
+                    }
+                    path.take(2) == listOf("directory", "tags") -> {
+                        path.getOrNull(2)?.takeIf { it.isNotBlank() }?.let {
+                            viewModel.loadTag(it, networkLibrary, gqlHeaders, enableIntegrity)
+                        }
+                    }
+                    path.firstOrNull() == "directory" -> {
+                        (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
+                        navController.navigate(GamesFragmentDirections.actionGlobalGamesFragment())
+                    }
+                    path.firstOrNull() == "team" -> {
+                        path.getOrNull(1)?.takeIf { it.isNotBlank() }?.let {
+                            (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
+                            navController.navigate(TeamFragmentDirections.actionGlobalTeamFragment(teamName = it))
+                        }
+                    }
+                    else -> {
+                        path.firstOrNull()?.takeIf { it.isNotBlank() }?.let {
+                            viewModel.loadUser(it, networkLibrary, gqlHeaders, helixHeaders, enableIntegrity)
                         }
                     }
                 }
@@ -1029,6 +980,13 @@ class MainActivity : AppCompatActivity() {
             }
             INTENT_OPEN_OWN_PROFILE -> openOwnProfile()
         }
+    }
+
+    private fun isTwitchWebUri(uri: Uri): Boolean {
+        val scheme = uri.scheme?.lowercase(Locale.ROOT)
+        val host = uri.host?.lowercase(Locale.ROOT)
+        return scheme in setOf("http", "https") &&
+            (host == "twitch.tv" || host?.endsWith(".twitch.tv") == true)
     }
 
     fun getNewIntegrityToken(callback: String?, fragmentManager: FragmentManager) {

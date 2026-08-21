@@ -278,7 +278,6 @@ object SettingsMigration {
         C.DEBUG_PLAYER_MENU_PLAYLIST_TAGS,
         C.ENABLE_INTEGRITY,
         C.USE_WEBVIEW_INTEGRITY,
-        C.GET_ALL_GQL_HEADERS,
         "delete_recent_searches",
         "delete_video_positions",
         "import_app_downloads",
@@ -328,7 +327,24 @@ object SettingsMigration {
 
     fun migrate(context: Context, freshInstall: Boolean? = null): Boolean {
         migratePreferences(context.rawPrefs(), freshInstall)
+        migrateProxyCredentials(context)
         return synchronizeLandscapeChatWidth(context)
+    }
+
+    private fun migrateProxyCredentials(context: Context) {
+        val legacy = context.rawPrefs()
+        val proxy = context.proxyPrefs()
+        val keys = listOf(C.PROXY_HOST, C.PROXY_PORT, C.PROXY_USER, C.PROXY_PASSWORD)
+        proxy.edit {
+            keys.forEach { key ->
+                if (!proxy.contains(key)) {
+                    legacy.getString(key, null)?.let { putString(key, it) }
+                }
+            }
+        }
+        legacy.edit {
+            keys.forEach(::remove)
+        }
     }
 
     /** Keeps the player-facing pixel value in sync with the percentage setting. */

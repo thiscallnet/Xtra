@@ -9,6 +9,7 @@ import android.content.ContentResolver
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
+import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.http.HttpEngine
@@ -38,11 +39,13 @@ import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.DownloadStorageException
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.chat.ChatReadWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
+import com.github.andreyasadchy.xtra.util.createOrFindDocument
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.httpProxyHost
@@ -72,6 +75,7 @@ import org.chromium.net.QuicOptions
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.util.concurrent.TimeUnit
@@ -82,6 +86,24 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 class StreamDownloadService : LifecycleService() {
+
+    private fun openOutputStream(uri: Uri, mode: String = "w") = try {
+        contentResolver.openOutputStream(uri, mode)
+            ?: throw DownloadStorageException("Unable to open stream download output")
+    } catch (e: DownloadStorageException) {
+        throw e
+    } catch (e: Exception) {
+        throw DownloadStorageException("Unable to open stream download output", e)
+    }
+
+    private fun openFileDescriptor(uri: Uri, mode: String) = try {
+        contentResolver.openFileDescriptor(uri, mode)
+            ?: throw DownloadStorageException("Unable to open stream download file")
+    } catch (e: DownloadStorageException) {
+        throw e
+    } catch (e: Exception) {
+        throw DownloadStorageException("Unable to open stream download file", e)
+    }
 
     lateinit var xtraModule: XtraModule
     private val okHttpClient = lazy {
@@ -145,6 +167,7 @@ class StreamDownloadService : LifecycleService() {
                         )
                     }
                     sendNotification(offlineVideo, downloadProgress)
+                    var failed = false
                     val done = try {
                         val channelLogin = offlineVideo.channelLogin!!
                         downloadStream(offlineVideo, downloadProgress, downloadJob, channelLogin)
@@ -152,25 +175,27 @@ class StreamDownloadService : LifecycleService() {
                     } catch (e: CancellationException) {
                         ensureActive()
                         false
+                    } catch (e: DownloadStorageException) {
+                        Log.e("StreamDownloadService", "Download storage failed", e)
+                        failed = true
+                        false
                     } catch (e: Exception) {
-                        Log.e("StreamDownloadService", "Download failed", e)
+                        Log.w("StreamDownloadService", "Download interrupted; will retry", e)
                         false
                     }
                     offlineVideos.remove(offlineVideo)
                     activeDownloads.remove(downloadProgress)
                     xtraModule.offlineVideosRepository.update(offlineVideo.apply {
-                        status = if (done) {
-                            OfflineVideo.STATUS_DOWNLOADED
-                        } else {
-                            val waitForWifi = if (prefs().getBoolean(C.DOWNLOAD_WIFI_ONLY, false)) {
-                                val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-                                val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-                                networkCapabilities != null && networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-                            } else false
-                            if (waitForWifi) {
-                                OfflineVideo.STATUS_WAITING_FOR_WIFI
-                            } else {
-                                OfflineVideo.STATUS_PENDING
+                        status = when {
+                            done -> OfflineVideo.STATUS_DOWNLOADED
+                            failed -> OfflineVideo.STATUS_FAILED
+                            else -> {
+                                val waitForWifi = if (prefs().getBoolean(C.DOWNLOAD_WIFI_ONLY, false)) {
+                                    val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                                    val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+                                    networkCapabilities != null && networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                                } else false
+                                if (waitForWifi) OfflineVideo.STATUS_WAITING_FOR_WIFI else OfflineVideo.STATUS_PENDING
                             }
                         }
                         bytes = downloadProgress.bytes
@@ -308,6 +333,8 @@ class StreamDownloadService : LifecycleService() {
                     } catch (e: CancellationException) {
                         ensureActive()
                         false
+                    } catch (e: DownloadStorageException) {
+                        throw e
                     } catch (e: Exception) {
                         Log.e("StreamDownloadService", "Download failed", e)
                         false
@@ -330,7 +357,7 @@ class StreamDownloadService : LifecycleService() {
                             val chatUrl = offlineVideo.chatUrl!!
                             val isShared = chatUrl.toUri().scheme == ContentResolver.SCHEME_CONTENT
                             if (isShared) {
-                                contentResolver.openFileDescriptor(chatUrl.toUri(), "rw")!!.use {
+                                openFileDescriptor(chatUrl.toUri(), "rw").use {
                                     FileOutputStream(it.fileDescriptor).use { output ->
                                         output.channel.truncate(downloadProgress.chatBytes)
                                     }
@@ -341,7 +368,7 @@ class StreamDownloadService : LifecycleService() {
                                 }
                             }
                             if (isShared) {
-                                contentResolver.openOutputStream(chatUrl.toUri(), "wa")!!.bufferedWriter()
+                                openOutputStream(chatUrl.toUri(), "wa").bufferedWriter()
                             } else {
                                 FileOutputStream(chatUrl, true).bufferedWriter()
                             }.use { fileWriter ->
@@ -695,7 +722,7 @@ class StreamDownloadService : LifecycleService() {
         val videoFileUri = if (!offlineVideo.url.isNullOrBlank()) {
             val fileUri = offlineVideo.url!!
             if (isShared) {
-                contentResolver.openFileDescriptor(fileUri.toUri(), "rw")!!.use {
+                openFileDescriptor(fileUri.toUri(), "rw").use {
                     FileOutputStream(it.fileDescriptor).use { output ->
                         output.channel.truncate(downloadProgress.bytes)
                     }
@@ -711,13 +738,7 @@ class StreamDownloadService : LifecycleService() {
             val fileUri = if (isShared) {
                 val documentId = DocumentsContract.getTreeDocumentId(path.toUri())
                 val directoryUri = DocumentsContract.buildDocumentUriUsingTree(path.toUri(), documentId)
-                val fileUri = directoryUri.toString() + (if (!directoryUri.toString().endsWith("%3A")) "%2F" else "") + fileName
-                try {
-                    contentResolver.openOutputStream(fileUri.toUri())!!.close()
-                } catch (e: IllegalArgumentException) {
-                    DocumentsContract.createDocument(contentResolver, directoryUri, "", fileName)
-                }
-                fileUri
+                contentResolver.createOrFindDocument(directoryUri, "video/mp4", fileName).toString()
             } else {
                 "$path${File.separator}$fileName"
             }
@@ -739,7 +760,7 @@ class StreamDownloadService : LifecycleService() {
                             }
                         }
                         if (isShared) {
-                            contentResolver.openOutputStream(fileUri.toUri(), "wa")!!
+                            openOutputStream(fileUri.toUri(), "wa")
                         } else {
                             FileOutputStream(fileUri, true)
                         }.use {
@@ -763,7 +784,7 @@ class StreamDownloadService : LifecycleService() {
                             }
                         }
                         if (isShared) {
-                            contentResolver.openOutputStream(fileUri.toUri(), "wa")!!
+                            openOutputStream(fileUri.toUri(), "wa")
                         } else {
                             FileOutputStream(fileUri, true)
                         }.use {
@@ -774,7 +795,7 @@ class StreamDownloadService : LifecycleService() {
                     else -> {
                         okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
                             if (isShared) {
-                                contentResolver.openOutputStream(fileUri.toUri(), "wa")!!
+                                openOutputStream(fileUri.toUri(), "wa")
                             } else {
                                 FileOutputStream(fileUri)
                             }.use { outputStream ->
@@ -831,7 +852,7 @@ class StreamDownloadService : LifecycleService() {
                         }
                         mutex.withLock {
                             if (isShared) {
-                                contentResolver.openOutputStream(videoFileUri.toUri(), "wa")!!
+                                openOutputStream(videoFileUri.toUri(), "wa")
                             } else {
                                 FileOutputStream(videoFileUri, true)
                             }.use {
@@ -863,7 +884,7 @@ class StreamDownloadService : LifecycleService() {
                         }
                         mutex.withLock {
                             if (isShared) {
-                                contentResolver.openOutputStream(videoFileUri.toUri(), "wa")!!
+                                openOutputStream(videoFileUri.toUri(), "wa")
                             } else {
                                 FileOutputStream(videoFileUri, true)
                             }.use {
@@ -882,7 +903,7 @@ class StreamDownloadService : LifecycleService() {
                             }
                             mutex.withLock {
                                 if (isShared) {
-                                    contentResolver.openOutputStream(videoFileUri.toUri(), "wa")!!
+                                    openOutputStream(videoFileUri.toUri(), "wa")
                                 } else {
                                     FileOutputStream(videoFileUri)
                                 }.use { outputStream ->
@@ -1006,7 +1027,7 @@ class StreamDownloadService : LifecycleService() {
                                 }
                                 mutex.withLock {
                                     if (isShared) {
-                                        contentResolver.openOutputStream(videoFileUri.toUri(), "wa")!!
+                                        openOutputStream(videoFileUri.toUri(), "wa")
                                     } else {
                                         FileOutputStream(videoFileUri, true)
                                     }.use {
@@ -1038,7 +1059,7 @@ class StreamDownloadService : LifecycleService() {
                                 }
                                 mutex.withLock {
                                     if (isShared) {
-                                        contentResolver.openOutputStream(videoFileUri.toUri(), "wa")!!
+                                        openOutputStream(videoFileUri.toUri(), "wa")
                                     } else {
                                         FileOutputStream(videoFileUri, true)
                                     }.use {
@@ -1057,7 +1078,7 @@ class StreamDownloadService : LifecycleService() {
                                     }
                                     mutex.withLock {
                                         if (isShared) {
-                                            contentResolver.openOutputStream(videoFileUri.toUri(), "wa")!!
+                                            openOutputStream(videoFileUri.toUri(), "wa")
                                         } else {
                                             FileOutputStream(videoFileUri)
                                         }.use { outputStream ->
@@ -1254,13 +1275,7 @@ class StreamDownloadService : LifecycleService() {
             val fileUri = if (isShared) {
                 val documentId = DocumentsContract.getTreeDocumentId(path.toUri())
                 val directoryUri = DocumentsContract.buildDocumentUriUsingTree(path.toUri(), documentId)
-                val fileUri = directoryUri.toString() + (if (!directoryUri.toString().endsWith("%3A")) "%2F" else "") + fileName
-                try {
-                    contentResolver.openOutputStream(fileUri.toUri())!!.close()
-                } catch (e: IllegalArgumentException) {
-                    DocumentsContract.createDocument(contentResolver, directoryUri, "", fileName)
-                }
-                fileUri
+                contentResolver.createOrFindDocument(directoryUri, "application/json", fileName).toString()
             } else {
                 "$path${File.separator}$fileName"
             }
@@ -1387,7 +1402,7 @@ class StreamDownloadService : LifecycleService() {
         val savedEmotes = mutableListOf<String>()
         if (resumed) {
             if (isShared) {
-                contentResolver.openFileDescriptor(fileUri.toUri(), "rw")!!.use {
+                openFileDescriptor(fileUri.toUri(), "rw").use {
                     FileOutputStream(it.fileDescriptor).use { output ->
                         output.channel.truncate(downloadProgress.chatBytes)
                     }
@@ -1398,7 +1413,7 @@ class StreamDownloadService : LifecycleService() {
                 }
             }
             if (isShared) {
-                contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
             } else {
                 FileOutputStream(fileUri, true).bufferedWriter()
             }.use { writer ->
@@ -1513,7 +1528,7 @@ class StreamDownloadService : LifecycleService() {
                 }
             }
             if (isShared) {
-                contentResolver.openFileDescriptor(fileUri.toUri(), "rw")!!.use {
+                openFileDescriptor(fileUri.toUri(), "rw").use {
                     FileOutputStream(it.fileDescriptor).use { output ->
                         output.channel.truncate(downloadProgress.chatBytes)
                     }
@@ -1525,7 +1540,7 @@ class StreamDownloadService : LifecycleService() {
             }
         } else {
             if (isShared) {
-                contentResolver.openOutputStream(fileUri.toUri())!!.bufferedWriter()
+                openOutputStream(fileUri.toUri()).bufferedWriter()
             } else {
                 FileOutputStream(fileUri).bufferedWriter()
             }.use { writer ->
@@ -1575,7 +1590,7 @@ class StreamDownloadService : LifecycleService() {
         var position = downloadProgress.chatBytes
         var liveCommentsArrayStarted = downloadProgress.liveCommentsArrayStarted
         if (isShared) {
-            contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+            openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
         } else {
             FileOutputStream(fileUri, true).bufferedWriter()
         }.use { writer ->
@@ -1640,7 +1655,7 @@ class StreamDownloadService : LifecycleService() {
                 }
                 if (twitchEmotes.isNotEmpty() || twitchBadges.isNotEmpty() || cheerEmotes.isNotEmpty() || emotes.isNotEmpty()) {
                     if (isShared) {
-                        contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                        openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                     } else {
                         FileOutputStream(fileUri, true).bufferedWriter()
                     }.use { writer ->
@@ -1710,7 +1725,7 @@ class StreamDownloadService : LifecycleService() {
                             }
                             mutex.withLock {
                                 if (isShared) {
-                                    contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                                    openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                                 } else {
                                     FileOutputStream(fileUri, true).bufferedWriter()
                                 }.use { writer ->
@@ -1800,7 +1815,7 @@ class StreamDownloadService : LifecycleService() {
                             }
                             mutex.withLock {
                                 if (isShared) {
-                                    contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                                    openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                                 } else {
                                     FileOutputStream(fileUri, true).bufferedWriter()
                                 }.use { writer ->
@@ -1891,7 +1906,7 @@ class StreamDownloadService : LifecycleService() {
                             }
                             mutex.withLock {
                                 if (isShared) {
-                                    contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                                    openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                                 } else {
                                     FileOutputStream(fileUri, true).bufferedWriter()
                                 }.use { writer ->
@@ -1983,7 +1998,7 @@ class StreamDownloadService : LifecycleService() {
                             }
                             mutex.withLock {
                                 if (isShared) {
-                                    contentResolver.openOutputStream(fileUri.toUri(), "wa")!!.bufferedWriter()
+                                    openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
                                 } else {
                                     FileOutputStream(fileUri, true).bufferedWriter()
                                 }.use { writer ->

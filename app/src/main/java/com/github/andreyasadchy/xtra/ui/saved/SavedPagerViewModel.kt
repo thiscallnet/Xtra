@@ -13,16 +13,26 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
+import com.github.andreyasadchy.xtra.util.findChildDocument
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.Segment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.io.IOException
 import kotlin.math.max
 
 class SavedPagerViewModel(
     private val applicationContext: Context,
     private val offlineVideosRepository: OfflineVideosRepository,
 ) : ViewModel() {
+
+    private fun openOutputStream(uri: Uri, mode: String = "w") =
+        applicationContext.contentResolver.openOutputStream(uri, mode)
+            ?: throw IOException("Unable to open saved playlist")
+
+    private fun openInputStream(uri: Uri) =
+        applicationContext.contentResolver.openInputStream(uri)
+            ?: throw IOException("Unable to open saved download")
 
     fun saveFolders(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -35,41 +45,43 @@ class SavedPagerViewModel(
                 arrayOf(
                     DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                     DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
                 ), null, null, null
             ).use { cursor ->
                 while (cursor?.moveToNext() == true) {
                     val documentId = cursor.getString(0)
                     val mimeType = cursor.getString(1)
+                    val displayName = cursor.getString(2)
                     if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-                        val directoryUri = DocumentsContract.buildChildDocumentsUriUsingTree(directoryUri, documentId)
-                        directoryUris.add(directoryUri)
-                    } else {
+                        directoryUris.add(DocumentsContract.buildDocumentUriUsingTree(directoryUri, documentId))
+                    } else if (mimeType == "application/json" || displayName.endsWith(".json", true)) {
                         val documentUri = DocumentsContract.buildDocumentUriUsingTree(directoryUri, documentId)
-                        if (documentUri.toString().endsWith(".json")) {
-                            val fileName = documentUri.toString().substringAfterLast("%2F").substringAfterLast("%3A").removeSuffix(".json").removeSuffix("_chat")
+                        if (displayName.endsWith(".json", true)) {
+                            val fileName = displayName.removeSuffix(".json").removeSuffix("_chat")
                             chatFiles[fileName] = documentUri.toString()
                         }
                     }
                 }
             }
             val playlistFileUris = mutableListOf<Uri>()
-            directoryUris.forEach { uri ->
+            directoryUris.forEach { directoryUri ->
+                val directoryId = DocumentsContract.getDocumentId(directoryUri)
                 applicationContext.contentResolver.query(
-                    uri,
+                    DocumentsContract.buildChildDocumentsUriUsingTree(directoryUri, directoryId),
                     arrayOf(
                         DocumentsContract.Document.COLUMN_DOCUMENT_ID,
                         DocumentsContract.Document.COLUMN_MIME_TYPE,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
                     ),
                     null, null, null
                 ).use { cursor ->
                     while (cursor?.moveToNext() == true) {
                         val documentId = cursor.getString(0)
                         val mimeType = cursor.getString(1)
-                        if (mimeType != DocumentsContract.Document.MIME_TYPE_DIR) {
+                        val displayName = cursor.getString(2)
+                        if (mimeType != DocumentsContract.Document.MIME_TYPE_DIR && displayName.endsWith(".m3u8", true)) {
                             val documentUri = DocumentsContract.buildDocumentUriUsingTree(directoryUri, documentId)
-                            if (documentUri.toString().endsWith(".m3u8")) {
-                                playlistFileUris.add(documentUri)
-                            }
+                            playlistFileUris.add(documentUri)
                         }
                     }
                 }
@@ -77,20 +89,36 @@ class SavedPagerViewModel(
             playlistFileUris.forEach { uri ->
                 val existingVideo = offlineVideosRepository.getByUrl(uri.toString())
                 if (existingVideo == null) {
-                    val videoDirectoryUri = uri.toString().substringBeforeLast("%2F")
-                    val videoDirectoryName = videoDirectoryUri.substringAfterLast("%2F").substringAfterLast("%3A")
-                    val playlist = applicationContext.contentResolver.openInputStream(uri)!!.use {
+                    val videoDirectoryPath = uri.toString().substringBeforeLast("%2F")
+                    val videoDirectoryName = videoDirectoryPath.substringAfterLast("%2F").substringAfterLast("%3A")
+                    val playlist = openInputStream(uri).use {
                         PlaylistUtils.parseMediaPlaylist(it)
                     }
                     var totalDuration = 0L
+                    val videoDirectoryUri = uri.toString().substringBeforeLast("%2F").toUri()
                     val segments = ArrayList<Segment>()
                     playlist.segments.forEach { segment ->
                         totalDuration += (segment.duration * 1000f).toLong()
-                        segments.add(segment.copy(uri = videoDirectoryUri + "%2F" + segment.uri.substringAfterLast("%2F").substringAfterLast("/")))
+                        val fileName = segment.uri.substringAfterLast("%2F").substringAfterLast("/")
+                        segments.add(segment.copy(
+                            uri = if (segment.uri.startsWith("content://")) {
+                                segment.uri
+                            } else {
+                                applicationContext.contentResolver.findChildDocument(videoDirectoryUri, fileName, "application/octet-stream")?.toString() ?: segment.uri
+                            }
+                        ))
                     }
-                    applicationContext.contentResolver.openOutputStream(uri)!!.use {
+                    val initSegmentUri = playlist.initSegmentUri?.let { segmentUri ->
+                        if (segmentUri.startsWith("content://")) {
+                            segmentUri
+                        } else {
+                            val fileName = segmentUri.substringAfterLast("%2F").substringAfterLast("/")
+                            applicationContext.contentResolver.findChildDocument(videoDirectoryUri, fileName, "application/octet-stream")?.toString() ?: segmentUri
+                        }
+                    }
+                    openOutputStream(uri, "wt").use {
                         PlaylistUtils.writeMediaPlaylist(playlist.copy(
-                            initSegmentUri = playlist.initSegmentUri?.let { uri -> videoDirectoryUri + "%2F" + uri.substringAfterLast("%2F").substringAfterLast("/") },
+                            initSegmentUri = initSegmentUri,
                             segments = segments
                         ), it)
                     }
@@ -106,7 +134,7 @@ class SavedPagerViewModel(
                     var gameName: String? = null
                     chatFileUri?.let { chatFileUri ->
                         try {
-                            applicationContext.contentResolver.openInputStream(chatFileUri.toUri())!!.bufferedReader().use { fileReader ->
+                            openInputStream(chatFileUri.toUri()).bufferedReader().use { fileReader ->
                                 JsonReader(fileReader).use { reader ->
                                     reader.beginObject()
                                     while (reader.hasNext()) {

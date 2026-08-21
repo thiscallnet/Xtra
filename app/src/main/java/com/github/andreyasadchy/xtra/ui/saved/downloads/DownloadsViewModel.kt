@@ -17,6 +17,9 @@ import androidx.paging.cachedIn
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
+import com.github.andreyasadchy.xtra.util.createOrFindDirectory
+import com.github.andreyasadchy.xtra.util.createOrFindDocument
+import com.github.andreyasadchy.xtra.util.findChildDocument
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.Segment
 import kotlinx.coroutines.Dispatchers
@@ -24,12 +27,21 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 import kotlin.math.max
 
 class DownloadsViewModel(
     private val applicationContext: Context,
     private val offlineVideosRepository: OfflineVideosRepository,
 ) : ViewModel() {
+
+    private fun openOutputStream(uri: Uri, mode: String = "w") =
+        applicationContext.contentResolver.openOutputStream(uri, mode)
+            ?: throw IOException("Unable to open download output")
+
+    private fun openFileDescriptor(uri: Uri, mode: String) =
+        applicationContext.contentResolver.openFileDescriptor(uri, mode)
+            ?: throw IOException("Unable to open download file")
 
     var selectedVideo: OfflineVideo? = null
     private val videosInUse = mutableListOf<OfflineVideo>()
@@ -57,34 +69,40 @@ class DownloadsViewModel(
     }
 
     fun finishDownload(video: OfflineVideo) {
-        video.chatUrl?.let { url ->
-            val isShared = url.toUri().scheme == ContentResolver.SCHEME_CONTENT
-            if (isShared) {
-                applicationContext.contentResolver.openFileDescriptor(url.toUri(), "rw")!!.use {
-                    FileOutputStream(it.fileDescriptor).use { output ->
-                        output.channel.truncate(video.chatBytes)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                video.chatUrl?.let { url ->
+                    val isShared = url.toUri().scheme == ContentResolver.SCHEME_CONTENT
+                    if (isShared) {
+                        openFileDescriptor(url.toUri(), "rw").use {
+                            FileOutputStream(it.fileDescriptor).use { output ->
+                                output.channel.truncate(video.chatBytes)
+                            }
+                        }
+                    } else {
+                        FileOutputStream(url).use { output ->
+                            output.channel.truncate(video.chatBytes)
+                        }
+                    }
+                    if (isShared) {
+                        openOutputStream(url.toUri(), "wa").bufferedWriter()
+                    } else {
+                        FileOutputStream(url, true).bufferedWriter()
+                    }.use { writer ->
+                        if (video.liveCommentsArrayStarted) {
+                            writer.write("]")
+                        }
+                        writer.write("}")
                     }
                 }
-            } else {
-                FileOutputStream(url).use { output ->
-                    output.channel.truncate(video.chatBytes)
-                }
+                offlineVideosRepository.update(video.apply {
+                    status = OfflineVideo.STATUS_DOWNLOADED
+                })
+            } catch (e: Exception) {
+                offlineVideosRepository.update(video.apply {
+                    status = OfflineVideo.STATUS_FAILED
+                })
             }
-            if (isShared) {
-                applicationContext.contentResolver.openOutputStream(url.toUri(), "wa")!!.bufferedWriter()
-            } else {
-                FileOutputStream(url, true).bufferedWriter()
-            }.use { writer ->
-                if (video.liveCommentsArrayStarted) {
-                    writer.write("]")
-                }
-                writer.write("}")
-            }
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            offlineVideosRepository.update(video.apply {
-                status = OfflineVideo.STATUS_DOWNLOADED
-            })
         }
     }
 
@@ -105,7 +123,14 @@ class DownloadsViewModel(
                         PlaylistUtils.parseMediaPlaylist(it)
                     }
                     val videoFileName = "${video.videoId ?: ""}${video.quality ?: ""}${video.downloadDate}.${oldPlaylist.segments.first().uri.substringAfterLast(".")}"
-                    val newVideoFileUri = oldDirectoryUri + (if (!oldDirectoryUri.endsWith("%3A")) "%2F" else "") + videoFileName
+                    val oldDirectoryDocumentUri = oldDirectoryUri.toUri()
+                    val existingNewVideoUri = applicationContext.contentResolver.findChildDocument(oldDirectoryDocumentUri, videoFileName, "video/mp4")
+                    val newVideoFileUri = (existingNewVideoUri
+                        ?: applicationContext.contentResolver.createOrFindDocument(
+                            oldDirectoryDocumentUri,
+                            "video/mp4",
+                            videoFileName,
+                        )).toString()
                     val tracksToDelete = mutableListOf<String>()
                     oldPlaylist.segments.forEach { tracksToDelete.add(it.uri.substringAfterLast("%2F").substringAfterLast("/")) }
                     val playlists = offlineVideosRepository.getPlaylists().mapNotNull { video ->
@@ -125,16 +150,10 @@ class DownloadsViewModel(
 
                         }
                     }
-                    val new = try {
-                        applicationContext.contentResolver.openOutputStream(newVideoFileUri.toUri())!!.close()
-                        false
-                    } catch (e: IllegalArgumentException) {
-                        DocumentsContract.createDocument(applicationContext.contentResolver, oldDirectoryUri.toUri(), "", videoFileName)
-                        true
-                    }
+                    val new = existingNewVideoUri == null
                     if (oldPlaylist.initSegmentUri != null && new) {
                         val oldFileUri = oldPlaylist.initSegmentUri
-                        applicationContext.contentResolver.openOutputStream(newVideoFileUri.toUri(), "wa")!!.use { outputStream ->
+                        openOutputStream(newVideoFileUri.toUri(), "wa").use { outputStream ->
                             applicationContext.contentResolver.openInputStream(oldFileUri.toUri())!!.use { inputStream ->
                                 inputStream.copyTo(outputStream)
                             }
@@ -146,7 +165,7 @@ class DownloadsViewModel(
                     oldPlaylist.segments.forEach { track ->
                         val oldFileUri = track.uri
                         val oldFileName = oldFileUri.substringAfterLast("%2F").substringAfterLast("/")
-                        applicationContext.contentResolver.openOutputStream(newVideoFileUri.toUri(), "wa")!!.use { outputStream ->
+                        openOutputStream(newVideoFileUri.toUri(), "wa").use { outputStream ->
                             applicationContext.contentResolver.openInputStream(oldFileUri.toUri())!!.use { inputStream ->
                                 inputStream.copyTo(outputStream)
                             }
@@ -246,11 +265,11 @@ class DownloadsViewModel(
                         }
                     }
                 }
-            }.invokeOnCompletion {
+            }.invokeOnCompletion { error ->
                 videosInUse.remove(video)
                 viewModelScope.launch(Dispatchers.IO) {
                     offlineVideosRepository.update(video.apply {
-                        status = OfflineVideo.STATUS_DOWNLOADED
+                        status = if (error == null) OfflineVideo.STATUS_DOWNLOADED else OfflineVideo.STATUS_FAILED
                     })
                 }
             }
@@ -274,30 +293,38 @@ class DownloadsViewModel(
                         if (oldVideoDirectory != null) {
                             val documentId = DocumentsContract.getTreeDocumentId(newUri)
                             val newDirectoryUri = DocumentsContract.buildDocumentUriUsingTree(newUri, documentId)
-                            val newVideoDirectoryUri = newDirectoryUri.toString() + (if (!newDirectoryUri.toString().endsWith("%3A")) "%2F" else "") + oldVideoDirectory.name
-                            try {
-                                applicationContext.contentResolver.openOutputStream(newVideoDirectoryUri.toUri())!!.close()
-                            } catch (e: Exception) {
-                                if (e is IllegalArgumentException) {
-                                    DocumentsContract.createDocument(applicationContext.contentResolver, newDirectoryUri, DocumentsContract.Document.MIME_TYPE_DIR, oldVideoDirectory.name)
-                                }
-                            }
-                            val newPlaylistFileUri = newVideoDirectoryUri + "%2F" + oldPlaylistFile.name
+                            val newVideoDirectoryUri = applicationContext.contentResolver.createOrFindDirectory(newDirectoryUri, oldVideoDirectory.name)
                             val oldPlaylist = FileInputStream(oldPlaylistFile).use {
                                 PlaylistUtils.parseMediaPlaylist(it)
                             }
-                            val segments = ArrayList<Segment>()
-                            oldPlaylist.segments.forEach { segment ->
-                                segments.add(segment.copy(uri = newVideoDirectoryUri + "%2F" + segment.uri.substringAfterLast("%2F").substringAfterLast("/")))
+                            val segmentUris = oldPlaylist.segments.associate { segment ->
+                                val fileName = segment.uri.substringAfterLast("%2F").substringAfterLast("/")
+                                fileName to applicationContext.contentResolver.createOrFindDocument(
+                                    newVideoDirectoryUri,
+                                    "application/octet-stream",
+                                    fileName,
+                                )
                             }
-                            try {
-                                applicationContext.contentResolver.openOutputStream(newPlaylistFileUri.toUri())!!
-                            } catch (e: IllegalArgumentException) {
-                                DocumentsContract.createDocument(applicationContext.contentResolver, newVideoDirectoryUri.toUri(), "", oldPlaylistFile.name)
-                                applicationContext.contentResolver.openOutputStream(newPlaylistFileUri.toUri())!!
-                            }.use {
+                            val segments = oldPlaylist.segments.map { segment ->
+                                val fileName = segment.uri.substringAfterLast("%2F").substringAfterLast("/")
+                                segment.copy(uri = segmentUris.getValue(fileName).toString())
+                            }
+                            val initSegmentUri = oldPlaylist.initSegmentUri?.let { uri ->
+                                val fileName = uri.substringAfterLast("%2F").substringAfterLast("/")
+                                applicationContext.contentResolver.createOrFindDocument(
+                                    newVideoDirectoryUri,
+                                    "application/octet-stream",
+                                    fileName,
+                                )
+                            }
+                            val newPlaylistFileUri = applicationContext.contentResolver.createOrFindDocument(
+                                newVideoDirectoryUri,
+                                "application/vnd.apple.mpegurl",
+                                oldPlaylistFile.name,
+                            )
+                            openOutputStream(newPlaylistFileUri, "wt").use {
                                 PlaylistUtils.writeMediaPlaylist(oldPlaylist.copy(
-                                    initSegmentUri = oldPlaylist.initSegmentUri?.let { uri -> newVideoDirectoryUri + "%2F" + uri.substringAfterLast("%2F").substringAfterLast("/") },
+                                    initSegmentUri = initSegmentUri?.toString(),
                                     segments = segments
                                 ), it)
                             }
@@ -311,13 +338,7 @@ class DownloadsViewModel(
                             if (oldPlaylist.initSegmentUri != null) {
                                 val oldFile = File(oldVideoDirectory.path + File.separator + oldPlaylist.initSegmentUri.substringAfterLast("%2F").substringAfterLast("/"))
                                 if (oldFile.exists()) {
-                                    val newFileUri = newVideoDirectoryUri + "%2F" + oldFile.name
-                                    try {
-                                        applicationContext.contentResolver.openOutputStream(newFileUri.toUri())!!
-                                    } catch (e: IllegalArgumentException) {
-                                        DocumentsContract.createDocument(applicationContext.contentResolver, newVideoDirectoryUri.toUri(), "", oldFile.name)
-                                        applicationContext.contentResolver.openOutputStream(newFileUri.toUri())!!
-                                    }.use { outputStream ->
+                                    openOutputStream(initSegmentUri!!, "wt").use { outputStream ->
                                         oldFile.inputStream().use { inputStream ->
                                             inputStream.copyTo(outputStream)
                                         }
@@ -330,13 +351,7 @@ class DownloadsViewModel(
                             oldPlaylist.segments.forEach { track ->
                                 val oldFile = File(oldVideoDirectory.path + File.separator + track.uri.substringAfterLast("%2F").substringAfterLast("/"))
                                 if (oldFile.exists()) {
-                                    val newFileUri = newVideoDirectoryUri + "%2F" + oldFile.name
-                                    try {
-                                        applicationContext.contentResolver.openOutputStream(newFileUri.toUri())!!
-                                    } catch (e: IllegalArgumentException) {
-                                        DocumentsContract.createDocument(applicationContext.contentResolver, newVideoDirectoryUri.toUri(), "", oldFile.name)
-                                        applicationContext.contentResolver.openOutputStream(newFileUri.toUri())!!
-                                    }.use { outputStream ->
+                                    openOutputStream(segmentUris.getValue(oldFile.name), "wt").use { outputStream ->
                                         oldFile.inputStream().use { inputStream ->
                                             inputStream.copyTo(outputStream)
                                         }
@@ -350,14 +365,11 @@ class DownloadsViewModel(
                                 })
                             }
                             val oldChatFile = video.chatUrl?.let { uri -> File(uri).takeIf { it.exists() } }
-                            val newChatFileUri = oldChatFile?.let { newDirectoryUri.toString() + (if (!newDirectoryUri.toString().endsWith("%3A")) "%2F" else "") + it.name }
+                            val newChatFileUri = oldChatFile?.let {
+                                applicationContext.contentResolver.createOrFindDocument(newDirectoryUri, "application/json", it.name)
+                            }
                             if (newChatFileUri != null) {
-                                try {
-                                    applicationContext.contentResolver.openOutputStream(newChatFileUri.toUri())!!
-                                } catch (e: IllegalArgumentException) {
-                                    DocumentsContract.createDocument(applicationContext.contentResolver, newDirectoryUri, "", oldChatFile.name)
-                                    applicationContext.contentResolver.openOutputStream(newChatFileUri.toUri())!!
-                                }.use { outputStream ->
+                                openOutputStream(newChatFileUri, "wt").use { outputStream ->
                                     oldChatFile.inputStream().use { inputStream ->
                                         inputStream.copyTo(outputStream)
                                     }
@@ -366,15 +378,15 @@ class DownloadsViewModel(
                             offlineVideosRepository.update(video.apply {
                                 thumbnail.let {
                                     if (it == null || it == url || !File(it).exists()) {
-                                        oldPlaylist.segments.getOrNull(
+                                        segments.getOrNull(
                                             max(0, (oldPlaylist.segments.size / 2) - 1)
-                                        )?.uri?.substringAfterLast("%2F")?.substringAfterLast("/")?.let { trackUri ->
-                                            thumbnail = "$newVideoDirectoryUri%2F$trackUri"
+                                        )?.uri?.let { trackUri ->
+                                            thumbnail = trackUri
                                         }
                                     }
                                 }
-                                url = newPlaylistFileUri
-                                chatUrl = newChatFileUri
+                                url = newPlaylistFileUri.toString()
+                                chatUrl = newChatFileUri?.toString()
                             })
                             if (playlists?.isNotEmpty() == true) {
                                 oldPlaylistFile.delete()
@@ -389,26 +401,22 @@ class DownloadsViewModel(
                     if (oldFile.exists()) {
                         val documentId = DocumentsContract.getTreeDocumentId(newUri)
                         val newDirectoryUri = DocumentsContract.buildDocumentUriUsingTree(newUri, documentId)
-                        val newFileUri = newDirectoryUri.toString() + (if (!newDirectoryUri.toString().endsWith("%3A")) "%2F" else "") + oldFile.name
-                        try {
-                            applicationContext.contentResolver.openOutputStream(newFileUri.toUri())!!
-                        } catch (e: IllegalArgumentException) {
-                            DocumentsContract.createDocument(applicationContext.contentResolver, newDirectoryUri, "", oldFile.name)
-                            applicationContext.contentResolver.openOutputStream(newFileUri.toUri())!!
-                        }.use { outputStream ->
+                        val newFileUri = applicationContext.contentResolver.createOrFindDocument(
+                            newDirectoryUri,
+                            "video/mp4",
+                            oldFile.name,
+                        ).toString()
+                        openOutputStream(newFileUri.toUri(), "wt").use { outputStream ->
                             oldFile.inputStream().use { inputStream ->
                                 inputStream.copyTo(outputStream)
                             }
                         }
                         val oldChatFile = video.chatUrl?.let { uri -> File(uri).takeIf { it.exists() } }
-                        val newChatFileUri = oldChatFile?.let { newDirectoryUri.toString() + (if (!newDirectoryUri.toString().endsWith("%3A")) "%2F" else "") + it.name }
+                        val newChatFileUri = oldChatFile?.let {
+                            applicationContext.contentResolver.createOrFindDocument(newDirectoryUri, "application/json", it.name).toString()
+                        }
                         if (newChatFileUri != null) {
-                            try {
-                                applicationContext.contentResolver.openOutputStream(newChatFileUri.toUri())!!
-                            } catch (e: IllegalArgumentException) {
-                                DocumentsContract.createDocument(applicationContext.contentResolver, newDirectoryUri, "", oldChatFile.name)
-                                applicationContext.contentResolver.openOutputStream(newChatFileUri.toUri())!!
-                            }.use { outputStream ->
+                            openOutputStream(newChatFileUri.toUri(), "wt").use { outputStream ->
                                 oldChatFile.inputStream().use { inputStream ->
                                     inputStream.copyTo(outputStream)
                                 }
@@ -427,11 +435,11 @@ class DownloadsViewModel(
                         oldChatFile?.delete()
                     }
                 }
-            }.invokeOnCompletion {
+            }.invokeOnCompletion { error ->
                 videosInUse.remove(video)
                 viewModelScope.launch(Dispatchers.IO) {
                     offlineVideosRepository.update(video.apply {
-                        status = OfflineVideo.STATUS_DOWNLOADED
+                        status = if (error == null) OfflineVideo.STATUS_DOWNLOADED else OfflineVideo.STATUS_FAILED
                     })
                 }
             }
@@ -601,11 +609,11 @@ class DownloadsViewModel(
                         }
                     }
                 }
-            }.invokeOnCompletion {
+            }.invokeOnCompletion { error ->
                 videosInUse.remove(video)
                 viewModelScope.launch(Dispatchers.IO) {
                     offlineVideosRepository.update(video.apply {
-                        status = OfflineVideo.STATUS_DOWNLOADED
+                        status = if (error == null) OfflineVideo.STATUS_DOWNLOADED else OfflineVideo.STATUS_FAILED
                     })
                 }
             }
