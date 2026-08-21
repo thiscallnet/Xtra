@@ -649,7 +649,7 @@
     <string name="settings_item_background_playback">Reprodución en segundo plano</string>
     <string name="settings_item_background_playback_summary">Audio e imaxe na imaxe</string>
     <string name="settings_item_chat_summary">Mensaxes, emoticones e fluxos de texto, insignias de entrada e</string>
-    <string name="settings_item_downloads_summary"></string>
+    <string name="settings_item_downloads_summary">Emisións, repetición do chat e emoticonas</string>
     <string name="settings_item_api">Acceso e inicio de sesión da API</string>
     <string name="settings_item_api_summary">API e conta de Twitch</string>
     <string name="settings_item_proxy">Proxy</string>
@@ -675,9 +675,9 @@
     <string name="settings_ui_tabs">Pestanas</string>
     <string name="settings_ui_content">Contido</string>
     <string name="settings_ui_search">Historial de busca</string>
-    <string name="settings_chat_messages"></string>
+    <string name="settings_chat_messages">Mensaxes</string>
     <string name="settings_chat_media">Historial de buscas</string>
-    <string name="settings_chat_history"></string>
+    <string name="settings_chat_history">Historial</string>
     <string name="settings_chat_translation">Historial de traducións</string>
     <string name="settings_chat_connection">Conexión</string>
     <string name="settings_chat_events">Eventos</string>
@@ -886,7 +886,7 @@
     <string name="settings_chat_appearance">Aparición</string>
     <string name="settings_chat_emotes_badges">Emotes e insignias</string>
     <string name="settings_chat_features">Funcións de Twitch</string>
-    <string name="settings_chat_history_page"></string>
+    <string name="settings_chat_history_page">Historial</string>
     <string name="settings_chat_translation_page">Historial de traducións</string>
     <string name="settings_chat_visibility">Visibilidade da mensaxe</string>
     <string name="settings_username_appearance">Aspecto do nome de usuario</string>
@@ -937,8 +937,8 @@
     <string name="settings_networking">Redes</string>
     <string name="settings_network_engine">Só motor de rede</string>
     <string name="settings_stream_preloading">Descarga de transmisión intelixente</string>
-    <string name="stream_preload_off"></string>
-    <string name="stream_preload_wifi"></string>
+    <string name="stream_preload_off">Desactivado</string>
+    <string name="stream_preload_wifi">Só Wi-Fi</string>
     <string name="stream_preload_all">Wi-Fi e datos móbiles</string>
     <string name="settings_chat_diagnostics">Diagnóstico de chat</string>
     <string name="settings_playback_diagnostics">Diagnóstico de reprodución</string>
@@ -1227,7 +1227,7 @@
     <string name="reorder_favorite_emote">Reordenar o emoticono %1$s</string>
     <string name="move_favorite_emote_before">Mover emote tras emote favorito</string>
     <string name="move_favorite_emote_after">Mover emote favorito</string>
-    <string name="watch_stream"></string>
+    <string name="watch_stream">Ver emisión</string>
     <string name="select_stream">Selecciona emisión</string>
     <string name="show_chat_badges">Mostrar insignias de chat</string>
     <string name="use_background_audio_summary">Continúa o audio cando Xtra estea minimizado.</string>

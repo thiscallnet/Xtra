@@ -17,10 +17,12 @@ FORMAT_TOKEN = re.compile(
     r"\\n|%%|%(?:\d+\$)?[-#+ 0,(<]*\d*(?:\.\d+)?(?:[tT][a-zA-Z]|[a-zA-Z])"
 )
 TRANSLATION_MARKER = re.compile(r"XTRAP|XTRANL|XTRAL|⟦X|␞")
+CONTROL_PICTURE = re.compile(r"[\u2400-\u243F]")
 INVALID_ANDROID_ESCAPE = re.compile(r"(?<!\\)\\(?:[^nrt\\'\"u:]|u(?![0-9a-fA-F]{4}))|\\{2,}['\"]")
 LOCALE_DIRECTORY = re.compile(r"^values-[a-z]{2}(?:-r[A-Z]{2})?$")
 PLURAL_QUANTITIES = {
     "values-ar": {"zero", "one", "two", "few", "many", "other"},
+    "values-cs": {"one", "few", "many", "other"},
     "values-de": {"one", "other"},
     "values-es": {"one", "many", "other"},
     "values-fr": {"one", "many", "other"},
@@ -29,7 +31,9 @@ PLURAL_QUANTITIES = {
     "values-it": {"one", "many", "other"},
     "values-ja": {"other"},
     "values-pt-rBR": {"one", "many", "other"},
+    "values-pl": {"one", "few", "many", "other"},
     "values-ru": {"one", "few", "many", "other"},
+    "values-sk": {"one", "few", "many", "other"},
     "values-tr": {"one", "other"},
     "values-zh-rCN": {"other"},
     "values-zh-rTW": {"other"},
@@ -178,6 +182,8 @@ def main() -> int:
     format_regressions: list[str] = []
     duplicate_regressions: list[str] = []
     escape_regressions: list[str] = []
+    empty_regressions: list[str] = []
+    marker_regressions: list[str] = []
     plural_regressions: list[str] = []
     array_regressions: list[str] = []
     directories = [RES / "values"] + [
@@ -257,6 +263,10 @@ def main() -> int:
                         f"{directory.name}:{name}: referenced string {key} is not translated"
                     )
         for key in default_values.keys() & translated_values.keys():
+            if default_values[key].strip() and not translated_values[key].strip():
+                empty_regressions.append(
+                    f"{directory.name}:{key}: translation is empty while the default is not"
+                )
             expected_tokens = Counter(FORMAT_TOKEN.findall(default_values[key]))
             actual_tokens = Counter(FORMAT_TOKEN.findall(translated_values.get(key, "")))
             if expected_tokens != actual_tokens:
@@ -264,8 +274,9 @@ def main() -> int:
                     f"{directory.name}:{key}: format tokens changed from "
                     f"{sorted(expected_tokens.elements())} to {sorted(actual_tokens.elements())}"
                 )
-            if TRANSLATION_MARKER.search(translated_values.get(key, "")):
-                format_regressions.append(f"{directory.name}:{key}: translation marker leaked into resources")
+            translated_value = translated_values.get(key, "")
+            if TRANSLATION_MARKER.search(translated_value) or CONTROL_PICTURE.search(translated_value):
+                marker_regressions.append(f"{directory.name}:{key}: translation marker leaked into resources")
 
     if coverage_regressions:
         print("Translation coverage regressed:", file=sys.stderr)
@@ -274,6 +285,14 @@ def main() -> int:
     if format_regressions:
         print("Translation format validation failed:", file=sys.stderr)
         print("\n".join(format_regressions), file=sys.stderr)
+
+    if empty_regressions:
+        print("Empty translations found:", file=sys.stderr)
+        print("\n".join(empty_regressions), file=sys.stderr)
+
+    if marker_regressions:
+        print("Translation markers found:", file=sys.stderr)
+        print("\n".join(marker_regressions), file=sys.stderr)
 
     if plural_regressions:
         print("Plural coverage validation failed:", file=sys.stderr)
@@ -295,6 +314,8 @@ def main() -> int:
         findings
         or coverage_regressions
         or format_regressions
+        or empty_regressions
+        or marker_regressions
         or plural_regressions
         or array_regressions
         or duplicate_regressions
