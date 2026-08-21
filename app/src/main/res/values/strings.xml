@@ -110,7 +110,7 @@
     <string name="settings_home_appearance_summary">Theme, colors &amp; layout</string>
     <string name="settings_home_browsing_summary">Tabs, lists, content &amp; search</string>
     <string name="settings_home_playback_summary">Quality, background playback &amp; playback sources</string>
-    <string name="settings_home_controls_summary">Customize controls, menus &amp; player information</string>
+    <string name="settings_home_controls_summary">Customize controls, clip capture &amp; player information</string>
     <string name="settings_home_chat_summary">Messages, emotes &amp; Twitch features</string>
     <string name="settings_home_downloads_summary">Download behavior, live streams &amp; imports</string>
     <string name="settings_home_account_network_summary">Login, tokens, proxies &amp; connection</string>
@@ -349,6 +349,20 @@
     <string name="settings_customize_controls">Customize controls</string>
     <string name="settings_seek_controls">Seek controls</string>
     <string name="settings_gestures">Gestures</string>
+    <string name="settings_clip_capture">Local clips</string>
+    <string name="settings_clip_capture_summary">Choose how much live video the clip editor keeps available.</string>
+    <string name="settings_clip_max_duration">Maximum clip length</string>
+    <string name="settings_clip_preview_seek">Preview seek amount</string>
+    <string name="settings_clip_storage">Storage</string>
+    <string name="settings_clip_storage_location">Save location</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
+    <string name="clip_duration_15_seconds">15 seconds</string>
+    <string name="clip_duration_30_seconds">30 seconds</string>
+    <string name="clip_duration_45_seconds">45 seconds</string>
+    <string name="clip_duration_60_seconds">60 seconds</string>
+    <string name="clip_duration_90_seconds">90 seconds</string>
+    <string name="clip_duration_120_seconds">120 seconds</string>
+    <string name="clip_preview_seek_3_seconds">3 seconds</string>
     <string name="settings_double_tap_chat">Double-tap to toggle chat</string>
     <string name="settings_free_position_player">Free-position mini player</string>
     <string name="settings_free_position_player_summary">Move the minimized player freely around the screen.</string>
@@ -376,6 +390,7 @@
     <string name="settings_wait_for_stream">Wait for stream to start</string>
     <string name="settings_capture_restarts">Capture stream restarts</string>
     <string name="settings_backup_action">Back up Xtra</string>
+    <string name="settings_backup_summary" translatable="false">Manual backups include local playback and download records. Keep the selected destination private.</string>
     <string name="settings_restore_action">Restore backup</string>
     <string name="settings_reset_action">Reset settings to defaults</string>
     <string name="settings_reset_summary">Keeps your account, downloads and app content.</string>
@@ -877,6 +892,7 @@
     <string name="download_blocked_wifi">Waiting for Wi-Fi connection</string>
     <string name="download_wifi_only">Download using Wi-Fi only</string>
     <string name="download_waiting_for_stream">Waiting for stream</string>
+    <string name="download_failed" translatable="false">Download failed. Tap retry.</string>
     <string name="download_live_check">Stream playlist check frequency</string>
     <string name="download_live_check_summary">Seconds to wait between checks to see if the playlist has new segments</string>
     <string name="download_offline_check">Live check frequency</string>

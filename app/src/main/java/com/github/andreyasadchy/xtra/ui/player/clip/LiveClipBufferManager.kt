@@ -16,12 +16,19 @@ import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
  */
 @OptIn(UnstableApi::class)
 class LiveClipBufferManager(
-    private val retentionUs: Long = DEFAULT_RETENTION_US,
+    retentionUs: Long = DEFAULT_RETENTION_US,
 ) {
     private val lock = Any()
     private val history = mutableListOf<ClipSegmentRef>()
+    private var retentionUs = retentionUs.coerceAtLeast(MIN_CLIP_BUFFER_US)
     private var generation = 0L
     private var renditionId: String? = null
+
+    /** Changes how far back the rolling segment journal keeps data. */
+    fun setRetentionUs(value: Long) = synchronized(lock) {
+        retentionUs = value.coerceAtLeast(MIN_CLIP_BUFFER_US)
+        trimHistory()
+    }
 
     fun startNewGeneration(): Long = synchronized(lock) {
         generation += 1L
@@ -73,9 +80,7 @@ class LiveClipBufferManager(
                 )
             }
             history.sortBy { it.mediaSequence }
-            while (history.sumOf { it.durationUs } > retentionUs && history.size > 1) {
-                history.removeAt(0)
-            }
+            trimHistory()
             return true
         }
     }
@@ -104,16 +109,19 @@ class LiveClipBufferManager(
         ClipSnapshot(generation, currentRenditionId, selected.toList())
     }
 
-    fun status(): Status = synchronized(lock) {
+    fun status(maxDurationUs: Long = DEFAULT_CLIP_DURATION_US): Status = synchronized(lock) {
         val currentRenditionId = renditionId
         val segments = history.filter {
             it.generation == generation && it.renditionId == currentRenditionId
         }
-        statusFor(segments)
+        statusFor(segments, maxDurationUs)
     }
 
-    internal fun statusFor(segments: List<ClipSegmentRef>): Status {
-        val readySegments = selectContiguousLatest(segments, DEFAULT_CLIP_DURATION_US).orEmpty()
+    internal fun statusFor(
+        segments: List<ClipSegmentRef>,
+        maxDurationUs: Long = DEFAULT_CLIP_DURATION_US,
+    ): Status {
+        val readySegments = selectContiguousLatest(segments, maxDurationUs).orEmpty()
         val readyDurationUs = readySegments.sumOf { it.durationUs }
         val drm = readySegments.any { it.drmInitDataPresent }
         return Status(
@@ -169,9 +177,13 @@ class LiveClipBufferManager(
     }
 
     companion object {
-        const val DEFAULT_RETENTION_US = 45_000_000L
-        const val DEFAULT_CLIP_DURATION_US = 30_000_000L
-        const val MIN_CLIP_BUFFER_US = 10_000_000L
+        const val MIN_CLIP_DURATION_SECONDS = 10
+        const val DEFAULT_CLIP_DURATION_SECONDS = 30
+        const val MAX_CLIP_DURATION_SECONDS = 120
+        const val MIN_CLIP_BUFFER_US = MIN_CLIP_DURATION_SECONDS * 1_000_000L
+        const val DEFAULT_CLIP_DURATION_US = DEFAULT_CLIP_DURATION_SECONDS * 1_000_000L
+        const val RETENTION_MARGIN_US = 15_000_000L
+        const val DEFAULT_RETENTION_US = MAX_CLIP_DURATION_SECONDS * 1_000_000L + RETENTION_MARGIN_US
 
         /** Selects complete, contiguous segments ending at the latest usable segment. */
         internal fun selectContiguousLatest(
@@ -193,12 +205,21 @@ class LiveClipBufferManager(
                 ) {
                     break
                 }
+                if (selected.isNotEmpty() && durationUs + segment.durationUs > maxDurationUs) {
+                    break
+                }
                 selected.add(0, segment)
                 durationUs += segment.durationUs
                 expectedSequence--
                 if (durationUs >= maxDurationUs) break
             }
             return selected.takeIf { it.isNotEmpty() }
+        }
+    }
+
+    private fun trimHistory() {
+        while (history.sumOf { it.durationUs } > retentionUs && history.size > 1) {
+            history.removeAt(0)
         }
     }
 }

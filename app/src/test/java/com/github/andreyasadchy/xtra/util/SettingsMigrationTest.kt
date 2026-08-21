@@ -179,6 +179,22 @@ class SettingsMigrationTest {
     }
 
     @Test
+    fun `legacy control layout restores the clip action when it was added later`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION - 1,
+                C.SETTINGS_PLAYER_CONTROL_LAYOUT to "minimize:quick,download:menu",
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        val layout = preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null).orEmpty()
+        assertTrue(layout.split(',').contains("clip:quick"))
+        assertTrue(preferences.getBoolean(C.PLAYER_CLIP_BUTTON, false))
+    }
+
+    @Test
     fun `control group prefers quick controls when both legacy locations are enabled`() {
         assertEquals("quick", SettingsMigration.controlGroup(quickEnabled = true, menuEnabled = true))
         assertEquals("menu", SettingsMigration.controlGroup(quickEnabled = false, menuEnabled = true))
@@ -199,7 +215,7 @@ class SettingsMigrationTest {
 
     @Test
     fun `an existing all-hidden control layout is not overwritten`() {
-        val allHidden = "minimize:hidden,download:hidden"
+        val allHidden = "minimize:hidden,download:hidden,clip:hidden"
 
         assertEquals(
             allHidden,

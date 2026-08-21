@@ -38,7 +38,9 @@ internal class StreamPreloadResolver(
     ): String? {
         val key = key(channelLogin, configurationFingerprint)
         if (!canStart() || !isEligible(streamKey) || isCoolingDown(key)) return null
-        val flight = flights.computeIfAbsent(key) { createFlight(key, streamKey, resolve) }
+        val flight = flights[key] ?: synchronized(flights) {
+            flights[key] ?: createFlight(key, streamKey, resolve).also { flights[key] = it }
+        }
         flight.owners.incrementAndGet()
         flight.deferred.start()
         return awaitOwned(flight)
@@ -91,7 +93,9 @@ internal class StreamPreloadResolver(
                         (key.channelLogin !in activeLogins && key.channelLogin !in keepLogins))
             }
             .forEach { (key, flight) -> cancel(key, flight) }
-        failureUntil.keys.removeIf { it.configurationFingerprint != configurationFingerprint }
+        failureUntil.keys.toList()
+            .filter { it.configurationFingerprint != configurationFingerprint }
+            .forEach(failureUntil::remove)
     }
 
     fun cancelAll(
@@ -105,7 +109,9 @@ internal class StreamPreloadResolver(
             }
             .forEach { (key, flight) -> cancel(key, flight) }
         if (configurationFingerprint != null) {
-            failureUntil.keys.removeIf { it.configurationFingerprint != configurationFingerprint }
+            failureUntil.keys.toList()
+                .filter { it.configurationFingerprint != configurationFingerprint }
+                .forEach(failureUntil::remove)
         } else {
             failureUntil.clear()
         }

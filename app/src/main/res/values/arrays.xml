@@ -70,6 +70,38 @@
         <item>60</item>
     </string-array>
 
+    <string-array name="clipDurationEntries">
+        <item>@string/clip_duration_15_seconds</item>
+        <item>@string/clip_duration_30_seconds</item>
+        <item>@string/clip_duration_45_seconds</item>
+        <item>@string/clip_duration_60_seconds</item>
+        <item>@string/clip_duration_90_seconds</item>
+        <item>@string/clip_duration_120_seconds</item>
+    </string-array>
+
+    <string-array name="clipDurationValues" translatable="false">
+        <item>15</item>
+        <item>30</item>
+        <item>45</item>
+        <item>60</item>
+        <item>90</item>
+        <item>120</item>
+    </string-array>
+
+    <string-array name="clipPreviewSeekEntries">
+        <item>@string/clip_preview_seek_3_seconds</item>
+        <item>@string/seek_seconds_5</item>
+        <item>@string/seek_seconds_10</item>
+        <item>@string/seek_seconds_15</item>
+    </string-array>
+
+    <string-array name="clipPreviewSeekValues" translatable="false">
+        <item>3</item>
+        <item>5</item>
+        <item>10</item>
+        <item>15</item>
+    </string-array>
+
     <string-array name="chatTextSizeEntries" translatable="false">
         <item>12 sp</item>
         <item>14 sp</item>

@@ -75,7 +75,7 @@ object C {
     const val FIRST_LAUNCH8 = "first_launch8"
     const val FIRST_LAUNCH9 = "first_launch9"
     const val SETTINGS_VERSION = "settings_version"
-    const val SETTINGS_SCHEMA_VERSION = 23
+    const val SETTINGS_SCHEMA_VERSION = 24
     const val SETTINGS_THEME_MODE = "settings_theme_mode"
     const val SETTINGS_DEVICE_COLORS = "settings_device_colors"
     const val SETTINGS_DENSITY = "settings_density"
@@ -88,6 +88,8 @@ object C {
     const val SETTINGS_PLAYER_SPEED_OPTIONS = "player_speed_options"
     const val SETTINGS_DEVELOPER_UNLOCKED = "developer_options_unlocked"
     const val SETTINGS_DEVELOPER_ENABLED = "developer_options_enabled"
+    const val CLIP_MAX_DURATION_SECONDS = "clip_max_duration_seconds"
+    const val CLIP_PREVIEW_SEEK_SECONDS = "clip_preview_seek_seconds"
     const val CHAT_WIDTH_PERCENT = "chatWidth"
     const val LANDSCAPE_CHAT_WIDTH = "landscape_chat_width"
     const val KEY_CHAT_OPENED = "key_chat_opened"

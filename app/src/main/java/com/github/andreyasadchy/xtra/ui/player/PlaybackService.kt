@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import android.util.Base64
 import androidx.annotation.OptIn
 import androidx.lifecycle.lifecycleScope
@@ -34,6 +35,7 @@ import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.XtraModule
@@ -217,6 +219,7 @@ class PlaybackService : MediaSessionService() {
                 object : MediaSession.Callback {
                     override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
                         val connectionResult = super.onConnect(session, controller)
+                        if (!isTrustedController(controller)) return connectionResult
                         val sessionCommands = connectionResult.availableSessionCommands.buildUpon().apply {
                             add(SessionCommand(START_STREAM, Bundle.EMPTY))
                             add(SessionCommand(UPDATE_VIEWING_METADATA, Bundle.EMPTY))
@@ -238,6 +241,9 @@ class PlaybackService : MediaSessionService() {
                     }
 
                     override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
+                        if (!isTrustedController(controller)) {
+                            return Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
+                        }
                         return when (customCommand.customAction) {
                             UPDATE_VIEWING_METADATA -> {
                                 handleViewingMetadataCommand(customCommand.customExtras, session.player)
@@ -804,6 +810,9 @@ class PlaybackService : MediaSessionService() {
             }
         }
     }
+
+    private fun isTrustedController(controller: MediaSession.ControllerInfo): Boolean =
+        controller.uid == Process.myUid() && controller.packageName == packageName
 
     private fun savePosition() {
         mediaSession?.player?.let { player ->

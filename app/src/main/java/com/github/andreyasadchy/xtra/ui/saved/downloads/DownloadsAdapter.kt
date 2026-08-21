@@ -82,7 +82,7 @@ class DownloadsAdapter(
                         OfflineVideo.STATUS_DOWNLOADING, OfflineVideo.STATUS_QUEUED, OfflineVideo.STATUS_WAITING_FOR_NETWORK, OfflineVideo.STATUS_WAITING_FOR_WIFI, OfflineVideo.STATUS_WAITING_FOR_STREAM -> {
                             menu.findItem(R.id.stopDownload).isVisible = true
                         }
-                        OfflineVideo.STATUS_PENDING -> {
+                        OfflineVideo.STATUS_PENDING, OfflineVideo.STATUS_FAILED -> {
                             if (item.live) {
                                 menu.findItem(R.id.stopDownload).isVisible = true
                             }
@@ -142,6 +142,7 @@ class DownloadsAdapter(
                     OfflineVideo.STATUS_WAITING_FOR_NETWORK -> context.getString(R.string.download_blocked)
                     OfflineVideo.STATUS_WAITING_FOR_WIFI -> context.getString(R.string.download_blocked_wifi)
                     OfflineVideo.STATUS_WAITING_FOR_STREAM -> context.getString(R.string.download_waiting_for_stream)
+                    OfflineVideo.STATUS_FAILED -> context.getString(R.string.download_failed)
                     else -> context.getString(R.string.download_pending)
                 }
                 if (item.downloadChat && itemStatus == OfflineVideo.STATUS_DOWNLOADING && progress != null && !item.live) {
@@ -185,14 +186,14 @@ class DownloadsAdapter(
                     val position = item.lastWatchPosition
                     val startFromBeginning = position != null && videoDuration != null && videoDuration > 0 && position >= videoDuration
                     root.setOnClickListener {
-                        (fragment.activity as MainActivity).startOfflineVideo(
-                            item,
-                            if (startFromBeginning) {
-                                0
-                            } else {
-                                null
-                            }
-                        )
+                        if (item.status == OfflineVideo.STATUS_FAILED) {
+                            resumeDownload(item)
+                        } else {
+                            (fragment.activity as MainActivity).startOfflineVideo(
+                                item,
+                                if (startFromBeginning) 0 else null,
+                            )
+                        }
                     }
                     root.setOnLongClickListener {
                         deleteVideo(item)
