@@ -21,19 +21,23 @@
         <item quantity="other">%s yayıncı</item>
     </plurals>
     <plurals name="languages">
-        <item quantity="one">Language: %s</item>
-        <item quantity="other">Languages: %s</item>
+        <item quantity="one">Dil: %s</item>
+        <item quantity="other">Diller: %s</item>
     </plurals>
     <plurals name="tags">
-        <item quantity="one">Tag: %s</item>
-        <item quantity="other">Tags: %s</item>
+        <item quantity="one">Etiket: %s</item>
+        <item quantity="other">Etiketler: %s</item>
     </plurals>
     <plurals name="followers">
-        <item quantity="one">%s follower</item>
+        <item quantity="one">%s takipçi</item>
         <item quantity="other">%s takipçi</item>
     </plurals>
     <plurals name="members">
-        <item quantity="one">%s member</item>
-        <item quantity="other">%s members</item>
+        <item quantity="one">%s üye</item>
+        <item quantity="other">%s üye</item>
+    </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="one">%d günlük aktif gün serisi</item>
+        <item quantity="other">%d günlük aktif gün serisi</item>
     </plurals>
 </resources>

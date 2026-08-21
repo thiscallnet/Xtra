@@ -310,7 +310,7 @@
     <string name="settings_theme_device_colors">Use device colors</string>
     <string name="settings_theme_device_colors_summary">Use colors from your device wallpaper when supported.</string>
     <string name="settings_theme_system">System</string>
-    <string name="settings_theme_amoled">AMOLED</string>
+    <string name="settings_theme_amoled" translatable="false">AMOLED</string>
     <string name="settings_density_comfortable">Comfortable</string>
     <string name="settings_density_compact">Compact</string>
     <string name="settings_browsing_streams_videos">Streams &amp; videos</string>
@@ -1350,4 +1350,28 @@
     <string name="login_compatibility_message">Approve the additional Twitch access so channel interactions and watch features work in Xtra.</string>
     <string name="login_compatibility_polling">Waiting for Twitch compatibility approval…</string>
     <string name="login_compatibility_unavailable">Twitch account connected, but full Twitch compatibility could not be enabled.</string>
+    <string name="network_library_automatic">Automatic</string>
+    <string name="download_duration_5_minutes">5 minutes</string>
+    <string name="download_duration_10_minutes">10 minutes</string>
+    <string name="download_duration_15_minutes">15 minutes</string>
+    <string name="download_duration_30_minutes">30 minutes</string>
+    <string name="download_duration_1_hour">1 hour</string>
+    <string name="download_duration_2_hours">2 hours</string>
+    <string name="download_duration_4_hours">4 hours</string>
+    <string name="download_duration_8_hours">8 hours</string>
+    <string name="settings_profile_picture_round">Round</string>
+    <string name="settings_profile_picture_rounded_square">Rounded square</string>
+    <string name="seek_seconds_5">5 sec</string>
+    <string name="seek_seconds_10">10 sec</string>
+    <string name="seek_seconds_15">15 sec</string>
+    <string name="seek_seconds_30">30 sec</string>
+    <string name="seek_seconds_60">60 sec</string>
+    <string name="seek_seconds_custom">Custom</string>
+    <string name="statistics_weekday_monday">Monday</string>
+    <string name="statistics_weekday_tuesday">Tuesday</string>
+    <string name="statistics_weekday_wednesday">Wednesday</string>
+    <string name="statistics_weekday_thursday">Thursday</string>
+    <string name="statistics_weekday_friday">Friday</string>
+    <string name="statistics_weekday_saturday">Saturday</string>
+    <string name="statistics_weekday_sunday">Sunday</string>
 </resources>

@@ -31,27 +31,33 @@
         <item quantity="other">%s стримеров</item>
     </plurals>
     <plurals name="languages">
-        <item quantity="one">Language: %s</item>
-        <item quantity="few">Languages: %s</item>
-        <item quantity="many">Languages: %s</item>
-        <item quantity="other">Languages: %s</item>
+        <item quantity="one">Язык: %s</item>
+        <item quantity="few">Языка: %s</item>
+        <item quantity="many">Языков: %s</item>
+        <item quantity="other">Языки: %s</item>
     </plurals>
     <plurals name="tags">
-        <item quantity="one">Tag: %s</item>
-        <item quantity="few">Tags: %s</item>
-        <item quantity="many">Tags: %s</item>
-        <item quantity="other">Tags: %s</item>
+        <item quantity="one">Тег: %s</item>
+        <item quantity="few">Тега: %s</item>
+        <item quantity="many">Тегов: %s</item>
+        <item quantity="other">Теги: %s</item>
     </plurals>
     <plurals name="followers">
-        <item quantity="one">%s follower</item>
-        <item quantity="few">%s отслеживающих</item>
-        <item quantity="many">%s отслеживающих</item>
-        <item quantity="other">%s отслеживающих</item>
+        <item quantity="one">%s подписчик</item>
+        <item quantity="few">%s подписчика</item>
+        <item quantity="many">%s подписчиков</item>
+        <item quantity="other">%s подписчиков</item>
     </plurals>
     <plurals name="members">
-        <item quantity="one">%s member</item>
+        <item quantity="one">Участник %s</item>
         <item quantity="few">%s участников</item>
         <item quantity="many">%s участников</item>
         <item quantity="other">%s участников</item>
+    </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="one">Серия активных дней %d</item>
+        <item quantity="few">Серия активных дней %d</item>
+        <item quantity="many">Серия активных дней %d</item>
+        <item quantity="other">Серия активных дней %d</item>
     </plurals>
 </resources>

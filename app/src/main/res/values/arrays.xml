@@ -1,51 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string-array name="playerEntries">
+    <string-array name="playerEntries" translatable="false">
         <item>ExoPlayer</item>
         <item>MediaPlayer</item>
     </string-array>
 
-    <string-array name="networkLibraryEntries">
-        <item>Automatic</item>
+    <string-array name="networkLibraryEntries" translatable="false">
+        <item>@string/network_library_automatic</item>
         <item>HttpEngine</item>
         <item>Cronet</item>
         <item>OkHttp</item>
     </string-array>
 
-    <string-array name="networkLibraryEntriesNoCronet">
-        <item>Automatic</item>
+    <string-array name="networkLibraryEntriesNoCronet" translatable="false">
+        <item>@string/network_library_automatic</item>
         <item>HttpEngine</item>
         <item>OkHttp</item>
     </string-array>
 
-    <string-array name="networkLibraryEntriesNoHttpEngine">
-        <item>Automatic</item>
+    <string-array name="networkLibraryEntriesNoHttpEngine" translatable="false">
+        <item>@string/network_library_automatic</item>
         <item>Cronet</item>
         <item>OkHttp</item>
     </string-array>
 
-    <string-array name="streamPreloadEntries">
+    <string-array name="streamPreloadEntries" translatable="false">
         <item>@string/stream_preload_off</item>
         <item>@string/stream_preload_wifi</item>
         <item>@string/stream_preload_all</item>
     </string-array>
 
-    <string-array name="streamPreloadValues">
+    <string-array name="streamPreloadValues" translatable="false">
         <item>off</item>
         <item>wifi</item>
         <item>all</item>
     </string-array>
 
     <string-array name="liveDownloadWaitEntries">
-        <item>15 minutes</item>
-        <item>30 minutes</item>
-        <item>1 hour</item>
-        <item>2 hours</item>
-        <item>4 hours</item>
-        <item>8 hours</item>
+        <item>@string/download_duration_15_minutes</item>
+        <item>@string/download_duration_30_minutes</item>
+        <item>@string/download_duration_1_hour</item>
+        <item>@string/download_duration_2_hours</item>
+        <item>@string/download_duration_4_hours</item>
+        <item>@string/download_duration_8_hours</item>
     </string-array>
 
-    <string-array name="liveDownloadWaitValues">
+    <string-array name="liveDownloadWaitValues" translatable="false">
         <item>15</item>
         <item>30</item>
         <item>60</item>
@@ -55,14 +55,14 @@
     </string-array>
 
     <string-array name="liveDownloadRestartWaitEntries">
-        <item>5 minutes</item>
-        <item>10 minutes</item>
-        <item>15 minutes</item>
-        <item>30 minutes</item>
-        <item>1 hour</item>
+        <item>@string/download_duration_5_minutes</item>
+        <item>@string/download_duration_10_minutes</item>
+        <item>@string/download_duration_15_minutes</item>
+        <item>@string/download_duration_30_minutes</item>
+        <item>@string/download_duration_1_hour</item>
     </string-array>
 
-    <string-array name="liveDownloadRestartWaitValues">
+    <string-array name="liveDownloadRestartWaitValues" translatable="false">
         <item>5</item>
         <item>10</item>
         <item>15</item>
@@ -70,7 +70,7 @@
         <item>60</item>
     </string-array>
 
-    <string-array name="chatTextSizeEntries">
+    <string-array name="chatTextSizeEntries" translatable="false">
         <item>12 sp</item>
         <item>14 sp</item>
         <item>16 sp</item>
@@ -79,7 +79,7 @@
         <item>24 sp</item>
     </string-array>
 
-    <string-array name="chatTextSizeValues">
+    <string-array name="chatTextSizeValues" translatable="false">
         <item>12</item>
         <item>14</item>
         <item>16</item>
@@ -88,7 +88,7 @@
         <item>24</item>
     </string-array>
 
-    <string-array name="chatEmoteSizeEntries">
+    <string-array name="chatEmoteSizeEntries" translatable="false">
         <item>20 dp</item>
         <item>24 dp</item>
         <item>29.5 dp</item>
@@ -97,7 +97,7 @@
         <item>48 dp</item>
     </string-array>
 
-    <string-array name="chatEmoteSizeValues">
+    <string-array name="chatEmoteSizeValues" translatable="false">
         <item>20</item>
         <item>24</item>
         <item>29.5</item>
@@ -106,66 +106,66 @@
         <item>48</item>
     </string-array>
 
-    <string-array name="nameDisplayEntries">
+    <string-array name="nameDisplayEntries" translatable="false">
         <item>@string/name_display_entry1</item>
         <item>@string/name_display_entry2</item>
         <item>@string/name_display_entry3</item>
     </string-array>
 
-    <string-array name="nameDisplayValues">
+    <string-array name="nameDisplayValues" translatable="false">
         <item>0</item>
         <item>1</item>
         <item>2</item>
     </string-array>
 
-    <string-array name="followButtonEntries">
+    <string-array name="followButtonEntries" translatable="false">
         <item>@string/follow_account</item>
         <item>@string/follow_local</item>
         <item>@string/hide</item>
     </string-array>
 
-    <string-array name="imageQualityEntries">
+    <string-array name="imageQualityEntries" translatable="false">
         <item>1x</item>
         <item>2x</item>
         <item>3x</item>
         <item>4x</item>
     </string-array>
 
-    <string-array name="imageQualityValues">
+    <string-array name="imageQualityValues" translatable="false">
         <item>1</item>
         <item>2</item>
         <item>3</item>
         <item>4</item>
     </string-array>
 
-    <string-array name="imageLibraryEntries">
+    <string-array name="imageLibraryEntries" translatable="false">
         <item>@string/imageLibraryEntries1</item>
         <item>@string/imageLibraryEntries2</item>
         <item>@string/imageLibraryEntries3</item>
     </string-array>
 
-    <string-array name="imageLibraryValues">
+    <string-array name="imageLibraryValues" translatable="false">
         <item>0</item>
         <item>1</item>
         <item>2</item>
     </string-array>
 
-    <string-array name="imageLibraryEntriesNoWebp">
+    <string-array name="imageLibraryEntriesNoWebp" translatable="false">
         <item>@string/imageLibraryEntries2</item>
         <item>@string/imageLibraryEntries3</item>
     </string-array>
 
-    <string-array name="imageLibraryValuesNoWebp">
+    <string-array name="imageLibraryValuesNoWebp" translatable="false">
         <item>1</item>
         <item>2</item>
     </string-array>
 
-    <string-array name="spinnerStorage">
+    <string-array name="spinnerStorage" translatable="false">
         <item>@string/shared_storage</item>
         <item>@string/app_storage</item>
     </string-array>
 
-    <string-array name="themeEntries">
+    <string-array name="themeEntries" translatable="false">
         <item>@string/dynamic_dark</item>
         <item>@string/dynamic_amoled</item>
         <item>@string/dynamic_light</item>
@@ -177,7 +177,7 @@
         <item>@string/modern_amoled</item>
     </string-array>
 
-    <string-array name="themeValues">
+    <string-array name="themeValues" translatable="false">
         <item>4</item>
         <item>6</item>
         <item>5</item>
@@ -189,7 +189,7 @@
         <item>8</item>
     </string-array>
 
-    <string-array name="themeNoDynamicEntries">
+    <string-array name="themeNoDynamicEntries" translatable="false">
         <item>@string/dark</item>
         <item>@string/amoled</item>
         <item>@string/light</item>
@@ -198,7 +198,7 @@
         <item>@string/modern_amoled</item>
     </string-array>
 
-    <string-array name="themeNoDynamicValues">
+    <string-array name="themeNoDynamicValues" translatable="false">
         <item>0</item>
         <item>1</item>
         <item>2</item>
@@ -207,26 +207,26 @@
         <item>8</item>
     </string-array>
 
-    <string-array name="roundedCornerEntries">
+    <string-array name="roundedCornerEntries" translatable="false">
         <item>@string/settings_corner_rounded</item>
         <item>@string/settings_corner_subtle</item>
         <item>@string/settings_corner_square</item>
     </string-array>
 
-    <string-array name="roundedCornerValues">
+    <string-array name="roundedCornerValues" translatable="false">
         <item>0</item>
         <item>1</item>
         <item>2</item>
     </string-array>
 
-    <string-array name="portraitColumnCount">
+    <string-array name="portraitColumnCount" translatable="false">
         <item>1</item>
         <item>2</item>
         <item>3</item>
         <item>4</item>
     </string-array>
 
-    <string-array name="landscapeColumnCount">
+    <string-array name="landscapeColumnCount" translatable="false">
         <item>1</item>
         <item>2</item>
         <item>3</item>
@@ -235,7 +235,7 @@
         <item>6</item>
     </string-array>
 
-    <string-array name="playerQualityEntries">
+    <string-array name="playerQualityEntries" translatable="false">
         <item>@string/saved_value</item>
         <item>@string/auto</item>
         <item>@string/source</item>
@@ -249,7 +249,7 @@
         <item>@string/audio_only</item>
     </string-array>
 
-    <string-array name="playerQualityValues">
+    <string-array name="playerQualityValues" translatable="false">
         <item>saved</item>
         <item>auto</item>
         <item>Source</item>
@@ -263,7 +263,7 @@
         <item>audio_only</item>
     </string-array>
 
-    <string-array name="languageEntries">
+    <string-array name="languageEntries" translatable="false">
         <item>@string/lang_auto</item>
         <item>@string/lang_de</item>
         <item>@string/lang_en</item>
@@ -281,7 +281,7 @@
         <item>@string/lang_zh_cn</item>
     </string-array>
 
-    <string-array name="language">
+    <string-array name="language" translatable="false">
         <item>auto</item>
         <item>de</item>
         <item>en</item>
@@ -299,43 +299,43 @@
         <item>zh-CN</item>
     </string-array>
 
-    <string-array name="miscValues">
+    <string-array name="miscValues" translatable="false">
         <item>0</item>
         <item>1</item>
         <item>2</item>
     </string-array>
 
-    <string-array name="followedEntries">
+    <string-array name="followedEntries" translatable="false">
         <item>@string/always</item>
         <item>@string/when_logged_in</item>
         <item>@string/never</item>
     </string-array>
 
-    <string-array name="liveNotificationModeEntries">
+    <string-array name="liveNotificationModeEntries" translatable="false">
         <item>@string/live_notifications_mode_battery</item>
         <item>@string/live_notifications_mode_fast</item>
         <item>@string/live_notifications_mode_persistent</item>
     </string-array>
 
-    <string-array name="liveNotificationModeValues">
+    <string-array name="liveNotificationModeValues" translatable="false">
         <item>battery</item>
         <item>fast</item>
         <item>persistent</item>
     </string-array>
 
-    <string-array name="chatFirstMsgEntries">
+    <string-array name="chatFirstMsgEntries" translatable="false">
         <item>@string/chatFirstMsgEntries1</item>
         <item>@string/chatFirstMsgEntries2</item>
         <item>@string/chatFirstMsgEntries3</item>
     </string-array>
 
-    <string-array name="loginApiEntries">
+    <string-array name="loginApiEntries" translatable="false">
         <item>@string/both</item>
         <item>GQL</item>
         <item>Helix</item>
     </string-array>
 
-    <string-array name="timestampEntries">
+    <string-array name="timestampEntries" translatable="false">
         <item>@string/timestamp_format_0</item>
         <item>@string/timestamp_format_1</item>
         <item>@string/timestamp_format_2</item>
@@ -346,7 +346,7 @@
         <item>@string/timestamp_format_7</item>
     </string-array>
 
-    <string-array name="timestampValues">
+    <string-array name="timestampValues" translatable="false">
         <item>0</item>
         <item>1</item>
         <item>2</item>
@@ -357,7 +357,7 @@
         <item>7</item>
     </string-array>
 
-    <string-array name="gqlUserLanguageEntries">
+    <string-array name="gqlUserLanguageEntries" translatable="false">
         <item>العربية</item>
         <item>American sign language</item>
         <item>Български</item>
@@ -395,7 +395,7 @@
         <item>@string/other</item>
     </string-array>
 
-    <string-array name="gqlUserLanguageValues">
+    <string-array name="gqlUserLanguageValues" translatable="false">
         <item>AR</item>
         <item>ASL</item>
         <item>BG</item>
@@ -433,60 +433,60 @@
         <item>OTHER</item>
     </string-array>
 
-    <string-array name="compactStreamsEntries">
+    <string-array name="compactStreamsEntries" translatable="false">
         <item>@string/settings_stream_card_standard</item>
         <item>@string/settings_stream_card_compact</item>
         <item>@string/settings_stream_card_followed_compact</item>
     </string-array>
 
-    <string-array name="compactStreamsValues">
+    <string-array name="compactStreamsValues" translatable="false">
         <item>disabled</item>
         <item>all</item>
         <item>followed</item>
     </string-array>
 
-    <string-array name="settingsThemeEntries">
+    <string-array name="settingsThemeEntries" translatable="false">
         <item>@string/settings_theme_system</item>
         <item>@string/light</item>
         <item>@string/dark</item>
         <item>@string/settings_theme_amoled</item>
     </string-array>
 
-    <string-array name="settingsThemeValues">
+    <string-array name="settingsThemeValues" translatable="false">
         <item>system</item>
         <item>light</item>
         <item>dark</item>
         <item>amoled</item>
     </string-array>
 
-    <string-array name="settingsDensityEntries">
+    <string-array name="settingsDensityEntries" translatable="false">
         <item>@string/settings_density_comfortable</item>
         <item>@string/settings_density_compact</item>
     </string-array>
 
-    <string-array name="settingsDensityValues">
+    <string-array name="settingsDensityValues" translatable="false">
         <item>comfortable</item>
         <item>compact</item>
     </string-array>
 
     <string-array name="settingsProfilePictureEntries">
-        <item>Round</item>
-        <item>Rounded square</item>
+        <item>@string/settings_profile_picture_round</item>
+        <item>@string/settings_profile_picture_rounded_square</item>
     </string-array>
 
-    <string-array name="settingsProfilePictureValues">
+    <string-array name="settingsProfilePictureValues" translatable="false">
         <item>round</item>
         <item>rounded_square</item>
     </string-array>
 
-    <string-array name="settingsTimestampEntries">
+    <string-array name="settingsTimestampEntries" translatable="false">
         <item>13:37</item>
         <item>13:37:42</item>
         <item>1:37 PM</item>
         <item>1:37:42 PM</item>
     </string-array>
 
-    <string-array name="settingsTimestampValues">
+    <string-array name="settingsTimestampValues" translatable="false">
         <item>0</item>
         <item>1</item>
         <item>2</item>

@@ -36,13 +36,18 @@
         <item quantity="other">Etiquetas: %s</item>
     </plurals>
     <plurals name="followers">
-        <item quantity="one">%s follower</item>
+        <item quantity="one">%s seguidor</item>
         <item quantity="many">%s seguidores</item>
         <item quantity="other">%s seguidores</item>
     </plurals>
     <plurals name="members">
-        <item quantity="one">%s member</item>
-        <item quantity="many">%s members</item>
-        <item quantity="other">%s members</item>
+        <item quantity="one">%s miembro</item>
+        <item quantity="many">%s miembros</item>
+        <item quantity="other">%s miembros</item>
+    </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="one">Racha de días activos de %d</item>
+        <item quantity="many">Racha de días activos de %d</item>
+        <item quantity="other">Racha de días activos de %d</item>
     </plurals>
 </resources>

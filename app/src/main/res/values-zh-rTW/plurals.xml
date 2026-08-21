@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <plurals name="views">
-        <item quantity="other">%s 觀看</item>
+        <item quantity="other">%s 次觀看</item>
     </plurals>
     <plurals name="viewers">
         <item quantity="other">%s 觀眾</item>
@@ -16,15 +16,18 @@
         <item quantity="other">%s 實況主</item>
     </plurals>
     <plurals name="languages">
-        <item quantity="other">Languages: %s</item>
+        <item quantity="other">語言： %s</item>
     </plurals>
     <plurals name="tags">
-        <item quantity="other">Tags: %s</item>
+        <item quantity="other">標籤： %s</item>
     </plurals>
     <plurals name="followers">
         <item quantity="other">%s 追隨者</item>
     </plurals>
     <plurals name="members">
-        <item quantity="other">%s members</item>
+        <item quantity="other">%s 成員</item>
+    </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="other">%d 天連續活躍日</item>
     </plurals>
 </resources>

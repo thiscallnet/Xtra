@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string-array name="statistics_weekdays">
-        <item>Monday</item>
-        <item>Tuesday</item>
-        <item>Wednesday</item>
-        <item>Thursday</item>
-        <item>Friday</item>
-        <item>Saturday</item>
-        <item>Sunday</item>
+        <item>@string/statistics_weekday_monday</item>
+        <item>@string/statistics_weekday_tuesday</item>
+        <item>@string/statistics_weekday_wednesday</item>
+        <item>@string/statistics_weekday_thursday</item>
+        <item>@string/statistics_weekday_friday</item>
+        <item>@string/statistics_weekday_saturday</item>
+        <item>@string/statistics_weekday_sunday</item>
     </string-array>
     <plurals name="statistics_active_day_streak">
         <item quantity="one">%d day active-day streak</item>

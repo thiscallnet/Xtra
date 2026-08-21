@@ -26,9 +26,9 @@
         <item quantity="other">%s diffuseurs</item>
     </plurals>
     <plurals name="languages">
-        <item quantity="one">Langage : %s</item>
-        <item quantity="many">Langages : %s</item>
-        <item quantity="other">Langages : %s</item>
+        <item quantity="one">Langue : %s</item>
+        <item quantity="many">Langues : %s</item>
+        <item quantity="other">Langues : %s</item>
     </plurals>
     <plurals name="tags">
         <item quantity="one">Tag : %s</item>
@@ -36,13 +36,18 @@
         <item quantity="other">Tags : %s</item>
     </plurals>
     <plurals name="followers">
-        <item quantity="one">%s follower</item>
-        <item quantity="many">%s followers</item>
-        <item quantity="other">%s followers</item>
+        <item quantity="one">%s abonné</item>
+        <item quantity="many">%s abonnés</item>
+        <item quantity="other">%s abonnés</item>
     </plurals>
     <plurals name="members">
-        <item quantity="one">%s member</item>
-        <item quantity="many">%s members</item>
-        <item quantity="other">%s members</item>
+        <item quantity="one">%s membre</item>
+        <item quantity="many">%s membres</item>
+        <item quantity="other">%s membres</item>
+    </plurals>
+    <plurals name="statistics_active_day_streak">
+        <item quantity="one">Séquence de jours actifs %d</item>
+        <item quantity="many">Séquence de jours actifs %d</item>
+        <item quantity="other">Séquence de jours actifs %d</item>
     </plurals>
 </resources>
