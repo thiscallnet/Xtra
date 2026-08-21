@@ -13,14 +13,29 @@ val applicationVersionCode = providers.gradleProperty("ciVersionCode")
     .orNull
     ?.toInt()
     ?: defaultVersionCode
-val twitchPublicClientId = providers.gradleProperty("twitchPublicClientId").orElse("").get()
-val releaseTaskRequested = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+/**
+ * This is Xtra's public Helix client ID, also used by the app's API defaults.
+ * Keep it in sync with C.DEFAULT_HELIX_CLIENT_ID. Debug builds use it automatically;
+ * release builds must provide their own value.
+ */
+val localDevelopmentTwitchPublicClientId = "ilfexgv3nnljz3isbm257gzwrzr7bi"
+val configuredTwitchPublicClientId = providers.gradleProperty("twitchPublicClientId")
+    .orNull
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
+    val requestedTask = taskName.substringAfterLast(':')
+    requestedTask.contains("release", ignoreCase = true) ||
+        requestedTask in setOf("assemble", "build", "bundle")
+}
 
 if (releaseTaskRequested) {
-    require(twitchPublicClientId.isNotBlank()) {
+    require(configuredTwitchPublicClientId != null) {
         "twitchPublicClientId is required for release builds"
     }
 }
+
+val twitchPublicClientId = configuredTwitchPublicClientId ?: localDevelopmentTwitchPublicClientId
 
 require(applicationVersionCode in 1..2_100_000_000) {
     "versionCode must be between 1 and 2,100,000,000"
