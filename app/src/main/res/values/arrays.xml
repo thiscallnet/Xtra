@@ -24,6 +24,18 @@
         <item>OkHttp</item>
     </string-array>
 
+    <string-array name="streamPreloadEntries">
+        <item>@string/stream_preload_off</item>
+        <item>@string/stream_preload_wifi</item>
+        <item>@string/stream_preload_all</item>
+    </string-array>
+
+    <string-array name="streamPreloadValues">
+        <item>off</item>
+        <item>wifi</item>
+        <item>all</item>
+    </string-array>
+
     <string-array name="liveDownloadWaitEntries">
         <item>15 minutes</item>
         <item>30 minutes</item>

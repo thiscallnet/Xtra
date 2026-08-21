@@ -408,6 +408,10 @@
     <string name="settings_api_authentication">API &amp; authentication</string>
     <string name="settings_networking">Networking</string>
     <string name="settings_network_engine">Network engine</string>
+    <string name="settings_stream_preloading">Smart stream preloading</string>
+    <string name="stream_preload_off">Off</string>
+    <string name="stream_preload_wifi">Wi-Fi only</string>
+    <string name="stream_preload_all">Wi-Fi and mobile data</string>
     <string name="settings_chat_diagnostics">Chat diagnostics</string>
     <string name="settings_playback_diagnostics">Playback diagnostics</string>
     <string name="settings_twitch_api_diagnostics">Twitch API diagnostics</string>
