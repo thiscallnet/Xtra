@@ -180,7 +180,7 @@
     <string name="settings_player_menu_actions">Akce streamu</string>
     <string name="settings_player_menu_chat">Chat a nástroje</string>
     <string name="settings_player_quality">Kvalita a latence</string>
-    <string name="settings_player_behavior">Chování hráče</string>
+    <string name="settings_player_behavior">Chování přehrávače</string>
     <string name="settings_buffer_limits">Limity vyrovnávací paměti</string>
     <string name="settings_buffer_live">Živá latence</string>
     <string name="settings_playback_stream">Požadavky na stream</string>
@@ -1143,7 +1143,7 @@
     <string name="live_max_speed_summary">Maximální rychlost přehrávání streamů jako desetinné číslo</string>
     <string name="live_target_offset_summary">Posun od živé hrany v milisekundách</string>
     <string name="hide_stream_previews">Skrýt náhledy streamů</string>
-    <string name="player_settings">Hráč</string>
+    <string name="player_settings">Přehrávač</string>
     <string name="save_video_positions">Uložte pozice sledovaných videí</string>
     <string name="delete_video_positions">Smazat pozice videa</string>
     <string name="delete_video_positions_message">Opravdu chcete smazat všechny uložené pozice videa?</string>
@@ -1196,7 +1196,7 @@
     <string name="save_filters">Uložte filtry</string>
     <string name="delete_filter_message">Opravdu chcete tento filtr smazat?</string>
     <string name="use_custom_playback_service">Použijte vlastní službu přehrávání</string>
-    <string name="move_player_freely">Minimalizovaným hráčem můžete volně pohybovat</string>
+    <string name="move_player_freely">Volně přesouvat minimalizovaný přehrávač</string>
     <string name="store_recent_searches">Ukládat poslední vyhledávání</string>
     <string name="delete_recent_searches">Smazat poslední vyhledávání</string>
     <string name="delete_recent_searches_message">Opravdu chcete smazat všechna nedávná vyhledávání?</string>
@@ -1223,7 +1223,7 @@
     <string name="handle_audio_becoming_noisy_summary">Pauza, když jsou odpojena sluchátka nebo jiné zvukové zařízení.</string>
     <string name="old_username">Starý název: %s</string>
     <string name="default_cellular_quality">Výchozí kvalita přehrávače v mobilní síti</string>
-    <string name="player">Hráč</string>
+    <string name="player">Přehrávač</string>
     <string name="compact_number_formatting">Kompaktní formátování čísel</string>
     <string name="less_rounded_corners">Méně zaoblené</string>
     <string name="reduced_padding">Snížené polstrování</string>

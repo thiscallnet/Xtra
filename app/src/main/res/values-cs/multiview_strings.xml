@@ -88,4 +88,5 @@
     <string name="multiview_combined_message_description">%1$s chatová zpráva: %2$s</string>
     <string name="multiview_background_playback">Přehrávání multiview</string>
     <string name="multiview_background_playback_description">Zvuk se přehrává, zatímco je video skryté.</string>
+    <string name="multiview_raids">Při raidu přepnout stream v multiview</string>
 </resources>

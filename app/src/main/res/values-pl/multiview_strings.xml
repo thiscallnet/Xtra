@@ -88,4 +88,5 @@
     <string name="multiview_combined_message_description">%1$s wiadomość na czacie: %2$s</string>
     <string name="multiview_background_playback">Odtwarzanie w wielu widokach</string>
     <string name="multiview_background_playback_description">Odtwarza dźwięk, gdy wideo jest ukryte.</string>
+    <string name="multiview_raids">Przełącz transmisję podczas rajdu w multiview</string>
 </resources>
