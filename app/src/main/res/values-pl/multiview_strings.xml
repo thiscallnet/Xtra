@@ -40,7 +40,7 @@
     <string name="multiview_quality_1080p">1080p</string>
     <string name="multiview_quality_smart">Inteligentny</string>
     <string name="multiview_quality_data_saver">Oszczędzanie danych</string>
-    <string name="multiview_quality_high">Wysoki Jakość</string>
+    <string name="multiview_quality_high">Wysoka jakość</string>
     <string name="multiview_quality_custom">Niestandardowy</string>
     <string name="multiview_quality">Jakość</string>
     <string name="multiview_quality_for">Jakość dla %s</string>
@@ -59,7 +59,7 @@
     <string name="multiview_volume">Głośność</string>
     <string name="multiview_volume_for">Głośność dla %s</string>
     <string name="multiview_mute">Wycisz</string>
-    <string name="multiview_unmute">Włącz wyciszenie</string>
+    <string name="multiview_unmute">Włącz dźwięk</string>
     <string name="multiview_minimize">Minimalizuj wiele widoków</string>
     <string name="multiview_buffering">Buforowanie…</string>
     <string name="multiview_reconnecting">Ponowne łączenie…</string>
