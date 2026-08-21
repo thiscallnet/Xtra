@@ -1,0 +1,26 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <PreferenceCategory android:title="@string/settings_clip_capture" app:iconSpaceReserved="false" />
+    <ListPreference
+        android:defaultValue="30"
+        android:entries="@array/clipDurationEntries"
+        android:entryValues="@array/clipDurationValues"
+        android:key="clip_max_duration_seconds"
+        android:summary="%s"
+        android:title="@string/settings_clip_max_duration"
+        app:iconSpaceReserved="false" />
+    <ListPreference
+        android:defaultValue="5"
+        android:entries="@array/clipPreviewSeekEntries"
+        android:entryValues="@array/clipPreviewSeekValues"
+        android:key="clip_preview_seek_seconds"
+        android:summary="%s"
+        android:title="@string/settings_clip_preview_seek"
+        app:iconSpaceReserved="false" />
+
+    <PreferenceCategory android:title="@string/settings_clip_storage" app:iconSpaceReserved="false" />
+    <Preference
+        android:selectable="false"
+        android:summary="@string/settings_clip_storage_summary"
+        android:title="@string/settings_clip_storage_location"
+        app:iconSpaceReserved="false" />
+</androidx.preference.PreferenceScreen>

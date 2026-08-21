@@ -604,4 +604,11 @@
     <string name="following_overview_sections">关注概览分区</string>
     <string name="following_overview_sections_summary">选择分区并拖动以重新排序</string>
     <string name="following_no_sections_enabled">没有启用概览分区。打开设置 → 关注概览以添加分区。</string>
+    <string name="settings_clip_capture">本地剪辑</string>
+    <string name="settings_clip_capture_summary">选择剪辑编辑器保留多少直播视频供使用。</string>
+    <string name="settings_clip_max_duration">剪辑最大时长</string>
+    <string name="settings_clip_preview_seek">预览跳转间隔</string>
+    <string name="settings_clip_storage">存储</string>
+    <string name="settings_clip_storage_location">保存位置</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>

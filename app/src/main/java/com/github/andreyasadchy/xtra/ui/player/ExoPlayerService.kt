@@ -221,6 +221,7 @@ class ExoPlayerService : BasePlaybackService() {
                     updateNotification()
                     if (type == STREAM) {
                         (player?.currentManifest as? HlsManifest)?.let { manifest ->
+                            configureLiveClipBuffer()
                             liveClipBufferManager.capture(manifest)
                             serviceListener?.updateLiveClipStatus()
                         }
@@ -1479,8 +1480,12 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
-    fun liveClipStatus(): LiveClipBufferManager.Status? =
-        if (type == STREAM && liveClipDataSourceFactory != null) liveClipBufferManager.status() else null
+    fun liveClipStatus(): LiveClipBufferManager.Status? = if (type == STREAM && liveClipDataSourceFactory != null) {
+        val maxDurationUs = configureLiveClipBuffer()
+        liveClipBufferManager.status(maxDurationUs)
+    } else {
+        null
+    }
 
     suspend fun awaitInitialRestore() {
         initialRestore.await()
@@ -1488,7 +1493,8 @@ class ExoPlayerService : BasePlaybackService() {
 
     fun prepareLiveClip(): Deferred<ClipPreparationRepository.PreparedLiveClip> {
         liveClipPreparation?.takeUnless { it.isCompleted }?.let { return it }
-        val snapshot = liveClipBufferManager.snapshot()
+        val maxDurationUs = configureLiveClipBuffer()
+        val snapshot = liveClipBufferManager.snapshot(maxDurationUs)
         val dataSourceFactory = liveClipDataSourceFactory
         val preparation = lifecycleScope.async(Dispatchers.IO) {
             check(type == STREAM && dataSourceFactory != null && snapshot != null) {
@@ -1512,6 +1518,23 @@ class ExoPlayerService : BasePlaybackService() {
             }
         }
         return preparation
+    }
+
+    private fun configureLiveClipBuffer(): Long {
+        val maxDurationSeconds = prefs()
+            .getString(
+                C.CLIP_MAX_DURATION_SECONDS,
+                LiveClipBufferManager.DEFAULT_CLIP_DURATION_SECONDS.toString(),
+            )
+            ?.toIntOrNull()
+            ?.coerceIn(
+                LiveClipBufferManager.MIN_CLIP_DURATION_SECONDS,
+                LiveClipBufferManager.MAX_CLIP_DURATION_SECONDS,
+            )
+            ?: LiveClipBufferManager.DEFAULT_CLIP_DURATION_SECONDS
+        val maxDurationUs = maxDurationSeconds * 1_000_000L
+        liveClipBufferManager.setRetentionUs(maxDurationUs + LiveClipBufferManager.RETENTION_MARGIN_US)
+        return maxDurationUs
     }
 
     fun cancelLiveClipPreparation() {

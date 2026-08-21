@@ -604,4 +604,11 @@
     <string name="following_overview_sections">フォロー概要のセクション</string>
     <string name="following_overview_sections_summary">セクションを選択してドラッグし、順序を変更します</string>
     <string name="following_no_sections_enabled">有効な概要セクションがありません。設定 → フォロー概要を開いて追加してください。</string>
+    <string name="settings_clip_capture">ローカルクリップ</string>
+    <string name="settings_clip_capture_summary">クリップエディターで保持するライブ映像の長さを選択します。</string>
+    <string name="settings_clip_max_duration">クリップの最大長</string>
+    <string name="settings_clip_preview_seek">プレビューのシーク幅</string>
+    <string name="settings_clip_storage">ストレージ</string>
+    <string name="settings_clip_storage_location">保存先</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>

@@ -604,4 +604,11 @@
     <string name="following_overview_sections">أقسام نظرة عامة على المتابعة</string>
     <string name="following_overview_sections_summary">اختر الأقسام واسحبها لإعادة ترتيبها</string>
     <string name="following_no_sections_enabled">لا توجد أقسام مفعلة. افتح الإعدادات ← نظرة عامة على المتابعة لإضافة قسم.</string>
+    <string name="settings_clip_capture">المقاطع المحلية</string>
+    <string name="settings_clip_capture_summary">اختر مقدار الفيديو المباشر الذي يحتفظ به محرر المقاطع ليكون متاحًا.</string>
+    <string name="settings_clip_max_duration">الحد الأقصى لمدة المقطع</string>
+    <string name="settings_clip_preview_seek">مقدار التقديم في المعاينة</string>
+    <string name="settings_clip_storage">التخزين</string>
+    <string name="settings_clip_storage_location">موقع الحفظ</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>

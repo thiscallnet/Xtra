@@ -605,4 +605,11 @@
     <string name="following_overview_sections">Bagian Ikhtisar Mengikuti</string>
     <string name="following_overview_sections_summary">Pilih bagian dan seret untuk mengurutkannya</string>
     <string name="following_no_sections_enabled">Tidak ada bagian Ikhtisar yang diaktifkan. Buka Setelan → Ikhtisar Mengikuti untuk menambahkan satu.</string>
+    <string name="settings_clip_capture">Klip lokal</string>
+    <string name="settings_clip_capture_summary">Pilih berapa banyak video langsung yang tetap tersedia untuk editor klip.</string>
+    <string name="settings_clip_max_duration">Durasi klip maksimum</string>
+    <string name="settings_clip_preview_seek">Besaran lompatan pratinjau</string>
+    <string name="settings_clip_storage">Penyimpanan</string>
+    <string name="settings_clip_storage_location">Lokasi penyimpanan</string>
+    <string name="settings_clip_storage_summary">Movies/Xtra/Clips</string>
 </resources>
