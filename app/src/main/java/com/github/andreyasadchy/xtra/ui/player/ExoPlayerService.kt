@@ -25,7 +25,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.PowerManager
 import android.util.Base64
 import android.util.Log
 import android.view.KeyEvent
@@ -144,7 +143,7 @@ class ExoPlayerService : BasePlaybackService() {
     private var updateQualities = false
     private var created = false
     private var resumeWhenForeground = false
-    private var backgroundVideoDisabled = false
+    private val videoOutputState = VideoOutputState()
     private var streamRecoveryJob: Job? = null
     private var streamRecoveryAttempt = 0
     private val initialRestore = CompletableDeferred<Unit>()
@@ -167,7 +166,6 @@ class ExoPlayerService : BasePlaybackService() {
         fun updateLiveClipStatus() {}
         fun toast(resId: Int, duration: Int)
         fun updateVideoInfo()
-        fun changeSurfaceVisibility(visible: Boolean) {}
     }
 
     var serviceListener: Listener? = null
@@ -1843,33 +1841,27 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
-    fun stop(isInPIPMode: Boolean) {
-        player?.let { player ->
-            setProxyMediaPlaylist(false)
-            resumeWhenForeground = false
-            val isInteractive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
-            if (prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
-                if (player.playWhenReady && quality?.name != AUDIO_ONLY_QUALITY) {
-                    if (player.currentMediaItem != null) {
-                        backgroundVideoDisabled = true
-                        serviceListener?.changeSurfaceVisibility(false)
-                    }
-                }
-            } else {
-                resumeWhenForeground = player.playWhenReady && player.playbackState != Player.STATE_ENDED
-                player.pause()
-            }
+    fun stop(isInPIPMode: Boolean): Boolean {
+        val player = player ?: return false
+        setProxyMediaPlaylist(false)
+        resumeWhenForeground = false
+        if (isInPIPMode) {
+            return false
         }
+        if (prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
+            if (player.playWhenReady && quality?.name != AUDIO_ONLY_QUALITY && player.currentMediaItem != null) {
+                videoOutputState.markDetachedForBackground()
+                return true
+            }
+        } else {
+            resumeWhenForeground = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+            player.pause()
+        }
+        return false
     }
 
-    fun restoreBackgroundVideoIfNeeded() {
-        if (!backgroundVideoDisabled) {
-            return
-        }
-        backgroundVideoDisabled = false
-        player?.let { player ->
-            serviceListener?.changeSurfaceVisibility(true)
-        }
+    fun restoreVideoOutputIfNeeded(restore: () -> Boolean): Boolean {
+        return videoOutputState.restoreIfNeeded(restore)
     }
 
     fun resumePlaybackIfNeeded() {
@@ -2384,7 +2376,6 @@ class ExoPlayerService : BasePlaybackService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         savePosition()
-        val isInteractive = (getSystemService(POWER_SERVICE) as PowerManager).isInteractive
         val keepPlayback = player?.playWhenReady == true
                 && player?.playbackState != Player.STATE_ENDED
                 && prefs().getBoolean(C.PLAYER_KEEP_PLAYING_AFTER_TASK_REMOVED, true)
@@ -2408,7 +2399,7 @@ class ExoPlayerService : BasePlaybackService() {
         primaryStreamRestoreJob?.cancel()
         primaryStreamRestoreJob = null
         adController.reset()
-        backgroundVideoDisabled = false
+        videoOutputState.clear()
         player?.release()
         session?.release()
         bitmapLoadJob?.cancel()

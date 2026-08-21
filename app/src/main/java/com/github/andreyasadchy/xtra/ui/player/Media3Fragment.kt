@@ -8,7 +8,6 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.text.format.DateUtils
 import android.util.Log
 import android.view.View
@@ -120,7 +119,6 @@ class Media3Fragment : Media3PlayerFragment() {
                 MediaController.releaseFuture(future)
                 return@addListener
             }
-            controller.setVideoSurfaceView(binding.playerSurface)
             val listener = object : Player.Listener {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
@@ -464,9 +462,13 @@ class Media3Fragment : Media3PlayerFragment() {
                     }
                 }
             }
-            if (viewModel.backgroundVideoDisabled) {
-                viewModel.backgroundVideoDisabled = false
+            val restored = viewModel.videoOutputState.restoreIfNeeded {
                 binding.playerSurface.visibility = View.VISIBLE
+                controller.setVideoSurfaceView(binding.playerSurface)
+                true
+            }
+            if (!restored) {
+                controller.setVideoSurfaceView(binding.playerSurface)
             }
             controller.addListener(listener)
             playerListener = listener
@@ -1263,6 +1265,11 @@ class Media3Fragment : Media3PlayerFragment() {
 
     override fun onStop() {
         super.onStop()
+        val isInPIPMode = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> requireActivity().isInPictureInPictureMode
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> !useController && isMaximized
+            else -> false
+        }
         player?.let { player ->
             if (player.isConnected) {
                 savePosition()
@@ -1276,16 +1283,10 @@ class Media3Fragment : Media3PlayerFragment() {
                     )
                     viewModel.usingProxy = false
                 }
-                val isInteractive = (requireContext().getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
-                val isInPIPMode = when {
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> requireActivity().isInPictureInPictureMode
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> !useController && isMaximized
-                    else -> false
-                }
                 if (requireContext().prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
-                    if (player.playWhenReady && viewModel.quality?.name != AUDIO_ONLY_QUALITY) {
+                    if (!isInPIPMode && player.playWhenReady && viewModel.quality?.name != AUDIO_ONLY_QUALITY) {
                         if (player.currentMediaItem != null) {
-                            viewModel.backgroundVideoDisabled = true
+                            viewModel.videoOutputState.markDetachedForBackground()
                             binding.playerSurface.visibility = View.GONE
                         }
                     }
@@ -1309,7 +1310,9 @@ class Media3Fragment : Media3PlayerFragment() {
             }
         }
         binding.playerControls.root.removeCallbacks(updateProgressAction)
-        releaseController()
+        if (!isInPIPMode) {
+            releaseController()
+        }
     }
 
     override fun onNetworkRestored() {

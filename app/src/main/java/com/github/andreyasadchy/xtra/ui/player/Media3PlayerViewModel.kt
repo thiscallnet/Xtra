@@ -106,7 +106,7 @@ class Media3PlayerViewModel(
     var updateQualities = false
     var started = false
     var restoreQuality = false
-    var backgroundVideoDisabled = false
+    internal val videoOutputState = VideoOutputState()
     var resume = false
     var hidden = false
     val loaded = MutableStateFlow(false)
