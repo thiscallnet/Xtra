@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">Ancora nessuna clip</string>
+    <string name="clips_empty_message">Le clip che salvi dal lettore appariranno qui.</string>
+    <string name="clips_preview_empty">Seleziona una clip per visualizzarla in anteprima</string>
+    <string name="clips_autoplay">Riproduci automaticamente le anteprime</string>
+    <string name="clips_autoplay_summary">Le anteprime senza audio si ripetono mentre questa pagina è aperta.</string>
+    <string name="clips_sort">Ordina</string>
+    <string name="clips_sort_button">Ordina: %s</string>
+    <string name="clips_sort_newest">Più recenti</string>
+    <string name="clips_sort_oldest">Meno recenti</string>
+    <string name="clips_sort_name">Nome</string>
+    <string name="clips_delete_all">Elimina tutto</string>
+    <string name="clips_delete_title">Eliminare la clip?</string>
+    <string name="clips_delete_message">Eliminare %s da questo dispositivo?</string>
+    <string name="clips_delete_all_title">Eliminare tutte le clip?</string>
+    <string name="clips_delete_all_message">Questo rimuoverà %d clip da questo dispositivo.</string>
+    <string name="clips_load_error">Impossibile caricare le clip.</string>
+    <string name="clips_share_failed">Impossibile condividere questa clip.</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">Anteprima</string>
+</resources>

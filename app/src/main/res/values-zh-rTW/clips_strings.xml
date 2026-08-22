@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">還沒有片段</string>
+    <string name="clips_empty_message">從播放器儲存的片段會顯示在這裡。</string>
+    <string name="clips_preview_empty">選擇片段以預覽</string>
+    <string name="clips_autoplay">自動播放預覽</string>
+    <string name="clips_autoplay_summary">開啟此頁面時，靜音預覽會重複播放。</string>
+    <string name="clips_sort">排序</string>
+    <string name="clips_sort_button">排序：%s</string>
+    <string name="clips_sort_newest">最新優先</string>
+    <string name="clips_sort_oldest">最舊優先</string>
+    <string name="clips_sort_name">名稱</string>
+    <string name="clips_delete_all">全部刪除</string>
+    <string name="clips_delete_title">刪除片段？</string>
+    <string name="clips_delete_message">要從此裝置刪除 %s 嗎？</string>
+    <string name="clips_delete_all_title">刪除所有片段？</string>
+    <string name="clips_delete_all_message">這會從此裝置刪除 %d 個片段。</string>
+    <string name="clips_load_error">無法載入片段。</string>
+    <string name="clips_share_failed">無法分享此片段。</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">預覽</string>
+</resources>

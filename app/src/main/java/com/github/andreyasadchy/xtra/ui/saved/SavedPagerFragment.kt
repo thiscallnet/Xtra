@@ -215,6 +215,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
                     "0" -> getString(R.string.bookmarks)
                     "1" -> getString(R.string.downloads)
                     "2" -> getString(R.string.filters)
+                    "3" -> getString(R.string.clips)
                     else -> getString(R.string.bookmarks)
                 }
             }.attach()

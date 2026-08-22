@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">Клипов пока нет</string>
+    <string name="clips_empty_message">Здесь появятся клипы, сохранённые из проигрывателя.</string>
+    <string name="clips_preview_empty">Выберите клип для предпросмотра</string>
+    <string name="clips_autoplay">Автовоспроизведение предпросмотра</string>
+    <string name="clips_autoplay_summary">Беззвучные предпросмотры повторяются, пока эта страница открыта.</string>
+    <string name="clips_sort">Сортировка</string>
+    <string name="clips_sort_button">Сортировка: %s</string>
+    <string name="clips_sort_newest">Сначала новые</string>
+    <string name="clips_sort_oldest">Сначала старые</string>
+    <string name="clips_sort_name">Название</string>
+    <string name="clips_delete_all">Удалить всё</string>
+    <string name="clips_delete_title">Удалить клип?</string>
+    <string name="clips_delete_message">Удалить %s с этого устройства?</string>
+    <string name="clips_delete_all_title">Удалить все клипы?</string>
+    <string name="clips_delete_all_message">Это удалит с устройства %d клипов.</string>
+    <string name="clips_load_error">Не удалось загрузить клипы.</string>
+    <string name="clips_share_failed">Не удалось поделиться этим клипом.</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">Предпросмотр</string>
+</resources>

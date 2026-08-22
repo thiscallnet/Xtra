@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="clips_count">
+        <item quantity="zero">%d مقطع</item>
+        <item quantity="one">%d مقطع</item>
+        <item quantity="two">%d مقطعان</item>
+        <item quantity="few">%d مقاطع</item>
+        <item quantity="many">%d مقطعًا</item>
+        <item quantity="other">%d مقطع</item>
+    </plurals>
+</resources>

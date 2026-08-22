@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">クリップはまだありません</string>
+    <string name="clips_empty_message">プレーヤーから保存したクリップがここに表示されます。</string>
+    <string name="clips_preview_empty">プレビューするクリップを選択</string>
+    <string name="clips_autoplay">プレビューを自動再生</string>
+    <string name="clips_autoplay_summary">このページを開いている間、ミュートされたプレビューを繰り返し再生します。</string>
+    <string name="clips_sort">並べ替え</string>
+    <string name="clips_sort_button">並べ替え: %s</string>
+    <string name="clips_sort_newest">新しい順</string>
+    <string name="clips_sort_oldest">古い順</string>
+    <string name="clips_sort_name">名前</string>
+    <string name="clips_delete_all">すべて削除</string>
+    <string name="clips_delete_title">クリップを削除しますか？</string>
+    <string name="clips_delete_message">このデバイスから %s を削除しますか？</string>
+    <string name="clips_delete_all_title">すべてのクリップを削除しますか？</string>
+    <string name="clips_delete_all_message">このデバイスから %d 個のクリップを削除します。</string>
+    <string name="clips_load_error">クリップを読み込めませんでした。</string>
+    <string name="clips_share_failed">このクリップを共有できませんでした。</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">プレビュー</string>
+</resources>

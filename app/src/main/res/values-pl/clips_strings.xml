@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">Brak klipów</string>
+    <string name="clips_empty_message">Zapisane z odtwarzacza klipy pojawią się tutaj.</string>
+    <string name="clips_preview_empty">Wybierz klip do podglądu</string>
+    <string name="clips_autoplay">Autoodtwarzanie podglądów</string>
+    <string name="clips_autoplay_summary">Wyciszone podglądy są powtarzane, gdy ta strona jest otwarta.</string>
+    <string name="clips_sort">Sortuj</string>
+    <string name="clips_sort_button">Sortuj: %s</string>
+    <string name="clips_sort_newest">Najnowsze</string>
+    <string name="clips_sort_oldest">Najstarsze</string>
+    <string name="clips_sort_name">Nazwa</string>
+    <string name="clips_delete_all">Usuń wszystko</string>
+    <string name="clips_delete_title">Usunąć klip?</string>
+    <string name="clips_delete_message">Usunąć %s z tego urządzenia?</string>
+    <string name="clips_delete_all_title">Usunąć wszystkie klipy?</string>
+    <string name="clips_delete_all_message">Spowoduje to usunięcie %d klipów z tego urządzenia.</string>
+    <string name="clips_load_error">Nie udało się wczytać klipów.</string>
+    <string name="clips_share_failed">Nie udało się udostępnić tego klipu.</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">Podgląd</string>
+</resources>

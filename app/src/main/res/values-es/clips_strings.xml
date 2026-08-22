@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">Aún no hay clips</string>
+    <string name="clips_empty_message">Los clips que guardes desde el reproductor aparecerán aquí.</string>
+    <string name="clips_preview_empty">Selecciona un clip para previsualizarlo</string>
+    <string name="clips_autoplay">Reproducir vistas previas automáticamente</string>
+    <string name="clips_autoplay_summary">Las vistas previas sin sonido se repiten mientras esta página está abierta.</string>
+    <string name="clips_sort">Ordenar</string>
+    <string name="clips_sort_button">Ordenar: %s</string>
+    <string name="clips_sort_newest">Más recientes primero</string>
+    <string name="clips_sort_oldest">Más antiguos primero</string>
+    <string name="clips_sort_name">Nombre</string>
+    <string name="clips_delete_all">Eliminar todo</string>
+    <string name="clips_delete_title">¿Eliminar clip?</string>
+    <string name="clips_delete_message">¿Eliminar %s de este dispositivo?</string>
+    <string name="clips_delete_all_title">¿Eliminar todos los clips?</string>
+    <string name="clips_delete_all_message">Esto elimina %d clips de este dispositivo.</string>
+    <string name="clips_load_error">No se han podido cargar tus clips.</string>
+    <string name="clips_share_failed">No se ha podido compartir este clip.</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">Vista previa</string>
+</resources>

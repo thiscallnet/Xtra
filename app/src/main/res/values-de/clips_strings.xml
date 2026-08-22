@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">Noch keine Clips</string>
+    <string name="clips_empty_message">Hier werden Clips angezeigt, die du im Player speicherst.</string>
+    <string name="clips_preview_empty">Clip zur Vorschau auswählen</string>
+    <string name="clips_autoplay">Vorschauen automatisch abspielen</string>
+    <string name="clips_autoplay_summary">Stumme Vorschauen werden wiederholt, solange diese Seite geöffnet ist.</string>
+    <string name="clips_sort">Sortieren</string>
+    <string name="clips_sort_button">Sortieren: %s</string>
+    <string name="clips_sort_newest">Neueste zuerst</string>
+    <string name="clips_sort_oldest">Älteste zuerst</string>
+    <string name="clips_sort_name">Name</string>
+    <string name="clips_delete_all">Alle löschen</string>
+    <string name="clips_delete_title">Clip löschen?</string>
+    <string name="clips_delete_message">%s von diesem Gerät löschen?</string>
+    <string name="clips_delete_all_title">Alle Clips löschen?</string>
+    <string name="clips_delete_all_message">Dadurch werden %d Clips von diesem Gerät gelöscht.</string>
+    <string name="clips_load_error">Clips konnten nicht geladen werden.</string>
+    <string name="clips_share_failed">Clip konnte nicht geteilt werden.</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">Vorschau</string>
+</resources>
