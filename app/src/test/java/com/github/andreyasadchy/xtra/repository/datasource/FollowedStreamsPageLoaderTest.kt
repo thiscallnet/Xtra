@@ -1,11 +1,26 @@
 package com.github.andreyasadchy.xtra.repository.datasource
 
+import com.apollographql.apollo.api.Optional
+import com.github.andreyasadchy.xtra.graphql.UserFollowedStreamsQuery
+import com.github.andreyasadchy.xtra.graphql.type.StreamSort
 import com.github.andreyasadchy.xtra.util.C
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FollowedStreamsPageLoaderTest {
+
+    @Test
+    fun followedStreamsQuerySendsSelectedSortArgument() {
+        val query = UserFollowedStreamsQuery(
+            first = Optional.Present(100),
+            after = Optional.Present(null),
+            sort = Optional.Present(StreamSort.RELEVANCE),
+        )
+
+        assertTrue(query.document().contains("sort:"))
+    }
 
     @Test
     fun persistedGraphQlFallbackKeepsItsCursorAffinity() = runBlocking {
