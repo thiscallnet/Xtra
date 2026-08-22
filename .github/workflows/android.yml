@@ -37,7 +37,7 @@ jobs:
           | sudo tee /etc/udev/rules.d/99-kvm4all.rules
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
-    - name: Run clip instrumentation tests
+    - name: Run instrumentation tests
       uses: reactivecircus/android-emulator-runner@v2
       with:
         api-level: 28
@@ -47,7 +47,9 @@ jobs:
         force-avd-creation: true
         disable-animations: true
         disable-linux-hw-accel: false
-        script: ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.github.andreyasadchy.xtra.ui.player.clip
+        script: |
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.github.andreyasadchy.xtra.ui.player.clip
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.repository.MetadataCacheTest
 
   build:
     runs-on: ubuntu-latest
