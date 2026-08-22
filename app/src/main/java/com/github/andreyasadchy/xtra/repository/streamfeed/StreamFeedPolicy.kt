@@ -19,12 +19,12 @@ data class StreamFeedKey(val value: String) {
             return StreamFeedKey("top:${component(sort)}:tags=${list(tags)}:languages=${list(languages)}")
         }
 
-        fun followed(accountId: String?): StreamFeedKey {
+        fun followed(accountId: String?, sort: String = "RELEVANCE"): StreamFeedKey {
             val normalized = accountId?.trim()?.takeIf { it.isNotEmpty() }
             return if (normalized == null) {
-                StreamFeedKey("followed:local")
+                StreamFeedKey("followed:local:${component(sort)}")
             } else {
-                StreamFeedKey("followed:account:${component(normalized)}")
+                StreamFeedKey("followed:account:${component(normalized)}:${component(sort)}")
             }
         }
 

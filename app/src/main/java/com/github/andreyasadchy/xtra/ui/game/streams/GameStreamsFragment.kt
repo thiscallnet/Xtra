@@ -32,6 +32,7 @@ import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.RECENT
+import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.RELEVANCE
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.SORT_VIEWERS
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.SORT_VIEWERS_ASC
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentArgs
@@ -96,7 +97,8 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
                             SORT_VIEWERS -> R.string.viewers_high
                             SORT_VIEWERS_ASC -> R.string.viewers_low
                             RECENT -> R.string.recent
-                            else -> R.string.viewers_high
+                            RELEVANCE -> R.string.recommended
+                            else -> R.string.recommended
                         }
                     )
                 )

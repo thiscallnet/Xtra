@@ -25,6 +25,7 @@ import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpec
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpecs
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedKey
 import com.github.andreyasadchy.xtra.repository.streamfeed.toStream
+import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
@@ -62,20 +63,21 @@ class FollowingOverviewViewModel(
 
     private val applicationContext = applicationContext
     private val accountId = MutableStateFlow(readCurrentUserId())
+    private val streamSort = MutableStateFlow(readStreamSort())
     private var recommendationsJob: Job? = null
     private var recommendationsGeneration = 0L
     private var overviewContentJob: Job? = null
     private var overviewContentGeneration = 0L
 
-    val liveStreams: Flow<List<Stream>> = accountId.flatMapLatest { userId ->
+    val liveStreams: Flow<List<Stream>> = combine(accountId, streamSort) { userId, sort -> userId to sort }.flatMapLatest { (userId, sort) ->
         streamFeedCache.activeItemsFlow(
-            feedKey = StreamFeedKey.followed(userId),
+            feedKey = StreamFeedKey.followed(userId, sort),
             limit = LIVE_SHELF_LIMIT,
         ).map { items -> items.map { it.toStream() } }
     }
 
-    private val allLiveChannelIds: Flow<Set<String>> = accountId.flatMapLatest { userId ->
-        streamFeedCache.allActiveItemsFlow(StreamFeedKey.followed(userId))
+    private val allLiveChannelIds: Flow<Set<String>> = combine(accountId, streamSort) { userId, sort -> userId to sort }.flatMapLatest { (userId, sort) ->
+        streamFeedCache.allActiveItemsFlow(StreamFeedKey.followed(userId, sort))
             .map { items -> items.mapNotNull { it.channelId }.toSet() }
     }
 
@@ -114,6 +116,7 @@ class FollowingOverviewViewModel(
             cancelRecommendations()
             cancelOverviewContent()
         }
+        streamSort.value = readStreamSort()
     }
 
     fun refreshOverviewSections() {
@@ -549,6 +552,8 @@ class FollowingOverviewViewModel(
 
     private fun readCurrentUserId(): String? = applicationContext.tokenPrefs().getString(C.USER_ID, null)
 
+    private fun readStreamSort(): String = StreamsSortDialog.defaultSort(applicationContext)
+
     private fun readOverviewSectionKeys(): List<String> = FollowingOverviewSections.visibleKeys(
         applicationContext.prefs().getString(C.UI_FOLLOWING_OVERVIEW_SECTIONS, null),
     )
@@ -557,6 +562,7 @@ class FollowingOverviewViewModel(
         return StreamFeedSpecs.followed(
             context = applicationContext,
             userId = userId,
+            sort = streamSort.value,
             localChannelFollowsRepository = localChannelFollowsRepository,
             graphQLRepository = graphQLRepository,
             helixRepository = helixRepository,

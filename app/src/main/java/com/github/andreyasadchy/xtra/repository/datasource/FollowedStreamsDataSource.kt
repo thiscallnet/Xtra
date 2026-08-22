@@ -6,6 +6,8 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
+import com.github.andreyasadchy.xtra.graphql.type.StreamSort
+import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 
 /** Compatibility PagingSource for callers outside the Room-backed feed path. */
 class FollowedStreamsDataSource(
@@ -20,6 +22,8 @@ class FollowedStreamsDataSource(
 ) : PagingSource<Int, Stream>() {
     private val loader = FollowedStreamsPageLoader(
         userId = userId,
+        sort = StreamsSortDialog.RELEVANCE,
+        gqlQuerySort = StreamSort.RELEVANCE,
         localChannelFollowsRepository = localChannelFollowsRepository,
         gqlHeaders = { gqlHeaders },
         graphQLRepository = graphQLRepository,

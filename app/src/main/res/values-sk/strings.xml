@@ -324,6 +324,7 @@
     <string name="settings_browsing_streams_videos">Streamy a videá</string>
     <string name="settings_displayed_information">Zobrazené informácie</string>
     <string name="settings_stream_card_style">Štýl streamovacej karty</string>
+    <string name="settings_stream_sort">Predvolené zoradenie streamov</string>
     <string name="settings_stream_card_compact">Kompaktný</string>
     <string name="settings_stream_card_followed_compact">Kompaktný len pre sledované kanály</string>
     <string name="settings_stream_card_standard">Štandardné</string>
@@ -704,6 +705,7 @@
     <string name="save_default">Uložiť ako predvolené</string>
     <string name="viewers_high">Diváci (zostupne)</string>
     <string name="viewers_low">Diváci (vzostupne)</string>
+    <string name="recommended">Odporúčania Twitchu</string>
     <string name="points_earned">Prijatých %d kanálových bodov</string>
     <string name="channel_points">Kanálové body</string>
     <string name="channel_points_close">Zavrieť</string>

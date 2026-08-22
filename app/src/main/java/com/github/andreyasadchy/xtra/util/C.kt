@@ -129,6 +129,7 @@ object C {
     const val UI_NAVIGATION_TAB_LIST = "ui_navigation_tab_list"
     const val UI_FOLLOWING_TABS = "ui_following_tabs"
     const val UI_FOLLOWING_OVERVIEW_SECTIONS = "ui_following_overview_sections"
+    const val UI_STREAM_SORT = "ui_stream_sort"
     const val UI_SAVED_TABS = "ui_saved_tabs"
     const val UI_CHANNEL_TABS = "ui_channel_tabs"
     const val UI_GAME_TABS = "ui_game_tabs"

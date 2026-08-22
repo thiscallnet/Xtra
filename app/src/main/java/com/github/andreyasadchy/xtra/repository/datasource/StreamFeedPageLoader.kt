@@ -6,9 +6,11 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
+import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.util.C
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
+import kotlin.time.Instant
 
 /**
  * A page cursor carries the API that created it. Twitch cursors are not
@@ -122,7 +124,7 @@ class TopStreamsPageLoader(
     private suspend fun loadFromApi(cursor: StreamFeedCursor?): StreamFeedPage = when (cursor?.api ?: api) {
         C.GQL -> gqlQueryLoad(cursor?.value)
         C.GQL_PERSISTED_QUERY -> gqlLoad(cursor?.value)
-        C.HELIX -> if (!helixHeaders()[C.HEADER_TOKEN].isNullOrBlank() && tags.isNullOrEmpty() && gqlQueryLanguages.isNullOrEmpty() && gqlLanguages.isNullOrEmpty()) {
+        C.HELIX -> if (!helixHeaders()[C.HEADER_TOKEN].isNullOrBlank() && (gqlSort == "VIEWER_COUNT" || gqlSort == null) && tags.isNullOrEmpty() && gqlQueryLanguages.isNullOrEmpty() && gqlLanguages.isNullOrEmpty()) {
             helixLoad(cursor?.value)
         } else {
             throw IOException("Helix cannot represent this stream filter")
@@ -243,6 +245,8 @@ class TopStreamsPageLoader(
 
 class FollowedStreamsPageLoader(
     private val userId: String?,
+    private val sort: String,
+    private val gqlQuerySort: StreamSort,
     private val localChannelFollowsRepository: LocalChannelFollowsRepository,
     private val gqlHeaders: () -> Map<String, String>,
     private val graphQLRepository: GraphQLRepository,
@@ -252,6 +256,12 @@ class FollowedStreamsPageLoader(
     private val networkLibrary: String?,
 ) : StreamFeedPageLoader {
     private var api: String? = null
+
+    private fun requireUnsortedFallback() {
+        if (sort != StreamsSortDialog.SORT_VIEWERS) {
+            throw IOException("Followed-stream fallback cannot represent sort: $sort")
+        }
+    }
 
     override suspend fun load(cursor: StreamFeedCursor?): StreamFeedPage {
         if (cursor != null) {
@@ -291,17 +301,30 @@ class FollowedStreamsPageLoader(
         return loadFollowedFirstPageWithFallback(
             onApiSelected = { api = it },
             gql = { gqlQueryLoad(null) },
-            persistedGql = { gqlLoad(null) },
-            helix = { helixLoad(null) },
+            persistedGql = { persistedGqlFallback(null) },
+            helix = { helixFallback(null) },
         )
     }
 
-    private suspend fun loadFromCursor(cursor: StreamFeedCursor): StreamFeedPage = loadFollowedPageForCursor(
-        cursor = cursor,
-        gql = { gqlQueryLoad(it) },
-        persistedGql = { gqlLoad(it) },
-        helix = { helixLoad(it) },
-    )
+    private suspend fun loadFromCursor(cursor: StreamFeedCursor): StreamFeedPage {
+        val page = loadFollowedPageForCursor(
+            cursor = cursor,
+            gql = { gqlQueryLoad(it) },
+            persistedGql = { persistedGqlFallback(it) },
+            helix = { helixFallback(it) },
+        )
+        return page.copy(items = merge(emptyList(), page.items))
+    }
+
+    private suspend fun persistedGqlFallback(cursor: String?): StreamFeedPage {
+        requireUnsortedFallback()
+        return gqlLoad(cursor)
+    }
+
+    private suspend fun helixFallback(cursor: String?): StreamFeedPage {
+        requireUnsortedFallback()
+        return helixLoad(cursor)
+    }
 
     private suspend fun loadLocalWithFallback(ids: List<String>): List<Stream> {
         if (ids.isEmpty()) return emptyList()
@@ -316,7 +339,7 @@ class FollowedStreamsPageLoader(
     }
 
     private suspend fun gqlQueryLoad(cursor: String?): StreamFeedPage {
-        val response = graphQLRepository.loadQueryUserFollowedStreams(networkLibrary, gqlHeaders(), 100, cursor)
+        val response = graphQLRepository.loadQueryUserFollowedStreams(networkLibrary, gqlHeaders(), 100, cursor, gqlQuerySort)
         checkIntegrity(enableIntegrity, response.errors)
         val data = response.data!!.user!!.followedLiveUsers!!
         val edges = data.edges!!
@@ -458,12 +481,20 @@ class FollowedStreamsPageLoader(
     }
 
     private fun merge(local: List<Stream>, remote: List<Stream>): List<Stream> {
-        val result = local.toMutableList()
-        remote.forEach { stream ->
+        val result = remote.toMutableList()
+        local.forEach { stream ->
             val existing = result.indexOfFirst { sameChannel(it, stream) }
             if (existing < 0) result += stream
         }
-        return result.sortedByDescending { it.viewerCount ?: -1 }
+        return when (sort) {
+            StreamsSortDialog.SORT_VIEWERS_ASC -> result.sortedBy { it.viewerCount ?: Int.MAX_VALUE }
+            StreamsSortDialog.SORT_VIEWERS -> result.sortedByDescending { it.viewerCount ?: -1 }
+            StreamsSortDialog.RECENT -> result.sortedByDescending {
+                it.createdAt?.let { createdAt -> Instant.parseOrNull(createdAt)?.toEpochMilliseconds() }
+                    ?: Long.MIN_VALUE
+            }
+            else -> result
+        }
     }
 
     private fun sameChannel(first: Stream, second: Stream): Boolean {

@@ -277,6 +277,7 @@
     <string name="save_default">储存为默认</string>
     <string name="viewers_high">观众数（高至低）</string>
     <string name="viewers_low">观众数（低至高）</string>
+    <string name="recommended">Twitch 推荐</string>
     <string name="points_earned">已收到 %d 忠诚点数</string>
     <string name="points_notify">当赚取忠诚点数时通知</string>
     <string name="points_collect">自动地收集忠诚点数</string>
@@ -836,6 +837,7 @@
     <string name="settings_browsing_streams_videos">直播和视频</string>
     <string name="settings_displayed_information">显示信息</string>
     <string name="settings_stream_card_style">直播卡样式</string>
+    <string name="settings_stream_sort">直播默认排序</string>
     <string name="settings_stream_card_compact">紧凑</string>
     <string name="settings_stream_card_followed_compact">紧凑，仅适用于关注频道</string>
     <string name="settings_stream_card_standard">标准</string>

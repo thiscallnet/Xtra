@@ -51,11 +51,14 @@ object StreamFeedSpecs {
         localChannelFollowsRepository: LocalChannelFollowsRepository,
         graphQLRepository: GraphQLRepository,
         helixRepository: HelixRepository,
+        sort: String = followedSort(context),
     ): StreamFeedSpec {
         return StreamFeedSpec(
-            key = StreamFeedKey.followed(userId),
+            key = StreamFeedKey.followed(userId, sort),
             loader = FollowedStreamsPageLoader(
                 userId = userId,
+                sort = sort,
+                gqlQuerySort = querySort(sort),
                 localChannelFollowsRepository = localChannelFollowsRepository,
                 gqlHeaders = { TwitchApiHelper.getGQLHeaders(context, true) },
                 graphQLRepository = graphQLRepository,
@@ -110,14 +113,18 @@ object StreamFeedSpecs {
     }
 
     private fun querySort(sort: String): StreamSort = when (sort) {
+        StreamsSortDialog.RELEVANCE -> StreamSort.RELEVANCE
         StreamsSortDialog.SORT_VIEWERS_ASC -> StreamSort.VIEWER_COUNT_ASC
         StreamsSortDialog.RECENT -> StreamSort.RECENT
         else -> StreamSort.VIEWER_COUNT
     }
 
     private fun querySortName(sort: String): String = when (sort) {
+        StreamsSortDialog.RELEVANCE -> "RELEVANCE"
         StreamsSortDialog.SORT_VIEWERS_ASC -> "VIEWER_COUNT_ASC"
         StreamsSortDialog.RECENT -> "RECENT"
         else -> "VIEWER_COUNT"
     }
+
+    private fun followedSort(context: Context): String = StreamsSortDialog.defaultSort(context)
 }

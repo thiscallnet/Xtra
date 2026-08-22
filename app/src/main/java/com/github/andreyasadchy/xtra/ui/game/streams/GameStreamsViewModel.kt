@@ -48,7 +48,7 @@ class GameStreamsViewModel(
     val filtersText = MutableStateFlow<CharSequence?>(null)
 
     val sort: String
-        get() = filter.value?.sort ?: StreamsSortDialog.SORT_VIEWERS
+        get() = filter.value?.sort ?: StreamsSortDialog.defaultSort(applicationContext)
     val tags: Array<String>
         get() = filter.value?.tags ?: emptyArray()
     val languages: Array<String>
@@ -107,7 +107,7 @@ class GameStreamsViewModel(
             gameId = args.gameId,
             gameSlug = args.gameSlug,
             gameName = args.gameName,
-            sort = filter.sort ?: StreamsSortDialog.SORT_VIEWERS,
+            sort = filter.sort ?: StreamsSortDialog.defaultSort(applicationContext),
             tags = filter.tags?.asIterable(),
             languages = filter.languages?.asIterable(),
         )

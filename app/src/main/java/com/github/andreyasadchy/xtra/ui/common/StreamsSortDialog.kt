@@ -13,6 +13,7 @@ import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.ui.game.streams.GameStreamsFragment
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragment
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.chip.Chip
@@ -28,6 +29,7 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
         const val SORT_VIEWERS = "VIEWER_COUNT"
         const val SORT_VIEWERS_ASC = "VIEWER_COUNT_ASC"
         const val RECENT = "RECENT"
+        const val RELEVANCE = "RELEVANCE"
 
         private const val SORT = "sort"
         private const val TAGS = "tags"
@@ -43,6 +45,17 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
                     putBoolean(SAVED, saved)
                 }
             }
+        }
+
+        fun defaultSort(context: Context): String {
+            return context.prefs().getString(C.UI_STREAM_SORT, RELEVANCE) ?: RELEVANCE
+        }
+
+        fun labelRes(sort: String): Int = when (sort) {
+            SORT_VIEWERS -> R.string.viewers_high
+            SORT_VIEWERS_ASC -> R.string.viewers_low
+            RECENT -> R.string.recent
+            else -> R.string.recommended
         }
     }
 
@@ -82,7 +95,8 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
                 SORT_VIEWERS -> R.id.viewers_high
                 SORT_VIEWERS_ASC -> R.id.viewers_low
                 RECENT -> R.id.recent
-                else -> R.id.viewers_high
+                RELEVANCE -> R.id.recommended
+                else -> R.id.recommended
             }
             val originalTags = args.getStringArray(TAGS) ?: emptyArray()
             val originalLanguages = args.getStringArray(LANGUAGES) ?: emptyArray()
@@ -140,10 +154,11 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
             val sortBtn = requireView().findViewById<RadioButton>(checkedSortId)
             listener.onChange(
                 when (checkedSortId) {
+                    R.id.recommended -> RELEVANCE
                     R.id.viewers_high -> SORT_VIEWERS
                     R.id.viewers_low -> SORT_VIEWERS_ASC
                     R.id.recent -> RECENT
-                    else -> SORT_VIEWERS
+                    else -> RELEVANCE
                 },
                 sortBtn.text,
                 tags,

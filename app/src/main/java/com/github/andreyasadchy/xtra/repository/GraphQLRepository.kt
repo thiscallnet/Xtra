@@ -613,10 +613,11 @@ class GraphQLRepository(
         sendQuery(networkLibrary, headers, query)
     }
 
-    suspend fun loadQueryUserFollowedStreams(networkLibrary: String?, headers: Map<String, String>, first: Int?, after: String?): ApolloResponse<UserFollowedStreamsQuery.Data> = withContext(Dispatchers.IO) {
+    suspend fun loadQueryUserFollowedStreams(networkLibrary: String?, headers: Map<String, String>, first: Int?, after: String?, sort: StreamSort? = null): ApolloResponse<UserFollowedStreamsQuery.Data> = withContext(Dispatchers.IO) {
         val query = UserFollowedStreamsQuery(
             first = Optional.Present(first),
             after = Optional.Present(after),
+            sort = Optional.Present(sort),
         )
         sendQuery(networkLibrary, headers, query)
     }

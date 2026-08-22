@@ -277,6 +277,7 @@
     <string name="save_default">デフォルトとして保存</string>
     <string name="viewers_high">視聴者数 (多い順)</string>
     <string name="viewers_low">視聴者数 (少ない順)</string>
+    <string name="recommended">Twitch のおすすめ</string>
     <string name="points_earned">%d チャンネルポイントを獲得しました</string>
     <string name="points_notify">チャンネルポイント獲得時に通知</string>
     <string name="points_collect">チャンネルポイントの自動獲得</string>
@@ -836,6 +837,7 @@
     <string name="settings_browsing_streams_videos">ストリームとビデオ</string>
     <string name="settings_displayed_information">表示される情報</string>
     <string name="settings_stream_card_style">ストリームカードスタイル</string>
+    <string name="settings_stream_sort">デフォルトの配信並べ替え</string>
     <string name="settings_stream_card_compact">コンパクト</string>
     <string name="settings_stream_card_followed_compact">フォローしているチャンネルのみコンパクト</string>
     <string name="settings_stream_card_standard">標準</string>

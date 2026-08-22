@@ -483,6 +483,20 @@
         <item>followed</item>
     </string-array>
 
+    <string-array name="streamSortEntries" translatable="false">
+        <item>@string/recommended</item>
+        <item>@string/viewers_high</item>
+        <item>@string/viewers_low</item>
+        <item>@string/recent</item>
+    </string-array>
+
+    <string-array name="streamSortValues" translatable="false">
+        <item>RELEVANCE</item>
+        <item>VIEWER_COUNT</item>
+        <item>VIEWER_COUNT_ASC</item>
+        <item>RECENT</item>
+    </string-array>
+
     <string-array name="settingsThemeEntries" translatable="false">
         <item>@string/settings_theme_system</item>
         <item>@string/light</item>

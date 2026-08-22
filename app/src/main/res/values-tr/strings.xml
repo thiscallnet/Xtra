@@ -278,6 +278,7 @@
     <string name="save_default">Varsayılan olarak kaydet</string>
     <string name="viewers_high">İzleyiciler (çoktan aza)</string>
     <string name="viewers_low">İzleyiciler (azdan çoğa)</string>
+    <string name="recommended">Twitch önerileri</string>
     <string name="points_earned">%d kanal puanı kazanıldı</string>
     <string name="points_notify">Kanal puanı kazanıldığında bildir</string>
     <string name="points_collect">Kanal puanlarını otomatik olarak topla</string>
@@ -837,6 +838,7 @@
     <string name="settings_browsing_streams_videos">Akışlar ve videolar</string>
     <string name="settings_displayed_information">Görüntülenen bilgiler</string>
     <string name="settings_stream_card_style">Akış kartı stili</string>
+    <string name="settings_stream_sort">Varsayılan yayın sıralaması</string>
     <string name="settings_stream_card_compact">Kompakt</string>
     <string name="settings_stream_card_followed_compact">Yalnızca takip edilen kanallar için kompakt</string>
     <string name="settings_stream_card_standard">Standart</string>
