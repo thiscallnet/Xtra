@@ -125,6 +125,15 @@
         </service>
 
         <service
+            android:name=".ui.login.LoginAuthorizationService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Twitch device authorization polling while the user completes sign-in" />
+        </service>
+
+        <service
             android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
             android:enabled="false"
             android:exported="false">
