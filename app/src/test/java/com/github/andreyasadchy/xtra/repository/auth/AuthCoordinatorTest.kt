@@ -315,6 +315,38 @@ class AuthCoordinatorTest {
         assertFalse(store.diagnostics().structuredCompatibilityPresent)
     }
 
+    @Test
+    fun `private gql recommendation credential must match the official account`() {
+        val (store, tokenPreferences) = seededStore()
+
+        assertEquals("user", store.readPrivateGqlCredential(nowMillis = 10_000L)?.userId)
+        assertEquals("old-gql", store.readPrivateGqlCredential(nowMillis = 10_000L)?.accessToken)
+
+        tokenPreferences.edit().putString(C.GQL_TOKEN2_USER_ID, "different-user").commit()
+
+        assertNull(store.readPrivateGqlCredential(nowMillis = 10_000L))
+    }
+
+    @Test
+    fun `legacy web credential needs a verified account marker`() {
+        val preferences = MemoryPreferences()
+        val tokenPreferences = MemoryPreferences()
+        val store = AuthSessionStore(preferences, tokenPreferences)
+        tokenPreferences.edit()
+            .putString(C.TOKEN, "official")
+            .putString(C.TOKEN_REFRESH, "refresh")
+            .putString(C.TOKEN_CLIENT_ID, "helix")
+            .putString(C.USER_ID, "user")
+            .putString(C.GQL_TOKEN_WEB, "web-token")
+            .commit()
+
+        assertNull(store.readPrivateGqlCredential(nowMillis = 10_000L))
+
+        tokenPreferences.edit().putString(C.GQL_TOKEN_WEB_USER_ID, "user").commit()
+
+        assertEquals(PrivateGqlCredentialType.WEB, store.readPrivateGqlCredential(nowMillis = 10_000L)?.type)
+    }
+
     private fun seededStore(expired: Boolean = false): Pair<AuthSessionStore, MemoryPreferences> {
         val preferences = MemoryPreferences()
         val tokenPreferences = MemoryPreferences()

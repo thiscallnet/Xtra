@@ -603,6 +603,7 @@
     <string name="following_live_channels">Каналы в прямом эфире</string>
     <string name="following_no_live_channels">Сейчас нет каналов, на которые вы подписаны, в эфире.</string>
     <string name="following_recommended_channels">Рекомендованные каналы</string>
+    <string name="following_popular_live_channels">Популярные каналы в прямом эфире</string>
     <string name="following_no_recommended_channels">Рекомендации сейчас недоступны.</string>
     <string name="following_continue_watching">Продолжить просмотр</string>
     <string name="following_no_continue_watching">Нет недавних VOD с каналов, на которые вы подписаны.</string>

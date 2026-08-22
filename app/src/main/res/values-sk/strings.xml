@@ -31,6 +31,7 @@
     <string name="following_live_channels">Živé kanály</string>
     <string name="following_no_live_channels">Momentálne nie sú naživo žiadne sledované kanály.</string>
     <string name="following_recommended_channels">Odporúčané kanály</string>
+    <string name="following_popular_live_channels">Populárne živé kanály</string>
     <string name="following_no_recommended_channels">Odporúčania sú momentálne nedostupné.</string>
     <string name="following_continue_watching">Pokračovať v sledovaní</string>
     <string name="following_no_continue_watching">Z kanálov, ktoré sledujete, nie sú k dispozícii žiadne nedávne VOD.</string>

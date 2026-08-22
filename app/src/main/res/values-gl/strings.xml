@@ -603,6 +603,7 @@
     <string name="following_live_channels">Canles en directo</string>
     <string name="following_no_live_channels">Ningunha das canles que segues está en directo agora.</string>
     <string name="following_recommended_channels">Canles recomendadas</string>
+    <string name="following_popular_live_channels">Canles populares en directo</string>
     <string name="following_no_recommended_channels">As recomendacións non están dispoñibles agora.</string>
     <string name="following_continue_watching">Continuar vendo</string>
     <string name="following_no_continue_watching">Non hai VOD recentes dispoñibles das canles que segues.</string>

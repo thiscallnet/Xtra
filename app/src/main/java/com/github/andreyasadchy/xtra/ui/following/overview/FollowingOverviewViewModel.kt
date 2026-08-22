@@ -18,7 +18,9 @@ import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.FollowingOverviewCacheSnapshot
 import com.github.andreyasadchy.xtra.repository.MetadataCache
+import com.github.andreyasadchy.xtra.repository.RecommendationAuthMode
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
+import com.github.andreyasadchy.xtra.repository.RecommendationSource
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
@@ -111,6 +113,12 @@ class FollowingOverviewViewModel(
 
     private val _recommendationsLoading = MutableStateFlow(false)
     val recommendationsLoading: StateFlow<Boolean> = _recommendationsLoading
+
+    private val _recommendationSource = MutableStateFlow(RecommendationSource.UNAVAILABLE)
+    val recommendationSource: StateFlow<RecommendationSource> = _recommendationSource
+
+    private val _recommendationAuthMode = MutableStateFlow(RecommendationAuthMode.ANONYMOUS)
+    val recommendationAuthMode: StateFlow<RecommendationAuthMode> = _recommendationAuthMode
 
     fun syncCurrentAccount() {
         val newAccountId = readCurrentUserId()
@@ -537,13 +545,17 @@ class FollowingOverviewViewModel(
                 val liveChannelIds = allLiveChannelIds.first()
                 val result = recommendationsRepository.getLiveRecommendations(RECOMMENDED_LIMIT, liveChannelIds)
                 if (isCurrentRecommendationRequest(generation, requestAccountId)) {
-                    _recommendedStreams.value = result
+                    _recommendedStreams.value = result.streams
+                    _recommendationSource.value = result.source
+                    _recommendationAuthMode.value = result.authMode
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 if (isCurrentRecommendationRequest(generation, requestAccountId)) {
                     _recommendedStreams.value = emptyList()
+                    _recommendationSource.value = RecommendationSource.UNAVAILABLE
+                    _recommendationAuthMode.value = RecommendationAuthMode.ANONYMOUS
                 }
             } finally {
                 if (isCurrentRecommendationRequest(generation, requestAccountId)) {
@@ -558,6 +570,8 @@ class FollowingOverviewViewModel(
         recommendationsJob?.cancel()
         recommendationsJob = null
         _recommendedStreams.value = emptyList()
+        _recommendationSource.value = RecommendationSource.UNAVAILABLE
+        _recommendationAuthMode.value = RecommendationAuthMode.ANONYMOUS
         _recommendationsLoading.value = false
     }
 

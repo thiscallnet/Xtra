@@ -603,6 +603,7 @@
     <string name="following_live_channels">直播频道</string>
     <string name="following_no_live_channels">你关注的频道目前都未直播。</string>
     <string name="following_recommended_channels">推荐频道</string>
+    <string name="following_popular_live_channels">热门直播频道</string>
     <string name="following_no_recommended_channels">推荐内容暂时不可用。</string>
     <string name="following_continue_watching">继续观看</string>
     <string name="following_no_continue_watching">你关注的频道没有可用的近期 VOD。</string>

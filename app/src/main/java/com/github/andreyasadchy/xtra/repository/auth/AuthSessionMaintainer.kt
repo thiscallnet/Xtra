@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.core.content.edit
+import com.github.andreyasadchy.xtra.model.id.ValidationResponse
 import com.github.andreyasadchy.xtra.repository.AuthRepository
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -401,6 +402,11 @@ class AuthSessionMaintainer(
                             coordinator.clearCompatibility()
                         }
                     },
+                    onValid = { response ->
+                        if (gqlTokenIsLegacyWeb) {
+                            response.userId?.let(sessionStore::rememberLegacyWebCredentialUser)
+                        }
+                    },
                     onUnauthorized = {
                         when (recoverCompatibilitySessionAfterUnauthorized(coordinator, sessionStore) {
                             if (gqlTokenIsLegacyWeb) {
@@ -435,6 +441,9 @@ class AuthSessionMaintainer(
                     expectedUserId = expectedUserId,
                     expectedLogin = expectedLogin,
                     onInvalid = { sessionStore.clearLegacyWebCredential() },
+                    onValid = { response ->
+                        response.userId?.let(sessionStore::rememberLegacyWebCredentialUser)
+                    },
                     onUnauthorized = {
                         sessionStore.clearLegacyWebCredential()
                         ValidationResult.INVALID
@@ -468,6 +477,7 @@ class AuthSessionMaintainer(
         expectedUserId: String?,
         expectedLogin: String?,
         onInvalid: suspend () -> Unit,
+        onValid: suspend (ValidationResponse) -> Unit = {},
         onUnauthorized: suspend () -> ValidationResult,
     ): ValidationResult = try {
         val response = repository.validateCompatibility(token)
@@ -477,6 +487,7 @@ class AuthSessionMaintainer(
             onInvalid()
             ValidationResult.INVALID
         } else {
+            onValid(response)
             ValidationResult.VALID
         }
     } catch (error: CancellationException) {

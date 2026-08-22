@@ -603,6 +603,7 @@
     <string name="following_live_channels">Live-Kanäle</string>
     <string name="following_no_live_channels">Keiner der von dir gefolgten Kanäle ist gerade live.</string>
     <string name="following_recommended_channels">Empfohlene Kanäle</string>
+    <string name="following_popular_live_channels">Beliebte Live-Kanäle</string>
     <string name="following_no_recommended_channels">Empfehlungen sind derzeit nicht verfügbar.</string>
     <string name="following_continue_watching">Weiterschauen</string>
     <string name="following_no_continue_watching">Keine aktuellen VODs von gefolgten Kanälen verfügbar.</string>
