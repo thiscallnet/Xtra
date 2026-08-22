@@ -158,6 +158,10 @@
     <string name="room_followers_min">المتابعون%s</string>
     <string name="room_unique">الفريد</string>
     <string name="room_slow">%sالبطيء</string>
+    <string name="chat_slow_mode">الوضع البطيء · %1$ds</string>
+    <string name="chat_slow_mode_remaining">إرسال مرة أخرى · %1$ds</string>
+    <string name="chat_slow_mode_accessibility">الوضع البطيء مفعّل. يمكن إرسال الرسائل كل %1$d ثانية.</string>
+    <string name="chat_slow_mode_ready">يمكنك إرسال رسالة أخرى.</string>
     <string name="room_subs">الغواصات</string>
     <string name="chat_join">متصل بـ%s</string>
     <string name="copy_clip">نسخ إلى الحافظة</string>

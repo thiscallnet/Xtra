@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.chat
 import android.content.ContentResolver
 import android.content.Context
 import android.net.ConnectivityManager
+import android.os.SystemClock
 import android.util.Base64
 import android.util.JsonReader
 import android.util.JsonToken
@@ -192,6 +193,11 @@ class ChatViewModel(
     private var liveChatInitialized = false
     private var activeChannelId: String? = null
     private var activeChannelLogin: String? = null
+    private var loggedInUserId: String? = null
+    private var loggedInUserLogin: String? = null
+    private var slowModeLastMessageElapsedRealtime: Long? = null
+    private var slowModeCountdownJob: Job? = null
+    private val slowModeMessageDedupe = SlowModeMessageDedupe()
     var autoReconnect = true
 
     private val _connectionState = MutableStateFlow(ConnectionState.IDLE)
@@ -211,6 +217,8 @@ class ChatViewModel(
     val cheerEmotes = mutableListOf<CheerEmote>()
 
     val roomState = MutableStateFlow<RoomState?>(null)
+    private val _slowModeState = MutableStateFlow(SlowModeState())
+    val slowModeState: StateFlow<SlowModeState> = _slowModeState
     val raid = MutableStateFlow<Raid?>(null)
     val raidClicked = MutableStateFlow<Raid?>(null)
     var raidClosed = false
@@ -1106,6 +1114,16 @@ class ChatViewModel(
     }
 
     suspend fun onMessage(message: ChatMessage) {
+        if (message.type == ChatMessage.USER_MESSAGE && message.message != null && message.msgId == null && isOwnChatMessage(message)) {
+            updateSlowModeApplicabilityFromBadges(message.badges)
+            onAcceptedOwnChatMessage(
+                SlowModeMessageIdentity(
+                    messageId = message.id,
+                    message = message.message,
+                    replyId = message.reply?.threadParentId,
+                ),
+            )
+        }
         synchronized(chatMessages) {
             chatMessages.add(message)
             val removeCount = if (chatMessages.size > messageLimit) {
@@ -1124,6 +1142,158 @@ class ChatViewModel(
         }?.let {
             newMessage.emit(it)
         }
+    }
+
+    fun isSlowModeBlocked(): Boolean = slowModeState.value.blocked
+
+    private fun isOwnChatMessage(message: ChatMessage): Boolean {
+        val userId = loggedInUserId
+        if (!userId.isNullOrBlank() && message.userId == userId) return true
+        val login = loggedInUserLogin
+        return !login.isNullOrBlank() && message.userLogin?.equals(login, ignoreCase = true) == true
+    }
+
+    private fun onAcceptedOwnChatMessage(identity: SlowModeMessageIdentity) {
+        val intervalSeconds = _slowModeState.value.intervalSeconds ?: return
+        val nowElapsedRealtime = SystemClock.elapsedRealtime()
+        if (!slowModeMessageDedupe.accept(identity, nowElapsedRealtime)) return
+        slowModeLastMessageElapsedRealtime = nowElapsedRealtime
+        val current = _slowModeState.value
+        val remaining = if (current.applicability == SlowModeApplicability.EXEMPT) {
+            0
+        } else {
+            slowModeRemainingSeconds(
+                intervalSeconds,
+                slowModeLastMessageElapsedRealtime,
+                nowElapsedRealtime,
+            )
+        }
+        _slowModeState.value = current.copy(remainingSeconds = remaining)
+        updateSlowModeCountdown()
+    }
+
+    private fun updateSlowModeFromValue(slow: String?) {
+        val intervalSeconds = slow?.toIntOrNull()?.takeIf { it > 0 }
+        if (intervalSeconds == null) {
+            slowModeCountdownJob?.cancel()
+            slowModeCountdownJob = null
+            slowModeLastMessageElapsedRealtime = null
+            slowModeMessageDedupe.clear()
+            _slowModeState.value = SlowModeState(
+                applicability = _slowModeState.value.applicability,
+            )
+            return
+        }
+        val current = _slowModeState.value
+        val remaining = if (current.applicability == SlowModeApplicability.EXEMPT) {
+            0
+        } else {
+            slowModeRemainingSeconds(
+                intervalSeconds,
+                slowModeLastMessageElapsedRealtime,
+                SystemClock.elapsedRealtime(),
+            )
+        }
+        _slowModeState.value = current.copy(
+            intervalSeconds = intervalSeconds,
+            remainingSeconds = remaining,
+        )
+        updateSlowModeCountdown()
+    }
+
+    private fun updateSlowModeApplicability(tags: Map<String, String>) {
+        if (!tags.containsKey("mod") && !tags.containsKey("badges") && !tags.containsKey("subscriber")) return
+        val badges = tags["badges"].orEmpty()
+            .split(',')
+            .mapNotNull { it.substringBefore('/').takeIf(String::isNotBlank) }
+        val applicability = when {
+            tags["mod"] == "1" || "moderator" in badges || "broadcaster" in badges || "vip" in badges -> SlowModeApplicability.EXEMPT
+            tags["subscriber"] == "0" -> SlowModeApplicability.APPLIES
+            else -> SlowModeApplicability.UNKNOWN
+        }
+        val current = _slowModeState.value
+        val intervalSeconds = current.intervalSeconds
+        val remaining = if (intervalSeconds == null || applicability == SlowModeApplicability.EXEMPT) {
+            0
+        } else {
+            slowModeRemainingSeconds(
+                intervalSeconds,
+                slowModeLastMessageElapsedRealtime,
+                SystemClock.elapsedRealtime(),
+            )
+        }
+        _slowModeState.value = current.copy(
+            applicability = applicability,
+            remainingSeconds = remaining,
+        )
+        updateSlowModeCountdown()
+    }
+
+    private fun updateSlowModeApplicabilityFromBadges(badges: List<Badge>?) {
+        if (badges == null) return
+        val badgeSets = badges.map { it.setId }
+        val applicability = when {
+            "moderator" in badgeSets || "broadcaster" in badgeSets || "vip" in badgeSets -> SlowModeApplicability.EXEMPT
+            "subscriber" in badgeSets -> SlowModeApplicability.UNKNOWN
+            else -> SlowModeApplicability.APPLIES
+        }
+        val current = _slowModeState.value
+        val intervalSeconds = current.intervalSeconds
+        val remaining = if (intervalSeconds == null || applicability == SlowModeApplicability.EXEMPT) {
+            0
+        } else {
+            slowModeRemainingSeconds(
+                intervalSeconds,
+                slowModeLastMessageElapsedRealtime,
+                SystemClock.elapsedRealtime(),
+            )
+        }
+        _slowModeState.value = current.copy(
+            applicability = applicability,
+            remainingSeconds = remaining,
+        )
+        updateSlowModeCountdown()
+    }
+
+    private fun updateSlowModeCountdown() {
+        val current = _slowModeState.value
+        if (!current.enabled || current.applicability == SlowModeApplicability.EXEMPT || !current.coolingDown) {
+            slowModeCountdownJob?.cancel()
+            slowModeCountdownJob = null
+            return
+        }
+        if (slowModeCountdownJob?.isActive == true) return
+        slowModeCountdownJob = viewModelScope.launch {
+            while (isActive) {
+                val state = _slowModeState.value
+                val intervalSeconds = state.intervalSeconds ?: break
+                if (state.applicability == SlowModeApplicability.EXEMPT) break
+                val remaining = slowModeRemainingSeconds(
+                    intervalSeconds,
+                    slowModeLastMessageElapsedRealtime,
+                    SystemClock.elapsedRealtime(),
+                )
+                if (_slowModeState.value != state) continue
+                if (remaining <= 0) {
+                    _slowModeState.value = state.copy(remainingSeconds = 0)
+                    break
+                }
+                if (state.remainingSeconds != remaining) {
+                    _slowModeState.value = state.copy(remainingSeconds = remaining)
+                }
+                delay(1000L)
+            }
+        }
+    }
+
+    private fun resetSlowModeState() {
+        slowModeCountdownJob?.cancel()
+        slowModeCountdownJob = null
+        slowModeLastMessageElapsedRealtime = null
+        slowModeMessageDedupe.clear()
+        loggedInUserId = null
+        loggedInUserLogin = null
+        _slowModeState.value = SlowModeState()
     }
 
     /** Trims history after a subscriber has consumed a message overflow. */
@@ -1806,6 +1976,8 @@ class ChatViewModel(
         val enableIntegrity = applicationContext.prefs().getBoolean(C.ENABLE_INTEGRITY, false)
         val accountId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
         val accountLogin = applicationContext.tokenPrefs().getString(C.USERNAME, null)
+        loggedInUserId = accountId
+        loggedInUserLogin = accountLogin
         val isLoggedIn = !accountLogin.isNullOrBlank() && (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank())
         val usePubSub = true
         val showUserNotice = applicationContext.prefs().getBoolean(C.CHAT_SHOW_USER_NOTICE, true)
@@ -1944,6 +2116,7 @@ class ChatViewModel(
         predictionSessionToken += 1
         predictionSnapshotJob?.cancel()
         predictionSnapshotJob = null
+        resetSlowModeState()
         _connectionState.value = ConnectionState.IDLE
         watchStreakSession++
         activeChannelId = null
@@ -2134,6 +2307,9 @@ class ChatViewModel(
         }
 
         override suspend fun onRoomState(message: ChatUtils.IRCMessage) {
+            if (message.tags.containsKey("slow")) {
+                updateSlowModeFromValue(message.tags["slow"])
+            }
             roomState.value = RoomState(
                 emote = message.tags["emote-only"],
                 followers = message.tags["followers-only"],
@@ -2171,6 +2347,10 @@ class ChatViewModel(
         }
 
         override suspend fun onUserState(message: ChatUtils.IRCMessage) {
+            updateSlowModeApplicability(message.tags)
+            message.tags["id"]?.takeIf { it.isNotBlank() }?.let {
+                onAcceptedOwnChatMessage(SlowModeMessageIdentity(messageId = it))
+            }
             val emoteSets = message.tags["emote-sets"]?.split(",")
             if (emoteSets != null && savedEmoteSets != emoteSets) {
                 savedEmoteSets = emoteSets
@@ -2581,7 +2761,11 @@ class ChatViewModel(
         }
 
         override suspend fun onRoomState(event: JSONObject, timestamp: String?) {
-            roomState.value = EventSubUtils.parseRoomState(event)
+            val state = EventSubUtils.parseRoomState(event)
+            if (!event.isNull("slow_mode")) {
+                updateSlowModeFromValue(state.slow)
+            }
+            roomState.value = state
         }
 
         override suspend fun onDisconnect(message: String, fullMsg: String?) {
@@ -3556,17 +3740,35 @@ class ChatViewModel(
             viewModelScope.launch {
                 if (useApiChatMessages) {
                     if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        graphQLRepository.sendMessage(networkLibrary, gqlHeaders, channelId, message.toString(), replyId).also { response ->
+                        val response = graphQLRepository.sendMessage(networkLibrary, gqlHeaders, channelId, message.toString(), replyId).also { response ->
                             if (enableIntegrity) {
                                 response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
                                     integrity.emit("refresh")
                                     return@launch
                                 }
                             }
-                        }.takeIf { !it.errors.isNullOrEmpty() }?.toString()
+                        }
+                        if (response.errors.isNullOrEmpty()) {
+                            onAcceptedOwnChatMessage(
+                                SlowModeMessageIdentity(message = message.toString(), replyId = replyId),
+                            )
+                            null
+                        } else {
+                            response.toString()
+                        }
                     } else {
                         if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                            helixRepository.sendMessage(networkLibrary, helixHeaders, accountId, channelId, message.toString(), replyId)
+                            helixRepository.sendMessage(networkLibrary, helixHeaders, accountId, channelId, message.toString(), replyId).also { response ->
+                                if (response.isSent) {
+                                    onAcceptedOwnChatMessage(
+                                        SlowModeMessageIdentity(
+                                            messageId = response.messageId,
+                                            message = message.toString(),
+                                            replyId = replyId,
+                                        ),
+                                    )
+                                }
+                            }.errorMessage
                         } else null
                     }?.let {
                         onMessage(ChatMessage(systemMsg = it))

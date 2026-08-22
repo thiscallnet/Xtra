@@ -158,6 +158,10 @@
     <string name="room_followers_min">フォロワー限定 %s</string>
     <string name="room_unique">重複チャット禁止</string>
     <string name="room_slow">スローモード %s</string>
+    <string name="chat_slow_mode">スローモード · %1$ds</string>
+    <string name="chat_slow_mode_remaining">再送信 · %1$ds</string>
+    <string name="chat_slow_mode_accessibility">スローモードが有効です。メッセージは%1$d秒ごとに送信できます。</string>
+    <string name="chat_slow_mode_ready">別のメッセージを送信できます。</string>
     <string name="room_subs">サブスクライバー限定</string>
     <string name="chat_join">%s に接続しています</string>
     <string name="copy_clip">クリップボードにコピー</string>

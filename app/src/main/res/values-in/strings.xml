@@ -157,6 +157,10 @@
     <string name="room_followers_min">%s Pengikut</string>
     <string name="room_unique">Unik</string>
     <string name="room_slow">Lambat %s</string>
+    <string name="chat_slow_mode">Mode lambat · %1$ds</string>
+    <string name="chat_slow_mode_remaining">Kirim lagi · %1$ds</string>
+    <string name="chat_slow_mode_accessibility">Mode lambat aktif. Pesan dapat dikirim setiap %1$d detik.</string>
+    <string name="chat_slow_mode_ready">Anda dapat mengirim pesan lagi.</string>
     <string name="room_subs">Subs</string>
     <string name="chat_join">Menyambungkan ke %s</string>
     <string name="copy_clip">Salin ke clipboard</string>

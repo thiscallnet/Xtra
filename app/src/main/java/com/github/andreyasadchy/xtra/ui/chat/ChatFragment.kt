@@ -10,6 +10,7 @@ import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
 import android.widget.MultiAutoCompleteTextView
@@ -121,6 +122,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var composerTextBeforeOverlay: String? = null
     private var composerSelectionBeforeOverlay: Int? = null
     private var messageViewWasVisibleBeforeOverlay: Boolean? = null
+    private var lastSlowModeUiState = SlowModeState()
 
     private var autoCompleteAdapter: AutoCompleteAdapter<Any>? = null
 
@@ -258,6 +260,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             }
         }
         with(binding) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.slowModeState.collectLatest { state ->
+                        updateSlowModeIndicator(state)
+                        updateComposerButtons()
+                    }
+                }
+            }
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     combine(
@@ -446,7 +456,18 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         editText.setTokenizer(SpaceTokenizer())
                         editText.setOnKeyListener { _, keyCode, event ->
                             if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
-                                sendMessage()
+                                val sent = sendMessage()
+                                sent || viewModel.isSlowModeBlocked()
+                            } else {
+                                false
+                            }
+                        }
+                        editText.setOnEditorActionListener { _, actionId, event ->
+                            if (actionId == EditorInfo.IME_ACTION_SEND ||
+                                event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
+                            ) {
+                                val sent = sendMessage()
+                                sent || viewModel.isSlowModeBlocked()
                             } else {
                                 false
                             }
@@ -467,6 +488,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         } else {
                             messageView.visibility = View.VISIBLE
                         }
+                        updateSlowModeIndicator(viewModel.slowModeState.value)
                         messageView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                             updateComposerDensity()
                         }
@@ -508,6 +530,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             }
                         }
                         messagingEnabled = true
+                        updateSlowModeIndicator(viewModel.slowModeState.value)
                     }
                     viewLifecycleOwner.lifecycleScope.launch {
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -981,7 +1004,18 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             send.setOnClickListener { sendMessage() }
             editText.setOnKeyListener { _, keyCode, event ->
                 if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
-                    sendMessage()
+                    val sent = sendMessage()
+                    sent || viewModel.isSlowModeBlocked()
+                } else {
+                    false
+                }
+            }
+            editText.setOnEditorActionListener { _, actionId, event ->
+                if (actionId == EditorInfo.IME_ACTION_SEND ||
+                    event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
+                ) {
+                    val sent = sendMessage()
+                    sent || viewModel.isSlowModeBlocked()
                 } else {
                     false
                 }
@@ -993,8 +1027,59 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         if (_binding == null) return
         val hasText = binding.editText.text.isNotBlank()
         val canShareWithoutMessage = composerOverlayState is ComposerOverlayState.StreakShare
+        val blockedBySlowMode = composerOverlayState == null && viewModel.isSlowModeBlocked()
         binding.send.isVisible = !composerSubmissionInProgress && (hasText || canShareWithoutMessage)
+        binding.send.isEnabled = !blockedBySlowMode
         binding.clear.isVisible = !composerSubmissionInProgress && hasText
+    }
+
+    private fun updateSlowModeIndicator(state: SlowModeState) {
+        if (_binding == null) return
+        val indicator = binding.slowModeIndicator
+        val shouldShow = messagingEnabled && binding.messageView.isVisible && state.enabled
+        if (!shouldShow) {
+            indicator.animate().cancel()
+            indicator.alpha = 1f
+            indicator.isVisible = false
+            lastSlowModeUiState = state
+            return
+        }
+
+        val nextText = if (state.coolingDown) {
+            getString(R.string.chat_slow_mode_remaining, state.remainingSeconds)
+        } else {
+            getString(R.string.chat_slow_mode, state.intervalSeconds ?: 0)
+        }
+        if (indicator.isVisible && indicator.text != nextText) {
+            indicator.animate().cancel()
+            indicator.animate()
+                .alpha(0.72f)
+                .setDuration(80L)
+                .withEndAction {
+                    indicator.text = nextText
+                    indicator.animate().alpha(1f).setDuration(120L).start()
+                }
+                .start()
+        } else {
+            indicator.animate().cancel()
+            indicator.alpha = 1f
+            indicator.text = nextText
+        }
+
+        val becameReady = lastSlowModeUiState.coolingDown && !state.coolingDown
+        val contentDescription = getString(
+            R.string.chat_slow_mode_accessibility,
+            state.intervalSeconds ?: 0,
+        )
+        if (indicator.contentDescription != contentDescription) {
+            indicator.contentDescription = contentDescription
+        }
+        indicator.isVisible = true
+        if (becameReady) {
+            @Suppress("DEPRECATION")
+            indicator.announceForAccessibility(getString(R.string.chat_slow_mode_ready))
+        }
+        lastSlowModeUiState = state
     }
 
     private fun updateChannelPointsActivity(state: ChannelPointsActivityState) {
@@ -1307,6 +1392,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 }
                 return true
             }
+            if (viewModel.isSlowModeBlocked()) {
+                return false
+            }
             (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
             editText.clearFocus()
             toggleEmoteMenu(false)
@@ -1370,7 +1458,18 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 send.setOnClickListener { sendMessage(replyId) }
                 editText.setOnKeyListener { _, keyCode, event ->
                     if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
-                        sendMessage(replyId)
+                        val sent = sendMessage(replyId)
+                        sent || viewModel.isSlowModeBlocked()
+                    } else {
+                        false
+                    }
+                }
+                editText.setOnEditorActionListener { _, actionId, event ->
+                    if (actionId == EditorInfo.IME_ACTION_SEND ||
+                        event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
+                    ) {
+                        val sent = sendMessage(replyId)
+                        sent || viewModel.isSlowModeBlocked()
                     } else {
                         false
                     }
@@ -1601,6 +1700,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         composerTextBeforeOverlay = null
         composerSelectionBeforeOverlay = null
         messageViewWasVisibleBeforeOverlay = null
+        lastSlowModeUiState = SlowModeState()
         super.onDestroyView()
         _binding = null
     }

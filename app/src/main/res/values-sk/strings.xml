@@ -585,6 +585,10 @@
     <string name="room_followers_min">Nasledovatelia %s</string>
     <string name="room_unique">Jedinečný</string>
     <string name="room_slow">Pomaly %s</string>
+    <string name="chat_slow_mode">Pomalý režim · %1$ds</string>
+    <string name="chat_slow_mode_remaining">Odoslať znova · %1$ds</string>
+    <string name="chat_slow_mode_accessibility">Pomalý režim je zapnutý. Správy možno odosielať každých %1$d sekúnd.</string>
+    <string name="chat_slow_mode_ready">Môžete odoslať ďalšiu správu.</string>
     <string name="room_subs">Subs</string>
     <string name="chat_join">Pripojené k %s</string>
     <string name="copy_clip">Kopírovať do schránky</string>
