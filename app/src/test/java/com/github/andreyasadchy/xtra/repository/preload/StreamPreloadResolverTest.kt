@@ -109,6 +109,7 @@ class StreamPreloadResolverTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val firstStarted = CompletableDeferred<Unit>()
         val releaseFirst = CompletableDeferred<Unit>()
+        val releaseSelected = CompletableDeferred<Unit>()
         val activeStreams = mutableSetOf("first", "selected")
         var canStart = true
         val calls = AtomicInteger()
@@ -132,6 +133,7 @@ class StreamPreloadResolverTest {
         val selected = scope.async(start = CoroutineStart.UNDISPATCHED) {
             resolver.preload("selected", "selected", "config") {
                 calls.incrementAndGet()
+                releaseSelected.await()
                 "selected-url"
             }
         }
@@ -146,6 +148,7 @@ class StreamPreloadResolverTest {
         resolver.cancelAll(keepLogins = setOf("selected"), configurationFingerprint = "config")
         val playback = scope.async(start = CoroutineStart.UNDISPATCHED) { resolver.joinForPlayback("selected", "config") }
         assertTrue(runCatching { first.await() }.isFailure)
+        releaseSelected.complete(Unit)
         assertEquals("selected-url", selected.await())
         assertEquals("selected-url", playback.await())
         assertEquals(2, calls.get())
