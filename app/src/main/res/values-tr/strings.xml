@@ -693,6 +693,8 @@
     <string name="settings_player_menu_actions">Akış eylemleri</string>
     <string name="settings_player_menu_chat">Sohbet ve araçlar</string>
     <string name="settings_player_quality">Kalite ve gecikme</string>
+    <string name="settings_low_latency">Düşük gecikmeli canlı yayın oynatma</string>
+    <string name="settings_low_latency_summary">Yayıncıya olan gecikmeyi azaltır. Kararsız bağlantılarda daha sık ara belleğe alma yaşanabilir.</string>
     <string name="settings_player_behavior">Oyuncu davranışı</string>
     <string name="settings_buffer_limits">Arabellek sınırları</string>
     <string name="settings_buffer_live">Canlı gecikme</string>

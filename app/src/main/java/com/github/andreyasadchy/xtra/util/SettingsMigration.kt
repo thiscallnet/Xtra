@@ -289,6 +289,7 @@ object SettingsMigration {
         "player_keep_screen_on_when_paused",
         "player_audio_focus",
         "player_handle_audio_becoming_noisy",
+        C.PLAYER_LOW_LATENCY,
         "player_buffer_min",
         "player_buffer_max",
         "player_buffer_playback",

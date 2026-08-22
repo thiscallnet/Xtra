@@ -692,6 +692,8 @@
     <string name="settings_player_menu_actions">流操作</string>
     <string name="settings_player_menu_chat">聊天和工具</string>
     <string name="settings_player_quality">质量和延迟</string>
+    <string name="settings_low_latency">低延迟直播播放</string>
+    <string name="settings_low_latency_summary">减少与主播之间的延迟。网络连接不稳定时可能会更频繁地缓冲。</string>
     <string name="settings_player_behavior">玩家行为</string>
     <string name="settings_buffer_limits">缓冲区限制</string>
     <string name="settings_buffer_live">实时延迟</string>

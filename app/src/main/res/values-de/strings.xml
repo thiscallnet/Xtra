@@ -692,6 +692,8 @@
     <string name="settings_player_menu_actions">Stream-Aktionen</string>
     <string name="settings_player_menu_chat">Chat und Tools</string>
     <string name="settings_player_quality">Qualität und Latenz</string>
+    <string name="settings_low_latency">Live-Wiedergabe mit niedriger Latenz</string>
+    <string name="settings_low_latency_summary">Verringert die Verzögerung zum Streamer. Bei instabilen Verbindungen kann es häufiger zu Pufferungen kommen.</string>
     <string name="settings_player_behavior">Player-Verhalten</string>
     <string name="settings_buffer_limits">Puffergrenzen</string>
     <string name="settings_buffer_live">Live-Latenz</string>
