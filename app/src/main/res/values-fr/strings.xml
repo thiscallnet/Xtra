@@ -692,6 +692,8 @@
     <string name="settings_player_menu_actions">Actions de flux</string>
     <string name="settings_player_menu_chat">Chat et outils</string>
     <string name="settings_player_quality">Qualité et latence</string>
+    <string name="settings_low_latency">Lecture en direct à faible latence</string>
+    <string name="settings_low_latency_summary">Réduit le délai avec le streamer. La mise en mémoire tampon peut être plus fréquente avec une connexion instable.</string>
     <string name="settings_player_behavior">Comportement du joueur</string>
     <string name="settings_buffer_limits">Limites de tampon</string>
     <string name="settings_buffer_live">Latence en direct</string>

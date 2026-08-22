@@ -693,6 +693,8 @@
     <string name="settings_player_menu_actions">Tindakan streaming</string>
     <string name="settings_player_menu_chat">Obrolan &amp; alat</string>
     <string name="settings_player_quality">Kualitas &amp; latensi</string>
+    <string name="settings_low_latency">Pemutaran live dengan latensi rendah</string>
+    <string name="settings_low_latency_summary">Kurangi jeda dengan penyiar. Buffering mungkin lebih sering terjadi pada koneksi yang tidak stabil.</string>
     <string name="settings_player_behavior">Perilaku pemain</string>
     <string name="settings_buffer_limits">Batas buffer</string>
     <string name="settings_buffer_live">Latensi langsung</string>

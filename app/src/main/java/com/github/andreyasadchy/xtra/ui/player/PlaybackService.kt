@@ -520,7 +520,13 @@ class PlaybackService : MediaSessionService() {
                                             setUri(uri?.toUri())
                                             setMimeType(MimeTypes.APPLICATION_M3U8)
                                             setLiveConfiguration(MediaItem.LiveConfiguration.Builder().apply {
-                                                setTargetOffsetMs(2000L)
+                                                setTargetOffsetMs(
+                                                    if (prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY)) {
+                                                        C.LOW_LATENCY_TARGET_OFFSET_MS
+                                                    } else {
+                                                        C.NORMAL_LATENCY_TARGET_OFFSET_MS
+                                                    }
+                                                )
                                             }.build())
                                             setMediaMetadata(
                                                 MediaMetadata.Builder().apply {

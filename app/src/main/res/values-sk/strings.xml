@@ -180,6 +180,8 @@
     <string name="settings_player_menu_actions">Streamovanie akcií</string>
     <string name="settings_player_menu_chat">Chat a nástroje</string>
     <string name="settings_player_quality">Kvalita a latencia</string>
+    <string name="settings_low_latency">Prehrávanie živého vysielania s nízkou latenciou</string>
+    <string name="settings_low_latency_summary">Znižuje oneskorenie voči vysielateľovi. Pri nestabilnom pripojení môže dochádzať k častejšiemu načítavaniu do vyrovnávacej pamäte.</string>
     <string name="settings_player_behavior">Správanie prehrávača</string>
     <string name="settings_buffer_limits">Limity vyrovnávacej pamäte</string>
     <string name="settings_buffer_live">Živá latencia</string>

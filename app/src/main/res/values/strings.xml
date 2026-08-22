@@ -180,6 +180,8 @@
     <string name="settings_player_menu_actions">Stream actions</string>
     <string name="settings_player_menu_chat">Chat &amp; tools</string>
     <string name="settings_player_quality">Quality &amp; latency</string>
+    <string name="settings_low_latency">Low-latency live playback</string>
+    <string name="settings_low_latency_summary">Reduce the delay to the broadcaster. May buffer more often on unstable connections.</string>
     <string name="settings_player_behavior">Player behavior</string>
     <string name="settings_buffer_limits">Buffer limits</string>
     <string name="settings_buffer_live">Live latency</string>

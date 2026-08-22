@@ -692,6 +692,8 @@
     <string name="settings_player_menu_actions">Azioni streaming</string>
     <string name="settings_player_menu_chat">Chat e strumenti</string>
     <string name="settings_player_quality">Qualità e latenza</string>
+    <string name="settings_low_latency">Riproduzione live a bassa latenza</string>
+    <string name="settings_low_latency_summary">Riduce il ritardo rispetto allo streamer. Con connessioni instabili potrebbe verificarsi più buffering.</string>
     <string name="settings_player_behavior">Comportamento del giocatore</string>
     <string name="settings_buffer_limits">Limiti del buffer</string>
     <string name="settings_buffer_live">Latenza live</string>

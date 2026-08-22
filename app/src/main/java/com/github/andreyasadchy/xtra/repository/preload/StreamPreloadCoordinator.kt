@@ -241,6 +241,7 @@ class StreamPreloadCoordinator(
                 proxyUser = config.proxyUser,
                 proxyPassword = config.proxyPassword,
                 enableIntegrity = config.enableIntegrity,
+                lowLatency = config.lowLatency,
             )
         }
     }
@@ -301,6 +302,7 @@ class StreamPreloadCoordinator(
             proxyUser = prefs.getString(C.PROXY_USER, null),
             proxyPassword = prefs.getString(C.PROXY_PASSWORD, null),
             enableIntegrity = prefs.getBoolean(C.ENABLE_INTEGRITY, false),
+            lowLatency = prefs.getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
             customStreamProxyEnabled = prefs.getBoolean(C.PLAYER_STREAM_PROXY, false),
             customStreamProxyUrl = prefs.getString(C.PLAYER_PROXY_URL, null),
         )
@@ -363,6 +365,7 @@ class StreamPreloadCoordinator(
         val proxyUser: String?,
         val proxyPassword: String?,
         val enableIntegrity: Boolean,
+        val lowLatency: Boolean,
         val customStreamProxyEnabled: Boolean,
         val customStreamProxyUrl: String?,
     ) {
@@ -379,6 +382,7 @@ class StreamPreloadCoordinator(
                 append(proxyHost).append('\u0000').append(proxyPort).append('\u0000')
                 append(proxyUser).append('\u0000').append(proxyPassword).append('\u0000')
                 append(enableIntegrity).append('\u0000')
+                append(lowLatency).append('\u0000')
                 append(customStreamProxyEnabled).append('\u0000').append(customStreamProxyUrl)
             }
             digest.digest(input.toByteArray()).joinToString("") { "%02x".format(it) }

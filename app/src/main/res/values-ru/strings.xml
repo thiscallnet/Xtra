@@ -692,6 +692,8 @@
     <string name="settings_player_menu_actions">Действия с потоком</string>
     <string name="settings_player_menu_chat">Чат и инструменты</string>
     <string name="settings_player_quality">Качество и задержка</string>
+    <string name="settings_low_latency">Воспроизведение прямых трансляций с низкой задержкой</string>
+    <string name="settings_low_latency_summary">Уменьшает задержку относительно стримера. При нестабильном соединении буферизация может происходить чаще.</string>
     <string name="settings_player_behavior">Поведение игрока</string>
     <string name="settings_buffer_limits">Ограничения буфера</string>
     <string name="settings_buffer_live">Задержка в реальном времени</string>
