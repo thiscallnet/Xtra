@@ -35,6 +35,10 @@ internal fun String?.toStreamFeedCursor(api: String): StreamFeedCursor? {
     return this?.takeIf { it.isNotBlank() }?.let { StreamFeedCursor(api, it) }
 }
 
+internal fun followedStreamsFallbackSupportsSort(sort: String): Boolean {
+    return sort == StreamsSortDialog.SORT_VIEWERS
+}
+
 class StreamFeedIntegrityException : IOException(C.FAILED_INTEGRITY_CHECK)
 
 private fun checkIntegrity(enabled: Boolean, errors: Iterable<Any?>?) {
@@ -43,8 +47,9 @@ private fun checkIntegrity(enabled: Boolean, errors: Iterable<Any?>?) {
     }
 }
 
-/** Select an API only for the first page; subsequent cursors stay on it. */
+/** Select a compatible API only for the first page; subsequent cursors stay on it. */
 internal suspend fun <T> loadFollowedFirstPageWithFallback(
+    sort: String,
     onApiSelected: (String) -> Unit,
     gql: suspend () -> T,
     persistedGql: suspend () -> T,
@@ -56,6 +61,7 @@ internal suspend fun <T> loadFollowedFirstPageWithFallback(
     } catch (error: Exception) {
         if (error is CancellationException) throw error
         if (error is StreamFeedIntegrityException) throw error
+        if (!followedStreamsFallbackSupportsSort(sort)) throw error
         try {
             onApiSelected(C.GQL_PERSISTED_QUERY)
             persistedGql()
@@ -257,8 +263,8 @@ class FollowedStreamsPageLoader(
 ) : StreamFeedPageLoader {
     private var api: String? = null
 
-    private fun requireUnsortedFallback() {
-        if (sort != StreamsSortDialog.SORT_VIEWERS) {
+    private fun requireSupportedFallbackSort() {
+        if (!followedStreamsFallbackSupportsSort(sort)) {
             throw IOException("Followed-stream fallback cannot represent sort: $sort")
         }
     }
@@ -299,6 +305,7 @@ class FollowedStreamsPageLoader(
 
     private suspend fun loadFirstPageWithFallback(): StreamFeedPage {
         return loadFollowedFirstPageWithFallback(
+            sort = sort,
             onApiSelected = { api = it },
             gql = { gqlQueryLoad(null) },
             persistedGql = { persistedGqlFallback(null) },
@@ -317,12 +324,12 @@ class FollowedStreamsPageLoader(
     }
 
     private suspend fun persistedGqlFallback(cursor: String?): StreamFeedPage {
-        requireUnsortedFallback()
+        requireSupportedFallbackSort()
         return gqlLoad(cursor)
     }
 
     private suspend fun helixFallback(cursor: String?): StreamFeedPage {
-        requireUnsortedFallback()
+        requireSupportedFallbackSort()
         return helixLoad(cursor)
     }
 
