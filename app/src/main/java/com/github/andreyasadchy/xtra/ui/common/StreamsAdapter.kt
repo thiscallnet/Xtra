@@ -19,6 +19,7 @@ import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
@@ -49,13 +50,23 @@ class StreamsAdapter(
         holder.bind(getItem(position))
     }
 
+    override fun onViewRecycled(holder: PagingViewHolder) {
+        (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
+            .detachSurface(holder.previewSurface)
+        super.onViewRecycled(holder)
+    }
+
     inner class PagingViewHolder(
         private val binding: FragmentStreamsListItemBinding,
         private val fragment: Fragment,
         private val showGame: Boolean,
     ) : RecyclerView.ViewHolder(binding.root) {
+        val previewSurface get() = binding.previewPlayerView
+
         fun bind(item: Stream?) {
             with(binding) {
+                (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
+                    .detachSurface(previewPlayerView)
                 if (item != null) {
                     val context = fragment.requireContext()
                     val selectionMode = onStreamClick != null

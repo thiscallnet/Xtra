@@ -13,9 +13,6 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.httpProxyHost
-import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,7 +20,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 /** Cancels speculative work while preserving a promoted flight for the current configuration. */
@@ -47,15 +43,23 @@ class StreamPreloadCoordinator(
     private val streamFeedRefreshCoordinator: StreamFeedRefreshCoordinator,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val elapsedRealtimeMs: () -> Long = { SystemClock.elapsedRealtime() },
+    private val mediaPreloadRuntime: StreamMedia3Runtime? = null,
 ) {
     private val context = context.applicationContext
     private val cache = StreamPreloadUrlCache(elapsedRealtimeMs = elapsedRealtimeMs)
+    private val urlOwnership = StreamPreloadUrlOwnership(cache)
     private val scheduledJobs = ConcurrentHashMap<String, Job>()
     private val dwellStarts = ConcurrentHashMap<String, Long>()
     private val viewports = ConcurrentHashMap<String, ViewportState>()
+    private val mediaOperationLock = Any()
+    private val mediaOperationGate = StreamMediaPreloadOperationGate()
+    private var mediaReconcileJob: Job? = null
 
     @Volatile
-    private var configuration: PlaybackPreloadConfiguration? = null
+    private var mediaPreloadKeepChannelLogin: String? = null
+
+    @Volatile
+    private var configuration: StreamPlaybackConfiguration? = null
 
     @Volatile
     private var selectedChannelLogin: String? = null
@@ -70,10 +74,11 @@ class StreamPreloadCoordinator(
     )
 
     fun updateViewport(viewportKey: String, candidates: Collection<StreamPreloadCandidate>, scrolling: Boolean) {
-        if (preloadMode() == StreamPreloadMode.OFF) {
+        if (preloadMode() == StreamPreloadMode.OFF && previewMode() == StreamPreviewMode.OFF) {
             detachViewport(viewportKey)
             return
         }
+        mediaPreloadKeepChannelLogin = null
         val now = elapsedRealtimeMs()
         val normalized = candidates
             .filter { it.channelLogin.isNotBlank() }
@@ -88,7 +93,8 @@ class StreamPreloadCoordinator(
         if (scrolling) {
             cancelScheduledJobs()
             configuration?.fingerprint?.let { resolver.cancelObsolete(it, emptySet()) } ?: resolver.cancelAll()
-        } else {
+            clearMediaPreloads()
+        } else if (preloadMode() != StreamPreloadMode.OFF) {
             reconcilePreloads(refreshConfiguration())
         }
     }
@@ -103,8 +109,11 @@ class StreamPreloadCoordinator(
         if (viewports.isEmpty() || preloadMode() == StreamPreloadMode.OFF) {
             cancelScheduledJobs()
             cancelBrowsingFlights()
-        } else {
+            clearMediaPreloads()
+        } else if (preloadMode() != StreamPreloadMode.OFF) {
             reconcilePreloads(refreshConfiguration())
+        } else {
+            clearMediaPreloads()
         }
     }
 
@@ -117,7 +126,8 @@ class StreamPreloadCoordinator(
             state.candidates.keys.forEach { dwellStarts[it] = now }
             cancelScheduledJobs()
             configuration?.fingerprint?.let { resolver.cancelObsolete(it, emptySet()) } ?: resolver.cancelAll()
-        } else {
+            clearMediaPreloads()
+        } else if (preloadMode() != StreamPreloadMode.OFF) {
             reconcilePreloads(refreshConfiguration())
         }
     }
@@ -127,6 +137,7 @@ class StreamPreloadCoordinator(
         dwellStarts.clear()
         cancelScheduledJobs()
         cancelBrowsingFlights()
+        clearMediaPreloads()
     }
 
     fun onAppForeground() {
@@ -145,6 +156,7 @@ class StreamPreloadCoordinator(
             keepLogins = selected?.let(::setOf).orEmpty(),
             configurationFingerprint = config.fingerprint,
         )
+        clearMediaPreloads(selected)
     }
 
     fun onStreamSelected(stream: Stream) {
@@ -159,7 +171,7 @@ class StreamPreloadCoordinator(
     suspend fun resolveForPlayback(channelLogin: String?): String? {
         val login = channelLogin?.trim()?.takeIf { it.isNotEmpty() } ?: return null
         val config = refreshConfiguration()
-        cache.take(login, config.fingerprint)?.let {
+        urlOwnership.forPlayback(login, config.fingerprint)?.let {
             debug("playback_hit_url", login)
             return it
         }
@@ -167,7 +179,7 @@ class StreamPreloadCoordinator(
             debug("playback_join_url", login)
             return it
         }
-        cache.take(login, config.fingerprint)?.let {
+        urlOwnership.forPlayback(login, config.fingerprint)?.let {
             debug("playback_hit_url", login)
             return it
         }
@@ -175,8 +187,23 @@ class StreamPreloadCoordinator(
         return null
     }
 
-    private fun reconcilePreloads(config: PlaybackPreloadConfiguration) {
-        val ranked = if (canPreload() && viewports.values.none { it.scrolling }) {
+    /** Resolves only through the shared URL flight/cache. It never creates a second request. */
+    suspend fun resolveForPreview(channelLogin: String?): String? {
+        val login = channelLogin?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val config = refreshConfiguration()
+        // Preview is a reader, not the owner of the URL. Fullscreen playback must
+        // still be able to consume this exact signed URL for Media3 handoff.
+        urlOwnership.forPreview(login, config.fingerprint)?.let { return it }
+        resolver.join(login, config.fingerprint)?.let { return it }
+        if (!canResolvePreview()) return null
+        val key = currentCandidates().firstOrNull { it.channelLogin.equals(login, true) }
+            ?.streamKey
+            ?: login
+        return preloadUrl(login, key, forPreview = true)
+    }
+
+    private fun reconcilePreloads(config: StreamPlaybackConfiguration) {
+        val ranked = if (canPreload() && canResolveStream() && viewports.values.none { it.scrolling }) {
             StreamPreloadPolicy.rank(currentCandidates()).take(StreamPreloadPolicy.MAX_URL_CANDIDATES)
         } else {
             emptyList()
@@ -189,6 +216,7 @@ class StreamPreloadCoordinator(
             configurationFingerprint = config.fingerprint,
             activeLogins = ranked.map { it.channelLogin.trim().lowercase() }.toSet(),
         )
+        requestMediaPreloadReconcile()
         if (ranked.isEmpty()) {
             cancelScheduledJobs()
         } else {
@@ -198,7 +226,7 @@ class StreamPreloadCoordinator(
 
     private fun scheduleRankedCandidates(
         ranked: List<StreamPreloadCandidate>,
-        config: PlaybackPreloadConfiguration,
+        config: StreamPlaybackConfiguration,
     ) {
         ranked.forEach { candidate ->
             val key = candidate.streamKey.ifBlank { candidate.channelLogin.trim().lowercase() }
@@ -217,12 +245,21 @@ class StreamPreloadCoordinator(
         }
     }
 
-    private suspend fun preloadUrl(channelLogin: String, streamKey: String): String? {
-        if (!canPreload() || !isEligible(streamKey)) return null
+    private suspend fun preloadUrl(channelLogin: String, streamKey: String, forPreview: Boolean = false): String? {
+        if (!(if (forPreview) canResolvePreview() else canResolveStream()) || !isEligible(streamKey)) return null
         val config = refreshConfiguration()
         cache.get(channelLogin, config.fingerprint)?.let {
             debug("url_cache_hit", channelLogin)
             return it
+        }
+        if (config.customStreamProxyEnabled) {
+            val directUrl = StreamPreloadPolicy.customStreamProxyUrl(config.customStreamProxyUrl, channelLogin)
+            if (directUrl != null) {
+                cache.put(channelLogin, directUrl, config.fingerprint)
+                debug("custom_proxy_url_ready", channelLogin)
+                return directUrl
+            }
+            return null
         }
         return resolver.preload(channelLogin, streamKey, config.fingerprint) {
             debug("url_start", channelLogin)
@@ -250,6 +287,9 @@ class StreamPreloadCoordinator(
         if (refreshConfiguration().fingerprint == key.configurationFingerprint) {
             cache.put(key.channelLogin, url, key.configurationFingerprint)
             debug("url_ready", key.channelLogin)
+            if (preloadMode() != StreamPreloadMode.OFF) {
+                requestMediaPreloadReconcile()
+            }
         } else {
             debug("url_discarded_configuration_changed", key.channelLogin)
         }
@@ -257,6 +297,84 @@ class StreamPreloadCoordinator(
 
     private fun currentCandidates(): List<StreamPreloadCandidate> =
         viewports.values.flatMap { it.candidates.values }
+
+    private fun requestMediaPreloadReconcile() {
+        scheduleMediaOperation("media_reconcile") { runtime ->
+            if (!mediaPreloadEligible()) {
+                runtime.clearPreloads(mediaPreloadKeepChannelLogin)
+                return@scheduleMediaOperation
+            }
+
+            val currentConfig = StreamPlaybackConfiguration.from(context)
+            if (configuration?.fingerprint != currentConfig.fingerprint) {
+                refreshConfiguration()
+                return@scheduleMediaOperation
+            }
+
+            // Read the viewport and URL cache on Main immediately before handing
+            // candidates to Media3. The resolver callback may have captured an
+            // obsolete ranking while a scroll/background transition was queued.
+            val ranked = StreamPreloadPolicy.rank(currentCandidates())
+                .take(StreamPreloadPolicy.MAX_URL_CANDIDATES)
+            val candidates = ranked.mapIndexedNotNull { rank, candidate ->
+                cache.get(candidate.channelLogin, currentConfig.fingerprint)?.let { url ->
+                    LiveMediaPreloadCandidate(
+                        channelLogin = candidate.channelLogin,
+                        url = url,
+                        rank = rank,
+                        title = candidate.title,
+                        channelName = candidate.channelName,
+                        channelLogo = candidate.channelLogo,
+                    )
+                }
+            }
+            if (!mediaPreloadEligible()) {
+                runtime.clearPreloads(mediaPreloadKeepChannelLogin)
+                return@scheduleMediaOperation
+            }
+            runtime.reconcile(candidates)
+            mediaPreloadKeepChannelLogin = null
+        }
+    }
+
+    private fun clearMediaPreloads(keepChannelLogin: String? = null) {
+        mediaPreloadKeepChannelLogin = keepChannelLogin?.trim()?.lowercase()
+        scheduleMediaOperation("media_clear") { runtime ->
+            runtime.clearPreloads(mediaPreloadKeepChannelLogin)
+        }
+    }
+
+    private fun mediaPreloadEligible(): Boolean =
+        preloadMode() != StreamPreloadMode.OFF &&
+            viewports.isNotEmpty() &&
+            viewports.values.none { it.scrolling } &&
+            canPreload() &&
+            canResolveStream()
+
+    private fun scheduleMediaOperation(
+        event: String,
+        operation: (StreamMedia3Runtime) -> Unit,
+    ) {
+        val runtime = mediaPreloadRuntime ?: return
+        synchronized(mediaOperationLock) {
+            val epoch = mediaOperationGate.begin()
+            mediaReconcileJob?.cancel()
+            mediaReconcileJob = scope.launch(Dispatchers.Main.immediate) {
+                mediaOperationGate.runIfCurrent(epoch) {
+                    runCatching { operation(runtime) }
+                        .onFailure { debug("${event}_failed", it::class.simpleName) }
+                }
+            }
+        }
+    }
+
+    private fun invalidateMediaOperations() {
+        synchronized(mediaOperationLock) {
+            mediaOperationGate.invalidate()
+            mediaReconcileJob?.cancel()
+            mediaReconcileJob = null
+        }
+    }
 
     private fun isEligible(streamKey: String): Boolean {
         if (!canPreload() || viewports.values.any { it.scrolling }) return false
@@ -284,31 +402,15 @@ class StreamPreloadCoordinator(
         cancelBrowsingFlights(resolver, configuration?.fingerprint)
     }
 
-    private fun refreshConfiguration(): PlaybackPreloadConfiguration {
-        val prefs = context.prefs()
-        val next = PlaybackPreloadConfiguration(
-            networkLibrary = prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-            gqlHeaders = TwitchApiHelper.getGQLHeaders(
-                context,
-                prefs.getBoolean(C.TOKEN_INCLUDE_TOKEN_STREAM, true),
-            ),
-            randomDeviceId = prefs.getBoolean(C.TOKEN_RANDOM_DEVICE_ID, true),
-            xDeviceId = prefs.getString(C.TOKEN_X_DEVICE_ID, C.DEFAULT_TOKEN_X_DEVICE_ID),
-            playerType = prefs.getString(C.TOKEN_PLAYER_TYPE, C.DEFAULT_TOKEN_PLAYER_TYPE),
-            supportedCodecs = prefs.getString(C.TOKEN_SUPPORTED_CODECS, C.DEFAULT_TOKEN_SUPPORTED_CODECS),
-            proxyPlaybackAccessToken = prefs.getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-            proxyHost = prefs.httpProxyHost(),
-            proxyPort = prefs.httpProxyPort(),
-            proxyUser = prefs.getString(C.PROXY_USER, null),
-            proxyPassword = prefs.getString(C.PROXY_PASSWORD, null),
-            enableIntegrity = prefs.getBoolean(C.ENABLE_INTEGRITY, false),
-            lowLatency = prefs.getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
-            customStreamProxyEnabled = prefs.getBoolean(C.PLAYER_STREAM_PROXY, false),
-            customStreamProxyUrl = prefs.getString(C.PLAYER_PROXY_URL, null),
-        )
+    private fun refreshConfiguration(): StreamPlaybackConfiguration {
+        val next = StreamPlaybackConfiguration.from(context)
         if (configuration?.fingerprint != next.fingerprint) {
             cache.setConfiguration(next.fingerprint)
             resolver.cancelAll()
+            invalidateMediaOperations()
+            mediaPreloadRuntime?.let { runtime ->
+                scheduleMediaOperation("media_configuration_invalidation") { runtime.invalidateConfiguration() }
+            }
             debug("configuration_changed", null)
         }
         configuration = next
@@ -318,22 +420,38 @@ class StreamPreloadCoordinator(
     private fun preloadMode(): StreamPreloadMode =
         StreamPreloadMode.fromPreference(context.prefs().getString(C.STREAM_PRELOAD_MODE, StreamPreloadMode.WIFI_ONLY.preferenceValue))
 
+    private fun previewMode(): StreamPreviewMode =
+        StreamPreviewMode.fromPreference(context.prefs().getString(C.STREAM_PREVIEW_MODE, StreamPreviewMode.OFF.preferenceValue))
+
     private fun canPreload(): Boolean {
-        if (preloadMode() == StreamPreloadMode.OFF) return false
+        if (!canResolveStream() && !canResolvePreview()) return false
         val prefs = context.prefs()
-        if (!StreamPreloadPolicy.allowsTwitchUrlPreload(
-                customStreamProxyEnabled = prefs.getBoolean(C.PLAYER_STREAM_PROXY, false),
-                customStreamProxyUrl = prefs.getString(C.PLAYER_PROXY_URL, null),
-            )
-        ) return false
+        if (prefs.getBoolean(C.PLAYER_STREAM_PROXY, false) && prefs.getString(C.PLAYER_PROXY_URL, null).isNullOrBlank()) return false
         if ((context as? XtraApp)?.isInForeground == false) return false
         if (streamFeedRefreshCoordinator.isPlayerFullscreen) return false
         val powerManager = context.getSystemService(PowerManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && powerManager?.isPowerSaveMode == true) return false
+        return true
+    }
+
+    private fun canResolveStream(): Boolean =
+        canResolveNetwork(preloadMode())
+
+    private fun canResolvePreview(): Boolean =
+        canResolveNetwork(
+            when (previewMode()) {
+                StreamPreviewMode.OFF -> StreamPreloadMode.OFF
+                StreamPreviewMode.WIFI_ONLY -> StreamPreloadMode.WIFI_ONLY
+                StreamPreviewMode.WIFI_AND_MOBILE -> StreamPreloadMode.WIFI_AND_MOBILE
+            }
+        )
+
+    private fun canResolveNetwork(mode: StreamPreloadMode): Boolean {
+        if (mode == StreamPreloadMode.OFF) return false
         val connectivityManager = context.getSystemService(ConnectivityManager::class.java) ?: return false
         val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork) ?: return false
         if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return false
-        return when (preloadMode()) {
+        return when (mode) {
             StreamPreloadMode.OFF -> false
             StreamPreloadMode.WIFI_ONLY -> capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
@@ -352,40 +470,4 @@ class StreamPreloadCoordinator(
         val scrolling: Boolean,
     )
 
-    private data class PlaybackPreloadConfiguration(
-        val networkLibrary: String?,
-        val gqlHeaders: Map<String, String>,
-        val randomDeviceId: Boolean?,
-        val xDeviceId: String?,
-        val playerType: String?,
-        val supportedCodecs: String?,
-        val proxyPlaybackAccessToken: Boolean,
-        val proxyHost: String?,
-        val proxyPort: Int?,
-        val proxyUser: String?,
-        val proxyPassword: String?,
-        val enableIntegrity: Boolean,
-        val lowLatency: Boolean,
-        val customStreamProxyEnabled: Boolean,
-        val customStreamProxyUrl: String?,
-    ) {
-        val fingerprint: String by lazy {
-            val digest = MessageDigest.getInstance("SHA-256")
-            val input = buildString {
-                append(networkLibrary).append('\u0000')
-                gqlHeaders.toSortedMap().forEach { (key, value) -> append(key).append('=').append(value).append('\u0000') }
-                append(randomDeviceId).append('\u0000')
-                append(xDeviceId).append('\u0000')
-                append(playerType).append('\u0000')
-                append(supportedCodecs).append('\u0000')
-                append(proxyPlaybackAccessToken).append('\u0000')
-                append(proxyHost).append('\u0000').append(proxyPort).append('\u0000')
-                append(proxyUser).append('\u0000').append(proxyPassword).append('\u0000')
-                append(enableIntegrity).append('\u0000')
-                append(lowLatency).append('\u0000')
-                append(customStreamProxyEnabled).append('\u0000').append(customStreamProxyUrl)
-            }
-            digest.digest(input.toByteArray()).joinToString("") { "%02x".format(it) }
-        }
-    }
 }

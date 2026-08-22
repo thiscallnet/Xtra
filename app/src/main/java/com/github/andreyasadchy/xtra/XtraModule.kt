@@ -6,6 +6,8 @@ import android.net.http.HttpEngine
 import android.os.Build
 import android.os.ext.SdkExtensions
 import android.util.Log
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.room.Room
 import androidx.room.migration.Migration
 import com.github.andreyasadchy.xtra.db.AppDatabase
@@ -25,6 +27,7 @@ import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadCoordinator
+import com.github.andreyasadchy.xtra.repository.preload.StreamMedia3Runtime
 import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.SavedFiltersRepository
@@ -33,6 +36,7 @@ import com.github.andreyasadchy.xtra.repository.auth.AuthSessionMaintainer
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPager
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
+import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCoordinator
 import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
 import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
@@ -51,6 +55,7 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
+@OptIn(UnstableApi::class)
 class XtraModule(application: Application) {
 
     val playbackPersistence by lazy {
@@ -69,22 +74,40 @@ class XtraModule(application: Application) {
         StreamFeedPager(streamFeedCache, streamFeedRefreshCoordinator)
     }
 
+    val streamMedia3Runtime by lazy {
+        StreamMedia3Runtime(application, this)
+    }
+
     private val streamPreloadCoordinatorLazy = lazy {
         StreamPreloadCoordinator(
             context = application,
             playerRepository = playerRepository,
             streamFeedRefreshCoordinator = streamFeedRefreshCoordinator,
+            mediaPreloadRuntime = streamMedia3Runtime,
         )
     }
 
     val streamPreloadCoordinator by streamPreloadCoordinatorLazy
 
+    private val streamPreviewCoordinatorLazy = lazy {
+        StreamPreviewCoordinator(
+            context = application,
+            mediaRuntime = streamMedia3Runtime,
+            urlCoordinator = streamPreloadCoordinator,
+            streamFeedRefreshCoordinator = streamFeedRefreshCoordinator,
+        )
+    }
+
+    val streamPreviewCoordinator by streamPreviewCoordinatorLazy
+
     fun onStreamPreloadAppForeground() {
         if (streamPreloadCoordinatorLazy.isInitialized()) streamPreloadCoordinator.onAppForeground()
+        if (streamPreviewCoordinatorLazy.isInitialized()) streamPreviewCoordinator.onAppForeground()
     }
 
     fun onStreamPreloadAppBackground() {
         if (streamPreloadCoordinatorLazy.isInitialized()) streamPreloadCoordinator.onAppBackground()
+        if (streamPreviewCoordinatorLazy.isInitialized()) streamPreviewCoordinator.onAppBackground()
     }
 
     val metadataCache by lazy {

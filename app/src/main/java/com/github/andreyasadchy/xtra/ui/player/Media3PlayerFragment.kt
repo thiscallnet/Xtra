@@ -2662,7 +2662,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
-    protected fun getStreamArguments(item: Stream): Bundle {
+    protected fun getStreamArguments(item: Stream, tapElapsedMs: Long? = null): Bundle {
         return Bundle().apply {
             putString(KEY_TYPE, STREAM)
             putString(KEY_STREAM_ID, item.id)
@@ -2677,6 +2677,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             putString(KEY_THUMBNAIL, item.thumbnail)
             putString(KEY_STARTED_AT, item.createdAt)
             putInt(KEY_VIEWER_COUNT, item.viewerCount ?: -1)
+            tapElapsedMs?.let { putLong(KEY_TAP_ELAPSED_MS, it) }
         }
     }
 
@@ -2793,5 +2794,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         protected const val KEY_VIDEO_ANIMATED_PREVIEW = "videoAnimatedPreview"
         protected const val KEY_OFFSET = "offset"
         protected const val KEY_IGNORE_SAVED_POSITION = "ignoreSavedPosition"
+        protected const val KEY_TAP_ELAPSED_MS = "tapElapsedMs"
     }
 }

@@ -436,6 +436,15 @@
     <string name="stream_preload_off">Off</string>
     <string name="stream_preload_wifi">Wi-Fi only</string>
     <string name="stream_preload_all">Wi-Fi and mobile data</string>
+    <string name="settings_in_feed_previews">In-feed live previews</string>
+    <string name="settings_preview_quality">Preview quality</string>
+    <string name="settings_preview_delay">Preview start delay</string>
+    <string name="preview_quality_360">360p</string>
+    <string name="preview_quality_480">480p</string>
+    <string name="preview_quality_auto">Auto</string>
+    <string name="preview_delay_fast">Fast (~0.75 s)</string>
+    <string name="preview_delay_normal">Normal (~1.25 s)</string>
+    <string name="preview_delay_conservative">Conservative (~2 s)</string>
     <string name="settings_chat_diagnostics">Chat diagnostics</string>
     <string name="settings_playback_diagnostics">Playback diagnostics</string>
     <string name="settings_twitch_api_diagnostics">Twitch API diagnostics</string>

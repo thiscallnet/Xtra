@@ -5,8 +5,10 @@ import android.view.View
 import android.view.ViewTreeObserver
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
+import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadCandidate
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadCoordinator
@@ -55,6 +57,7 @@ class StreamPreloadViewportController(
             recyclerView.viewTreeObserver.removeOnScrollChangedListener(scrollChangedListener)
         }
         coordinator.detachViewport(viewportKey)
+        previewCoordinator.detachViewport(viewportKey)
     }
 
     fun onResume() {
@@ -63,6 +66,7 @@ class StreamPreloadViewportController(
 
     fun onPause() {
         coordinator.detachViewport(viewportKey)
+        previewCoordinator.detachViewport(viewportKey)
     }
 
     fun onParentScrollStateChanged() {
@@ -73,6 +77,7 @@ class StreamPreloadViewportController(
         if (!started) return
         if (isScrolling()) {
             coordinator.setViewportScrolling(viewportKey, scrolling = true)
+            previewCoordinator.onScrolling(viewportKey)
         } else {
             recyclerView.post(::publish)
         }
@@ -85,11 +90,13 @@ class StreamPreloadViewportController(
             !recyclerView.isAttachedToWindow
         ) {
             coordinator.detachViewport(viewportKey)
+            previewCoordinator.detachViewport(viewportKey)
             return
         }
         val viewportRect = Rect()
         if (!recyclerView.getGlobalVisibleRect(viewportRect) || viewportRect.width() <= 0 || viewportRect.height() <= 0) {
             coordinator.updateViewport(viewportKey, emptyList(), scrolling = isScrolling())
+            previewCoordinator.updateViewport(viewportKey, emptyList(), scrolling = isScrolling())
             return
         }
         val horizontal = (recyclerView.layoutManager as? LinearLayoutManager)?.orientation == RecyclerView.HORIZONTAL
@@ -118,12 +125,34 @@ class StreamPreloadViewportController(
                             channelLogin = channelLogin,
                             visibleFraction = visibleFraction,
                             centerProximity = centerProximity,
+                            title = stream.title,
+                            channelName = stream.channelName,
+                            channelLogo = stream.channelImage,
                         )
                     )
                 }
             }
         }
         coordinator.updateViewport(viewportKey, candidates, isScrolling())
+        val previewCandidates = candidates.mapNotNull { candidate ->
+            val child = (0 until recyclerView.childCount)
+                .map(recyclerView::getChildAt)
+                .firstOrNull { recyclerView.getChildAdapterPosition(it) != RecyclerView.NO_POSITION &&
+                    streamAtPosition(recyclerView.getChildAdapterPosition(it))?.channelLogin?.trim()?.equals(candidate.channelLogin, true) == true }
+            child?.findViewById<PlayerView>(R.id.previewPlayerView)?.let { surface ->
+                StreamPreviewCandidate(
+                    streamKey = candidate.streamKey,
+                    channelLogin = candidate.channelLogin,
+                    visibleFraction = candidate.visibleFraction,
+                    centerProximity = candidate.centerProximity,
+                    title = candidate.title,
+                    channelName = candidate.channelName,
+                    channelLogo = candidate.channelLogo,
+                    surface = surface,
+                )
+            }
+        }
+        previewCoordinator.updateViewport(viewportKey, previewCandidates, isScrolling())
     }
 
     private fun isScrolling(): Boolean =
@@ -134,4 +163,9 @@ class StreamPreloadViewportController(
             ?: stream.channelLogin?.trim()?.lowercase()?.takeIf { it.isNotBlank() }?.let { "login:$it" }
             ?: stream.id?.takeIf { it.isNotBlank() }?.let { "stream:$it" }
             ?: "unknown"
+
+    private val previewCoordinator: StreamPreviewCoordinator by lazy {
+        (fragment.requireContext().applicationContext as com.github.andreyasadchy.xtra.XtraApp)
+            .xtraModule.streamPreviewCoordinator
+    }
 }

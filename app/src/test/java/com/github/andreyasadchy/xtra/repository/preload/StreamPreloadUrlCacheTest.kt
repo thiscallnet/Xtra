@@ -28,4 +28,16 @@ class StreamPreloadUrlCacheTest {
 
         assertNull(cache.get("creator", "new-config"))
     }
+
+    @Test
+    fun previewPeekPreservesTheExactUrlForFullscreenPlayback() {
+        val cache = StreamPreloadUrlCache(elapsedRealtimeMs = { 0L })
+        cache.put("foo", "signed-url-a", "config")
+
+        val previewUrl = cache.get("foo", "config")
+        val playbackUrl = cache.take("foo", "config")
+
+        assertEquals("signed-url-a", previewUrl)
+        assertEquals("signed-url-a", playbackUrl)
+    }
 }

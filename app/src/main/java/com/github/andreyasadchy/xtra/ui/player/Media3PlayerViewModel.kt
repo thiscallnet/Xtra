@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
 import android.net.http.HttpEngine
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -80,6 +81,8 @@ class Media3PlayerViewModel(
     val integrity = MutableSharedFlow<String?>()
 
     val streamResult = MutableStateFlow<String?>(null)
+    val streamUrlWarm = MutableStateFlow(false)
+    var streamUrlAvailableElapsedMs: Long? = null
     val stream = MutableStateFlow<Stream?>(null)
     private var streamJob: Job? = null
     var useCustomProxy = false
@@ -213,10 +216,13 @@ class Media3PlayerViewModel(
 
     fun loadStreamResult(networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?, enableIntegrity: Boolean) {
         if (streamResult.value == null) {
-            viewModelScope.launch {
-                try {
-                    streamResult.value = streamPreloadCoordinator.resolveForPlayback(channelLogin)
-                        ?: playerRepository.loadStreamPlaylistUrl(applicationContext, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, proxyPlaybackAccessToken, proxyHost, proxyPort, proxyUser, proxyPassword, enableIntegrity)
+                viewModelScope.launch {
+                    try {
+                        val warmUrl = streamPreloadCoordinator.resolveForPlayback(channelLogin)
+                        streamUrlWarm.value = warmUrl != null
+                        streamResult.value = warmUrl
+                            ?: playerRepository.loadStreamPlaylistUrl(applicationContext, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, proxyPlaybackAccessToken, proxyHost, proxyPort, proxyUser, proxyPassword, enableIntegrity)
+                        streamUrlAvailableElapsedMs = SystemClock.elapsedRealtime()
                 } catch (e: Exception) {
                     if (e.message == C.FAILED_INTEGRITY_CHECK) {
                         integrity.emit("refreshStream")

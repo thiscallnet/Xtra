@@ -19,6 +19,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.os.SystemClock
 import android.os.ext.SdkExtensions
 import android.view.Menu
 import android.view.View
@@ -1005,12 +1006,13 @@ class MainActivity : AppCompatActivity() {
 //Navigation listeners
 
     fun startStream(stream: Stream) {
+        val tapElapsedMs = SystemClock.elapsedRealtime()
         (application as XtraApp).xtraModule.streamPreloadCoordinator.onStreamSelected(stream)
-        onPlayerEnteredPlayback(isLive = true)
+        onPlayerEnteredPlayback(isLive = true, channelLogin = stream.channelLogin)
         (application as XtraApp).xtraModule.streamPreloadCoordinator.onPlaybackEntered()
         if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
-            val fragment = Media3Fragment.newInstance(stream)
+            val fragment = Media3Fragment.newInstance(stream, tapElapsedMs)
             startPlayer(fragment)
             return
         }
@@ -1182,15 +1184,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun onPlayerReturnedToBrowsing() {
+        (application as XtraApp).xtraModule.streamPreviewCoordinator.onPlaybackReturned()
         (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackReturned()
     }
 
-    fun onPlayerEnteredPlayback(isLive: Boolean = true) {
+    fun onPlayerEnteredPlayback(isLive: Boolean = true, channelLogin: String? = null) {
         (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackEntered(isLive)
+        (application as XtraApp).xtraModule.streamPreviewCoordinator.onFullscreenPlaybackStarted(channelLogin)
     }
 
     fun onPlayerChangedPlayback(isLive: Boolean) {
         (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackChanged(isLive)
+        (application as XtraApp).xtraModule.streamPreviewCoordinator.onFullscreenPlaybackStarted()
     }
 
     private fun currentMultiviewFragment(): MultiviewFragment? {

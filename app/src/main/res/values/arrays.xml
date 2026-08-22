@@ -36,6 +36,42 @@
         <item>all</item>
     </string-array>
 
+    <string-array name="streamPreviewEntries" translatable="false">
+        <item>@string/stream_preload_off</item>
+        <item>@string/stream_preload_wifi</item>
+        <item>@string/stream_preload_all</item>
+    </string-array>
+
+    <string-array name="streamPreviewValues" translatable="false">
+        <item>off</item>
+        <item>wifi</item>
+        <item>all</item>
+    </string-array>
+
+    <string-array name="previewQualityEntries" translatable="false">
+        <item>@string/preview_quality_360</item>
+        <item>@string/preview_quality_480</item>
+        <item>@string/preview_quality_auto</item>
+    </string-array>
+
+    <string-array name="previewQualityValues" translatable="false">
+        <item>360</item>
+        <item>480</item>
+        <item>auto</item>
+    </string-array>
+
+    <string-array name="previewDelayEntries" translatable="false">
+        <item>@string/preview_delay_fast</item>
+        <item>@string/preview_delay_normal</item>
+        <item>@string/preview_delay_conservative</item>
+    </string-array>
+
+    <string-array name="previewDelayValues" translatable="false">
+        <item>fast</item>
+        <item>normal</item>
+        <item>conservative</item>
+    </string-array>
+
     <string-array name="liveDownloadWaitEntries">
         <item>@string/download_duration_15_minutes</item>
         <item>@string/download_duration_30_minutes</item>
