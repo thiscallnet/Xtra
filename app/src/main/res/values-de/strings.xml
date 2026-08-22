@@ -158,6 +158,10 @@
     <string name="room_followers_min">%s Follower</string>
     <string name="room_unique">Einzigartig</string>
     <string name="room_slow">Langsam %s</string>
+    <string name="chat_slow_mode">Slow-Modus · %1$ds</string>
+    <string name="chat_slow_mode_remaining">Erneut senden · %1$ds</string>
+    <string name="chat_slow_mode_accessibility">Slow-Modus aktiviert. Nachrichten können alle %1$d Sekunden gesendet werden.</string>
+    <string name="chat_slow_mode_ready">Du kannst eine weitere Nachricht senden.</string>
     <string name="room_subs">Abonnenten</string>
     <string name="chat_join">Verbunden mit %s</string>
     <string name="copy_clip">In Zwischenablage kopieren</string>

@@ -12,6 +12,8 @@ import com.github.andreyasadchy.xtra.model.helix.chat.ChatSettings
 import com.github.andreyasadchy.xtra.model.helix.chat.ChatSettingsResponse
 import com.github.andreyasadchy.xtra.model.helix.chat.CheerEmotesResponse
 import com.github.andreyasadchy.xtra.model.helix.chat.EmoteSetsResponse
+import com.github.andreyasadchy.xtra.model.helix.chat.SendChatMessageResponse
+import com.github.andreyasadchy.xtra.model.helix.chat.SendChatMessageResult
 import com.github.andreyasadchy.xtra.model.helix.chat.UserEmotesResponse
 import com.github.andreyasadchy.xtra.model.helix.clip.ClipsResponse
 import com.github.andreyasadchy.xtra.model.helix.follows.FollowsResponse
@@ -176,6 +178,31 @@ internal fun parseEventSubSubscriptionInfo(
         cost = subscription?.get("cost")?.jsonPrimitive?.content?.toIntOrNull(),
         totalCost = number("total_cost"),
         maxTotalCost = number("max_total_cost"),
+    )
+}
+
+internal fun parseSendChatMessageResult(
+    json: Json,
+    statusCode: Int,
+    body: String,
+): SendChatMessageResult {
+    if (statusCode !in 200..299) {
+        return SendChatMessageResult(
+            isSent = false,
+            errorMessage = body,
+        )
+    }
+    val message = runCatching {
+        json.decodeFromString<SendChatMessageResponse>(body).data.firstOrNull()
+    }.getOrNull() ?: return SendChatMessageResult(
+        isSent = false,
+        errorMessage = body,
+    )
+    return SendChatMessageResult(
+        isSent = message.isSent,
+        messageId = message.messageId?.takeIf { it.isNotBlank() },
+        dropReasonCode = message.dropReason?.code,
+        dropReasonMessage = message.dropReason?.message,
     )
 }
 
@@ -1711,7 +1738,7 @@ class HelixRepository(
         return parseEventSubSubscriptionResult(json, statusCode, body, rateLimitResetEpochSeconds)
     }
 
-    suspend fun sendMessage(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, message: String?, replyId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun sendMessage(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, message: String?, replyId: String?): SendChatMessageResult = withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/messages"
         val body = buildJsonObject {
             put("broadcaster_id", channelId)
@@ -1739,11 +1766,11 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                if (response.info.httpStatusCode in 200..299) {
-                    null
-                } else {
-                    response.body.decodeToString()
-                }
+                parseSendChatMessageResult(
+                    json,
+                    response.info.httpStatusCode,
+                    response.body.decodeToString(),
+                )
             }
             networkLibrary == C.CRONET && cronetEngine.value != null -> {
                 val response = suspendCancellableCoroutine { continuation ->
@@ -1764,11 +1791,11 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                if (response.info.httpStatusCode in 200..299) {
-                    null
-                } else {
-                    response.body.decodeToString()
-                }
+                parseSendChatMessageResult(
+                    json,
+                    response.info.httpStatusCode,
+                    response.body.decodeToString(),
+                )
             }
             else -> {
                 okHttpClient.value.newCall(Request.Builder().apply {
@@ -1777,11 +1804,11 @@ class HelixRepository(
                     header("Content-Type", "application/json")
                     post(body.toRequestBody())
                 }.build()).executeAsync().use { response ->
-                    if (response.isSuccessful) {
-                        null
-                    } else {
-                        response.body.string()
-                    }
+                    parseSendChatMessageResult(
+                        json,
+                        response.code,
+                        response.body.string(),
+                    )
                 }
             }
         }

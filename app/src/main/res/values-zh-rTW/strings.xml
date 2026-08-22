@@ -158,6 +158,10 @@
     <string name="room_followers_min">追隨者 %s</string>
     <string name="room_unique">不重複的</string>
     <string name="room_slow">顯示 %s</string>
+    <string name="chat_slow_mode">慢速模式 · %1$ds</string>
+    <string name="chat_slow_mode_remaining">再次傳送 · %1$ds</string>
+    <string name="chat_slow_mode_accessibility">慢速模式已啟用。每 %1$d 秒可以傳送一則訊息。</string>
+    <string name="chat_slow_mode_ready">您可以傳送另一則訊息。</string>
     <string name="room_subs">訂閱</string>
     <string name="chat_join">已連接至 %s</string>
     <string name="copy_clip">複製到剪貼簿</string>

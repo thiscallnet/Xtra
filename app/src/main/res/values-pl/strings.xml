@@ -563,6 +563,10 @@
     <string name="room_followers_min">Obserwujący %s</string>
     <string name="room_unique">Unikalne</string>
     <string name="room_slow">Wolno %s</string>
+    <string name="chat_slow_mode">Tryb powolny · %1$ds</string>
+    <string name="chat_slow_mode_remaining">Wyślij ponownie · %1$ds</string>
+    <string name="chat_slow_mode_accessibility">Tryb powolny jest włączony. Wiadomości można wysyłać co %1$d sekund.</string>
+    <string name="chat_slow_mode_ready">Możesz wysłać kolejną wiadomość.</string>
     <string name="room_subs">Subs</string>
     <string name="chat_join">Połączono z %s</string>
     <string name="copy_clip">Skopiuj do schowka</string>

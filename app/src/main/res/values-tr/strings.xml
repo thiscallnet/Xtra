@@ -159,6 +159,10 @@
     <string name="room_followers_min">Takipçiler %s</string>
     <string name="room_unique">Benzersiz</string>
     <string name="room_slow">Yavaş %s</string>
+    <string name="chat_slow_mode">Yavaş mod · %1$ds</string>
+    <string name="chat_slow_mode_remaining">Tekrar gönder · %1$ds</string>
+    <string name="chat_slow_mode_accessibility">Yavaş mod etkin. Mesajlar her %1$d saniyede bir gönderilebilir.</string>
+    <string name="chat_slow_mode_ready">Başka bir mesaj gönderebilirsiniz.</string>
     <string name="room_subs">Aboneler</string>
     <string name="chat_join">%s kanalına bağlanıldı</string>
     <string name="copy_clip">Panoya kopyala</string>

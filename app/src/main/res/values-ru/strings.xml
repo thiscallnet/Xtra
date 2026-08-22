@@ -158,6 +158,10 @@
     <string name="room_followers_min">Следящие %s</string>
     <string name="room_unique">Уник. сообщ.</string>
     <string name="room_slow">Медл. режим %s</string>
+    <string name="chat_slow_mode">Медленный режим · %1$ds</string>
+    <string name="chat_slow_mode_remaining">Отправить снова · %1$ds</string>
+    <string name="chat_slow_mode_accessibility">Медленный режим включён. Сообщения можно отправлять каждые %1$d секунд.</string>
+    <string name="chat_slow_mode_ready">Можно отправить ещё одно сообщение.</string>
     <string name="room_subs">Подписчики</string>
     <string name="chat_join">Выполнено подключение к %s</string>
     <string name="copy_clip">Копировать в буфер обмена</string>

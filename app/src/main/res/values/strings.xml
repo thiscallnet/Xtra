@@ -619,6 +619,10 @@
     <string name="room_unique">Unique</string>
     <string name="room_slow">Slow %s</string>
     <string name="room_subs">Subs</string>
+    <string name="chat_slow_mode">Slow mode · %1$ds</string>
+    <string name="chat_slow_mode_remaining">Send again · %1$ds</string>
+    <string name="chat_slow_mode_accessibility">Slow mode enabled. Messages can be sent every %1$d seconds.</string>
+    <string name="chat_slow_mode_ready">You can send another message.</string>
     <string name="chat_join">Connected to %s</string>
     <string name="copy_clip">Copy to clipboard</string>
     <string name="chat_clear">Chat has been cleared by a moderator.</string>
