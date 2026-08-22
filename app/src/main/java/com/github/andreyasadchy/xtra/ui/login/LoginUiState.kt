@@ -36,9 +36,20 @@ sealed interface LoginUiState {
         val isPolling: Boolean,
     ) : LoginUiState
 
+    /** The first grant is staged; the second approval is still required before Xtra is signed in. */
+    data object CompatibilityReady : LoginUiState
+
     data object Validating : LoginUiState
 
+    /** The complete pair is being persisted; cancellation must wait for this to finish. */
+    data object Committing : LoginUiState
+
     data class Error(
+        val type: LoginError,
+        val recoverable: Boolean,
+    ) : LoginUiState
+
+    data class CompatibilityError(
         val type: LoginError,
         val recoverable: Boolean,
     ) : LoginUiState
@@ -46,7 +57,10 @@ sealed interface LoginUiState {
     data class Complete(
         val accountChanged: Boolean,
         val revocationFailures: Int,
-        val compatibilityAvailable: Boolean = true,
+    ) : LoginUiState
+
+    data class LoggedOut(
+        val revocationFailures: Int,
     ) : LoginUiState
 }
 
@@ -88,4 +102,18 @@ internal val GQL_COMPATIBILITY_SCOPES = listOf(
 )
 
 internal fun selectVerificationUri(response: DeviceCodeResponse): String? =
-    response.verificationUriComplete ?: response.verificationUri
+    response.verificationUriComplete ?: response.verificationUri?.let { verificationUri ->
+        if (!verificationUri.contains("?device-code=") &&
+            !verificationUri.contains("&device-code=") &&
+            !response.userCode.isNullOrBlank()
+        ) {
+            val separator = when {
+                verificationUri.endsWith('?') || verificationUri.endsWith('&') -> ""
+                verificationUri.contains('?') -> "&"
+                else -> "?"
+            }
+            "$verificationUri${separator}device-code=${response.userCode}"
+        } else {
+            verificationUri
+        }
+    }

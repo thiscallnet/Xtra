@@ -78,6 +78,7 @@ import com.github.andreyasadchy.xtra.databinding.FragmentSettingsHomeBinding
 import com.github.andreyasadchy.xtra.databinding.ItemSettingsRowBinding
 import com.github.andreyasadchy.xtra.model.ui.SettingsDragListItem
 import com.github.andreyasadchy.xtra.model.ui.SettingsSearchItem
+import com.github.andreyasadchy.xtra.repository.auth.AuthHealth
 import com.github.andreyasadchy.xtra.ui.account.AccountActivity
 import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.following.FollowingTabs
@@ -126,6 +127,9 @@ import kotlin.time.Duration.Companion.milliseconds
 
 internal fun serializeSpeedOptions(items: List<SettingsDragListItem>): String =
     items.joinToString(",") { "${it.key}:${if (it.enabled) "1" else "0"}" }
+
+internal fun isSettingsAccountConnected(health: AuthHealth): Boolean =
+    health == AuthHealth.HEALTHY || health == AuthHealth.UNKNOWN
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -217,16 +221,21 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     fun isAccountConnected(): Boolean {
-        return !TwitchApiHelper.getGQLHeaders(this, true)[C.HEADER_TOKEN].isNullOrBlank() ||
-                !TwitchApiHelper.getHelixHeaders(this)[C.HEADER_TOKEN].isNullOrBlank()
+        return isSettingsAccountConnected(
+            (application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value,
+        )
     }
 
     fun openAccountAction() {
-        accountActionIsLogout = isAccountConnected()
-        loginResultLauncher?.launch(
-            Intent(this, LoginActivity::class.java)
-                .putExtra(LoginActivity.EXTRA_LOGOUT, accountActionIsLogout),
-        )
+        val health = (application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
+        accountActionIsLogout = health == AuthHealth.HEALTHY
+        loginResultLauncher?.launch(Intent(this, LoginActivity::class.java).apply {
+            if (health == AuthHealth.REAUTH_REQUIRED) {
+                putExtra(LoginActivity.EXTRA_REAUTHORIZE, true)
+            } else {
+                putExtra(LoginActivity.EXTRA_LOGOUT, accountActionIsLogout)
+            }
+        })
     }
 
     fun showDragListDialog(
@@ -359,6 +368,7 @@ class SettingsActivity : AppCompatActivity() {
 
         private var _binding: FragmentSettingsHomeBinding? = null
         private val binding get() = _binding!!
+        private var accountRow: ItemSettingsRowBinding? = null
 
         override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
             _binding = FragmentSettingsHomeBinding.inflate(inflater, container, false)
@@ -386,32 +396,42 @@ class SettingsActivity : AppCompatActivity() {
                 rowBinding.root.setOnClickListener { item.onClick() }
                 binding.sections.addView(rowBinding.root)
             }
-            val settingsActivity = requireActivity() as SettingsActivity
-            val isLoggedIn = settingsActivity.isAccountConnected()
-            val accountRow = ItemSettingsRowBinding.inflate(layoutInflater, binding.accountActions, false)
-            val username = requireContext().tokenPrefs().getString(C.USERNAME, null)?.takeIf { it.isNotBlank() }
-            val accountSummary = if (isLoggedIn) getString(R.string.settings_account_connected_summary)
-            else getString(R.string.settings_account_signed_out_summary)
-            accountRow.icon.setImageResource(R.drawable.ic_settings_network)
-            accountRow.title.text = if (isLoggedIn) username ?: getString(R.string.settings_account_details)
-            else getString(R.string.settings_account_connected_summary)
-            accountRow.summary.text = accountSummary
-            accountRow.arrow.visibility = if (isLoggedIn) View.VISIBLE else View.GONE
-            accountRow.divider.visibility = View.GONE
-            accountRow.root.contentDescription = accountRow.title.text.toString() + ". " + accountSummary
-            accountRow.root.setOnClickListener {
-                if (isLoggedIn) {
-                    settingsActivity.accountResultLauncher?.launch(Intent(requireContext(), AccountActivity::class.java))
-                } else {
-                    settingsActivity.openAccountAction()
-                }
-            }
-            binding.accountActions.addView(accountRow.root)
+            accountRow = ItemSettingsRowBinding.inflate(layoutInflater, binding.accountActions, false)
+            binding.accountActions.addView(accountRow!!.root)
+            renderAccountRow()
             binding.scrollView.post { binding.scrollView.scrollTo(0, 0) }
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
                 view.updatePadding(bottom = resources.getDimensionPixelSize(R.dimen.settings_section_spacing) * 2 + insets.bottom)
                 WindowInsetsCompat.CONSUMED
+            }
+        }
+
+        override fun onResume() {
+            super.onResume()
+            renderAccountRow()
+        }
+
+        private fun renderAccountRow() {
+            val row = accountRow ?: return
+            val settingsActivity = requireActivity() as SettingsActivity
+            val isLoggedIn = settingsActivity.isAccountConnected()
+            val username = requireContext().tokenPrefs().getString(C.USERNAME, null)?.takeIf { it.isNotBlank() }
+            val accountSummary = if (isLoggedIn) getString(R.string.settings_account_connected_summary)
+            else getString(R.string.settings_account_signed_out_summary)
+            row.icon.setImageResource(R.drawable.ic_settings_network)
+            row.title.text = if (isLoggedIn) username ?: getString(R.string.settings_account_details)
+            else getString(R.string.settings_account_connected_summary)
+            row.summary.text = accountSummary
+            row.arrow.visibility = if (isLoggedIn) View.VISIBLE else View.GONE
+            row.divider.visibility = View.GONE
+            row.root.contentDescription = row.title.text.toString() + ". " + accountSummary
+            row.root.setOnClickListener {
+                if (settingsActivity.isAccountConnected()) {
+                    settingsActivity.accountResultLauncher?.launch(Intent(requireContext(), AccountActivity::class.java))
+                } else {
+                    settingsActivity.openAccountAction()
+                }
             }
         }
 
@@ -470,6 +490,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         override fun onDestroyView() {
+            accountRow = null
             _binding = null
             super.onDestroyView()
         }

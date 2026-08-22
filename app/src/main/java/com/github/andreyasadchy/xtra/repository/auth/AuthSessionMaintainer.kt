@@ -53,7 +53,7 @@ internal fun rawAccessTokenFromAuthorizationHeader(value: String?): String? {
     }.takeIf { it.isNotBlank() }
 }
 
-/** Keeps canonical OAuth validity independent from optional private compatibility validity. */
+/** Keeps the official and compatibility halves of the composite Xtra session in sync. */
 internal class AuthSessionMaintenanceStateMachine {
     private val lock = Any()
     private var officialStateValue = OfficialAuthState.IDLE
@@ -179,9 +179,15 @@ class AuthSessionMaintainer(
     private val validationMutex = Mutex()
     private val stateMachine = AuthSessionMaintenanceStateMachine()
     private val _state = MutableStateFlow(stateMachine.maintenanceState)
+    private val _authHealth = MutableStateFlow(AuthHealth.SIGNED_OUT)
     private var schedulerJob: Job? = null
 
     val state: StateFlow<AuthSessionMaintenanceState> = _state.asStateFlow()
+    val authHealth: StateFlow<AuthHealth> = _authHealth.asStateFlow()
+
+    init {
+        onAuthenticationStateChanged()
+    }
 
     /** Starts at most one process-wide validation loop. */
     @Synchronized
@@ -230,11 +236,13 @@ class AuthSessionMaintainer(
     fun consumeReauthorizationRequest(): AuthSessionMaintenanceState? =
         stateMachine.consumeReauthorizationRequest()
 
-    /** Reconciles maintenance state with the credentials committed by LoginActivity. */
+    /** Reconciles maintenance state with the complete credential pair committed by LoginActivity. */
     fun onAuthenticationStateChanged() {
-        val tokenPreferences = applicationContext.tokenPrefs()
-        val hasOfficialSession = !tokenPreferences.getString(C.TOKEN, null).isNullOrBlank()
-        val hasCompatibilitySession = !tokenPreferences.getString(C.GQL_TOKEN2, null).isNullOrBlank()
+        val sessionStore = AuthSessionStore(applicationContext.prefs(), applicationContext.tokenPrefs())
+        val official = sessionStore.read()
+        val compatibility = sessionStore.readCompatibility()
+        val hasOfficialSession = official != null
+        val hasCompatibilitySession = compatibility?.userId == official?.userId
         stateMachine.onAuthenticationStateChanged(hasOfficialSession, hasCompatibilitySession)
         publishState()
     }
@@ -444,7 +452,11 @@ class AuthSessionMaintainer(
         return when {
             transientFailure -> ValidationResult.TRANSIENT_FAILURE
             invalid -> ValidationResult.INVALID
-            !rawGqlToken.isNullOrBlank() || !webToken.isNullOrBlank() -> ValidationResult.VALID
+            // Legacy raw/web credentials may still validate, but they do not form a complete
+            // refreshable Xtra session. Keep them for migration diagnostics and require a full
+            // composite reauthorization instead of publishing them as healthy.
+            sessionStore.readCompatibility() != null && !rawGqlToken.isNullOrBlank() -> ValidationResult.VALID
+            !rawGqlToken.isNullOrBlank() || !webToken.isNullOrBlank() -> ValidationResult.INVALID
             else -> ValidationResult.NO_CREDENTIAL
         }
     }
@@ -504,6 +516,26 @@ class AuthSessionMaintainer(
 
     private fun publishState() {
         _state.value = stateMachine.maintenanceState
+        val sessionStore = AuthSessionStore(applicationContext.prefs(), applicationContext.tokenPrefs())
+        val diagnostics = sessionStore.diagnostics()
+        val officialSession = sessionStore.read()
+        val structuredCompatibility = sessionStore.readCompatibility()
+        _authHealth.value = classifyAuthHealth(
+            officialState = stateMachine.officialState,
+            compatibilityState = stateMachine.compatibilityState,
+            officialSessionComplete = diagnostics.officialAccessTokenPresent &&
+                diagnostics.officialRefreshTokenPresent &&
+                diagnostics.officialClientIdPresent &&
+                officialSession?.userId != null &&
+                diagnostics.officialExpiresAtMillis > 0 &&
+                !officialSession.isAccessTokenExpired(nowMillis()),
+            structuredCompatibilityPresent = structuredCompatibility != null &&
+                !structuredCompatibility.isAccessTokenExpired(nowMillis()),
+            compatibilityUserMatches = structuredCompatibility?.userId == officialSession?.userId,
+            legacyCredentialPresent = diagnostics.gqlToken2Present || diagnostics.gqlTokenWebPresent,
+            storedAccountIdentityPresent = !applicationContext.tokenPrefs().getString(C.USER_ID, null).isNullOrBlank() ||
+                !applicationContext.tokenPrefs().getString(C.USERNAME, null).isNullOrBlank(),
+        )
     }
 
     private companion object {

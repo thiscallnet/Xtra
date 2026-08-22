@@ -20,6 +20,7 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.db.AppDatabase
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
+import com.github.andreyasadchy.xtra.repository.NotificationUserSyncResult
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
@@ -34,6 +35,7 @@ import com.github.andreyasadchy.xtra.util.m3u8.Segment
 import com.github.andreyasadchy.xtra.util.createOrFindDocument
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
+import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -43,6 +45,8 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import kotlin.math.max
 import kotlin.system.exitProcess
+
+internal fun initialNotificationBaselineIncludesFollowedStreams(): Boolean = false
 
 class SettingsViewModel(
     private val applicationContext: Context,
@@ -385,9 +389,16 @@ class SettingsViewModel(
                     applicationContext.prefs().edit {
                         putLong(C.LIVE_NOTIFICATION_LAST_SYNC_ATTEMPT, System.currentTimeMillis())
                     }
-                    notificationsRepository.syncNotificationUsers(networkLibrary, gqlHeaders)
-                    applicationContext.prefs().edit {
-                        putLong(C.LIVE_NOTIFICATION_LAST_SYNC_SUCCESS, System.currentTimeMillis())
+                    val syncResult = notificationsRepository.syncNotificationUsers(
+                        networkLibrary = networkLibrary,
+                        gqlHeaders = gqlHeaders,
+                        helixHeaders = helixHeaders,
+                        userId = applicationContext.tokenPrefs().getString(C.USER_ID, null),
+                    )
+                    if (syncResult == NotificationUserSyncResult.SUCCESS) {
+                        applicationContext.prefs().edit {
+                            putLong(C.LIVE_NOTIFICATION_LAST_SYNC_SUCCESS, System.currentTimeMillis())
+                        }
                     }
                 }
                 stage = LiveNotificationSetupStage.INITIAL_LIVE_STREAM_BASELINE_FETCH
@@ -399,7 +410,10 @@ class SettingsViewModel(
                     networkLibrary = networkLibrary,
                     gqlHeaders = gqlHeaders,
                     helixHeaders = helixHeaders,
-                    includeFollowedStreams = !useLocalFollows,
+                    // syncNotificationUsers() already populated the authoritative Helix
+                    // channel set. Do not make setup depend on the optional private GQL
+                    // followed-live query, especially when it returns no live channels.
+                    includeFollowedStreams = initialNotificationBaselineIncludesFollowedStreams(),
                     preferHelix = true,
                     onApiUsed = { apiUsed = it },
                 )

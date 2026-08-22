@@ -9,7 +9,12 @@ class DeviceAuthorizationPoller(
     private val requestToken: suspend (deviceCode: String, scopes: Collection<String>) -> TokenResponse,
     private val delayMillis: suspend (Long) -> Unit = { delay(it) },
     private val nowMillis: () -> Long = { System.currentTimeMillis() },
-    private val maxNetworkRetries: Int = DEFAULT_MAX_NETWORK_RETRIES,
+    /**
+     * Limits retries only when a caller explicitly needs a bounded poll. The
+     * device-code lifetime is the production bound; transient transport
+     * failures must not make an already-approved browser flow fail early.
+     */
+    private val maxNetworkRetries: Int? = null,
 ) {
     suspend fun poll(
         deviceAuthorization: DeviceCodeResponse,
@@ -36,19 +41,21 @@ class DeviceAuthorizationPoller(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: TwitchAuthHttpException) {
-                if (e.statusCode !in 500..599) throw e
+                if (e.statusCode != 429 && e.statusCode !in 500..599) throw e
                 consecutiveNetworkFailures += 1
-                if (consecutiveNetworkFailures > maxNetworkRetries) throw e
+                if (maxNetworkRetries != null && consecutiveNetworkFailures > maxNetworkRetries) throw e
                 nextRequestAt = nowMillis() + intervalSeconds * 1_000L
                 continue
+            } catch (e: TwitchAuthProtocolException) {
+                throw e
             } catch (e: TwitchAuthException) {
                 consecutiveNetworkFailures += 1
-                if (consecutiveNetworkFailures > maxNetworkRetries) throw e
+                if (maxNetworkRetries != null && consecutiveNetworkFailures > maxNetworkRetries) throw e
                 nextRequestAt = nowMillis() + intervalSeconds * 1_000L
                 continue
             } catch (e: Exception) {
                 consecutiveNetworkFailures += 1
-                if (consecutiveNetworkFailures > maxNetworkRetries) {
+                if (maxNetworkRetries != null && consecutiveNetworkFailures > maxNetworkRetries) {
                     throw TwitchAuthException("Network error while waiting for Twitch authorization", e)
                 }
                 nextRequestAt = nowMillis() + intervalSeconds * 1_000L
@@ -70,12 +77,14 @@ class DeviceAuthorizationPoller(
             nextRequestAt = nowMillis() + intervalSeconds * 1_000L
         }
 
+        if (consecutiveNetworkFailures > 0) {
+            throw TwitchAuthException("Network error while waiting for Twitch authorization")
+        }
         throw TwitchAuthException("The Twitch device code expired")
     }
 
     private companion object {
         const val DEFAULT_INTERVAL_SECONDS = 5
         const val SLOW_DOWN_INCREMENT_SECONDS = 5
-        const val DEFAULT_MAX_NETWORK_RETRIES = 3
     }
 }

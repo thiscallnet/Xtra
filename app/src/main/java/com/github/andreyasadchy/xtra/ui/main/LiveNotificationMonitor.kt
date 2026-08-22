@@ -5,9 +5,11 @@ import android.util.Log
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.repository.HelixRateLimit
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
+import com.github.andreyasadchy.xtra.repository.NotificationUserSyncResult
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -45,8 +47,17 @@ class LiveNotificationMonitor(context: Context) {
         if (!useLocalFollows && shouldSyncNotificationUsers()) {
             prefs.edit { putLong(C.LIVE_NOTIFICATION_LAST_SYNC_ATTEMPT, System.currentTimeMillis()) }
             try {
-                repository.syncNotificationUsers(networkLibrary, gqlHeaders)
-                prefs.edit { putLong(C.LIVE_NOTIFICATION_LAST_SYNC_SUCCESS, System.currentTimeMillis()) }
+                val syncResult = repository.syncNotificationUsers(
+                    networkLibrary = networkLibrary,
+                    gqlHeaders = gqlHeaders,
+                    helixHeaders = helixHeaders,
+                    userId = context.tokenPrefs().getString(C.USER_ID, null),
+                )
+                if (syncResult == NotificationUserSyncResult.SUCCESS) {
+                    prefs.edit { putLong(C.LIVE_NOTIFICATION_LAST_SYNC_SUCCESS, System.currentTimeMillis()) }
+                } else {
+                    Log.w(TAG, "Notification preference enrichment was transient; retained previous channel IDs")
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

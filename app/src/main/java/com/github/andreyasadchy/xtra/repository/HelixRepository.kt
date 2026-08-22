@@ -411,7 +411,7 @@ class HelixRepository(
             ?.value
             ?.firstOrNull()
 
-    private fun ensureHelixSuccess(statusCode: Int, rateLimit: HelixRateLimit, body: String) {
+    internal fun ensureHelixSuccess(statusCode: Int, rateLimit: HelixRateLimit, body: String) {
         if (statusCode !in 200..299) {
             throw TwitchApiException(
                 statusCode = statusCode,
@@ -1062,7 +1062,10 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                json.decodeFromString<FollowsResponse>(response.body.decodeToString())
+                val body = response.body.decodeToString()
+                val rateLimit = rateLimit(response.info.headers.asMap)
+                ensureHelixSuccess(response.info.httpStatusCode, rateLimit, body)
+                json.decodeFromString<FollowsResponse>(body)
             }
             networkLibrary == C.CRONET && cronetEngine.value != null -> {
                 val response = suspendCancellableCoroutine { continuation ->
@@ -1081,14 +1084,24 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                json.decodeFromString<FollowsResponse>(response.body.decodeToString())
+                val body = response.body.decodeToString()
+                val rateLimit = rateLimit(response.info.allHeaders)
+                ensureHelixSuccess(response.info.httpStatusCode, rateLimit, body)
+                json.decodeFromString<FollowsResponse>(body)
             }
             else -> {
                 okHttpClient.value.newCall(Request.Builder().apply {
                     url(url)
                     headers(headers.toHeaders())
                 }.build()).executeAsync().use { response ->
-                    json.decodeFromString<FollowsResponse>(response.body.string())
+                    val body = response.body.string()
+                    val rateLimit = HelixRateLimit(
+                        limit = response.header("Ratelimit-Limit")?.toLongOrNull(),
+                        remaining = response.header("Ratelimit-Remaining")?.toLongOrNull(),
+                        resetEpochSeconds = response.header("Ratelimit-Reset")?.toLongOrNull(),
+                    )
+                    ensureHelixSuccess(response.code, rateLimit, body)
+                    json.decodeFromString<FollowsResponse>(body)
                 }
             }
         }

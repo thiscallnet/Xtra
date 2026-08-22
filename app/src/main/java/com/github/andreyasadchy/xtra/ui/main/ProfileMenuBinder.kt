@@ -3,9 +3,11 @@ package com.github.andreyasadchy.xtra.ui.main
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MenuItem
 import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.DrawableCompat
 import androidx.core.content.edit
@@ -17,12 +19,15 @@ import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.repository.auth.AuthHealth
 import com.github.andreyasadchy.xtra.ui.account.AccountActivity
+import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.imageview.ShapeableImageView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.shape.ShapeAppearanceModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,6 +39,8 @@ object ProfileMenuBinder {
 
     private const val AVATAR_SIZE_DP = 40
     private const val AVATAR_PADDING_DP = 4
+    private const val BADGE_SIZE_DP = 17
+    private const val AUTH_BADGE_TAG = "xtra.auth-health-badge"
 
     private var loadingUserId: String? = null
     private var loadingJob: Job? = null
@@ -50,42 +57,129 @@ object ProfileMenuBinder {
             return
         }
 
-        val avatar = createAvatar(activity, item)
-        avatar.setOnClickListener {
-            activity.startActivity(Intent(activity, AccountActivity::class.java))
+        val authHealth = (activity.application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
+        val avatarViews = createAvatar(activity, item)
+        bindAuthHealthBadge(activity, avatarViews.container, authHealth)
+        avatarViews.container.setOnClickListener {
+            if (authHealth.requiresUserAction) {
+                showAuthHealthDialog(activity, authHealth)
+            } else {
+                activity.startActivity(Intent(activity, AccountActivity::class.java))
+            }
         }
-        item.actionView = avatar
+        item.actionView = avatarViews.container
 
         val cachedUserId = activity.tokenPrefs().getString(C.PROFILE_IMAGE_USER_ID, null)
         val cachedUrl = activity.tokenPrefs().getString(C.PROFILE_IMAGE_URL, null)
         if (cachedUserId == userId && !cachedUrl.isNullOrBlank()) {
-            loadImage(activity, avatar, cachedUrl)
+            loadImage(activity, avatarViews.image, cachedUrl)
         } else {
-            showPlaceholder(activity, avatar)
-            loadProfileImage(activity, avatar, userId, login)
+            showPlaceholder(activity, avatarViews.image)
+            loadProfileImage(activity, avatarViews.image, userId, login)
         }
     }
 
-    private fun createAvatar(context: Context, item: MenuItem): ShapeableImageView {
+    fun refreshAuthHealth(toolbar: androidx.appcompat.widget.Toolbar, activity: MainActivity) {
+        val item = toolbar.menu.findItem(R.id.profile) ?: return
+        val container = item.actionView as? FrameLayout ?: return
+        val health = (activity.application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
+        bindAuthHealthBadge(activity, container, health)
+        container.setOnClickListener {
+            if (health.requiresUserAction) {
+                showAuthHealthDialog(activity, health)
+            } else {
+                activity.startActivity(Intent(activity, AccountActivity::class.java))
+            }
+        }
+    }
+
+    private data class AvatarViews(
+        val container: FrameLayout,
+        val image: ShapeableImageView,
+    )
+
+    private fun createAvatar(context: Context, item: MenuItem): AvatarViews {
         val density = context.resources.displayMetrics.density
         val size = (AVATAR_SIZE_DP * density).toInt()
         val padding = (AVATAR_PADDING_DP * density).toInt()
-        return ShapeableImageView(context).apply {
-            layoutParams = FrameLayout.LayoutParams(size, size).apply {
-                gravity = Gravity.CENTER
-            }
+        val image = ShapeableImageView(context).apply {
+            layoutParams = FrameLayout.LayoutParams(size, size, Gravity.CENTER)
             setPadding(padding, padding, padding, padding)
             contentDescription = context.getString(R.string.view_profile)
+            importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
             scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
             shapeAppearanceModel = ShapeAppearanceModel.builder()
                 .setAllCornerSizes(size / 2f)
                 .build()
+        }
+        val container = FrameLayout(context).apply {
+            layoutParams = FrameLayout.LayoutParams(size, size).apply {
+                gravity = Gravity.CENTER
+            }
+            addView(image)
             isClickable = true
             isFocusable = true
             // Keep the action view's tooltip/title available to accessibility services.
             item.title = context.getString(R.string.view_profile)
         }
+        return AvatarViews(container, image)
     }
+
+    private fun bindAuthHealthBadge(context: Context, container: FrameLayout, health: AuthHealth) {
+        container.findViewWithTag<TextView>(AUTH_BADGE_TAG)?.let(container::removeView)
+        if (!health.requiresUserAction) {
+            container.contentDescription = context.getString(R.string.view_profile)
+            return
+        }
+        val density = context.resources.displayMetrics.density
+        val size = (BADGE_SIZE_DP * density).toInt()
+        val badge = TextView(context).apply {
+            text = "!"
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.rgb(220, 38, 38))
+            }
+            elevation = 2f * density
+            tag = AUTH_BADGE_TAG
+            importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        container.addView(badge, FrameLayout.LayoutParams(size, size).apply {
+            gravity = Gravity.TOP or Gravity.END
+        })
+        container.contentDescription = context.getString(R.string.auth_health_attention_description)
+    }
+
+    private fun showAuthHealthDialog(activity: MainActivity, health: AuthHealth) {
+        val spec = when (health) {
+            AuthHealth.REAUTH_REQUIRED -> AuthHealthDialogSpec(
+                title = R.string.auth_health_reauth_title,
+                message = R.string.auth_health_reauth_message,
+                actionLabel = R.string.auth_health_reconnect,
+                intent = Intent(activity, LoginActivity::class.java)
+                    .putExtra(LoginActivity.EXTRA_REAUTHORIZE, true),
+            )
+            else -> return
+        }
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(spec.title)
+            .setMessage(spec.message)
+            .setNegativeButton(activity.getString(R.string.auth_health_not_now), null)
+            .setNeutralButton(activity.getString(R.string.auth_health_account_details)) { _, _ ->
+                activity.startActivity(Intent(activity, AccountActivity::class.java))
+            }
+            .setPositiveButton(activity.getString(spec.actionLabel)) { _, _ -> activity.startActivity(spec.intent) }
+            .show()
+    }
+
+    private data class AuthHealthDialogSpec(
+        val title: Int,
+        val message: Int,
+        val actionLabel: Int,
+        val intent: Intent,
+    )
 
     private fun showPlaceholder(context: Context, avatar: ShapeableImageView) {
         val drawable = ContextCompat.getDrawable(context, R.drawable.baseline_person_black_24)?.mutate()
