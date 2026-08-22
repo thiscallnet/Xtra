@@ -9,6 +9,7 @@ object FollowingOverviewSections {
     const val LIVE = "live"
     const val RECOMMENDED = "recommended"
     const val CONTINUE = "continue"
+    const val UPCOMING = "upcoming"
 
     data class Definition(
         val key: String,
@@ -20,6 +21,7 @@ object FollowingOverviewSections {
         Definition(LIVE, R.string.following_live_channels, R.string.following_no_live_channels),
         Definition(RECOMMENDED, R.string.following_recommended_channels, R.string.following_no_recommended_channels),
         Definition(CONTINUE, R.string.following_continue_watching, R.string.following_no_continue_watching),
+        Definition(UPCOMING, R.string.following_upcoming_streams, R.string.following_no_upcoming_streams),
     )
 
     private val knownKeys = definitions.mapTo(hashSetOf()) { it.key }

@@ -600,7 +600,10 @@
     <string name="following_recommended_channels">おすすめチャンネル</string>
     <string name="following_no_recommended_channels">おすすめを現在利用できません。</string>
     <string name="following_continue_watching">視聴を続ける</string>
-    <string name="following_no_continue_watching">視聴を始めた動画がここに表示されます。</string>
+    <string name="following_no_continue_watching">フォローしているチャンネルに最近のVODはありません。</string>
+    <string name="following_upcoming_streams">今後の配信</string>
+    <string name="following_no_upcoming_streams">フォローしているチャンネルの予定配信がここに表示されます。</string>
+    <string name="following_starts_today">本日 %1$s</string>
     <string name="following_see_all">すべて表示</string>
     <string name="following_overview_sections">フォロー概要のセクション</string>
     <string name="following_overview_sections_summary">セクションを選択してドラッグし、順序を変更します</string>

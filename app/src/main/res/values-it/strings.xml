@@ -600,7 +600,10 @@
     <string name="following_recommended_channels">Canali consigliati</string>
     <string name="following_no_recommended_channels">I consigli non sono disponibili al momento.</string>
     <string name="following_continue_watching">Continua a guardare</string>
-    <string name="following_no_continue_watching">I video che inizi a guardare appariranno qui.</string>
+    <string name="following_no_continue_watching">Non sono disponibili VOD recenti dai canali che segui.</string>
+    <string name="following_upcoming_streams">Prossime dirette</string>
+    <string name="following_no_upcoming_streams">Le dirette programmate dei canali che segui appariranno qui.</string>
+    <string name="following_starts_today">Oggi alle %1$s</string>
     <string name="following_see_all">Vedi tutto</string>
     <string name="following_overview_sections">Sezioni della panoramica dei seguiti</string>
     <string name="following_overview_sections_summary">Scegli le sezioni e trascinale per riordinarle</string>

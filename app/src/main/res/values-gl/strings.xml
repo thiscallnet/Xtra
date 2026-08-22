@@ -600,7 +600,10 @@
     <string name="following_recommended_channels">Canles recomendadas</string>
     <string name="following_no_recommended_channels">As recomendacións non están dispoñibles agora.</string>
     <string name="following_continue_watching">Continuar vendo</string>
-    <string name="following_no_continue_watching">Os vídeos que comeces a ver aparecerán aquí.</string>
+    <string name="following_no_continue_watching">Non hai VOD recentes dispoñibles das canles que segues.</string>
+    <string name="following_upcoming_streams">Próximos streams</string>
+    <string name="following_no_upcoming_streams">Os streams programados das canles que segues aparecerán aquí.</string>
+    <string name="following_starts_today">Hoxe ás %1$s</string>
     <string name="following_see_all">Ver todo</string>
     <string name="following_overview_sections">Seccións da vista xeral de seguidos</string>
     <string name="following_overview_sections_summary">Escolle seccións e arrástraas para reordenalas</string>

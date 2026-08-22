@@ -601,7 +601,10 @@
     <string name="following_recommended_channels">Önerilen kanallar</string>
     <string name="following_no_recommended_channels">Öneriler şu anda kullanılamıyor.</string>
     <string name="following_continue_watching">İzlemeye devam et</string>
-    <string name="following_no_continue_watching">İzlemeye başladığınız videolar burada görünür.</string>
+    <string name="following_no_continue_watching">Takip ettiğiniz kanallarda yeni VOD bulunmuyor.</string>
+    <string name="following_upcoming_streams">Yaklaşan Yayınlar</string>
+    <string name="following_no_upcoming_streams">Takip ettiğiniz kanalların planlanmış yayınları burada görünür.</string>
+    <string name="following_starts_today">Bugün saat %1$s</string>
     <string name="following_see_all">Tümünü gör</string>
     <string name="following_overview_sections">Takip genel bakış bölümleri</string>
     <string name="following_overview_sections_summary">Bölümleri seçip yeniden sıralamak için sürükleyin</string>

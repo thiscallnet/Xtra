@@ -12,7 +12,10 @@
     <string name="following_recommended_channels">Polecane kanały</string>
     <string name="following_no_recommended_channels">Rekomendacje są w tej chwili niedostępne.</string>
     <string name="following_continue_watching">Kontynuuj oglądanie</string>
-    <string name="following_no_continue_watching">Tutaj pojawią się filmy, które zaczniesz oglądać.</string>
+    <string name="following_no_continue_watching">Brak ostatnich transmisji VOD z obserwowanych kanałów.</string>
+    <string name="following_upcoming_streams">Nadchodzące transmisje</string>
+    <string name="following_no_upcoming_streams">Zaplanowane transmisje z obserwowanych kanałów pojawią się tutaj.</string>
+    <string name="following_starts_today">Dzisiaj o %1$s</string>
     <string name="following_see_all">Zobacz wszystkie</string>
     <string name="downloads">Pobrane</string>
     <string name="connection_error">Błąd podczas łączenia się z serwer. Spróbuj ponownie.</string>

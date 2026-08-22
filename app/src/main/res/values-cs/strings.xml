@@ -33,7 +33,10 @@
     <string name="following_recommended_channels">Doporučené kanály</string>
     <string name="following_no_recommended_channels">Doporučení jsou momentálně nedostupná.</string>
     <string name="following_continue_watching">Pokračovat ve sledování</string>
-    <string name="following_no_continue_watching">Zde se zobrazí videa, která začnete sledovat.</string>
+    <string name="following_no_continue_watching">Z kanálů, které sledujete, nejsou k dispozici žádné nedávné záznamy VOD.</string>
+    <string name="following_upcoming_streams">Nadcházející streamy</string>
+    <string name="following_no_upcoming_streams">Naplánované streamy z kanálů, které sledujete, se zobrazí zde.</string>
+    <string name="following_starts_today">Dnes v %1$s</string>
     <string name="following_see_all">Zobrazit vše</string>
     <string name="downloads">Stahování</string>
     <string name="connection_error">Chyba při připojování k serveru. Zkuste to prosím znovu.</string>
