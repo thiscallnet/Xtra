@@ -1,3 +1,8 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.parcelize)
@@ -110,10 +115,24 @@ android {
     ))
 }
 
-tasks.register("printVersionInfo") {
-    doLast {
-        println("$applicationVersionName $defaultVersionCode")
+val printVersionName = applicationVersionName
+val printVersionCode = defaultVersionCode
+abstract class PrintVersionInfoTask : DefaultTask() {
+    @get:Input
+    abstract val versionName: Property<String>
+
+    @get:Input
+    abstract val versionCode: Property<Int>
+
+    @TaskAction
+    fun printVersionInfo() {
+        println("${versionName.get()} ${versionCode.get()}")
     }
+}
+
+tasks.register<PrintVersionInfoTask>("printVersionInfo") {
+    versionName.set(printVersionName)
+    versionCode.set(printVersionCode)
 }
 
 dependencies {

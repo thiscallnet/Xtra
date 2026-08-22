@@ -44,6 +44,27 @@ internal fun isFatalLiveNotificationGraphQlError(
     requiredDataAvailable: Boolean,
 ): Boolean = !requiredDataAvailable || liveNotificationGraphQlAuthPattern.containsMatchIn(errorMessage.orEmpty())
 
+internal sealed interface NotificationPreferenceLoadResult {
+    data class Loaded(val enabledIds: Set<String>) : NotificationPreferenceLoadResult
+    data object CompatibilityUnavailable : NotificationPreferenceLoadResult
+    data object TransientFailure : NotificationPreferenceLoadResult
+}
+
+internal enum class NotificationUserSyncResult {
+    SUCCESS,
+    PREFERENCE_TRANSIENT_FAILURE,
+}
+
+internal fun isNotificationPreferenceAuthUnavailable(error: Throwable): Boolean = when (error) {
+    is MissingAuthenticationException -> true
+    is TwitchApiException -> error.statusCode == 401 || error.statusCode == 403
+    is GraphQLApiException -> isFatalLiveNotificationGraphQlError(
+        errorMessage = error.message,
+        requiredDataAvailable = true,
+    )
+    else -> false
+}
+
 class NotificationsRepository(
     private val shownNotificationsDao: ShownNotificationsDao,
     private val notificationUsersDao: NotificationUsersDao,
@@ -151,11 +172,53 @@ class NotificationsRepository(
         newStreams
     }
 
-    suspend fun syncNotificationUsers(networkLibrary: String?, gqlHeaders: Map<String, String>) = withContext(Dispatchers.IO) {
-        if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-            throw MissingAuthenticationException("notification-user/follow sync")
+    internal suspend fun syncNotificationUsers(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+        userId: String?,
+    ): NotificationUserSyncResult = withContext(Dispatchers.IO) {
+        if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank() || userId.isNullOrBlank()) {
+            throw MissingAuthenticationException("channels/followed sync")
         }
-        val users = mutableListOf<NotificationUser>()
+        val followedIds = mutableListOf<String>()
+        var offset: String? = null
+        do {
+            val response = helixRepository.getUserFollows(
+                networkLibrary = networkLibrary,
+                headers = helixHeaders,
+                userId = userId,
+                limit = 100,
+                offset = offset,
+            )
+            followedIds.addAll(response.data.mapNotNull { it.id })
+            offset = response.pagination?.cursor
+        } while (!offset.isNullOrBlank())
+        val previousIds = notificationUsersDao.getAll().map { it.channelId }
+        val preferenceEnabledIds = loadOptionalNotificationPreferenceIds(
+            compatibilityAuthAvailable = !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank(),
+        ) {
+            loadGraphQlNotificationEnabledIds(networkLibrary, gqlHeaders)
+        }
+        val users = selectNotificationChannelIds(followedIds, preferenceEnabledIds, previousIds)
+            .map(::NotificationUser)
+        notificationUsersDao.replaceAll(users)
+        val enabledIds = users.mapTo(hashSetOf()) { it.channelId }
+        notificationEventsDao.getAll()
+            .filterNot { it.channelId in enabledIds }
+            .forEach { notificationEventsDao.delete(it.eventId) }
+        if (preferenceEnabledIds is NotificationPreferenceLoadResult.TransientFailure) {
+            NotificationUserSyncResult.PREFERENCE_TRANSIENT_FAILURE
+        } else {
+            NotificationUserSyncResult.SUCCESS
+        }
+    }
+
+    private suspend fun loadGraphQlNotificationEnabledIds(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+    ): Set<String> {
+        val enabledIds = mutableSetOf<String>()
         var offset: String? = null
         do {
             val response = graphQLRepository.loadQueryUserFollowedUsers(networkLibrary, gqlHeaders, 100, offset)
@@ -170,18 +233,12 @@ class NotificationsRepository(
                 ?: throw GraphQLApiException("GraphQL response did not include followed-user data", operation = "UserFollowedUsers")
             val items = follows.edges
                 ?: throw GraphQLApiException("GraphQL response did not include followed-user edges", operation = "UserFollowedUsers")
-            users.addAll(items.mapNotNull { item ->
-                item?.node?.takeIf {
-                    it.self?.follower?.notificationSettings?.isEnabled == true
-                }?.id?.let(::NotificationUser)
-            })
+            items.mapNotNull { item ->
+                item?.node?.takeIf { it.self?.follower?.notificationSettings?.isEnabled == true }?.id
+            }.let(enabledIds::addAll)
             offset = items.lastOrNull()?.cursor?.toString()
         } while (!offset.isNullOrBlank() && follows.pageInfo?.hasNextPage == true)
-        notificationUsersDao.replaceAll(users)
-        val enabledIds = users.mapTo(hashSetOf()) { it.channelId }
-        notificationEventsDao.getAll()
-            .filterNot { it.channelId in enabledIds }
-            .forEach { notificationEventsDao.delete(it.eventId) }
+        return enabledIds
     }
 
     /**
@@ -454,4 +511,51 @@ class NotificationsRepository(
         ?.takeIf { it.isNotBlank() }
         ?.let { Instant.parseOrNull(it)?.toEpochMilliseconds() }
         ?.takeIf { it > 0 }
+}
+
+/**
+ * GQL supplies Twitch's notification preference filter. Without compatibility auth, Helix is
+ * still authoritative for follows and the explicit fallback is every followed channel.
+ */
+internal fun selectNotificationChannelIds(
+    followedIds: Iterable<String>,
+    preferenceEnabledIds: Set<String>?,
+): Set<String> {
+    val followed = followedIds.toSet()
+    return preferenceEnabledIds?.let(followed::intersect) ?: followed
+}
+
+internal fun selectNotificationChannelIds(
+    followedIds: Iterable<String>,
+    preferenceResult: NotificationPreferenceLoadResult,
+    previousNotificationIds: Iterable<String>,
+): Set<String> = when (preferenceResult) {
+    is NotificationPreferenceLoadResult.Loaded -> selectNotificationChannelIds(
+        followedIds = followedIds,
+        preferenceEnabledIds = preferenceResult.enabledIds,
+    )
+    NotificationPreferenceLoadResult.CompatibilityUnavailable -> followedIds.toSet()
+    NotificationPreferenceLoadResult.TransientFailure -> {
+        val followed = followedIds.toSet()
+        val previous = previousNotificationIds.toSet()
+        if (previous.isEmpty()) followed else previous.intersect(followed)
+    }
+}
+
+internal suspend fun loadOptionalNotificationPreferenceIds(
+    compatibilityAuthAvailable: Boolean,
+    load: suspend () -> Set<String>,
+): NotificationPreferenceLoadResult {
+    if (!compatibilityAuthAvailable) return NotificationPreferenceLoadResult.CompatibilityUnavailable
+    return try {
+        NotificationPreferenceLoadResult.Loaded(load())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        if (isNotificationPreferenceAuthUnavailable(e)) {
+            NotificationPreferenceLoadResult.CompatibilityUnavailable
+        } else {
+            NotificationPreferenceLoadResult.TransientFailure
+        }
+    }
 }

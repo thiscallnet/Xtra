@@ -48,6 +48,25 @@ data class StoredCredentials(
     val gqlWebToken: String?,
 )
 
+data class AuthCredentialDiagnostics(
+    val officialAccessTokenPresent: Boolean,
+    val officialRefreshTokenPresent: Boolean,
+    val officialExpiresAtMillis: Long,
+    val officialClientIdPresent: Boolean,
+    val gqlToken2Present: Boolean,
+    val gqlTokenWebPresent: Boolean,
+    val gqlToken2RefreshPresent: Boolean,
+    val gqlToken2ClientIdPresent: Boolean,
+    val gqlToken2UserIdPresent: Boolean,
+    val gqlToken2ExpiresAtMillis: Long,
+    val gqlToken2ScopesPresent: Boolean,
+    val gqlToken2TypePresent: Boolean,
+    val gqlHeadersPresent: Boolean,
+    val gqlHeadersAuthorizationPresent: Boolean,
+    val structuredCompatibilityPresent: Boolean,
+    val gqlAuthorizationPresent: Boolean,
+)
+
 @Suppress("UseKtx")
 class AuthSessionStore(
     private val preferences: SharedPreferences,
@@ -94,10 +113,48 @@ class AuthSessionStore(
         )
     }
 
+    /** Presence-only auth diagnostics. Never expose credential values through this object. */
+    fun diagnostics(): AuthCredentialDiagnostics {
+        val gqlToken2 = tokenPreferences.getString(C.GQL_TOKEN2, null).hasText()
+        val gqlWebToken = tokenPreferences.getString(C.GQL_TOKEN_WEB, null).hasText()
+        val gqlHeaders = integrityGqlHeaders()
+        val gqlHeadersAuthorization = gqlHeaders?.optString(C.HEADER_TOKEN).hasText()
+        val integrityEnabled = preferences.getBoolean(C.ENABLE_INTEGRITY, false)
+        return AuthCredentialDiagnostics(
+            officialAccessTokenPresent = tokenPreferences.getString(C.TOKEN, null).hasText(),
+            officialRefreshTokenPresent = tokenPreferences.getString(C.TOKEN_REFRESH, null).hasText(),
+            officialExpiresAtMillis = tokenPreferences.getLong(C.TOKEN_EXPIRES_AT, 0),
+            officialClientIdPresent = tokenPreferences.getString(C.TOKEN_CLIENT_ID, null).hasText(),
+            gqlToken2Present = gqlToken2,
+            gqlTokenWebPresent = gqlWebToken,
+            gqlToken2RefreshPresent = tokenPreferences.getString(C.GQL_TOKEN2_REFRESH, null).hasText(),
+            gqlToken2ClientIdPresent = tokenPreferences.getString(C.GQL_TOKEN2_CLIENT_ID, null).hasText(),
+            gqlToken2UserIdPresent = tokenPreferences.getString(C.GQL_TOKEN2_USER_ID, null).hasText(),
+            gqlToken2ExpiresAtMillis = tokenPreferences.getLong(C.GQL_TOKEN2_EXPIRES_AT, 0),
+            gqlToken2ScopesPresent = tokenPreferences.getString(C.GQL_TOKEN2_SCOPES, null).hasText(),
+            gqlToken2TypePresent = tokenPreferences.getString(C.GQL_TOKEN2_TYPE, null).hasText(),
+            gqlHeadersPresent = tokenPreferences.getString(C.GQL_HEADERS, null).hasText(),
+            gqlHeadersAuthorizationPresent = gqlHeadersAuthorization,
+            structuredCompatibilityPresent = readCompatibility() != null,
+            gqlAuthorizationPresent = if (integrityEnabled) {
+                gqlHeadersAuthorization || gqlToken2
+            } else {
+                gqlToken2 || gqlWebToken
+            },
+        )
+    }
+
     fun compatibilityClientId(): String? =
         tokenPreferences.getString(C.GQL_TOKEN2_CLIENT_ID, null)
             ?.takeIf { it.isNotBlank() }
             ?: preferences.getString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2)?.takeIf { it.isNotBlank() }
+
+    /** Returns the identity retained by legacy installs without an official OAuth session. */
+    internal fun storedUserId(): String? =
+        tokenPreferences.getString(C.USER_ID, null)?.takeIf { it.isNotBlank() }
+
+    internal fun storedLogin(): String? =
+        tokenPreferences.getString(C.USERNAME, null)?.takeIf { it.isNotBlank() }
 
     fun readCompatibility(): CompatibilitySession? {
         val accessToken = tokenPreferences.getString(C.GQL_TOKEN2, null)?.takeIf { it.isNotBlank() } ?: return null
@@ -107,7 +164,7 @@ class AuthSessionStore(
             ?: preferences.getString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2)?.takeIf { it.isNotBlank() }
         val userId = tokenPreferences.getString(C.GQL_TOKEN2_USER_ID, null)?.takeIf { it.isNotBlank() }
         val expiresAtMillis = tokenPreferences.getLong(C.GQL_TOKEN2_EXPIRES_AT, 0)
-        if (refreshToken == null || clientId == null || userId == null || expiresAtMillis <= 0) return null
+        if (refreshToken == null || clientId == null || userId == null) return null
         return CompatibilitySession(
             clientId = clientId,
             accessToken = accessToken,
@@ -126,8 +183,50 @@ class AuthSessionStore(
     fun hasCompatibilityCredential(nowMillis: Long = System.currentTimeMillis()): Boolean =
         readCompatibility()?.let { !it.isAccessTokenExpired(nowMillis) } == true
 
-    fun commitCompatibilitySession(session: CompatibilitySession): Boolean =
-        updateCompatibilitySession(session)
+    /**
+     * Persists the two grants as one complete Xtra account session.
+     *
+     * The login flow must not call either single-session writer while it is still acquiring the
+     * other grant. A single synchronous editor commit keeps a process death from exposing the
+     * official half without its compatibility partner.
+     */
+    fun commitCompleteSession(
+        official: AuthSession,
+        compatibility: CompatibilitySession,
+    ): Boolean {
+        if (official.refreshToken.isNullOrBlank() || compatibility.refreshToken.isNullOrBlank() ||
+            official.userId != compatibility.userId
+        ) {
+            return false
+        }
+        val editor = tokenPreferences.edit()
+        editor.apply {
+            putString(C.TOKEN, official.accessToken)
+            putString(C.TOKEN_REFRESH, official.refreshToken)
+            putLong(C.TOKEN_EXPIRES_AT, official.expiresAtMillis)
+            putString(C.TOKEN_CLIENT_ID, official.clientId)
+            putString(C.TOKEN_SCOPES, official.scopes.sorted().joinToString(" "))
+            putLong(C.TOKEN_VALIDATED_AT, System.currentTimeMillis())
+            putString(C.USER_ID, official.userId)
+            putString(C.USERNAME, official.login)
+
+            putString(C.GQL_TOKEN2, compatibility.accessToken)
+            putString(C.GQL_TOKEN2_REFRESH, compatibility.refreshToken)
+            putLong(C.GQL_TOKEN2_EXPIRES_AT, compatibility.expiresAtMillis)
+            putString(C.GQL_TOKEN2_CLIENT_ID, compatibility.clientId)
+            putString(C.GQL_TOKEN2_USER_ID, compatibility.userId)
+            putString(C.GQL_TOKEN2_SCOPES, compatibility.scopes.sorted().joinToString(" "))
+            putString(C.GQL_TOKEN2_TYPE, compatibility.tokenType)
+
+            // A complete modern session must not continue to depend on older raw credentials or
+            // an integrity header that could override the staged compatibility token.
+            remove(C.GQL_HEADERS)
+            remove(C.GQL_TOKEN)
+            remove(C.GQL_TOKEN_WEB)
+            putLong(C.INTEGRITY_EXPIRATION, 0)
+        }
+        return editor.commit()
+    }
 
     fun updateCompatibilitySession(session: CompatibilitySession): Boolean =
         tokenPreferences.edit()
@@ -159,35 +258,6 @@ class AuthSessionStore(
 
     fun clearLegacyWebCredential(): Boolean =
         tokenPreferences.edit().remove(C.GQL_TOKEN_WEB).commit()
-
-    /** Uses one synchronous preferences commit so a process death cannot expose half a session. */
-    fun commitOfficialSession(session: AuthSession, preserveCompatibility: Boolean): Boolean {
-        val editor = tokenPreferences.edit()
-        editor.apply {
-            putString(C.TOKEN, session.accessToken)
-            putString(C.TOKEN_REFRESH, session.refreshToken)
-            putLong(C.TOKEN_EXPIRES_AT, session.expiresAtMillis)
-            putString(C.TOKEN_CLIENT_ID, session.clientId)
-            putString(C.TOKEN_SCOPES, session.scopes.sorted().joinToString(" "))
-            putLong(C.TOKEN_VALIDATED_AT, System.currentTimeMillis())
-            putString(C.USER_ID, session.userId)
-            putString(C.USERNAME, session.login)
-            if (!preserveCompatibility) {
-                remove(C.GQL_HEADERS)
-                remove(C.GQL_TOKEN2)
-                remove(C.GQL_TOKEN2_REFRESH)
-                remove(C.GQL_TOKEN2_EXPIRES_AT)
-                remove(C.GQL_TOKEN2_CLIENT_ID)
-                remove(C.GQL_TOKEN2_USER_ID)
-                remove(C.GQL_TOKEN2_SCOPES)
-                remove(C.GQL_TOKEN2_TYPE)
-                remove(C.GQL_TOKEN_WEB)
-                remove(C.GQL_TOKEN)
-                remove(C.INTEGRITY_EXPIRATION)
-            }
-        }
-        return editor.commit()
-    }
 
     /** Writes rotated access/refresh tokens only after the replacement has been validated. */
     fun updateTokens(
@@ -222,4 +292,6 @@ class AuthSessionStore(
     private fun integrityGqlHeaders(): JSONObject? =
         tokenPreferences.getString(C.GQL_HEADERS, null)
             ?.let { runCatching { JSONObject(it) }.getOrNull() }
+
+    private fun String?.hasText(): Boolean = !isNullOrBlank()
 }

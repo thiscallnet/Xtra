@@ -347,6 +347,15 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                authSessionMaintainer.authHealth.collectLatest {
+                    findViewById<Toolbar>(R.id.toolbar)?.let { toolbar ->
+                        ProfileMenuBinder.refreshAuthHealth(toolbar, this@MainActivity)
+                    }
+                }
+            }
+        }
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 lifecycleScope.launch {
@@ -606,10 +615,10 @@ class MainActivity : AppCompatActivity() {
             }
             AuthSessionMaintenanceState.COMPATIBILITY_REAUTHORIZATION_REQUIRED -> {
                 if (authSessionMaintainer.consumeReauthorizationRequest() == state) {
-                    Toast.makeText(this, R.string.login_compatibility_unavailable, Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, R.string.token_expired, Toast.LENGTH_LONG).show()
                     launcher.launch(
                         Intent(this, LoginActivity::class.java)
-                            .putExtra(LoginActivity.EXTRA_COMPATIBILITY_ONLY, true),
+                            .putExtra(LoginActivity.EXTRA_REAUTHORIZE, true),
                     )
                 }
             }

@@ -16,11 +16,12 @@ class AuthCoordinator(
     private val sessionStore: AuthSessionStore,
     private val nowMillis: () -> Long = { System.currentTimeMillis() },
 ) {
-    suspend fun validateAndCommit(
+    /** Validates the official grant without publishing it to the active account. */
+    suspend fun validateOfficial(
         tokenResponse: TokenResponse,
         expectedClientId: String,
         reauthorize: Boolean,
-    ): AuthCommitResult = SESSION_MUTEX.withLock {
+    ): AuthSession = SESSION_MUTEX.withLock {
         val accessToken = tokenResponse.accessToken?.takeIf { it.isNotBlank() }
             ?: throw TwitchAuthProtocolException("Twitch did not return an access token")
         val expiresIn = tokenResponse.expiresIn?.takeIf { it > 0 }
@@ -33,8 +34,8 @@ class AuthCoordinator(
         }
         val userId = validation.userId?.takeIf { it.isNotBlank() }
             ?: throw TwitchAuthProtocolException("Twitch did not return an account ID")
-        val previous = sessionStore.snapshot()
-        val previousUserId = sessionStore.read()?.userId
+        val previousSession = sessionStore.read()
+        val previousUserId = previousSession?.userId ?: sessionStore.storedUserId()
         if (!isReauthorizationUserAllowed(reauthorize, previousUserId, userId)) {
             throw TwitchAuthAccountMismatchException()
         }
@@ -51,20 +52,46 @@ class AuthCoordinator(
             login = validation.login,
             scopes = validation.scopes.toSet(),
         )
-        // Keep private compatibility credentials only for the same Twitch account. A normal
-        // account switch must not leave the new account using the previous account's GQL token.
-        val preserveCompatibility = reauthorize || previousUserId == userId
-        if (!sessionStore.commitOfficialSession(session, preserveCompatibility = preserveCompatibility)) {
-            throw TwitchAuthException("Unable to save the Twitch session")
+        return session
+    }
+
+    /**
+     * Commits a fully validated official + compatibility pair as one logical account change.
+     * No active credentials are changed if either validation or this persistence step fails.
+     */
+    suspend fun commitCompleteSession(
+        official: AuthSession,
+        compatibility: CompatibilitySession,
+        reauthorize: Boolean,
+    ): AuthCommitResult = SESSION_MUTEX.withLock {
+        if (official.userId != compatibility.userId) {
+            throw TwitchAuthAccountMismatchException()
+        }
+        val previous = sessionStore.snapshot()
+        val previousSession = sessionStore.read()
+        val previousUserId = previousSession?.userId ?: sessionStore.storedUserId()
+        val previousLogin = previousSession?.login ?: sessionStore.storedLogin()
+        if (!isReauthorizationUserAllowed(reauthorize, previousUserId, official.userId)) {
+            throw TwitchAuthAccountMismatchException()
+        }
+        val sameStoredAccount = when {
+            previousUserId != null -> previousUserId == official.userId
+            previousLogin != null -> official.login?.equals(previousLogin, ignoreCase = true) == true
+            else -> false
+        }
+        val hasStoredIdentity = previousUserId != null || previousLogin != null
+        val accountChanged = hasStoredIdentity && !sameStoredAccount
+        if (!sessionStore.commitCompleteSession(official, compatibility)) {
+            throw TwitchAuthException("Unable to save the complete Twitch session")
         }
 
         return AuthCommitResult(
-            session = session,
-            accountChanged = previousUserId != null && previousUserId != userId,
+            session = official,
+            accountChanged = accountChanged,
             revocationFailures = revokeSupersededCredentials(
                 previous = previous,
-                replacement = session,
-                preserveCompatibility = preserveCompatibility,
+                replacementOfficial = official,
+                replacementCompatibility = compatibility,
             ),
         )
     }
@@ -106,17 +133,16 @@ class AuthCoordinator(
         return refreshed
     }
 
-    suspend fun validateAndCommitCompatibility(
+    /** Validates the compatibility grant without persisting it. */
+    suspend fun validateCompatibility(
         tokenResponse: TokenResponse,
         expectedClientId: String,
         expectedUserId: String,
-    ): Boolean = SESSION_MUTEX.withLock {
+    ): CompatibilitySession = SESSION_MUTEX.withLock {
         val accessToken = tokenResponse.accessToken?.takeIf { it.isNotBlank() }
             ?: throw TwitchAuthProtocolException("Twitch did not return a compatibility access token")
         val refreshToken = tokenResponse.refreshToken?.takeIf { it.isNotBlank() }
             ?: throw TwitchAuthProtocolException("Twitch did not return a compatibility refresh token")
-        val expiresIn = tokenResponse.expiresIn?.takeIf { it > 0 }
-            ?: throw TwitchAuthProtocolException("Twitch did not return a compatibility token lifetime")
         val validation = repository.validateCompatibility(accessToken)
         if (validation.clientId != expectedClientId) {
             throw TwitchAuthProtocolException("Twitch returned a compatibility token for a different client")
@@ -128,16 +154,38 @@ class AuthCoordinator(
             clientId = expectedClientId,
             accessToken = accessToken,
             refreshToken = refreshToken,
-            expiresAtMillis = nowMillis() + expiresIn * 1_000L,
+            // Twitch's compatibility device client currently omits expires_in. Zero means
+            // "no locally known expiry"; validation remains authoritative.
+            expiresAtMillis = tokenResponse.expiresIn
+                ?.takeIf { it > 0 }
+                ?.let { nowMillis() + it * 1_000L }
+                ?: 0L,
             userId = expectedUserId,
             scopes = validation.scopes.toSet().ifEmpty { tokenResponse.scopes.toSet() },
             tokenType = tokenResponse.tokenType,
         )
-        if (!sessionStore.commitCompatibilitySession(session)) {
-            throw TwitchAuthException("Unable to save Twitch compatibility credentials")
-        }
-        return true
+        return session
     }
+
+    /** Best-effort cleanup for grants staged by a login that never reached the final commit. */
+    suspend fun revokeStagedCredentials(
+        official: AuthSession?,
+        compatibility: CompatibilitySession?,
+    ): Int = SESSION_MUTEX.withLock {
+        val credentials = linkedSetOf<Pair<String?, String>>()
+        official?.accessToken?.takeIf { it.isNotBlank() }?.let {
+            credentials += official.clientId to it
+        }
+        compatibility?.accessToken?.takeIf { it.isNotBlank() }?.let {
+            credentials += compatibility.clientId to it
+        }
+        credentials.sumOf { (clientId, token) -> revoke(clientId, token) }
+    }
+
+    suspend fun revokeStagedCredential(clientId: String?, accessToken: String?): Int =
+        SESSION_MUTEX.withLock {
+            if (accessToken.isNullOrBlank()) 0 else revoke(clientId, accessToken)
+        }
 
     suspend fun refreshCompatibilityIfNeeded(force: Boolean = false): CompatibilitySession? = SESSION_MUTEX.withLock {
         val current = sessionStore.readCompatibility() ?: return null
@@ -149,8 +197,6 @@ class AuthCoordinator(
             ?: throw TwitchAuthProtocolException("Twitch did not return a refreshed compatibility access token")
         val replacementRefreshToken = response.refreshToken?.takeIf { it.isNotBlank() }
             ?: throw TwitchAuthProtocolException("Twitch compatibility refresh response did not contain a refresh token")
-        val expiresIn = response.expiresIn?.takeIf { it > 0 }
-            ?: throw TwitchAuthProtocolException("Twitch did not return a refreshed compatibility token lifetime")
         val validation = repository.validateCompatibility(accessToken)
         if (validation.clientId != current.clientId || validation.userId != current.userId) {
             throw TwitchAuthAccountMismatchException()
@@ -158,7 +204,10 @@ class AuthCoordinator(
         val refreshed = current.copy(
             accessToken = accessToken,
             refreshToken = replacementRefreshToken,
-            expiresAtMillis = nowMillis() + expiresIn * 1_000L,
+            expiresAtMillis = response.expiresIn
+                ?.takeIf { it > 0 }
+                ?.let { nowMillis() + it * 1_000L }
+                ?: current.expiresAtMillis,
             scopes = validation.scopes.toSet().ifEmpty { response.scopes.toSet().ifEmpty { current.scopes } },
             tokenType = response.tokenType ?: current.tokenType,
         )
@@ -195,22 +244,24 @@ class AuthCoordinator(
 
     private suspend fun revokeSupersededCredentials(
         previous: StoredCredentials,
-        replacement: AuthSession,
-        preserveCompatibility: Boolean,
+        replacementOfficial: AuthSession,
+        replacementCompatibility: CompatibilitySession,
     ): Int {
-        var failures = 0
-        if (!previous.helixToken.isNullOrBlank() && previous.helixToken != replacement.accessToken) {
-            failures += revoke(previous.helixClientId, previous.helixToken)
-        }
-        if (!preserveCompatibility) {
-            if (!previous.gqlToken.isNullOrBlank() && previous.gqlToken != previous.gqlWebToken) {
-                failures += revoke(previous.gqlClientId, previous.gqlToken)
+        val credentials = linkedSetOf<Pair<String?, String>>()
+        previous.helixToken
+            ?.takeIf { it.isNotBlank() && it != replacementOfficial.accessToken }
+            ?.let { credentials += previous.helixClientId to it }
+        previous.gqlToken
+            ?.takeIf { it.isNotBlank() && it != replacementCompatibility.accessToken }
+            ?.let { credentials += previous.gqlClientId to it }
+        previous.gqlWebToken
+            ?.takeIf {
+                it.isNotBlank() &&
+                    it != previous.gqlToken &&
+                    it != replacementCompatibility.accessToken
             }
-            if (!previous.gqlWebToken.isNullOrBlank()) {
-                failures += revoke(previous.gqlWebClientId, previous.gqlWebToken)
-            }
-        }
-        return failures
+            ?.let { credentials += previous.gqlWebClientId to it }
+        return credentials.sumOf { (clientId, token) -> revoke(clientId, token) }
     }
 
     private suspend fun revoke(clientId: String?, token: String): Int {

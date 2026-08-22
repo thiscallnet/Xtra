@@ -56,6 +56,19 @@ class LoginActivityTest {
     }
 
     @Test
+    fun `plain verification uri gets the user code prefilled`() {
+        val response = deviceAuthorization.copy(
+            verificationUri = "https://www.twitch.tv/activate",
+            verificationUriComplete = null,
+        )
+
+        assertEquals(
+            "https://www.twitch.tv/activate?device-code=ABCD-EFGH",
+            selectVerificationUri(response),
+        )
+    }
+
+    @Test
     fun `poller waits for the returned interval through pending responses`() {
         var now = 0L
         val delays = mutableListOf<Long>()
@@ -143,12 +156,34 @@ class LoginActivityTest {
                 },
                 delayMillis = { millis -> delays += millis; now += millis },
                 nowMillis = { now },
+                maxNetworkRetries = 2,
             ).poll(deviceAuthorization, listOf("user:read:follows"))
         }
 
         assertEquals("new-access-token", result.accessToken)
         assertEquals(3, attempts)
         assertEquals(listOf(2_000L, 2_000L, 2_000L), delays)
+    }
+
+    @Test
+    fun `poller keeps waiting through transient network loss until authorization succeeds`() {
+        var now = 0L
+        var attempts = 0
+
+        val result = runBlocking {
+            DeviceAuthorizationPoller(
+                requestToken = { _, _ ->
+                    attempts += 1
+                    if (attempts <= 4) throw IllegalStateException("temporary network error")
+                    successfulToken()
+                },
+                delayMillis = { millis -> now += millis },
+                nowMillis = { now },
+            ).poll(deviceAuthorization.copy(expiresIn = 30), listOf("user:read:follows"))
+        }
+
+        assertEquals("new-access-token", result.accessToken)
+        assertEquals(5, attempts)
     }
 
     @Test

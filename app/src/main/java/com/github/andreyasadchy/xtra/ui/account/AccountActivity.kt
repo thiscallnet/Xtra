@@ -35,12 +35,14 @@ import coil3.request.target
 import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.ActivityAccountBinding
 import com.github.andreyasadchy.xtra.databinding.ItemAccountBlockedUserBinding
 import com.github.andreyasadchy.xtra.databinding.ItemAccountSettingBinding
 import com.github.andreyasadchy.xtra.model.helix.game.Game
 import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
 import com.github.andreyasadchy.xtra.model.helix.user.User
+import com.github.andreyasadchy.xtra.repository.auth.AuthHealth
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
@@ -63,6 +65,7 @@ class AccountActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityAccountBinding
     private val viewModel: AccountViewModel by viewModels()
+    private val authSessionMaintainer by lazy { (application as XtraApp).xtraModule.authSessionMaintainer }
     private var page = PAGE_MAIN
     private var categoryDialog: androidx.appcompat.app.AlertDialog? = null
     private var categoryResultsContainer: LinearLayout? = null
@@ -71,6 +74,7 @@ class AccountActivity : AppCompatActivity() {
     private var blockedUsersRequested = false
     private var blockedUsersQuery = ""
     private var logoutPending = false
+    private var authHealth = AuthHealth.UNKNOWN
 
     private val loginLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (logoutPending) {
@@ -118,6 +122,12 @@ class AccountActivity : AppCompatActivity() {
                 launch {
                     viewModel.categoryResults.collectLatest(::renderCategoryResults)
                 }
+                launch {
+                    authSessionMaintainer.authHealth.collectLatest { health ->
+                        authHealth = health
+                        render(viewModel.uiState.value)
+                    }
+                }
             }
         }
     }
@@ -163,6 +173,7 @@ class AccountActivity : AppCompatActivity() {
 
     private fun render(state: AccountUiState) {
         renderHeader(state.user)
+        renderAuthHealth()
         binding.progressBar.isVisible = state.loading && state.user == null
         binding.errorText.isVisible = page == PAGE_MAIN && !state.error.isNullOrBlank()
         binding.errorText.text = state.error
@@ -189,6 +200,33 @@ class AccountActivity : AppCompatActivity() {
         if (page == PAGE_BLOCKED_USERS && !state.loading && !blockedUsersRequested) {
             blockedUsersRequested = true
             viewModel.loadBlockedUsers(reset = true)
+        }
+    }
+
+    private fun renderAuthHealth() {
+        val spec = when (authHealth) {
+            AuthHealth.REAUTH_REQUIRED -> AuthHealthCardSpec(
+                title = R.string.auth_health_reauth_title,
+                message = R.string.auth_health_reauth_message,
+                action = R.string.auth_health_reconnect,
+                reauthorize = true,
+            )
+            AuthHealth.SIGNED_OUT,
+            AuthHealth.HEALTHY,
+            AuthHealth.UNKNOWN,
+            -> null
+        }
+        binding.authHealthCard.isVisible = page == PAGE_MAIN && spec != null
+        if (page != PAGE_MAIN || spec == null) return
+        binding.authHealthTitle.setText(spec.title)
+        binding.authHealthMessage.setText(spec.message)
+        binding.authHealthAction.setText(spec.action)
+        binding.authHealthAction.setOnClickListener {
+            loginLauncher.launch(
+                Intent(this, LoginActivity::class.java).apply {
+                    putExtra(LoginActivity.EXTRA_REAUTHORIZE, spec.reauthorize)
+                },
+            )
         }
     }
 
@@ -775,6 +813,13 @@ class AccountActivity : AppCompatActivity() {
     private fun parseColor(value: String): Int? = runCatching { Color.parseColor(value) }.getOrNull()
 
     private fun Int.dp(): Int = (this * resources.displayMetrics.density).toInt()
+
+    private data class AuthHealthCardSpec(
+        val title: Int,
+        val message: Int,
+        val action: Int,
+        val reauthorize: Boolean,
+    )
 
     companion object {
         const val EXTRA_PAGE = "account_page"
