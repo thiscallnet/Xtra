@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="clips_count">
+        <item quantity="one">%d клип</item>
+        <item quantity="few">%d клипа</item>
+        <item quantity="many">%d клипов</item>
+        <item quantity="other">%d клипа</item>
+    </plurals>
+</resources>

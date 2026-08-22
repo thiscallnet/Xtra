@@ -46,6 +46,8 @@ object SettingsMigration {
         C.SETTINGS_DEVELOPER_ENABLED,
         C.CLIP_MAX_DURATION_SECONDS,
         C.CLIP_PREVIEW_SEEK_SECONDS,
+        C.CLIP_LIBRARY_AUTOPLAY,
+        C.CLIP_LIBRARY_SORT,
         C.CHAT_WIDTH_PERCENT,
         C.LANDSCAPE_CHAT_WIDTH,
         C.KEY_CHAT_OPENED,
@@ -458,6 +460,9 @@ object SettingsMigration {
             if (preferences.getString(C.UI_NAVIGATION_TAB_LIST, null) == LEGACY_NAVIGATION_TABS) {
                 putString(C.UI_NAVIGATION_TAB_LIST, C.DEFAULT_NAVIGATION_TAB_LIST)
             }
+            if (preferences.getString(C.UI_NAVIGATION_TAB_LIST, null) == PRE_CLIPS_NAVIGATION_TABS) {
+                putString(C.UI_NAVIGATION_TAB_LIST, C.DEFAULT_NAVIGATION_TAB_LIST)
+            }
 
             val legacyControlsAllDisabled = legacyControlPreferencesAllDisabled(preferences)
             val serializedControlLayout = migratedControlLayout(
@@ -578,6 +583,7 @@ object SettingsMigration {
             "3:${if (defaultTab == "3") "1" else "0"}:1"
 
     private const val LEGACY_NAVIGATION_TABS = "0:0:1,1:1:1,2:0:1,3:0:1"
+    private const val PRE_CLIPS_NAVIGATION_TABS = "1:1:1,2:0:1,0:0:1,3:0:0"
 
     private fun SharedPreferences.Editor.migrateTheme(preferences: SharedPreferences) {
         if (!preferences.contains(C.SETTINGS_THEME_MODE)) {

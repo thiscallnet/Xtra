@@ -27,6 +27,7 @@ import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.saved.SavedPagerViewModel.Companion.SavedPagerViewModelFactory
 import com.github.andreyasadchy.xtra.ui.saved.bookmarks.BookmarksFragment
+import com.github.andreyasadchy.xtra.ui.saved.clips.ClipsFragment
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.saved.filters.FiltersFragment
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
@@ -172,6 +173,7 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
                         "0" -> getString(R.string.bookmarks)
                         "1" -> getString(R.string.downloads)
                         "2" -> getString(R.string.filters)
+                        "3" -> getString(R.string.clips)
                         else -> getString(R.string.bookmarks)
                     }
                 }.toTypedArray().ifEmpty { arrayOf(getString(R.string.bookmarks)) })
@@ -229,6 +231,7 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
             "0" -> BookmarksFragment()
             "1" -> DownloadsFragment()
             "2" -> FiltersFragment()
+            "3" -> ClipsFragment()
             else -> BookmarksFragment()
         }
     }

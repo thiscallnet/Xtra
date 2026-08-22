@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">Zatím žádné klipy</string>
+    <string name="clips_empty_message">Zde se zobrazí klipy uložené z přehrávače.</string>
+    <string name="clips_preview_empty">Vyberte klip k náhledu</string>
+    <string name="clips_autoplay">Automatické přehrávání náhledů</string>
+    <string name="clips_autoplay_summary">Ztlumené náhledy se opakují, dokud je tato stránka otevřená.</string>
+    <string name="clips_sort">Seřadit</string>
+    <string name="clips_sort_button">Seřadit: %s</string>
+    <string name="clips_sort_newest">Nejnovější</string>
+    <string name="clips_sort_oldest">Nejstarší</string>
+    <string name="clips_sort_name">Název</string>
+    <string name="clips_delete_all">Smazat vše</string>
+    <string name="clips_delete_title">Smazat klip?</string>
+    <string name="clips_delete_message">Smazat %s z tohoto zařízení?</string>
+    <string name="clips_delete_all_title">Smazat všechny klipy?</string>
+    <string name="clips_delete_all_message">Tímto odeberete z tohoto zařízení %d klipů.</string>
+    <string name="clips_load_error">Klipy se nepodařilo načíst.</string>
+    <string name="clips_share_failed">Klip se nepodařilo sdílet.</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">Náhled</string>
+</resources>

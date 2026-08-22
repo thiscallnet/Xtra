@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">Aucun clip pour le moment</string>
+    <string name="clips_empty_message">Les clips enregistrés depuis le lecteur apparaîtront ici.</string>
+    <string name="clips_preview_empty">Sélectionnez un clip à prévisualiser</string>
+    <string name="clips_autoplay">Lire les aperçus automatiquement</string>
+    <string name="clips_autoplay_summary">Les aperçus muets se répètent tant que cette page est ouverte.</string>
+    <string name="clips_sort">Trier</string>
+    <string name="clips_sort_button">Trier : %s</string>
+    <string name="clips_sort_newest">Plus récents</string>
+    <string name="clips_sort_oldest">Plus anciens</string>
+    <string name="clips_sort_name">Nom</string>
+    <string name="clips_delete_all">Tout supprimer</string>
+    <string name="clips_delete_title">Supprimer le clip ?</string>
+    <string name="clips_delete_message">Supprimer %s de cet appareil ?</string>
+    <string name="clips_delete_all_title">Supprimer tous les clips ?</string>
+    <string name="clips_delete_all_message">Cela supprimera %d clips de cet appareil.</string>
+    <string name="clips_load_error">Impossible de charger vos clips.</string>
+    <string name="clips_share_failed">Impossible de partager ce clip.</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">Aperçu</string>
+</resources>

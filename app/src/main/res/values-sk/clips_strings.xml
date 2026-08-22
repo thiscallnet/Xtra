@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">Zatiaľ žiadne klipy</string>
+    <string name="clips_empty_message">Klipy uložené z prehrávača sa zobrazia tu.</string>
+    <string name="clips_preview_empty">Vyberte klip na ukážku</string>
+    <string name="clips_autoplay">Automatické prehrávanie ukážok</string>
+    <string name="clips_autoplay_summary">Stlmené ukážky sa opakujú, kým je táto stránka otvorená.</string>
+    <string name="clips_sort">Zoradiť</string>
+    <string name="clips_sort_button">Zoradiť: %s</string>
+    <string name="clips_sort_newest">Najnovšie</string>
+    <string name="clips_sort_oldest">Najstaršie</string>
+    <string name="clips_sort_name">Názov</string>
+    <string name="clips_delete_all">Odstrániť všetko</string>
+    <string name="clips_delete_title">Odstrániť klip?</string>
+    <string name="clips_delete_message">Odstrániť %s z tohto zariadenia?</string>
+    <string name="clips_delete_all_title">Odstrániť všetky klipy?</string>
+    <string name="clips_delete_all_message">Odstráni sa tým %d klipov z tohto zariadenia.</string>
+    <string name="clips_load_error">Klipy sa nepodarilo načítať.</string>
+    <string name="clips_share_failed">Tento klip sa nepodarilo zdieľať.</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">Ukážka</string>
+</resources>

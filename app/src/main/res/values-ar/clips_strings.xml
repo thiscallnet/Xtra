@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">لا توجد مقاطع بعد</string>
+    <string name="clips_empty_message">ستظهر هنا المقاطع التي تحفظها من المشغل.</string>
+    <string name="clips_preview_empty">اختر مقطعًا لمعاينته</string>
+    <string name="clips_autoplay">تشغيل المعاينات تلقائيًا</string>
+    <string name="clips_autoplay_summary">تتكرر المعاينات المكتومة أثناء فتح هذه الصفحة.</string>
+    <string name="clips_sort">فرز</string>
+    <string name="clips_sort_button">الفرز: %s</string>
+    <string name="clips_sort_newest">الأحدث أولًا</string>
+    <string name="clips_sort_oldest">الأقدم أولًا</string>
+    <string name="clips_sort_name">الاسم</string>
+    <string name="clips_delete_all">حذف الكل</string>
+    <string name="clips_delete_title">حذف المقطع؟</string>
+    <string name="clips_delete_message">حذف %s من هذا الجهاز؟</string>
+    <string name="clips_delete_all_title">حذف كل المقاطع؟</string>
+    <string name="clips_delete_all_message">سيؤدي ذلك إلى إزالة %d مقطعًا من هذا الجهاز.</string>
+    <string name="clips_load_error">تعذر تحميل مقاطعك.</string>
+    <string name="clips_share_failed">تعذرت مشاركة هذا المقطع.</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">معاينة</string>
+</resources>

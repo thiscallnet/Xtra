@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">Belum ada klip</string>
+    <string name="clips_empty_message">Klip yang Anda simpan dari pemutar akan muncul di sini.</string>
+    <string name="clips_preview_empty">Pilih klip untuk melihat pratinjaunya</string>
+    <string name="clips_autoplay">Putar pratinjau otomatis</string>
+    <string name="clips_autoplay_summary">Pratinjau tanpa suara akan berulang selama halaman ini terbuka.</string>
+    <string name="clips_sort">Urutkan</string>
+    <string name="clips_sort_button">Urutkan: %s</string>
+    <string name="clips_sort_newest">Terbaru dulu</string>
+    <string name="clips_sort_oldest">Terlama dulu</string>
+    <string name="clips_sort_name">Nama</string>
+    <string name="clips_delete_all">Hapus semua</string>
+    <string name="clips_delete_title">Hapus klip?</string>
+    <string name="clips_delete_message">Hapus %s dari perangkat ini?</string>
+    <string name="clips_delete_all_title">Hapus semua klip?</string>
+    <string name="clips_delete_all_message">Ini akan menghapus %d klip dari perangkat ini.</string>
+    <string name="clips_load_error">Klip Anda tidak dapat dimuat.</string>
+    <string name="clips_share_failed">Klip ini tidak dapat dibagikan.</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">Pratinjau</string>
+</resources>

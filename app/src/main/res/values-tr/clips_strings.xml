@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="clips_empty_title">Henüz klip yok</string>
+    <string name="clips_empty_message">Oynatıcıdan kaydettiğiniz klipler burada görünür.</string>
+    <string name="clips_preview_empty">Önizlemek için bir klip seçin</string>
+    <string name="clips_autoplay">Önizlemeleri otomatik oynat</string>
+    <string name="clips_autoplay_summary">Sessiz önizlemeler bu sayfa açık olduğu sürece tekrarlanır.</string>
+    <string name="clips_sort">Sırala</string>
+    <string name="clips_sort_button">Sıralama: %s</string>
+    <string name="clips_sort_newest">En yeni</string>
+    <string name="clips_sort_oldest">En eski</string>
+    <string name="clips_sort_name">Ad</string>
+    <string name="clips_delete_all">Tümünü sil</string>
+    <string name="clips_delete_title">Klip silinsin mi?</string>
+    <string name="clips_delete_message">%s bu cihazdan silinsin mi?</string>
+    <string name="clips_delete_all_title">Tüm klipler silinsin mi?</string>
+    <string name="clips_delete_all_message">Bu işlem %d klibi bu cihazdan kaldırır.</string>
+    <string name="clips_load_error">Klipleriniz yüklenemedi.</string>
+    <string name="clips_share_failed">Bu klip paylaşılamadı.</string>
+    <string name="clips_date_and_size">%1$s &#8226; %2$s &#8226; %3$s</string>
+    <string name="clips_preview_title">Önizleme</string>
+</resources>
