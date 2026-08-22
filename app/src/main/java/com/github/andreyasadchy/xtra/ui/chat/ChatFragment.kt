@@ -1036,20 +1036,21 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private fun updateSlowModeIndicator(state: SlowModeState) {
         if (_binding == null) return
         val indicator = binding.slowModeIndicator
-        val shouldShow = messagingEnabled && binding.messageView.isVisible && state.enabled
+        val becameReady = lastSlowModeUiState.coolingDown && state.enabled && !state.coolingDown
+        val shouldShow = messagingEnabled && binding.messageView.isVisible && state.enabled && state.blocked
         if (!shouldShow) {
             indicator.animate().cancel()
             indicator.alpha = 1f
+            if (becameReady && indicator.isVisible) {
+                @Suppress("DEPRECATION")
+                indicator.announceForAccessibility(getString(R.string.chat_slow_mode_ready))
+            }
             indicator.isVisible = false
             lastSlowModeUiState = state
             return
         }
 
-        val nextText = if (state.coolingDown) {
-            getString(R.string.chat_slow_mode_remaining, state.remainingSeconds)
-        } else {
-            getString(R.string.chat_slow_mode, state.intervalSeconds ?: 0)
-        }
+        val nextText = getString(R.string.chat_slow_mode_remaining, state.remainingSeconds)
         if (indicator.isVisible && indicator.text != nextText) {
             indicator.animate().cancel()
             indicator.animate()
@@ -1066,7 +1067,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             indicator.text = nextText
         }
 
-        val becameReady = lastSlowModeUiState.coolingDown && !state.coolingDown
         val contentDescription = getString(
             R.string.chat_slow_mode_accessibility,
             state.intervalSeconds ?: 0,
@@ -1075,10 +1075,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             indicator.contentDescription = contentDescription
         }
         indicator.isVisible = true
-        if (becameReady) {
-            @Suppress("DEPRECATION")
-            indicator.announceForAccessibility(getString(R.string.chat_slow_mode_ready))
-        }
         lastSlowModeUiState = state
     }
 
