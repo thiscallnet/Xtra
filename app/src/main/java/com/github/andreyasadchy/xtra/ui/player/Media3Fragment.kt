@@ -763,6 +763,13 @@ class Media3Fragment : Media3PlayerFragment() {
                     putString(PlaybackService.TITLE, requireArguments().getString(KEY_TITLE))
                     putString(PlaybackService.CHANNEL_NAME, requireArguments().getString(KEY_CHANNEL_NAME))
                     putString(PlaybackService.CHANNEL_LOGO, requireArguments().getString(KEY_CHANNEL_IMAGE))
+                    putBoolean(PlaybackService.URL_WARM, viewModel.streamUrlWarm.value)
+                    requireArguments().getLong(KEY_TAP_ELAPSED_MS, -1L).takeIf { it > 0L }?.let {
+                        putLong(PlaybackService.TAP_ELAPSED_MS, it)
+                    }
+                    viewModel.streamUrlAvailableElapsedMs?.let {
+                        putLong(PlaybackService.URL_AVAILABLE_ELAPSED_MS, it)
+                    }
                     putString(PlaybackService.GAME_ID, requireArguments().getString(KEY_GAME_ID))
                     putString(PlaybackService.GAME_NAME, requireArguments().getString(KEY_GAME_NAME))
                 }
@@ -1334,9 +1341,9 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     companion object {
-        fun newInstance(item: Stream): Media3Fragment {
+        fun newInstance(item: Stream, tapElapsedMs: Long? = null): Media3Fragment {
             return Media3Fragment().apply {
-                arguments = getStreamArguments(item)
+                arguments = getStreamArguments(item, tapElapsedMs)
             }
         }
 

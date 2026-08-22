@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.ItemStreamShelfBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.loadStreamProfileImage
@@ -41,6 +42,12 @@ class StreamShelfAdapter(
         holder.bind(getItem(position))
     }
 
+    override fun onViewRecycled(holder: ViewHolder) {
+        (holder.itemView.context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
+            .detachSurface(holder.previewSurface)
+        super.onViewRecycled(holder)
+    }
+
     private val layoutChangeListener = View.OnLayoutChangeListener { view, left, _, right, _, oldLeft, _, oldRight, _ ->
         if (right - left != oldRight - oldLeft) {
             val shelf = view as RecyclerView
@@ -61,9 +68,13 @@ class StreamShelfAdapter(
     inner class ViewHolder(
         private val binding: ItemStreamShelfBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
+        val previewSurface get() = binding.previewPlayerView
+
         fun bind(stream: Stream) {
             val context = binding.root.context
             with(binding) {
+                (context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
+                    .detachSurface(previewPlayerView)
                 root.setOnClickListener { onStreamClick(stream) }
 
                 loadStreamThumbnail(context, thumbnail, stream)

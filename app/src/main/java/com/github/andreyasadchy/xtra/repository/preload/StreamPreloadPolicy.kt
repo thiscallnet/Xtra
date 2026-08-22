@@ -19,6 +19,9 @@ data class StreamPreloadCandidate(
     val channelLogin: String,
     val visibleFraction: Float,
     val centerProximity: Float,
+    val title: String? = null,
+    val channelName: String? = null,
+    val channelLogo: String? = null,
 )
 
 object StreamPreloadPolicy {
@@ -38,6 +41,11 @@ object StreamPreloadPolicy {
 
     fun allowsTwitchUrlPreload(customStreamProxyEnabled: Boolean, customStreamProxyUrl: String?): Boolean =
         !customStreamProxyEnabled || customStreamProxyUrl.isNullOrBlank()
+
+    fun customStreamProxyUrl(template: String?, channelLogin: String): String? =
+        template?.takeIf { it.isNotBlank() }
+            ?.replace("\$channel", channelLogin.trim().lowercase())
+            ?.takeIf { it.isNotBlank() }
 
     fun rank(candidates: Collection<StreamPreloadCandidate>): List<StreamPreloadCandidate> {
         return candidates
