@@ -502,7 +502,7 @@ class XtraModule(application: Application) {
     }
 
     val notificationsRepository by lazy {
-        NotificationsRepository(database.shownNotifications(), database.notificationUsers(), database.notificationEvents(), database, graphQLRepository, helixRepository)
+        NotificationsRepository(database.shownNotifications(), database.notificationUsers(), database.notificationEvents(), graphQLRepository, helixRepository)
     }
 
     val offlineVideosRepository by lazy {

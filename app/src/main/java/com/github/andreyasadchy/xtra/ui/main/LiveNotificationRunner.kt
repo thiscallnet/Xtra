@@ -59,8 +59,7 @@ class LiveNotificationRunner(
         helixHeaders = { TwitchApiHelper.getHelixHeaders(applicationContext) },
         channelIds = { module.notificationsRepository.getNotificationUserIds() },
         scope = scope,
-        onStreamOnline = { event ->
-            monitor.handleStreamOnline(event)
+        onStreamOnline = {
             wakeSignal.trySend(Unit)
         },
         onRevocation = { revocation ->

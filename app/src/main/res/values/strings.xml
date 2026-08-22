@@ -550,6 +550,7 @@
     <string name="pause">Pause</string>
     <string name="resume">Resume</string>
     <string name="error_loading_user">Error loading user profile</string>
+    <string name="sign_in">Sign in</string>
     <string name="reply">Reply</string>
     <string name="copy_message">Copy message</string>
     <string name="view_profile">View profile</string>
@@ -1041,6 +1042,8 @@
     <string name="last_update_check">Last update check</string>
     <string name="notification_live_channel_title">Live notifications</string>
     <string name="live_notification">%s is live</string>
+    <string name="live_notification_streaming">Streaming %s</string>
+    <string name="live_notification_live_now">Live now</string>
     <string name="live_notifications">Live notifications</string>
     <string name="live_notifications_summary">Get alerts when followed channels go live. Xtra honors Twitch notification preferences when compatibility authorization is available; otherwise, it monitors all followed channels. Choose how quickly Xtra checks for streams and how much background activity you allow.</string>
     <string name="live_notifications_permission_required">Allow notifications in Android settings to receive live alerts.</string>
