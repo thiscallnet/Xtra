@@ -601,7 +601,10 @@
     <string name="following_recommended_channels">Saluran yang direkomendasikan</string>
     <string name="following_no_recommended_channels">Rekomendasi tidak tersedia saat ini.</string>
     <string name="following_continue_watching">Lanjutkan Menonton</string>
-    <string name="following_no_continue_watching">Video yang mulai Anda tonton akan muncul di sini.</string>
+    <string name="following_no_continue_watching">Tidak ada VOD terbaru yang tersedia dari kanal yang Anda ikuti.</string>
+    <string name="following_upcoming_streams">Streaming Mendatang</string>
+    <string name="following_no_upcoming_streams">Streaming terjadwal dari kanal yang Anda ikuti akan muncul di sini.</string>
+    <string name="following_starts_today">Hari ini pukul %1$s</string>
     <string name="following_see_all">Lihat semua</string>
     <string name="following_overview_sections">Bagian Ikhtisar Mengikuti</string>
     <string name="following_overview_sections_summary">Pilih bagian dan seret untuk mengurutkannya</string>

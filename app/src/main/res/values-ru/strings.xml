@@ -600,7 +600,10 @@
     <string name="following_recommended_channels">Рекомендованные каналы</string>
     <string name="following_no_recommended_channels">Рекомендации сейчас недоступны.</string>
     <string name="following_continue_watching">Продолжить просмотр</string>
-    <string name="following_no_continue_watching">Начатые вами видео появятся здесь.</string>
+    <string name="following_no_continue_watching">Нет недавних VOD с каналов, на которые вы подписаны.</string>
+    <string name="following_upcoming_streams">Предстоящие трансляции</string>
+    <string name="following_no_upcoming_streams">Запланированные трансляции с каналов, на которые вы подписаны, появятся здесь.</string>
+    <string name="following_starts_today">Сегодня в %1$s</string>
     <string name="following_see_all">Показать все</string>
     <string name="following_overview_sections">Разделы обзора подписок</string>
     <string name="following_overview_sections_summary">Выберите разделы и перетащите их, чтобы изменить порядок</string>

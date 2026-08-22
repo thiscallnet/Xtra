@@ -12,14 +12,16 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentFollowingOverviewBinding
-import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.VideoHistory
+import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
+import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
@@ -27,6 +29,7 @@ import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.following.FollowMediaFragment
 import com.github.andreyasadchy.xtra.ui.following.FollowPagerFragment
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewViewModel.Companion.FollowingOverviewViewModelFactory
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -43,7 +46,6 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
     private lateinit var streamFeedScreenController: StreamFeedScreenController
     private val streamShelfPreloadControllers = mutableMapOf<String, StreamPreloadViewportController>()
     private var overviewScrolling = false
-    private var initialized = false
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentFollowingOverviewBinding.inflate(inflater, container, false)
@@ -56,6 +58,16 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
             onStreamClick = { stream -> (activity as? MainActivity)?.startStream(stream) },
             onVideoClick = { item ->
                 item.toVideo().let { video -> (activity as? MainActivity)?.startVideo(video, item.position, ignoreSavedPosition = true) }
+            },
+            onUpcomingClick = { item ->
+                findNavController().navigate(
+                    ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                        channelId = item.channelId,
+                        channelLogin = item.channelLogin,
+                        channelName = item.channelName,
+                        channelImage = item.channelImageURL?.let(TwitchApiHelper::getProfileImage),
+                    )
+                )
             },
             onSeeAll = ::showAll,
             onStreamShelfAttached = { key, recyclerView, streamAtPosition ->
@@ -110,13 +122,12 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
     }
 
     override fun initialize() {
-        initialized = true
         viewModel.syncCurrentAccount()
         viewModel.refreshOverviewSections()
         streamFeedScreenController.onSpecChanged(force = false, reason = RefreshReason.SCREEN_VISIBLE)
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                combine(
+                val sections = combine(
                     viewModel.liveStreams,
                     viewModel.recommendedStreams,
                     viewModel.recommendationsLoading,
@@ -144,8 +155,33 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                             emptyRes = R.string.following_no_continue_watching,
                             videos = continueWatching,
                         ),
+                        FollowingOverviewSections.UPCOMING to FollowingOverviewSection(
+                            key = FollowingOverviewSections.UPCOMING,
+                            titleRes = R.string.following_upcoming_streams,
+                            emptyRes = R.string.following_no_upcoming_streams,
+                            showSeeAll = false,
+                        ),
                     )
                     sectionKeys.mapNotNull(availableSections::get)
+                }
+                combine(
+                    sections,
+                    viewModel.recentVideosLoading,
+                    viewModel.upcomingStreams,
+                    viewModel.upcomingStreamsLoading,
+                ) { currentSections, recentVideosLoading, upcomingStreams, upcomingStreamsLoading ->
+                    currentSections.map { section ->
+                        when (section.key) {
+                            FollowingOverviewSections.CONTINUE -> section.copy(
+                                isLoading = recentVideosLoading && section.videos.isEmpty(),
+                            )
+                            FollowingOverviewSections.UPCOMING -> section.copy(
+                                scheduledStreams = upcomingStreams,
+                                isLoading = upcomingStreamsLoading && upcomingStreams.isEmpty(),
+                            )
+                            else -> section
+                        }
+                    }
                 }.collectLatest { sections ->
                     binding.emptyState.isVisible = sections.isEmpty()
                     overviewAdapter.submitList(sections)
@@ -156,6 +192,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
 
     override fun onNetworkRestored() {
         viewModel.syncCurrentAccount()
+        viewModel.refreshOverviewSections()
         viewModel.refreshCurrent(RefreshReason.NETWORK_RESTORED, force = true)
     }
 
@@ -164,8 +201,9 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
     }
 
     override fun onResume() {
+        val wasInitialized = isInitialized
         super.onResume()
-        if (initialized) {
+        if (wasInitialized) {
             viewModel.refreshOverviewSections()
         }
         if (::streamFeedScreenController.isInitialized) {

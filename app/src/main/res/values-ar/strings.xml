@@ -600,7 +600,10 @@
     <string name="following_recommended_channels">القنوات المقترحة</string>
     <string name="following_no_recommended_channels">التوصيات غير متاحة الآن.</string>
     <string name="following_continue_watching">متابعة المشاهدة</string>
-    <string name="following_no_continue_watching">ستظهر هنا مقاطع الفيديو التي تبدأ بمشاهدتها.</string>
+    <string name="following_no_continue_watching">لا تتوفر مقاطع VOD حديثة من القنوات التي تتابعها.</string>
+    <string name="following_upcoming_streams">البثوث القادمة</string>
+    <string name="following_no_upcoming_streams">ستظهر هنا البثوث المجدولة من القنوات التي تتابعها.</string>
+    <string name="following_starts_today">اليوم الساعة %1$s</string>
     <string name="following_see_all">عرض الكل</string>
     <string name="following_overview_sections">أقسام نظرة عامة على المتابعة</string>
     <string name="following_overview_sections_summary">اختر الأقسام واسحبها لإعادة ترتيبها</string>

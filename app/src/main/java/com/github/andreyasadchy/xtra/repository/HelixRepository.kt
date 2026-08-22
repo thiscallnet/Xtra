@@ -17,6 +17,7 @@ import com.github.andreyasadchy.xtra.model.helix.clip.ClipsResponse
 import com.github.andreyasadchy.xtra.model.helix.follows.FollowsResponse
 import com.github.andreyasadchy.xtra.model.helix.game.GamesResponse
 import com.github.andreyasadchy.xtra.model.helix.stream.StreamsResponse
+import com.github.andreyasadchy.xtra.model.helix.schedule.StreamScheduleResponse
 import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
 import com.github.andreyasadchy.xtra.model.helix.user.BlockedUsersResponse
 import com.github.andreyasadchy.xtra.model.helix.user.UsersResponse
@@ -757,6 +758,85 @@ class HelixRepository(
                     headers(headers.toHeaders())
                 }.build()).executeAsync().use { response ->
                     json.decodeFromString<VideosResponse>(response.body.string())
+                }
+            }
+        }
+    }
+
+    suspend fun getStreamSchedule(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        broadcasterId: String,
+        limit: Int? = null,
+    ): StreamScheduleResponse = withContext(Dispatchers.IO) {
+        val url = "https://api.twitch.tv/helix/schedule".toUri().buildUpon().apply {
+            appendQueryParameter("broadcaster_id", broadcasterId)
+            limit?.let { appendQueryParameter("first", it.toString()) }
+        }.build().toString()
+        when {
+            networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
+                val response = suspendCancellableCoroutine { continuation ->
+                    val timeout = NetworkUtils.HttpEngineTimeout()
+                    val request = httpEngine.value!!.newUrlRequestBuilder(
+                        url,
+                        cronetExecutor.value,
+                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
+                    ).apply {
+                        headers.forEach { addHeader(it.key, it.value) }
+                    }.build()
+                    timeout.start(request, continuation)
+                    request.start()
+                    continuation.invokeOnCancellation {
+                        request.cancel()
+                        timeout.stop()
+                    }
+                }
+                val body = response.body.decodeToString()
+                ensureHelixSuccess(
+                    response.info.httpStatusCode,
+                    rateLimit(response.info.headers.asMap),
+                    body,
+                )
+                json.decodeFromString<StreamScheduleResponse>(body)
+            }
+            networkLibrary == C.CRONET && cronetEngine.value != null -> {
+                val response = suspendCancellableCoroutine { continuation ->
+                    val timeout = NetworkUtils.CronetTimeout()
+                    val request = cronetEngine.value!!.newUrlRequestBuilder(
+                        url,
+                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
+                        cronetExecutor.value,
+                    ).apply {
+                        headers.forEach { addHeader(it.key, it.value) }
+                    }.build()
+                    timeout.start(request, continuation)
+                    request.start()
+                    continuation.invokeOnCancellation {
+                        request.cancel()
+                        timeout.stop()
+                    }
+                }
+                val body = response.body.decodeToString()
+                ensureHelixSuccess(
+                    response.info.httpStatusCode,
+                    rateLimit(response.info.allHeaders),
+                    body,
+                )
+                json.decodeFromString<StreamScheduleResponse>(body)
+            }
+            else -> {
+                okHttpClient.value.newCall(Request.Builder().apply {
+                    url(url)
+                    headers(headers.toHeaders())
+                }.build()).executeAsync().use { response ->
+                    val body = response.body.string()
+                    val rateLimit = HelixRateLimit(
+                        limit = response.header("Ratelimit-Limit")?.toLongOrNull(),
+                        remaining = response.header("Ratelimit-Remaining")?.toLongOrNull(),
+                        resetEpochSeconds = response.header("Ratelimit-Reset")?.toLongOrNull(),
+                    )
+                    ensureHelixSuccess(response.code, rateLimit, body)
+                    json.decodeFromString<StreamScheduleResponse>(body)
                 }
             }
         }
