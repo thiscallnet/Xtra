@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <dimen name="stream_tag_gap">6dp</dimen>
     <dimen name="divider_margin">5dp</dimen>
     <dimen name="settings_section_spacing">8dp</dimen>
     <dimen name="emote_picker_max_height">300dp</dimen>

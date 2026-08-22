@@ -39,6 +39,9 @@ class StreamShelfAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
+        holder.itemView.post {
+            (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
+        }
         holder.bind(getItem(position))
     }
 
@@ -51,13 +54,18 @@ class StreamShelfAdapter(
     private val layoutChangeListener = View.OnLayoutChangeListener { view, left, _, right, _, oldLeft, _, oldRight, _ ->
         if (right - left != oldRight - oldLeft) {
             val shelf = view as RecyclerView
-            repeat(shelf.childCount) { index -> ShelfCardSizing.apply(shelf.getChildAt(index), shelf) }
+            shelf.post { applyCardSizing(shelf) }
         }
+    }
+
+    private fun applyCardSizing(shelf: RecyclerView) {
+        repeat(shelf.childCount) { index -> ShelfCardSizing.apply(shelf.getChildAt(index), shelf) }
     }
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
         recyclerView.addOnLayoutChangeListener(layoutChangeListener)
+        recyclerView.post { applyCardSizing(recyclerView) }
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {

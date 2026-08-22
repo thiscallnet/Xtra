@@ -10,7 +10,9 @@ import com.github.andreyasadchy.xtra.model.helix.user.User as HelixUser
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Tag
+import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
 import com.github.andreyasadchy.xtra.model.ui.User
+import com.github.andreyasadchy.xtra.model.ui.Video
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -22,6 +24,8 @@ import java.util.Locale
 private const val ACCOUNT_KIND = "account"
 private const val CHANNEL_KIND = "channel"
 private const val GAME_KIND = "game"
+private const val FOLLOWING_OVERVIEW_KIND = "following_overview"
+private const val LOCAL_FOLLOWING_OVERVIEW_KEY = "local"
 private const val MAX_CACHE_ENTRIES = 240
 private const val METADATA_CACHE_FRESHNESS_VERSION = 1
 
@@ -56,6 +60,11 @@ data class ChannelPageCacheSnapshot(
 
 data class GamePageCacheSnapshot(
     val game: Game,
+)
+
+data class FollowingOverviewCacheSnapshot(
+    val recentVideos: List<Video> = emptyList(),
+    val upcomingStreams: List<UpcomingStream> = emptyList(),
 )
 
 /**
@@ -334,6 +343,51 @@ class MetadataCache(
         )
     }
 
+    suspend fun readFollowingOverview(userId: String?): FollowingOverviewCacheSnapshot? = withContext(Dispatchers.IO) {
+        val hit = readPayload<FollowingOverviewCachePayload>(
+            kind = FOLLOWING_OVERVIEW_KIND,
+            keys = followingOverviewIdentityKeys(userId),
+            expectedStableId = userId,
+            identity = { it.userId },
+        ) ?: return@withContext null
+        FollowingOverviewCacheSnapshot(
+            recentVideos = hit.payload.recentVideos.map(CachedFollowingVideo::toVideo),
+            upcomingStreams = hit.payload.upcomingStreams
+                .map(CachedUpcomingStream::toUpcomingStream)
+                .filter { it.startTimeMillis > hit.readAtMs }
+                .sortedBy(UpcomingStream::startTimeMillis),
+        )
+    }
+
+    suspend fun writeFollowingOverview(
+        userId: String?,
+        snapshot: FollowingOverviewCacheSnapshot,
+        nowMs: Long = clockMs(),
+        replaceRecentVideos: Boolean = true,
+        replaceUpcomingStreams: Boolean = true,
+    ) = withContext(Dispatchers.IO) {
+        val payload = FollowingOverviewCachePayload(
+            freshnessVersion = METADATA_CACHE_FRESHNESS_VERSION,
+            userId = userId,
+            recentVideos = snapshot.recentVideos.map(Video::toCachedFollowingVideo),
+            upcomingStreams = snapshot.upcomingStreams.map(UpcomingStream::toCachedUpcomingStream),
+        )
+        writePayload(
+            kind = FOLLOWING_OVERVIEW_KIND,
+            keys = followingOverviewIdentityKeys(userId),
+            payload = payload,
+            stableId = userId,
+            identity = { it.userId },
+            nowMs = nowMs,
+            mergePayload = { previous, _ ->
+                payload.copy(
+                    recentVideos = if (replaceRecentVideos) payload.recentVideos else previous?.recentVideos.orEmpty(),
+                    upcomingStreams = if (replaceUpcomingStreams) payload.upcomingStreams else previous?.upcomingStreams.orEmpty(),
+                )
+            },
+        )
+    }
+
     private inline fun <reified T> readPayload(
         kind: String,
         keys: List<String>,
@@ -474,6 +528,10 @@ class MetadataCache(
         ?.lowercase(Locale.ROOT)
 
     companion object {
+        internal fun followingOverviewIdentityKeys(userId: String?): List<String> =
+            userId?.takeIf { it.isNotBlank() }?.let { identityKeys("id", "login", it, null) }
+                ?: listOf(LOCAL_FOLLOWING_OVERVIEW_KEY)
+
         internal fun identityKeys(
             firstPrefix: String,
             secondPrefix: String,
@@ -557,6 +615,109 @@ private data class GamePageCachePayload(
     val game: CachedGame? = null,
     val liveStatsValidatedAt: Long? = null,
     val followerCountValidatedAt: Long? = null,
+)
+
+@Serializable
+private data class FollowingOverviewCachePayload(
+    val freshnessVersion: Int = 0,
+    val userId: String? = null,
+    val recentVideos: List<CachedFollowingVideo> = emptyList(),
+    val upcomingStreams: List<CachedUpcomingStream> = emptyList(),
+)
+
+@Serializable
+private data class CachedFollowingVideo(
+    val id: String? = null,
+    val channelId: String? = null,
+    val channelLogin: String? = null,
+    val channelName: String? = null,
+    val channelImageURL: String? = null,
+    val gameId: String? = null,
+    val gameSlug: String? = null,
+    val gameName: String? = null,
+    val title: String? = null,
+    val thumbnailURL: String? = null,
+    val createdAt: String? = null,
+    val viewCount: Int? = null,
+    val durationSeconds: Int? = null,
+    val type: String? = null,
+    val animatedPreviewURL: String? = null,
+)
+
+@Serializable
+private data class CachedUpcomingStream(
+    val id: String,
+    val channelId: String? = null,
+    val channelLogin: String? = null,
+    val channelName: String? = null,
+    val channelImageURL: String? = null,
+    val title: String? = null,
+    val gameName: String? = null,
+    val startTimeMillis: Long,
+    val endTimeMillis: Long? = null,
+    val isRecurring: Boolean,
+)
+
+private fun Video.toCachedFollowingVideo() = CachedFollowingVideo(
+    id = id,
+    channelId = channelId,
+    channelLogin = channelLogin,
+    channelName = channelName,
+    channelImageURL = channelImageURL,
+    gameId = gameId,
+    gameSlug = gameSlug,
+    gameName = gameName,
+    title = title,
+    thumbnailURL = thumbnailURL,
+    createdAt = createdAt,
+    viewCount = viewCount,
+    durationSeconds = durationSeconds,
+    type = type,
+    animatedPreviewURL = animatedPreviewURL,
+)
+
+private fun CachedFollowingVideo.toVideo() = Video(
+    id = id,
+    channelId = channelId,
+    channelLogin = channelLogin,
+    channelName = channelName,
+    channelImageURL = channelImageURL,
+    gameId = gameId,
+    gameSlug = gameSlug,
+    gameName = gameName,
+    title = title,
+    thumbnailURL = thumbnailURL,
+    createdAt = createdAt,
+    viewCount = viewCount,
+    durationSeconds = durationSeconds,
+    type = type,
+    animatedPreviewURL = animatedPreviewURL,
+)
+
+private fun UpcomingStream.toCachedUpcomingStream() = CachedUpcomingStream(
+    id = id,
+    channelId = channelId,
+    channelLogin = channelLogin,
+    channelName = channelName,
+    channelImageURL = channelImageURL,
+    title = title,
+    gameName = gameName,
+    startTimeMillis = startTimeMillis,
+    endTimeMillis = endTimeMillis,
+    isRecurring = isRecurring,
+)
+
+private fun CachedUpcomingStream.toUpcomingStream() = UpcomingStream(
+    id = id,
+    channelId = channelId,
+    channelLogin = channelLogin,
+    channelName = channelName,
+    channelImageURL = channelImageURL,
+    title = title,
+    gameName = gameName,
+    startTimeMillis = startTimeMillis,
+    endTimeMillis = endTimeMillis,
+    isRecurring = isRecurring,
 )
 
 @Serializable

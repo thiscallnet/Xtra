@@ -16,6 +16,8 @@ import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
+import com.github.andreyasadchy.xtra.repository.FollowingOverviewCacheSnapshot
+import com.github.andreyasadchy.xtra.repository.MetadataCache
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
@@ -57,6 +59,7 @@ class FollowingOverviewViewModel(
     private val helixRepository: HelixRepository,
     private val streamFeedCache: StreamFeedCache,
     val refreshCoordinator: StreamFeedRefreshCoordinator,
+    private val metadataCache: MetadataCache,
     private val recommendationsRepository: RecommendationsRepository,
     private val playerRepository: PlayerRepository,
 ) : ViewModel() {
@@ -154,24 +157,48 @@ class FollowingOverviewViewModel(
 
         overviewContentJob = viewModelScope.launch {
             try {
+                val cachedOverview = tryNetworkRequest {
+                    metadataCache.readFollowingOverview(requestAccountId)
+                }
+                if (isCurrentOverviewRequest(generation, requestAccountId)) {
+                    if (shouldLoadRecentVideos) {
+                        recentFollowedVideos.value = cachedOverview?.recentVideos.orEmpty()
+                    }
+                    if (shouldLoadUpcomingStreams) {
+                        _upcomingStreams.value = cachedOverview?.upcomingStreams.orEmpty()
+                    }
+                }
                 coroutineScope {
                     val recentVideos = async {
                         if (shouldLoadRecentVideos) {
-                            tryNetworkRequest { loadRecentFollowedVideos() }.orEmpty()
-                        } else emptyList()
+                            loadRecentFollowedVideos()
+                        } else null
                     }
                     val followedChannels = async {
                         if (shouldLoadUpcomingStreams) {
-                            tryNetworkRequest { loadFollowedChannels() }.orEmpty()
-                        } else emptyList()
+                            loadFollowedChannels()
+                        } else null
                     }
                     val loadedRecentVideos = recentVideos.await()
                     val loadedUpcomingStreams = if (shouldLoadUpcomingStreams) {
-                        loadUpcomingStreams(followedChannels.await())
-                    } else emptyList()
+                        followedChannels.await()?.let { loadUpcomingStreams(it) }
+                    } else null
                     if (isCurrentOverviewRequest(generation, requestAccountId)) {
-                        recentFollowedVideos.value = loadedRecentVideos
-                        _upcomingStreams.value = loadedUpcomingStreams
+                        loadedRecentVideos?.let { recentFollowedVideos.value = it }
+                        loadedUpcomingStreams?.let { _upcomingStreams.value = it }
+                        if (loadedRecentVideos != null || loadedUpcomingStreams != null) {
+                            tryNetworkRequest {
+                                metadataCache.writeFollowingOverview(
+                                    userId = requestAccountId,
+                                    snapshot = FollowingOverviewCacheSnapshot(
+                                        recentVideos = recentFollowedVideos.value,
+                                        upcomingStreams = _upcomingStreams.value,
+                                    ),
+                                    replaceRecentVideos = loadedRecentVideos != null,
+                                    replaceUpcomingStreams = loadedUpcomingStreams != null,
+                                )
+                            }
+                        }
                     }
                 }
             } catch (e: CancellationException) {
@@ -199,7 +226,7 @@ class FollowingOverviewViewModel(
         return overviewContentGeneration == generation && accountId.value == requestAccountId
     }
 
-    private suspend fun loadRecentFollowedVideos(): List<Video> {
+    private suspend fun loadRecentFollowedVideos(): List<Video>? {
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
         val localChannels = loadLocalChannels()
@@ -222,11 +249,11 @@ class FollowingOverviewViewModel(
                     ?.mapNotNull { edge -> edge?.node?.let(::toVideo) }
                     ?: throw IllegalStateException("Missing followed video data")
             }?.let { remoteVideos ->
-                return mergeRecentVideos(
+                return mergeRecentVideosWithSupplement(
                     remoteVideos,
                     loadLocalFollowedVideos(remoteVideos, localChannels, networkLibrary),
                     RECENT_VOD_LIMIT,
-                )
+                ) ?: return null
             }
 
             tryNetworkRequest {
@@ -245,28 +272,29 @@ class FollowingOverviewViewModel(
                     ?.map { item -> toVideo(item.node) }
                     ?: throw IllegalStateException("Missing followed video data")
             }?.let { remoteVideos ->
-                return mergeRecentVideos(
+                return mergeRecentVideosWithSupplement(
                     remoteVideos,
                     loadLocalFollowedVideos(remoteVideos, localChannels, networkLibrary),
                     RECENT_VOD_LIMIT,
-                )
+                ) ?: return null
             }
         }
 
-        val channels = loadFollowedChannels()
+        val channels = loadFollowedChannels() ?: return null
         val helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext)
-        return loadHelixVideos(
+        val videos = loadHelixVideos(
             channels = channels.take(RECENT_VOD_CHANNEL_LIMIT),
             networkLibrary = networkLibrary,
             headers = helixHeaders,
-        ).let { mergeRecentVideos(emptyList(), it, RECENT_VOD_LIMIT) }
+        ) ?: return null
+        return mergeRecentVideos(emptyList(), videos, RECENT_VOD_LIMIT)
     }
 
     private suspend fun loadLocalFollowedVideos(
         remoteVideos: List<Video>,
         localChannels: List<FollowedChannel>,
         networkLibrary: String?,
-    ): List<Video> {
+    ): List<Video>? {
         val remoteChannelIds = remoteVideos.mapNotNull { it.channelId }.toSet()
         return loadHelixVideos(
             channels = localChannels.filterNot { it.id in remoteChannelIds },
@@ -279,57 +307,63 @@ class FollowingOverviewViewModel(
         channels: List<FollowedChannel>,
         networkLibrary: String?,
         headers: Map<String, String>,
-    ): List<Video> = coroutineScope {
+    ): List<Video>? = coroutineScope {
+        if (channels.isEmpty()) return@coroutineScope emptyList()
         val requestSemaphore = Semaphore(RECENT_VOD_REQUEST_CONCURRENCY)
-        channels.map { channel ->
+        val results = channels.map { channel ->
             async {
                 requestSemaphore.withPermit {
-                    tryNetworkRequest {
-                        helixRepository.getVideos(
-                            networkLibrary = networkLibrary,
-                            headers = headers,
-                            channelId = channel.id,
-                            broadcastType = "archive",
-                            sort = "time",
-                            limit = RECENT_VODS_PER_CHANNEL,
-                        ).data.mapNotNull { item ->
-                            item.id?.let { id ->
-                                Video(
-                                    id = id,
-                                    channelId = item.channelId ?: channel.id,
-                                    channelLogin = item.channelLogin ?: channel.login,
-                                    channelName = item.channelName ?: channel.name,
-                                    channelImageURL = channel.imageURL,
-                                    title = item.title,
-                                    thumbnailURL = item.thumbnailURL,
-                                    createdAt = item.createdAt,
-                                    viewCount = item.viewCount,
-                                    durationSeconds = item.duration?.let(TwitchApiHelper::getDuration),
-                                )
+                    loadChannelItems(
+                        request = {
+                            helixRepository.getVideos(
+                                networkLibrary = networkLibrary,
+                                headers = headers,
+                                channelId = channel.id,
+                                broadcastType = "archive",
+                                sort = "time",
+                                limit = RECENT_VODS_PER_CHANNEL,
+                            ).data.mapNotNull { item ->
+                                item.id?.let { id ->
+                                    Video(
+                                        id = id,
+                                        channelId = item.channelId ?: channel.id,
+                                        channelLogin = item.channelLogin ?: channel.login,
+                                        channelName = item.channelName ?: channel.name,
+                                        channelImageURL = channel.imageURL,
+                                        title = item.title,
+                                        thumbnailURL = item.thumbnailURL,
+                                        createdAt = item.createdAt,
+                                        viewCount = item.viewCount,
+                                        durationSeconds = item.duration?.let(TwitchApiHelper::getDuration),
+                                    )
+                                }
                             }
-                        }
-                    }.orEmpty()
+                        },
+                    )
                 }
             }
-        }.awaitAll().flatten()
+        }.awaitAll()
+        combineChannelItems(results)
     }
 
-    private suspend fun loadUpcomingStreams(channels: List<FollowedChannel>): List<UpcomingStream> {
+    private suspend fun loadUpcomingStreams(channels: List<FollowedChannel>): List<UpcomingStream>? {
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext)
         val now = Clock.System.now().toEpochMilliseconds()
         return coroutineScope {
             val requestSemaphore = Semaphore(UPCOMING_REQUEST_CONCURRENCY)
-            channels.map { channel ->
+            if (channels.isEmpty()) return@coroutineScope emptyList()
+            val results = channels.map { channel ->
                 async {
                     requestSemaphore.withPermit {
-                        tryNetworkRequest {
-                            helixRepository.getStreamSchedule(
-                                networkLibrary = networkLibrary,
-                                headers = helixHeaders,
-                                broadcasterId = channel.id,
-                                limit = UPCOMING_SEGMENTS_PER_CHANNEL,
-                            ).data?.let { schedule ->
+                        loadChannelItems(
+                            request = {
+                                val schedule = helixRepository.getStreamSchedule(
+                                    networkLibrary = networkLibrary,
+                                    headers = helixHeaders,
+                                    broadcasterId = channel.id,
+                                    limit = UPCOMING_SEGMENTS_PER_CHANNEL,
+                                ).data ?: throw IllegalStateException("Missing schedule data")
                                 schedule.segments.mapNotNull { segment ->
                                     if (!segment.canceledUntil.isNullOrBlank()) return@mapNotNull null
                                     val startTime = segment.startTime?.let(Instant::parseOrNull)
@@ -349,19 +383,25 @@ class FollowingOverviewViewModel(
                                         isRecurring = segment.isRecurring,
                                     )
                                 }
-                            }.orEmpty()
-                        }.orEmpty()
+                            },
+                            notFoundItems = emptyList(),
+                        )
                     }
                 }
-            }.awaitAll().flatten()
-                .distinctBy { it.id }
-                .sortedBy { it.startTimeMillis }
-                .take(UPCOMING_STREAM_LIMIT)
+            }.awaitAll()
+            combineChannelItems(results)
+                ?.distinctBy { it.id }
+                ?.sortedBy { it.startTimeMillis }
+                ?.take(UPCOMING_STREAM_LIMIT)
         }
     }
 
-    private suspend fun loadFollowedChannels(): List<FollowedChannel> {
+    private suspend fun loadFollowedChannels(): List<FollowedChannel>? {
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        val hasAuthenticatedRemoteIdentity = !accountId.value.isNullOrBlank() ||
+                !applicationContext.tokenPrefs().getString(C.GQL_TOKEN2, null).isNullOrBlank() ||
+                !applicationContext.tokenPrefs().getString(C.TOKEN, null).isNullOrBlank()
+        val remoteFollowLookupAttempted = hasAuthenticatedRemoteIdentity
         val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
         if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             tryNetworkRequest {
@@ -429,7 +469,7 @@ class FollowingOverviewViewModel(
             }?.let { return mergeLocalChannels(it) }
         }
 
-        return mergeLocalChannels(emptyList())
+        return fallbackToLocalChannels(remoteFollowLookupAttempted, loadLocalChannels())
     }
 
     private suspend fun mergeLocalChannels(remote: List<FollowedChannel>): List<FollowedChannel> {
@@ -593,6 +633,7 @@ class FollowingOverviewViewModel(
                     xtraModule.helixRepository,
                     xtraModule.streamFeedCache,
                     xtraModule.streamFeedRefreshCoordinator,
+                    xtraModule.metadataCache,
                     xtraModule.recommendationsRepository,
                     xtraModule.playerRepository,
                 )

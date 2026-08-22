@@ -11,7 +11,9 @@ import com.github.andreyasadchy.xtra.model.helix.user.User as HelixUser
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Tag
+import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
 import com.github.andreyasadchy.xtra.model.ui.User
+import com.github.andreyasadchy.xtra.model.ui.Video
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.After
@@ -88,6 +90,45 @@ class MetadataCacheTest {
             nowMs = now,
         )
         assertEquals("Tag", cache.readGame(null, null, "game")?.game?.tags?.firstOrNull()?.name)
+    }
+
+    @Test
+    fun followingOverviewPayloadRoundTripsThroughRoom() = runBlocking {
+        val snapshot = FollowingOverviewCacheSnapshot(
+            recentVideos = listOf(
+                Video(id = "video-1", channelName = "Channel", title = "Recent video"),
+            ),
+            upcomingStreams = listOf(
+                UpcomingStream(
+                    id = "channel-1:segment-1",
+                    channelId = "channel-1",
+                    channelLogin = "channel",
+                    channelName = "Channel",
+                    channelImageURL = "image",
+                    title = "Upcoming stream",
+                    gameName = "Game",
+                    startTimeMillis = System.currentTimeMillis() + 60_000,
+                    endTimeMillis = null,
+                    isRecurring = false,
+                ),
+            ),
+        )
+
+        cache.writeFollowingOverview("42", snapshot)
+
+        val cached = cache.readFollowingOverview("42")
+        assertNotNull(cached)
+        assertEquals(snapshot.recentVideos.single().id, cached?.recentVideos?.single()?.id)
+        assertEquals(snapshot.recentVideos.single().channelName, cached?.recentVideos?.single()?.channelName)
+        assertEquals(snapshot.recentVideos.single().title, cached?.recentVideos?.single()?.title)
+        assertEquals(snapshot.upcomingStreams, cached?.upcomingStreams)
+
+        cache.writeFollowingOverview(null, snapshot)
+
+        val anonymousCached = cache.readFollowingOverview(null)
+        assertNotNull(anonymousCached)
+        assertEquals(snapshot.recentVideos.single().id, anonymousCached?.recentVideos?.single()?.id)
+        assertEquals(snapshot.upcomingStreams, anonymousCached?.upcomingStreams)
     }
 
     @Test

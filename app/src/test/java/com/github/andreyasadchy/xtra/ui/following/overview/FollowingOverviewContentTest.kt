@@ -2,7 +2,12 @@ package com.github.andreyasadchy.xtra.ui.following.overview
 
 import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.ui.Video
+import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
+import com.github.andreyasadchy.xtra.repository.TwitchApiException
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FollowingOverviewContentTest {
@@ -64,5 +69,117 @@ class FollowingOverviewContentTest {
         )
 
         assertEquals(listOf("2", "1"), result.map { it.id })
+    }
+
+    @Test
+    fun graphqlVideosWithFailedLocalSupplementAreNotAuthoritative() {
+        val result = mergeRecentVideosWithSupplement(
+            remoteVideos = listOf(Video(id = "remote", title = "GraphQL video")),
+            localVideos = null,
+            limit = 20,
+        )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun authenticatedFollowLookupFailureDoesNotUseLocalFallback() {
+        assertNull(
+            fallbackToLocalChannels(
+                remoteLookupAttempted = true,
+                localChannels = listOf("local-channel"),
+            ),
+        )
+    }
+
+    @Test
+    fun localOnlyFollowModeUsesLocalFallback() {
+        assertEquals(
+            listOf("local-channel"),
+            fallbackToLocalChannels(
+                remoteLookupAttempted = false,
+                localChannels = listOf("local-channel"),
+            ),
+        )
+    }
+
+    @Test
+    fun localOnlyModeWithNoFollowsIsAuthoritativeEmpty() {
+        assertEquals(
+            emptyList<String>(),
+            fallbackToLocalChannels(
+                remoteLookupAttempted = false,
+                localChannels = emptyList<String>(),
+            ),
+        )
+    }
+
+    @Test
+    fun partialVideoChannelFailureIsNotAnAuthoritativeBatch() {
+        val result = combineChannelItems(
+            listOf(
+                ChannelItemsResult.Success(listOf(Video(id = "fresh"))),
+                ChannelItemsResult.Failure,
+            ),
+        )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun partialUpcomingScheduleFailureIsNotAnAuthoritativeBatch() {
+        val result = combineChannelItems(
+            listOf(
+                ChannelItemsResult.Success(
+                    listOf(
+                        UpcomingStream(
+                            id = "channel:segment",
+                            channelId = "channel",
+                            channelLogin = "channel",
+                            channelName = "Channel",
+                            channelImageURL = null,
+                            title = "Stream",
+                            gameName = null,
+                            startTimeMillis = 2,
+                            endTimeMillis = null,
+                            isRecurring = false,
+                        ),
+                    ),
+                ),
+                ChannelItemsResult.Failure,
+            ),
+        )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun completeChannelFailureIsNotAnAuthoritativeBatch() {
+        assertNull(
+            combineChannelItems<Video>(
+                listOf(ChannelItemsResult.Failure, ChannelItemsResult.Failure),
+            ),
+        )
+    }
+
+    @Test
+    fun schedule404IsAnAuthoritativeEmptyResult() = runBlocking {
+        val result = loadChannelItems(
+            request = { throw TwitchApiException(404, null, message = "No schedule") },
+            notFoundItems = emptyList<UpcomingStream>(),
+        )
+
+        assertTrue(result is ChannelItemsResult.Success)
+        assertEquals(emptyList<UpcomingStream>(), (result as ChannelItemsResult.Success).items)
+    }
+
+    @Test
+    fun non404ScheduleFailureRemainsARefreshFailure() = runBlocking {
+        val result = loadChannelItems<UpcomingStream>(
+            request = { throw TwitchApiException(429, null, message = "Rate limited") },
+            notFoundItems = emptyList(),
+        )
+
+        assertEquals(ChannelItemsResult.Failure, result)
     }
 }

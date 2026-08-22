@@ -1,12 +1,9 @@
 package com.github.andreyasadchy.xtra.ui.common
 
 import android.text.format.DateUtils
-import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.constraintlayout.helper.widget.Flow
-import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import androidx.paging.PagingDataAdapter
@@ -23,7 +20,6 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
-import com.google.android.material.chip.Chip
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -192,52 +188,13 @@ class StreamsAdapter(
                         uptime.visibility = View.GONE
                     }
                     if (!item.tags.isNullOrEmpty() && context.prefs().getBoolean(C.UI_TAGS, true)) {
-                        tagsLayout.removeAllViews()
-                        tagsLayout.visibility = View.VISIBLE
-                        val tagsFlowLayout = Flow(context).apply {
-                            layoutParams = ConstraintLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.WRAP_CONTENT
-                            ).apply {
-                                topToTop = tagsLayout.id
-                                bottomToBottom = tagsLayout.id
-                                startToStart = tagsLayout.id
-                                endToEnd = tagsLayout.id
+                        bindStreamTags(context, tagsLayout, item.tags) { tag ->
+                            if (selectionMode) {
+                                onStreamClick.invoke(item)
+                            } else {
+                                selectTag(tag)
                             }
-                            setWrapMode(Flow.WRAP_CHAIN)
                         }
-                        tagsLayout.addView(tagsFlowLayout)
-                        val ids = mutableListOf<Int>()
-                        val chipHeight = TypedValue.applyDimension(
-                            TypedValue.COMPLEX_UNIT_DIP,
-                            26f,
-                            context.resources.displayMetrics,
-                        ).toInt()
-                        val chipPadding = TypedValue.applyDimension(
-                            TypedValue.COMPLEX_UNIT_DIP,
-                            5f,
-                            context.resources.displayMetrics,
-                        ).toInt()
-                        for (tag in item.tags) {
-                            val id = View.generateViewId()
-                            ids.add(id)
-                            Chip(context).apply {
-                                this.id = id
-                                text = tag
-                                textSize = 12f
-                                chipMinHeight = chipHeight.toFloat()
-                                setEnsureMinTouchTargetSize(false)
-                                setPadding(chipPadding, 0, chipPadding, 0)
-                                setOnClickListener {
-                                    if (selectionMode) {
-                                        onStreamClick.invoke(item)
-                                    } else {
-                                        selectTag(tag)
-                                    }
-                                }
-                            }.also { tagsLayout.addView(it) }
-                        }
-                        tagsFlowLayout.referencedIds = ids.toIntArray()
                     } else {
                         tagsLayout.visibility = View.GONE
                     }
