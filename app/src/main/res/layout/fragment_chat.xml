@@ -38,6 +38,34 @@
                 android:text="@string/scroll_down"
                 android:visibility="gone"
                 tools:visibility="visible" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/slowModeIndicator"
+                style="@style/Widget.Material3.Chip.Assist"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="8dp"
+                android:layout_marginEnd="8dp"
+                android:accessibilityLiveRegion="none"
+                android:clickable="false"
+                android:elevation="2dp"
+                android:focusable="false"
+                android:importantForAccessibility="yes"
+                android:maxLines="1"
+                android:textAppearance="?attr/textAppearanceLabelSmall"
+                android:visibility="gone"
+                app:chipBackgroundColor="?attr/colorSurfaceContainerHigh"
+                app:chipEndPadding="8dp"
+                app:chipIcon="@drawable/ic_stream_uptime"
+                app:chipIconSize="14dp"
+                app:chipIconTint="?attr/colorOnSurfaceVariant"
+                app:chipMinHeight="28dp"
+                app:chipStartPadding="8dp"
+                app:chipStrokeColor="?attr/colorOutlineVariant"
+                app:chipStrokeWidth="1dp"
+                tools:text="Send again · 4s"
+                tools:visibility="visible" />
         </FrameLayout>
 
         <LinearLayout
@@ -150,33 +178,6 @@
                 android:layout_height="1dp"
                 android:background="?attr/colorOutlineVariant" />
         </LinearLayout>
-
-        <com.google.android.material.chip.Chip
-            android:id="@+id/slowModeIndicator"
-            style="@style/Widget.Material3.Chip.Assist"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:layout_marginEnd="6dp"
-            android:layout_marginBottom="2dp"
-            android:accessibilityLiveRegion="none"
-            android:clickable="false"
-            android:focusable="false"
-            android:importantForAccessibility="yes"
-            android:maxLines="1"
-            android:textAppearance="?attr/textAppearanceLabelSmall"
-            android:visibility="gone"
-            app:chipBackgroundColor="?attr/colorSurfaceContainerHigh"
-            app:chipEndPadding="10dp"
-            app:chipIcon="@drawable/ic_stream_uptime"
-            app:chipIconSize="16dp"
-            app:chipIconTint="?attr/colorOnSurfaceVariant"
-            app:chipMinHeight="30dp"
-            app:chipStartPadding="10dp"
-            app:chipStrokeColor="?attr/colorOutlineVariant"
-            app:chipStrokeWidth="1dp"
-            tools:text="Slow mode · 30s"
-            tools:visibility="visible" />
 
         <LinearLayout
             android:id="@+id/messageView"
