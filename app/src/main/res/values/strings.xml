@@ -319,6 +319,7 @@
     <string name="settings_browsing_streams_videos">Streams &amp; videos</string>
     <string name="settings_displayed_information">Displayed information</string>
     <string name="settings_stream_card_style">Stream card style</string>
+    <string name="settings_stream_sort">Default stream sorting</string>
     <string name="settings_stream_card_compact">Compact</string>
     <string name="settings_stream_card_followed_compact">Compact for followed channels only</string>
     <string name="settings_stream_card_standard">Standard</string>
@@ -699,6 +700,7 @@
     <string name="save_default">Save as default</string>
     <string name="viewers_high">Viewers (descending)</string>
     <string name="viewers_low">Viewers (ascending)</string>
+    <string name="recommended">Twitch recommendations</string>
     <string name="points_earned">Received %d channel points</string>
     <string name="channel_points">Channel points</string>
     <string name="channel_points_close">Close</string>

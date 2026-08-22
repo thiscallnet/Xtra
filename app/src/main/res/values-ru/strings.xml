@@ -277,6 +277,7 @@
     <string name="save_default">Сохранить по умолчанию</string>
     <string name="viewers_high">Зрители (по убыванию)</string>
     <string name="viewers_low">Зрители (по возрастанию)</string>
+    <string name="recommended">Рекомендации Twitch</string>
     <string name="points_earned">Собраны баллы канала: %d</string>
     <string name="points_notify">Уведомлять о сборе баллов канала</string>
     <string name="points_collect">Автосбор баллов канала</string>
@@ -831,6 +832,7 @@
     <string name="settings_browsing_streams_videos">Потоки и видео</string>
     <string name="settings_displayed_information">Отображаемая информация</string>
     <string name="settings_stream_card_style">Стиль карточки потока</string>
+    <string name="settings_stream_sort">Сортировка трансляций по умолчанию</string>
     <string name="settings_stream_card_compact">Компактный</string>
     <string name="settings_stream_card_followed_compact">Компактный только для отслеживаемых каналов</string>
     <string name="settings_stream_card_standard">Стандартный</string>

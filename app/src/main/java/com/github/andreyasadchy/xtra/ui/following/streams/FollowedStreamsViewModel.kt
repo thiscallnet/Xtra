@@ -19,11 +19,13 @@ import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPager
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpec
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpecs
+import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -41,6 +43,7 @@ class FollowedStreamsViewModel(
 
     private val applicationContext = applicationContext
     private val accountId = MutableStateFlow(readCurrentUserId())
+    private val streamSort = MutableStateFlow(readStreamSort())
     private val pagingConfig = if (applicationContext.prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled") {
         PagingConfig(pageSize = 30, prefetchDistance = 10, initialLoadSize = 30)
     } else {
@@ -48,8 +51,11 @@ class FollowedStreamsViewModel(
     }
     private val accountPagerGeneration = FollowedAccountPagerGeneration()
 
-    val flow = accountId
-        .flatMapLatest { userId ->
+    val sort: String
+        get() = streamSort.value
+
+    val flow = combine(accountId, streamSort) { userId, sort -> userId to sort }
+        .flatMapLatest { (userId, sort) ->
             flow {
                 // An account partition change is the one legitimate case
                 // where the old rows must be removed before the new cache
@@ -60,7 +66,7 @@ class FollowedStreamsViewModel(
                 }
                 emitAll(
                     streamFeedPager.flow(
-                        spec = createSpec(userId),
+                        spec = createSpec(userId, sort),
                         config = pagingConfig,
                     )
                 )
@@ -70,16 +76,17 @@ class FollowedStreamsViewModel(
 
     fun syncCurrentAccount() {
         accountId.value = readCurrentUserId()
+        streamSort.value = readStreamSort()
     }
 
     fun currentFeedSpec(): StreamFeedSpec {
         syncCurrentAccount()
-        return createSpec(accountId.value)
+        return createSpec(accountId.value, streamSort.value)
     }
 
     fun refreshCurrent(reason: RefreshReason, force: Boolean = false) {
         syncCurrentAccount()
-        val spec = createSpec(accountId.value)
+        val spec = createSpec(accountId.value, streamSort.value)
         viewModelScope.launch {
             runCatching {
                 if (force) refreshCoordinator.forceRefresh(spec, reason)
@@ -90,10 +97,13 @@ class FollowedStreamsViewModel(
 
     private fun readCurrentUserId(): String? = applicationContext.tokenPrefs().getString(C.USER_ID, null)
 
-    private fun createSpec(userId: String?): StreamFeedSpec {
+    private fun readStreamSort(): String = StreamsSortDialog.defaultSort(applicationContext)
+
+    private fun createSpec(userId: String?, sort: String): StreamFeedSpec {
         return StreamFeedSpecs.followed(
             context = applicationContext,
             userId = userId,
+            sort = sort,
             localChannelFollowsRepository = localChannelFollowsRepository,
             graphQLRepository = graphQLRepository,
             helixRepository = helixRepository,

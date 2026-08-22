@@ -30,7 +30,7 @@ class StreamFeedPrewarmWorker(
             context = application,
             graphQLRepository = module.graphQLRepository,
             helixRepository = module.helixRepository,
-            sort = savedTop?.streamSort ?: StreamsSortDialog.SORT_VIEWERS,
+            sort = savedTop?.streamSort ?: StreamsSortDialog.defaultSort(application),
             tags = savedTop?.streamTags?.split(',')?.takeIf { it.isNotEmpty() },
             languages = savedTop?.streamLanguages?.split(',')?.takeIf { it.isNotEmpty() },
         )

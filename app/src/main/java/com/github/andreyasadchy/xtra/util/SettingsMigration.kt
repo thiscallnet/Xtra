@@ -82,6 +82,7 @@ object SettingsMigration {
         C.UI_NAVIGATION_TABS,
         C.UI_NAVIGATION_TAB_LIST,
         C.UI_FOLLOWING_TABS,
+        C.UI_STREAM_SORT,
         C.UI_SAVED_TABS,
         C.UI_CHANNEL_TABS,
         C.UI_GAME_TABS,

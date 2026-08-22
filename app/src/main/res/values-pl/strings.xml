@@ -297,6 +297,7 @@
     <string name="settings_browsing_streams_videos">Strumienie i filmy</string>
     <string name="settings_displayed_information">Wyświetlane informacje</string>
     <string name="settings_stream_card_style">Styl karty strumieniowej</string>
+    <string name="settings_stream_sort">Domyślne sortowanie transmisji</string>
     <string name="settings_stream_card_compact">Kompakt</string>
     <string name="settings_stream_card_followed_compact">Kompaktowy tylko dla obserwowanych kanałów</string>
     <string name="settings_stream_card_standard">Standard</string>
@@ -676,6 +677,7 @@
     <string name="save_default">Zapisz jako domyślne</string>
     <string name="viewers_high">Widzowie (malejąco)</string>
     <string name="viewers_low">Widzowie (rosnąco)</string>
+    <string name="recommended">Polecane przez Twitcha</string>
     <string name="points_earned">Otrzymano %d punktów kanału</string>
     <string name="channel_points">Punkty na kanale</string>
     <string name="channel_points_close">Zamknij</string>

@@ -1817,6 +1817,7 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<ListPreference>(C.PORTRAIT_COLUMN_COUNT)?.onPreferenceChangeListener = changeListener
             findPreference<ListPreference>(C.LANDSCAPE_COLUMN_COUNT)?.onPreferenceChangeListener = changeListener
             findPreference<ListPreference>(C.COMPACT_STREAMS)?.onPreferenceChangeListener = changeListener
+            findPreference<ListPreference>(C.UI_STREAM_SORT)?.onPreferenceChangeListener = changeListener
             findPreference<Preference>("browsing_displayed_information")?.setOnPreferenceClickListener {
                 findNavController().navigate(R.id.browsingInformationFragment)
                 true

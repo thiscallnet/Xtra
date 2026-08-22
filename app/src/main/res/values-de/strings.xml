@@ -277,6 +277,7 @@
     <string name="save_default">Als Standard speichern</string>
     <string name="viewers_high">Zuschauer (absteigend)</string>
     <string name="viewers_low">Zuschauer (aufsteigend)</string>
+    <string name="recommended">Twitch-Empfehlungen</string>
     <string name="points_earned">%d Kanalpunkte verdient</string>
     <string name="points_notify">Benachrichtigen, wenn Kanalpunkte gesammelt werden</string>
     <string name="points_collect">Kanalpunkte automatisch einsammeln</string>
@@ -831,6 +832,7 @@
     <string name="settings_browsing_streams_videos">Streams und Videos</string>
     <string name="settings_displayed_information">Angezeigte Informationen</string>
     <string name="settings_stream_card_style">Stream-Kartenstil</string>
+    <string name="settings_stream_sort">Standardmäßige Stream-Sortierung</string>
     <string name="settings_stream_card_compact">Kompakt</string>
     <string name="settings_stream_card_followed_compact">Kompakt nur für verfolgte Kanäle</string>
     <string name="settings_stream_card_standard">Standard</string>

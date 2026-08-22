@@ -276,6 +276,7 @@
     <string name="save_default">Simpan sebagai default</string>
     <string name="viewers_high">Penonton (tertinggi ke terendah)</string>
     <string name="viewers_low">Penonton (terendah ke tertinggi)</string>
+    <string name="recommended">Rekomendasi Twitch</string>
     <string name="points_earned">Mendapat %d channel point</string>
     <string name="points_notify">Beri tahu saat mendapatkan channel poin</string>
     <string name="points_collect">Kumpulkan channel poin secara otomatis</string>
@@ -832,6 +833,7 @@
     <string name="settings_browsing_streams_videos">Streaming &amp; video</string>
     <string name="settings_displayed_information">Informasi yang ditampilkan</string>
     <string name="settings_stream_card_style">Gaya kartu streaming</string>
+    <string name="settings_stream_sort">Urutan streaming bawaan</string>
     <string name="settings_stream_card_compact">Ringkas</string>
     <string name="settings_stream_card_followed_compact">Ringkas hanya untuk saluran yang diikuti</string>
     <string name="settings_stream_card_standard">Standar</string>

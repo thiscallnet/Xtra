@@ -23,7 +23,7 @@ class StreamFeedKeyTest {
     @Test
     fun credentialsAreNotPartOfKey() {
         assertEquals(StreamFeedKey.followed("100"), StreamFeedKey.followed(" 100 "))
-        assertEquals("followed:account:100", StreamFeedKey.followed("100").value)
+        assertEquals("followed:account:100:relevance", StreamFeedKey.followed("100").value)
     }
 
     @Test

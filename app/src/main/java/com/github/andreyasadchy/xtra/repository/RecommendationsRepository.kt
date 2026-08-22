@@ -146,7 +146,7 @@ class RecommendationsRepository(
         val response = graphQLRepository.loadTopStreams(
             networkLibrary = networkLibrary,
             headers = headers,
-            sort = "VIEWER_COUNT",
+            sort = "RELEVANCE",
             tags = null,
             languages = null,
             limit = (limit * 3).coerceAtMost(30),

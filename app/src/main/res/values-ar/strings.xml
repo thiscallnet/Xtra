@@ -277,6 +277,7 @@
     <string name="save_default">حفظ كإعداد افتراضي</string>
     <string name="viewers_high">المشاهدون (من الأعلى إلى الأقل)</string>
     <string name="viewers_low">المشاهدون (من الأقل إلى الأعلى)</string>
+    <string name="recommended">توصيات Twitch</string>
     <string name="points_earned">نقاط قناة%dالمستلمة</string>
     <string name="points_notify">قم بالإخطار عند كسب نقاط القناة</string>
     <string name="points_collect">اجمع نقاط القناة تلقائيًا</string>
@@ -831,6 +832,7 @@
     <string name="settings_browsing_streams_videos">التدفقات ومقاطع الفيديو</string>
     <string name="settings_displayed_information">المعلومات المعروضة</string>
     <string name="settings_stream_card_style">نمط بطاقة البث</string>
+    <string name="settings_stream_sort">الترتيب الافتراضي للبث</string>
     <string name="settings_stream_card_compact">مضغوط</string>
     <string name="settings_stream_card_followed_compact">مضغوط للقنوات التي تتم متابعتها فقط</string>
     <string name="settings_stream_card_standard">قياسي</string>
