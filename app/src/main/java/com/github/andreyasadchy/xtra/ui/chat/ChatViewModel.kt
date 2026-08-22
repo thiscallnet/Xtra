@@ -1504,35 +1504,7 @@ class ChatViewModel(
     }
 
     private fun mergeWatchStreak(incoming: WatchStreak, realtime: Boolean = false) {
-        val previous = watchStreak.value
-        if (previous == null) {
-            watchStreak.value = incoming
-            return
-        }
-
-        val staleCount = incoming.streakCount < previous.streakCount
-        val streakCount = maxOf(previous.streakCount, incoming.streakCount)
-        val nextMilestone = incoming.nextMilestone ?: previous.nextMilestone
-        val milestoneReached = previous.nextMilestone?.let {
-            previous.streakCount < it && streakCount >= it
-        } == true
-        val milestoneChanged = realtime && (incoming.pointsAwarded != null || milestoneReached)
-        watchStreak.value = incoming.copy(
-            streakCount = streakCount,
-            nextMilestone = nextMilestone,
-            rewardPoints = incoming.rewardPoints ?: previous.rewardPoints,
-            pointsAwarded = if (staleCount) previous.pointsAwarded else incoming.pointsAwarded ?: previous.pointsAwarded,
-            milestoneId = when {
-                staleCount -> previous.milestoneId
-                milestoneChanged -> incoming.milestoneId
-                else -> incoming.milestoneId ?: previous.milestoneId
-            },
-            shareStatus = when {
-                staleCount -> previous.shareStatus
-                milestoneChanged -> incoming.shareStatus
-                else -> incoming.shareStatus ?: previous.shareStatus
-            },
-        )
+        watchStreak.value = mergeWatchStreakState(watchStreak.value, incoming, realtime)
     }
 
     private fun JsonElement?.toIntOrNull(): Int? = this?.jsonPrimitive?.content?.toIntOrNull()
@@ -1555,11 +1527,31 @@ class ChatViewModel(
     private fun watchStreakCount(response: WatchStreakResponse): Int? =
         response.data?.channel?.self?.watchStreakMilestone?.watchStreakMilestone?.value?.toIntOrNull()
 
+    private fun reconcileWatchStreak(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        channelId: String?,
+        reconciliation: WatchStreakReconciliation,
+    ) {
+        Log.d(
+            WatchCreditTelemetry.LOG_TAG,
+            "watch-streak reconciliation trigger source=${reconciliation.source} baseline=${reconciliation.countBeforeEvent}",
+        )
+        loadWatchStreak(
+            networkLibrary = networkLibrary,
+            gqlHeaders = gqlHeaders,
+            channelId = channelId,
+            delayMillis = WATCH_STREAK_RECONCILIATION_DELAY_MILLIS,
+            reconciliation = reconciliation,
+        )
+    }
+
     private fun loadWatchStreak(
         networkLibrary: String?,
         gqlHeaders: Map<String, String>,
         channelId: String?,
         delayMillis: Long = 0L,
+        reconciliation: WatchStreakReconciliation? = null,
     ) {
         if (channelId.isNullOrBlank() || gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             return
@@ -1586,21 +1578,26 @@ class ChatViewModel(
                 ) {
                     return@launch
                 }
-                val locallyObservedCount = watchStreak.value?.streakCount
                 val responseCount = watchStreakCount(response)
                 updateWatchStreakStatus(response)
-                if (delayMillis > 0L &&
-                    locallyObservedCount != null &&
-                    (responseCount == null || responseCount < locallyObservedCount)
-                ) {
-                    scheduleWatchStreakRetry(
-                        networkLibrary = networkLibrary,
-                        gqlHeaders = gqlHeaders,
-                        channelId = channelId,
-                        expectedChannelId = expectedChannelId,
-                        expectedChannelLogin = expectedChannelLogin,
-                        expectedSession = expectedSession,
+                if (reconciliation != null) {
+                    val snapshotStatus = watchStreakSnapshotStatus(reconciliation, responseCount)
+                    Log.d(
+                        WatchCreditTelemetry.LOG_TAG,
+                        "watch-streak reconciliation first snapshot source=${reconciliation.source} status=$snapshotStatus",
                     )
+                    if (shouldRetryWatchStreakReconciliation(reconciliation, responseCount, retryAttempt = 0)) {
+                        scheduleWatchStreakRetry(
+                            networkLibrary = networkLibrary,
+                            gqlHeaders = gqlHeaders,
+                            channelId = channelId,
+                            expectedChannelId = expectedChannelId,
+                            expectedChannelLogin = expectedChannelLogin,
+                            expectedSession = expectedSession,
+                            reconciliation = reconciliation,
+                            retryAttempt = 1,
+                        )
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -1616,11 +1613,14 @@ class ChatViewModel(
         expectedChannelId: String?,
         expectedChannelLogin: String?,
         expectedSession: Long,
+        reconciliation: WatchStreakReconciliation,
+        retryAttempt: Int,
     ) {
+        val retryDelayMillis = watchStreakReconciliationRetryDelaysMillis.getOrNull(retryAttempt - 1) ?: return
         if (watchStreakRetryJob?.isActive == true) return
         watchStreakRetryJob = viewModelScope.launch {
             try {
-                delay(WATCH_STREAK_RECONCILIATION_RETRY_DELAY_MILLIS)
+                delay(retryDelayMillis)
                 if (watchStreakSession != expectedSession ||
                     activeChannelId != expectedChannelId ||
                     activeChannelLogin != expectedChannelLogin
@@ -1634,7 +1634,26 @@ class ChatViewModel(
                 ) {
                     return@launch
                 }
+                val responseCount = watchStreakCount(response)
                 updateWatchStreakStatus(response)
+                val snapshotStatus = watchStreakSnapshotStatus(reconciliation, responseCount)
+                Log.d(
+                    WatchCreditTelemetry.LOG_TAG,
+                    "watch-streak reconciliation retry attempt=$retryAttempt source=${reconciliation.source} status=$snapshotStatus",
+                )
+                if (shouldRetryWatchStreakReconciliation(reconciliation, responseCount, retryAttempt)) {
+                    watchStreakRetryJob = null
+                    scheduleWatchStreakRetry(
+                        networkLibrary = networkLibrary,
+                        gqlHeaders = gqlHeaders,
+                        channelId = channelId,
+                        expectedChannelId = expectedChannelId,
+                        expectedChannelLogin = expectedChannelLogin,
+                        expectedSession = expectedSession,
+                        reconciliation = reconciliation,
+                        retryAttempt = retryAttempt + 1,
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -2248,15 +2267,20 @@ class ChatViewModel(
                 message.tags["msg-param-category"] == "watch-streak" &&
                 message.tags["user-id"] == accountId
             ) {
+                val countBeforeEvent = watchStreak.value?.streakCount
                 updateWatchStreak(
                     message.tags["msg-param-value"]?.toIntOrNull(),
                     message.tags["msg-param-copoReward"]?.toIntOrNull(),
                 )
-                loadWatchStreak(
-                    networkLibrary,
-                    gqlHeaders,
-                    channelId,
-                    delayMillis = WATCH_STREAK_RECONCILIATION_DELAY_MILLIS,
+                reconcileWatchStreak(
+                    networkLibrary = networkLibrary,
+                    gqlHeaders = gqlHeaders,
+                    channelId = channelId,
+                    reconciliation = WatchStreakReconciliation(
+                        source = WatchStreakReconciliationSource.LIVE_NOTIFICATION,
+                        countBeforeEvent = countBeforeEvent,
+                        observedLiveCount = watchStreak.value?.streakCount,
+                    ),
                 )
             }
             if (!userNotice || showUserNotice) {
@@ -2738,15 +2762,20 @@ class ChatViewModel(
         override suspend fun onUserNotice(event: JSONObject, timestamp: String?) {
             if (event.optString("notice_type") == "watch_streak" && event.optString("chatter_user_id") == accountId) {
                 val streak = event.optJSONObject("watch_streak")
+                val countBeforeEvent = watchStreak.value?.streakCount
                 updateWatchStreak(
                     streak?.optInt("streak_count")?.takeIf { it > 0 },
                     streak?.optInt("channel_points_awarded")?.takeIf { it > 0 },
                 )
-                loadWatchStreak(
-                    networkLibrary,
-                    gqlHeaders,
-                    channelId,
-                    delayMillis = WATCH_STREAK_RECONCILIATION_DELAY_MILLIS,
+                reconcileWatchStreak(
+                    networkLibrary = networkLibrary,
+                    gqlHeaders = gqlHeaders,
+                    channelId = channelId,
+                    reconciliation = WatchStreakReconciliation(
+                        source = WatchStreakReconciliationSource.LIVE_NOTIFICATION,
+                        countBeforeEvent = countBeforeEvent,
+                        observedLiveCount = watchStreak.value?.streakCount,
+                    ),
                 )
             }
             if (showUserNotice) {
@@ -2893,12 +2922,21 @@ class ChatViewModel(
             }
         }
 
-        override suspend fun onSubscriptionsSent() {
-            if (!showPredictions || sessionToken != predictionSessionToken || activeChannelLogin != channelLogin) return
-            if (predictionSubscriptionSessionToken == sessionToken) {
-                loadCurrentPredictionSnapshot(networkLibrary, channelLogin, channelId, sessionToken)
-            } else {
-                predictionSubscriptionSessionToken = sessionToken
+        override suspend fun onSubscriptionsSent(reconnected: Boolean) {
+            if (showPredictions && sessionToken == predictionSessionToken && activeChannelLogin == channelLogin) {
+                if (predictionSubscriptionSessionToken == sessionToken) {
+                    loadCurrentPredictionSnapshot(networkLibrary, channelLogin, channelId, sessionToken)
+                } else {
+                    predictionSubscriptionSessionToken = sessionToken
+                }
+            }
+            if (reconnected &&
+                isLoggedIn &&
+                isActiveWatchCreditSession() &&
+                !channelId.isNullOrBlank()
+            ) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes re-subscription healing watch-streak")
+                loadWatchStreak(networkLibrary, gqlHeaders, channelId)
             }
         }
 
@@ -2947,11 +2985,32 @@ class ChatViewModel(
         }
 
         override suspend fun onPointsEarned(message: JSONObject) {
+            if (!isActiveWatchCreditSession()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes points-earned ignored for inactive watch session")
+                return
+            }
             val result = PubSubUtils.parsePointsEarned(message)
             val points = result.first
             val messageChannelId = result.second
+            Log.d(
+                WatchCreditTelemetry.LOG_TAG,
+                "Hermes points-earned channelMatched=${channelId == messageChannelId} channelIdPresent=${!messageChannelId.isNullOrBlank()} reason=${points.reasonCode ?: "unknown"}",
+            )
             if (channelId == messageChannelId) {
                 loadChannelPoints(networkLibrary, gqlHeaders, channelLogin, enableIntegrity)
+            }
+            watchStreakInvalidationForPointsEarned(
+                activeChannelId = channelId,
+                messageChannelId = messageChannelId,
+                reasonCode = points.reasonCode,
+                currentCount = watchStreak.value?.streakCount,
+            )?.let { reconciliation ->
+                reconcileWatchStreak(
+                    networkLibrary = networkLibrary,
+                    gqlHeaders = gqlHeaders,
+                    channelId = channelId,
+                    reconciliation = reconciliation,
+                )
             }
             if (notifyPoints) {
                 if (channelId == messageChannelId) {
@@ -5152,7 +5211,6 @@ class ChatViewModel(
 
     companion object {
         private const val WATCH_STREAK_RECONCILIATION_DELAY_MILLIS = 750L
-        private const val WATCH_STREAK_RECONCILIATION_RETRY_DELAY_MILLIS = 3_000L
         private const val METERED_CACHE_MAX_AGE_MS = 604_800_000L
         private const val MAX_BADGE_CACHE_FILES = 100
         private const val DEFAULT_REWARD_COLOR = "#9146FF"
