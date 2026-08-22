@@ -64,6 +64,7 @@ object PubSubUtils {
         return Pair(
             PointsEarned(
                 pointsGained = pointGain?.optInt("total_points"),
+                reasonCode = pointGain?.optString("reason_code")?.takeIf { it.isNotBlank() },
                 timestamp = if (messageData?.isNull("timestamp") == false) messageData.optString("timestamp").takeIf { it.isNotBlank() }?.let { Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } } else null,
                 fullMsg = message.toString()
             ),
@@ -306,6 +307,7 @@ object PubSubUtils {
 
     class PointsEarned(
         val pointsGained: Int? = null,
+        val reasonCode: String? = null,
         val timestamp: Long? = null,
         val fullMsg: String? = null,
     )

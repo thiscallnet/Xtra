@@ -37,9 +37,11 @@ class HermesWebSocket(
     private var minuteWatchedTimer: Timer? = null
     private var topics = emptyMap<String, String>()
     private val handledMessageIds = mutableListOf<String>()
+    private var hasSubscribed = false
 
     fun connect(coroutineScope: CoroutineScope): Job {
         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes connect requested channelIdPresent=${channelId.isNotBlank()} userIdPresent=${!userId.isNullOrBlank()} collectPoints=$collectPoints listenForPoints=$listenForPoints")
+        hasSubscribed = false
         webSocket = WebSocket("wss://hermes.twitch.tv/v1?clientId=${gqlClientId}", trustManager, WebSocketListener())
         webSocket?.coroutineScope = coroutineScope
         return coroutineScope.launch(Dispatchers.IO) {
@@ -107,7 +109,9 @@ class HermesWebSocket(
             }
         }
         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes subscriptions sent count=${topics.size}")
-        listener.onSubscriptionsSent()
+        val reconnected = hasSubscribed
+        hasSubscribed = true
+        listener.onSubscriptionsSent(reconnected)
     }
 
     private suspend fun startPongTimer() = withContext(Dispatchers.IO) {
@@ -136,7 +140,7 @@ class HermesWebSocket(
     interface Listener {
         suspend fun onConnect() {}
         /** Called after every topic (re-)subscription message has been sent. */
-        suspend fun onSubscriptionsSent() {}
+        suspend fun onSubscriptionsSent(reconnected: Boolean) {}
         suspend fun onPlaybackMessage(message: JSONObject) {}
         suspend fun onStreamInfo(message: JSONObject) {}
         suspend fun onRewardMessage(message: JSONObject) {}
