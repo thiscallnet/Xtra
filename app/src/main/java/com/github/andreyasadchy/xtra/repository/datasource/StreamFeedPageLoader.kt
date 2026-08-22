@@ -257,12 +257,6 @@ class FollowedStreamsPageLoader(
 ) : StreamFeedPageLoader {
     private var api: String? = null
 
-    private fun requireUnsortedFallback() {
-        if (sort != StreamsSortDialog.SORT_VIEWERS) {
-            throw IOException("Followed-stream fallback cannot represent sort: $sort")
-        }
-    }
-
     override suspend fun load(cursor: StreamFeedCursor?): StreamFeedPage {
         if (cursor != null) {
             // The persisted cursor is authoritative. This also works after a
@@ -301,8 +295,8 @@ class FollowedStreamsPageLoader(
         return loadFollowedFirstPageWithFallback(
             onApiSelected = { api = it },
             gql = { gqlQueryLoad(null) },
-            persistedGql = { persistedGqlFallback(null) },
-            helix = { helixFallback(null) },
+            persistedGql = { gqlLoad(null) },
+            helix = { helixLoad(null) },
         )
     }
 
@@ -310,20 +304,10 @@ class FollowedStreamsPageLoader(
         val page = loadFollowedPageForCursor(
             cursor = cursor,
             gql = { gqlQueryLoad(it) },
-            persistedGql = { persistedGqlFallback(it) },
-            helix = { helixFallback(it) },
+            persistedGql = { gqlLoad(it) },
+            helix = { helixLoad(it) },
         )
         return page.copy(items = merge(emptyList(), page.items))
-    }
-
-    private suspend fun persistedGqlFallback(cursor: String?): StreamFeedPage {
-        requireUnsortedFallback()
-        return gqlLoad(cursor)
-    }
-
-    private suspend fun helixFallback(cursor: String?): StreamFeedPage {
-        requireUnsortedFallback()
-        return helixLoad(cursor)
     }
 
     private suspend fun loadLocalWithFallback(ids: List<String>): List<Stream> {
