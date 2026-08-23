@@ -339,6 +339,8 @@
     <string name="proxy_user">用户名</string>
     <string name="proxy_password">密码</string>
     <string name="proxy_settings">HTTP 代理设置</string>
+    <string name="proxy_allow_direct_fallback">允许直接连接回退</string>
+    <string name="proxy_allow_direct_fallback_summary">如果代理不可用，则不使用代理重试请求。</string>
     <string name="stop_download">停止下载</string>
     <string name="resume_download">继续下载</string>
     <string name="show_view_count_icon">显示观看数量与上线时间图标</string>

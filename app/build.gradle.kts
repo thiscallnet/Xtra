@@ -30,7 +30,10 @@ val configuredTwitchPublicClientId = providers.gradleProperty("twitchPublicClien
     ?.takeIf { it.isNotEmpty() }
 val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
     val requestedTask = taskName.substringAfterLast(':')
-    requestedTask.contains("release", ignoreCase = true) ||
+    requestedTask.equals("release", ignoreCase = true) ||
+        requestedTask.equals("assembleRelease", ignoreCase = true) ||
+        requestedTask.equals("bundleRelease", ignoreCase = true) ||
+        requestedTask.equals("publishRelease", ignoreCase = true) ||
         requestedTask in setOf("assemble", "build", "bundle")
 }
 
@@ -113,6 +116,12 @@ android {
         "lib/armeabi-v7a/libtranslate_jni.so",
         "lib/armeabi-v7a/liblanguage_id_l2c_jni.so",
     ))
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.generateKotlin", "true")
+    arg("room.incremental", "true")
 }
 
 val printVersionName = applicationVersionName

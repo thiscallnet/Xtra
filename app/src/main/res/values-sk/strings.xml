@@ -863,6 +863,8 @@
     <string name="proxy_user">Používateľské meno</string>
     <string name="proxy_password">heslo</string>
     <string name="proxy_settings">nastavenia HTTP proxy</string>
+    <string name="proxy_allow_direct_fallback">Povoliť priame pripojenie pri zlyhaní</string>
+    <string name="proxy_allow_direct_fallback_summary">Ak proxy nie je dostupné, skúsiť požiadavky znova bez neho.</string>
     <string name="stop_download">Zastaviť sťahovanie</string>
     <string name="resume_download">Obnoviť sťahovanie</string>
     <string name="show_view_count_icon">Zobraziť ikony počtu zobrazení a doby prevádzkyschopnosti</string>

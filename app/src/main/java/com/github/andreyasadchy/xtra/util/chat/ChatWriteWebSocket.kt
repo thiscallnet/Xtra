@@ -51,7 +51,7 @@ class ChatWriteWebSocket(
         pongTimer = Timer().apply {
             schedule(10000) {
                 webSocket?.coroutineScope?.launch {
-                    webSocket?.disconnect()
+                    webSocket?.reconnect()
                 }
             }
         }
@@ -88,7 +88,7 @@ class ChatWriteWebSocket(
                     it.startsWith("RECONNECT") -> {
                         pingTimer?.cancel()
                         pongTimer?.cancel()
-                        webSocket.disconnect()
+                        webSocket.reconnect()
                     }
                     else -> {
                         val ircMessage = ChatUtils.parseIRCMessage(it)

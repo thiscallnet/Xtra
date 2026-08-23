@@ -342,9 +342,9 @@ object SettingsMigration {
         val keys = listOf(C.PROXY_HOST, C.PROXY_PORT, C.PROXY_USER, C.PROXY_PASSWORD)
         proxy.edit {
             keys.forEach { key ->
-                if (!proxy.contains(key)) {
-                    legacy.getString(key, null)?.let { putString(key, it) }
-                }
+                // A restored legacy preferences file is authoritative for the
+                // proxy values it contains; write through the Keystore wrapper.
+                legacy.getString(key, null)?.let { putString(key, it) }
             }
         }
         legacy.edit {

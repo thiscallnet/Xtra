@@ -25,6 +25,7 @@ import android.text.style.StyleSpan
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
+import android.view.WindowManager
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.TextView
@@ -1153,18 +1154,6 @@ class SettingsActivity : AppCompatActivity() {
                     true
                 }
             }
-            findPreference<Preference>("backup_settings")?.setOnPreferenceClickListener {
-                backupResultLauncher?.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE))
-                true
-            }
-            findPreference<Preference>("restore_settings")?.setOnPreferenceClickListener {
-                restoreResultLauncher?.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                })
-                true
-            }
             findPreference<Preference>("reset_settings")?.setOnPreferenceClickListener {
                 requireActivity().getAlertDialogBuilder()
                     .setTitle(R.string.settings_reset_action)
@@ -1507,12 +1496,22 @@ class SettingsActivity : AppCompatActivity() {
 
         override fun onResume() {
             super.onResume()
+            if (settingsScreen == SCREEN_PROXY || settingsScreen == SCREEN_DEVELOPER_API) {
+                requireActivity().window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
             val preference = findPreference<SwitchPreferenceCompat>("live_notifications_enabled")
             if (preference?.isChecked == true && !LiveNotificationScheduler.canPostNotifications(requireContext())) {
                 preference.isChecked = false
                 toggleLiveNotifications(false)
             }
             updateLiveNotificationsSummary()
+        }
+
+        override fun onPause() {
+            if (settingsScreen == SCREEN_PROXY || settingsScreen == SCREEN_DEVELOPER_API) {
+                requireActivity().window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+            super.onPause()
         }
 
         private companion object {

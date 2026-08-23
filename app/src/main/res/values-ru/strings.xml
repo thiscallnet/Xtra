@@ -339,6 +339,8 @@
     <string name="proxy_user">Имя пользователя</string>
     <string name="proxy_password">Пароль</string>
     <string name="proxy_settings">Настройки HTTP-прокси</string>
+    <string name="proxy_allow_direct_fallback">Разрешить прямое подключение при сбое</string>
+    <string name="proxy_allow_direct_fallback_summary">Если прокси недоступен, повторять запросы без него.</string>
     <string name="stop_download">Остановить закачку</string>
     <string name="resume_download">Возобновить закачку</string>
     <string name="show_view_count_icon">Значки просмотров и времени в эфире</string>

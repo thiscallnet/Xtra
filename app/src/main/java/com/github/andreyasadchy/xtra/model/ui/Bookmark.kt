@@ -1,9 +1,10 @@
 package com.github.andreyasadchy.xtra.model.ui
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "bookmarks")
+@Entity(tableName = "bookmarks", indices = [Index("videoId"), Index("userId")])
 class Bookmark(
     val videoId: String? = null,
     val userId: String? = null,

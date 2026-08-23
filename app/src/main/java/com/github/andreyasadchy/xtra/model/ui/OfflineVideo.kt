@@ -3,12 +3,21 @@ package com.github.andreyasadchy.xtra.model.ui
 import android.os.Parcelable
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import kotlinx.parcelize.IgnoredOnParcel
 import kotlinx.parcelize.Parcelize
 
 @Parcelize
-@Entity(tableName = "videos")
+@Entity(
+    tableName = "videos",
+    indices = [
+        Index("url"),
+        Index("status"),
+        Index("videoId"),
+        Index("channel_id"),
+    ],
+)
 class OfflineVideo(
     var url: String? = null,
     @ColumnInfo(name = "source_url")

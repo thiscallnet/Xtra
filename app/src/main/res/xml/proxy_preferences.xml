@@ -5,6 +5,7 @@
     <EditTextPreference android:key="proxy_port" android:dependency="http_proxy_enabled" android:title="@string/proxy_port" app:iconSpaceReserved="false" app:useSimpleSummaryProvider="true" />
     <EditTextPreference android:key="proxy_user" android:dependency="http_proxy_enabled" android:title="@string/proxy_user" app:iconSpaceReserved="false" app:useSimpleSummaryProvider="true" />
     <EditTextPreference android:key="proxy_password" android:dependency="http_proxy_enabled" android:title="@string/proxy_password" android:inputType="textPassword" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="proxy_allow_direct_fallback" android:dependency="http_proxy_enabled" android:summary="@string/proxy_allow_direct_fallback_summary" android:title="@string/proxy_allow_direct_fallback" app:iconSpaceReserved="false" />
     <PreferenceCategory android:title="@string/stream_proxy" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:key="player_stream_proxy" android:summary="@string/settings_stream_proxy_summary" android:title="@string/settings_stream_proxy" app:iconSpaceReserved="false" />
     <EditTextPreference android:key="player_proxy_url" android:dependency="player_stream_proxy" android:title="@string/settings_stream_proxy_url" app:iconSpaceReserved="false" app:useSimpleSummaryProvider="true" />

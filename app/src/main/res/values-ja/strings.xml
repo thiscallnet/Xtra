@@ -339,6 +339,8 @@
     <string name="proxy_user">ユーザー名</string>
     <string name="proxy_password">パスワード</string>
     <string name="proxy_settings">HTTP プロキシ設定</string>
+    <string name="proxy_allow_direct_fallback">直接接続へのフォールバックを許可</string>
+    <string name="proxy_allow_direct_fallback_summary">プロキシを利用できない場合は、プロキシなしでリクエストを再試行します。</string>
     <string name="stop_download">ダウンロードを一時停止</string>
     <string name="resume_download">ダウンロードを再開</string>
     <string name="show_view_count_icon">視聴者数と経過時間にアイコンを表示</string>

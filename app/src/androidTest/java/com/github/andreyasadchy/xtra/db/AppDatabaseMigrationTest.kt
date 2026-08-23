@@ -105,7 +105,7 @@ class AppDatabaseMigrationTest {
 
         val database = openMigratedDatabase(name)
         val sqlite = database.openHelper.readableDatabase
-        assertEquals(46, scalarInt(sqlite, "PRAGMA user_version"))
+        assertEquals(AppDatabase.VERSION, scalarInt(sqlite, "PRAGMA user_version"))
         assertRetainedViewingStats(sqlite)
         database.close()
     }
@@ -117,7 +117,7 @@ class AppDatabaseMigrationTest {
 
         val database = openMigratedDatabase(name)
         val sqlite = database.openHelper.readableDatabase
-        assertEquals(46, scalarInt(sqlite, "PRAGMA user_version"))
+        assertEquals(AppDatabase.VERSION, scalarInt(sqlite, "PRAGMA user_version"))
         assertTrue(tableExists(sqlite, "favorite_emotes"))
         assertEquals("legacy", database.recentEmotes().getAll().single().name)
 
@@ -138,6 +138,43 @@ class AppDatabaseMigrationTest {
                 ViewingStatsMigrations.FROM_44,
                 Migration(45, 46) { db ->
                     db.execSQL("CREATE TABLE IF NOT EXISTS favorite_emotes (provider TEXT NOT NULL, emote_id TEXT NOT NULL, favorited_at INTEGER NOT NULL, PRIMARY KEY (provider, emote_id))")
+                },
+                Migration(46, 47) { db ->
+                    db.execSQL("ALTER TABLE favorite_emotes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+                },
+                Migration(47, 48) { db ->
+                    db.execSQL("""
+                        CREATE TABLE IF NOT EXISTS video_history (
+                            id INTEGER NOT NULL PRIMARY KEY,
+                            position INTEGER NOT NULL,
+                            durationSeconds INTEGER,
+                            channelId TEXT,
+                            channelLogin TEXT,
+                            channelName TEXT,
+                            channelImageURL TEXT,
+                            title TEXT,
+                            thumbnailURL TEXT,
+                            gameId TEXT,
+                            gameSlug TEXT,
+                            gameName TEXT,
+                            createdAt TEXT,
+                            updatedAt INTEGER NOT NULL
+                        )
+                    """.trimIndent())
+                },
+                Migration(48, 49) { db ->
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_videos_url ON videos(url)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_videos_status ON videos(status)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_videos_videoId ON videos(videoId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_videos_channel_id ON videos(channel_id)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_video_history_updatedAt ON video_history(updatedAt)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_video_history_channelId ON video_history(channelId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_recent_search_type_lastSearched ON recent_search(type, lastSearched)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_recent_search_query_type ON recent_search(query, type)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_bookmarks_videoId ON bookmarks(videoId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_bookmarks_userId ON bookmarks(userId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_notification_events_channelId ON notification_events(channelId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_notification_events_queuedAt ON notification_events(queuedAt)")
                 },
             )
             .build()
@@ -168,6 +205,7 @@ class AppDatabaseMigrationTest {
         sqlite.execSQL("DROP TABLE IF EXISTS stream_feed_states")
         sqlite.execSQL("DROP INDEX IF EXISTS index_metadata_cache_lastAccessAt")
         sqlite.execSQL("DROP TABLE IF EXISTS metadata_cache")
+        sqlite.execSQL("DROP TABLE IF EXISTS favorite_emotes")
         if (historicalVersion39) {
             sqlite.execSQL("DROP TABLE IF EXISTS notification_events")
             sqlite.execSQL("CREATE TABLE live_notification_logs (id INTEGER PRIMARY KEY NOT NULL)")
@@ -181,6 +219,7 @@ class AppDatabaseMigrationTest {
         databaseNames += name
         val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
         val sqlite = database.openHelper.writableDatabase
+        sqlite.execSQL("DROP TABLE IF EXISTS favorite_emotes")
         dropViewingStatsTables(sqlite)
         sqlite.execSQL("DROP INDEX IF EXISTS index_stream_feed_items_feedKey_position")
         sqlite.execSQL("DROP INDEX IF EXISTS index_stream_feed_items_feedKey_channelId")
@@ -228,6 +267,7 @@ class AppDatabaseMigrationTest {
         databaseNames += name
         val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
         val sqlite = database.openHelper.writableDatabase
+        sqlite.execSQL("DROP TABLE IF EXISTS favorite_emotes")
         dropViewingStatsTables(sqlite)
         sqlite.execSQL("DROP INDEX IF EXISTS index_stream_feed_items_feedKey_position")
         sqlite.execSQL("DROP INDEX IF EXISTS index_stream_feed_items_feedKey_channelId")
@@ -258,6 +298,7 @@ class AppDatabaseMigrationTest {
         context.deleteDatabase(name)
         databaseNames += name
         val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
+        database.openHelper.writableDatabase.execSQL("DROP TABLE IF EXISTS favorite_emotes")
         dropViewingStatsTables(database.openHelper.writableDatabase)
         database.openHelper.writableDatabase.execSQL("PRAGMA user_version = 44")
         database.close()
@@ -348,7 +389,7 @@ class AppDatabaseMigrationTest {
     }
 
     private fun assertStatisticsSchema(database: SupportSQLiteDatabase) {
-        assertEquals(46, scalarInt(database, "PRAGMA user_version"))
+        assertEquals(AppDatabase.VERSION, scalarInt(database, "PRAGMA user_version"))
         assertTrue(tableExists(database, "viewing_sessions"))
         assertTrue(tableExists(database, "viewing_intervals"))
         assertTrue(indexExists(database, "index_viewing_sessions_started_at"))

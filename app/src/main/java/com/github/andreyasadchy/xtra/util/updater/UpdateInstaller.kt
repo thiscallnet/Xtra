@@ -9,6 +9,7 @@ import android.content.pm.PackageInstaller
 import android.os.Build
 import com.github.andreyasadchy.xtra.util.C
 import java.io.File
+import java.security.MessageDigest
 
 /** Verifies a completed download and hands only a complete Xtra APK to PackageInstaller. */
 interface UpdateInstallPreparer {
@@ -31,7 +32,7 @@ class UpdateInstaller(private val context: Context) : UpdateInstallPreparer {
         var sessionId: Int? = null
         var session: PackageInstaller.Session? = null
         try {
-            copyAndVerify(artifact, temporaryApk)
+            copyAndVerify(release, artifact, temporaryApk)
             val packageManager = context.packageManager
             val installed = context.packageInfo(context.packageName)
             val archive = packageManager.getPackageArchiveInfo(temporaryApk.absolutePath, packageInfoFlags())
@@ -145,7 +146,7 @@ class UpdateInstaller(private val context: Context) : UpdateInstallPreparer {
         }
     }
 
-    private fun copyAndVerify(artifact: DownloadedArtifact, destination: File) {
+    private fun copyAndVerify(release: UpdateRelease, artifact: DownloadedArtifact, destination: File) {
         if (artifact.size <= 0L) throw UpdateException(UpdateError.DownloadedFileMissing)
         val uri = artifact.uri ?: throw UpdateException(UpdateError.DownloadedFileMissing)
         val resolver = context.contentResolver
@@ -154,6 +155,11 @@ class UpdateInstaller(private val context: Context) : UpdateInstallPreparer {
         } ?: throw UpdateException(UpdateError.DownloadedFileMissing)
         if (destination.length() <= 0L || destination.length() != artifact.size) {
             throw UpdateException(UpdateError.DownloadFailed)
+        }
+        release.expectedSha256?.let { expected ->
+            if (!destination.sha256().equals(expected, ignoreCase = true)) {
+                throw UpdateException(UpdateError.DownloadFailed)
+            }
         }
     }
 
@@ -173,4 +179,17 @@ class UpdateInstaller(private val context: Context) : UpdateInstallPreparer {
 
     private fun pendingIntentFlags(): Int = PendingIntent.FLAG_UPDATE_CURRENT or
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+}
+
+internal fun File.sha256(): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    inputStream().use { input ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
 }

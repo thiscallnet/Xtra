@@ -24,6 +24,8 @@ import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.repository.preload.StreamPlaybackConfiguration
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
+import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService.Companion.MEDIA_PLAYLIST_REGEX
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService.Companion.MULTIVARIANT_PLAYLIST_REGEX
 import okhttp3.Credentials
@@ -185,7 +187,7 @@ class StreamHlsMediaSourceFactory(
         val port = proxyPort ?: 0
         val proxyClient = if (proxyMultivariantPlaylist || proxyMediaPlaylist) {
             val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                listOf(android.util.Pair("Proxy-Authorization", Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)))
+                listOf(android.util.Pair("Proxy-Authorization", Credentials.basic(proxyUser, proxyPassword)))
             } else emptyList()
             val builder = HttpEngine.Builder(context)
             try {
@@ -246,7 +248,7 @@ class StreamHlsMediaSourceFactory(
             CronetProvider.getAllProviders(context).any { it.isEnabled }
         ) {
             val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                mapOf("Proxy-Authorization" to Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)).entries.toList()
+                mapOf("Proxy-Authorization" to Credentials.basic(proxyUser, proxyPassword)).entries.toList()
             } else emptyList()
             val builder = CronetEngine.Builder(context).apply {
                 val userAgent = "Cronet/" + androidx.media3.common.util.Util.getUserAgent(context, "Xtra")
@@ -329,10 +331,11 @@ class StreamHlsMediaSourceFactory(
     ): okhttp3.Call.Factory? {
         if (proxyHost.isNullOrBlank() || proxyPort == null) return null
         return xtraModule.okHttpClient.value.newBuilder().apply {
+            val allowDirectFallback = context.prefs().getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true)
             proxySelector(
                 object : ProxySelector() {
                     override fun select(uri: URI): List<Proxy> = if (Regex(hostPattern).matches(uri.host.orEmpty())) {
-                        listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
+                        proxyCandidates(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), allowDirectFallback)
                     } else listOf(Proxy.NO_PROXY)
 
                     override fun connectFailed(uri: java.net.URI, sa: SocketAddress, e: IOException) = Unit

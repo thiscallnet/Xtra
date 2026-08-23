@@ -1,9 +1,13 @@
 package com.github.andreyasadchy.xtra.model.ui
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "recent_search")
+@Entity(
+    tableName = "recent_search",
+    indices = [Index(value = ["type", "lastSearched"]), Index(value = ["query", "type"])],
+)
 class RecentSearch(
     val query: String,
     val type: String,

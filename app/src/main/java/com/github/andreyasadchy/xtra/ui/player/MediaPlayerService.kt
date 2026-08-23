@@ -45,6 +45,7 @@ import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.MediaButtonReceiver
 import com.github.andreyasadchy.xtra.util.NetworkUtils
+import com.github.andreyasadchy.xtra.util.NetworkUtils.readBytesLimited
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.httpProxyHost
@@ -580,7 +581,7 @@ class MediaPlayerService : BasePlaybackService() {
                             networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
                                 val httpEngine = if (useProxy) {
                                     val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                                        listOf(android.util.Pair("Proxy-Authorization", Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)))
+                                        listOf(android.util.Pair("Proxy-Authorization", Credentials.basic(proxyUser, proxyPassword)))
                                     } else emptyList()
                                     val builder = HttpEngine.Builder(application)
                                     try {
@@ -651,7 +652,7 @@ class MediaPlayerService : BasePlaybackService() {
                                 val cronetEngine = if (useProxy) {
                                     if (CronetProvider.getAllProviders(application).any { it.isEnabled }) {
                                         val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                                            mapOf("Proxy-Authorization" to Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)).entries.toList()
+                                            mapOf("Proxy-Authorization" to Credentials.basic(proxyUser, proxyPassword)).entries.toList()
                                         } else emptyList()
                                         val builder = CronetEngine.Builder(application).apply {
                                             val userAgent = "Cronet/" + defaultUserAgent.substringAfter("Cronet/", "").substringBefore(')')
@@ -1561,7 +1562,7 @@ class MediaPlayerService : BasePlaybackService() {
                                 else -> {
                                     xtraModule.okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
                                         if (response.isSuccessful) {
-                                            response.body.bytes()
+                                            response.body.readBytesLimited()
                                         } else null
                                     }
                                 }
@@ -1661,7 +1662,7 @@ class MediaPlayerService : BasePlaybackService() {
                                 else -> {
                                     xtraModule.okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
                                         if (response.isSuccessful) {
-                                            response.body.bytes()
+                                            response.body.readBytesLimited()
                                         } else null
                                     }
                                 }

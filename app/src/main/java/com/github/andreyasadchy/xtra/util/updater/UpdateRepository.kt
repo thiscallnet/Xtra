@@ -1032,6 +1032,8 @@ class UpdateRepository(
             .putLong(C.UPDATE_AVAILABLE_SIZE, asset.size ?: -1L)
         release.expectedVersionCode?.let { editor.putLong(C.UPDATE_AVAILABLE_EXPECTED_VERSION_CODE, it) }
             ?: editor.remove(C.UPDATE_AVAILABLE_EXPECTED_VERSION_CODE)
+        release.expectedSha256?.let { editor.putString(C.UPDATE_AVAILABLE_EXPECTED_SHA256, it) }
+            ?: editor.remove(C.UPDATE_AVAILABLE_EXPECTED_SHA256)
         release.publishedAt?.let { editor.putString(C.UPDATE_AVAILABLE_PUBLISHED_AT, it) }
             ?: editor.remove(C.UPDATE_AVAILABLE_PUBLISHED_AT)
         if (oldId != release.id) {
@@ -1065,13 +1067,14 @@ class UpdateRepository(
             put("body", preferences.getString(C.UPDATE_AVAILABLE_BODY, "") ?: "")
             put("html_url", preferences.getString(C.UPDATE_AVAILABLE_URL, C.DEFAULT_UPDATE_URL) ?: C.DEFAULT_UPDATE_URL)
             preferences.getString(C.UPDATE_AVAILABLE_PUBLISHED_AT, null)?.let { put("published_at", it) }
-            preferences.getLong(C.UPDATE_AVAILABLE_EXPECTED_VERSION_CODE, -1L)
-                .takeIf { it > 0L }
-                ?.let { expectedVersionCode ->
+            val expectedVersionCode = preferences.getLong(C.UPDATE_AVAILABLE_EXPECTED_VERSION_CODE, -1L).takeIf { it > 0L }
+            val expectedSha256 = preferences.getString(C.UPDATE_AVAILABLE_EXPECTED_SHA256, null)
+            if (expectedVersionCode != null) {
                     put(RELEASE_METADATA_RESPONSE_KEY, buildJsonObject {
                         put("versionCode", expectedVersionCode)
+                        expectedSha256?.let { put("sha256", it) }
                     })
-                }
+            }
             put("draft", false)
             put("prerelease", false)
             put("assets", kotlinx.serialization.json.buildJsonArray {
@@ -1276,6 +1279,7 @@ class UpdateRepository(
             .remove(C.UPDATE_AVAILABLE_ASSET_NAME)
             .remove(C.UPDATE_AVAILABLE_SIZE)
             .remove(C.UPDATE_AVAILABLE_EXPECTED_VERSION_CODE)
+            .remove(C.UPDATE_AVAILABLE_EXPECTED_SHA256)
             .remove(C.UPDATE_DOWNLOADED_VERSION)
             .commit()
         clearInstallReference()

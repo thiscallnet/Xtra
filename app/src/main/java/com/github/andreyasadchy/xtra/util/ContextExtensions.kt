@@ -16,14 +16,36 @@ import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.DynamicColorsOptions
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.util.Locale
+import java.util.WeakHashMap
 
-fun Context.rawPrefs(): SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
+private val preferencesCache = WeakHashMap<Context, PreferenceSet>()
 
-fun Context.prefs(): SharedPreferences = DeveloperGatedPreferences(ProxyAwarePreferences(rawPrefs(), proxyPrefs()))
+private data class PreferenceSet(
+    val raw: SharedPreferences,
+    val token: SharedPreferences,
+    val proxy: SharedPreferences,
+    val combined: SharedPreferences,
+)
 
-fun Context.tokenPrefs(): SharedPreferences = getSharedPreferences("prefs2", Context.MODE_PRIVATE)
+private fun Context.preferenceSet(): PreferenceSet {
+    val context = applicationContext ?: this
+    return synchronized(preferencesCache) {
+        preferencesCache.getOrPut(context) {
+            val raw = PreferenceManager.getDefaultSharedPreferences(context)
+            val token = KeystorePreferences(context.getSharedPreferences("prefs2", Context.MODE_PRIVATE), "xtra-token-prefs")
+            val proxy = KeystorePreferences(context.getSharedPreferences("proxy_credentials", Context.MODE_PRIVATE), "xtra-proxy-prefs")
+            PreferenceSet(raw, token, proxy, DeveloperGatedPreferences(ProxyAwarePreferences(raw, proxy)))
+        }
+    }
+}
 
-fun Context.proxyPrefs(): SharedPreferences = getSharedPreferences("proxy_credentials", Context.MODE_PRIVATE)
+fun Context.rawPrefs(): SharedPreferences = preferenceSet().raw
+
+fun Context.prefs(): SharedPreferences = preferenceSet().combined
+
+fun Context.tokenPrefs(): SharedPreferences = preferenceSet().token
+
+fun Context.proxyPrefs(): SharedPreferences = preferenceSet().proxy
 
 private class ProxyAwarePreferences(
     private val delegate: SharedPreferences,
