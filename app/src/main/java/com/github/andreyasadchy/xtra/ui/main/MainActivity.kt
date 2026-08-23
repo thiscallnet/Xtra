@@ -1334,7 +1334,7 @@ class MainActivity : AppCompatActivity() {
                     if (enabled) {
                         when (key) {
                             "0" -> menu.add(Menu.NONE, R.id.rootGamesFragment, Menu.NONE, R.string.browse).setIcon(R.drawable.ic_games_black_24dp)
-                            "1" -> menu.add(Menu.NONE, R.id.rootTopFragment, Menu.NONE, R.string.home).setIcon(R.drawable.baseline_home_black_24)
+                            "1" -> menu.add(Menu.NONE, R.id.rootTopFragment, Menu.NONE, R.string.following_overview).setIcon(R.drawable.baseline_home_black_24)
                             "2" -> {
                                 menu.add(Menu.NONE, R.id.followPagerFragment, Menu.NONE, R.string.following).setIcon(R.drawable.ic_favorite_black_24dp)
                             }

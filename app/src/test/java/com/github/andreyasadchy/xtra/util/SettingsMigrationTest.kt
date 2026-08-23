@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.util
 
 import android.content.SharedPreferences
+import com.github.andreyasadchy.xtra.ui.following.FollowingTabs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -83,6 +84,77 @@ class SettingsMigrationTest {
         SettingsMigration.migratePreferences(preferences)
 
         assertFalse(preferences.getBoolean(C.UPDATE_CHECK_ENABLED, true))
+    }
+
+    @Test
+    fun `schema 25 preferences migrate following tabs moved out of following`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to 25,
+                C.UI_FOLLOWING_TABS to "4:1:1,1:0:1,2:0:1,0:0:1,3:1:1",
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        assertEquals(C.SETTINGS_SCHEMA_VERSION, preferences.getInt(C.SETTINGS_VERSION, 0))
+        assertEquals("1:0:1,2:0:1,0:0:1", preferences.getString(C.UI_FOLLOWING_TABS, null))
+    }
+
+    @Test
+    fun `schema 25 migration keeps moved following content reachable`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to 25,
+                C.UI_FOLLOWING_TABS to "4:1:1,1:0:1,2:0:1,0:0:1,3:1:1",
+                C.UI_NAVIGATION_TAB_LIST to "0:0:0,1:1:0,2:1:1,3:0:1",
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        val navigation = preferences.getString(C.UI_NAVIGATION_TAB_LIST, null).orEmpty()
+        fun navigationEnabled(key: String): Boolean = navigation
+            .split(',')
+            .first { it.substringBefore(':') == key }
+            .split(':')[2] != "0"
+
+        assertTrue(navigationEnabled("0"))
+        assertTrue(navigationEnabled("1"))
+        assertTrue(navigationEnabled("2"))
+
+        val followingTabs = preferences.getString(C.UI_FOLLOWING_TABS, null)
+        assertTrue(FollowingTabs.visibleKeys(followingTabs, showVideos = false).contains("1"))
+    }
+
+    @Test
+    fun `schema 25 migration supplies live when the default navigation keeps following enabled`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to 25,
+                C.UI_FOLLOWING_TABS to "4:0:0,1:0:0,2:0:0,0:0:0,3:0:0",
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        val followingTabs = preferences.getString(C.UI_FOLLOWING_TABS, null)
+        assertTrue(FollowingTabs.visibleKeys(followingTabs, showVideos = false).contains("1"))
+    }
+
+    @Test
+    fun `schema 25 migration uses the old following default when the preference is absent`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to 25,
+                C.UI_NAVIGATION_TAB_LIST to "0:0:1,1:0:0,2:0:1,3:0:1",
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        val navigation = preferences.getString(C.UI_NAVIGATION_TAB_LIST, null).orEmpty()
+        assertTrue(navigation.split(',').first { it.substringBefore(':') == "1" }.split(':')[2] != "0")
     }
 
     @Test

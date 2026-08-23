@@ -24,6 +24,12 @@ object FollowingOverviewSections {
         Definition(UPCOMING, R.string.following_upcoming_streams, R.string.following_no_upcoming_streams),
     )
 
+    fun followingTabKey(sectionKey: String): String? = when (sectionKey) {
+        LIVE -> "1"
+        CONTINUE -> "2"
+        else -> null
+    }
+
     private val knownKeys = definitions.mapTo(hashSetOf()) { it.key }
 
     fun resolve(stored: String?): List<String> {
