@@ -1397,4 +1397,17 @@
     <string name="statistics_weekday_friday">Пятница</string>
     <string name="statistics_weekday_saturday">Суббота</string>
     <string name="statistics_weekday_sunday">Воскресенье</string>
+    <string name="update_notification_text">Нажмите, чтобы просмотреть и скачать обновление.</string>
+    <string name="automatic_update_checks">Автоматически проверять обновления</string>
+    <string name="automatic_update_checks_summary">Проверяет обновления при открытии приложения и периодически в фоновом режиме.</string>
+    <string name="update_notifications_enable">Включить уведомления об обновлениях</string>
+    <string name="update_notifications_prompt">Включите уведомления об обновлениях, чтобы узнавать о них в фоновом режиме.</string>
+    <string name="update_notifications_open_settings">Открыть настройки уведомлений</string>
+    <string name="update_check_frequency_title">Частота проверки</string>
+    <string name="update_check_frequency_description">Проверяет не чаще чем раз в %s.</string>
+    <string name="update_frequency_6_hours">Каждые 6 часов</string>
+    <string name="update_frequency_12_hours">Каждые 12 часов</string>
+    <string name="update_frequency_daily">Раз в день</string>
+    <string name="update_frequency_3_days">Каждые 3 дня</string>
+    <string name="update_frequency_weekly">Раз в неделю</string>
 </resources>

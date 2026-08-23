@@ -1398,4 +1398,17 @@
     <string name="statistics_weekday_friday">Jumat</string>
     <string name="statistics_weekday_saturday">Sabtu</string>
     <string name="statistics_weekday_sunday">Minggu</string>
+    <string name="update_notification_text">Ketuk untuk meninjau dan mengunduhnya.</string>
+    <string name="automatic_update_checks">Periksa pembaruan secara otomatis</string>
+    <string name="automatic_update_checks_summary">Memeriksa saat aplikasi dibuka dan secara berkala di latar belakang.</string>
+    <string name="update_notifications_enable">Aktifkan notifikasi pembaruan</string>
+    <string name="update_notifications_prompt">Aktifkan notifikasi pembaruan untuk mengetahui pembaruan di latar belakang.</string>
+    <string name="update_notifications_open_settings">Buka setelan notifikasi</string>
+    <string name="update_check_frequency_title">Frekuensi pemeriksaan</string>
+    <string name="update_check_frequency_description">Memeriksa paling banyak setiap %s.</string>
+    <string name="update_frequency_6_hours">Setiap 6 jam</string>
+    <string name="update_frequency_12_hours">Setiap 12 jam</string>
+    <string name="update_frequency_daily">Sekali sehari</string>
+    <string name="update_frequency_3_days">Setiap 3 hari</string>
+    <string name="update_frequency_weekly">Sekali seminggu</string>
 </resources>

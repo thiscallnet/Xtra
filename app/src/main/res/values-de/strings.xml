@@ -1397,4 +1397,17 @@
     <string name="statistics_weekday_friday">Freitag</string>
     <string name="statistics_weekday_saturday">Samstag</string>
     <string name="statistics_weekday_sunday">Sonntag</string>
+    <string name="update_notification_text">Tippen, um sie zu prüfen und herunterzuladen.</string>
+    <string name="automatic_update_checks">Automatisch nach Updates suchen</string>
+    <string name="automatic_update_checks_summary">Prüft beim Öffnen der App und regelmäßig im Hintergrund.</string>
+    <string name="update_notifications_enable">Update-Benachrichtigungen aktivieren</string>
+    <string name="update_notifications_prompt">Aktiviere Update-Benachrichtigungen, um im Hintergrund über Updates informiert zu werden.</string>
+    <string name="update_notifications_open_settings">Benachrichtigungseinstellungen öffnen</string>
+    <string name="update_check_frequency_title">Prüfhäufigkeit</string>
+    <string name="update_check_frequency_description">Prüft höchstens %s.</string>
+    <string name="update_frequency_6_hours">Alle 6 Stunden</string>
+    <string name="update_frequency_12_hours">Alle 12 Stunden</string>
+    <string name="update_frequency_daily">Einmal täglich</string>
+    <string name="update_frequency_3_days">Alle 3 Tage</string>
+    <string name="update_frequency_weekly">Einmal wöchentlich</string>
 </resources>

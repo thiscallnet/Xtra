@@ -1397,4 +1397,17 @@
     <string name="statistics_weekday_friday">金曜日</string>
     <string name="statistics_weekday_saturday">土曜日</string>
     <string name="statistics_weekday_sunday">日曜日</string>
+    <string name="update_notification_text">タップして確認し、ダウンロードします。</string>
+    <string name="automatic_update_checks">アップデートを自動的に確認</string>
+    <string name="automatic_update_checks_summary">アプリの起動時とバックグラウンドで定期的に確認します。</string>
+    <string name="update_notifications_enable">アップデート通知を有効にする</string>
+    <string name="update_notifications_prompt">アプリがバックグラウンドにあるときも更新を知らせる通知を有効にします。</string>
+    <string name="update_notifications_open_settings">通知設定を開く</string>
+    <string name="update_check_frequency_title">確認頻度</string>
+    <string name="update_check_frequency_description">最大で%sごとに確認します。</string>
+    <string name="update_frequency_6_hours">6時間ごと</string>
+    <string name="update_frequency_12_hours">12時間ごと</string>
+    <string name="update_frequency_daily">1日1回</string>
+    <string name="update_frequency_3_days">3日ごと</string>
+    <string name="update_frequency_weekly">週1回</string>
 </resources>

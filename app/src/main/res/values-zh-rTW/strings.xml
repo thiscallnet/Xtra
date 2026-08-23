@@ -1397,4 +1397,17 @@
     <string name="statistics_weekday_friday">星期五</string>
     <string name="statistics_weekday_saturday">星期六</string>
     <string name="statistics_weekday_sunday">星期日</string>
+    <string name="update_notification_text">點按即可查看並下載。</string>
+    <string name="automatic_update_checks">自動檢查更新</string>
+    <string name="automatic_update_checks_summary">開啟應用程式時以及在背景定期檢查。</string>
+    <string name="update_notifications_enable">啟用更新通知</string>
+    <string name="update_notifications_prompt">啟用更新通知，以便在背景中得知更新。</string>
+    <string name="update_notifications_open_settings">開啟通知設定</string>
+    <string name="update_check_frequency_title">檢查頻率</string>
+    <string name="update_check_frequency_description">最多每%s檢查一次。</string>
+    <string name="update_frequency_6_hours">每6小時</string>
+    <string name="update_frequency_12_hours">每12小時</string>
+    <string name="update_frequency_daily">每天一次</string>
+    <string name="update_frequency_3_days">每3天</string>
+    <string name="update_frequency_weekly">每週一次</string>
 </resources>

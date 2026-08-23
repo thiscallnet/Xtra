@@ -1038,6 +1038,7 @@
     <string name="update_install_notification_title">Xtra update is ready to install</string>
     <string name="update_available">Update available</string>
     <string name="update_available_version">Update %s available</string>
+    <string name="update_notification_text">Tap to review and download it.</string>
     <string name="update_message">Download this update?</string>
     <string name="update_no_release_notes">No release notes were provided.</string>
     <string name="recent_updates">Recent updates</string>
@@ -1054,6 +1055,18 @@
     <string name="auto_check_updates_summary">Checks each time the app opens, subject to the minimum interval below.</string>
     <string name="update_check_frequency">Minimum update check interval (days)</string>
     <string name="update_check_frequency_summary">At most once every %s day(s)</string>
+    <string name="automatic_update_checks">Check for updates automatically</string>
+    <string name="automatic_update_checks_summary">Checks when the app opens and periodically in the background.</string>
+    <string name="update_notifications_enable">Enable update notifications</string>
+    <string name="update_notifications_prompt">Enable update notifications to hear about updates in the background.</string>
+    <string name="update_notifications_open_settings">Open notification settings</string>
+    <string name="update_check_frequency_title">Check frequency</string>
+    <string name="update_check_frequency_description">Checks at most %s.</string>
+    <string name="update_frequency_6_hours">Every 6 hours</string>
+    <string name="update_frequency_12_hours">Every 12 hours</string>
+    <string name="update_frequency_daily">Once a day</string>
+    <string name="update_frequency_3_days">Every 3 days</string>
+    <string name="update_frequency_weekly">Once a week</string>
     <string name="app_information">App information</string>
     <string name="app_version">Installed version</string>
     <string name="app_version_summary">%1$s (version code %2$d)</string>

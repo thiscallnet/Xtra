@@ -4,14 +4,18 @@ import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import androidx.core.content.edit
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -21,6 +25,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -34,12 +39,23 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.coroutineContext
+
+internal fun isUpdateNotificationSuppressed(
+    preferences: SharedPreferences,
+    releaseId: String,
+    now: Long,
+): Boolean {
+    return preferences.getString(C.UPDATE_NOTIFIED_VERSION, null) == releaseId &&
+        preferences.getLong(C.UPDATE_NOTIFICATION_SUPPRESSED_UNTIL, 0L) > now
+}
 
 /** Owns the single persisted update state shared by automatic and manual checks. */
 @Suppress("ApplySharedPref", "UseKtx")
@@ -68,17 +84,15 @@ class UpdateRepository(
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
     private val _releaseHistory = MutableStateFlow<List<UpdateRelease>>(emptyList())
     private val _releaseHistoryComplete = MutableStateFlow(false)
-    /**
-     * A one-shot automatic prompt. Checks while MainActivity is not STARTED may lose this event
-     * intentionally; the persisted Available state and Settings indicator remain authoritative,
-     * and returning to the app must not replay a modal caused by a background check.
-     */
+    /** A one-shot event backed by a persisted prompt marker for lifecycle gaps. */
     private val _automaticPromptEvents = MutableSharedFlow<UpdateRelease>(
         extraBufferCapacity = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     private val resetGeneration = AtomicLong(0L)
     private var checkJob: Job? = null
+    @Volatile
+    private var activeCheckJob: Job? = null
     private val checkLock = Mutex()
     private var downloadMonitorJob: Job? = null
     private var monitoredDownloadId: Long? = null
@@ -124,8 +138,21 @@ class UpdateRepository(
         lastCheckNetworkLibrary = networkLibrary
         lastCheckUrl = url
         checkJob = scope.launch {
-            checkLock.withLock {
-                try {
+            checkInternal(networkLibrary, url, automatic, generation)
+        }
+    }
+
+    private suspend fun checkInternal(
+        networkLibrary: String?,
+        url: String,
+        automatic: Boolean,
+        generation: Long,
+    ) {
+        checkLock.withLock {
+            val executingJob = coroutineContext[Job]
+            activeCheckJob = executingJob
+            var activeCheck: CheckStart? = null
+            try {
                     ready.await()
                     ensureCurrentCheck(generation)
                     val checkStart = installLock.withLock {
@@ -139,7 +166,8 @@ class UpdateRepository(
                                 _state.value = UpdateState.Checking
                             }
                         }
-                    } ?: return@launch
+                    } ?: return@withLock
+                    activeCheck = checkStart
                     val previousState = checkStart.previousState
                     val preservedAction = previousState.preservedAction()
                     markAttempted()
@@ -199,7 +227,13 @@ class UpdateRepository(
                                         finalState.release.id == release.id
                                     ) {
                                         ensureCurrentCheck(generation)
+                                        preferences.edit()
+                                            .putString(C.UPDATE_AUTOMATIC_PROMPT_VERSION, release.id)
+                                            .commit()
                                         _automaticPromptEvents.tryEmit(release)
+                                        if (!foregroundChecker()) {
+                                            postUpdateAvailableNotification(release)
+                                        }
                                     }
                                 }
                             }
@@ -231,7 +265,7 @@ class UpdateRepository(
                             publishCheckResult(generation, checkStart.installSessionId) {
                                 _state.value = previousState
                             }
-                            return@launch
+                            return@withLock
                         }
                         val errorStage = (error as? UpdateException)?.stage ?: stage
                         val cause = UpdateErrorMapper.fromThrowable(error)
@@ -247,11 +281,26 @@ class UpdateRepository(
                         }
                     }
                 } catch (cancellation: CancellationException) {
+                    val check = activeCheck
+                    if (check != null && generation == resetGeneration.get()) {
+                        withContext(NonCancellable) {
+                            installLock.withLock {
+                                if (_state.value is UpdateState.Checking &&
+                                    activeInstallSessionId == check.installSessionId
+                                ) {
+                                    _state.value = check.previousState
+                                }
+                            }
+                        }
+                    }
                     throw cancellation
+                } finally {
+                    if (activeCheckJob === executingJob) {
+                        activeCheckJob = null
+                    }
                 }
             }
         }
-    }
 
     private suspend fun publishCheckResult(
         generation: Long,
@@ -267,10 +316,54 @@ class UpdateRepository(
     }
 
     fun checkIfDue(networkLibrary: String?, url: String = C.DEFAULT_UPDATE_URL) {
-        if (!settingsPreferences.getBoolean(C.UPDATE_CHECK_ENABLED, true)) return
-        val lastChecked = preferences.getLong(C.UPDATE_LAST_CHECKED, 0L)
-        if (lastChecked > 0L && System.currentTimeMillis() - lastChecked < DAY_MILLIS) return
+        if (!automaticCheckIsDue()) return
         check(networkLibrary, url, automatic = true)
+    }
+
+    suspend fun checkIfDueAndWait(
+        networkLibrary: String?,
+        url: String = C.DEFAULT_UPDATE_URL,
+        force: Boolean = false,
+    ) {
+        if (!force && !automaticCheckIsDue()) return
+        if (checkJob?.isActive == true || _state.value is UpdateState.Checking ||
+            _state.value.isLongRunningUpdateOperation()
+        ) return
+        lastCheckNetworkLibrary = networkLibrary
+        lastCheckUrl = url
+        checkInternal(networkLibrary, url, automatic = true, generation = resetGeneration.get())
+    }
+
+    suspend fun awaitReady() {
+        ready.await()
+    }
+
+    fun dismissUpdateNotification() {
+        runCatching {
+            NotificationManagerCompat.from(context).cancel(UPDATE_NOTIFICATION_ID)
+        }
+    }
+
+    fun hasPendingAutomaticPrompt(release: UpdateRelease): Boolean {
+        return preferences.getString(C.UPDATE_AUTOMATIC_PROMPT_VERSION, null) == release.id
+    }
+
+    fun consumeAutomaticPrompt(release: UpdateRelease) {
+        if (hasPendingAutomaticPrompt(release)) {
+            preferences.edit { remove(C.UPDATE_AUTOMATIC_PROMPT_VERSION) }
+        }
+    }
+
+    private fun automaticCheckIsDue(): Boolean {
+        if (!settingsPreferences.getBoolean(C.UPDATE_CHECK_ENABLED, true)) return false
+        val now = System.currentTimeMillis()
+        val lastSuccessful = preferences.getLong(C.UPDATE_LAST_CHECKED, 0L)
+        val lastAttempted = preferences.getLong(C.UPDATE_LAST_ATTEMPTED, 0L)
+        val lastCheck = maxOf(lastSuccessful, lastAttempted)
+        val interval = UpdateCheckFrequency.fromPreference(
+            settingsPreferences.getString(C.UPDATE_CHECK_FREQUENCY, null),
+        ).intervalMillis
+        return lastCheck <= 0L || now - lastCheck >= interval
     }
 
     fun skip(release: UpdateRelease) {
@@ -278,7 +371,13 @@ class UpdateRepository(
             ready.await()
             downloadLock.withLock {
                 val authoritative = authoritativeDownloadRelease(release) ?: return@withLock
-                preferences.edit { putString(C.UPDATE_IGNORED_VERSION, authoritative.id) }
+                preferences.edit {
+                    putString(C.UPDATE_IGNORED_VERSION, authoritative.id)
+                    remove(C.UPDATE_AUTOMATIC_PROMPT_VERSION)
+                    remove(C.UPDATE_NOTIFIED_VERSION)
+                    remove(C.UPDATE_NOTIFICATION_SUPPRESSED_UNTIL)
+                }
+                dismissUpdateNotification()
                 _state.value = UpdateState.Skipped(authoritative)
             }
         }
@@ -292,7 +391,11 @@ class UpdateRepository(
                 preferences.edit {
                     putString(C.UPDATE_NOT_NOW_VERSION, authoritative.id)
                     putLong(C.UPDATE_NOT_NOW_UNTIL, System.currentTimeMillis() + NOT_NOW_MILLIS)
+                    remove(C.UPDATE_AUTOMATIC_PROMPT_VERSION)
+                    remove(C.UPDATE_NOTIFIED_VERSION)
+                    remove(C.UPDATE_NOTIFICATION_SUPPRESSED_UNTIL)
                 }
+                dismissUpdateNotification()
                 _state.value = UpdateState.Deferred(authoritative)
             }
         }
@@ -330,6 +433,7 @@ class UpdateRepository(
         scope.launch {
             ready.await()
             checkJob?.cancelAndJoin()
+            activeCheckJob?.cancelAndJoin()
             // Hold checkLock while clearing state so a check cannot start between cancellation
             // and the reset mutation. Lock order is check -> install -> download.
             checkLock.withLock {
@@ -362,6 +466,7 @@ class UpdateRepository(
             ready.await()
             downloadLock.withLock {
                 val authoritative = authoritativeDownloadRelease(release) ?: return@withLock
+                consumeAutomaticPrompt(authoritative)
                 downloadLocked(authoritative)
             }
         }
@@ -372,6 +477,7 @@ class UpdateRepository(
             ready.await()
             downloadLock.withLock {
                 val authoritative = authoritativeDownloadRelease() ?: return@withLock
+                consumeAutomaticPrompt(authoritative)
                 downloadLocked(authoritative)
             }
         }
@@ -1232,6 +1338,58 @@ class UpdateRepository(
         }
     }
 
+    private fun postUpdateAvailableNotification(release: UpdateRelease) {
+        runCatching {
+            if (isUpdateNotificationSuppressed(preferences, release.id, System.currentTimeMillis())) return@runCatching
+            val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return@runCatching
+            val notifications = NotificationManagerCompat.from(context)
+            if (!notifications.areNotificationsEnabled()) return@runCatching
+            val channelId = context.getString(R.string.notification_updates_channel_id)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = notificationManager.getNotificationChannel(channelId)
+                if (channel?.importance == NotificationManager.IMPORTANCE_NONE) return@runCatching
+                if (channel == null) {
+                    notificationManager.createNotificationChannel(
+                        NotificationChannel(
+                            channelId,
+                            context.getString(R.string.notification_updates_channel_title),
+                            NotificationManager.IMPORTANCE_DEFAULT,
+                        )
+                    )
+                }
+            }
+            val contentIntent = PendingIntent.getActivity(
+                context,
+                C.UPDATE_NOTIFICATION_REQUEST_CODE,
+                Intent()
+                    .setComponent(ComponentName(context, MainActivity::class.java))
+                    .setPackage(context.packageName)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            notifications.notify(
+                UPDATE_NOTIFICATION_ID,
+                NotificationCompat.Builder(context, channelId)
+                    .setSmallIcon(R.drawable.notification_icon)
+                    .setContentTitle(context.getString(R.string.update_available_title, release.displayVersion))
+                    .setContentText(context.getString(R.string.update_notification_text))
+                    .setContentIntent(contentIntent)
+                    .setAutoCancel(true)
+                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                    .build(),
+            )
+            preferences.edit {
+                putString(C.UPDATE_NOTIFIED_VERSION, release.id)
+                putLong(
+                    C.UPDATE_NOTIFICATION_SUPPRESSED_UNTIL,
+                    System.currentTimeMillis() + NOT_NOW_MILLIS,
+                )
+            }
+        }.onFailure { error ->
+            runCatching { android.util.Log.w(TAG, "Could not post update notification", error) }
+        }
+    }
+
     private fun postInstallNotification(release: UpdateRelease) {
         val intent = pendingInstallIntent ?: return
         val notificationManager = context.getSystemService(NotificationManager::class.java)
@@ -1267,6 +1425,7 @@ class UpdateRepository(
     }
 
     private fun clearReleaseAndDownload() {
+        dismissUpdateNotification()
         removeDownload(activeDownloadId)
         clearDownloadReference()
         preferences.edit()
@@ -1280,6 +1439,9 @@ class UpdateRepository(
             .remove(C.UPDATE_AVAILABLE_SIZE)
             .remove(C.UPDATE_AVAILABLE_EXPECTED_VERSION_CODE)
             .remove(C.UPDATE_AVAILABLE_EXPECTED_SHA256)
+            .remove(C.UPDATE_NOTIFIED_VERSION)
+            .remove(C.UPDATE_NOTIFICATION_SUPPRESSED_UNTIL)
+            .remove(C.UPDATE_AUTOMATIC_PROMPT_VERSION)
             .remove(C.UPDATE_DOWNLOADED_VERSION)
             .commit()
         clearInstallReference()
@@ -1321,6 +1483,7 @@ class UpdateRepository(
 
     companion object {
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+        private const val UPDATE_NOTIFICATION_ID = 4201
         private const val INSTALL_NOTIFICATION_ID = 4202
         private const val TAG = "UpdateRepository"
         private const val DAY_MILLIS = 86_400_000L
