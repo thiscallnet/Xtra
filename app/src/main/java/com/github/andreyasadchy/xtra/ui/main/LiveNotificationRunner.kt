@@ -22,6 +22,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -31,6 +32,23 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
+
+internal suspend fun awaitLiveNotificationRetry(
+    retryDelayMs: Long,
+    interruptible: Boolean,
+    wakeSignal: ReceiveChannel<Unit>,
+) {
+    if (interruptible) {
+        withTimeoutOrNull(retryDelayMs) {
+            wakeSignal.receiveCatching()
+        }
+    } else {
+        delay(retryDelayMs)
+    }
+}
+
+internal fun isLiveNotificationRetryInterruptible(error: TwitchApiException): Boolean =
+    error.statusCode != 429 && error.rateLimitResetEpochSeconds == null
 
 /**
  * Shared Twitch monitoring runner used by Fast mode and Persistent real-time.
@@ -131,6 +149,7 @@ class LiveNotificationRunner(
                     putLong(C.LIVE_NOTIFICATION_LAST_RUN, System.currentTimeMillis())
                 }
                 var retryDelayMs: Long? = null
+                var retryDelayInterruptible = false
                 val result = try {
                     monitor.poll(onHelixRateLimit = ::onHelixRateLimit)
                 } catch (e: CancellationException) {
@@ -138,6 +157,7 @@ class LiveNotificationRunner(
                 } catch (e: TwitchApiException) {
                     Log.w(TAG, "Fast live notification poll failed: ${e.message}", e)
                     retryDelayMs = rateLimitDelay(e)
+                    retryDelayInterruptible = isLiveNotificationRetryInterruptible(e)
                     recordFailure(e)
                     null
                 } catch (e: Exception) {
@@ -147,8 +167,7 @@ class LiveNotificationRunner(
                 }
                 result?.let { recordSuccess(it.delivered, it.api) }
                 if (retryDelayMs != null) {
-                    // Keep rate-limit waits interruptible so EventSub can trigger reconciliation.
-                    waitForNextPoll(retryDelayMs)
+                    awaitLiveNotificationRetry(retryDelayMs, retryDelayInterruptible, wakeSignal)
                 } else {
                     waitForNextPoll()
                 }

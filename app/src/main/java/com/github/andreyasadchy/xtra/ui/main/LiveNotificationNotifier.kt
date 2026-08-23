@@ -141,15 +141,16 @@ class LiveNotificationNotifier(private val context: Context) {
         addExtras(Bundle().apply {
             putString(NOTIFICATION_EVENT_ID_EXTRA, event.eventId)
         })
+        val notificationIntent = Intent()
+        notificationIntent.setClassName(context, MainActivity::class.java.name)
+        notificationIntent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+        notificationIntent.action = MainActivity.INTENT_LIVE_NOTIFICATION
+        notificationIntent.putExtra(MainActivity.KEY_VIDEO, event.toStream())
         setContentIntent(
             PendingIntent.getActivity(
                 context,
                 notificationId(event),
-                Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    action = MainActivity.INTENT_LIVE_NOTIFICATION
-                    putExtra(MainActivity.KEY_VIDEO, event.toStream())
-                },
+                notificationIntent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
         )
@@ -164,7 +165,7 @@ class LiveNotificationNotifier(private val context: Context) {
                     runCatching {
                         synchronized(notificationLock) {
                             val activeNotification = notificationManager.activeNotifications
-                                .firstOrNull { it.notification.channelId == liveChannelId && it.tag == null && it.id == notificationId(event) }
+                                .firstOrNull { it.tag == null && it.id == notificationId(event) }
                                 ?: return@synchronized
                             val activeEventId = activeNotification.notification.extras
                                 .getString(NOTIFICATION_EVENT_ID_EXTRA)
