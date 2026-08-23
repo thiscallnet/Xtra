@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="discover">استكشاف</string>
+    <string name="discover_big_events">الأحداث الكبيرة الآن</string>
+    <string name="discover_live_channels">قنوات مباشرة قد تعجبك</string>
+    <string name="discover_trending">الرائج على Twitch</string>
+    <string name="discover_trending_category">الرائج على Twitch: %1$s</string>
+    <string name="discover_categories">الفئات الشائعة</string>
+    <string name="discover_no_live_channels">لا يوجد بث مباشر هنا الآن.</string>
+    <string name="discover_no_categories">تعذر تحميل الفئات من Twitch الآن.</string>
+    <string name="discover_no_content">تعذر تحميل أي محتوى للاستكشاف الآن. حاول مرة أخرى لاحقًا.</string>
     <string name="games">الألعاب</string>
     <string name="popular">الأكثر شعبية</string>
     <string name="following">المُتابَعين</string>

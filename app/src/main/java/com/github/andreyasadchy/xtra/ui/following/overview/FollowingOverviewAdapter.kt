@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ItemFollowingSectionBinding
 import com.github.andreyasadchy.xtra.model.VideoHistory
+import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
 
@@ -16,10 +17,13 @@ data class FollowingOverviewSection(
     val key: String,
     val titleRes: Int,
     val emptyRes: Int,
+    val title: CharSequence? = null,
     val streams: List<Stream> = emptyList(),
+    val games: List<Game> = emptyList(),
     val videos: List<VideoHistory> = emptyList(),
     val scheduledStreams: List<UpcomingStream> = emptyList(),
     val isLoading: Boolean = false,
+    val loadingType: FollowingOverviewLoadingType = FollowingOverviewLoadingType.STREAM,
     val showSeeAll: Boolean = true,
 )
 
@@ -28,6 +32,7 @@ class FollowingOverviewAdapter(
     private val onVideoClick: (VideoHistory) -> Unit,
     private val onUpcomingClick: (UpcomingStream) -> Unit,
     private val onSeeAll: (String) -> Unit,
+    private val onGameClick: (Game) -> Unit = {},
     private val onStreamShelfAttached: ((String, RecyclerView, (Int) -> Stream?) -> Unit)? = null,
     private val onStreamShelfDetached: ((String) -> Unit)? = null,
     private val onVideoShelfAttached: ((String, RecyclerView, (Int) -> VideoHistory?) -> Unit)? = null,
@@ -37,6 +42,8 @@ class FollowingOverviewAdapter(
     private val recycledViewPool = RecyclerView.RecycledViewPool()
     private val videoRecycledViewPool = RecyclerView.RecycledViewPool()
     private val upcomingRecycledViewPool = RecyclerView.RecycledViewPool()
+    private val gameRecycledViewPool = RecyclerView.RecycledViewPool()
+    private val skeletonRecycledViewPool = RecyclerView.RecycledViewPool()
 
     init {
         setHasStableIds(true)
@@ -64,6 +71,8 @@ class FollowingOverviewAdapter(
         private val shelfAdapter = StreamShelfAdapter(onStreamClick)
         private val videoShelfAdapter = VideoShelfAdapter(onVideoClick)
         private val upcomingShelfAdapter = UpcomingStreamShelfAdapter(onUpcomingClick)
+        private val gameShelfAdapter = GameShelfAdapter(onGameClick)
+        private val skeletonShelfAdapter = ShelfSkeletonAdapter()
         private var shelfType: ShelfType? = null
         private var boundStreamShelfKey: String? = null
         private var boundVideoShelfKey: String? = null
@@ -80,14 +89,17 @@ class FollowingOverviewAdapter(
         }
 
         fun bind(section: FollowingOverviewSection) {
-            binding.sectionTitle.setText(section.titleRes)
-            binding.emptyMessage.setText(if (section.isLoading) R.string.loading else section.emptyRes)
-            val hasItems = section.streams.isNotEmpty() || section.videos.isNotEmpty() || section.scheduledStreams.isNotEmpty()
-            binding.emptyMessage.visibility = if (hasItems) android.view.View.GONE else android.view.View.VISIBLE
-            binding.shelfRecyclerView.visibility = if (hasItems) android.view.View.VISIBLE else android.view.View.GONE
+            section.title?.let { binding.sectionTitle.text = it } ?: binding.sectionTitle.setText(section.titleRes)
+            val hasItems = section.streams.isNotEmpty() || section.games.isNotEmpty() || section.videos.isNotEmpty() || section.scheduledStreams.isNotEmpty()
+            val showSkeleton = section.isLoading && !hasItems
+            binding.emptyMessage.setText(section.emptyRes)
+            binding.emptyMessage.visibility = if (hasItems || showSkeleton) android.view.View.GONE else android.view.View.VISIBLE
+            binding.shelfRecyclerView.visibility = if (hasItems || showSkeleton) android.view.View.VISIBLE else android.view.View.GONE
             binding.seeAll.visibility = if (hasItems && section.showSeeAll) android.view.View.VISIBLE else android.view.View.GONE
             binding.seeAll.setOnClickListener { onSeeAll(section.key) }
             val nextShelfType = when {
+                showSkeleton -> ShelfType.SKELETON
+                section.games.isNotEmpty() -> ShelfType.GAME
                 section.videos.isNotEmpty() -> ShelfType.VIDEO
                 section.scheduledStreams.isNotEmpty() -> ShelfType.UPCOMING
                 else -> ShelfType.STREAM
@@ -101,16 +113,24 @@ class FollowingOverviewAdapter(
             if (shelfType != nextShelfType) {
                 when (nextShelfType) {
                     ShelfType.VIDEO -> {
+                        binding.shelfRecyclerView.swapAdapter(videoShelfAdapter, true)
                         binding.shelfRecyclerView.setRecycledViewPool(videoRecycledViewPool)
-                        binding.shelfRecyclerView.adapter = videoShelfAdapter
                     }
                     ShelfType.UPCOMING -> {
+                        binding.shelfRecyclerView.swapAdapter(upcomingShelfAdapter, true)
                         binding.shelfRecyclerView.setRecycledViewPool(upcomingRecycledViewPool)
-                        binding.shelfRecyclerView.adapter = upcomingShelfAdapter
+                    }
+                    ShelfType.GAME -> {
+                        binding.shelfRecyclerView.swapAdapter(gameShelfAdapter, true)
+                        binding.shelfRecyclerView.setRecycledViewPool(gameRecycledViewPool)
+                    }
+                    ShelfType.SKELETON -> {
+                        binding.shelfRecyclerView.swapAdapter(skeletonShelfAdapter, true)
+                        binding.shelfRecyclerView.setRecycledViewPool(skeletonRecycledViewPool)
                     }
                     ShelfType.STREAM -> {
+                        binding.shelfRecyclerView.swapAdapter(shelfAdapter, true)
                         binding.shelfRecyclerView.setRecycledViewPool(recycledViewPool)
-                        binding.shelfRecyclerView.adapter = shelfAdapter
                     }
                 }
                 shelfType = nextShelfType
@@ -127,6 +147,8 @@ class FollowingOverviewAdapter(
                     }
                 }
                 ShelfType.UPCOMING -> upcomingShelfAdapter.submitList(section.scheduledStreams)
+                ShelfType.GAME -> gameShelfAdapter.submitList(section.games)
+                ShelfType.SKELETON -> skeletonShelfAdapter.setLoadingType(section.loadingType)
                 ShelfType.STREAM -> {
                     shelfAdapter.submitList(section.streams)
                     if (hasItems && boundStreamShelfKey != section.key) {
@@ -151,7 +173,7 @@ class FollowingOverviewAdapter(
         }
     }
 
-    private enum class ShelfType { STREAM, VIDEO, UPCOMING }
+    private enum class ShelfType { STREAM, VIDEO, UPCOMING, GAME, SKELETON }
 
     private companion object {
         val DIFF_CALLBACK = object : DiffUtil.ItemCallback<FollowingOverviewSection>() {

@@ -201,12 +201,14 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                             titleRes = R.string.following_continue_watching,
                             emptyRes = R.string.following_no_continue_watching,
                             videos = continueWatching,
+                            loadingType = FollowingOverviewLoadingType.VIDEO,
                         ),
                         FollowingOverviewSections.UPCOMING to FollowingOverviewSection(
                             key = FollowingOverviewSections.UPCOMING,
                             titleRes = R.string.following_upcoming_streams,
                             emptyRes = R.string.following_no_upcoming_streams,
                             showSeeAll = false,
+                            loadingType = FollowingOverviewLoadingType.UPCOMING,
                         ),
                     )
                     sectionKeys.mapNotNull(availableSections::get)

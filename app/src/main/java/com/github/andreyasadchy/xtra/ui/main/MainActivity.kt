@@ -1322,6 +1322,7 @@ class MainActivity : AppCompatActivity() {
             when {
                 defaultItem == "2" -> it.setStartDestination(R.id.followPagerFragment)
                 defaultItem == "0" -> it.setStartDestination(R.id.rootGamesFragment)
+                defaultItem == "4" -> it.setStartDestination(R.id.rootDiscoverFragment)
                 defaultItem == "3" -> it.setStartDestination(R.id.savedPagerFragment)
             }
         }, null)
@@ -1334,6 +1335,7 @@ class MainActivity : AppCompatActivity() {
                     if (enabled) {
                         when (key) {
                             "0" -> menu.add(Menu.NONE, R.id.rootGamesFragment, Menu.NONE, R.string.browse).setIcon(R.drawable.ic_games_black_24dp)
+                            "4" -> menu.add(Menu.NONE, R.id.rootDiscoverFragment, Menu.NONE, R.string.discover).setIcon(R.drawable.ic_explore)
                             "1" -> menu.add(Menu.NONE, R.id.rootTopFragment, Menu.NONE, R.string.following_overview).setIcon(R.drawable.baseline_home_black_24)
                             "2" -> {
                                 menu.add(Menu.NONE, R.id.followPagerFragment, Menu.NONE, R.string.following).setIcon(R.drawable.ic_favorite_black_24dp)

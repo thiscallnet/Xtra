@@ -10,6 +10,11 @@
         android:label="@string/browse">
     </fragment>
     <fragment
+        android:id="@+id/rootDiscoverFragment"
+        android:name="com.github.andreyasadchy.xtra.ui.discover.DiscoverFragment"
+        android:label="@string/discover">
+    </fragment>
+    <fragment
         android:id="@+id/rootTopFragment"
         android:name="com.github.andreyasadchy.xtra.ui.overview.OverviewFragment"
         android:label="@string/following_overview">

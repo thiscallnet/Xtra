@@ -5,6 +5,15 @@
   - Traducir "buffer" como "búfer".
 -->
 <resources>
+    <string name="discover">Descubrir</string>
+    <string name="discover_big_events">Grandes eventos ahora mismo</string>
+    <string name="discover_live_channels">Canales en directo que podrían gustarte</string>
+    <string name="discover_trending">En tendencia en Twitch</string>
+    <string name="discover_trending_category">En tendencia en Twitch: %1$s</string>
+    <string name="discover_categories">Categorías populares</string>
+    <string name="discover_no_live_channels">No hay nada en directo ahora mismo.</string>
+    <string name="discover_no_categories">Twitch no ha podido cargar las categorías ahora mismo.</string>
+    <string name="discover_no_content">Descubrir no ha podido cargar contenido ahora mismo. Inténtalo de nuevo más tarde.</string>
     <string name="games">Juegos</string>
     <string name="popular">Popular</string>
     <string name="following">Siguiendo</string>

@@ -2,9 +2,10 @@ package com.github.andreyasadchy.xtra.ui.browse
 
 import androidx.fragment.app.Fragment
 import androidx.viewpager2.adapter.FragmentStateAdapter
-import com.github.andreyasadchy.xtra.ui.following.channels.FollowedChannelsFragment
 import com.github.andreyasadchy.xtra.ui.games.GamesFragment
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentArgs
+import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragment
+import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentArgs
 
 class BrowsePagerAdapter(
     fragment: Fragment,
@@ -15,7 +16,9 @@ class BrowsePagerAdapter(
             0 -> GamesFragment().apply {
                 arguments = GamesFragmentArgs().toBundle()
             }
-            else -> FollowedChannelsFragment()
+            else -> TopStreamsFragment().apply {
+                arguments = TopStreamsFragmentArgs().toBundle()
+            }
         }
     }
 

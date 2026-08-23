@@ -99,16 +99,12 @@ class AuthCoordinatorTest {
     }
 
     @Test
-    fun `successful pair commit writes both grants before revoking the old pair`() {
+    fun `successful pair commit writes both grants without revoking the old pair`() {
         val (store, tokenPreferences) = seededStore()
         val repository = FakeAuthOperations(
             officialValidation = ValidationResponse("new-helix", userId = "new-user", scopes = HELIX_SCOPES),
             compatibilityValidation = ValidationResponse("new-gql-client", userId = "new-user", scopes = GQL_SCOPES),
         )
-        repository.onRevoke = { _, _ ->
-            assertEquals("new-access", store.read()?.accessToken)
-            assertEquals("new-gql", tokenPreferences.getString(C.GQL_TOKEN2, null))
-        }
         val coordinator = AuthCoordinator(repository, store, nowMillis = { 1_000L })
 
         val result = runBlocking {
@@ -125,10 +121,7 @@ class AuthCoordinatorTest {
         assertEquals("new-access", store.read()?.accessToken)
         assertEquals("new-user", store.read()?.userId)
         assertEquals("new-gql", tokenPreferences.getString(C.GQL_TOKEN2, null))
-        assertEquals(
-            listOf("old-access", "old-gql"),
-            repository.revoked.map { it.second },
-        )
+        assertTrue(repository.revoked.isEmpty())
     }
 
     @Test
@@ -157,7 +150,7 @@ class AuthCoordinatorTest {
         assertFalse(result.accountChanged)
         assertEquals("replacement-access", store.read()?.accessToken)
         assertEquals("replacement-gql", tokenPreferences.getString(C.GQL_TOKEN2, null))
-        assertEquals(listOf("old-access", "old-gql"), repository.revoked.map { it.second })
+        assertTrue(repository.revoked.isEmpty())
     }
 
     @Test

@@ -26,6 +26,7 @@ import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
+import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragment
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -181,7 +182,7 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     private fun hideNestedToolbar(fragment: Fragment) {
-        if (fragment is GamesFragment) {
+        if (fragment is GamesFragment || fragment is TopStreamsFragment) {
             fragment.view?.findViewById<View>(R.id.toolbar)?.visibility = View.GONE
         }
     }

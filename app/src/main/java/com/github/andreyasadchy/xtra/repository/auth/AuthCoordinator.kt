@@ -88,11 +88,10 @@ class AuthCoordinator(
         return AuthCommitResult(
             session = official,
             accountChanged = accountChanged,
-            revocationFailures = revokeSupersededCredentials(
-                previous = previous,
-                replacementOfficial = official,
-                replacementCompatibility = compatibility,
-            ),
+            // A successful login only replaces the active session locally. It
+            // does not revoke existing grants; abandoned staged grants and
+            // explicit logout are handled by their separate cleanup flows.
+            revocationFailures = 0,
         )
     }
 
@@ -240,28 +239,6 @@ class AuthCoordinator(
             if (!sessionStore.clearAll()) failures += 1
         }
         return failures
-    }
-
-    private suspend fun revokeSupersededCredentials(
-        previous: StoredCredentials,
-        replacementOfficial: AuthSession,
-        replacementCompatibility: CompatibilitySession,
-    ): Int {
-        val credentials = linkedSetOf<Pair<String?, String>>()
-        previous.helixToken
-            ?.takeIf { it.isNotBlank() && it != replacementOfficial.accessToken }
-            ?.let { credentials += previous.helixClientId to it }
-        previous.gqlToken
-            ?.takeIf { it.isNotBlank() && it != replacementCompatibility.accessToken }
-            ?.let { credentials += previous.gqlClientId to it }
-        previous.gqlWebToken
-            ?.takeIf {
-                it.isNotBlank() &&
-                    it != previous.gqlToken &&
-                    it != replacementCompatibility.accessToken
-            }
-            ?.let { credentials += previous.gqlWebClientId to it }
-        return credentials.sumOf { (clientId, token) -> revoke(clientId, token) }
     }
 
     private suspend fun revoke(clientId: String?, token: String): Int {

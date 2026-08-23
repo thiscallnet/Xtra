@@ -38,7 +38,6 @@ import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.SORT_
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.SORT_VIEWERS_ASC
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
-import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentArgs
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
@@ -59,7 +58,7 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
 
     private var _binding: FragmentGamesBinding? = null
     private val binding get() = _binding!!
-    private val args: GamePagerFragmentArgs by navArgs()
+    private val args: TopStreamsFragmentArgs by navArgs()
     private val viewModel: TopStreamsViewModel by viewModels { TopStreamsViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
     private lateinit var streamFeedScreenController: StreamFeedScreenController
