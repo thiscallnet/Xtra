@@ -25,6 +25,15 @@
     <string name="popular">Popular</string>
     <string name="home">Home</string>
     <string name="browse">Browse</string>
+    <string name="discover">Discover</string>
+    <string name="discover_big_events">Big events right now</string>
+    <string name="discover_live_channels">Live channels we think you’ll like</string>
+    <string name="discover_trending">Trending on Twitch</string>
+    <string name="discover_trending_category">Trending on Twitch: %1$s</string>
+    <string name="discover_categories">Popular categories</string>
+    <string name="discover_no_live_channels">Nothing is live here right now.</string>
+    <string name="discover_no_categories">Twitch could not load categories right now.</string>
+    <string name="discover_no_content">Discover could not load anything right now. Try again later.</string>
     <string name="following">Following</string>
     <string name="following_overview">Overview</string>
     <string name="following_categories">Categories</string>

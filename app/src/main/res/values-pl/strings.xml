@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="discover">Odkrywaj</string>
+    <string name="discover_big_events">Najważniejsze wydarzenia teraz</string>
+    <string name="discover_live_channels">Polecane kanały na żywo</string>
+    <string name="discover_trending">Na topie na Twitchu</string>
+    <string name="discover_trending_category">Na topie na Twitchu: %1$s</string>
+    <string name="discover_categories">Popularne kategorie</string>
+    <string name="discover_no_live_channels">Nic nie jest teraz transmitowane na żywo.</string>
+    <string name="discover_no_categories">Nie udało się teraz wczytać kategorii z Twitcha.</string>
+    <string name="discover_no_content">Nie udało się teraz wczytać treści do odkrywania. Spróbuj ponownie później.</string>
     <string name="games">Gry</string>
     <string name="popular">Popularne</string>
     <string name="home">Strona główna</string>

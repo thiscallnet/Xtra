@@ -595,6 +595,7 @@ object SettingsMigration {
 
     private fun navigationTabsWithDefault(defaultTab: String): String =
         "0:${if (defaultTab == "0") "1" else "0"}:1," +
+            "4:${if (defaultTab == "4") "1" else "0"}:1," +
             "1:${if (defaultTab == "1") "1" else "0"}:1," +
             "2:${if (defaultTab == "2") "1" else "0"}:1," +
             "3:${if (defaultTab == "3") "1" else "0"}:1"

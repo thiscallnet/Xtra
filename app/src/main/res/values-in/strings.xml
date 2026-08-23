@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="discover">Temukan</string>
+    <string name="discover_big_events">Acara besar saat ini</string>
+    <string name="discover_live_channels">Saluran live yang mungkin Anda sukai</string>
+    <string name="discover_trending">Sedang tren di Twitch</string>
+    <string name="discover_trending_category">Sedang tren di Twitch: %1$s</string>
+    <string name="discover_categories">Kategori populer</string>
+    <string name="discover_no_live_channels">Tidak ada siaran live saat ini.</string>
+    <string name="discover_no_categories">Twitch tidak dapat memuat kategori saat ini.</string>
+    <string name="discover_no_content">Temukan tidak dapat memuat konten saat ini. Coba lagi nanti.</string>
     <string name="games">Game</string>
     <string name="popular">Populer</string>
     <string name="following">Mengikuti</string>

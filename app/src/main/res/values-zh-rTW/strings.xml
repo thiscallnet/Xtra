@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="discover">探索</string>
+    <string name="discover_big_events">目前的大型活動</string>
+    <string name="discover_live_channels">你可能會喜歡的直播頻道</string>
+    <string name="discover_trending">Twitch 熱門趨勢</string>
+    <string name="discover_trending_category">Twitch 熱門趨勢：%1$s</string>
+    <string name="discover_categories">熱門分類</string>
+    <string name="discover_no_live_channels">目前沒有直播內容。</string>
+    <string name="discover_no_categories">目前無法載入 Twitch 分類。</string>
+    <string name="discover_no_content">目前無法載入探索內容，請稍後再試。</string>
     <string name="games">遊戲</string>
     <string name="popular">熱門</string>
     <string name="following">追隨中</string>

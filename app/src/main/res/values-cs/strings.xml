@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="discover">Objevování</string>
+    <string name="discover_big_events">Velké události právě teď</string>
+    <string name="discover_live_channels">Živé kanály, které by se vám mohly líbit</string>
+    <string name="discover_trending">Trendy na Twitchi</string>
+    <string name="discover_trending_category">Trendy na Twitchi: %1$s</string>
+    <string name="discover_categories">Oblíbené kategorie</string>
+    <string name="discover_no_live_channels">Právě tu nic nevysílá.</string>
+    <string name="discover_no_categories">Twitch teď nemohl načíst kategorie.</string>
+    <string name="discover_no_content">Objevování teď nemohlo načíst žádný obsah. Zkuste to později.</string>
     <string name="app_name" translatable="false">Xtra</string>
     <string name="notification_downloads_channel_id" translatable="false">xtra_downloads_channel</string>
     <string name="notification_live_channel_id" translatable="false">xtra_live_channel</string>

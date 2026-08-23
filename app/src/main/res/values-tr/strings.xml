@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Turkish -->
 <resources>
+    <string name="discover">Keşfet</string>
+    <string name="discover_big_events">Şu anda öne çıkan etkinlikler</string>
+    <string name="discover_live_channels">Beğenebileceğiniz canlı kanallar</string>
+    <string name="discover_trending">Twitch\'te gündemde</string>
+    <string name="discover_trending_category">Twitch\'te gündemde: %1$s</string>
+    <string name="discover_categories">Popüler kategoriler</string>
+    <string name="discover_no_live_channels">Şu anda burada canlı yayın yok.</string>
+    <string name="discover_no_categories">Twitch kategorileri şu anda yüklenemedi.</string>
+    <string name="discover_no_content">Keşfet içeriği şu anda yüklenemedi. Daha sonra tekrar deneyin.</string>
     <string name="games">Oyunlar</string>
     <string name="popular">Popüler</string>
     <string name="following">Takip Edilenler</string>

@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="discover">見つける</string>
+    <string name="discover_big_events">今注目の大きなイベント</string>
+    <string name="discover_live_channels">おすすめのライブチャンネル</string>
+    <string name="discover_trending">Twitchでトレンド</string>
+    <string name="discover_trending_category">Twitchでトレンド: %1$s</string>
+    <string name="discover_categories">人気のカテゴリー</string>
+    <string name="discover_no_live_channels">現在ライブ配信はありません。</string>
+    <string name="discover_no_categories">Twitchからカテゴリーを読み込めませんでした。</string>
+    <string name="discover_no_content">コンテンツを読み込めませんでした。後でもう一度お試しください。</string>
     <string name="games">ゲーム</string>
     <string name="popular">人気</string>
     <string name="following">フォロー中</string>

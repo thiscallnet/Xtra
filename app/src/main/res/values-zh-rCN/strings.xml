@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="discover">发现</string>
+    <string name="discover_big_events">当前热门大事件</string>
+    <string name="discover_live_channels">你可能喜欢的直播频道</string>
+    <string name="discover_trending">Twitch 热门趋势</string>
+    <string name="discover_trending_category">Twitch 热门趋势：%1$s</string>
+    <string name="discover_categories">热门分类</string>
+    <string name="discover_no_live_channels">目前没有直播内容。</string>
+    <string name="discover_no_categories">目前无法加载 Twitch 分类。</string>
+    <string name="discover_no_content">目前无法加载发现内容，请稍后重试。</string>
     <string name="games">游戏</string>
     <string name="popular">热门</string>
     <string name="following">关注</string>

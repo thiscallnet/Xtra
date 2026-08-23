@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="discover">Открывай</string>
+    <string name="discover_big_events">Большие события прямо сейчас</string>
+    <string name="discover_live_channels">Прямые каналы, которые могут вам понравиться</string>
+    <string name="discover_trending">В тренде на Twitch</string>
+    <string name="discover_trending_category">В тренде на Twitch: %1$s</string>
+    <string name="discover_categories">Популярные категории</string>
+    <string name="discover_no_live_channels">Сейчас здесь нет прямых трансляций.</string>
+    <string name="discover_no_categories">Не удалось загрузить категории Twitch.</string>
+    <string name="discover_no_content">Не удалось загрузить контент для поиска. Повторите попытку позже.</string>
     <string name="games">Игры</string>
     <string name="popular">Популярное</string>
     <string name="following">Отслеживания</string>
