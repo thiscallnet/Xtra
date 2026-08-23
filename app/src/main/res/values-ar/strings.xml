@@ -834,6 +834,8 @@
     <string name="settings_updates">تحديثات</string>
     <string name="settings_backup_restore">النسخ الاحتياطي والاستعادة</string>
     <string name="settings_about">حول</string>
+    <string name="settings_join_discord">انضم إلى Discord الخاص بـ Xtra</string>
+    <string name="settings_join_discord_summary">تحدث مع المجتمع، واحصل على المساعدة، وشارك ملاحظاتك</string>
     <string name="settings_advanced">المتقدمة</string>
     <string name="settings_display_compatibility">توافق العرض</string>
     <string name="settings_display_cutouts">استخدم المنطقة حول قواطع الشاشة</string>

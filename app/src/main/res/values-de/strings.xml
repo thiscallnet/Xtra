@@ -834,6 +834,8 @@
     <string name="settings_updates">Updates</string>
     <string name="settings_backup_restore">Sichern und Wiederherstellen</string>
     <string name="settings_about">Über</string>
+    <string name="settings_join_discord">Xtra-Discord beitreten</string>
+    <string name="settings_join_discord_summary">Tausche dich mit der Community aus, erhalte Hilfe und teile Feedback</string>
     <string name="settings_advanced">Erweitert</string>
     <string name="settings_display_compatibility">Display-Kompatibilität</string>
     <string name="settings_display_cutouts">Bereich um Display-Ausschnitte verwenden</string>

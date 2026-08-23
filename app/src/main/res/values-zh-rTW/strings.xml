@@ -834,6 +834,8 @@
     <string name="settings_updates">更新</string>
     <string name="settings_backup_restore">備份與復原</string>
     <string name="settings_about">關於</string>
+    <string name="settings_join_discord">加入 Xtra Discord</string>
+    <string name="settings_join_discord_summary">與社群交流、取得協助並分享意見回饋</string>
     <string name="settings_advanced">先進的</string>
     <string name="settings_display_compatibility">顯示器相容性</string>
     <string name="settings_display_cutouts">使用顯示器切口周圍的區域</string>

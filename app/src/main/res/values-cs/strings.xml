@@ -315,6 +315,8 @@
     <string name="settings_updates">Aktualizace</string>
     <string name="settings_backup_restore">Zálohování a obnovení</string>
     <string name="settings_about">O aplikaci</string>
+    <string name="settings_join_discord">Připojte se k Discordu Xtra</string>
+    <string name="settings_join_discord_summary">Povídejte si s komunitou, získejte pomoc a sdílejte zpětnou vazbu</string>
     <string name="settings_advanced">Pokročilé</string>
     <string name="settings_display_compatibility">Kompatibilita displeje</string>
     <string name="settings_display_cutouts">Použijte oblast kolem výřezů displeje</string>
