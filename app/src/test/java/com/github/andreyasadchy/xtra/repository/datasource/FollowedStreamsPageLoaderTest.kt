@@ -1,11 +1,36 @@
 package com.github.andreyasadchy.xtra.repository.datasource
 
+import com.github.andreyasadchy.xtra.repository.TwitchApiException
+import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.util.C
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 class FollowedStreamsPageLoaderTest {
+
+    @Test
+    fun relevanceDoesNotUseUnsupportedFallbackApis() = runBlocking {
+        val calls = mutableListOf<String>()
+        val primaryError = TwitchApiException(
+            statusCode = 429,
+            rateLimitResetEpochSeconds = 123L,
+            message = "gql rate limited",
+        )
+        val failure = runCatching {
+            loadFollowedFirstPageWithFallback(
+                sort = StreamsSortDialog.RELEVANCE,
+                onApiSelected = { calls += it },
+                gql = { calls += "gql-first"; throw primaryError },
+                persistedGql = { calls += "persisted-first"; error("must not be called") },
+                helix = { calls += "helix-first"; error("must not be called") },
+            )
+        }.exceptionOrNull()
+
+        assertSame(primaryError, failure)
+        assertEquals(listOf(C.GQL, "gql-first"), calls)
+    }
 
     @Test
     fun persistedGraphQlFallbackKeepsItsCursorAffinity() = runBlocking {
@@ -13,6 +38,7 @@ class FollowedStreamsPageLoaderTest {
         val calls = mutableListOf<String>()
 
         val firstPage = loadFollowedFirstPageWithFallback(
+            sort = StreamsSortDialog.SORT_VIEWERS,
             onApiSelected = { selectedApi = it; calls += it },
             gql = { calls += "gql-first"; error("gql unavailable") },
             persistedGql = { calls += "persisted-first"; "first" },
@@ -39,6 +65,7 @@ class FollowedStreamsPageLoaderTest {
         val calls = mutableListOf<String>()
 
         loadFollowedFirstPageWithFallback(
+            sort = StreamsSortDialog.SORT_VIEWERS,
             onApiSelected = { selectedApi = it; calls += it },
             gql = { calls += "gql-first"; error("gql unavailable") },
             persistedGql = { calls += "persisted-first"; error("persisted unavailable") },
