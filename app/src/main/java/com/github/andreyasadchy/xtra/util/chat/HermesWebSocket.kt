@@ -118,7 +118,7 @@ class HermesWebSocket(
         pongTimer = Timer().apply {
             schedule(timeout) {
                 webSocket?.coroutineScope?.launch {
-                    webSocket?.disconnect()
+                    webSocket?.reconnect()
                 }
             }
         }
@@ -230,7 +230,7 @@ class HermesWebSocket(
                         //val reconnect = json.optJSONObject("reconnect")
                         //val reconnectUrl = if (reconnect?.isNull("url") == false) reconnect.optString("url").takeIf { it.isNotBlank() } else null
                         pongTimer?.cancel()
-                        webSocket.disconnect()
+                        webSocket.reconnect()
                     }
                     "welcome" -> {
                         val welcome = json.optJSONObject("welcome")

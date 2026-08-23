@@ -348,6 +348,8 @@
     <string name="proxy_user">Usuário</string>
     <string name="proxy_password">Senha</string>
     <string name="proxy_settings">Configurações de proxy HTTP</string>
+    <string name="proxy_allow_direct_fallback">Permitir fallback direto</string>
+    <string name="proxy_allow_direct_fallback_summary">Se o proxy estiver indisponível, tentar novamente as solicitações sem ele.</string>
     <string name="stop_download">Parar de baixar</string>
     <string name="resume_download">Retomar á baixar</string>
     <string name="show_view_count_icon">Mostrar contagem de visualizações e ícones de tempo de atividade</string>

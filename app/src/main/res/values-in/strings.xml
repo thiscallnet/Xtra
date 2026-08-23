@@ -349,6 +349,8 @@
     <string name="proxy_user">Nama pengguna</string>
     <string name="proxy_password">Kata sandi</string>
     <string name="proxy_settings">Pengaturan proxy HTTP</string>
+    <string name="proxy_allow_direct_fallback">Izinkan fallback langsung</string>
+    <string name="proxy_allow_direct_fallback_summary">Jika proxy tidak tersedia, coba lagi permintaan tanpa proxy.</string>
     <string name="stop_download">Hentikan pengunduhan</string>
     <string name="resume_download">Lanjutkan pengunduhan</string>
     <string name="show_view_count_icon">Tampilkan jumlah penayangan dan ikon waktu aktif</string>

@@ -872,6 +872,8 @@
     <string name="proxy_user">Uživatelské jméno</string>
     <string name="proxy_password">Heslo</string>
     <string name="proxy_settings">Nastavení HTTP proxy</string>
+    <string name="proxy_allow_direct_fallback">Povolit přímé připojení při selhání</string>
+    <string name="proxy_allow_direct_fallback_summary">Pokud proxy není dostupná, opakovat požadavky bez ní.</string>
     <string name="stop_download">Zastavit stahování</string>
     <string name="resume_download">Obnovit stahování</string>
     <string name="show_view_count_icon">Zobrazit ikony počtu zobrazení a doby provozuschopnosti</string>

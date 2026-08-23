@@ -263,7 +263,7 @@ class PlayerRepository(
                 when {
                     networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
                         val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                            listOf(android.util.Pair("Proxy-Authorization", Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)))
+                            listOf(android.util.Pair("Proxy-Authorization", Credentials.basic(proxyUser, proxyPassword)))
                         } else emptyList()
                         val builder = HttpEngine.Builder(context)
                         val httpEngine = try {
@@ -335,7 +335,7 @@ class PlayerRepository(
                     networkLibrary == C.CRONET && cronetEngine.value != null -> {
                         val cronetEngine = if (CronetProvider.getAllProviders(context).any { it.isEnabled }) {
                             val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                                mapOf("Proxy-Authorization" to Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)).entries.toList()
+                                mapOf("Proxy-Authorization" to Credentials.basic(proxyUser, proxyPassword)).entries.toList()
                             } else emptyList()
                             val builder = CronetEngine.Builder(context).apply {
                                 val userAgent = "Cronet/" + defaultUserAgent.substringAfter("Cronet/", "").substringBefore(')')
@@ -466,7 +466,7 @@ class PlayerRepository(
                 when {
                     networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
                         val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                            listOf(android.util.Pair("Proxy-Authorization", Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)))
+                            listOf(android.util.Pair("Proxy-Authorization", Credentials.basic(proxyUser, proxyPassword)))
                         } else emptyList()
                         val builder = HttpEngine.Builder(context)
                         val httpEngine = try {
@@ -542,7 +542,7 @@ class PlayerRepository(
                     networkLibrary == C.CRONET && cronetEngine.value != null -> {
                         val cronetEngine = if (CronetProvider.getAllProviders(context).any { it.isEnabled }) {
                             val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                                mapOf("Proxy-Authorization" to Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)).entries.toList()
+                                mapOf("Proxy-Authorization" to Credentials.basic(proxyUser, proxyPassword)).entries.toList()
                             } else emptyList()
                             val builder = CronetEngine.Builder(context).apply {
                                 val userAgent = "Cronet/" + defaultUserAgent.substringAfter("Cronet/", "").substringBefore(')')

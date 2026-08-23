@@ -916,6 +916,8 @@
     <string name="proxy_user">Username</string>
     <string name="proxy_password">Password</string>
     <string name="proxy_settings">HTTP proxy settings</string>
+    <string name="proxy_allow_direct_fallback">Allow direct fallback</string>
+    <string name="proxy_allow_direct_fallback_summary">If the proxy is unavailable, retry requests without it.</string>
     <string name="stop_download">Stop download</string>
     <string name="resume_download">Resume download</string>
     <string name="show_view_count_icon">Show view count and uptime icons</string>

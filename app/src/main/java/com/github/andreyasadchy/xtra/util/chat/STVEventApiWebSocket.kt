@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.util.chat
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.util.WebSocket
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -95,9 +96,11 @@ class STVEventApiWebSocket(
                         }
                     }
                     OPCODE_RECONNECT -> {
-                        webSocket.disconnect()
+                        webSocket.reconnect()
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
 
             }

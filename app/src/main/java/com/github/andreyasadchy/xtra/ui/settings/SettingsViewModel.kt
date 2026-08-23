@@ -3,9 +3,11 @@ package com.github.andreyasadchy.xtra.ui.settings
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.database.sqlite.SQLiteDatabase
 import android.provider.DocumentsContract
 import android.util.Log
 import android.util.JsonReader
+import org.json.JSONObject
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.edit
 import androidx.core.net.toUri
@@ -29,11 +31,13 @@ import com.github.andreyasadchy.xtra.ui.main.LiveNotificationSchedulerResult
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationNotifier
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.Segment
 import com.github.andreyasadchy.xtra.util.createOrFindDocument
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.proxyPrefs
 import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.Dispatchers
@@ -43,10 +47,13 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.util.UUID
 import kotlin.math.max
 import kotlin.system.exitProcess
 
 internal fun initialNotificationBaselineIncludesFollowedStreams(): Boolean = false
+
+private class RestoreRequiresRestart(cause: Throwable) : RuntimeException(cause)
 
 class SettingsViewModel(
     private val applicationContext: Context,
@@ -254,86 +261,293 @@ class SettingsViewModel(
 
     fun backupSettings(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val treeUri = url.toUri()
-            val directoryUri = DocumentsContract.buildDocumentUriUsingTree(
-                treeUri,
-                DocumentsContract.getTreeDocumentId(treeUri),
-            )
-            val preferences = File("${applicationContext.applicationInfo.dataDir}/shared_prefs/${applicationContext.packageName}_preferences.xml")
-            val preferencesUri = applicationContext.contentResolver.createOrFindDocument(
-                directoryUri,
-                "application/xml",
-                preferences.name,
-            )
-            val preferencesOutput = applicationContext.contentResolver.openOutputStream(preferencesUri, "wt")
-                ?: error("Unable to open backup preferences")
-            preferencesOutput.use { outputStream ->
-                preferences.inputStream().use { inputStream ->
-                    inputStream.copyTo(outputStream)
+            val staging = File(applicationContext.cacheDir, "settings-backup-${UUID.randomUUID()}")
+            try {
+                check(staging.mkdirs()) { "Unable to create backup staging directory" }
+                val preferences = preferencesFile()
+                val stagedPreferences = File(staging, SettingsBackup.PREFERENCES_ENTRY)
+                preferences.copyTo(stagedPreferences)
+                val stagedProxy = File(staging, SettingsBackup.PROXY_ENTRY)
+                val proxyPreferences = applicationContext.proxyPrefs()
+                val rawPreferences = applicationContext.prefs()
+                if (
+                    !proxyPreferences.getString(C.PROXY_HOST, null).isNullOrBlank() ||
+                    !proxyPreferences.getString(C.PROXY_PORT, null).isNullOrBlank() ||
+                    !proxyPreferences.getString(C.PROXY_USER, null).isNullOrBlank() ||
+                    rawPreferences.contains(C.SETTINGS_HTTP_PROXY_ENABLED) ||
+                    rawPreferences.contains(C.PROXY_ALLOW_DIRECT_FALLBACK)
+                ) {
+                    stagedProxy.writeText(JSONObject().apply {
+                        put("enabled", rawPreferences.getBoolean(C.SETTINGS_HTTP_PROXY_ENABLED, false))
+                        put("allowDirectFallback", rawPreferences.getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true))
+                        proxyPreferences.getString(C.PROXY_HOST, null)?.let { put("host", it) }
+                        proxyPreferences.getString(C.PROXY_PORT, null)?.let { put("port", it) }
+                        proxyPreferences.getString(C.PROXY_USER, null)?.let { put("user", it) }
+                    }.toString())
                 }
-            }
-            appDatabase.query(SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)")).use {
-                it.moveToPosition(-1)
-            }
-            val database = applicationContext.getDatabasePath("database")
-            val databaseUri = applicationContext.contentResolver.createOrFindDocument(
-                directoryUri,
-                "application/vnd.sqlite3",
-                database.name,
-            )
-            val databaseOutput = applicationContext.contentResolver.openOutputStream(databaseUri, "wt")
-                ?: error("Unable to open backup database")
-            databaseOutput.use { outputStream ->
-                database.inputStream().use { inputStream ->
-                    inputStream.copyTo(outputStream)
+
+                appDatabase.query(SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)")).use {
+                    it.moveToPosition(-1)
                 }
+                val database = applicationContext.getDatabasePath("database")
+                val stagedDatabase = File(staging, SettingsBackup.DATABASE_ENTRY)
+                appDatabase.runInTransaction {
+                    database.copyTo(stagedDatabase)
+                }
+
+                val treeUri = url.toUri()
+                val directoryUri = DocumentsContract.buildDocumentUriUsingTree(
+                    treeUri,
+                    DocumentsContract.getTreeDocumentId(treeUri),
+                )
+                writeBackupDocument(directoryUri, SettingsBackup.ARCHIVE_FILE_NAME, "application/zip") { output ->
+                    SettingsBackup.writeArchive(output, stagedPreferences, stagedDatabase, stagedProxy.takeIf(File::exists))
+                }
+
+                // Keep the legacy files for users and older Xtra versions that rely on them.
+                writeBackupDocument(directoryUri, preferences.name, "application/xml") { output ->
+                    stagedPreferences.inputStream().use { it.copyTo(output) }
+                }
+                writeBackupDocument(directoryUri, database.name, "application/vnd.sqlite3") { output ->
+                    stagedDatabase.inputStream().use { it.copyTo(output) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("SettingsViewModel", "Settings backup failed", e)
+            } finally {
+                staging.deleteRecursively()
             }
         }
     }
 
     fun restoreSettings(list: List<String>, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>) {
         viewModelScope.launch(Dispatchers.IO) {
-            var restoredSettings = false
-            list.take(2).forEach { url ->
-                if (url.endsWith(".xml")) {
-                    FileOutputStream("${applicationContext.applicationInfo.dataDir}/shared_prefs/${applicationContext.packageName}_preferences.xml").use { outputStream ->
-                        applicationContext.contentResolver.openInputStream(url.toUri())!!.use { inputStream ->
-                            inputStream.copyTo(outputStream)
-                        }
-                    }
+            val staging = File(applicationContext.cacheDir, "settings-restore-${UUID.randomUUID()}")
+            var databaseRestoreInstalled = false
+            try {
+                check(staging.mkdirs()) { "Unable to create restore staging directory" }
+                val contents = stageRestoreInputs(list, staging)
+                contents.preferences?.let(SettingsBackup::validatePreferences)
+                contents.database?.let(::validateDatabaseBackup)
+                contents.proxy?.let(SettingsBackup::validateProxyConfiguration)
+                require(contents.preferences != null || contents.database != null) { "No Xtra backup files were selected" }
+
+                installRestore(contents)
+                databaseRestoreInstalled = contents.database != null
+                contents.proxy?.let(::restoreProxyConfiguration)
+                contents.preferences?.let {
+                    // Keep the legacy restore side effects: migrate old preference
+                    // keys, restore the notification baseline, and apply language
+                    // before the activity is recreated.
                     SettingsMigration.migrate(applicationContext)
-                    restoredSettings = true
-                    val prefs = applicationContext.contentResolver.openInputStream(url.toUri())!!.bufferedReader().use {
-                        it.readText()
-                    }
-                    toggleNotifications(prefs.contains("name=\"${C.LIVE_NOTIFICATIONS_ENABLED}\" value=\"true\""), networkLibrary, gqlHeaders, helixHeaders)
-                    val language = Regex("<string name=\"${C.UI_LANGUAGE}\">(.+?)</string>").find(prefs)?.groups?.get(1)?.value
-                    AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(language.takeIf { it != "auto" }))
-                } else {
-                    val database = applicationContext.getDatabasePath("database")
-                    File(database.parent, "database-shm").delete()
-                    File(database.parent, "database-wal").delete()
-                    database.outputStream().use { outputStream ->
-                        applicationContext.contentResolver.openInputStream(url.toUri())!!.use { inputStream ->
-                            inputStream.copyTo(outputStream)
-                        }
-                    }
-                    applicationContext.startActivity(
-                        Intent(applicationContext, MainActivity::class.java).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                        }
+                    val restoredPreferences = preferencesFile().readText()
+                    toggleNotifications(
+                        restoredPreferences.contains("name=\"${C.LIVE_NOTIFICATIONS_ENABLED}\" value=\"true\""),
+                        networkLibrary,
+                        gqlHeaders,
+                        helixHeaders,
                     )
-                    exitProcess(0)
+                    val language = Regex("<string name=\"${C.UI_LANGUAGE}\">(.+?)</string>")
+                        .find(restoredPreferences)?.groups?.get(1)?.value
+                    AppCompatDelegate.setApplicationLocales(
+                        LocaleListCompat.forLanguageTags(language.takeIf { it != "auto" }),
+                    )
                 }
-            }
-            if (restoredSettings) {
                 applicationContext.startActivity(
                     Intent(applicationContext, MainActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                     }
                 )
+                staging.deleteRecursively()
                 exitProcess(0)
+            } catch (e: CancellationException) {
+                if (databaseRestoreInstalled) {
+                    staging.deleteRecursively()
+                    exitProcess(1)
+                }
+                throw e
+            } catch (e: RestoreRequiresRestart) {
+                staging.deleteRecursively()
+                exitProcess(1)
+            } catch (e: Exception) {
+                Log.e("SettingsViewModel", "Settings restore failed", e)
+                if (databaseRestoreInstalled) {
+                    // Room was closed before the file swap. Let the startup
+                    // recovery path validate the replacement or roll it back.
+                    staging.deleteRecursively()
+                    exitProcess(1)
+                }
+            } finally {
+                staging.deleteRecursively()
             }
+        }
+    }
+
+    private fun preferencesFile() = File(
+        "${applicationContext.applicationInfo.dataDir}/shared_prefs/${applicationContext.packageName}_preferences.xml",
+    )
+
+    private fun writeBackupDocument(directoryUri: Uri, name: String, mimeType: String, write: (java.io.OutputStream) -> Unit) {
+        val uri = applicationContext.contentResolver.createOrFindDocument(directoryUri, mimeType, name)
+        val output = applicationContext.contentResolver.openOutputStream(uri, "wt")
+            ?: error("Unable to open $name")
+        output.use(write)
+    }
+
+    private fun stageRestoreInputs(urls: List<String>, staging: File): SettingsBackup.Contents {
+        var preferences: File? = null
+        var database: File? = null
+        var proxy: File? = null
+        urls.forEachIndexed { index, url ->
+            val inputFile = File(staging, "selected-$index")
+            inputFile.outputStream().use { output ->
+                applicationContext.contentResolver.openInputStream(url.toUri()).use { input ->
+                    requireNotNull(input) { "Unable to open selected backup" }
+                    SettingsBackup.copyLimited(input, output, 1024L * 1024L * 1024L)
+                }
+            }
+            when (SettingsBackup.detectType(inputFile)) {
+                SettingsBackup.FileType.ARCHIVE -> {
+                    require(preferences == null && database == null) { "Select either one archive or the legacy backup files" }
+                    val archive = SettingsBackup.extractArchive(inputFile.inputStream(), staging)
+                    preferences = archive.preferences
+                    database = archive.database
+                    proxy = archive.proxy
+                }
+                SettingsBackup.FileType.PREFERENCES -> {
+                    require(preferences == null) { "More than one preferences backup was selected" }
+                    preferences = inputFile
+                }
+                SettingsBackup.FileType.DATABASE -> {
+                    require(database == null) { "More than one database backup was selected" }
+                    database = inputFile
+                }
+                SettingsBackup.FileType.UNKNOWN -> error("Selected file is not an Xtra backup")
+            }
+        }
+        return SettingsBackup.Contents(preferences, database, proxy)
+    }
+
+    private fun restoreProxyConfiguration(file: File) {
+        val json = JSONObject(file.readText())
+        applicationContext.prefs().edit {
+            if (json.has("enabled")) putBoolean(C.SETTINGS_HTTP_PROXY_ENABLED, json.getBoolean("enabled"))
+            if (json.has("allowDirectFallback")) putBoolean(
+                C.PROXY_ALLOW_DIRECT_FALLBACK,
+                json.getBoolean("allowDirectFallback"),
+            )
+        }
+        applicationContext.proxyPrefs().edit {
+            // The password is intentionally never exported. Clear every old
+            // credential before applying the backed-up non-secret fields so a
+            // password for proxy A can never be sent to restored proxy B.
+            remove(C.PROXY_HOST)
+            remove(C.PROXY_PORT)
+            remove(C.PROXY_USER)
+            remove(C.PROXY_PASSWORD)
+            if (json.has("host")) putString(C.PROXY_HOST, json.getString("host"))
+            if (json.has("port")) putString(C.PROXY_PORT, json.getString("port"))
+            if (json.has("user")) putString(C.PROXY_USER, json.getString("user"))
+        }
+    }
+
+    private fun validateDatabaseBackup(file: File) {
+        SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY).use { database ->
+            database.rawQuery("PRAGMA integrity_check", null).use { cursor ->
+                require(cursor.moveToFirst() && cursor.getString(0).equals("ok", ignoreCase = true)) {
+                    "Database backup failed its integrity check"
+                }
+            }
+            require(database.version in 1..AppDatabase.VERSION) { "Database backup is from a newer or unsupported Xtra version" }
+            if (database.version == AppDatabase.VERSION) {
+                database.rawQuery(
+                    "SELECT identity_hash FROM room_master_table WHERE id = 42",
+                    null,
+                ).use { cursor ->
+                    require(cursor.moveToFirst() && cursor.getString(0) == AppDatabase.IDENTITY_HASH) {
+                        "Database backup does not match the current Xtra schema"
+                    }
+                }
+            }
+        }
+    }
+
+    private fun installRestore(contents: SettingsBackup.Contents) {
+        val replacements = buildList {
+            contents.preferences?.let { add(preferencesFile() to it) }
+            contents.database?.let { add(applicationContext.getDatabasePath("database") to it) }
+        }
+        val prepared = mutableListOf<Triple<File, File, File>>()
+        var databaseClosed = false
+        var restoreTransactionStarted = false
+        try {
+            val databaseTarget = applicationContext.getDatabasePath("database")
+            val preferencesTarget = preferencesFile()
+            // Persist the transaction before creating any staging files. The
+            // recovery coordinator treats untracked .restore-new files as
+            // orphaned artifacts, so the plan must exist first.
+            DatabaseRestoreRecovery.begin(
+                applicationContext,
+                databaseSelected = contents.database != null,
+                databaseExisted = databaseTarget.exists(),
+                preferencesSelected = contents.preferences != null,
+                preferencesExisted = preferencesTarget.exists(),
+            )
+            restoreTransactionStarted = true
+            // Stage every replacement while Room is still usable. A disk-full
+            // or SAF I/O failure here must not leave the singleton database
+            // closed in the running process.
+            replacements.forEach { (target, source) ->
+                target.parentFile?.mkdirs()
+                val next = File(target.parentFile, "${target.name}.restore-new")
+                val previous = File(target.parentFile, "${target.name}.restore-old")
+                next.delete()
+                previous.delete()
+                prepared += Triple(target, next, previous)
+                source.copyTo(next)
+            }
+            if (contents.database != null) {
+                appDatabase.query(SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)")).close()
+                databaseClosed = true
+                appDatabase.close()
+            }
+            DatabaseRestoreRecovery.markSwapping(applicationContext)
+            prepared.forEach { (target, _, previous) ->
+                if (target.exists()) check(target.renameTo(previous)) { "Unable to stage ${target.name}" }
+            }
+            prepared.forEach { (target, next, _) ->
+                check(next.renameTo(target)) { "Unable to install ${target.name}" }
+            }
+            if (contents.database != null) {
+                val database = databaseTarget
+                File(database.parentFile, "database-shm").delete()
+                File(database.parentFile, "database-wal").delete()
+            }
+            // Keep the previous files until the next process has opened the
+            // restored files and validated the database through Room.
+            DatabaseRestoreRecovery.markInstalled(applicationContext)
+        } catch (e: Exception) {
+            if (restoreTransactionStarted) {
+                runCatching { DatabaseRestoreRecovery.rollback(applicationContext) }
+                    .exceptionOrNull()
+                    ?.let(e::addSuppressed)
+            } else {
+                prepared.asReversed().forEach { (target, next, previous) ->
+                    next.delete()
+                    if (previous.exists()) {
+                        target.delete()
+                        previous.renameTo(target)
+                    }
+                }
+            }
+            if (databaseClosed) {
+                // The singleton cannot be reopened safely after close(). The
+                // outer restore handler will clean staging and restart so the
+                // startup recovery path can validate or roll back the swap.
+                throw RestoreRequiresRestart(e)
+            }
+            throw e
         }
     }
 

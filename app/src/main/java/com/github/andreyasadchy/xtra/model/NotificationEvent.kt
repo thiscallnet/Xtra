@@ -1,10 +1,11 @@
 package com.github.andreyasadchy.xtra.model
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.github.andreyasadchy.xtra.model.ui.Stream
 
-@Entity(tableName = "notification_events")
+@Entity(tableName = "notification_events", indices = [Index("channelId"), Index("queuedAt")])
 data class NotificationEvent(
     @PrimaryKey
     val eventId: String,

@@ -49,10 +49,15 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
         StreamFeedState::class,
         MetadataCacheEntry::class,
     ],
-    version = 48,
-    exportSchema = false
+    version = 49,
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
+
+    companion object {
+        const val VERSION = 49
+        const val IDENTITY_HASH = "243a0903bd8e9b4072bcad0cca25f28d"
+    }
 
     abstract fun offlineVideos(): OfflineVideosDao
     abstract fun recentEmotes(): RecentEmotesDao

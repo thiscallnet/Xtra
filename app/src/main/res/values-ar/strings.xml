@@ -348,6 +348,8 @@
     <string name="proxy_user">اسم المستخدم</string>
     <string name="proxy_password">كلمة المرور</string>
     <string name="proxy_settings">إعدادات وكيل HTTP</string>
+    <string name="proxy_allow_direct_fallback">السماح بالاتصال المباشر عند التعذر</string>
+    <string name="proxy_allow_direct_fallback_summary">إذا كان الوكيل غير متاح، فأعد محاولة الطلبات بدونه.</string>
     <string name="stop_download">إيقاف التنزيل</string>
     <string name="resume_download">استئناف التنزيل</string>
     <string name="show_view_count_icon">إظهار عدد المشاهدات وأيقونات وقت التشغيل</string>

@@ -38,6 +38,7 @@ import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
 import com.github.andreyasadchy.xtra.ui.player.TwitchAdController
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
@@ -1090,11 +1091,12 @@ class MultiviewPlaybackCoordinator(
         regex: String,
     ): Call.Factory? {
         if (!enabled || host.isNullOrBlank() || port == null) return null
+        val allowDirectFallback = applicationContext.prefs().getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true)
         return (applicationContext as XtraApp).xtraModule.okHttpClient.value.newBuilder().apply {
             proxySelector(object : ProxySelector() {
                 override fun select(uri: URI): List<Proxy> {
                     return if (Regex(regex).matches(uri.host.orEmpty())) {
-                        listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port)), Proxy.NO_PROXY)
+                        proxyCandidates(Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port)), allowDirectFallback)
                     } else {
                         listOf(Proxy.NO_PROXY)
                     }

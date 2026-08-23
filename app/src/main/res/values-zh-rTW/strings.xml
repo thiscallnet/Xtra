@@ -348,6 +348,8 @@
     <string name="proxy_user">使用者名稱</string>
     <string name="proxy_password">密碼</string>
     <string name="proxy_settings">HTTP Proxy 設定</string>
+    <string name="proxy_allow_direct_fallback">允許直接連線備援</string>
+    <string name="proxy_allow_direct_fallback_summary">如果 Proxy 無法使用，則不使用 Proxy 重試要求。</string>
     <string name="stop_download">停止下載</string>
     <string name="resume_download">繼續下載</string>
     <string name="show_view_count_icon">顯示觀看數量與上線時間圖示</string>

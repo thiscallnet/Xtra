@@ -849,6 +849,8 @@
     <string name="proxy_user">Nazwa użytkownika</string>
     <string name="proxy_password">Hasło</string>
     <string name="proxy_settings">Ustawienia serwera proxy HTTP</string>
+    <string name="proxy_allow_direct_fallback">Zezwalaj na bezpośredni tryb awaryjny</string>
+    <string name="proxy_allow_direct_fallback_summary">Jeśli serwer proxy jest niedostępny, ponów żądania bez niego.</string>
     <string name="stop_download">Zatrzymaj pobieranie</string>
     <string name="resume_download">Wznów pobieranie</string>
     <string name="show_view_count_icon">Pokaż liczbę wyświetleń i ikony czasu działania</string>

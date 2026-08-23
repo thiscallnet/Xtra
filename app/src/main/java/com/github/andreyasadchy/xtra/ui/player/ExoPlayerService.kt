@@ -75,6 +75,7 @@ import com.github.andreyasadchy.xtra.ui.player.clip.LiveClipBufferManager
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.MediaButtonReceiver
 import com.github.andreyasadchy.xtra.util.NetworkUtils
+import com.github.andreyasadchy.xtra.util.NetworkUtils.readBytesLimited
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.httpProxyHost
@@ -997,7 +998,7 @@ class ExoPlayerService : BasePlaybackService() {
                                         val proxyMediaPlaylist = !proxyHost.isNullOrBlank() && proxyPort != null
                                         val proxyClient = if (proxyMultivariantPlaylist || proxyMediaPlaylist) {
                                             val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                                                listOf(android.util.Pair("Proxy-Authorization", Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)))
+                                                listOf(android.util.Pair("Proxy-Authorization", Credentials.basic(proxyUser, proxyPassword)))
                                             } else emptyList()
                                             val builder = HttpEngine.Builder(application)
                                             try {
@@ -1031,7 +1032,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
                                                             return if (Regex(MULTIVARIANT_PLAYLIST_REGEX).matches(u.host)) {
-                                                                listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
+                                                                NetworkUtils.proxyCandidates(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), prefs().getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true))
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
                                                             }
@@ -1055,7 +1056,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
                                                             return if (Regex(MEDIA_PLAYLIST_REGEX).matches(u.host)) {
-                                                                listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
+                                                                NetworkUtils.proxyCandidates(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), prefs().getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true))
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
                                                             }
@@ -1080,7 +1081,7 @@ class ExoPlayerService : BasePlaybackService() {
                                         val proxyMediaPlaylist = !proxyHost.isNullOrBlank() && proxyPort != null
                                         val proxyClient = if ((proxyMultivariantPlaylist || proxyMediaPlaylist) && CronetProvider.getAllProviders(application).any { it.isEnabled }) {
                                             val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                                                mapOf("Proxy-Authorization" to Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)).entries.toList()
+                                                mapOf("Proxy-Authorization" to Credentials.basic(proxyUser, proxyPassword)).entries.toList()
                                             } else emptyList()
                                             val builder = CronetEngine.Builder(application).apply {
                                                 val userAgent = "Cronet/" + defaultUserAgent.substringAfter("Cronet/", "").substringBefore(')')
@@ -1119,7 +1120,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
                                                             return if (Regex(MULTIVARIANT_PLAYLIST_REGEX).matches(u.host)) {
-                                                                listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
+                                                                NetworkUtils.proxyCandidates(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), prefs().getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true))
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
                                                             }
@@ -1143,7 +1144,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
                                                             return if (Regex(MEDIA_PLAYLIST_REGEX).matches(u.host)) {
-                                                                listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
+                                                                NetworkUtils.proxyCandidates(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), prefs().getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true))
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
                                                             }
@@ -1170,7 +1171,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
                                                             return if (Regex(MULTIVARIANT_PLAYLIST_REGEX).matches(u.host)) {
-                                                                listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
+                                                                NetworkUtils.proxyCandidates(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), prefs().getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true))
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
                                                             }
@@ -1194,7 +1195,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                     object : ProxySelector() {
                                                         override fun select(u: URI): List<Proxy> {
                                                             return if (Regex(MEDIA_PLAYLIST_REGEX).matches(u.host)) {
-                                                                listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), Proxy.NO_PROXY)
+                                                                NetworkUtils.proxyCandidates(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), prefs().getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true))
                                                             } else {
                                                                 listOf(Proxy.NO_PROXY)
                                                             }
@@ -2028,7 +2029,7 @@ class ExoPlayerService : BasePlaybackService() {
                                 else -> {
                                     xtraModule.okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
                                         if (response.isSuccessful) {
-                                            response.body.bytes()
+                                            response.body.readBytesLimited()
                                         } else null
                                     }
                                 }
@@ -2128,7 +2129,7 @@ class ExoPlayerService : BasePlaybackService() {
                                 else -> {
                                     xtraModule.okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
                                         if (response.isSuccessful) {
-                                            response.body.bytes()
+                                            response.body.readBytesLimited()
                                         } else null
                                     }
                                 }

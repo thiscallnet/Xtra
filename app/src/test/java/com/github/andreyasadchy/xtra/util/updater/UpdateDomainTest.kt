@@ -80,6 +80,29 @@ class UpdateDomainTest {
     }
 
     @Test
+    fun releaseMetadataCarriesAndValidatesApkSha256() {
+        val response = JsonObject(
+            json.parseToJsonElement(response("v2.58.5-build.173")).jsonObject +
+                (RELEASE_METADATA_RESPONSE_KEY to buildJsonObject {
+                    put("versionName", "2.58.5")
+                    put("versionCode", 294L)
+                    put("sha256", "a".repeat(64))
+                }),
+        )
+        val release = (ReleaseParser.parse(response, "https://example.test") as ReleaseParseResult.Success).release
+        assertEquals("a".repeat(64), release.expectedSha256)
+
+        val invalid = JsonObject(
+            response + (RELEASE_METADATA_RESPONSE_KEY to buildJsonObject {
+                put("versionName", "2.58.5")
+                put("versionCode", 294L)
+                put("sha256", "not-a-digest")
+            }),
+        )
+        assertTrue(ReleaseParser.parse(invalid, "https://example.test") is ReleaseParseResult.Failure)
+    }
+
+    @Test
     fun missingAndAmbiguousApkAssetsFailDeliberately() {
         val noApk = parse("v2.58.5-build.125", assets = listOf("notes.txt"))
         assertEquals(UpdateError.MissingApk, (UpdatePolicy.selectAsset(noApk).exceptionOrNull() as? UpdateException)?.error)

@@ -19,16 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout sources
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         persist-credentials: false
     - name: Setup Java
-      uses: actions/setup-java@v5
+      uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
       with:
         java-version: '21'
         distribution: 'temurin'
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v6
+      uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
       with:
         cache-provider: 'basic'
     - name: Enable KVM group perms
@@ -38,7 +38,7 @@ jobs:
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
     - name: Run instrumentation tests
-      uses: reactivecircus/android-emulator-runner@v2
+      uses: reactivecircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
       with:
         api-level: 28
         target: google_apis
@@ -50,23 +50,25 @@ jobs:
         script: |
           ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.github.andreyasadchy.xtra.ui.player.clip
           ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.repository.MetadataCacheTest
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.db.AppDatabaseMigrationTest
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.util.DatabaseRestoreRecoveryTest
 
   build:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout sources
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         fetch-depth: 0
         filter: blob:none
         persist-credentials: false
     - name: Setup Java
-      uses: actions/setup-java@v5
+      uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
       with:
         java-version: '21'
         distribution: 'temurin'
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v6
+      uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
       with:
         cache-provider: 'basic'
     - name: Determine application version
@@ -169,10 +171,19 @@ jobs:
           echo "Metadata: versionName=$metadata_version_name versionCode=$metadata_version_code" >&2
           exit 1
         fi
-        echo "Verified release APK versionName=$apk_version_name versionCode=$apk_version_code"
+        apk_sha256="$(sha256sum "$apk_asset" | awk '{print $1}')"
+        metadata_tmp="$(mktemp)"
+        jq --arg sha256 "$apk_sha256" '. + {sha256: $sha256}' "$metadata_asset" > "$metadata_tmp"
+        mv "$metadata_tmp" "$metadata_asset"
+        metadata_sha256="$(jq -er '.sha256 | strings' "$metadata_asset")"
+        if [[ "$metadata_sha256" != "$apk_sha256" ]]; then
+          echo "Release metadata SHA-256 does not match the APK" >&2
+          exit 1
+        fi
+        echo "Verified release APK versionName=$apk_version_name versionCode=$apk_version_code sha256=$apk_sha256"
 
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       with:
         name: apk
         path: app/build/outputs/apk/release/*.apk

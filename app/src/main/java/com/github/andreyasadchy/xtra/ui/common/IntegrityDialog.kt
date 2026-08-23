@@ -5,12 +5,15 @@ import android.app.Dialog
 import android.content.Context
 import android.content.DialogInterface
 import android.os.Bundle
+import android.os.Build
 import android.webkit.CookieManager
+import android.webkit.WebSettings
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.ValueCallback
+import android.view.WindowManager
 import androidx.core.content.edit
 import androidx.fragment.app.DialogFragment
 import androidx.webkit.WebViewClientCompat
@@ -48,8 +51,16 @@ class IntegrityDialog : DialogFragment() {
         cookieManager.setAcceptCookie(true)
         val token = TwitchApiHelper.getGQLHeaders(context, true)[C.HEADER_TOKEN]?.removePrefix("OAuth ")
         with(binding.webView) {
+            cookieManager.setAcceptThirdPartyCookies(this, false)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            settings.setSupportMultipleWindows(false)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                settings.safeBrowsingEnabled = true
+            }
             settings.loadWithOverviewMode = true
             settings.useWideViewPort = true
             settings.builtInZoomControls = true
@@ -57,8 +68,15 @@ class IntegrityDialog : DialogFragment() {
             webChromeClient = WebChromeClient()
             webViewClient = object : WebViewClientCompat() {
 
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                    return request.isForMainFrame && !request.url.isTrustedTwitchUrl()
+                }
+
                 override fun shouldInterceptRequest(view: WebView, webViewRequest: WebResourceRequest): WebResourceResponse? {
-                    if (!webViewRequest.requestHeaders.entries.find { it.key.equals("Client-Integrity", true) }?.value.isNullOrBlank()) {
+                    val isIntegrityRequest = webViewRequest.url.scheme == "https" &&
+                        webViewRequest.url.host.equals("gql.twitch.tv", ignoreCase = true) &&
+                        !webViewRequest.requestHeaders.entries.find { it.key.equals("Client-Integrity", true) }?.value.isNullOrBlank()
+                    if (isIntegrityRequest) {
                         context.tokenPrefs().edit {
                             putLong(C.INTEGRITY_EXPIRATION, System.currentTimeMillis() + 57600000)
                             putString(C.GQL_HEADERS, JSONObject(
@@ -70,8 +88,12 @@ class IntegrityDialog : DialogFragment() {
                                 }
                             ).toString())
                         }
-                        listener?.onIntegrityTokenLoaded(requireArguments().getString(KEY_CALLBACK))
-                        dismiss()
+                        view.post {
+                            if (_binding != null) {
+                                listener?.onIntegrityTokenLoaded(arguments?.getString(KEY_CALLBACK))
+                                dismiss()
+                            }
+                        }
                     }
                     return super.shouldInterceptRequest(view, webViewRequest)
                 }
@@ -82,7 +104,10 @@ class IntegrityDialog : DialogFragment() {
             // The WebView may retain a previous account's auth-token after the
             // app session is logged out. Reconcile its cookies before loading
             // Twitch, then inject only the token owned by this app session.
-            cookieManager.removeAllCookies {
+            cookieManager.setCookie(
+                "https://www.twitch.tv",
+                "auth-token=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax",
+            ) {
                 cookieManager.flush()
                 if (token.isNullOrBlank()) {
                     loadLogin()
@@ -104,10 +129,27 @@ class IntegrityDialog : DialogFragment() {
     override fun onDismiss(dialog: DialogInterface) {
         (activity as? MainActivity)?.integrityTokenLoaded()
         _binding?.webView?.loadUrl("about:blank")
+        CookieManager.getInstance().apply {
+            setCookie(
+                "https://www.twitch.tv",
+                "auth-token=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax",
+            ) { flush() }
+        }
         super.onDismiss(dialog)
     }
 
+    override fun onStart() {
+        super.onStart()
+        dialog?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }
+
     override fun onDestroyView() {
+        _binding?.webView?.apply {
+            stopLoading()
+            clearHistory()
+            removeAllViews()
+            destroy()
+        }
         super.onDestroyView()
         _binding = null
     }
@@ -123,4 +165,10 @@ class IntegrityDialog : DialogFragment() {
             }
         }
     }
+}
+
+private fun android.net.Uri.isTrustedTwitchUrl(): Boolean {
+    if (scheme != "https") return false
+    val domain = host?.lowercase() ?: return false
+    return domain == "twitch.tv" || domain.endsWith(".twitch.tv")
 }

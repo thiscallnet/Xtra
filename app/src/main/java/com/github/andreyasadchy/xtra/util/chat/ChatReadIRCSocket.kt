@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.util.chat
 
 import android.os.Build
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -50,6 +51,8 @@ class ChatReadIRCSocket(
                     }
                     line = reader?.readLine()
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (socket?.isClosed != true && e.message != "Connection reset" && e.message != "recvfrom failed: ECONNRESET (Connection reset by peer)") {
                     listener.onDisconnect(e.toString(), e.stackTraceToString())

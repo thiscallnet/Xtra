@@ -42,6 +42,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.DownloadStorageException
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
+import com.github.andreyasadchy.xtra.util.NetworkUtils.readBytesLimited
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.chat.ChatReadWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
@@ -103,6 +104,56 @@ class StreamDownloadService : LifecycleService() {
         throw e
     } catch (e: Exception) {
         throw DownloadStorageException("Unable to open stream download file", e)
+    }
+
+    @SuppressLint("NewApi")
+    private suspend fun fetchSegment(url: String, networkLibrary: String?): ByteArray = when {
+        networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> {
+            val response = suspendCancellableCoroutine { continuation ->
+                val timeout = NetworkUtils.HttpEngineTimeout(CRONET_TIMEOUT)
+                val request = xtraModule.httpEngine.value!!.newUrlRequestBuilder(
+                    url,
+                    xtraModule.cronetExecutor.value,
+                    NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
+                ).build()
+                timeout.start(request, continuation)
+                request.start()
+                continuation.invokeOnCancellation {
+                    request.cancel()
+                    timeout.stop()
+                }
+            }
+            if (response.info.httpStatusCode !in 200..299) {
+                throw IOException("Segment request failed with HTTP ${response.info.httpStatusCode}")
+            }
+            response.body
+        }
+        networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
+            val response = suspendCancellableCoroutine { continuation ->
+                val timeout = NetworkUtils.CronetTimeout(CRONET_TIMEOUT)
+                val request = xtraModule.cronetEngine.value!!.newUrlRequestBuilder(
+                    url,
+                    NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
+                    xtraModule.cronetExecutor.value,
+                ).build()
+                timeout.start(request, continuation)
+                request.start()
+                continuation.invokeOnCancellation {
+                    request.cancel()
+                    timeout.stop()
+                }
+            }
+            if (response.info.httpStatusCode !in 200..299) {
+                throw IOException("Segment request failed with HTTP ${response.info.httpStatusCode}")
+            }
+            response.body
+        }
+        else -> okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("Segment request failed with HTTP ${response.code}")
+            }
+            response.body.readBytesLimited()
+        }
     }
 
     lateinit var xtraModule: XtraModule
@@ -363,9 +414,7 @@ class StreamDownloadService : LifecycleService() {
                                     }
                                 }
                             } else {
-                                FileOutputStream(chatUrl).use { output ->
-                                    output.channel.truncate(downloadProgress.chatBytes)
-                                }
+                                DownloadIo.resizeLocalFile(chatUrl, downloadProgress.chatBytes)
                             }
                             if (isShared) {
                                 openOutputStream(chatUrl.toUri(), "wa").bufferedWriter()
@@ -449,7 +498,7 @@ class StreamDownloadService : LifecycleService() {
             networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
                 val httpEngine = if (proxyMultivariantPlaylist) {
                     val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                        listOf(android.util.Pair("Proxy-Authorization", Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)))
+                        listOf(android.util.Pair("Proxy-Authorization", Credentials.basic(proxyUser, proxyPassword)))
                     } else emptyList()
                     val builder = HttpEngine.Builder(application)
                     try {
@@ -516,7 +565,7 @@ class StreamDownloadService : LifecycleService() {
                 val cronetEngine = if (proxyMultivariantPlaylist) {
                     if (CronetProvider.getAllProviders(application).any { it.isEnabled }) {
                         val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                            mapOf("Proxy-Authorization" to Base64.encodeToString("$proxyUser:$proxyPassword".toByteArray(), Base64.NO_WRAP)).entries.toList()
+                            mapOf("Proxy-Authorization" to Credentials.basic(proxyUser, proxyPassword)).entries.toList()
                         } else emptyList()
                         val builder = CronetEngine.Builder(application).apply {
                             val userAgent = "Cronet/" + defaultUserAgent.substringAfter("Cronet/", "").substringBefore(')')
@@ -707,7 +756,6 @@ class StreamDownloadService : LifecycleService() {
         }
         val firstUrls = if (playlist.segments.isNotEmpty()) {
             val urls = playlist.segments.takeLastWhile { it.uri != lastUrl }
-            urls.lastOrNull()?.let { lastUrl = it.uri }
             val streamStartTime = urls.firstOrNull()?.programDateTime
             if (offlineVideo.downloadChat && !streamStartTime.isNullOrBlank()) {
                 launch(Dispatchers.IO) {
@@ -728,9 +776,7 @@ class StreamDownloadService : LifecycleService() {
                     }
                 }
             } else {
-                FileOutputStream(fileUri).use { output ->
-                    output.channel.truncate(downloadProgress.bytes)
-                }
+                DownloadIo.resizeLocalFile(fileUri, downloadProgress.bytes)
             }
             fileUri
         } else {
@@ -822,101 +868,22 @@ class StreamDownloadService : LifecycleService() {
             }
             fileUri
         }
-        val requestSemaphore = Semaphore(10)
-        val mutexMap = mutableMapOf<Int, Mutex>()
-        val count = MutableStateFlow(0)
         downloadProgress.lastSaved = System.currentTimeMillis()
-        val firstJobs = firstUrls.mapIndexed { index, url ->
-            requestSemaphore.acquire()
-            launch(Dispatchers.IO) {
-                when {
-                    networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
-                        val response = suspendCancellableCoroutine { continuation ->
-                            val timeout = NetworkUtils.HttpEngineTimeout(CRONET_TIMEOUT)
-                            val request = xtraModule.httpEngine.value!!.newUrlRequestBuilder(
-                                url,
-                                xtraModule.cronetExecutor.value,
-                                NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                            ).build()
-                            timeout.start(request, continuation)
-                            request.start()
-                            continuation.invokeOnCancellation {
-                                request.cancel()
-                                timeout.stop()
-                            }
-                        }
-                        val mutex = Mutex()
-                        if (count.value != index) {
-                            mutex.lock()
-                            mutexMap[index] = mutex
-                        }
-                        mutex.withLock {
-                            if (isShared) {
-                                openOutputStream(videoFileUri.toUri(), "wa")
-                            } else {
-                                FileOutputStream(videoFileUri, true)
-                            }.use {
-                                it.write(response.body)
-                            }
-                            downloadProgress.bytes += response.body.size
-                            downloadProgress.lastSegmentUrl += lastUrl
-                        }
-                    }
-                    networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
-                        val response = suspendCancellableCoroutine { continuation ->
-                            val timeout = NetworkUtils.CronetTimeout(CRONET_TIMEOUT)
-                            val request = xtraModule.cronetEngine.value!!.newUrlRequestBuilder(
-                                url,
-                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                xtraModule.cronetExecutor.value
-                            ).build()
-                            timeout.start(request, continuation)
-                            request.start()
-                            continuation.invokeOnCancellation {
-                                request.cancel()
-                                timeout.stop()
-                            }
-                        }
-                        val mutex = Mutex()
-                        if (count.value != index) {
-                            mutex.lock()
-                            mutexMap[index] = mutex
-                        }
-                        mutex.withLock {
-                            if (isShared) {
-                                openOutputStream(videoFileUri.toUri(), "wa")
-                            } else {
-                                FileOutputStream(videoFileUri, true)
-                            }.use {
-                                it.write(response.body)
-                            }
-                            downloadProgress.bytes += response.body.size
-                            downloadProgress.lastSegmentUrl += lastUrl
-                        }
-                    }
-                    else -> {
-                        okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
-                            val mutex = Mutex()
-                            if (count.value != index) {
-                                mutex.lock()
-                                mutexMap[index] = mutex
-                            }
-                            mutex.withLock {
-                                if (isShared) {
-                                    openOutputStream(videoFileUri.toUri(), "wa")
-                                } else {
-                                    FileOutputStream(videoFileUri)
-                                }.use { outputStream ->
-                                    response.body.byteStream().use { inputStream ->
-                                        inputStream.copyTo(outputStream)
-                                    }
-                                    downloadProgress.bytes += response.body.contentLength()
-                                    downloadProgress.lastSegmentUrl += lastUrl
-                                }
-                            }
-                        }
-                    }
+        DownloadIo.forEachParallelOrdered(
+            items = firstUrls,
+            concurrency = 10,
+            fetch = { url -> fetchSegment(url, networkLibrary) },
+            consume = { url, body ->
+                if (isShared) {
+                    openOutputStream(videoFileUri.toUri(), "wa")
+                } else {
+                    FileOutputStream(videoFileUri, true)
+                }.use { outputStream ->
+                    outputStream.write(body)
                 }
+                downloadProgress.bytes += body.size
+                lastUrl = url
+                downloadProgress.lastSegmentUrl = url
                 val currentTime = System.currentTimeMillis()
                 if (currentTime - downloadProgress.lastSaved >= 5000L) {
                     downloadProgress.lastSaved = currentTime
@@ -927,15 +894,13 @@ class StreamDownloadService : LifecycleService() {
                         liveCommentsArrayStarted = downloadProgress.liveCommentsArrayStarted
                     })
                 }
-                count.update { it + 1 }
-                mutexMap.remove(count.value)?.unlock()
-            }.also {
-                it.invokeOnCompletion {
-                    requestSemaphore.release()
-                }
-            }
-        }
-        firstJobs.joinAll()
+            },
+        )
+        xtraModule.offlineVideosRepository.update(offlineVideo.apply {
+            bytes = downloadProgress.bytes
+            lastSegmentUrl = downloadProgress.lastSegmentUrl
+            liveCommentsArrayStarted = downloadProgress.liveCommentsArrayStarted
+        })
         while (true) {
             val playlist = when {
                 networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -998,100 +963,21 @@ class StreamDownloadService : LifecycleService() {
             }
             if (playlist.segments.isNotEmpty()) {
                 val urls = playlist.segments.map { it.uri }.takeLastWhile { it != lastUrl }
-                urls.lastOrNull()?.let { lastUrl = it }
-                val mutexMap = mutableMapOf<Int, Mutex>()
-                val count = MutableStateFlow(0)
-                val jobs = urls.mapIndexed { index, url ->
-                    requestSemaphore.acquire()
-                    launch(Dispatchers.IO) {
-                        when {
-                            networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
-                                val response = suspendCancellableCoroutine { continuation ->
-                                    val timeout = NetworkUtils.HttpEngineTimeout(CRONET_TIMEOUT)
-                                    val request = xtraModule.httpEngine.value!!.newUrlRequestBuilder(
-                                        url,
-                                        xtraModule.cronetExecutor.value,
-                                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                    ).build()
-                                    timeout.start(request, continuation)
-                                    request.start()
-                                    continuation.invokeOnCancellation {
-                                        request.cancel()
-                                        timeout.stop()
-                                    }
-                                }
-                                val mutex = Mutex()
-                                if (count.value != index) {
-                                    mutex.lock()
-                                    mutexMap[index] = mutex
-                                }
-                                mutex.withLock {
-                                    if (isShared) {
-                                        openOutputStream(videoFileUri.toUri(), "wa")
-                                    } else {
-                                        FileOutputStream(videoFileUri, true)
-                                    }.use {
-                                        it.write(response.body)
-                                    }
-                                    downloadProgress.bytes += response.body.size
-                                    downloadProgress.lastSegmentUrl += lastUrl
-                                }
-                            }
-                            networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
-                                val response = suspendCancellableCoroutine { continuation ->
-                                    val timeout = NetworkUtils.CronetTimeout(CRONET_TIMEOUT)
-                                    val request = xtraModule.cronetEngine.value!!.newUrlRequestBuilder(
-                                        url,
-                                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                        xtraModule.cronetExecutor.value
-                                    ).build()
-                                    timeout.start(request, continuation)
-                                    request.start()
-                                    continuation.invokeOnCancellation {
-                                        request.cancel()
-                                        timeout.stop()
-                                    }
-                                }
-                                val mutex = Mutex()
-                                if (count.value != index) {
-                                    mutex.lock()
-                                    mutexMap[index] = mutex
-                                }
-                                mutex.withLock {
-                                    if (isShared) {
-                                        openOutputStream(videoFileUri.toUri(), "wa")
-                                    } else {
-                                        FileOutputStream(videoFileUri, true)
-                                    }.use {
-                                        it.write(response.body)
-                                    }
-                                    downloadProgress.bytes += response.body.size
-                                    downloadProgress.lastSegmentUrl += lastUrl
-                                }
-                            }
-                            else -> {
-                                okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
-                                    val mutex = Mutex()
-                                    if (count.value != index) {
-                                        mutex.lock()
-                                        mutexMap[index] = mutex
-                                    }
-                                    mutex.withLock {
-                                        if (isShared) {
-                                            openOutputStream(videoFileUri.toUri(), "wa")
-                                        } else {
-                                            FileOutputStream(videoFileUri)
-                                        }.use { outputStream ->
-                                            response.body.byteStream().use { inputStream ->
-                                                inputStream.copyTo(outputStream)
-                                            }
-                                            downloadProgress.bytes += response.body.contentLength()
-                                            downloadProgress.lastSegmentUrl += lastUrl
-                                        }
-                                    }
-                                }
-                            }
+                DownloadIo.forEachParallelOrdered(
+                    items = urls,
+                    concurrency = 10,
+                    fetch = { url -> fetchSegment(url, networkLibrary) },
+                    consume = { url, body ->
+                        if (isShared) {
+                            openOutputStream(videoFileUri.toUri(), "wa")
+                        } else {
+                            FileOutputStream(videoFileUri, true)
+                        }.use { outputStream ->
+                            outputStream.write(body)
                         }
+                        downloadProgress.bytes += body.size
+                        lastUrl = url
+                        downloadProgress.lastSegmentUrl = url
                         val currentTime = System.currentTimeMillis()
                         if (currentTime - downloadProgress.lastSaved >= 5000L) {
                             downloadProgress.lastSaved = currentTime
@@ -1102,15 +988,14 @@ class StreamDownloadService : LifecycleService() {
                                 liveCommentsArrayStarted = downloadProgress.liveCommentsArrayStarted
                             })
                         }
-                        count.update { it + 1 }
-                        mutexMap.remove(count.value)?.unlock()
-                    }.also {
-                        it.invokeOnCompletion {
-                            requestSemaphore.release()
-                        }
-                    }
-                }
-                jobs.joinAll()
+                    },
+                )
+                xtraModule.offlineVideosRepository.update(offlineVideo.apply {
+                    bytes = downloadProgress.bytes
+                    chatBytes = downloadProgress.chatBytes
+                    lastSegmentUrl = downloadProgress.lastSegmentUrl
+                    liveCommentsArrayStarted = downloadProgress.liveCommentsArrayStarted
+                })
                 if (playlist.end) {
                     return@withContext
                 }
@@ -1308,8 +1193,7 @@ class StreamDownloadService : LifecycleService() {
                     try {
                         val response = xtraModule.playerRepository.loadGlobalSTVEmoteSetResponse(networkLibrary)
                         val emotes = xtraModule.playerRepository.loadSTVEmoteSet(response, useWebp, true).second
-                        emoteList.addAll(emotes)
-                        emoteList.sortBy { it.source }
+                        synchronized(emoteList) { emoteList.addAll(emotes) }
                     } catch (e: Exception) {
 
                     }
@@ -1318,8 +1202,7 @@ class StreamDownloadService : LifecycleService() {
                     try {
                         val response = xtraModule.playerRepository.loadGlobalBTTVEmotesResponse(networkLibrary)
                         val emotes = xtraModule.playerRepository.loadGlobalBTTVEmotes(response, useWebp)
-                        emoteList.addAll(emotes)
-                        emoteList.sortBy { it.source }
+                        synchronized(emoteList) { emoteList.addAll(emotes) }
                     } catch (e: Exception) {
 
                     }
@@ -1328,8 +1211,7 @@ class StreamDownloadService : LifecycleService() {
                     try {
                         val response = xtraModule.playerRepository.loadGlobalFFZEmotesResponse(networkLibrary)
                         val emotes = xtraModule.playerRepository.loadGlobalFFZEmotes(response, useWebp)
-                        emoteList.addAll(emotes)
-                        emoteList.sortBy { it.source }
+                        synchronized(emoteList) { emoteList.addAll(emotes) }
                     } catch (e: Exception) {
 
                     }
@@ -1350,8 +1232,7 @@ class StreamDownloadService : LifecycleService() {
                                     emoteSet.second
                                 } else emptyList()
                             }
-                            emoteList.addAll(emotes)
-                            emoteList.sortBy { it.source }
+                            synchronized(emoteList) { emoteList.addAll(emotes) }
                         } catch (e: Exception) {
 
                         }
@@ -1360,8 +1241,7 @@ class StreamDownloadService : LifecycleService() {
                         try {
                             val response = xtraModule.playerRepository.loadBTTVEmotesResponse(networkLibrary, channelId)
                             val emotes = xtraModule.playerRepository.loadBTTVEmotes(response, useWebp)
-                            emoteList.addAll(emotes)
-                            emoteList.sortBy { it.source }
+                            synchronized(emoteList) { emoteList.addAll(emotes) }
                         } catch (e: Exception) {
 
                         }
@@ -1370,8 +1250,7 @@ class StreamDownloadService : LifecycleService() {
                         try {
                             val response = xtraModule.playerRepository.loadFFZEmotesResponse(networkLibrary, channelId)
                             val emotes = xtraModule.playerRepository.loadFFZEmotes(response, useWebp)
-                            emoteList.addAll(emotes)
-                            emoteList.sortBy { it.source }
+                            synchronized(emoteList) { emoteList.addAll(emotes) }
                         } catch (e: Exception) {
 
                         }
@@ -1395,6 +1274,7 @@ class StreamDownloadService : LifecycleService() {
                 }
             }
             jobs.joinAll()
+            emoteList.sortBy { it.source }
         }
         var position = downloadProgress.chatBytes
         val savedTwitchEmotes = mutableListOf<String>()
@@ -1408,9 +1288,7 @@ class StreamDownloadService : LifecycleService() {
                     }
                 }
             } else {
-                FileOutputStream(fileUri).use { output ->
-                    output.channel.truncate(downloadProgress.chatBytes)
-                }
+                DownloadIo.resizeLocalFile(fileUri, downloadProgress.chatBytes)
             }
             if (isShared) {
                 openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
@@ -1534,9 +1412,7 @@ class StreamDownloadService : LifecycleService() {
                     }
                 }
             } else {
-                FileOutputStream(fileUri).use { output ->
-                    output.channel.truncate(downloadProgress.chatBytes)
-                }
+                DownloadIo.resizeLocalFile(fileUri, downloadProgress.chatBytes)
             }
         } else {
             if (isShared) {

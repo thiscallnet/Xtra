@@ -40,14 +40,20 @@ object ReleaseParser {
                 size = asset["size"]?.jsonPrimitive?.longOrNull,
             )
         } ?: return ReleaseParseResult.Failure(UpdateError.UnexpectedResponse)
-        val expectedVersionCode = response[RELEASE_METADATA_RESPONSE_KEY]?.let { metadataElement ->
-            val metadata = runCatching { metadataElement.jsonObject }.getOrNull()
+        val metadata = response[RELEASE_METADATA_RESPONSE_KEY]?.let { metadataElement ->
+            runCatching { metadataElement.jsonObject }.getOrNull()
                 ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
+        }
+        val expectedVersionCode = metadata?.let {
             val metadataVersionName = metadata.string("versionName")
             if (metadataVersionName != null && metadataVersionName != versionName) {
                 return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
             }
             metadata["versionCode"]?.jsonPrimitive?.longOrNull?.takeIf { it > 0L }
+                ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
+        }
+        val expectedSha256 = metadata?.string("sha256")?.let { digest ->
+            digest.lowercase().takeIf { it.matches(Regex("^[0-9a-f]{64}$")) }
                 ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
         }
         val body = response.string("body").orEmpty().trim()
@@ -65,6 +71,7 @@ object ReleaseParser {
             prerelease = response.boolean("prerelease") ?: false,
             draft = response.boolean("draft") ?: false,
             expectedVersionCode = expectedVersionCode,
+            expectedSha256 = expectedSha256,
         )
         return ReleaseParseResult.Success(release)
     }

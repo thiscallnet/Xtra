@@ -41,6 +41,7 @@ import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
 import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
 import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
+import com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -238,7 +239,35 @@ class XtraModule(application: Application) {
     }
 
     val database by lazy {
-        Room.databaseBuilder(application, AppDatabase::class.java, "database").apply {
+        // Recover any interrupted file swap before Room can create a missing
+        // database path and accidentally discard both restore candidates.
+        DatabaseRestoreRecovery.recoverBeforeDatabaseOpen(application)
+        val pendingRestore = DatabaseRestoreRecovery.hasPendingRestore(application)
+        val candidate = try {
+            buildDatabase(application)
+        } catch (error: Exception) {
+            if (!pendingRestore) throw error
+            DatabaseRestoreRecovery.rollback(application)
+            buildDatabase(application)
+        }
+        if (!pendingRestore) {
+            candidate
+        } else {
+            try {
+                // Opening the database forces Room's complete schema validation
+                // before the retained pre-restore files are discarded.
+                candidate.openHelper.writableDatabase
+                DatabaseRestoreRecovery.complete(application)
+                candidate
+            } catch (error: Exception) {
+                candidate.close()
+                DatabaseRestoreRecovery.rollback(application)
+                buildDatabase(application)
+            }
+        }
+    }
+
+    private fun buildDatabase(application: Application): AppDatabase = Room.databaseBuilder(application, AppDatabase::class.java, "database").apply {
             addMigrations(
                 Migration(9, 10) { db ->
                     db.execSQL("DELETE FROM emotes")
@@ -388,7 +417,7 @@ class XtraModule(application: Application) {
                 },
                 Migration(34, 35) { db ->
                     db.execSQL("CREATE TABLE IF NOT EXISTS videos1 (url TEXT, source_url TEXT, source_start_position INTEGER, name TEXT, channel_id TEXT, channel_login TEXT, channel_name TEXT, channel_logo TEXT, thumbnail TEXT, gameId TEXT, gameSlug TEXT, gameName TEXT, duration INTEGER, upload_date INTEGER, download_date INTEGER, last_watch_position INTEGER, progress INTEGER NOT NULL, max_progress INTEGER NOT NULL, bytes INTEGER NOT NULL, downloadPath TEXT, fromTime INTEGER, toTime INTEGER, status INTEGER NOT NULL, type TEXT, videoId TEXT, clipId TEXT, quality TEXT, downloadChat INTEGER NOT NULL, downloadChatEmotes INTEGER NOT NULL, chatProgress INTEGER NOT NULL, maxChatProgress INTEGER NOT NULL, chatBytes INTEGER NOT NULL, chatOffsetSeconds INTEGER NOT NULL, chatUrl TEXT, playlistToFile INTEGER NOT NULL, live INTEGER NOT NULL, lastSegmentUrl TEXT, liveCommentsArrayStarted INTEGER NOT NULL, id INTEGER NOT NULL, PRIMARY KEY (id))")
-                    db.execSQL("INSERT INTO videos1 (url, source_url, source_start_position, name, channel_id, channel_login, channel_name, channel_logo, thumbnail, gameId, gameSlug, gameName, duration, upload_date, download_date, last_watch_position, progress, max_progress, bytes, downloadPath, fromTime, toTime, status, type, videoId, quality, downloadChat, downloadChatEmotes, chatProgress, maxChatProgress, chatBytes, chatOffsetSeconds, chatUrl, playlistToFile, live, lastSegmentUrl, liveCommentsArrayStarted, id) SELECT url, source_url, source_start_position, name, channel_id, channel_login, channel_name, channel_logo, thumbnail, gameId, gameSlug, gameName, duration, upload_date, download_date, last_watch_position, progress, max_progress, max_progress, downloadPath, fromTime, toTime, status, type, videoId, quality, downloadChat, downloadChatEmotes, chatProgress, maxChatProgress, chatBytes, chatOffsetSeconds, chatUrl, playlistToFile, live, lastSegmentUrl, 0, id FROM videos")
+                    db.execSQL("INSERT INTO videos1 (url, source_url, source_start_position, name, channel_id, channel_login, channel_name, channel_logo, thumbnail, gameId, gameSlug, gameName, duration, upload_date, download_date, last_watch_position, progress, max_progress, bytes, downloadPath, fromTime, toTime, status, type, videoId, quality, downloadChat, downloadChatEmotes, chatProgress, maxChatProgress, chatBytes, chatOffsetSeconds, chatUrl, playlistToFile, live, lastSegmentUrl, liveCommentsArrayStarted, id) SELECT url, source_url, source_start_position, name, channel_id, channel_login, channel_name, channel_logo, thumbnail, gameId, gameSlug, gameName, duration, upload_date, download_date, last_watch_position, progress, max_progress, bytes, downloadPath, fromTime, toTime, status, type, videoId, quality, downloadChat, downloadChatEmotes, chatProgress, maxChatProgress, chatBytes, chatOffsetSeconds, chatUrl, playlistToFile, live, lastSegmentUrl, 0, id FROM videos")
                     db.execSQL("DROP TABLE videos")
                     db.execSQL("ALTER TABLE videos1 RENAME TO videos")
                 },
@@ -452,9 +481,22 @@ class XtraModule(application: Application) {
                         )
                     """.trimIndent())
                 },
+                Migration(48, 49) { db ->
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_videos_url ON videos(url)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_videos_status ON videos(status)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_videos_videoId ON videos(videoId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_videos_channel_id ON videos(channel_id)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_video_history_updatedAt ON video_history(updatedAt)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_video_history_channelId ON video_history(channelId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_recent_search_type_lastSearched ON recent_search(type, lastSearched)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_recent_search_query_type ON recent_search(query, type)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_bookmarks_videoId ON bookmarks(videoId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_bookmarks_userId ON bookmarks(userId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_notification_events_channelId ON notification_events(channelId)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_notification_events_queuedAt ON notification_events(queuedAt)")
+                },
             )
         }.build()
-    }
 
     val authRepository by lazy {
         AuthRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json)
