@@ -942,6 +942,11 @@
     <string name="settings_control_group_quick">快速控件</string>
     <string name="settings_control_group_menu">更多菜单</string>
     <string name="settings_control_group_hidden">隐藏</string>
+    <string name="settings_control_region_top_left">Top left</string>
+    <string name="settings_control_region_top_right">Top right</string>
+    <string name="settings_control_region_bottom_left">Bottom left</string>
+    <string name="settings_control_region_bottom_right">Bottom right</string>
+    <string name="settings_control_region_more_menu">More menu area</string>
     <string name="settings_player_mode">播放器模式</string>
     <string name="settings_developer_enabled">启用开发者选项</string>
     <string name="settings_developer_unlocking">%d 更多点击以启用开发者选项</string>

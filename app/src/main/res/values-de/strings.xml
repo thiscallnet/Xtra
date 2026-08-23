@@ -942,6 +942,11 @@
     <string name="settings_control_group_quick">Schnellsteuerung</string>
     <string name="settings_control_group_menu">Menü „Mehr“</string>
     <string name="settings_control_group_hidden">Ausgeblendet</string>
+    <string name="settings_control_region_top_left">Top left</string>
+    <string name="settings_control_region_top_right">Top right</string>
+    <string name="settings_control_region_bottom_left">Bottom left</string>
+    <string name="settings_control_region_bottom_right">Bottom right</string>
+    <string name="settings_control_region_more_menu">More menu area</string>
     <string name="settings_player_mode">Player-Modus</string>
     <string name="settings_developer_enabled">Entwickleroptionen aktivieren</string>
     <string name="settings_developer_unlocking">%d weitere Fingertipps, um Entwickleroptionen zu aktivieren</string>

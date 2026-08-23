@@ -942,6 +942,11 @@
     <string name="settings_control_group_quick">Contrôles rapides</string>
     <string name="settings_control_group_menu">Plus de menu</string>
     <string name="settings_control_group_hidden">Masqué</string>
+    <string name="settings_control_region_top_left">Top left</string>
+    <string name="settings_control_region_top_right">Top right</string>
+    <string name="settings_control_region_bottom_left">Bottom left</string>
+    <string name="settings_control_region_bottom_right">Bottom right</string>
+    <string name="settings_control_region_more_menu">More menu area</string>
     <string name="settings_player_mode">Mode lecteur</string>
     <string name="settings_developer_enabled">Activer les options de développement</string>
     <string name="settings_developer_unlocking">%d autres pressions pour activer les options de développeur</string>

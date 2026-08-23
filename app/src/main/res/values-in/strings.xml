@@ -943,6 +943,11 @@
     <string name="settings_control_group_quick">Kontrol cepat</string>
     <string name="settings_control_group_menu">Menu lainnya</string>
     <string name="settings_control_group_hidden">Tersembunyi</string>
+    <string name="settings_control_region_top_left">Top left</string>
+    <string name="settings_control_region_top_right">Top right</string>
+    <string name="settings_control_region_bottom_left">Bottom left</string>
+    <string name="settings_control_region_bottom_right">Bottom right</string>
+    <string name="settings_control_region_more_menu">More menu area</string>
     <string name="settings_player_mode">Mode pemutar</string>
     <string name="settings_developer_enabled">Aktifkan opsi pengembang</string>
     <string name="settings_developer_unlocking">%d ketuk lagi untuk mengaktifkan Opsi pengembang</string>

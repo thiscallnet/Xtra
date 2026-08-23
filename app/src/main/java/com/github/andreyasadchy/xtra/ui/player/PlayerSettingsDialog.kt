@@ -14,6 +14,8 @@ import androidx.media3.common.Tracks
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.PlayerSettingsBinding
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.PlayerControlLayout
+import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.isChatEnabled
@@ -248,7 +250,41 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 }
             }
         }
+        reorderMenuItems()
         setMenuTextColor(view)
+    }
+
+    private fun reorderMenuItems() {
+        val preferences = requireContext().prefs()
+        val order = PlayerControlLayout.orderedActions(
+            preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
+            SettingsMigration.defaultControlLayout(),
+        )
+        with(binding) {
+            PlayerControlLayout.reorderChildren(
+                menuContainer,
+                order,
+                mapOf(
+                    "quality" to menuQuality,
+                    "speed" to menuSpeed,
+                    "viewers" to menuViewerList,
+                    "chapters" to menuVodGames,
+                    "download" to menuDownload,
+                    "bookmark" to menuBookmark,
+                    "share" to menuShare,
+                    "find_vod" to menuFindVod,
+                    "sleep" to menuTimer,
+                    "aspect" to menuRatio,
+                    "volume" to menuVolume,
+                    "subtitles" to menuSubtitles,
+                    "restart" to menuRestart,
+                    "chat_input" to menuChatBar,
+                    "chat" to menuChatToggle,
+                    "reload_emotes" to menuReloadEmotes,
+                    "disconnect_chat" to menuChatDisconnect,
+                ),
+            )
+        }
     }
 
     private fun setMenuTextColor(view: View) {
