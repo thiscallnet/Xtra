@@ -1410,4 +1410,18 @@
     <string name="update_frequency_daily">Unha vez ao día</string>
     <string name="update_frequency_3_days">Cada 3 días</string>
     <string name="update_frequency_weekly">Unha vez á semana</string>
+    <string name="settings_customize_controls_help">Arrastra un control a unha esquina ou bordo. Tócao para alternar entre o reprodutor, o menú Máis e ocultalo.</string>
+    <string name="settings_customize_controls_selected">Seleccionado: %1$s</string>
+    <string name="settings_customize_controls_selected_none">Selecciona un control para ver a súa posición actual.</string>
+    <string name="settings_customize_controls_reset">Restablecer disposición</string>
+    <string name="settings_customize_controls_empty">Non hai nada aquí</string>
+    <string name="settings_customize_controls_enable">Amosar %1$s no reprodutor</string>
+    <string name="settings_customize_controls_enable_menu">Amosar %1$s no menú Máis</string>
+    <string name="settings_customize_controls_hide">Ocultar %1$s</string>
+    <string name="settings_customize_controls_preview_description">Vista previa dun reprodutor simulado. Arrastra os botóns de control visibles para recolocalos.</string>
+    <string name="settings_customize_controls_snap_hint">Solta para axustar</string>
+    <string name="settings_customize_controls_drag_action">Arrastra ou toca %1$s</string>
+    <string name="settings_layout_preview">Vista previa</string>
+    <string name="settings_tabs_preview_help">A vista previa segue a orde e visibilidade que aparecen abaixo.</string>
+    <string name="settings_sections_preview_help">A vista previa mostra as seccións visibles na súa orde actual.</string>
 </resources>

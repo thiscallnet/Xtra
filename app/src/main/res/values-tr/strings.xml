@@ -1411,4 +1411,18 @@
     <string name="update_frequency_daily">Günde bir kez</string>
     <string name="update_frequency_3_days">3 günde bir</string>
     <string name="update_frequency_weekly">Haftada bir</string>
+    <string name="settings_customize_controls_help">Bir kontrolü köşeye veya kenara sürükleyin. Oynatıcı, Diğer menüsü ve gizli arasında geçiş yapmak için dokunun.</string>
+    <string name="settings_customize_controls_selected">Seçili: %1$s</string>
+    <string name="settings_customize_controls_selected_none">Geçerli konumunu görmek için bir kontrol seçin.</string>
+    <string name="settings_customize_controls_reset">Düzeni sıfırla</string>
+    <string name="settings_customize_controls_empty">Burada hiçbir şey yok</string>
+    <string name="settings_customize_controls_enable">%1$s oynatıcıda göster</string>
+    <string name="settings_customize_controls_enable_menu">%1$s Diğer menüsünde göster</string>
+    <string name="settings_customize_controls_hide">%1$s gizle</string>
+    <string name="settings_customize_controls_preview_description">Sahte oynatıcı önizlemesi. Görünen kontrol düğmelerini sürükleyerek yeniden konumlandırın.</string>
+    <string name="settings_customize_controls_snap_hint">Mıknatıslamak için bırakın</string>
+    <string name="settings_customize_controls_drag_action">%1$s sürükleyin veya dokunun</string>
+    <string name="settings_layout_preview">Önizleme</string>
+    <string name="settings_tabs_preview_help">Önizleme, aşağıdaki sırayı ve görünürlüğü izler.</string>
+    <string name="settings_sections_preview_help">Önizleme, görünür bölümleri geçerli sıralarında gösterir.</string>
 </resources>

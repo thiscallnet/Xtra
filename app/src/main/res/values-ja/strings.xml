@@ -1410,4 +1410,18 @@
     <string name="update_frequency_daily">1日1回</string>
     <string name="update_frequency_3_days">3日ごと</string>
     <string name="update_frequency_weekly">週1回</string>
+    <string name="settings_customize_controls_help">コントロールを隅または端へドラッグします。タップするとプレーヤー、その他メニュー、非表示を切り替えます。</string>
+    <string name="settings_customize_controls_selected">選択中: %1$s</string>
+    <string name="settings_customize_controls_selected_none">現在の位置を確認するコントロールを選択してください。</string>
+    <string name="settings_customize_controls_reset">レイアウトをリセット</string>
+    <string name="settings_customize_controls_empty">ここにはありません</string>
+    <string name="settings_customize_controls_enable">プレーヤーに%1$sを表示</string>
+    <string name="settings_customize_controls_enable_menu">その他メニューに%1$sを表示</string>
+    <string name="settings_customize_controls_hide">%1$sを非表示</string>
+    <string name="settings_customize_controls_preview_description">プレーヤーのプレビューです。表示中のコントロールボタンをドラッグして移動できます。</string>
+    <string name="settings_customize_controls_snap_hint">離してスナップ</string>
+    <string name="settings_customize_controls_drag_action">%1$sをドラッグまたはタップ</string>
+    <string name="settings_layout_preview">プレビュー</string>
+    <string name="settings_tabs_preview_help">プレビューには下の順序と表示状態が反映されます。</string>
+    <string name="settings_sections_preview_help">プレビューには現在の順序で表示されるセクションが表示されます。</string>
 </resources>

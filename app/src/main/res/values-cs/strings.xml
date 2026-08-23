@@ -1434,4 +1434,18 @@
     <string name="update_frequency_daily">Jednou denně</string>
     <string name="update_frequency_3_days">Každé 3 dny</string>
     <string name="update_frequency_weekly">Jednou týdně</string>
+    <string name="settings_customize_controls_help">Přetáhněte ovládací prvek do rohu nebo na okraj. Klepnutím přepnete mezi přehrávačem, nabídkou Více a skrytím.</string>
+    <string name="settings_customize_controls_selected">Vybráno: %1$s</string>
+    <string name="settings_customize_controls_selected_none">Vyberte ovládací prvek a zobrazte jeho aktuální pozici.</string>
+    <string name="settings_customize_controls_reset">Obnovit rozložení</string>
+    <string name="settings_customize_controls_empty">Nic zde není</string>
+    <string name="settings_customize_controls_enable">Zobrazit %1$s v přehrávači</string>
+    <string name="settings_customize_controls_enable_menu">Zobrazit %1$s v nabídce Více</string>
+    <string name="settings_customize_controls_hide">Skrýt %1$s</string>
+    <string name="settings_customize_controls_preview_description">Náhled fiktivního přehrávače. Přetažením viditelných ovládacích tlačítek je přemístíte.</string>
+    <string name="settings_customize_controls_snap_hint">Uvolněním přichytíte</string>
+    <string name="settings_customize_controls_drag_action">Přetažení nebo klepnutí na %1$s</string>
+    <string name="settings_layout_preview">Náhled</string>
+    <string name="settings_tabs_preview_help">Náhled sleduje pořadí a viditelnost níže.</string>
+    <string name="settings_sections_preview_help">Náhled zobrazuje viditelné police v aktuálním pořadí.</string>
 </resources>

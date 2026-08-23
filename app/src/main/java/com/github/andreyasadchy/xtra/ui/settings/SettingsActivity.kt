@@ -28,6 +28,7 @@ import android.view.View
 import android.view.WindowManager
 import android.view.ViewGroup
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.DrawableRes
@@ -90,6 +91,7 @@ import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationService
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.SettingsViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.XtraApp
@@ -255,11 +257,23 @@ class SettingsActivity : AppCompatActivity() {
         showDefaultSelector: Boolean = true,
     ) {
         val listAdapter = SettingsDragListAdapter()
+        val preview = when (prefKey) {
+            C.UI_NAVIGATION_TAB_LIST -> SettingsLayoutPreview(this, list, SettingsLayoutPreview.Mode.NAVIGATION)
+            C.UI_FOLLOWING_TABS,
+            C.UI_SAVED_TABS,
+            C.UI_CHANNEL_TABS,
+            C.UI_GAME_TABS,
+            C.UI_SEARCH_TABS,
+            -> SettingsLayoutPreview(this, list, SettingsLayoutPreview.Mode.TABS)
+            C.UI_FOLLOWING_OVERVIEW_SECTIONS -> SettingsLayoutPreview(this, list, SettingsLayoutPreview.Mode.SECTIONS)
+            else -> null
+        }
         val itemTouchHelper = ItemTouchHelper(
             object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
                 override fun onMove(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
                     Collections.swap(list, viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
                     listAdapter.notifyItemMoved(viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
+                    preview?.refresh()
                     return true
                 }
 
@@ -289,13 +303,40 @@ class SettingsActivity : AppCompatActivity() {
                     }
                 }
                 item.default = true
+                preview?.refresh()
             }
         }
+        listAdapter.onItemChanged = { preview?.refresh() }
         itemTouchHelper.attachToRecyclerView(recyclerView)
         listAdapter.submitList(list)
+        val dialogView = preview?.let { layoutPreview ->
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(
+                    layoutPreview,
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply {
+                        bottomMargin = TypedValue.applyDimension(
+                            TypedValue.COMPLEX_UNIT_DIP,
+                            6F,
+                            resources.displayMetrics,
+                        ).toInt()
+                    },
+                )
+                addView(
+                    recyclerView,
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        (resources.displayMetrics.heightPixels * 0.34f).toInt(),
+                    ),
+                )
+            }
+        } ?: recyclerView
         getAlertDialogBuilder()
             .setTitle(title)
-            .setView(recyclerView)
+            .setView(dialogView)
             .setPositiveButton(getString(android.R.string.ok)) { _, _ ->
                 prefs().edit {
                     putString(prefKey, listAdapter.currentList.joinToString(",") {
@@ -2373,214 +2414,53 @@ class SettingsActivity : AppCompatActivity() {
 
         private fun showControlLayoutDialog() {
             val preferences = requireContext().prefs()
-            val serialized = preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null)
-                ?.takeIf { it.isNotBlank() }
-                ?: SettingsMigration.defaultControlLayout()
-            val items = serialized
-                .split(',')
-                .filter { it.contains(':') }
-                .map { item ->
-                    val parts = item.split(':')
-                    val action = parts[0]
-                    val requestedGroup = parts.getOrNull(1)?.takeIf { it in setOf("quick", "menu", "hidden") } ?: "hidden"
-                    val group = if (requestedGroup == "menu" && controlMenuKey(action) == null) {
-                        "hidden"
-                    } else {
-                        requestedGroup
-                    }
-                    SettingsDragListItem(
-                        key = action,
-                        text = formatControlText(action, group),
-                        default = false,
-                        enabled = group != "hidden",
-                        group = group,
-                    )
-                }
-                .toMutableList()
-            if (items.none { it.key == "clip" }) {
-                items += SettingsDragListItem(
-                    key = "clip",
-                    text = formatControlText("clip", "quick"),
-                    default = false,
-                    enabled = true,
-                    group = "quick",
-                )
-            }
-            items.sortBy { controlRegion(it.key, it.group) }
-            val listAdapter = SettingsDragListAdapter()
-            val itemTouchHelper = ItemTouchHelper(
-                object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
-                    override fun onMove(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
-                        val from = viewHolder.bindingAdapterPosition
-                        val to = target.bindingAdapterPosition
-                        if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
-                        if (controlRegion(items[from].key, items[from].group) != controlRegion(items[to].key, items[to].group)) {
-                            return false
-                        }
-                        Collections.swap(items, from, to)
-                        listAdapter.notifyItemMoved(from, to)
-                        return true
-                    }
-
-                    override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) = Unit
-
-                    override fun isLongPressDragEnabled(): Boolean = false
-                }
+            val items = PlayerControlLayout.controlPlacements(
+                preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
+                SettingsMigration.defaultControlLayout(),
             )
-            listAdapter.itemTouchHelper = itemTouchHelper
-            listAdapter.cycleGroup = { item ->
-                item.group = when (item.group) {
-                    "quick" -> if (controlMenuKey(item.key) == null) "hidden" else "menu"
-                    "menu" -> "hidden"
-                    else -> "quick"
-                }
-                item.enabled = item.group != "hidden"
-                item.text = formatControlText(item.key, item.group)
-                items.sortBy { controlRegion(it.key, it.group) }
-                listAdapter.notifyDataSetChanged()
-            }
-            val recyclerView = RecyclerView(requireContext()).apply {
-                layoutManager = LinearLayoutManager(requireContext())
-                adapter = listAdapter
-                val padding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10F, resources.displayMetrics).toInt()
-                setPadding(0, padding, 0, 0)
-            }
-            val listContainer = android.widget.FrameLayout(requireContext()).apply {
-                addView(
-                    recyclerView,
-                    android.widget.FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        (resources.displayMetrics.heightPixels * 0.42f).toInt(),
-                    ),
-                )
-            }
-            itemTouchHelper.attachToRecyclerView(recyclerView)
-            listAdapter.submitList(items)
+            val editor = PlayerControlLayoutEditor(
+                context = requireContext(),
+                initialItems = items,
+                labelFor = ::controlTitle,
+            )
             requireActivity().getAlertDialogBuilder()
                 .setTitle(R.string.settings_customize_controls)
-                .setMessage("Drag to reorder within each player area. Each row shows its area. Tap the group button to cycle Quick controls, More menu and Hidden.")
-                .setView(listContainer)
+                .setView(editor)
                 .setPositiveButton(android.R.string.ok) { _, _ ->
-                    val serialized = items.joinToString(",") { "${it.key}:${it.group}" }
+                    val serialized = editor.serializedLayout()
                     preferences.edit { putString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, serialized) }
-                    syncLegacyControlVisibility(preferences, items.map { "${it.key}:${it.group}" })
+                    SettingsMigration.syncLegacyControlVisibility(preferences, serialized)
                 }
+                .setNegativeButton(android.R.string.cancel, null)
                 .show()
         }
 
-        private fun controlMenuKey(action: String): String? = when (action) {
-            "download" -> C.PLAYER_MENU_DOWNLOAD
-            "quality" -> C.PLAYER_MENU_QUALITY
-            "speed" -> C.PLAYER_MENU_SPEED
-            "chapters" -> C.PLAYER_MENU_GAMES
-            "restart" -> C.PLAYER_MENU_RESTART
-            "volume" -> C.PLAYER_MENU_VOLUME
-            "subtitles" -> C.PLAYER_MENU_SUBTITLES
-            "chat_input" -> C.PLAYER_MENU_CHAT_BAR
-            "chat" -> C.PLAYER_MENU_CHAT_TOGGLE
-            "viewers" -> C.PLAYER_MENU_VIEWER_LIST
-            "bookmark" -> C.PLAYER_MENU_BOOKMARK
-            "share" -> C.PLAYER_MENU_SHARE
-            "find_vod" -> C.PLAYER_MENU_FIND_VOD
-            "sleep" -> C.PLAYER_MENU_SLEEP
-            "aspect" -> C.PLAYER_MENU_ASPECT
-            "reload_emotes" -> C.PLAYER_MENU_RELOAD_EMOTES
-            "disconnect_chat" -> C.PLAYER_MENU_CHAT_DISCONNECT
-            else -> null
-        }
-
-        private fun controlRegion(action: String, group: String): Int = when {
-            group == "menu" -> 4
-            action == "minimize" -> 0
-            action in setOf("download", "follow", "quality", "speed", "sleep", "aspect") -> 1
-            action in setOf("chapters", "restart", "live", "clip", "volume", "compressor", "mode") -> 2
-            action in setOf("subtitles", "chat_input", "chat", "fullscreen") -> 3
-            else -> 4
-        }
-
-        private fun controlRegionTitle(region: Int): String = getString(when (region) {
-            0 -> R.string.settings_control_region_top_left
-            1 -> R.string.settings_control_region_top_right
-            2 -> R.string.settings_control_region_bottom_left
-            3 -> R.string.settings_control_region_bottom_right
-            else -> R.string.settings_control_region_more_menu
-        })
-
-        private fun formatControlText(action: String, group: String): String {
-            val title = when (action) {
-                "minimize" -> getString(R.string.player_minimize)
-                "download" -> getString(R.string.player_download)
-                "follow" -> getString(R.string.player_follow)
-                "quality" -> getString(R.string.player_quality)
-                "speed" -> getString(R.string.player_playback_speed)
-                "chapters" -> getString(R.string.player_vod_games)
-                "restart" -> getString(R.string.player_restart)
-                "live" -> getString(R.string.player_seek_live)
-                "clip" -> getString(R.string.player_clip)
-                "volume" -> getString(R.string.player_volume)
-                "compressor" -> getString(R.string.player_audio_compressor)
-                "mode" -> getString(R.string.settings_player_mode)
-                "subtitles" -> getString(R.string.player_subtitles)
-                "chat_input" -> getString(R.string.player_chat_input)
-                "chat" -> getString(R.string.player_show_chat)
-                "fullscreen" -> getString(R.string.fullscreen)
-                "viewers" -> getString(R.string.viewer_list)
-                "bookmark" -> getString(R.string.bookmark)
-                "share" -> getString(R.string.share)
-                "find_vod" -> getString(R.string.find_unlisted_video)
-                "sleep" -> getString(R.string.sleep_timer)
-                "aspect" -> getString(R.string.aspect_ratio)
-                "reload_emotes" -> getString(R.string.reload_emotes)
-                "disconnect_chat" -> getString(R.string.disconnect_chat)
-                else -> action
-            }
-            val groupTitle = getString(when (group) {
-                "quick" -> R.string.settings_control_group_quick
-                "menu" -> R.string.settings_control_group_menu
-                else -> R.string.settings_control_group_hidden
-            })
-            return "$title — $groupTitle · ${controlRegionTitle(controlRegion(action, group))}"
-        }
-
-        private fun syncLegacyControlVisibility(preferences: android.content.SharedPreferences, items: List<String>) {
-            val actionKeys = mapOf(
-                "minimize" to (C.PLAYER_MINIMIZE to null),
-                "download" to (C.PLAYER_DOWNLOAD to C.PLAYER_MENU_DOWNLOAD),
-                "follow" to (C.PLAYER_FOLLOW to null),
-                "quality" to (C.PLAYER_SETTINGS to C.PLAYER_MENU_QUALITY),
-                "speed" to (C.PLAYER_SPEED_BUTTON to C.PLAYER_MENU_SPEED),
-                "chapters" to (C.PLAYER_GAMES_BUTTON to C.PLAYER_MENU_GAMES),
-                "restart" to (C.PLAYER_RESTART to C.PLAYER_MENU_RESTART),
-                "live" to (C.PLAYER_SEEK_LIVE to null),
-                "clip" to (C.PLAYER_CLIP_BUTTON to null),
-                "volume" to (C.PLAYER_VOLUME_BUTTON to C.PLAYER_MENU_VOLUME),
-                "compressor" to (C.PLAYER_AUDIO_COMPRESSOR_BUTTON to null),
-                "mode" to (C.PLAYER_MODE to null),
-                "subtitles" to (C.PLAYER_SUBTITLES to C.PLAYER_MENU_SUBTITLES),
-                "chat_input" to (C.PLAYER_CHAT_BAR_TOGGLE to C.PLAYER_MENU_CHAT_BAR),
-                "chat" to (C.PLAYER_CHAT_TOGGLE to C.PLAYER_MENU_CHAT_TOGGLE),
-                "fullscreen" to (C.PLAYER_FULLSCREEN to null),
-                "viewers" to (C.PLAYER_VIEWER_LIST to C.PLAYER_MENU_VIEWER_LIST),
-                "bookmark" to (null to C.PLAYER_MENU_BOOKMARK),
-                "share" to (null to C.PLAYER_MENU_SHARE),
-                "find_vod" to (null to C.PLAYER_MENU_FIND_VOD),
-                "sleep" to (C.PLAYER_SLEEP to C.PLAYER_MENU_SLEEP),
-                "aspect" to (C.PLAYER_ASPECT to C.PLAYER_MENU_ASPECT),
-                "reload_emotes" to (null to C.PLAYER_MENU_RELOAD_EMOTES),
-                "disconnect_chat" to (null to C.PLAYER_MENU_CHAT_DISCONNECT),
-            )
-            val groups = items.associate { item ->
-                val parts = item.split(':')
-                parts[0] to (parts.getOrNull(1) ?: "hidden")
-            }
-            preferences.edit {
-                actionKeys.forEach { (action, keys) ->
-                    val group = groups[action]
-                    keys.first?.let { putBoolean(it, group == "quick") }
-                    keys.second?.let { putBoolean(it, group == "menu") }
-                }
-                putBoolean(C.PLAYER_MENU, groups.values.any { it == "menu" })
-            }
+        private fun controlTitle(action: String): String = when (action) {
+            "minimize" -> getString(R.string.player_minimize)
+            "download" -> getString(R.string.player_download)
+            "follow" -> getString(R.string.player_follow)
+            "quality" -> getString(R.string.player_quality)
+            "speed" -> getString(R.string.player_playback_speed)
+            "chapters" -> getString(R.string.player_vod_games)
+            "restart" -> getString(R.string.player_restart)
+            "live" -> getString(R.string.player_seek_live)
+            "clip" -> getString(R.string.player_clip)
+            "volume" -> getString(R.string.player_volume)
+            "compressor" -> getString(R.string.player_audio_compressor)
+            "mode" -> getString(R.string.settings_player_mode)
+            "subtitles" -> getString(R.string.player_subtitles)
+            "chat_input" -> getString(R.string.player_chat_input)
+            "chat" -> getString(R.string.player_show_chat)
+            "fullscreen" -> getString(R.string.fullscreen)
+            "viewers" -> getString(R.string.viewer_list)
+            "bookmark" -> getString(R.string.bookmark)
+            "share" -> getString(R.string.share)
+            "find_vod" -> getString(R.string.find_unlisted_video)
+            "sleep" -> getString(R.string.sleep_timer)
+            "aspect" -> getString(R.string.aspect_ratio)
+            "reload_emotes" -> getString(R.string.reload_emotes)
+            "disconnect_chat" -> getString(R.string.disconnect_chat)
+            else -> action
         }
 
     }

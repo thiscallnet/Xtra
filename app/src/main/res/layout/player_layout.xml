@@ -275,6 +275,32 @@
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/topCenterLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="5dp" />
+
+    <LinearLayout
+        android:id="@+id/middleLeftLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_centerVertical="true"
+        android:layout_marginStart="10dp"
+        android:orientation="vertical" />
+
+    <LinearLayout
+        android:id="@+id/middleRightLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_centerVertical="true"
+        android:layout_marginEnd="10dp"
+        android:orientation="vertical" />
+
+    <LinearLayout
         android:id="@+id/bottomLeftLayout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -439,6 +465,14 @@
             tools:visibility="visible" />
 
     </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/bottomCenterLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/streamInfoLayout"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="5dp" />
 
     <LinearLayout
         android:id="@+id/streamInfoLayout"

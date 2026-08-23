@@ -1410,4 +1410,18 @@
     <string name="update_frequency_daily">مرة واحدة يوميًا</string>
     <string name="update_frequency_3_days">كل 3 أيام</string>
     <string name="update_frequency_weekly">مرة واحدة أسبوعيًا</string>
+    <string name="settings_customize_controls_help">اسحب عنصر تحكم إلى زاوية أو حافة. اضغط عليه للتبديل بين المشغل وقائمة المزيد والمخفي.</string>
+    <string name="settings_customize_controls_selected">المحدد: %1$s</string>
+    <string name="settings_customize_controls_selected_none">حدد عنصر تحكم لرؤية موضعه الحالي.</string>
+    <string name="settings_customize_controls_reset">إعادة ضبط التخطيط</string>
+    <string name="settings_customize_controls_empty">لا شيء هنا</string>
+    <string name="settings_customize_controls_enable">إظهار %1$s في المشغل</string>
+    <string name="settings_customize_controls_enable_menu">إظهار %1$s في قائمة المزيد</string>
+    <string name="settings_customize_controls_hide">إخفاء %1$s</string>
+    <string name="settings_customize_controls_preview_description">معاينة مشغل وهمي. اسحب أزرار التحكم الظاهرة لإعادة ترتيبها.</string>
+    <string name="settings_customize_controls_snap_hint">حرر للإرساء</string>
+    <string name="settings_customize_controls_drag_action">اسحب أو اضغط %1$s</string>
+    <string name="settings_layout_preview">معاينة</string>
+    <string name="settings_tabs_preview_help">تتبع المعاينة الترتيب والعناصر الظاهرة أدناه.</string>
+    <string name="settings_sections_preview_help">تعرض المعاينة الرفوف الظاهرة بالترتيب الحالي.</string>
 </resources>
