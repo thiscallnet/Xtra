@@ -2285,12 +2285,19 @@ class SettingsActivity : AppCompatActivity() {
                     group = "quick",
                 )
             }
+            items.sortBy { controlRegion(it.key, it.group) }
             val listAdapter = SettingsDragListAdapter()
             val itemTouchHelper = ItemTouchHelper(
                 object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
                     override fun onMove(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
-                        Collections.swap(items, viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
-                        listAdapter.notifyItemMoved(viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
+                        val from = viewHolder.bindingAdapterPosition
+                        val to = target.bindingAdapterPosition
+                        if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
+                        if (controlRegion(items[from].key, items[from].group) != controlRegion(items[to].key, items[to].group)) {
+                            return false
+                        }
+                        Collections.swap(items, from, to)
+                        listAdapter.notifyItemMoved(from, to)
                         return true
                     }
 
@@ -2308,7 +2315,8 @@ class SettingsActivity : AppCompatActivity() {
                 }
                 item.enabled = item.group != "hidden"
                 item.text = formatControlText(item.key, item.group)
-                listAdapter.notifyItemChanged(items.indexOf(item))
+                items.sortBy { controlRegion(it.key, it.group) }
+                listAdapter.notifyDataSetChanged()
             }
             val recyclerView = RecyclerView(requireContext()).apply {
                 layoutManager = LinearLayoutManager(requireContext())
@@ -2316,12 +2324,21 @@ class SettingsActivity : AppCompatActivity() {
                 val padding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10F, resources.displayMetrics).toInt()
                 setPadding(0, padding, 0, 0)
             }
+            val listContainer = android.widget.FrameLayout(requireContext()).apply {
+                addView(
+                    recyclerView,
+                    android.widget.FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        (resources.displayMetrics.heightPixels * 0.42f).toInt(),
+                    ),
+                )
+            }
             itemTouchHelper.attachToRecyclerView(recyclerView)
             listAdapter.submitList(items)
             requireActivity().getAlertDialogBuilder()
                 .setTitle(R.string.settings_customize_controls)
-                .setMessage("Drag to reorder. Tap the group button to cycle Quick controls, More menu and Hidden.")
-                .setView(recyclerView)
+                .setMessage("Drag to reorder within each player area. Each row shows its area. Tap the group button to cycle Quick controls, More menu and Hidden.")
+                .setView(listContainer)
                 .setPositiveButton(android.R.string.ok) { _, _ ->
                     val serialized = items.joinToString(",") { "${it.key}:${it.group}" }
                     preferences.edit { putString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, serialized) }
@@ -2350,6 +2367,23 @@ class SettingsActivity : AppCompatActivity() {
             "disconnect_chat" -> C.PLAYER_MENU_CHAT_DISCONNECT
             else -> null
         }
+
+        private fun controlRegion(action: String, group: String): Int = when {
+            group == "menu" -> 4
+            action == "minimize" -> 0
+            action in setOf("download", "follow", "quality", "speed", "sleep", "aspect") -> 1
+            action in setOf("chapters", "restart", "live", "clip", "volume", "compressor", "mode") -> 2
+            action in setOf("subtitles", "chat_input", "chat", "fullscreen") -> 3
+            else -> 4
+        }
+
+        private fun controlRegionTitle(region: Int): String = getString(when (region) {
+            0 -> R.string.settings_control_region_top_left
+            1 -> R.string.settings_control_region_top_right
+            2 -> R.string.settings_control_region_bottom_left
+            3 -> R.string.settings_control_region_bottom_right
+            else -> R.string.settings_control_region_more_menu
+        })
 
         private fun formatControlText(action: String, group: String): String {
             val title = when (action) {
@@ -2384,7 +2418,7 @@ class SettingsActivity : AppCompatActivity() {
                 "menu" -> R.string.settings_control_group_menu
                 else -> R.string.settings_control_group_hidden
             })
-            return "$title — $groupTitle"
+            return "$title — $groupTitle · ${controlRegionTitle(controlRegion(action, group))}"
         }
 
         private fun syncLegacyControlVisibility(preferences: android.content.SharedPreferences, items: List<String>) {

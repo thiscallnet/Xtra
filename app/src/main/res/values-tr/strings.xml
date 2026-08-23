@@ -943,6 +943,11 @@
     <string name="settings_control_group_quick">Hızlı kontroller</string>
     <string name="settings_control_group_menu">Diğer menü</string>
     <string name="settings_control_group_hidden">Gizli</string>
+    <string name="settings_control_region_top_left">Top left</string>
+    <string name="settings_control_region_top_right">Top right</string>
+    <string name="settings_control_region_bottom_left">Bottom left</string>
+    <string name="settings_control_region_bottom_right">Bottom right</string>
+    <string name="settings_control_region_more_menu">More menu area</string>
     <string name="settings_player_mode">Oynatıcı modu</string>
     <string name="settings_developer_enabled">Geliştirici seçeneklerini etkinleştir</string>
     <string name="settings_developer_unlocking">Geliştirici seçeneklerini etkinleştirmek için %d daha fazla dokunuş</string>

@@ -942,6 +942,11 @@
     <string name="settings_control_group_quick">クイック コントロール</string>
     <string name="settings_control_group_menu">その他のメニュー</string>
     <string name="settings_control_group_hidden">非表示</string>
+    <string name="settings_control_region_top_left">Top left</string>
+    <string name="settings_control_region_top_right">Top right</string>
+    <string name="settings_control_region_bottom_left">Bottom left</string>
+    <string name="settings_control_region_bottom_right">Bottom right</string>
+    <string name="settings_control_region_more_menu">More menu area</string>
     <string name="settings_player_mode">プレーヤー モード</string>
     <string name="settings_developer_enabled">開発者向けオプションを有効にする</string>
     <string name="settings_developer_unlocking">%d をさらにタップして開発者向けオプションを有効にする</string>

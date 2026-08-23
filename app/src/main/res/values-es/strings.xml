@@ -947,6 +947,11 @@
     <string name="settings_control_group_quick">Controles rápidos</string>
     <string name="settings_control_group_menu">Más menú</string>
     <string name="settings_control_group_hidden">Oculto</string>
+    <string name="settings_control_region_top_left">Top left</string>
+    <string name="settings_control_region_top_right">Top right</string>
+    <string name="settings_control_region_bottom_left">Bottom left</string>
+    <string name="settings_control_region_bottom_right">Bottom right</string>
+    <string name="settings_control_region_more_menu">More menu area</string>
     <string name="settings_player_mode">Modo reproductor</string>
     <string name="settings_developer_enabled">Habilitar opciones de desarrollador</string>
     <string name="settings_developer_unlocking">%d más toques para habilitar Opciones de desarrollador</string>
