@@ -76,7 +76,7 @@ object C {
     const val FIRST_LAUNCH8 = "first_launch8"
     const val FIRST_LAUNCH9 = "first_launch9"
     const val SETTINGS_VERSION = "settings_version"
-    const val SETTINGS_SCHEMA_VERSION = 25
+    const val SETTINGS_SCHEMA_VERSION = 26
     const val SETTINGS_THEME_MODE = "settings_theme_mode"
     const val SETTINGS_DEVICE_COLORS = "settings_device_colors"
     const val SETTINGS_DENSITY = "settings_density"
@@ -286,7 +286,7 @@ object C {
     const val TOKEN_SKIP_VIDEO_ACCESS_TOKEN = "token_skip_video_access_token"
     const val TOKEN_SKIP_CLIP_ACCESS_TOKEN = "token_skip_clip_access_token"
     const val DEFAULT_NAVIGATION_TAB_LIST = "1:1:1,2:0:1,0:0:1,3:0:1"
-    const val DEFAULT_FOLLOWING_TABS = "4:1:1,1:0:1,2:0:1,0:0:1,3:0:1"
+    const val DEFAULT_FOLLOWING_TABS = "1:1:1,2:0:1,0:0:1"
     const val DEFAULT_FOLLOWING_OVERVIEW_SECTIONS = "live:0:1,recommended:0:1,continue:0:1,upcoming:0:1"
     const val DEFAULT_SAVED_TABS = "0:1:1,1:0:1,2:0:1,3:0:1"
     const val DEFAULT_CHANNEL_TABS = "4:0:1,0:0:1,1:1:1,2:0:1,3:0:1"

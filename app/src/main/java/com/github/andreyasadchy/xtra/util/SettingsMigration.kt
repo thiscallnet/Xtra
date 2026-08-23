@@ -453,8 +453,25 @@ object SettingsMigration {
                 putString(C.SETTINGS_PLAYER_SPEED_OPTIONS, speeds)
             }
 
-            FollowingTabs.migrateStoredPreference(preferences.getString(C.UI_FOLLOWING_TABS, null))?.let {
+            val storedFollowingTabs = preferences.getString(C.UI_FOLLOWING_TABS, null)
+            val legacyFollowingTabs = storedFollowingTabs ?: LEGACY_DEFAULT_FOLLOWING_TABS
+            val migratedFollowingTabs = FollowingTabs.migrateStoredPreference(storedFollowingTabs)
+            val migratedNavigationTabs = migrateFollowingNavigationReachability(
+                existing = preferences.getString(C.UI_NAVIGATION_TAB_LIST, null),
+                enableOverview = FollowingTabs.legacyMovedTabEnabled(legacyFollowingTabs, FollowingTabs.LEGACY_OVERVIEW) == true,
+                enableBrowse = FollowingTabs.legacyMovedTabEnabled(legacyFollowingTabs, FollowingTabs.LEGACY_CHANNELS) == true,
+            )
+            val effectiveNavigationTabs = migratedNavigationTabs ?: C.DEFAULT_NAVIGATION_TAB_LIST
+            val followingTabs = if (navigationTabEnabled(effectiveNavigationTabs, "2")) {
+                FollowingTabs.ensureLiveTabEnabled(migratedFollowingTabs)
+            } else {
+                migratedFollowingTabs
+            }
+            followingTabs?.let {
                 putString(C.UI_FOLLOWING_TABS, it)
+            }
+            if (migratedNavigationTabs != null && migratedNavigationTabs != preferences.getString(C.UI_NAVIGATION_TAB_LIST, null)) {
+                putString(C.UI_NAVIGATION_TAB_LIST, migratedNavigationTabs)
             }
 
             if (preferences.getString(C.UI_NAVIGATION_TAB_LIST, null) == LEGACY_NAVIGATION_TABS) {
@@ -584,6 +601,49 @@ object SettingsMigration {
 
     private const val LEGACY_NAVIGATION_TABS = "0:0:1,1:1:1,2:0:1,3:0:1"
     private const val PRE_CLIPS_NAVIGATION_TABS = "1:1:1,2:0:1,0:0:1,3:0:0"
+    private const val LEGACY_DEFAULT_FOLLOWING_TABS = "4:1:1,1:0:1,2:0:1,0:0:1,3:0:1"
+
+    private fun migrateFollowingNavigationReachability(
+        existing: String?,
+        enableOverview: Boolean,
+        enableBrowse: Boolean,
+    ): String? {
+        if (existing == null) return null
+        val defaultEntries = C.DEFAULT_NAVIGATION_TAB_LIST.split(',')
+        val knownKeys = defaultEntries.mapTo(hashSetOf()) { it.substringBefore(':') }
+        val entries = existing.split(',')
+            .filter { entry ->
+                val parts = entry.split(':')
+                parts.size == 3 && parts[0] in knownKeys
+            }
+            .distinctBy { it.substringBefore(':') }
+            .toMutableList()
+
+        defaultEntries.forEachIndexed { index, defaultEntry ->
+            if (entries.none { it.substringBefore(':') == defaultEntry.substringBefore(':') }) {
+                entries.add(index.coerceAtMost(entries.size), defaultEntry)
+            }
+        }
+
+        fun enable(key: String, shouldEnable: Boolean) {
+            if (!shouldEnable) return
+            val index = entries.indexOfFirst { it.substringBefore(':') == key }
+            if (index < 0) return
+            val parts = entries[index].split(':').toMutableList()
+            parts[2] = "1"
+            entries[index] = parts.joinToString(":")
+        }
+
+        enable("1", enableOverview)
+        enable("0", enableBrowse)
+        return entries.joinToString(",")
+    }
+
+    private fun navigationTabEnabled(serialized: String, key: String): Boolean = serialized
+        .split(',')
+        .firstOrNull { it.substringBefore(':') == key }
+        ?.split(':')
+        ?.getOrNull(2) != "0"
 
     private fun SharedPreferences.Editor.migrateTheme(preferences: SharedPreferences) {
         if (!preferences.contains(C.SETTINGS_THEME_MODE)) {

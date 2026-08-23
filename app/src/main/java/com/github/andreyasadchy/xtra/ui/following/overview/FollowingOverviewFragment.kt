@@ -30,6 +30,7 @@ import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.following.FollowMediaFragment
 import com.github.andreyasadchy.xtra.ui.following.FollowPagerFragment
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.overview.OverviewFragment
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewViewModel.Companion.FollowingOverviewViewModelFactory
 import kotlinx.coroutines.flow.collectLatest
@@ -244,15 +245,11 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
     }
 
     private fun showAll(key: String) {
+        val tabKey = FollowingOverviewSections.followingTabKey(key)
         when (val parent = parentFragment) {
-            is FollowPagerFragment -> when (key) {
-                FollowingOverviewSections.LIVE -> parent.selectFollowingTab("1")
-                FollowingOverviewSections.CONTINUE -> parent.selectFollowingTab("2")
-            }
-            is FollowMediaFragment -> when (key) {
-                FollowingOverviewSections.LIVE -> parent.selectFollowingTab("1")
-                FollowingOverviewSections.CONTINUE -> parent.selectFollowingTab("2")
-            }
+            is FollowPagerFragment -> tabKey?.let(parent::selectFollowingTab)
+            is FollowMediaFragment -> tabKey?.let(parent::selectFollowingTab)
+            is OverviewFragment -> parent.showAll(key)
         }
     }
 

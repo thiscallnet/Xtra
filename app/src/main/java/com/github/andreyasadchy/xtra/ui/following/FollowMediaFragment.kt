@@ -19,9 +19,7 @@ import com.github.andreyasadchy.xtra.databinding.FragmentMediaBinding
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
-import com.github.andreyasadchy.xtra.ui.following.channels.FollowedChannelsFragment
 import com.github.andreyasadchy.xtra.ui.following.games.FollowedGamesFragment
-import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewFragment
 import com.github.andreyasadchy.xtra.ui.following.streams.FollowedStreamsFragment
 import com.github.andreyasadchy.xtra.ui.following.videos.FollowedVideosFragment
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
@@ -155,11 +153,9 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
 
     private fun onSpinnerItemSelected(tabs: List<String>, position: Int): Fragment {
         return when (tabs.getOrNull(position)) {
-            FollowingTabs.OVERVIEW -> FollowingOverviewFragment()
             "0" -> FollowedGamesFragment()
             "1" -> FollowedStreamsFragment()
             "2" -> FollowedVideosFragment()
-            "3" -> FollowedChannelsFragment()
             else -> FollowedStreamsFragment()
         }
     }

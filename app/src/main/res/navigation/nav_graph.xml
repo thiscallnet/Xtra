@@ -6,28 +6,13 @@
 
     <fragment
         android:id="@+id/rootGamesFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.games.GamesFragment"
+        android:name="com.github.andreyasadchy.xtra.ui.browse.BrowsePagerFragment"
         android:label="@string/browse">
-        <argument
-            android:name="tags"
-            app:argType="com.github.andreyasadchy.xtra.model.ui.Tag[]"
-            app:nullable="true"
-            android:defaultValue="@null" />
     </fragment>
     <fragment
         android:id="@+id/rootTopFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.top.TopStreamsFragment"
-        android:label="@string/home">
-        <argument
-            android:name="tags"
-            app:argType="string[]"
-            app:nullable="true"
-            android:defaultValue="@null" />
-        <argument
-            android:name="languages"
-            app:argType="string[]"
-            app:nullable="true"
-            android:defaultValue="@null" />
+        android:name="com.github.andreyasadchy.xtra.ui.overview.OverviewFragment"
+        android:label="@string/following_overview">
     </fragment>
     <fragment
         android:id="@+id/gamesFragment"
@@ -63,7 +48,13 @@
     <fragment
         android:id="@+id/followPagerFragment"
         android:name="com.github.andreyasadchy.xtra.ui.following.FollowPagerFragment"
-        android:label="@string/following" />
+        android:label="@string/following">
+        <argument
+            android:name="initialTabKey"
+            app:argType="string"
+            app:nullable="true"
+            android:defaultValue="@null" />
+    </fragment>
     <fragment
         android:id="@+id/followMediaFragment"
         android:name="com.github.andreyasadchy.xtra.ui.following.FollowMediaFragment"
