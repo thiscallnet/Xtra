@@ -834,6 +834,8 @@
     <string name="settings_updates">Atualizações</string>
     <string name="settings_backup_restore">Backup e restauração</string>
     <string name="settings_about">Sobre</string>
+    <string name="settings_join_discord">Entre no Discord do Xtra</string>
+    <string name="settings_join_discord_summary">Converse com a comunidade, peça ajuda e compartilhe feedback</string>
     <string name="settings_advanced">Avançado</string>
     <string name="settings_display_compatibility">Compatibilidade de exibição</string>
     <string name="settings_display_cutouts">Usar área ao redor dos recortes de exibição</string>

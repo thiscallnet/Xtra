@@ -835,6 +835,8 @@
     <string name="settings_updates">Güncellemeler</string>
     <string name="settings_backup_restore">Yedekleme ve geri yükleme</string>
     <string name="settings_about">Hakkında</string>
+    <string name="settings_join_discord">Xtra Discord\'una katıl</string>
+    <string name="settings_join_discord_summary">Toplulukla sohbet edin, yardım alın ve geri bildirim paylaşın</string>
     <string name="settings_advanced">Gelişmiş</string>
     <string name="settings_display_compatibility">Ekran uyumluluğu</string>
     <string name="settings_display_cutouts">Ekran kesiklerinin etrafındaki alanı kullanın</string>

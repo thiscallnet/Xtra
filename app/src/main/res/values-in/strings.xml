@@ -835,6 +835,8 @@
     <string name="settings_updates">Pembaruan</string>
     <string name="settings_backup_restore">Pencadangan &amp; pemulihan</string>
     <string name="settings_about">Tentang</string>
+    <string name="settings_join_discord">Bergabung dengan Discord Xtra</string>
+    <string name="settings_join_discord_summary">Mengobrol dengan komunitas, dapatkan bantuan, dan bagikan masukan</string>
     <string name="settings_advanced">Tingkat Lanjut</string>
     <string name="settings_display_compatibility">Kompatibilitas tampilan</string>
     <string name="settings_display_cutouts">Gunakan area di sekitar potongan tampilan</string>

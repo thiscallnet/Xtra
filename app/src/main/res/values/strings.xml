@@ -344,6 +344,8 @@
     <string name="settings_updates">Updates</string>
     <string name="settings_backup_restore">Backup &amp; restore</string>
     <string name="settings_about">About</string>
+    <string name="settings_join_discord">Join the Xtra Discord</string>
+    <string name="settings_join_discord_summary">Chat with the community, get help, and share feedback</string>
     <string name="settings_advanced">Advanced</string>
     <string name="settings_display_compatibility">Display compatibility</string>
     <string name="settings_display_cutouts">Use area around display cutouts</string>

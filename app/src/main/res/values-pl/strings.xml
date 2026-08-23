@@ -294,6 +294,8 @@
     <string name="settings_updates">Aktualizacje</string>
     <string name="settings_backup_restore">Kopia zapasowa i przywracanie</string>
     <string name="settings_about">Informacje</string>
+    <string name="settings_join_discord">Dołącz do Discorda Xtra</string>
+    <string name="settings_join_discord_summary">Porozmawiaj ze społecznością, uzyskaj pomoc i podziel się opinią</string>
     <string name="settings_advanced">Zaawansowane</string>
     <string name="settings_display_compatibility">Zgodność wyświetlacza</string>
     <string name="settings_display_cutouts">Wykorzystaj obszar wokół wycięć w wyświetlaczu</string>

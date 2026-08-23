@@ -834,6 +834,8 @@
     <string name="settings_updates">Обновления</string>
     <string name="settings_backup_restore">Резервное копирование и восстановление</string>
     <string name="settings_about">О программе</string>
+    <string name="settings_join_discord">Присоединиться к Discord Xtra</string>
+    <string name="settings_join_discord_summary">Общайтесь с сообществом, получайте помощь и делитесь отзывами</string>
     <string name="settings_advanced">Дополнительно</string>
     <string name="settings_display_compatibility">Совместимость дисплея</string>
     <string name="settings_display_cutouts">Использовать область вокруг вырезов дисплея</string>

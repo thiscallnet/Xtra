@@ -141,6 +141,8 @@ internal fun needsUpdateNotificationUserAction(
     updatesChannelBlocked: Boolean,
 ): Boolean = permissionMissing || notificationsBlocked || updatesChannelBlocked
 
+private const val DISCORD_URL = "https://discord.gg/2cKy8DNgPX"
+
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
@@ -392,6 +394,21 @@ class SettingsActivity : AppCompatActivity() {
             binding.searchCard.setOnClickListener {
                 navigate(SettingsNavGraphDirections.actionGlobalSettingsSearchFragment())
             }
+            val discordRow = ItemSettingsRowBinding.inflate(layoutInflater, binding.communityActions, false)
+            discordRow.icon.setImageResource(R.drawable.ic_settings_discord)
+            discordRow.title.setText(R.string.settings_join_discord)
+            discordRow.summary.setText(R.string.settings_join_discord_summary)
+            discordRow.root.contentDescription = getString(R.string.settings_join_discord) + ". " +
+                    getString(R.string.settings_join_discord_summary)
+            discordRow.divider.visibility = View.GONE
+            discordRow.root.setOnClickListener {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, DISCORD_URL.toUri()))
+                } catch (_: ActivityNotFoundException) {
+                    Toast.makeText(requireContext(), R.string.no_browser_found, Toast.LENGTH_SHORT).show()
+                }
+            }
+            binding.communityActions.addView(discordRow.root)
             val items = settingsItems()
             addSectionHeader(R.string.settings_preferences)
             items.forEachIndexed { index, item ->

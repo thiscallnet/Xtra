@@ -53,6 +53,30 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/communitySection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="4dp"
+                android:text="@string/settings_section_support"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
+                android:textColor="?android:textColorSecondary" />
+
+            <LinearLayout
+                android:id="@+id/communityActions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/sections"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

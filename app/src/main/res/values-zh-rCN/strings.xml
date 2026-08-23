@@ -834,6 +834,8 @@
     <string name="settings_updates">更新</string>
     <string name="settings_backup_restore">备份和恢复</string>
     <string name="settings_about">关于</string>
+    <string name="settings_join_discord">加入 Xtra Discord</string>
+    <string name="settings_join_discord_summary">与社区交流、获取帮助并分享反馈</string>
     <string name="settings_advanced">高级</string>
     <string name="settings_display_compatibility">显示兼容性</string>
     <string name="settings_display_cutouts">使用显示切口周围的区域</string>

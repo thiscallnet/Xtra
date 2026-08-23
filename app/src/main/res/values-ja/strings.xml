@@ -834,6 +834,8 @@
     <string name="settings_updates">アップデート</string>
     <string name="settings_backup_restore">バックアップと復元</string>
     <string name="settings_about">概要</string>
+    <string name="settings_join_discord">Xtra の Discord に参加</string>
+    <string name="settings_join_discord_summary">コミュニティで交流したり、ヘルプを受けたり、フィードバックを共有できます</string>
     <string name="settings_advanced">詳細</string>
     <string name="settings_display_compatibility">ディスプレイの互換性</string>
     <string name="settings_display_cutouts">ディスプレイのカットアウトの周囲の領域を使用</string>
