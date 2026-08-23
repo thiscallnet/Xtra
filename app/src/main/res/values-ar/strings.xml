@@ -844,6 +844,11 @@
     <string name="settings_corner_square">مربعة</string>
     <string name="settings_profile_pictures">صور الملف الشخصي</string>
     <string name="settings_density">كثافة العرض</string>
+    <string name="settings_font">الخط</string>
+    <string name="settings_font_sans_serif">بلا زوائد</string>
+    <string name="settings_font_sans_serif_condensed">بلا زوائد مضغوط</string>
+    <string name="settings_font_serif">بزوائد</string>
+    <string name="settings_font_monospace">أحادي المسافة</string>
     <string name="settings_theme_device_colors">استخدم ألوان الجهاز</string>
     <string name="settings_theme_device_colors_summary">استخدم الألوان من خلفية جهازك عندما تكون مدعومة.</string>
     <string name="settings_theme_system">النظام</string>

@@ -844,6 +844,11 @@
     <string name="settings_corner_square">Carré</string>
     <string name="settings_profile_pictures">Images de profil</string>
     <string name="settings_density">Densité d\'affichage</string>
+    <string name="settings_font">Police</string>
+    <string name="settings_font_sans_serif">Sans sérif</string>
+    <string name="settings_font_sans_serif_condensed">Sans sérif condensée</string>
+    <string name="settings_font_serif">Sérif</string>
+    <string name="settings_font_monospace">Chasse fixe</string>
     <string name="settings_theme_device_colors">Utiliser les couleurs de l\'appareil</string>
     <string name="settings_theme_device_colors_summary">Utilisez les couleurs du fond d\'écran de votre appareil lorsqu\'elles sont prises en charge.</string>
     <string name="settings_theme_system">Système</string>

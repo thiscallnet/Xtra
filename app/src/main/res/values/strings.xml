@@ -354,6 +354,11 @@
     <string name="settings_corner_square">Square</string>
     <string name="settings_profile_pictures">Profile pictures</string>
     <string name="settings_density">Display density</string>
+    <string name="settings_font">Font</string>
+    <string name="settings_font_sans_serif">Sans serif</string>
+    <string name="settings_font_sans_serif_condensed">Sans serif condensed</string>
+    <string name="settings_font_serif">Serif</string>
+    <string name="settings_font_monospace">Monospace</string>
     <string name="settings_theme_device_colors">Use device colors</string>
     <string name="settings_theme_device_colors_summary">Use colors from your device wallpaper when supported.</string>
     <string name="settings_theme_system">System</string>

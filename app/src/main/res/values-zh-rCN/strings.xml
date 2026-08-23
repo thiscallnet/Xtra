@@ -844,6 +844,11 @@
     <string name="settings_corner_square">方形</string>
     <string name="settings_profile_pictures">个人资料图片</string>
     <string name="settings_density">显示密度</string>
+    <string name="settings_font">字体</string>
+    <string name="settings_font_sans_serif">无衬线</string>
+    <string name="settings_font_sans_serif_condensed">窄体无衬线</string>
+    <string name="settings_font_serif">衬线</string>
+    <string name="settings_font_monospace">等宽</string>
     <string name="settings_theme_device_colors">使用设备颜色</string>
     <string name="settings_theme_device_colors_summary">在支持的情况下使用设备壁纸中的颜色。</string>
     <string name="settings_theme_system">系统</string>

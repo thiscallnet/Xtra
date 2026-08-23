@@ -845,6 +845,11 @@
     <string name="settings_corner_square">Kare</string>
     <string name="settings_profile_pictures">Profil resimleri</string>
     <string name="settings_density">Ekran yoğunluğu</string>
+    <string name="settings_font">Yazı tipi</string>
+    <string name="settings_font_sans_serif">Sans serif</string>
+    <string name="settings_font_sans_serif_condensed">Dar sans serif</string>
+    <string name="settings_font_serif">Serif</string>
+    <string name="settings_font_monospace">Eş aralıklı</string>
     <string name="settings_theme_device_colors">Cihaz renklerini kullan</string>
     <string name="settings_theme_device_colors_summary">Desteklendiğinde cihazınızın duvar kağıdındaki renkleri kullanın.</string>
     <string name="settings_theme_system">Sistem</string>

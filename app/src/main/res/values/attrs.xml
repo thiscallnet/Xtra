@@ -6,6 +6,8 @@
     <attr name="dialogLayoutPadding" format="dimension" />
     <attr name="tabLayoutHeight" format="dimension" />
     <attr name="bottomNavigationHeight" format="dimension" />
+    <attr name="appFontFamilyRegular" format="string|reference" />
+    <attr name="appFontFamilyMedium" format="string|reference" />
     <attr name="cardStyle" format="reference" />
     <attr name="bottomSheetButtonStyle" format="reference" />
     <attr name="elevatedButtonStyle" format="reference" />

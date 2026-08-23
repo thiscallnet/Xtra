@@ -559,6 +559,22 @@
         <item>compact</item>
     </string-array>
 
+    <string-array name="settingsFontEntries" translatable="false">
+        <item>@string/settings_theme_system</item>
+        <item>@string/settings_font_sans_serif</item>
+        <item>@string/settings_font_sans_serif_condensed</item>
+        <item>@string/settings_font_serif</item>
+        <item>@string/settings_font_monospace</item>
+    </string-array>
+
+    <string-array name="settingsFontValues" translatable="false">
+        <item>system</item>
+        <item>sans-serif</item>
+        <item>sans-serif-condensed</item>
+        <item>serif</item>
+        <item>monospace</item>
+    </string-array>
+
     <string-array name="settingsProfilePictureEntries">
         <item>@string/settings_profile_picture_round</item>
         <item>@string/settings_profile_picture_rounded_square</item>

@@ -304,6 +304,11 @@
     <string name="settings_corner_square">Kwadrat</string>
     <string name="settings_profile_pictures">Zdjęcia profilowe</string>
     <string name="settings_density">Gęstość wyświetlacza</string>
+    <string name="settings_font">Czcionka</string>
+    <string name="settings_font_sans_serif">Bezszeryfowa</string>
+    <string name="settings_font_sans_serif_condensed">Bezszeryfowa zagęszczona</string>
+    <string name="settings_font_serif">Szeryfowa</string>
+    <string name="settings_font_monospace">Monospace</string>
     <string name="settings_theme_device_colors">Użyj kolorów urządzenia</string>
     <string name="settings_theme_device_colors_summary">Użyj kolorów z tapety urządzenia, jeśli są obsługiwane.</string>
     <string name="settings_theme_system">System</string>

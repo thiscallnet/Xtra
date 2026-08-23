@@ -844,6 +844,11 @@
     <string name="settings_corner_square">Quadrato</string>
     <string name="settings_profile_pictures">Immagini del profilo</string>
     <string name="settings_density">Densità display</string>
+    <string name="settings_font">Carattere</string>
+    <string name="settings_font_sans_serif">Sans serif</string>
+    <string name="settings_font_sans_serif_condensed">Sans serif condensato</string>
+    <string name="settings_font_serif">Serif</string>
+    <string name="settings_font_monospace">Monospaziato</string>
     <string name="settings_theme_device_colors">Usa colori del dispositivo</string>
     <string name="settings_theme_device_colors_summary">Usa i colori dello sfondo del tuo dispositivo quando supportato.</string>
     <string name="settings_theme_system">Sistema</string>

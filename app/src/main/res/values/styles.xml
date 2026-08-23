@@ -1710,4 +1710,228 @@
         <item name="android:tint">?attr/colorControlNormal</item>
     </style>
 
+    <style name="AppFontFamilySansSerif">
+        <item name="appFontFamilyRegular">sans-serif</item>
+        <item name="appFontFamilyMedium">sans-serif-medium</item>
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontFamilySansSerifCondensed">
+        <item name="appFontFamilyRegular">sans-serif-condensed</item>
+        <item name="appFontFamilyMedium">sans-serif-condensed</item>
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontFamilySerif">
+        <item name="appFontFamilyRegular">serif</item>
+        <item name="appFontFamilyMedium">serif</item>
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontFamilyMonospace">
+        <item name="appFontFamilyRegular">monospace</item>
+        <item name="appFontFamilyMedium">monospace</item>
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontTextAppearanceDisplayLarge" parent="TextAppearance.Material3.DisplayLarge">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontTextAppearanceDisplayMedium" parent="TextAppearance.Material3.DisplayMedium">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontTextAppearanceDisplaySmall" parent="TextAppearance.Material3.DisplaySmall">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontTextAppearanceHeadlineLarge" parent="TextAppearance.Material3.HeadlineLarge">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontTextAppearanceHeadlineMedium" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontTextAppearanceHeadlineSmall" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontTextAppearanceTitleLarge" parent="TextAppearance.Material3.TitleLarge">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontTextAppearanceTitleMedium" parent="TextAppearance.Material3.TitleMedium">
+        <item name="fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+
+    <style name="AppFontTextAppearanceTitleSmall" parent="TextAppearance.Material3.TitleSmall">
+        <item name="fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+
+    <style name="AppFontTextAppearanceBodyLarge" parent="TextAppearance.Material3.BodyLarge">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontTextAppearanceBodyMedium" parent="TextAppearance.Material3.BodyMedium">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontTextAppearanceBodySmall" parent="TextAppearance.Material3.BodySmall">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontTextAppearanceLabelLarge" parent="TextAppearance.Material3.LabelLarge">
+        <item name="fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+
+    <style name="AppFontTextAppearanceLabelMedium" parent="TextAppearance.Material3.LabelMedium">
+        <item name="fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+
+    <style name="AppFontTextAppearanceLabelSmall" parent="TextAppearance.Material3.LabelSmall">
+        <item name="fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceDisplayLarge" parent="CompactTextDisplayLarge">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceDisplayMedium" parent="CompactTextDisplayMedium">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceDisplaySmall" parent="CompactTextDisplaySmall">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceHeadlineLarge" parent="CompactTextHeadlineLarge">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceHeadlineMedium" parent="CompactTextHeadlineMedium">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceHeadlineSmall" parent="CompactTextHeadlineSmall">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceTitleLarge" parent="CompactTextTitleLarge">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceTitleMedium" parent="CompactTextTitleMedium">
+        <item name="fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceTitleSmall" parent="CompactTextTitleSmall">
+        <item name="fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceBodyLarge" parent="CompactTextBodyLarge">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceBodyMedium" parent="CompactTextBodyMedium">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceBodySmall" parent="CompactTextBodySmall">
+        <item name="fontFamily">?attr/appFontFamilyRegular</item>
+        <item name="android:fontFamily">?attr/appFontFamilyRegular</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceLabelLarge" parent="CompactTextLabelLarge">
+        <item name="fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceLabelMedium" parent="CompactTextLabelMedium">
+        <item name="fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+
+    <style name="AppFontCompactTextAppearanceLabelSmall" parent="CompactTextLabelSmall">
+        <item name="fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:fontFamily">?attr/appFontFamilyMedium</item>
+        <item name="android:textFontWeight" tools:targetApi="p">500</item>
+    </style>
+
+    <style name="AppFontAppearance">
+        <item name="textAppearanceDisplayLarge">@style/AppFontTextAppearanceDisplayLarge</item>
+        <item name="textAppearanceDisplayMedium">@style/AppFontTextAppearanceDisplayMedium</item>
+        <item name="textAppearanceDisplaySmall">@style/AppFontTextAppearanceDisplaySmall</item>
+        <item name="textAppearanceHeadlineLarge">@style/AppFontTextAppearanceHeadlineLarge</item>
+        <item name="textAppearanceHeadlineMedium">@style/AppFontTextAppearanceHeadlineMedium</item>
+        <item name="textAppearanceHeadlineSmall">@style/AppFontTextAppearanceHeadlineSmall</item>
+        <item name="textAppearanceTitleLarge">@style/AppFontTextAppearanceTitleLarge</item>
+        <item name="textAppearanceTitleMedium">@style/AppFontTextAppearanceTitleMedium</item>
+        <item name="textAppearanceTitleSmall">@style/AppFontTextAppearanceTitleSmall</item>
+        <item name="textAppearanceBodyLarge">@style/AppFontTextAppearanceBodyLarge</item>
+        <item name="textAppearanceBodyMedium">@style/AppFontTextAppearanceBodyMedium</item>
+        <item name="textAppearanceBodySmall">@style/AppFontTextAppearanceBodySmall</item>
+        <item name="textAppearanceLabelLarge">@style/AppFontTextAppearanceLabelLarge</item>
+        <item name="textAppearanceLabelMedium">@style/AppFontTextAppearanceLabelMedium</item>
+        <item name="textAppearanceLabelSmall">@style/AppFontTextAppearanceLabelSmall</item>
+    </style>
+
+    <style name="AppFontCompactAppearance">
+        <item name="textAppearanceDisplayLarge">@style/AppFontCompactTextAppearanceDisplayLarge</item>
+        <item name="textAppearanceDisplayMedium">@style/AppFontCompactTextAppearanceDisplayMedium</item>
+        <item name="textAppearanceDisplaySmall">@style/AppFontCompactTextAppearanceDisplaySmall</item>
+        <item name="textAppearanceHeadlineLarge">@style/AppFontCompactTextAppearanceHeadlineLarge</item>
+        <item name="textAppearanceHeadlineMedium">@style/AppFontCompactTextAppearanceHeadlineMedium</item>
+        <item name="textAppearanceHeadlineSmall">@style/AppFontCompactTextAppearanceHeadlineSmall</item>
+        <item name="textAppearanceTitleLarge">@style/AppFontCompactTextAppearanceTitleLarge</item>
+        <item name="textAppearanceTitleMedium">@style/AppFontCompactTextAppearanceTitleMedium</item>
+        <item name="textAppearanceTitleSmall">@style/AppFontCompactTextAppearanceTitleSmall</item>
+        <item name="textAppearanceBodyLarge">@style/AppFontCompactTextAppearanceBodyLarge</item>
+        <item name="textAppearanceBodyMedium">@style/AppFontCompactTextAppearanceBodyMedium</item>
+        <item name="textAppearanceBodySmall">@style/AppFontCompactTextAppearanceBodySmall</item>
+        <item name="textAppearanceLabelLarge">@style/AppFontCompactTextAppearanceLabelLarge</item>
+        <item name="textAppearanceLabelMedium">@style/AppFontCompactTextAppearanceLabelMedium</item>
+        <item name="textAppearanceLabelSmall">@style/AppFontCompactTextAppearanceLabelSmall</item>
+    </style>
+
 </resources>
