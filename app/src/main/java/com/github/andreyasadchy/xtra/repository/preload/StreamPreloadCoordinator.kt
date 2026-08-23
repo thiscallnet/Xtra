@@ -421,7 +421,7 @@ class StreamPreloadCoordinator(
         StreamPreloadMode.fromPreference(context.prefs().getString(C.STREAM_PRELOAD_MODE, StreamPreloadMode.WIFI_ONLY.preferenceValue))
 
     private fun previewMode(): StreamPreviewMode =
-        StreamPreviewMode.fromPreference(context.prefs().getString(C.STREAM_PREVIEW_MODE, StreamPreviewMode.OFF.preferenceValue))
+        StreamPreviewPolicy.mode(context)
 
     private fun canPreload(): Boolean {
         if (!canResolveStream() && !canResolvePreview()) return false

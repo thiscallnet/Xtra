@@ -6,15 +6,17 @@ import org.junit.Test
 
 class StreamPreviewPolicyTest {
     @Test
-    fun previewIsOptInAndUsesConservativeDefaults() {
-        assertEquals(StreamPreviewMode.OFF, StreamPreviewMode.fromPreference(null))
+    fun missingPreviewModeEnablesAllNetworksAndImmediateIsAvailable() {
+        assertEquals(StreamPreviewMode.WIFI_AND_MOBILE, StreamPreviewMode.fromPreference(null))
         assertEquals(StreamPreviewQuality.P360, StreamPreviewQuality.fromPreference(null))
-        assertEquals(StreamPreviewDelay.NORMAL, StreamPreviewDelay.fromPreference(null))
-        assertEquals(1_250L, StreamPreviewDelay.NORMAL.delayMs)
+        assertEquals(StreamPreviewDelay.IMMEDIATE, StreamPreviewDelay.fromPreference(null))
+        assertEquals(0L, StreamPreviewDelay.IMMEDIATE.delayMs)
+        assertEquals(StreamPreviewDelay.FAST, StreamPreviewDelay.fromPreference("fast"))
     }
 
     @Test
     fun previewModesKeepWifiAndMobileSeparate() {
+        assertEquals(StreamPreviewMode.OFF, StreamPreviewMode.fromPreference("off"))
         assertEquals(StreamPreviewMode.WIFI_ONLY, StreamPreviewMode.fromPreference("wifi"))
         assertEquals(StreamPreviewMode.WIFI_AND_MOBILE, StreamPreviewMode.fromPreference("all"))
         assertEquals(StreamPreviewMode.OFF, StreamPreviewMode.fromPreference("unexpected"))
@@ -25,7 +27,7 @@ class StreamPreviewPolicyTest {
         assertEquals(StreamPreviewQuality.P360, StreamPreviewQuality.fromPreference("360"))
         assertEquals(StreamPreviewQuality.P480, StreamPreviewQuality.fromPreference("480"))
         assertEquals(StreamPreviewQuality.AUTO, StreamPreviewQuality.fromPreference("auto"))
-        assertTrue(StreamPreviewPolicy.MIN_VISIBLE_FRACTION >= 0.65f)
+        assertTrue(StreamPreviewSelectionPolicy.START_VISIBLE_FRACTION in 0.30f..0.35f)
     }
 
     @Test

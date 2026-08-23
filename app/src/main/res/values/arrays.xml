@@ -61,12 +61,14 @@
     </string-array>
 
     <string-array name="previewDelayEntries" translatable="false">
+        <item>@string/preview_delay_immediate</item>
         <item>@string/preview_delay_fast</item>
         <item>@string/preview_delay_normal</item>
         <item>@string/preview_delay_conservative</item>
     </string-array>
 
     <string-array name="previewDelayValues" translatable="false">
+        <item>instant</item>
         <item>fast</item>
         <item>normal</item>
         <item>conservative</item>
