@@ -22,7 +22,7 @@
     <fragment
         android:id="@+id/gamesFragment"
         android:name="com.github.andreyasadchy.xtra.ui.games.GamesFragment"
-        android:label="@string/games">
+        android:label="@string/following_categories">
         <argument
             android:name="tags"
             app:argType="com.github.andreyasadchy.xtra.model.ui.Tag[]"
