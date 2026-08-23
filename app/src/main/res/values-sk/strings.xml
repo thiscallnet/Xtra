@@ -1421,4 +1421,17 @@
     <string name="statistics_weekday_friday">piatok</string>
     <string name="statistics_weekday_saturday">sobota</string>
     <string name="statistics_weekday_sunday">nedeľu</string>
+    <string name="update_notification_text">Klepnutím ho skontrolujete a stiahnete.</string>
+    <string name="automatic_update_checks">Automaticky kontrolovať aktualizácie</string>
+    <string name="automatic_update_checks_summary">Kontroluje pri otvorení aplikácie a pravidelne na pozadí.</string>
+    <string name="update_notifications_enable">Povoliť oznámenia o aktualizáciách</string>
+    <string name="update_notifications_prompt">Povoľte oznámenia o aktualizáciách, aby ste sa o aktualizáciách dozvedeli na pozadí.</string>
+    <string name="update_notifications_open_settings">Otvoriť nastavenia oznámení</string>
+    <string name="update_check_frequency_title">Frekvencia kontroly</string>
+    <string name="update_check_frequency_description">Kontroluje najviac každých %s.</string>
+    <string name="update_frequency_6_hours">Každých 6 hodín</string>
+    <string name="update_frequency_12_hours">Každých 12 hodín</string>
+    <string name="update_frequency_daily">Raz denne</string>
+    <string name="update_frequency_3_days">Každé 3 dni</string>
+    <string name="update_frequency_weekly">Raz týždenne</string>
 </resources>

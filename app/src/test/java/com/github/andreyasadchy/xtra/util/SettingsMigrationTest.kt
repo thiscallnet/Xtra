@@ -303,6 +303,11 @@ class SettingsMigrationTest {
     fun `reset allowlist excludes account credentials and app data`() {
         assertTrue(SettingsMigration.RESETTABLE_PREFERENCE_KEYS.contains(C.SETTINGS_THEME_MODE))
         assertTrue(SettingsMigration.RESETTABLE_PREFERENCE_KEYS.contains(C.SETTINGS_DEVELOPER_ENABLED))
+        assertTrue(
+            SettingsMigration.RESETTABLE_PREFERENCE_KEYS.contains(
+                C.UPDATE_NOTIFICATION_PERMISSION_PROMPT_SHOWN,
+            ),
+        )
         assertFalse(SettingsMigration.RESETTABLE_PREFERENCE_KEYS.contains(C.TOKEN))
         assertFalse(SettingsMigration.RESETTABLE_PREFERENCE_KEYS.contains(C.GQL_HEADERS))
         assertFalse(SettingsMigration.RESETTABLE_PREFERENCE_KEYS.contains(C.GQL_TOKEN2))

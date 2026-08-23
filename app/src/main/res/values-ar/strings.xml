@@ -1397,4 +1397,17 @@
     <string name="statistics_weekday_friday">الجمعة</string>
     <string name="statistics_weekday_saturday">السبت</string>
     <string name="statistics_weekday_sunday">الأحد</string>
+    <string name="update_notification_text">اضغط لمراجعته وتنزيله.</string>
+    <string name="automatic_update_checks">التحقق من وجود تحديثات تلقائيًا</string>
+    <string name="automatic_update_checks_summary">يتحقق عند فتح التطبيق وبشكل دوري في الخلفية.</string>
+    <string name="update_notifications_enable">تفعيل إشعارات التحديثات</string>
+    <string name="update_notifications_prompt">فعّل إشعارات التحديثات لمعرفة التحديثات في الخلفية.</string>
+    <string name="update_notifications_open_settings">فتح إعدادات الإشعارات</string>
+    <string name="update_check_frequency_title">تكرار التحقق</string>
+    <string name="update_check_frequency_description">يتحقق بحد أقصى %s.</string>
+    <string name="update_frequency_6_hours">كل 6 ساعات</string>
+    <string name="update_frequency_12_hours">كل 12 ساعة</string>
+    <string name="update_frequency_daily">مرة واحدة يوميًا</string>
+    <string name="update_frequency_3_days">كل 3 أيام</string>
+    <string name="update_frequency_weekly">مرة واحدة أسبوعيًا</string>
 </resources>

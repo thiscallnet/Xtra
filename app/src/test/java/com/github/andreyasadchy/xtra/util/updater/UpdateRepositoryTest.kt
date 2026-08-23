@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.CoroutineContext
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -334,18 +335,21 @@ class UpdateRepositoryTest {
     @Test
     fun notNowIsDeferredAutomaticallyButDirectlyDownloadableAfterManualCheck() {
         val releaseId = "v2.58.5-build.132"
+        val preferences = MemoryPreferences()
         val repository = UpdateRepository(
-            TestContext(MemoryPreferences()),
+            TestContext(preferences),
             QueueReleaseSource(listOf(Result.success(response(releaseId)), Result.success(response(releaseId)))),
             null,
         )
 
         repository.check(null)
         val available = awaitState(repository) { it is UpdateState.Available } as UpdateState.Available
+        preferences.edit { putString(C.UPDATE_NOTIFIED_VERSION, releaseId) }
         repository.defer(available.release)
 
         val deferred = awaitState(repository) { it is UpdateState.Deferred } as UpdateState.Deferred
         assertEquals(available.release.id, deferred.release.id)
+        assertNull(preferences.getString(C.UPDATE_NOTIFIED_VERSION, null))
 
         repository.check(null)
         val manuallyAvailable = awaitState(repository) {
@@ -396,6 +400,51 @@ class UpdateRepositoryTest {
         collector.cancel()
 
         assertTrue(events.isEmpty())
+    }
+
+    @Test
+    fun manualCheckDoesNotPersistAnAutomaticPrompt() {
+        val preferences = MemoryPreferences()
+        val repository = UpdateRepository(
+            TestContext(preferences),
+            QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.132")))),
+            null,
+        )
+
+        repository.check(null)
+        awaitState(repository) { it is UpdateState.Available }
+
+        assertNull(preferences.getString(C.UPDATE_AUTOMATIC_PROMPT_VERSION, null))
+    }
+
+    @Test
+    fun automaticCheckPersistsAnAutomaticPrompt() {
+        val releaseId = "v2.58.5-build.132"
+        val preferences = MemoryPreferences()
+        val repository = UpdateRepository(
+            TestContext(preferences),
+            QueueReleaseSource(listOf(Result.success(response(releaseId)))),
+            null,
+        )
+
+        repository.check(null, automatic = true)
+        awaitState(repository) { it is UpdateState.Available }
+
+        assertEquals(releaseId, preferences.getString(C.UPDATE_AUTOMATIC_PROMPT_VERSION, null))
+    }
+
+    @Test
+    fun updateNotificationSuppressionExpiresAfterTheNotNowWindow() {
+        val now = System.currentTimeMillis()
+        val preferences = MemoryPreferences().apply {
+            edit {
+                putString(C.UPDATE_NOTIFIED_VERSION, "v2.58.5-build.132")
+                putLong(C.UPDATE_NOTIFICATION_SUPPRESSED_UNTIL, now + 24L * 60L * 60L * 1_000L)
+            }
+        }
+
+        assertTrue(isUpdateNotificationSuppressed(preferences, "v2.58.5-build.132", now))
+        assertFalse(isUpdateNotificationSuppressed(preferences, "v2.58.5-build.132", now + 24L * 60L * 60L * 1_000L + 1L))
     }
 
     @Test
@@ -1156,6 +1205,75 @@ class UpdateRepositoryTest {
     }
 
     @Test
+    fun automaticChecksUseTheConfiguredFrequency() {
+        val tokenPreferences = MemoryPreferences().apply {
+            edit {
+                putLong(C.UPDATE_LAST_CHECKED, System.currentTimeMillis() - 7L * 60L * 60L * 1_000L)
+            }
+        }
+        val settingsPreferences = MemoryPreferences().apply {
+            edit {
+                putString(C.UPDATE_CHECK_FREQUENCY, UpdateCheckFrequency.EVERY_6_HOURS.preferenceValue)
+            }
+        }
+        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.132"))))
+        val repository = UpdateRepository(TestContext(tokenPreferences, settingsPreferences), source, null)
+
+        repository.checkIfDue(null)
+
+        awaitState(repository) { it is UpdateState.Available }
+        assertEquals(1, source.calls)
+    }
+
+    @Test
+    fun workerOwnedCheckIsCancelledWithTheCallingCoroutine() = runBlocking {
+        val preferences = MemoryPreferences()
+        val source = CancellableBlockingReleaseSource(response("v2.58.5-build.132"))
+        val repository = UpdateRepository(TestContext(preferences), source, null)
+
+        val workerCheck = launch {
+            repository.checkIfDueAndWait(null, force = true)
+        }
+        source.started.await()
+
+        workerCheck.cancel()
+        workerCheck.join()
+        val sourceWasCancelled = withTimeoutOrNull(200) {
+            source.cancelled.await()
+            true
+        } ?: false
+        source.release.complete(Unit)
+        awaitCheck(repository)
+
+        assertTrue(sourceWasCancelled)
+        assertTrue(repository.state.value === UpdateState.Idle)
+        assertFalse(repository.state.value is UpdateState.Available)
+        assertNull(preferences.getString(C.UPDATE_AUTOMATIC_PROMPT_VERSION, null))
+    }
+
+    @Test
+    fun resetCancelsWorkerOwnedCheck() = runBlocking {
+        val preferences = MemoryPreferences()
+        val source = CancellableBlockingReleaseSource(response("v2.58.5-build.132"))
+        val repository = UpdateRepository(TestContext(preferences), source, null)
+
+        launch {
+            repository.checkIfDueAndWait(null, force = true)
+        }
+        source.started.await()
+
+        repository.reset()
+        val sourceWasCancelled = withTimeoutOrNull(200) {
+            source.cancelled.await()
+            true
+        } ?: false
+        awaitState(repository) { it === UpdateState.Idle }
+
+        assertTrue(sourceWasCancelled)
+        assertNull(preferences.getString(C.UPDATE_AUTOMATIC_PROMPT_VERSION, null))
+    }
+
+    @Test
     fun resetCancelsInFlightCheckAndLeavesNoPreResetStateOrPrompt() = runBlocking {
         val preferences = MemoryPreferences()
         val source = BlockingReleaseSource(response("v2.58.5-build.132"))
@@ -1345,6 +1463,23 @@ class UpdateRepositoryTest {
             started.complete(Unit)
             withContext(NonCancellable) { release.await() }
             returned.complete(Unit)
+            return result
+        }
+    }
+
+    private class CancellableBlockingReleaseSource(private val result: JsonObject) : ReleaseSource {
+        val started = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+
+        override suspend fun fetch(url: String, networkLibrary: String?): JsonObject {
+            started.complete(Unit)
+            try {
+                release.await()
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                cancelled.complete(Unit)
+                throw cancellation
+            }
             return result
         }
     }

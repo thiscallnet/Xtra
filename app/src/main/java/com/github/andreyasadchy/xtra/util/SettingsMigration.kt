@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.github.andreyasadchy.xtra.ui.following.FollowingTabs
+import com.github.andreyasadchy.xtra.util.updater.UpdateCheckFrequency
 
 /**
  * Owns migrations for the settings redesign. The old settings version is
@@ -230,6 +231,7 @@ object SettingsMigration {
         C.UPDATE_URL,
         C.UPDATE_CHECK_ENABLED,
         C.UPDATE_CHECK_FREQUENCY,
+        C.UPDATE_NOTIFICATION_PERMISSION_PROMPT_SHOWN,
         C.UPDATE_USE_BROWSER,
         C.UPDATE_AVAILABLE_VERSION,
         C.UPDATE_AVAILABLE_TITLE,
@@ -424,9 +426,14 @@ object SettingsMigration {
             if (!preferences.contains(C.UPDATE_CHECK_ENABLED)) {
                 putBoolean(C.UPDATE_CHECK_ENABLED, migratedUpdateCheckEnabled(null, isFreshInstall))
             }
-            // Custom update endpoints, browser installs and intervals are no longer supported.
+            putString(
+                C.UPDATE_CHECK_FREQUENCY,
+                UpdateCheckFrequency.fromPreference(
+                    preferences.getString(C.UPDATE_CHECK_FREQUENCY, null),
+                ).preferenceValue,
+            )
+            // Custom update endpoints and browser installs are no longer supported.
             remove(C.UPDATE_URL)
-            remove(C.UPDATE_CHECK_FREQUENCY)
             remove(C.UPDATE_USE_BROWSER)
 
             if (preferences.getString(C.PLAYER_DEFAULT_QUALITY, null) == "chat_only") {

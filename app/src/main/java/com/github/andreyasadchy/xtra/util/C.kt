@@ -321,6 +321,10 @@ object C {
     const val UPDATE_AVAILABLE_SIZE = "update_available_size"
     const val UPDATE_AVAILABLE_EXPECTED_VERSION_CODE = "update_available_expected_version_code"
     const val UPDATE_AVAILABLE_EXPECTED_SHA256 = "update_available_expected_sha256"
+    const val UPDATE_NOTIFIED_VERSION = "update_notified_version"
+    const val UPDATE_NOTIFICATION_SUPPRESSED_UNTIL = "update_notification_suppressed_until"
+    const val UPDATE_AUTOMATIC_PROMPT_VERSION = "update_automatic_prompt_version"
+    const val UPDATE_NOTIFICATION_PERMISSION_PROMPT_SHOWN = "update_notification_permission_prompt_shown"
     const val UPDATE_RELEASE_HISTORY = "update_release_history"
     const val UPDATE_RELEASE_HISTORY_COMPLETE = "update_release_history_complete"
     const val UPDATE_IGNORED_VERSION = "update_ignored_version"
@@ -333,6 +337,7 @@ object C {
     const val UPDATE_INSTALL_PENDING_INTENT = "update_install_pending_intent"
     const val UPDATE_NOT_NOW_VERSION = "update_not_now_version"
     const val UPDATE_NOT_NOW_UNTIL = "update_not_now_until"
+    const val UPDATE_NOTIFICATION_REQUEST_CODE = 4200
     const val UPDATE_INSTALL_REQUEST_CODE = 4201
     const val LIVE_NOTIFICATIONS_ENABLED = "live_notifications_enabled"
     const val LIVE_NOTIFICATIONS_MODE = "live_notifications_mode"

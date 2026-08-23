@@ -39,6 +39,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.widget.SearchView
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.core.os.LocaleListCompat
@@ -93,6 +94,8 @@ import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.updater.UpdateError
+import com.github.andreyasadchy.xtra.util.updater.UpdateCheckFrequency
+import com.github.andreyasadchy.xtra.util.updater.UpdateCheckScheduler
 import com.github.andreyasadchy.xtra.util.updater.UpdatePrimaryAction
 import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.updater.UpdateRetryAction
@@ -131,6 +134,12 @@ internal fun serializeSpeedOptions(items: List<SettingsDragListItem>): String =
 
 internal fun isSettingsAccountConnected(health: AuthHealth): Boolean =
     health == AuthHealth.HEALTHY || health == AuthHealth.UNKNOWN
+
+internal fun needsUpdateNotificationUserAction(
+    permissionMissing: Boolean,
+    notificationsBlocked: Boolean,
+    updatesChannelBlocked: Boolean,
+): Boolean = permissionMissing || notificationsBlocked || updatesChannelBlocked
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -1548,8 +1557,18 @@ class SettingsActivity : AppCompatActivity() {
         private var _binding: FragmentUpdateSettingsBinding? = null
         private val binding get() = _binding!!
         private var technicalDetailsExpanded = false
+        private lateinit var updateNotificationPermissionLauncher: ActivityResultLauncher<String>
         private val repository
             get() = (requireContext().applicationContext as XtraApp).xtraModule.updateRepository
+
+        override fun onCreate(savedInstanceState: Bundle?) {
+            super.onCreate(savedInstanceState)
+            updateNotificationPermissionLauncher = registerForActivityResult(
+                ActivityResultContracts.RequestPermission(),
+            ) {
+                if (_binding != null) renderUpdateNotificationPermission()
+            }
+        }
 
         override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
             _binding = FragmentUpdateSettingsBinding.inflate(inflater, container, false)
@@ -1559,9 +1578,43 @@ class SettingsActivity : AppCompatActivity() {
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
             val preferences = requireContext().prefs()
-            binding.automaticCheck.isChecked = preferences.getBoolean(C.UPDATE_CHECK_ENABLED, true)
+            val frequencies = UpdateCheckFrequency.entries
+            val selectedFrequency = UpdateCheckFrequency.fromPreference(
+                preferences.getString(C.UPDATE_CHECK_FREQUENCY, null),
+            )
+            preferences.edit { putString(C.UPDATE_CHECK_FREQUENCY, selectedFrequency.preferenceValue) }
+            binding.frequencyInput.setSimpleItems(frequencies.map { getString(it.labelRes) }.toTypedArray())
+            binding.frequencyInput.setText(getString(selectedFrequency.labelRes), false)
+            binding.frequencySummary.text = getString(
+                R.string.update_check_frequency_description,
+                getString(selectedFrequency.labelRes),
+            )
+            fun renderAutomaticSettings(enabled: Boolean) {
+                binding.frequencyInputLayout.isEnabled = enabled
+                binding.frequencyInput.isEnabled = enabled
+            }
+            val automaticChecksEnabled = preferences.getBoolean(C.UPDATE_CHECK_ENABLED, true)
+            binding.automaticCheck.isChecked = automaticChecksEnabled
+            renderAutomaticSettings(automaticChecksEnabled)
+            binding.notificationPermissionButton.setOnClickListener {
+                requestUpdateNotificationPermission()
+            }
+            renderUpdateNotificationPermission()
             binding.automaticCheck.setOnCheckedChangeListener { _, enabled ->
                 preferences.edit { putBoolean(C.UPDATE_CHECK_ENABLED, enabled) }
+                renderAutomaticSettings(enabled)
+                renderUpdateNotificationPermission()
+                if (enabled && updateNotificationsNeedUserAction()) requestUpdateNotificationPermission()
+                UpdateCheckScheduler.schedule(requireContext())
+            }
+            binding.frequencyInput.setOnItemClickListener { _, _, position, _ ->
+                val frequency = frequencies[position]
+                preferences.edit { putString(C.UPDATE_CHECK_FREQUENCY, frequency.preferenceValue) }
+                binding.frequencySummary.text = getString(
+                    R.string.update_check_frequency_description,
+                    getString(frequency.labelRes),
+                )
+                UpdateCheckScheduler.schedule(requireContext())
             }
             binding.checkButton.setOnClickListener {
                 repository.check(preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP), C.DEFAULT_UPDATE_URL)
@@ -1613,6 +1666,74 @@ class SettingsActivity : AppCompatActivity() {
             super.onResume()
             repository.refreshInstallPermission()
             repository.resumePendingInstall()
+            if (_binding != null) renderUpdateNotificationPermission()
+        }
+
+        private fun renderUpdateNotificationPermission() {
+            val automaticChecksEnabled = requireContext().prefs().getBoolean(C.UPDATE_CHECK_ENABLED, true)
+            val permissionMissing = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            val needsUserAction = updateNotificationsNeedUserAction()
+            binding.notificationPermissionButton.visibility = if (automaticChecksEnabled && needsUserAction) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+            binding.notificationPermissionButton.text = getString(
+                if (permissionMissing) {
+                    R.string.update_notifications_enable
+                } else {
+                    R.string.update_notifications_open_settings
+                },
+            )
+        }
+
+        private fun updateNotificationsNeedUserAction(): Boolean {
+            val permissionMissing = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            val notificationsBlocked = !NotificationManagerCompat.from(requireContext()).areNotificationsEnabled()
+            return needsUpdateNotificationUserAction(
+                permissionMissing = permissionMissing,
+                notificationsBlocked = notificationsBlocked,
+                updatesChannelBlocked = isUpdatesNotificationChannelBlocked(),
+            )
+        }
+
+        private fun requestUpdateNotificationPermission() {
+            if (!updateNotificationsNeedUserAction()) return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                if (ActivityCompat.shouldShowRequestPermissionRationale(requireActivity(), Manifest.permission.POST_NOTIFICATIONS)) {
+                    openUpdateNotificationSettings()
+                } else {
+                    updateNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            } else {
+                openUpdateNotificationSettings()
+            }
+        }
+
+        private fun openUpdateNotificationSettings() {
+            val notificationsBlocked = !NotificationManagerCompat.from(requireContext()).areNotificationsEnabled()
+            val intent = if (!notificationsBlocked && isUpdatesNotificationChannelBlocked()) {
+                Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, requireContext().packageName)
+                    .putExtra(Settings.EXTRA_CHANNEL_ID, getString(R.string.notification_updates_channel_id))
+            } else {
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, requireContext().packageName)
+            }
+            runCatching {
+                startActivity(intent)
+            }
+        }
+
+        private fun isUpdatesNotificationChannelBlocked(): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+            val notificationManager = requireContext().getSystemService(NotificationManager::class.java) ?: return false
+            return notificationManager.getNotificationChannel(getString(R.string.notification_updates_channel_id))?.importance ==
+                NotificationManager.IMPORTANCE_NONE
         }
 
         private fun render(state: UpdateState) {

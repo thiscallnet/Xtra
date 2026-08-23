@@ -1398,4 +1398,17 @@
     <string name="statistics_weekday_friday">Cuma</string>
     <string name="statistics_weekday_saturday">Cumartesi</string>
     <string name="statistics_weekday_sunday">Pazar</string>
+    <string name="update_notification_text">İncelemek ve indirmek için dokunun.</string>
+    <string name="automatic_update_checks">Güncellemeleri otomatik olarak denetle</string>
+    <string name="automatic_update_checks_summary">Uygulama açıldığında ve arka planda düzenli olarak denetler.</string>
+    <string name="update_notifications_enable">Güncelleme bildirimlerini etkinleştir</string>
+    <string name="update_notifications_prompt">Güncellemelerden arka planda haberdar olmak için güncelleme bildirimlerini etkinleştirin.</string>
+    <string name="update_notifications_open_settings">Bildirim ayarlarını aç</string>
+    <string name="update_check_frequency_title">Denetleme sıklığı</string>
+    <string name="update_check_frequency_description">En fazla %s aralıklarla denetler.</string>
+    <string name="update_frequency_6_hours">6 saatte bir</string>
+    <string name="update_frequency_12_hours">12 saatte bir</string>
+    <string name="update_frequency_daily">Günde bir kez</string>
+    <string name="update_frequency_3_days">3 günde bir</string>
+    <string name="update_frequency_weekly">Haftada bir</string>
 </resources>

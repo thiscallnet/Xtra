@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.main
 
+import android.Manifest
 import android.app.ActivityOptions
 import android.app.PictureInPictureParams
 import android.app.admin.DevicePolicyManager
@@ -90,6 +91,7 @@ import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
 import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
+import com.github.andreyasadchy.xtra.util.updater.UpdateCheckScheduler
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.applyTheme
@@ -137,6 +139,8 @@ class MainActivity : AppCompatActivity() {
     private var updateDialog: AlertDialog? = null
     private var updateDialogReleaseId: String? = null
     private var networkSnackbar: Snackbar? = null
+    private var updateNotificationSnackbar: Snackbar? = null
+    private var updateNotificationPermissionLauncher: ActivityResultLauncher<String>? = null
     private var fragmentLifecycleCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
     private var startupTasksReady = false
 
@@ -146,6 +150,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         prefs = prefs()
         migrateSettings()
+        UpdateCheckScheduler.schedule(this)
         LiveNotificationScheduler.migrateMode(this)
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -201,6 +206,12 @@ class MainActivity : AppCompatActivity() {
             if (result.resultCode == RESULT_OK) {
                 restartActivity()
             }
+        }
+        updateNotificationPermissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) {
+            updateNotificationSnackbar?.dismiss()
+            updateNotificationSnackbar = null
         }
 
         var initialized = savedInstanceState != null
@@ -580,6 +591,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun maybePromptForUpdateNotifications() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            !prefs.getBoolean(C.UPDATE_CHECK_ENABLED, true) ||
+            prefs.getBoolean(C.UPDATE_NOTIFICATION_PERMISSION_PROMPT_SHOWN, false) ||
+            updateDialog?.isShowing == true ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        prefs.edit { putBoolean(C.UPDATE_NOTIFICATION_PERMISSION_PROMPT_SHOWN, true) }
+        updateNotificationSnackbar = Snackbar.make(
+            binding.root,
+            R.string.update_notifications_prompt,
+            Snackbar.LENGTH_LONG,
+        ).setAction(R.string.update_notifications_enable) {
+            updateNotificationPermissionLauncher?.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }.also { it.show() }
+    }
+
     private fun hasValidatedNetwork(): Boolean {
         val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
@@ -630,6 +661,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showUpdateDialog(release: UpdateRelease) {
+        updateRepository.consumeAutomaticPrompt(release)
+        if (updateDialog?.isShowing == true && updateDialogReleaseId == release.id) return
+        updateRepository.dismissUpdateNotification()
         dismissUpdateDialogForRefresh()
         val releaseNotes = UpdateReleaseHistory.formatForUpdate(
             historyComplete = updateRepository.releaseHistoryComplete.value,
@@ -659,11 +693,30 @@ class MainActivity : AppCompatActivity() {
                 if (updateDialog === dialog) {
                     updateDialog = null
                     updateDialogReleaseId = null
+                    scheduleUpdateNotificationPrompt()
                 }
             }
             .show()
         updateDialog = dialog
         updateDialogReleaseId = release.id
+    }
+
+    private fun scheduleUpdateNotificationPrompt() {
+        binding.root.postDelayed({
+            if (!isFinishing && !isDestroyed && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                maybePromptForUpdateNotifications()
+            }
+        }, 500L)
+    }
+
+    private fun showPersistedUpdateIfNeeded() {
+        lifecycleScope.launch {
+            updateRepository.awaitReady()
+            if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
+            val release = (updateRepository.state.value as? UpdateState.Available)?.release ?: return@launch
+            if (!updateRepository.hasPendingAutomaticPrompt(release)) return@launch
+            showUpdateDialog(release)
+        }
     }
 
     private fun dismissUpdateDialogForRefresh() {
@@ -764,15 +817,25 @@ class MainActivity : AppCompatActivity() {
         }
         updateRepository.resumePendingInstall()
         if (startupTasksReady) {
+            showPersistedUpdateIfNeeded()
             checkUpdatesIfDue()
         }
         updateSettingsIndicator()
         restorePlayerFragment()
     }
 
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        if (startupTasksReady) {
+            scheduleUpdateNotificationPrompt()
+        }
+    }
+
     override fun onDestroy() {
         networkSnackbar?.dismiss()
         networkSnackbar = null
+        updateNotificationSnackbar?.dismiss()
+        updateNotificationSnackbar = null
         networkCallback?.let {
             val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
             connectivityManager.unregisterNetworkCallback(it)
