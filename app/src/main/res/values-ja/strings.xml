@@ -603,6 +603,7 @@
     <string name="following_live_channels">ライブチャンネル</string>
     <string name="following_no_live_channels">フォロー中のチャンネルは現在ライブ配信していません。</string>
     <string name="following_recommended_channels">おすすめチャンネル</string>
+    <string name="following_popular_live_channels">人気のライブチャンネル</string>
     <string name="following_no_recommended_channels">おすすめを現在利用できません。</string>
     <string name="following_continue_watching">視聴を続ける</string>
     <string name="following_no_continue_watching">フォローしているチャンネルに最近のVODはありません。</string>

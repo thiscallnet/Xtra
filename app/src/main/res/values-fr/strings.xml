@@ -603,6 +603,7 @@
     <string name="following_live_channels">Chaînes en direct</string>
     <string name="following_no_live_channels">Aucune chaîne suivie n’est en direct actuellement.</string>
     <string name="following_recommended_channels">Chaînes recommandées</string>
+    <string name="following_popular_live_channels">Chaînes en direct populaires</string>
     <string name="following_no_recommended_channels">Les recommandations sont indisponibles pour le moment.</string>
     <string name="following_continue_watching">Reprendre le visionnage</string>
     <string name="following_no_continue_watching">Aucun VOD récent n’est disponible parmi les chaînes que vous suivez.</string>

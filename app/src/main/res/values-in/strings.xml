@@ -604,6 +604,7 @@
     <string name="following_live_channels">Saluran live</string>
     <string name="following_no_live_channels">Tidak ada saluran yang Anda ikuti sedang live.</string>
     <string name="following_recommended_channels">Saluran yang direkomendasikan</string>
+    <string name="following_popular_live_channels">Saluran live populer</string>
     <string name="following_no_recommended_channels">Rekomendasi tidak tersedia saat ini.</string>
     <string name="following_continue_watching">Lanjutkan Menonton</string>
     <string name="following_no_continue_watching">Tidak ada VOD terbaru yang tersedia dari kanal yang Anda ikuti.</string>

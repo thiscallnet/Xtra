@@ -30,7 +30,8 @@
     <string name="following_categories">Categories</string>
     <string name="following_live_channels">Live channels</string>
     <string name="following_no_live_channels">No followed channels are live right now.</string>
-    <string name="following_recommended_channels">Recommended channels</string>
+    <string name="following_recommended_channels">Recommended for you</string>
+    <string name="following_popular_live_channels">Popular live channels</string>
     <string name="following_no_recommended_channels">Recommendations are unavailable right now.</string>
     <string name="following_continue_watching">Continue Watching</string>
     <string name="following_no_continue_watching">No recent VODs are available from channels you follow.</string>

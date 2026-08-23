@@ -961,8 +961,8 @@ class GraphQLRepository(
                         add("RECOMMENDED_SECTION")
                     }
                     putJsonObject("recommendationContext") {
-                        put("platform", "android")
-                        put("clientApp", "xtra")
+                        put("platform", "web")
+                        put("clientApp", "twilight")
                         put("location", "following")
                     }
                 }

@@ -5,19 +5,22 @@ import android.util.Log
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.model.gql.stream.StreamsResponse
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.repository.auth.AuthSessionStore
+import com.github.andreyasadchy.xtra.repository.auth.PrivateGqlCredential
+import com.github.andreyasadchy.xtra.repository.auth.PrivateGqlCredentialType
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.uuid.Uuid
 
 /** Provides a real Twitch recommendation source with a documented-data fallback. */
 class RecommendationsRepository(
@@ -27,48 +30,65 @@ class RecommendationsRepository(
 ) {
 
     private val cacheMutex = Mutex()
+    private val authSessionStore = AuthSessionStore(context.prefs(), context.tokenPrefs())
+    private val recommendationClientSessionId = Uuid.random().toString()
     // The cache entry keeps identity, data, source, and expiry inseparable.
     private var cache: RecommendationCache? = null
     // Diagnostic state only; it is never used to decide whether cached data is valid.
     var lastSource: RecommendationSource = RecommendationSource.UNAVAILABLE
         private set
 
-    suspend fun getLiveRecommendations(limit: Int, excludedChannelIds: Set<String> = emptySet()): List<Stream> {
+    suspend fun getLiveRecommendations(
+        limit: Int,
+        excludedChannelIds: Set<String> = emptySet(),
+    ): RecommendationResult {
         val now = System.currentTimeMillis()
-        val headers = TwitchApiHelper.getGQLHeaders(context, true)
-        val accountKey = RecommendationAccountKey(
-            userId = context.tokenPrefs().getString(C.USER_ID, null),
-            username = context.tokenPrefs().getString(C.USERNAME, null),
-            authenticated = !headers[C.HEADER_TOKEN].isNullOrBlank(),
-            // Keep the identity in memory only; this also protects the cache
-            // while account preferences are still being written during login.
-            authIdentity = headers[C.HEADER_TOKEN]?.hashCode(),
-        )
+        val requestContext = recommendationRequestContext(now)
+        val accountKey = requestContext.accountKey
         cacheMutex.withLock {
             cache
                 ?.takeIf { it.accountKey == accountKey && it.expiresAt > now }
                 ?.let { entry ->
                     lastSource = entry.source
-                    return entry.recommendations
+                    return RecommendationResult(
+                        streams = entry.recommendations
                         .filterNot { it.channelId in excludedChannelIds }
-                        .take(limit)
-                        .also { debug("source=${entry.source} cache-hit count=${it.size}") }
+                        .take(limit),
+                        source = entry.source,
+                        authMode = entry.authMode,
+                    ).also { debug("source=${it.source} auth=${it.authMode} cache-hit count=${it.streams.size}") }
                 }
         }
-        val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-        val personalized = try {
-            val response = graphQLRepository.loadPersonalSections(networkLibrary, headers)
-            if (response["errors"]?.jsonArray?.isNotEmpty() == true) {
-                throw IllegalStateException("PersonalSections returned GraphQL errors")
-            }
-            parsePersonalSections(response)
-                .filterNot { it.channelId in excludedChannelIds }
-                .also { debug("PersonalSections parsed count=${it.size}") }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            debugFailure("PersonalSections failed; using fallback", error)
+        val auth = requestContext.auth
+        debug("auth=${auth.mode} userBound=${auth.userId != null}")
+        val personalized = if (auth is RecommendationAuth.Anonymous) {
+            debug("PersonalSections skipped reason=missing-user-bound-private-credential")
             null
+        } else {
+            try {
+                val response = graphQLRepository.loadPersonalSections(
+                    requestContext.networkLibrary,
+                    requestContext.personalizedHeaders,
+                )
+                val graphqlErrorCount = (response["errors"] as? JsonArray)?.size ?: 0
+                if (graphqlErrorCount > 0) {
+                    debug("PersonalSections graphqlErrors=$graphqlErrorCount")
+                    throw IllegalStateException("PersonalSections returned GraphQL errors")
+                }
+                val sections = ((response["data"] as? JsonObject)?.get("personalSections") as? JsonArray)
+                val itemCount = sections.orEmpty().sumOf { section ->
+                    (section as? JsonObject)?.let { (it["items"] as? JsonArray)?.size } ?: 0
+                }
+                debug("PersonalSections sections=${sections?.size ?: 0} items=$itemCount")
+                parsePersonalSections(response)
+                    .filterNot { it.channelId in excludedChannelIds }
+                    .also { debug("PersonalSections parsed count=${it.size}") }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                debugFailure("PersonalSections failed; using fallback", error)
+                null
+            }
         }
         val source = if (!personalized.isNullOrEmpty()) {
             RecommendationSource.PERSONALIZED
@@ -76,12 +96,20 @@ class RecommendationsRepository(
             RecommendationSource.FALLBACK
         }
         lastSource = source
-        val result = if (!personalized.isNullOrEmpty()) {
+        val streams = if (!personalized.isNullOrEmpty()) {
             personalized
         } else {
             debug("source=FALLBACK reason=${if (personalized == null) "personalized-error" else "personalized-empty"}")
             try {
-                fallback(networkLibrary, headers, limit, excludedChannelIds)
+                fallback(
+                    networkLibrary = requestContext.networkLibrary,
+                    headers = TwitchApiHelper.getPublicRecommendationGQLHeaders(
+                        context = context,
+                        clientSessionId = recommendationClientSessionId,
+                    ),
+                    limit = limit,
+                    excludedChannelIds = excludedChannelIds,
+                )
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -92,14 +120,18 @@ class RecommendationsRepository(
             .filterNot { it.channelId in excludedChannelIds }
             .distinctBy { it.channelId ?: it.id }
             .take(limit)
-        val resultSource = if (result.isEmpty()) RecommendationSource.UNAVAILABLE else source
+        val resultSource = recommendationSourceFor(personalized, streams)
         lastSource = resultSource
-        debug("source=$resultSource count=${result.size}")
-        if (result.isNotEmpty()) {
+        val result = RecommendationResult(
+            streams = streams,
+            source = resultSource,
+            authMode = auth.mode,
+        )
+        debug("source=${result.source} auth=${result.authMode} count=${result.streams.size}")
+        if (result.streams.isNotEmpty()) {
             publishCacheIfCurrent(
                 requestAccountKey = accountKey,
-                recommendations = result,
-                source = resultSource,
+                result = result,
             )
         }
         return result
@@ -107,8 +139,7 @@ class RecommendationsRepository(
 
     private suspend fun publishCacheIfCurrent(
         requestAccountKey: RecommendationAccountKey,
-        recommendations: List<Stream>,
-        source: RecommendationSource,
+        result: RecommendationResult,
     ) {
         cacheMutex.withLock {
             // A request may finish after login/logout or account switching. Never
@@ -116,8 +147,9 @@ class RecommendationsRepository(
             if (currentAccountKey() == requestAccountKey) {
                 cache = RecommendationCache(
                     accountKey = requestAccountKey,
-                    recommendations = recommendations,
-                    source = source,
+                    recommendations = result.streams,
+                    source = result.source,
+                    authMode = result.authMode,
                     expiresAt = System.currentTimeMillis() + RECOMMENDATIONS_CACHE_MILLIS,
                 )
             } else {
@@ -127,12 +159,40 @@ class RecommendationsRepository(
     }
 
     private fun currentAccountKey(): RecommendationAccountKey {
-        val headers = TwitchApiHelper.getGQLHeaders(context, true)
+        val officialSession = authSessionStore.read()
+        val auth = recommendationAuthFor(
+            officialUserId = officialSession?.userId,
+            credential = authSessionStore.readPrivateGqlCredential(),
+        )
         return RecommendationAccountKey(
-            userId = context.tokenPrefs().getString(C.USER_ID, null),
-            username = context.tokenPrefs().getString(C.USERNAME, null),
-            authenticated = !headers[C.HEADER_TOKEN].isNullOrBlank(),
-            authIdentity = headers[C.HEADER_TOKEN]?.hashCode(),
+            userId = officialSession?.userId ?: context.tokenPrefs().getString(C.USER_ID, null),
+            username = officialSession?.login ?: context.tokenPrefs().getString(C.USERNAME, null),
+            authMode = auth.mode,
+            credentialIdentity = auth.accessToken?.hashCode(),
+        )
+    }
+
+    private fun recommendationRequestContext(nowMillis: Long): RecommendationRequestContext {
+        val officialSession = authSessionStore.read()
+        val auth = recommendationAuthFor(
+            officialUserId = officialSession?.userId,
+            credential = authSessionStore.readPrivateGqlCredential(nowMillis),
+        )
+        return RecommendationRequestContext(
+            auth = auth,
+            accountKey = RecommendationAccountKey(
+                userId = officialSession?.userId ?: context.tokenPrefs().getString(C.USER_ID, null),
+                username = officialSession?.login ?: context.tokenPrefs().getString(C.USERNAME, null),
+                authMode = auth.mode,
+                credentialIdentity = auth.accessToken?.hashCode(),
+            ),
+            personalizedHeaders = TwitchApiHelper.getPersonalizedRecommendationGQLHeaders(
+                context = context,
+                clientId = auth.clientId,
+                accessToken = auth.accessToken,
+                clientSessionId = recommendationClientSessionId,
+            ),
+            networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
         )
     }
 
@@ -182,7 +242,7 @@ class RecommendationsRepository(
 
     private fun debugFailure(message: String, error: Exception) {
         if (BuildConfig.DEBUG) {
-            Log.w(LOG_TAG, "$message: ${error::class.simpleName}: ${error.message}")
+            Log.w(LOG_TAG, "$message: ${error::class.simpleName}")
         }
     }
 
@@ -196,15 +256,87 @@ private data class RecommendationCache(
     val accountKey: RecommendationAccountKey,
     val recommendations: List<Stream>,
     val source: RecommendationSource,
+    val authMode: RecommendationAuthMode,
     val expiresAt: Long,
 )
 
 internal data class RecommendationAccountKey(
     val userId: String?,
     val username: String?,
-    val authenticated: Boolean,
-    val authIdentity: Int?,
+    val authMode: RecommendationAuthMode,
+    val credentialIdentity: Int?,
 )
+
+data class RecommendationResult(
+    val streams: List<Stream>,
+    val source: RecommendationSource,
+    val authMode: RecommendationAuthMode,
+)
+
+enum class RecommendationAuthMode {
+    COMPATIBILITY,
+    WEB,
+    ANONYMOUS,
+}
+
+internal sealed interface RecommendationAuth {
+    val mode: RecommendationAuthMode
+    val userId: String?
+    val clientId: String?
+    val accessToken: String?
+
+    data class Compatibility(
+        override val userId: String,
+        override val clientId: String,
+        override val accessToken: String,
+    ) : RecommendationAuth {
+        override val mode = RecommendationAuthMode.COMPATIBILITY
+    }
+
+    data class Web(
+        override val userId: String,
+        override val clientId: String,
+        override val accessToken: String,
+    ) : RecommendationAuth {
+        override val mode = RecommendationAuthMode.WEB
+    }
+
+    data object Anonymous : RecommendationAuth {
+        override val mode = RecommendationAuthMode.ANONYMOUS
+        override val userId: String? = null
+        override val clientId: String? = null
+        override val accessToken: String? = null
+    }
+}
+
+private data class RecommendationRequestContext(
+    val auth: RecommendationAuth,
+    val accountKey: RecommendationAccountKey,
+    val personalizedHeaders: Map<String, String>,
+    val networkLibrary: String?,
+)
+
+internal fun recommendationAuthFor(
+    officialUserId: String?,
+    credential: PrivateGqlCredential?,
+): RecommendationAuth {
+    val matchingCredential = credential?.takeIf {
+        !officialUserId.isNullOrBlank() && it.userId == officialUserId
+    }
+    return when (matchingCredential?.type) {
+        PrivateGqlCredentialType.COMPATIBILITY -> RecommendationAuth.Compatibility(
+            userId = matchingCredential.userId,
+            clientId = matchingCredential.clientId,
+            accessToken = matchingCredential.accessToken,
+        )
+        PrivateGqlCredentialType.WEB -> RecommendationAuth.Web(
+            userId = matchingCredential.userId,
+            clientId = matchingCredential.clientId,
+            accessToken = matchingCredential.accessToken,
+        )
+        null -> RecommendationAuth.Anonymous
+    }
+}
 
 enum class RecommendationSource {
     PERSONALIZED,
@@ -212,32 +344,47 @@ enum class RecommendationSource {
     UNAVAILABLE,
 }
 
+internal fun recommendationSourceFor(
+    personalized: List<Stream>?,
+    result: List<Stream>,
+): RecommendationSource = when {
+    result.isEmpty() -> RecommendationSource.UNAVAILABLE
+    !personalized.isNullOrEmpty() -> RecommendationSource.PERSONALIZED
+    else -> RecommendationSource.FALLBACK
+}
+
 internal fun parsePersonalSections(root: JsonObject): List<Stream> {
-    return root["data"]?.jsonObject?.get("personalSections")?.jsonArray.orEmpty()
-        .filter { it.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "RECOMMENDED_SECTION" }
+    return (root["data"] as? JsonObject)?.array("personalSections").orEmpty()
+        .filterIsInstance<JsonObject>()
+        .filter { it.string("type") == "RECOMMENDED_SECTION" }
         .flatMap { section ->
-            section.jsonObject["items"]?.jsonArray.orEmpty().mapNotNull { item ->
-                val itemObject = item.jsonObject
-                val user = itemObject["user"]?.jsonObject ?: return@mapNotNull null
-                val content = itemObject["content"]?.jsonObject ?: return@mapNotNull null
-                if (content["__typename"]?.jsonPrimitive?.contentOrNull != "Stream") return@mapNotNull null
+            section.array("items").filterIsInstance<JsonObject>().mapNotNull { itemObject ->
+                val user = itemObject["user"] as? JsonObject ?: return@mapNotNull null
+                val content = itemObject["content"] as? JsonObject ?: return@mapNotNull null
+                if (content.string("__typename") != "Stream") return@mapNotNull null
+                val streamId = content.string("id") ?: return@mapNotNull null
+                val channelId = user.string("id") ?: return@mapNotNull null
                 Stream(
-                    id = content.string("id"),
-                    channelId = user.string("id"),
+                    id = streamId,
+                    channelId = channelId,
                     channelLogin = user.string("login"),
                     channelName = user.string("displayName"),
                     channelImageURL = user.string("profileImageURL"),
-                    gameId = content["game"]?.jsonObject?.string("id"),
-                    gameSlug = content["game"]?.jsonObject?.string("slug"),
-                    gameName = content["game"]?.jsonObject?.string("displayName"),
+                    gameId = (content["game"] as? JsonObject)?.string("id"),
+                    gameSlug = (content["game"] as? JsonObject)?.string("slug"),
+                    gameName = (content["game"] as? JsonObject)?.string("displayName"),
                     title = content.string("title"),
                     thumbnailURL = content.string("previewImageURL"),
                     createdAt = content.string("createdAt"),
-                    viewerCount = content["viewersCount"]?.jsonPrimitive?.intOrNull,
-                    tags = content["freeformTags"]?.jsonArray?.mapNotNull { it.jsonObject.string("name") },
+                    viewerCount = (content["viewersCount"] as? JsonPrimitive)?.intOrNull,
+                    tags = (content["freeformTags"] as? JsonArray)
+                        ?.mapNotNull { (it as? JsonObject)?.string("name") },
                 )
             }
         }
+        .distinctBy { it.channelId ?: it.id }
 }
 
-private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull
+private fun JsonObject.array(key: String): JsonArray = this[key] as? JsonArray ?: JsonArray(emptyList())
+
+private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull

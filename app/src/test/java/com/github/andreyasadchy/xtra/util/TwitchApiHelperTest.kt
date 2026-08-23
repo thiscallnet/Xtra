@@ -24,6 +24,34 @@ class TwitchApiHelperTest {
     }
 
     @Test
+    fun `recommendation headers keep the supplied client and stable request identity`() {
+        val headers = TwitchApiHelper.buildRecommendationGQLHeaders(
+            clientId = "private-gql-client",
+            accessToken = "private-gql-token",
+            deviceId = "stable-device",
+            clientSessionId = "session-1",
+        )
+
+        assertEquals("private-gql-client", headers[C.HEADER_CLIENT_ID])
+        assertEquals("OAuth private-gql-token", headers[C.HEADER_TOKEN])
+        assertEquals("stable-device", headers["X-Device-Id"])
+        assertEquals("session-1", headers["Client-Session-Id"])
+        assertEquals("https://www.twitch.tv", headers["Origin"])
+    }
+
+    @Test
+    fun `anonymous recommendation headers never carry an authorization token`() {
+        val headers = TwitchApiHelper.buildRecommendationGQLHeaders(
+            clientId = "public-gql-client",
+            accessToken = null,
+            deviceId = "stable-device",
+            clientSessionId = "session-1",
+        )
+
+        assertNull(headers[C.HEADER_TOKEN])
+    }
+
+    @Test
     fun `new timestamp values use the four supported formats`() {
         val previousLocale = Locale.getDefault()
         val previousTimeZone = TimeZone.getDefault()

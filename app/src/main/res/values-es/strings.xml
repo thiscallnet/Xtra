@@ -608,6 +608,7 @@
     <string name="following_live_channels">Canales en directo</string>
     <string name="following_no_live_channels">No hay canales que sigues en directo ahora.</string>
     <string name="following_recommended_channels">Canales recomendados</string>
+    <string name="following_popular_live_channels">Canales populares en directo</string>
     <string name="following_no_recommended_channels">Las recomendaciones no están disponibles ahora.</string>
     <string name="following_continue_watching">Seguir viendo</string>
     <string name="following_no_continue_watching">No hay VOD recientes disponibles de los canales que sigues.</string>

@@ -603,6 +603,7 @@
     <string name="following_live_channels">القنوات المباشرة</string>
     <string name="following_no_live_channels">لا توجد قنوات تتابعها تبث الآن.</string>
     <string name="following_recommended_channels">القنوات المقترحة</string>
+    <string name="following_popular_live_channels">القنوات المباشرة الشائعة</string>
     <string name="following_no_recommended_channels">التوصيات غير متاحة الآن.</string>
     <string name="following_continue_watching">متابعة المشاهدة</string>
     <string name="following_no_continue_watching">لا تتوفر مقاطع VOD حديثة من القنوات التي تتابعها.</string>

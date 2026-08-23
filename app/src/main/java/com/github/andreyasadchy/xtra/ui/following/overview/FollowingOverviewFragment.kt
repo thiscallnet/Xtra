@@ -20,6 +20,7 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentFollowingOverviewBinding
 import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.repository.RecommendationSource
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
@@ -127,13 +128,20 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
         streamFeedScreenController.onSpecChanged(force = false, reason = RefreshReason.SCREEN_VISIBLE)
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                val sections = combine(
-                    viewModel.liveStreams,
+                val recommendationState = combine(
                     viewModel.recommendedStreams,
                     viewModel.recommendationsLoading,
+                    viewModel.recommendationSource,
+                ) { recommended, recommendationsLoading, recommendationSource ->
+                    Triple(recommended, recommendationsLoading, recommendationSource)
+                }
+                val sections = combine(
+                    viewModel.liveStreams,
+                    recommendationState,
                     viewModel.continueWatching,
                     viewModel.overviewSectionKeys,
-                ) { live, recommended, recommendationsLoading, continueWatching, sectionKeys ->
+                ) { live, recommendation, continueWatching, sectionKeys ->
+                    val (recommended, recommendationsLoading, recommendationSource) = recommendation
                     val availableSections = mapOf(
                         FollowingOverviewSections.LIVE to FollowingOverviewSection(
                             key = FollowingOverviewSections.LIVE,
@@ -143,7 +151,11 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                         ),
                         FollowingOverviewSections.RECOMMENDED to FollowingOverviewSection(
                             key = FollowingOverviewSections.RECOMMENDED,
-                            titleRes = R.string.following_recommended_channels,
+                            titleRes = if (recommendationSource == RecommendationSource.FALLBACK) {
+                                R.string.following_popular_live_channels
+                            } else {
+                                R.string.following_recommended_channels
+                            },
                             emptyRes = R.string.following_no_recommended_channels,
                             streams = recommended,
                             isLoading = recommendationsLoading && recommended.isEmpty(),

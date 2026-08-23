@@ -38,6 +38,18 @@ data class CompatibilitySession(
     }
 }
 
+enum class PrivateGqlCredentialType {
+    COMPATIBILITY,
+    WEB,
+}
+
+data class PrivateGqlCredential(
+    val type: PrivateGqlCredentialType,
+    val clientId: String,
+    val accessToken: String,
+    val userId: String,
+)
+
 data class StoredCredentials(
     val helixClientId: String?,
     val helixToken: String?,
@@ -184,6 +196,39 @@ class AuthSessionStore(
         readCompatibility()?.let { !it.isAccessTokenExpired(nowMillis) } == true
 
     /**
+     * Returns only a private-GQL credential whose Twitch identity is tied to the current official
+     * account. Raw credentials and integrity headers are deliberately excluded.
+     */
+    fun readPrivateGqlCredential(nowMillis: Long = System.currentTimeMillis()): PrivateGqlCredential? {
+        val officialUserId = read()?.userId ?: return null
+        readCompatibility()
+            ?.takeIf { !it.isAccessTokenExpired(nowMillis) && it.userId == officialUserId }
+            ?.let {
+                return PrivateGqlCredential(
+                    type = PrivateGqlCredentialType.COMPATIBILITY,
+                    clientId = it.clientId,
+                    accessToken = it.accessToken,
+                    userId = it.userId,
+                )
+            }
+
+        val webToken = tokenPreferences.getString(C.GQL_TOKEN_WEB, null)?.takeIf { it.isNotBlank() }
+        val webUserId = tokenPreferences.getString(C.GQL_TOKEN_WEB_USER_ID, null)
+            ?.takeIf { it.isNotBlank() }
+        val webClientId = preferences.getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
+            ?.takeIf { it.isNotBlank() }
+        if (webToken != null && webUserId == officialUserId && webClientId != null) {
+            return PrivateGqlCredential(
+                type = PrivateGqlCredentialType.WEB,
+                clientId = webClientId,
+                accessToken = webToken,
+                userId = webUserId,
+            )
+        }
+        return null
+    }
+
+    /**
      * Persists the two grants as one complete Xtra account session.
      *
      * The login flow must not call either single-session writer while it is still acquiring the
@@ -223,6 +268,7 @@ class AuthSessionStore(
             remove(C.GQL_HEADERS)
             remove(C.GQL_TOKEN)
             remove(C.GQL_TOKEN_WEB)
+            remove(C.GQL_TOKEN_WEB_USER_ID)
             putLong(C.INTEGRITY_EXPIRATION, 0)
         }
         return editor.commit()
@@ -257,7 +303,15 @@ class AuthSessionStore(
             .commit()
 
     fun clearLegacyWebCredential(): Boolean =
-        tokenPreferences.edit().remove(C.GQL_TOKEN_WEB).commit()
+        tokenPreferences.edit()
+            .remove(C.GQL_TOKEN_WEB)
+            .remove(C.GQL_TOKEN_WEB_USER_ID)
+            .commit()
+
+    fun rememberLegacyWebCredentialUser(userId: String): Boolean {
+        if (userId.isBlank()) return false
+        return tokenPreferences.edit().putString(C.GQL_TOKEN_WEB_USER_ID, userId).commit()
+    }
 
     /** Writes rotated access/refresh tokens only after the replacement has been validated. */
     fun updateTokens(

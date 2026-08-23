@@ -320,6 +320,67 @@ object TwitchApiHelper {
         }
     }
 
+    /** Headers for the authenticated PersonalSections request. */
+    fun getPersonalizedRecommendationGQLHeaders(
+        context: Context,
+        clientId: String?,
+        accessToken: String?,
+        clientSessionId: String,
+    ): Map<String, String> = getRecommendationGQLHeaders(
+        context = context,
+        clientId = clientId,
+        accessToken = accessToken,
+        clientSessionId = clientSessionId,
+    )
+
+    /** Headers for the public recommendation fallback; never includes Authorization. */
+    fun getPublicRecommendationGQLHeaders(
+        context: Context,
+        clientSessionId: String,
+    ): Map<String, String> = getRecommendationGQLHeaders(
+        context = context,
+        clientId = null,
+        accessToken = null,
+        clientSessionId = clientSessionId,
+    )
+
+    /** Common recommendation headers with an optional private-GQL identity. */
+    fun getRecommendationGQLHeaders(
+        context: Context,
+        clientId: String?,
+        accessToken: String?,
+        clientSessionId: String,
+    ): Map<String, String> {
+        val deviceId = context.prefs().getString(C.RECOMMENDATIONS_DEVICE_ID, null)
+            ?.takeIf { it.isNotBlank() }
+            ?: Uuid.random().toHexString().also {
+                context.prefs().edit().putString(C.RECOMMENDATIONS_DEVICE_ID, it).apply()
+            }
+        return buildRecommendationGQLHeaders(
+            clientId = clientId
+                ?.takeIf { it.isNotBlank() }
+                ?: context.prefs().getString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2),
+            accessToken = accessToken,
+            deviceId = deviceId,
+            clientSessionId = clientSessionId,
+        )
+    }
+
+    internal fun buildRecommendationGQLHeaders(
+        clientId: String?,
+        accessToken: String?,
+        deviceId: String,
+        clientSessionId: String,
+    ): Map<String, String> = buildMap {
+        clientId?.takeIf { it.isNotBlank() }?.let { put(C.HEADER_CLIENT_ID, it) }
+        accessToken?.takeIf { it.isNotBlank() }?.let { put(C.HEADER_TOKEN, addTokenPrefixGQL(it)) }
+        put("Client-Session-Id", clientSessionId)
+        put("X-Device-Id", deviceId)
+        put("Origin", "https://www.twitch.tv")
+        put("Referer", "https://www.twitch.tv/")
+        put("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
+    }
+
     fun getHelixHeaders(context: Context): Map<String, String> {
         return mutableMapOf<String, String>().apply {
             val clientId = context.tokenPrefs().getString(C.TOKEN_CLIENT_ID, null)
