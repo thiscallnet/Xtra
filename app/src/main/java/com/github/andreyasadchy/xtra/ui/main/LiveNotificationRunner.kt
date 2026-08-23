@@ -147,7 +147,8 @@ class LiveNotificationRunner(
                 }
                 result?.let { recordSuccess(it.delivered, it.api) }
                 if (retryDelayMs != null) {
-                    delay(retryDelayMs)
+                    // Keep rate-limit waits interruptible so EventSub can trigger reconciliation.
+                    waitForNextPoll(retryDelayMs)
                 } else {
                     waitForNextPoll()
                 }

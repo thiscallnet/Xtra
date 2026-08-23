@@ -175,7 +175,7 @@ object ProfileMenuBinder {
         container.addView(badge, FrameLayout.LayoutParams(size, size).apply {
             gravity = Gravity.TOP or Gravity.END
         })
-        container.contentDescription = context.getString(R.string.view_profile)
+        container.contentDescription = context.getString(R.string.auth_health_attention_description)
     }
 
     private fun showAuthHealthDialog(activity: MainActivity, health: AuthHealth) {

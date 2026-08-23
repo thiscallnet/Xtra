@@ -12,6 +12,7 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.os.Build
+import android.os.Bundle
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -43,7 +44,9 @@ class LiveNotificationNotifier(private val context: Context) {
         val deliveredEvents = mutableListOf<NotificationEvent>()
         events.forEach { event ->
             try {
-                notificationManager.notify(notificationId(event), buildNotification(event))
+                synchronized(notificationLock) {
+                    notificationManager.notify(notificationId(event), buildNotification(event))
+                }
                 repository.markNotificationDelivered(event.eventId)
                 deliveredEvents += event
                 delivered += 1
@@ -61,11 +64,13 @@ class LiveNotificationNotifier(private val context: Context) {
     }
 
     fun cancelLiveNotifications() {
-        notificationManager.cancel(SUMMARY_NOTIFICATION_ID)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            notificationManager.activeNotifications
-                .filter { it.notification.channelId == liveChannelId }
-                .forEach { notificationManager.cancel(it.tag, it.id) }
+        synchronized(notificationLock) {
+            notificationManager.cancel(SUMMARY_NOTIFICATION_ID)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                notificationManager.activeNotifications
+                    .filter { it.notification.channelId == liveChannelId }
+                    .forEach { notificationManager.cancel(it.tag, it.id) }
+            }
         }
     }
 
@@ -102,7 +107,11 @@ class LiveNotificationNotifier(private val context: Context) {
         }
     }
 
-    private fun buildNotification(event: NotificationEvent, largeIcon: Bitmap? = null) = NotificationCompat.Builder(context, liveChannelId).apply {
+    private fun buildNotification(
+        event: NotificationEvent,
+        largeIcon: Bitmap? = null,
+        onlyAlertOnce: Boolean = false,
+    ) = NotificationCompat.Builder(context, liveChannelId).apply {
         val channelName = event.channelName?.takeIf { it.isNotBlank() }
         val channelLogin = event.channelLogin?.takeIf { it.isNotBlank() }
         val displayName = if (channelName != null && channelLogin != null && !channelLogin.equals(channelName, true)) {
@@ -126,7 +135,12 @@ class LiveNotificationNotifier(private val context: Context) {
         largeIcon?.let(::setLargeIcon)
         setWhen(event.startedAt)
         setAutoCancel(true)
-        setOnlyAlertOnce(true)
+        if (onlyAlertOnce) {
+            setOnlyAlertOnce(true)
+        }
+        addExtras(Bundle().apply {
+            putString(NOTIFICATION_EVENT_ID_EXTRA, event.eventId)
+        })
         setContentIntent(
             PendingIntent.getActivity(
                 context,
@@ -148,10 +162,24 @@ class LiveNotificationNotifier(private val context: Context) {
             target(
                 onSuccess = { image ->
                     runCatching {
-                        notificationManager.notify(
-                            notificationId(event),
-                            buildNotification(event, drawableToBitmap(image.asDrawable(context.resources))),
-                        )
+                        synchronized(notificationLock) {
+                            val activeNotification = notificationManager.activeNotifications
+                                .firstOrNull { it.notification.channelId == liveChannelId && it.tag == null && it.id == notificationId(event) }
+                                ?: return@synchronized
+                            val activeEventId = activeNotification.notification.extras
+                                .getString(NOTIFICATION_EVENT_ID_EXTRA)
+                            if (!isLiveNotificationGenerationCurrent(activeEventId, event.eventId)) {
+                                return@synchronized
+                            }
+                            notificationManager.notify(
+                                notificationId(event),
+                                buildNotification(
+                                    event = event,
+                                    largeIcon = drawableToBitmap(image.asDrawable(context.resources)),
+                                    onlyAlertOnce = true,
+                                ),
+                            )
+                        }
                     }
                 },
             )
@@ -180,8 +208,14 @@ class LiveNotificationNotifier(private val context: Context) {
 
     companion object {
         private const val SUMMARY_NOTIFICATION_ID = 0
+        private const val NOTIFICATION_EVENT_ID_EXTRA =
+            "com.github.andreyasadchy.xtra.live_notification_event_id"
+        private val notificationLock = Any()
     }
 }
+
+internal fun isLiveNotificationGenerationCurrent(activeEventId: String?, callbackEventId: String): Boolean =
+    activeEventId == callbackEventId
 
 enum class NotificationBlockReason {
     POST_NOTIFICATIONS_PERMISSION,
