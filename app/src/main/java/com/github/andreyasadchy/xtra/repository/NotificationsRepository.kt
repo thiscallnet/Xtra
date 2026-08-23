@@ -1,14 +1,13 @@
 package com.github.andreyasadchy.xtra.repository
 
+import android.util.Log
 import com.github.andreyasadchy.xtra.db.NotificationEventsDao
 import com.github.andreyasadchy.xtra.db.NotificationUsersDao
 import com.github.andreyasadchy.xtra.db.ShownNotificationsDao
-import com.github.andreyasadchy.xtra.db.AppDatabase
 import com.github.andreyasadchy.xtra.model.NotificationEvent
 import com.github.andreyasadchy.xtra.model.NotificationUser
 import com.github.andreyasadchy.xtra.model.ShownNotification
 import com.github.andreyasadchy.xtra.model.ui.Stream
-import com.github.andreyasadchy.xtra.ui.main.LiveStreamOnlineEvent
 import com.github.andreyasadchy.xtra.util.C
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -21,12 +20,6 @@ import kotlinx.coroutines.withContext
 import java.util.Collections
 import kotlin.time.Instant
 
-internal fun shouldEnqueueStreamOnline(
-    channelEnabled: Boolean,
-    shownStartedAt: Long?,
-    eventStartedAt: Long,
-): Boolean = channelEnabled && shownStartedAt?.let { it >= eventStartedAt } != true
-
 internal fun isLiveNotificationBaselineAuthenticationMissing(
     cachedChannelCount: Int,
     gqlHeaders: Map<String, String>,
@@ -34,6 +27,21 @@ internal fun isLiveNotificationBaselineAuthenticationMissing(
 ): Boolean = cachedChannelCount > 0 &&
         gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() &&
         helixHeaders[C.HEADER_TOKEN].isNullOrBlank()
+
+internal fun streamIdsMissingProfileImages(streams: List<Stream>): List<String> = streams.mapNotNull { stream ->
+    stream.channelId?.takeIf { it.isNotBlank() }?.takeIf { stream.channelImageURL.isNullOrBlank() }
+}.distinct()
+
+internal fun mergeProfileImages(streams: List<Stream>, profileUrls: Map<String, String>): List<Stream> {
+    streams.forEach { stream ->
+        stream.channelId?.let { profileUrls[it] }?.let { imageUrl ->
+            if (stream.channelImageURL.isNullOrBlank()) {
+                stream.channelImageURL = imageUrl
+            }
+        }
+    }
+    return streams
+}
 
 private val liveNotificationGraphQlAuthPattern = Regex(
     "(?i)\\b(?:unauthori[sz]ed|unauthenticated|authentication required|login required|forbidden|access denied|invalid (?:oauth|access|refresh) token|(?:oauth|access|refresh) token(?: is)? (?:invalid|expired)|invalid token|not authorized|permission denied|HTTP\\s+(?:401|403)|(?:401|403))\\b"
@@ -69,7 +77,6 @@ class NotificationsRepository(
     private val shownNotificationsDao: ShownNotificationsDao,
     private val notificationUsersDao: NotificationUsersDao,
     private val notificationEventsDao: NotificationEventsDao,
-    private val database: AppDatabase,
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
 ) {
@@ -162,14 +169,23 @@ class NotificationsRepository(
             val startedAt = stream.startedAtMillis() ?: return@filter false
             oldByChannel[channelId]?.startedAt?.let { it >= startedAt } != true
         }
+        val notificationStreams = if (enqueueNotificationEvents) {
+            enrichNewStreamsWithProfiles(
+                streams = newStreams,
+                networkLibrary = networkLibrary,
+                helixHeaders = helixHeaders,
+            )
+        } else {
+            newStreams
+        }
         if (enqueueNotificationEvents) {
-            newStreams.mapNotNull { stream ->
+            notificationStreams.mapNotNull { stream ->
                 stream.startedAtMillis()?.let { NotificationEvent.fromStream(stream, it) }
             }.let(notificationEventsDao::insertList)
         }
         shownNotificationsDao.insertList(liveList)
         onApiUsed?.invoke(apiUsed)
-        newStreams
+        notificationStreams
     }
 
     internal suspend fun syncNotificationUsers(
@@ -262,52 +278,6 @@ class NotificationsRepository(
     suspend fun getNotificationUserIds(): List<String> = withContext(Dispatchers.IO) {
         notificationUsersDao.getAll().map { it.channelId }
     }
-
-    suspend fun enqueueNotification(stream: Stream, startedAt: Long? = null): String? = withContext(Dispatchers.IO) {
-        val start = startedAt ?: stream.startedAtMillis() ?: return@withContext null
-        NotificationEvent.fromStream(stream, start)?.also { notificationEventsDao.insert(it) }?.eventId
-    }
-
-    suspend fun enqueueStreamOnline(event: LiveStreamOnlineEvent): String? = withContext(Dispatchers.IO) {
-        val channelId = event.broadcasterUserId.takeIf { it.isNotBlank() } ?: return@withContext null
-        val startedAt = Instant.parseOrNull(event.startedAt)?.toEpochMilliseconds()?.takeIf { it > 0L }
-            ?: return@withContext null
-        val notification = streamOnlineNotification(event, channelId, startedAt)
-        var enqueued = false
-        database.runInTransaction {
-            // EventSub can race both Helix and a follow/notification preference
-            // change. Keep membership, deduplication, and both writes in one
-            // transaction so a stale direct alert cannot bypass local state.
-            val shown = shownNotificationsDao.getById(channelId)
-            if (shouldEnqueueStreamOnline(
-                    channelEnabled = notificationUsersDao.getById(channelId) != null,
-                    shownStartedAt = shown?.startedAt,
-                    eventStartedAt = startedAt,
-                )
-            ) {
-                notificationEventsDao.insert(notification)
-                shownNotificationsDao.insertList(listOf(ShownNotification(channelId, startedAt)))
-                enqueued = true
-            }
-        }
-        notification.eventId.takeIf { enqueued }
-    }
-
-    private fun streamOnlineNotification(event: LiveStreamOnlineEvent, channelId: String, startedAt: Long): NotificationEvent = NotificationEvent(
-            eventId = "$channelId:$startedAt",
-            channelId = channelId,
-            streamId = event.eventId,
-            channelLogin = event.broadcasterUserLogin,
-            channelName = event.broadcasterUserName ?: event.broadcasterUserLogin,
-            channelImageURL = null,
-            gameName = null,
-            title = null,
-            thumbnailURL = null,
-            createdAt = event.startedAt,
-            viewerCount = null,
-            startedAt = startedAt,
-            queuedAt = System.currentTimeMillis(),
-        )
 
     suspend fun getPendingNotificationEvents(): List<NotificationEvent> = withContext(Dispatchers.IO) {
         notificationEventsDao.getAll()
@@ -507,10 +477,50 @@ class NotificationsRepository(
         notificationEventsDao.deleteForChannel(item.channelId)
     }
 
+    private suspend fun enrichNewStreamsWithProfiles(
+        streams: List<Stream>,
+        networkLibrary: String?,
+        helixHeaders: Map<String, String>,
+    ): List<Stream> {
+        val ids = streamIdsMissingProfileImages(streams)
+        if (ids.isEmpty() || helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+            return streams
+        }
+
+        val profileUrls = mutableMapOf<String, String>()
+        ids.chunked(MAX_USERS_PER_REQUEST).forEach { chunk ->
+            val users = try {
+                helixRepository.getUsers(
+                    networkLibrary = networkLibrary,
+                    headers = helixHeaders,
+                    ids = chunk,
+                ).data
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Unable to enrich live notification avatars", e)
+                emptyList()
+            }
+            users.forEach { user ->
+                val id = user.id?.takeIf { it.isNotBlank() }
+                val imageUrl = user.profileImageURL?.takeIf { it.isNotBlank() }
+                if (id != null && imageUrl != null) {
+                    profileUrls[id] = imageUrl
+                }
+            }
+        }
+        return mergeProfileImages(streams, profileUrls)
+    }
+
     private fun Stream.startedAtMillis(): Long? = createdAt
         ?.takeIf { it.isNotBlank() }
         ?.let { Instant.parseOrNull(it)?.toEpochMilliseconds() }
         ?.takeIf { it > 0 }
+
+    companion object {
+        private const val TAG = "NotificationsRepository"
+        private const val MAX_USERS_PER_REQUEST = 100
+    }
 }
 
 /**

@@ -37,6 +37,7 @@ import kotlinx.coroutines.withContext
 /** Adds the signed-in user's profile shortcut to the shared top toolbar. */
 object ProfileMenuBinder {
 
+    private const val ACTION_SIZE_DP = 48
     private const val AVATAR_SIZE_DP = 40
     private const val AVATAR_PADDING_DP = 4
     private const val BADGE_SIZE_DP = 17
@@ -51,14 +52,21 @@ object ProfileMenuBinder {
         val login = activity.tokenPrefs().getString(C.USERNAME, null)
         val isLoggedIn = !userId.isNullOrBlank() || !login.isNullOrBlank()
 
-        item.isVisible = isLoggedIn
+        item.isVisible = true
+        val contentDescription = if (isLoggedIn) {
+            activity.getString(R.string.view_profile)
+        } else {
+            activity.getString(R.string.sign_in)
+        }
+        val avatarViews = createAvatar(activity, item, contentDescription)
+        item.actionView = avatarViews.container
         if (!isLoggedIn) {
-            item.actionView = null
+            showPlaceholder(activity, avatarViews.image)
+            avatarViews.container.setOnClickListener { launchLogin(activity) }
             return
         }
 
         val authHealth = (activity.application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
-        val avatarViews = createAvatar(activity, item)
         bindAuthHealthBadge(activity, avatarViews.container, authHealth)
         avatarViews.container.setOnClickListener {
             if (authHealth.requiresUserAction) {
@@ -72,6 +80,7 @@ object ProfileMenuBinder {
         val cachedUserId = activity.tokenPrefs().getString(C.PROFILE_IMAGE_USER_ID, null)
         val cachedUrl = activity.tokenPrefs().getString(C.PROFILE_IMAGE_URL, null)
         if (cachedUserId == userId && !cachedUrl.isNullOrBlank()) {
+            showPlaceholder(activity, avatarViews.image)
             loadImage(activity, avatarViews.image, cachedUrl)
         } else {
             showPlaceholder(activity, avatarViews.image)
@@ -82,6 +91,12 @@ object ProfileMenuBinder {
     fun refreshAuthHealth(toolbar: androidx.appcompat.widget.Toolbar, activity: MainActivity) {
         val item = toolbar.menu.findItem(R.id.profile) ?: return
         val container = item.actionView as? FrameLayout ?: return
+        if (!isLoggedIn(activity)) {
+            item.title = activity.getString(R.string.sign_in)
+            container.contentDescription = activity.getString(R.string.sign_in)
+            container.setOnClickListener { launchLogin(activity) }
+            return
+        }
         val health = (activity.application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
         bindAuthHealthBadge(activity, container, health)
         container.setOnClickListener {
@@ -98,31 +113,42 @@ object ProfileMenuBinder {
         val image: ShapeableImageView,
     )
 
-    private fun createAvatar(context: Context, item: MenuItem): AvatarViews {
+    private fun createAvatar(context: Context, item: MenuItem, contentDescription: String): AvatarViews {
         val density = context.resources.displayMetrics.density
-        val size = (AVATAR_SIZE_DP * density).toInt()
+        val actionSize = (ACTION_SIZE_DP * density).toInt()
+        val avatarSize = (AVATAR_SIZE_DP * density).toInt()
         val padding = (AVATAR_PADDING_DP * density).toInt()
         val image = ShapeableImageView(context).apply {
-            layoutParams = FrameLayout.LayoutParams(size, size, Gravity.CENTER)
+            layoutParams = FrameLayout.LayoutParams(avatarSize, avatarSize, Gravity.CENTER)
             setPadding(padding, padding, padding, padding)
-            contentDescription = context.getString(R.string.view_profile)
+            this.contentDescription = contentDescription
             importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
             scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
             shapeAppearanceModel = ShapeAppearanceModel.builder()
-                .setAllCornerSizes(size / 2f)
+                .setAllCornerSizes(avatarSize / 2f)
                 .build()
         }
         val container = FrameLayout(context).apply {
-            layoutParams = FrameLayout.LayoutParams(size, size).apply {
+            layoutParams = FrameLayout.LayoutParams(actionSize, actionSize).apply {
                 gravity = Gravity.CENTER
             }
             addView(image)
             isClickable = true
             isFocusable = true
             // Keep the action view's tooltip/title available to accessibility services.
-            item.title = context.getString(R.string.view_profile)
+            this.contentDescription = contentDescription
+            item.title = contentDescription
         }
         return AvatarViews(container, image)
+    }
+
+    private fun isLoggedIn(activity: MainActivity): Boolean =
+        !activity.tokenPrefs().getString(C.USER_ID, null).isNullOrBlank() ||
+            !activity.tokenPrefs().getString(C.USERNAME, null).isNullOrBlank()
+
+    private fun launchLogin(activity: MainActivity) {
+        val intent = Intent(activity, LoginActivity::class.java)
+        activity.loginResultLauncher?.launch(intent) ?: activity.startActivity(intent)
     }
 
     private fun bindAuthHealthBadge(context: Context, container: FrameLayout, health: AuthHealth) {

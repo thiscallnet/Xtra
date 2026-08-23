@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.repository
 
+import com.github.andreyasadchy.xtra.model.ui.Stream
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -9,20 +10,39 @@ import org.junit.Test
 class NotificationsRepositoryTest {
 
     @Test
-    fun rejectsEventsForDisabledChannels() {
-        assertFalse(shouldEnqueueStreamOnline(channelEnabled = false, shownStartedAt = null, eventStartedAt = 100L))
+    fun profileLookupOnlyTargetsNewStreamsWithoutCachedImages() {
+        assertEquals(
+            listOf("missing", "also-missing"),
+            streamIdsMissingProfileImages(
+                listOf(
+                    Stream(channelId = "missing"),
+                    Stream(channelId = "cached", channelImageURL = "https://example.test/avatar.png"),
+                    Stream(channelId = "missing"),
+                    Stream(channelId = "also-missing"),
+                    Stream(channelId = " "),
+                )
+            ),
+        )
     }
 
     @Test
-    fun rejectsDuplicateOrOlderStreamStarts() {
-        assertFalse(shouldEnqueueStreamOnline(channelEnabled = true, shownStartedAt = 100L, eventStartedAt = 100L))
-        assertFalse(shouldEnqueueStreamOnline(channelEnabled = true, shownStartedAt = 200L, eventStartedAt = 100L))
+    fun profileLookupFailureLeavesNotificationStreamMetadataUntouched() {
+        val stream = Stream(channelId = "channel", title = "Live title", gameName = "Game")
+
+        mergeProfileImages(listOf(stream), emptyMap())
+
+        assertEquals("Live title", stream.title)
+        assertEquals("Game", stream.gameName)
+        assertEquals(null, stream.channelImageURL)
     }
 
     @Test
-    fun acceptsNewerStreamStarts() {
-        assertTrue(shouldEnqueueStreamOnline(channelEnabled = true, shownStartedAt = 100L, eventStartedAt = 200L))
-        assertTrue(shouldEnqueueStreamOnline(channelEnabled = true, shownStartedAt = null, eventStartedAt = 100L))
+    fun profileLookupAddsTheReturnedAvatarUrl() {
+        val stream = Stream(channelId = "channel")
+
+        mergeProfileImages(listOf(stream), mapOf("channel" to "https://example.test/avatar.png"))
+
+        assertEquals("https://example.test/avatar.png", stream.channelImageURL)
     }
 
     @Test

@@ -7,14 +7,23 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.os.Build
+import android.os.Bundle
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import coil3.asDrawable
+import coil3.imageLoader
+import coil3.request.ImageRequest
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.NotificationEvent
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 
 class LiveNotificationNotifier(private val context: Context) {
@@ -32,10 +41,14 @@ class LiveNotificationNotifier(private val context: Context) {
         ensureLiveNotificationChannel()
         var delivered = 0
         var firstError: Throwable? = null
+        val deliveredEvents = mutableListOf<NotificationEvent>()
         events.forEach { event ->
             try {
-                notificationManager.notify(event.channelId.hashCode(), buildNotification(event))
+                synchronized(notificationLock) {
+                    notificationManager.notify(notificationId(event), buildNotification(event))
+                }
                 repository.markNotificationDelivered(event.eventId)
+                deliveredEvents += event
                 delivered += 1
             } catch (e: Exception) {
                 if (firstError == null) {
@@ -43,16 +56,21 @@ class LiveNotificationNotifier(private val context: Context) {
                 }
             }
         }
+        // All durable text alerts are posted before any avatar request starts. An image CDN
+        // failure must never delay or duplicate the live alert itself.
+        deliveredEvents.forEach(::enqueueAvatarUpdate)
         firstError?.let { throw it }
         return delivered
     }
 
     fun cancelLiveNotifications() {
-        notificationManager.cancel(SUMMARY_NOTIFICATION_ID)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            notificationManager.activeNotifications
-                .filter { it.notification.channelId == liveChannelId }
-                .forEach { notificationManager.cancel(it.tag, it.id) }
+        synchronized(notificationLock) {
+            notificationManager.cancel(SUMMARY_NOTIFICATION_ID)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                notificationManager.activeNotifications
+                    .filter { it.notification.channelId == liveChannelId }
+                    .forEach { notificationManager.cancel(it.tag, it.id) }
+            }
         }
     }
 
@@ -89,7 +107,11 @@ class LiveNotificationNotifier(private val context: Context) {
         }
     }
 
-    private fun buildNotification(event: NotificationEvent) = NotificationCompat.Builder(context, liveChannelId).apply {
+    private fun buildNotification(
+        event: NotificationEvent,
+        largeIcon: Bitmap? = null,
+        onlyAlertOnce: Boolean = false,
+    ) = NotificationCompat.Builder(context, liveChannelId).apply {
         val channelName = event.channelName?.takeIf { it.isNotBlank() }
         val channelLogin = event.channelLogin?.takeIf { it.isNotBlank() }
         val displayName = if (channelName != null && channelLogin != null && !channelLogin.equals(channelName, true)) {
@@ -101,32 +123,100 @@ class LiveNotificationNotifier(private val context: Context) {
         } else {
             channelName ?: channelLogin ?: event.channelId
         }
+        val gameName = event.gameName?.takeIf { it.isNotBlank() }
+        val streamTitle = event.title?.takeIf { it.isNotBlank() }
+            ?: gameName?.let { context.getString(R.string.live_notification_streaming, it) }
+            ?: context.getString(R.string.live_notification_live_now)
         setContentTitle(context.getString(R.string.live_notification, displayName))
-        setContentText(event.title)
+        setContentText(streamTitle)
+        setStyle(NotificationCompat.BigTextStyle().bigText(streamTitle))
+        gameName?.let(::setSubText)
         setSmallIcon(R.drawable.notification_icon)
+        largeIcon?.let(::setLargeIcon)
         setWhen(event.startedAt)
         setAutoCancel(true)
+        if (onlyAlertOnce) {
+            setOnlyAlertOnce(true)
+        }
+        addExtras(Bundle().apply {
+            putString(NOTIFICATION_EVENT_ID_EXTRA, event.eventId)
+        })
+        val notificationIntent = Intent()
+        notificationIntent.setClassName(context, MainActivity::class.java.name)
+        notificationIntent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+        notificationIntent.action = MainActivity.INTENT_LIVE_NOTIFICATION
+        notificationIntent.putExtra(MainActivity.KEY_VIDEO, event.toStream())
         setContentIntent(
             PendingIntent.getActivity(
                 context,
-                event.channelId.hashCode(),
-                Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    action = MainActivity.INTENT_LIVE_NOTIFICATION
-                    putExtra(MainActivity.KEY_VIDEO, event.toStream())
-                },
+                notificationId(event),
+                notificationIntent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
         )
     }.build()
+
+    private fun enqueueAvatarUpdate(event: NotificationEvent) {
+        val imageUrl = event.channelImageURL?.takeIf { it.isNotBlank() } ?: return
+        val request = ImageRequest.Builder(context).apply {
+            data(TwitchApiHelper.getProfileImage(imageUrl) ?: imageUrl)
+            target(
+                onSuccess = { image ->
+                    runCatching {
+                        synchronized(notificationLock) {
+                            val activeNotification = notificationManager.activeNotifications
+                                .firstOrNull { it.tag == null && it.id == notificationId(event) }
+                                ?: return@synchronized
+                            val activeEventId = activeNotification.notification.extras
+                                .getString(NOTIFICATION_EVENT_ID_EXTRA)
+                            if (!isLiveNotificationGenerationCurrent(activeEventId, event.eventId)) {
+                                return@synchronized
+                            }
+                            notificationManager.notify(
+                                notificationId(event),
+                                buildNotification(
+                                    event = event,
+                                    largeIcon = drawableToBitmap(image.asDrawable(context.resources)),
+                                    onlyAlertOnce = true,
+                                ),
+                            )
+                        }
+                    }
+                },
+            )
+        }.build()
+        runCatching { context.imageLoader.enqueue(request) }
+    }
+
+    private fun drawableToBitmap(drawable: Drawable): Bitmap {
+        if (drawable is BitmapDrawable) {
+            return drawable.bitmap
+        }
+        val width = drawable.intrinsicWidth.coerceAtLeast(1)
+        val height = drawable.intrinsicHeight.coerceAtLeast(1)
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            Canvas(bitmap).also { canvas ->
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+            }
+        }
+    }
+
+    private fun notificationId(event: NotificationEvent): Int = event.channelId.hashCode()
 
     private val liveChannelId: String
         get() = context.getString(R.string.notification_live_channel_id)
 
     companion object {
         private const val SUMMARY_NOTIFICATION_ID = 0
+        private const val NOTIFICATION_EVENT_ID_EXTRA =
+            "com.github.andreyasadchy.xtra.live_notification_event_id"
+        private val notificationLock = Any()
     }
 }
+
+internal fun isLiveNotificationGenerationCurrent(activeEventId: String?, callbackEventId: String): Boolean =
+    activeEventId == callbackEventId
 
 enum class NotificationBlockReason {
     POST_NOTIFICATIONS_PERMISSION,

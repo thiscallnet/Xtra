@@ -10,5 +10,8 @@
     <string name="login_authorization_notification_title">Signing in to Twitch</string>
     <string name="login_authorization_notification_text">Waiting for Twitch authorization. Tap to return to Xtra.</string>
     <string name="login_compatibility_same_account">Complete this step using the same Twitch account currently connected to Xtra.</string>
+    <string name="sign_in">Zaloguj się</string>
+    <string name="live_notification_streaming">Transmisja: %s</string>
+    <string name="live_notification_live_now">Teraz na żywo</string>
 </resources>
 

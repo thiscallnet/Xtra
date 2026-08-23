@@ -266,7 +266,7 @@ class LiveNotificationEventSub(
     private val helixHeaders: () -> Map<String, String>,
     private val channelIds: suspend () -> List<String>,
     private val scope: CoroutineScope,
-    private val onStreamOnline: suspend (LiveStreamOnlineEvent) -> Unit,
+    private val onStreamOnline: suspend () -> Unit,
     private val onRevocation: suspend (LiveEventSubRevocation) -> Unit = {},
 ) {
 
@@ -550,7 +550,7 @@ class LiveNotificationEventSub(
             }
             "notification" -> if (message.subscriptionType == "stream.online") {
                 message.streamOnlineEvent?.let {
-                    onStreamOnline(it)
+                    onStreamOnline()
                     processed = true
                 }
             }

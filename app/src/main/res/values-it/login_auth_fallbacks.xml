@@ -14,5 +14,8 @@
     <string name="login_compatibility_ready_message">Xtra needs one additional Twitch authorization to enable all account features. Continue using the same Twitch account in both steps.</string>
     <string name="login_continue_compatibility">Continue signing in</string>
     <string name="login_compatibility_same_account">Complete this step using the same Twitch account currently connected to Xtra.</string>
+    <string name="sign_in">Accedi</string>
+    <string name="live_notification_streaming">Streaming %s</string>
+    <string name="live_notification_live_now">In diretta ora</string>
 </resources>
 

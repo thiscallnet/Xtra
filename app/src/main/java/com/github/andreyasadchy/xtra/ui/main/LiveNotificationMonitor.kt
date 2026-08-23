@@ -92,16 +92,6 @@ class LiveNotificationMonitor(context: Context) {
         PollResult(delivered, channelCount, apiUsed)
     }
 
-    suspend fun handleStreamOnline(event: LiveStreamOnlineEvent): Int = mutex.withLock {
-        val prefs = context.prefs()
-        val repository = xtraApp.xtraModule.notificationsRepository
-        if (!prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) || !notifier.canPostNotifications()) {
-            return@withLock 0
-        }
-        repository.enqueueStreamOnline(event) ?: return@withLock 0
-        notifier.deliverPending(repository)
-    }
-
     private fun shouldSyncNotificationUsers(): Boolean {
         val prefs = context.prefs()
         val now = System.currentTimeMillis()
