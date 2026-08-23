@@ -22,10 +22,9 @@ import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
-import com.github.andreyasadchy.xtra.ui.common.StreamsAdapter
-import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
+import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
 import com.github.andreyasadchy.xtra.ui.following.streams.FollowedStreamsViewModel.Companion.FollowedStreamsViewModelFactory
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
@@ -52,22 +51,17 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        val selectTag: (String) -> Unit = {
+            findNavController().navigate(
+                TopStreamsFragmentDirections.actionGlobalTopFragment(
+                    tags = arrayOf(it),
+                )
+            )
+        }
         pagingAdapter = if (requireContext().prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled") {
-            StreamsCompactAdapter(this, {
-                findNavController().navigate(
-                    TopStreamsFragmentDirections.actionGlobalTopFragment(
-                        tags = arrayOf(it)
-                    )
-                )
-            })
+            StreamsCompactAdapter(this, selectTag)
         } else {
-            StreamsAdapter(this, {
-                findNavController().navigate(
-                    TopStreamsFragmentDirections.actionGlobalTopFragment(
-                        tags = arrayOf(it)
-                    )
-                )
-            })
+            StreamsShelfPagingAdapter(this, selectTag)
         }
         setAdapter(binding.recyclerView, pagingAdapter)
         streamPreloadViewportController = StreamPreloadViewportController(
