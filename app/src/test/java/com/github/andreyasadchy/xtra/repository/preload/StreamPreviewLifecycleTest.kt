@@ -80,6 +80,31 @@ class StreamPreviewLifecycleTest {
     }
 
     @Test
+    fun coordinatorReconciliationAlsoWakesForAPlayerFailureRetry() {
+        val lifecycle = StreamPreviewLifecycle()
+        var scheduledDelayMs: Long? = null
+        var scheduledCallback: (() -> Unit)? = null
+
+        val reconciler = StreamPreviewLifecycleReconciler(
+            lifecycle = lifecycle,
+            schedule = { delayMs, callback ->
+                scheduledDelayMs = delayMs
+                scheduledCallback = callback
+                {}
+            },
+            onExpired = {},
+        )
+
+        reconciler.reconcile(
+            nowMs = 100L,
+            additionalDeadlines = listOf(100L + 10_000L),
+        )
+
+        assertEquals(10_000L, scheduledDelayMs)
+        assertTrue(scheduledCallback != null)
+    }
+
+    @Test
     fun sameStreamReappearingDuringGraceKeepsItsActiveState() {
         val lifecycle = StreamPreviewLifecycle()
         lifecycle.track("channel-a", nowMs = 0L)

@@ -7,6 +7,45 @@ import org.junit.Test
 
 class StreamPreviewSelectionPolicyTest {
     @Test
+    fun selectedReplacementDisplacesAnActiveCardAtThePoolLimit() {
+        val displaced = StreamPreviewCoordinatorPolicy.displacedActiveIdentities(
+            bestCandidateVisibility = mapOf(
+                "active" to 0.13f,
+                "new" to 0.95f,
+            ),
+            activeIdentities = setOf("active"),
+            selectedIdentities = setOf("new"),
+        )
+
+        assertEquals(setOf("active"), displaced)
+    }
+
+    @Test
+    fun offscreenActiveCardIsLeftForLifecycleGraceInsteadOfDisplaced() {
+        val displaced = StreamPreviewCoordinatorPolicy.displacedActiveIdentities(
+            bestCandidateVisibility = mapOf(
+                "active" to 0.05f,
+                "new" to 0.95f,
+            ),
+            activeIdentities = setOf("active"),
+            selectedIdentities = setOf("new"),
+        )
+
+        assertTrue(displaced.isEmpty())
+    }
+
+    @Test
+    fun pendingStartForAnActiveCardIsCancelled() {
+        assertTrue(
+            StreamPreviewCoordinatorPolicy.shouldCancelPendingStart(
+                identity = "new",
+                selectedIdentities = setOf("new"),
+                activeIdentities = setOf("new"),
+            ),
+        )
+    }
+
+    @Test
     fun firstPartiallyVisibleFeedItemIsEligible() {
         val selected = StreamPreviewSelectionPolicy.select(
             candidates = listOf(

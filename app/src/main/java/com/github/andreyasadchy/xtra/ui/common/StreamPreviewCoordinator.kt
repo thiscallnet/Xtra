@@ -24,6 +24,7 @@ import androidx.media3.ui.PlayerView
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.repository.preload.StreamMedia3Runtime
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadCoordinator
+import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewCoordinatorPolicy
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewDwellPolicy
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewLifecycle
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewLifecycleReconciler
@@ -37,6 +38,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -242,7 +244,7 @@ class StreamPreviewCoordinator(
             .map { normalize(it.channelLogin)!! }
         previewLifecycle.observeVisible(reasonablyVisible, now)
         previewLifecycle.expire(now)
-        lifecycleReconciler.reconcile(now)
+        lifecycleReconciler.reconcile(now, additionalDeadlines = failedUntil.values)
         activePreviews.keys.toList()
             .filter { it !in previewLifecycle.activeIdentities() && it != handoffLogin }
             .forEach(::releasePreview)
@@ -263,6 +265,13 @@ class StreamPreviewCoordinator(
         val selectedSet = selected.toSet()
         val bestCandidates = bestCandidatesByIdentity(candidates)
 
+        StreamPreviewCoordinatorPolicy.displacedActiveIdentities(
+            bestCandidateVisibility = bestCandidates.mapValues { (_, candidate) -> candidate.visibleFraction },
+            activeIdentities = activePreviews.keys,
+            selectedIdentities = selectedSet,
+            handoffIdentity = handoffLogin,
+        ).forEach(::releasePreview)
+
         val maxActive = maxActivePreviews()
         if (activePreviews.size > maxActive) {
             activePreviews.keys.toList()
@@ -272,7 +281,13 @@ class StreamPreviewCoordinator(
         }
 
         pendingStarts.keys.toList()
-            .filter { it !in selectedSet || it in activePreviews }
+            .filter { identity ->
+                StreamPreviewCoordinatorPolicy.shouldCancelPendingStart(
+                    identity = identity,
+                    selectedIdentities = selectedSet,
+                    activeIdentities = activePreviews.keys,
+                )
+            }
             .forEach { identity ->
                 pendingStarts.remove(identity)?.cancel()
                 if (identity !in activePreviews) dwellStarts.remove(identity)
@@ -291,7 +306,8 @@ class StreamPreviewCoordinator(
 
     private fun scheduleStart(candidate: StreamPreviewCandidate, now: Long) {
         val login = normalize(candidate.channelLogin) ?: return
-        if (activePreviews.containsKey(login) || pendingStarts.containsKey(login)) return
+        if (activePreviews.containsKey(login) || pendingStarts[login]?.isActive == true) return
+        pendingStarts.remove(login)
         if (failedUntil[login]?.let { it > now } == true) return
         val startedAt = StreamPreviewDwellPolicy.startAt(
             existingStartMs = dwellStarts[login],
@@ -307,11 +323,17 @@ class StreamPreviewCoordinator(
             nowMs = now,
             delayMs = StreamPreviewPolicy.delay(context).delayMs,
         )
-        pendingStarts[login] = scope.launch {
-            if (remainingDelay > 0L) delay(remainingDelay)
-            pendingStarts.remove(login)
-            startPreview(login)
+        lateinit var startJob: Job
+        startJob = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                if (remainingDelay > 0L) delay(remainingDelay)
+                startPreview(login)
+            } finally {
+                if (pendingStarts[login] === startJob) pendingStarts.remove(login)
+            }
         }
+        pendingStarts[login] = startJob
+        startJob.start()
     }
 
     private suspend fun startPreview(login: String) {
@@ -401,6 +423,7 @@ class StreamPreviewCoordinator(
     private fun markPreviewFailure(login: String) {
         failedUntil[login] = SystemClock.elapsedRealtime() + PLAYER_FAILURE_RETRY_MS
         releasePreview(login)
+        lifecycleReconciler.reconcile(SystemClock.elapsedRealtime(), additionalDeadlines = failedUntil.values)
     }
 
     private fun attachSurfaceIfNeeded(active: ActivePreview, candidate: StreamPreviewCandidate) {

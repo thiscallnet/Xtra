@@ -83,8 +83,12 @@ class StreamPreviewLifecycleReconciler(
     private var scheduledExpiryAtMs: Long? = null
     private var cancelScheduled: (() -> Unit)? = null
 
-    fun reconcile(nowMs: Long) {
-        val expiryAtMs = lifecycle.nextExpiryAtMs()
+    fun reconcile(nowMs: Long, additionalDeadlines: Collection<Long> = emptyList()) {
+        var expiryAtMs = lifecycle.nextExpiryAtMs()
+        additionalDeadlines.forEach { deadline ->
+            val currentExpiryAtMs = expiryAtMs
+            if (currentExpiryAtMs == null || deadline < currentExpiryAtMs) expiryAtMs = deadline
+        }
         if (expiryAtMs == null) {
             cancel()
             return
