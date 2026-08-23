@@ -29,6 +29,20 @@
             app:layout_constraintTop_toTopOf="parent"
             tools:src="@tools:sample/backgrounds/scenic" />
 
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/previewPlayerView"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:importantForAccessibility="no"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/thumbnail"
+            app:layout_constraintEnd_toEndOf="@id/thumbnail"
+            app:layout_constraintStart_toStartOf="@id/thumbnail"
+            app:layout_constraintTop_toTopOf="@id/thumbnail"
+            app:resize_mode="zoom"
+            app:show_buffering="never"
+            app:use_controller="false" />
+
         <com.github.andreyasadchy.xtra.ui.view.TextWithShadow
             android:id="@+id/duration"
             style="@style/ThumbnailItem"

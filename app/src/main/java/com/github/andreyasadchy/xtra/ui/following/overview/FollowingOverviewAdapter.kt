@@ -30,6 +30,8 @@ class FollowingOverviewAdapter(
     private val onSeeAll: (String) -> Unit,
     private val onStreamShelfAttached: ((String, RecyclerView, (Int) -> Stream?) -> Unit)? = null,
     private val onStreamShelfDetached: ((String) -> Unit)? = null,
+    private val onVideoShelfAttached: ((String, RecyclerView, (Int) -> VideoHistory?) -> Unit)? = null,
+    private val onVideoShelfDetached: ((String) -> Unit)? = null,
 ) : ListAdapter<FollowingOverviewSection, FollowingOverviewAdapter.ViewHolder>(DIFF_CALLBACK) {
 
     private val recycledViewPool = RecyclerView.RecycledViewPool()
@@ -52,6 +54,7 @@ class FollowingOverviewAdapter(
 
     override fun onViewRecycled(holder: ViewHolder) {
         holder.detachStreamShelf()
+        holder.detachVideoShelf()
         super.onViewRecycled(holder)
     }
 
@@ -63,6 +66,7 @@ class FollowingOverviewAdapter(
         private val upcomingShelfAdapter = UpcomingStreamShelfAdapter(onUpcomingClick)
         private var shelfType: ShelfType? = null
         private var boundStreamShelfKey: String? = null
+        private var boundVideoShelfKey: String? = null
 
         init {
             binding.shelfRecyclerView.apply {
@@ -91,6 +95,9 @@ class FollowingOverviewAdapter(
             if (nextShelfType != ShelfType.STREAM || section.streams.isEmpty()) {
                 detachStreamShelf()
             }
+            if (nextShelfType != ShelfType.VIDEO || section.videos.isEmpty()) {
+                detachVideoShelf()
+            }
             if (shelfType != nextShelfType) {
                 when (nextShelfType) {
                     ShelfType.VIDEO -> {
@@ -109,7 +116,16 @@ class FollowingOverviewAdapter(
                 shelfType = nextShelfType
             }
             when (nextShelfType) {
-                ShelfType.VIDEO -> videoShelfAdapter.submitList(section.videos)
+                ShelfType.VIDEO -> {
+                    videoShelfAdapter.submitList(section.videos)
+                    if (hasItems && boundVideoShelfKey != section.key) {
+                        detachVideoShelf()
+                        boundVideoShelfKey = section.key
+                        onVideoShelfAttached?.invoke(section.key, binding.shelfRecyclerView) { position ->
+                            videoShelfAdapter.currentList.getOrNull(position)
+                        }
+                    }
+                }
                 ShelfType.UPCOMING -> upcomingShelfAdapter.submitList(section.scheduledStreams)
                 ShelfType.STREAM -> {
                     shelfAdapter.submitList(section.streams)
@@ -127,6 +143,11 @@ class FollowingOverviewAdapter(
         fun detachStreamShelf() {
             boundStreamShelfKey?.let(onStreamShelfDetached ?: {})
             boundStreamShelfKey = null
+        }
+
+        fun detachVideoShelf() {
+            boundVideoShelfKey?.let(onVideoShelfDetached ?: {})
+            boundVideoShelfKey = null
         }
     }
 

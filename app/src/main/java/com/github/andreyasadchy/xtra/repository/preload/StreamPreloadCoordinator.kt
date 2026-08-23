@@ -47,6 +47,10 @@ class StreamPreloadCoordinator(
 ) {
     private val context = context.applicationContext
     private val cache = StreamPreloadUrlCache(elapsedRealtimeMs = elapsedRealtimeMs)
+    private val vodPreviewUrls = StreamPreloadUrlCache(
+        maxEntries = StreamPreloadPolicy.MAX_VOD_PREVIEW_URLS,
+        elapsedRealtimeMs = elapsedRealtimeMs,
+    )
     private val urlOwnership = StreamPreloadUrlOwnership(cache)
     private val scheduledJobs = ConcurrentHashMap<String, Job>()
     private val dwellStarts = ConcurrentHashMap<String, Long>()
@@ -200,6 +204,27 @@ class StreamPreloadCoordinator(
             ?.streamKey
             ?: login
         return preloadUrl(login, key, forPreview = true)
+    }
+
+    /** Resolves a VOD playlist for a visible preview without consuming live URL ownership. */
+    suspend fun resolveVodForPreview(videoId: String?): String? {
+        val id = videoId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val config = refreshConfiguration()
+        if (!canResolvePreview()) return null
+        vodPreviewUrls.get(id, config.fingerprint)?.let { return it }
+        val url = runCatching {
+            playerRepository.loadVideoPlaylistUrl(
+                networkLibrary = config.networkLibrary,
+                gqlHeaders = config.gqlHeaders,
+                videoId = id,
+                playerType = config.playerType,
+                supportedCodecs = config.supportedCodecs,
+                enableIntegrity = config.enableIntegrity,
+            ).first
+        }.getOrNull() ?: return null
+        if (refreshConfiguration().fingerprint != config.fingerprint) return null
+        vodPreviewUrls.put(id, url, config.fingerprint)
+        return url
     }
 
     private fun reconcilePreloads(config: StreamPlaybackConfiguration) {
@@ -406,6 +431,7 @@ class StreamPreloadCoordinator(
         val next = StreamPlaybackConfiguration.from(context)
         if (configuration?.fingerprint != next.fingerprint) {
             cache.setConfiguration(next.fingerprint)
+            vodPreviewUrls.clear()
             resolver.cancelAll()
             invalidateMediaOperations()
             mediaPreloadRuntime?.let { runtime ->

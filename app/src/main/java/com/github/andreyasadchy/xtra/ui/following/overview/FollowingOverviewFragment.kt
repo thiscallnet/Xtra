@@ -27,6 +27,7 @@ import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
+import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCandidate
 import com.github.andreyasadchy.xtra.ui.following.FollowMediaFragment
 import com.github.andreyasadchy.xtra.ui.following.FollowPagerFragment
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -47,6 +48,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
     private lateinit var overviewAdapter: FollowingOverviewAdapter
     private lateinit var streamFeedScreenController: StreamFeedScreenController
     private val streamShelfPreloadControllers = mutableMapOf<String, StreamPreloadViewportController>()
+    private val videoShelfPreviewControllers = mutableMapOf<String, StreamPreloadViewportController>()
     private var overviewScrolling = false
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -89,6 +91,37 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
             onStreamShelfDetached = { key ->
                 streamShelfPreloadControllers.remove(key)?.stop()
             },
+            onVideoShelfAttached = { key, recyclerView, videoAtPosition ->
+                videoShelfPreviewControllers.remove(key)?.stop()
+                StreamPreloadViewportController(
+                    fragment = this,
+                    coordinator = null,
+                    viewportKey = "following-overview-videos:$key",
+                    recyclerView = recyclerView,
+                    previewAtPosition = { position, surface ->
+                        videoAtPosition(position)?.let { video ->
+                            StreamPreviewCandidate(
+                                streamKey = "vod:${video.id}",
+                                channelLogin = video.channelLogin.orEmpty(),
+                                visibleFraction = 0f,
+                                centerProximity = 0f,
+                                title = video.title,
+                                channelName = video.channelName,
+                                channelLogo = video.channelImageURL?.let(TwitchApiHelper::getProfileImage),
+                                videoId = video.id.toString(),
+                                surface = surface,
+                            )
+                        }
+                    },
+                    isParentScrolling = { overviewScrolling },
+                ).also {
+                    videoShelfPreviewControllers[key] = it
+                    it.start()
+                }
+            },
+            onVideoShelfDetached = { key ->
+                videoShelfPreviewControllers.remove(key)?.stop()
+            },
         )
         binding.recyclerView.apply {
             layoutManager = LinearLayoutManager(context)
@@ -99,6 +132,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                 override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                     overviewScrolling = newState != RecyclerView.SCROLL_STATE_IDLE
                     streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::onParentScrollStateChanged)
+                    videoShelfPreviewControllers.values.forEach(StreamPreloadViewportController::onParentScrollStateChanged)
                 }
             })
             addOnLayoutChangeListener { recyclerView, _, _, right, _, _, _, _, _ ->
@@ -223,6 +257,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
             streamFeedScreenController.onResume()
         }
         streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::onResume)
+        videoShelfPreviewControllers.values.forEach(StreamPreloadViewportController::onResume)
     }
 
     override fun onPause() {
@@ -230,6 +265,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
             streamFeedScreenController.onPause()
         }
         streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::onPause)
+        videoShelfPreviewControllers.values.forEach(StreamPreloadViewportController::onPause)
         super.onPause()
     }
 
@@ -239,6 +275,8 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
         }
         streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::stop)
         streamShelfPreloadControllers.clear()
+        videoShelfPreviewControllers.values.forEach(StreamPreloadViewportController::stop)
+        videoShelfPreviewControllers.clear()
         overviewScrolling = false
         super.onDestroyView()
         _binding = null

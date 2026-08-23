@@ -15,9 +15,23 @@ class StreamPreloadUrlCacheTest {
         cache.put("three", "url-three", "config")
         assertNull(cache.get("one", "config"))
         assertEquals("url-two", cache.get("two", "config"))
+        assertEquals(2, cache.size())
 
         now = 101L
         assertNull(cache.take("two", "config"))
+        assertEquals(1, cache.size())
+    }
+
+    @Test
+    fun boundedCacheSupportsVODPreviewUrlsAndConfigurationInvalidation() {
+        var now = 0L
+        val cache = StreamPreloadUrlCache(maxEntries = 8, ttlMs = 100, elapsedRealtimeMs = { now })
+
+        repeat(9) { id -> cache.put("vod-$id", "signed-url-$id", "old-config") }
+
+        assertNull(cache.get("vod-0", "old-config"))
+        assertEquals("signed-url-8", cache.get("vod-8", "old-config"))
+        assertNull(cache.get("vod-8", "new-config"))
     }
 
     @Test
