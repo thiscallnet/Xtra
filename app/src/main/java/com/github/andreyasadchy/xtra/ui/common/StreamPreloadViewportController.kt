@@ -26,6 +26,11 @@ class StreamPreloadViewportController(
 ) {
     private var scrollState = RecyclerView.SCROLL_STATE_IDLE
     private var started = false
+    private var publishPosted = false
+    private val publishRunnable = Runnable {
+        publishPosted = false
+        publish()
+    }
     private val scrollListener = object : RecyclerView.OnScrollListener() {
         override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
             scrollState = newState
@@ -56,6 +61,8 @@ class StreamPreloadViewportController(
         if (recyclerView.viewTreeObserver.isAlive) {
             recyclerView.viewTreeObserver.removeOnScrollChangedListener(scrollChangedListener)
         }
+        recyclerView.removeCallbacks(publishRunnable)
+        publishPosted = false
         coordinator.detachViewport(viewportKey)
         previewCoordinator.detachViewport(viewportKey)
     }
@@ -75,16 +82,13 @@ class StreamPreloadViewportController(
 
     private fun requestPublish() {
         if (!started) return
-        if (isScrolling()) {
-            coordinator.setViewportScrolling(viewportKey, scrolling = true)
-            previewCoordinator.onScrolling(viewportKey)
-        } else {
-            recyclerView.post(::publish)
-        }
+        if (publishPosted) return
+        publishPosted = true
+        recyclerView.postOnAnimation(publishRunnable)
     }
 
     private fun publish() {
-        if (!started || isScrolling()) return
+        if (!started) return
         if (!fragment.isAdded || fragment.view == null ||
             !fragment.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
             !recyclerView.isAttachedToWindow

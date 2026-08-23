@@ -16,7 +16,7 @@ enum class StreamPreviewMode(val preferenceValue: String) {
 
     companion object {
         fun fromPreference(value: String?): StreamPreviewMode =
-            entries.firstOrNull { it.preferenceValue == value } ?: OFF
+            entries.firstOrNull { it.preferenceValue == value } ?: if (value == null) WIFI_AND_MOBILE else OFF
     }
 }
 
@@ -33,6 +33,7 @@ enum class StreamPreviewQuality(val preferenceValue: String) {
 }
 
 enum class StreamPreviewDelay(val preferenceValue: String, val delayMs: Long) {
+    IMMEDIATE("instant", 0L),
     FAST("fast", 750L),
     NORMAL("normal", 1_250L),
     CONSERVATIVE("conservative", 2_000L),
@@ -40,28 +41,34 @@ enum class StreamPreviewDelay(val preferenceValue: String, val delayMs: Long) {
 
     companion object {
         fun fromPreference(value: String?): StreamPreviewDelay =
-            entries.firstOrNull { it.preferenceValue == value } ?: NORMAL
+            entries.firstOrNull { it.preferenceValue == value } ?: if (value == null) IMMEDIATE else NORMAL
     }
 }
 
 object StreamPreviewPolicy {
-    const val MIN_VISIBLE_FRACTION = 0.65f
-    const val HYSTERESIS_SCORE = 0.08f
-
     fun canStartPreview(
         isPlayerFullscreen: Boolean,
         networkAllowed: Boolean,
         handoffPending: Boolean,
     ): Boolean = !isPlayerFullscreen && networkAllowed && !handoffPending
 
-    fun mode(context: Context): StreamPreviewMode =
-        StreamPreviewMode.fromPreference(context.prefs().getString(C.STREAM_PREVIEW_MODE, StreamPreviewMode.OFF.preferenceValue))
+    fun mode(context: Context): StreamPreviewMode {
+        val preferences = context.prefs()
+        return if (preferences.contains(C.STREAM_PREVIEW_MODE)) {
+            StreamPreviewMode.fromPreference(preferences.getString(C.STREAM_PREVIEW_MODE, null))
+        } else {
+            StreamPreviewMode.WIFI_AND_MOBILE
+        }
+    }
+
+    fun allowsMultiplePreviews(context: Context): Boolean =
+        context.prefs().getBoolean(C.STREAM_PREVIEW_MULTIPLE, true)
 
     fun quality(context: Context): StreamPreviewQuality =
         StreamPreviewQuality.fromPreference(context.prefs().getString(C.STREAM_PREVIEW_QUALITY, StreamPreviewQuality.P360.preferenceValue))
 
     fun delay(context: Context): StreamPreviewDelay =
-        StreamPreviewDelay.fromPreference(context.prefs().getString(C.STREAM_PREVIEW_DELAY, StreamPreviewDelay.NORMAL.preferenceValue))
+        StreamPreviewDelay.fromPreference(context.prefs().getString(C.STREAM_PREVIEW_DELAY, null))
 
     fun allowsNetwork(context: Context): Boolean {
         val mode = mode(context)

@@ -240,6 +240,7 @@ object C {
     const val STREAM_PRELOAD_WIFI = "wifi"
     const val STREAM_PRELOAD_ALL = "all"
     const val STREAM_PREVIEW_MODE = "stream_preview_mode"
+    const val STREAM_PREVIEW_MULTIPLE = "stream_preview_multiple"
     const val STREAM_PREVIEW_QUALITY = "stream_preview_quality"
     const val STREAM_PREVIEW_DELAY = "stream_preview_delay"
     const val ANIMATED_EMOTES = "animatedGifEmotes"
