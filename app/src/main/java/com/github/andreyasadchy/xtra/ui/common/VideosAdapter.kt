@@ -19,6 +19,7 @@ import coil3.request.target
 import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentVideosListItemBinding
 import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.ui.Bookmark
@@ -58,6 +59,11 @@ class VideosAdapter(
         holder.bind(getItem(position))
     }
 
+    override fun onViewRecycled(holder: PagingViewHolder) {
+        holder.detachPreview()
+        super.onViewRecycled(holder)
+    }
+
     private var positions: List<VideoPosition>? = null
 
     fun setVideoPositions(positions: List<VideoPosition>) {
@@ -79,8 +85,19 @@ class VideosAdapter(
         private val showGame: Boolean,
         private val showChannel: Boolean,
     ) : RecyclerView.ViewHolder(binding.root) {
+        val previewSurface get() = binding.previewPlayerView
+        private var boundPreviewIdentity: String? = null
+
+        private val streamPreviewCoordinator
+            get() = (binding.root.context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
+
         fun bind(item: Video?) {
+            val nextPreviewIdentity = item?.id?.trim()?.takeIf { it.isNotEmpty() }?.let { "vod:$it" }
             with(binding) {
+                if (boundPreviewIdentity != nextPreviewIdentity) {
+                    streamPreviewCoordinator.detachSurface(previewPlayerView)
+                    boundPreviewIdentity = nextPreviewIdentity
+                }
                 if (item != null) {
                     val context = fragment.requireContext()
                     val position = item.id?.toLongOrNull()?.let { id -> positions?.find { it.id == id }?.position }
@@ -260,6 +277,11 @@ class VideosAdapter(
                     }
                 }
             }
+        }
+
+        fun detachPreview() {
+            streamPreviewCoordinator.detachSurface(previewSurface)
+            boundPreviewIdentity = null
         }
     }
 }

@@ -24,6 +24,8 @@ import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
+import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
+import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCandidate
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.common.VideosAdapter
 import com.github.andreyasadchy.xtra.ui.common.VideosSortDialog
@@ -41,6 +43,7 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, Videos
     private val binding get() = _binding!!
     private val viewModel: FollowedVideosViewModel by viewModels { FollowedVideosViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Video, out RecyclerView.ViewHolder>
+    private lateinit var videoPreviewViewportController: StreamPreloadViewportController
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = CommonRecyclerViewLayoutBinding.inflate(inflater, container, false)
@@ -76,6 +79,29 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, Videos
             )
         })
         setAdapter(binding.recyclerView, pagingAdapter)
+        videoPreviewViewportController = StreamPreloadViewportController(
+            fragment = this,
+            coordinator = null,
+            viewportKey = "followed-videos",
+            recyclerView = binding.recyclerView,
+            previewAtPosition = { position, surface ->
+                pagingAdapter.peek(position)?.let { video ->
+                    video.id?.trim()?.takeIf { it.isNotEmpty() }?.let { videoId ->
+                        StreamPreviewCandidate(
+                            streamKey = "vod:$videoId",
+                            channelLogin = video.channelLogin.orEmpty(),
+                            visibleFraction = 0f,
+                            centerProximity = 0f,
+                            title = video.title,
+                            channelName = video.channelName,
+                            channelLogo = video.channelImage,
+                            videoId = videoId,
+                            surface = surface,
+                        )
+                    }
+                }
+            },
+        ).also { it.start() }
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
             if (activity?.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false) {
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -182,6 +208,20 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, Videos
         pagingAdapter.retry()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::videoPreviewViewportController.isInitialized) {
+            videoPreviewViewportController.onResume()
+        }
+    }
+
+    override fun onPause() {
+        if (::videoPreviewViewportController.isInitialized) {
+            videoPreviewViewportController.onPause()
+        }
+        super.onPause()
+    }
+
     override fun onIntegrityTokenLoaded(callback: String?) {
         when (callback) {
             "refresh" -> {
@@ -191,6 +231,9 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, Videos
     }
 
     override fun onDestroyView() {
+        if (::videoPreviewViewportController.isInitialized) {
+            videoPreviewViewportController.stop()
+        }
         super.onDestroyView()
         _binding = null
     }

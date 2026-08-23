@@ -17,4 +17,13 @@ class StreamPreviewDwellPolicyTest {
             StreamPreviewDwellPolicy.remainingDelay(startedAt!!, nowMs = 1_500L, delayMs = 1_250L),
         )
     }
+
+    @Test
+    fun immediatePreferenceAllowsAZeroMillisecondStart() {
+        assertEquals(StreamPreviewDelay.IMMEDIATE, StreamPreviewDelay.fromPreference("instant"))
+        assertEquals(
+            0L,
+            StreamPreviewDwellPolicy.remainingDelay(startedAtMs = 1_500L, nowMs = 1_500L, delayMs = 0L),
+        )
+    }
 }

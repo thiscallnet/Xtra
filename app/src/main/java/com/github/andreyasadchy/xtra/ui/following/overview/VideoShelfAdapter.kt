@@ -15,6 +15,7 @@ import coil3.request.target
 import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.ItemVideoShelfBinding
 import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -40,6 +41,11 @@ class VideoShelfAdapter(
         holder.bind(getItem(position))
     }
 
+    override fun onViewRecycled(holder: ViewHolder) {
+        holder.detachPreview()
+        super.onViewRecycled(holder)
+    }
+
     private val layoutChangeListener = View.OnLayoutChangeListener { view, left, _, right, _, oldLeft, _, oldRight, _ ->
         if (right - left != oldRight - oldLeft) {
             val shelf = view as RecyclerView
@@ -60,8 +66,19 @@ class VideoShelfAdapter(
     inner class ViewHolder(
         private val binding: ItemVideoShelfBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
+        val previewSurface get() = binding.previewPlayerView
+        private var boundPreviewIdentity: String? = null
+
+        private val streamPreviewCoordinator
+            get() = (binding.root.context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
+
         fun bind(item: VideoHistory) {
             val context = binding.root.context
+            val nextPreviewIdentity = "vod:${item.id}"
+            if (boundPreviewIdentity != nextPreviewIdentity) {
+                streamPreviewCoordinator.detachSurface(previewSurface)
+                boundPreviewIdentity = nextPreviewIdentity
+            }
             binding.root.setOnClickListener { onVideoClick(item) }
             context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
                 data(item.thumbnailURL?.let(TwitchApiHelper::getVideoThumbnail))
@@ -87,6 +104,11 @@ class VideoShelfAdapter(
                 target(binding.avatar)
             }.build())
             binding.avatar.visibility = if (avatarUrl.isNullOrBlank()) View.INVISIBLE else View.VISIBLE
+        }
+
+        fun detachPreview() {
+            streamPreviewCoordinator.detachSurface(previewSurface)
+            boundPreviewIdentity = null
         }
     }
 

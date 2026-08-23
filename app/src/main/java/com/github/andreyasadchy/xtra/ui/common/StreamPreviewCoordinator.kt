@@ -53,8 +53,14 @@ data class StreamPreviewCandidate(
     val title: String? = null,
     val channelName: String? = null,
     val channelLogo: String? = null,
+    val videoId: String? = null,
     val surface: PlayerView,
-)
+) {
+    /** Live previews share a channel slot; VOD previews get their own slot. */
+    val previewIdentity: String?
+        get() = videoId?.trim()?.takeIf { it.isNotEmpty() }?.let { "vod:$it" }
+            ?: channelLogin.trim().lowercase().takeIf { it.isNotEmpty() }?.let { "live:$it" }
+}
 
 /** App-scoped owner of a small pool of muted browsing preview players. */
 @UnstableApi
@@ -155,28 +161,29 @@ class StreamPreviewCoordinator(
 
     fun onFullscreenPlaybackStarted(channelLogin: String?) {
         val login = normalize(channelLogin)
-        if (login == null && handoffLogin != null) {
+        val identity = login?.let(::livePreviewIdentity)
+        if (identity == null && handoffLogin != null) {
             cancelPendingStarts()
             activePreviews.keys.toList()
                 .filter { it != handoffLogin }
                 .forEach(::releasePreview)
             return
         }
-        if (login == null || activePreviews[login] == null) {
+        if (identity == null || activePreviews[identity] == null) {
             stopPreview()
             return
         }
-        handoffLogin = login
+        handoffLogin = identity
         cancelPendingStarts()
         activePreviews.keys.toList()
-            .filter { it != login }
+            .filter { it != identity }
             .forEach(::releasePreview)
-        previewLifecycle.retainOnly(login)
+        previewLifecycle.retainOnly(identity)
     }
 
     fun onFullscreenPlaybackFirstFrame(channelLogin: String?) {
         val login = normalize(channelLogin)
-        if (handoffLogin != null && (login == null || handoffLogin == login)) {
+        if (handoffLogin != null && (login == null || handoffLogin == livePreviewIdentity(login))) {
             val handoff = handoffLogin
             handoffLogin = null
             if (handoff != null) releasePreview(handoff)
@@ -192,13 +199,17 @@ class StreamPreviewCoordinator(
     }
 
     fun isPreviewing(channelLogin: String): Boolean =
-        activePreviews.containsKey(normalize(channelLogin))
+        normalize(channelLogin)?.let(::livePreviewIdentity)?.let(activePreviews::containsKey) == true
 
     /** Unbinds only the view. The player remains reusable during the offscreen grace period. */
     fun detachSurface(surface: PlayerView) {
-        activePreviews.values
-            .firstOrNull { it.surface === surface }
-            ?.surface = null
+        val active = activePreviews.values.firstOrNull { it.surface === surface }
+        active?.surface = null
+        active?.let {
+            val now = SystemClock.elapsedRealtime()
+            previewLifecycle.markOffscreen(it.identity, now)
+            lifecycleReconciler.reconcile(now, additionalDeadlines = failedUntil.values)
+        }
         surface.player = null
         surface.alpha = 0f
         surface.visibility = View.GONE
@@ -233,7 +244,7 @@ class StreamPreviewCoordinator(
 
         val now = SystemClock.elapsedRealtime()
         val candidates = currentCandidates()
-        val candidateIdentities = candidates.mapTo(mutableSetOf()) { normalize(it.channelLogin)!! }
+        val candidateIdentities = candidates.mapNotNullTo(mutableSetOf(), StreamPreviewCandidate::previewIdentity)
         dwellStarts.keys.retainAll(candidateIdentities)
         failedUntil.entries.toList().forEach { (identity, retryAt) ->
             if (retryAt <= now) failedUntil.remove(identity)
@@ -241,8 +252,9 @@ class StreamPreviewCoordinator(
 
         val reasonablyVisible = candidates
             .filter { it.visibleFraction >= StreamPreviewSelectionPolicy.STOP_VISIBLE_FRACTION }
-            .map { normalize(it.channelLogin)!! }
-        previewLifecycle.observeVisible(reasonablyVisible, now)
+            .mapNotNull { it.previewIdentity }
+        val scrolling = viewports.values.any { it.scrolling }
+        previewLifecycle.observeVisible(reasonablyVisible, now, scrolling = scrolling)
         previewLifecycle.expire(now)
         lifecycleReconciler.reconcile(now, additionalDeadlines = failedUntil.values)
         activePreviews.keys.toList()
@@ -253,7 +265,7 @@ class StreamPreviewCoordinator(
         val selected = StreamPreviewSelectionPolicy.select(
             candidates = candidates.mapIndexed { index, candidate ->
                 StreamPreviewSelectionCandidate(
-                    identity = candidate.channelLogin,
+                    identity = candidate.previewIdentity!!,
                     visibleFraction = candidate.visibleFraction,
                     centerProximity = candidate.centerProximity,
                     order = index,
@@ -305,19 +317,19 @@ class StreamPreviewCoordinator(
     }
 
     private fun scheduleStart(candidate: StreamPreviewCandidate, now: Long) {
-        val login = normalize(candidate.channelLogin) ?: return
-        if (activePreviews.containsKey(login) || pendingStarts[login]?.isActive == true) return
-        pendingStarts.remove(login)
-        if (failedUntil[login]?.let { it > now } == true) return
+        val identity = candidate.previewIdentity ?: return
+        if (activePreviews.containsKey(identity) || pendingStarts[identity]?.isActive == true) return
+        pendingStarts.remove(identity)
+        if (failedUntil[identity]?.let { it > now } == true) return
         val startedAt = StreamPreviewDwellPolicy.startAt(
-            existingStartMs = dwellStarts[login],
+            existingStartMs = dwellStarts[identity],
             nowMs = now,
             isScrolling = isScrolling(candidate),
         ) ?: run {
-            dwellStarts.remove(login)
+            dwellStarts.remove(identity)
             return
         }
-        dwellStarts[login] = startedAt
+        dwellStarts[identity] = startedAt
         val remainingDelay = StreamPreviewDwellPolicy.remainingDelay(
             startedAtMs = startedAt,
             nowMs = now,
@@ -327,18 +339,18 @@ class StreamPreviewCoordinator(
         startJob = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 if (remainingDelay > 0L) delay(remainingDelay)
-                startPreview(login)
+                startPreview(identity)
             } finally {
-                if (pendingStarts[login] === startJob) pendingStarts.remove(login)
+                if (pendingStarts[identity] === startJob) pendingStarts.remove(identity)
             }
         }
-        pendingStarts[login] = startJob
+        pendingStarts[identity] = startJob
         startJob.start()
     }
 
-    private suspend fun startPreview(login: String) {
-        if (activePreviews.containsKey(login) || activePreviews.size >= maxActivePreviews()) return
-        if (failedUntil[login]?.let { it > SystemClock.elapsedRealtime() } == true) return
+    private suspend fun startPreview(identity: String) {
+        if (activePreviews.containsKey(identity) || activePreviews.size >= maxActivePreviews()) return
+        if (failedUntil[identity]?.let { it > SystemClock.elapsedRealtime() } == true) return
         if (!StreamPreviewPolicy.canStartPreview(
                 isPlayerFullscreen = streamFeedRefreshCoordinator.isPlayerFullscreen,
                 networkAllowed = StreamPreviewPolicy.allowsNetwork(context),
@@ -346,17 +358,21 @@ class StreamPreviewCoordinator(
             )
         ) return
 
-        val candidate = bestCandidatesByIdentity(currentCandidates())[login] ?: return
+        val candidate = bestCandidatesByIdentity(currentCandidates())[identity] ?: return
         if (candidate.visibleFraction < StreamPreviewSelectionPolicy.START_VISIBLE_FRACTION) return
         if (isScrolling(candidate)) {
-            dwellStarts.remove(login)
+            dwellStarts.remove(identity)
             return
         }
-        val url = urlCoordinator.resolveForPreview(login) ?: return
-        val latestCandidate = bestCandidatesByIdentity(currentCandidates())[login] ?: return
+        val url = if (candidate.videoId.isNullOrBlank()) {
+            urlCoordinator.resolveForPreview(candidate.channelLogin)
+        } else {
+            urlCoordinator.resolveVodForPreview(candidate.videoId)
+        } ?: return
+        val latestCandidate = bestCandidatesByIdentity(currentCandidates())[identity] ?: return
         if (latestCandidate.visibleFraction < StreamPreviewSelectionPolicy.START_VISIBLE_FRACTION) return
         if (isScrolling(latestCandidate)) {
-            dwellStarts.remove(login)
+            dwellStarts.remove(identity)
             return
         }
         if (activePreviews.size >= maxActivePreviews()) return
@@ -371,58 +387,73 @@ class StreamPreviewCoordinator(
         try {
             val builtPlayer = mediaRuntime.buildPreviewPlayer(context, previewTrackSelectionParameters())
             player = builtPlayer
-            val mediaItem = mediaRuntime.createLiveMediaItem(
-                channelLogin = login,
-                url = url,
-                title = latestCandidate.title,
-                channelName = latestCandidate.channelName,
-                channelLogo = latestCandidate.channelLogo,
-            )
-            val active = ActivePreview(identity = login, player = player)
-            activePreviews[login] = active
-            previewLifecycle.track(login, SystemClock.elapsedRealtime())
+            val mediaItem = if (latestCandidate.videoId.isNullOrBlank()) {
+                mediaRuntime.createLiveMediaItem(
+                    channelLogin = latestCandidate.channelLogin,
+                    url = url,
+                    title = latestCandidate.title,
+                    channelName = latestCandidate.channelName,
+                    channelLogo = latestCandidate.channelLogo,
+                )
+            } else {
+                mediaRuntime.createVodMediaItem(
+                    videoId = latestCandidate.videoId,
+                    url = url,
+                    title = latestCandidate.title,
+                    channelName = latestCandidate.channelName,
+                    channelLogo = latestCandidate.channelLogo,
+                )
+            }
+            val active = ActivePreview(identity = identity, player = player)
+            activePreviews[identity] = active
+            previewLifecycle.track(identity, SystemClock.elapsedRealtime())
+            builtPlayer.repeatMode = if (latestCandidate.videoId.isNullOrBlank()) {
+                Player.REPEAT_MODE_OFF
+            } else {
+                Player.REPEAT_MODE_ONE
+            }
             attachSurfaceIfNeeded(active, latestCandidate)
             builtPlayer.addListener(object : Player.Listener {
                 override fun onRenderedFirstFrame() {
-                    val current = activePreviews[login]
+                    val current = activePreviews[identity]
                     if (current?.player === builtPlayer) {
                         current.firstFrameRendered = true
                         current.surface?.let { surface ->
                             surface.alpha = 1f
                             surface.visibility = View.VISIBLE
                         }
-                        if (BuildConfig.DEBUG) Log.d("StreamPreview", "first_frame channel=$login")
+                        if (BuildConfig.DEBUG) Log.d("StreamPreview", "first_frame identity=$identity")
                     }
                 }
 
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    if (BuildConfig.DEBUG) Log.d("StreamPreview", "failed channel=$login type=${error.errorCodeName}")
-                    handlePreviewFailure(login, builtPlayer)
+                    if (BuildConfig.DEBUG) Log.d("StreamPreview", "failed identity=$identity type=${error.errorCodeName}")
+                    handlePreviewFailure(identity, builtPlayer)
                 }
             })
             builtPlayer.setMediaItem(mediaItem)
             builtPlayer.volume = 0f
             builtPlayer.prepare()
             builtPlayer.playWhenReady = true
-            if (BuildConfig.DEBUG) Log.d("StreamPreview", "started channel=$login quality=${StreamPreviewPolicy.quality(context)}")
+            if (BuildConfig.DEBUG) Log.d("StreamPreview", "started identity=$identity quality=${StreamPreviewPolicy.quality(context)}")
         } catch (cancellation: CancellationException) {
             player?.let { runCatching { it.release() } }
             throw cancellation
         } catch (error: Throwable) {
             player?.let { runCatching { it.release() } }
-            markPreviewFailure(login)
+            markPreviewFailure(identity)
         }
     }
 
-    private fun handlePreviewFailure(login: String, player: ExoPlayer) {
-        if (activePreviews[login]?.player !== player) return
-        markPreviewFailure(login)
+    private fun handlePreviewFailure(identity: String, player: ExoPlayer) {
+        if (activePreviews[identity]?.player !== player) return
+        markPreviewFailure(identity)
         scheduleSelection()
     }
 
-    private fun markPreviewFailure(login: String) {
-        failedUntil[login] = SystemClock.elapsedRealtime() + PLAYER_FAILURE_RETRY_MS
-        releasePreview(login)
+    private fun markPreviewFailure(identity: String) {
+        failedUntil[identity] = SystemClock.elapsedRealtime() + PLAYER_FAILURE_RETRY_MS
+        releasePreview(identity)
         lifecycleReconciler.reconcile(SystemClock.elapsedRealtime(), additionalDeadlines = failedUntil.values)
     }
 
@@ -459,7 +490,7 @@ class StreamPreviewCoordinator(
 
     private fun currentCandidates(): List<StreamPreviewCandidate> =
         viewports.values.flatMap { it.candidates }
-            .mapNotNull { candidate -> candidate.takeIf { normalize(it.channelLogin) != null } }
+            .mapNotNull { candidate -> candidate.takeIf { it.previewIdentity != null } }
 
     private fun maxActivePreviews(): Int =
         if (StreamPreviewPolicy.allowsMultiplePreviews(context)) {
@@ -471,7 +502,8 @@ class StreamPreviewCoordinator(
     private fun bestCandidatesByIdentity(candidates: Collection<StreamPreviewCandidate>): Map<String, StreamPreviewCandidate> =
         candidates
             .mapIndexed { index, candidate -> RankedCandidate(candidate, index) }
-            .groupBy { normalize(it.candidate.channelLogin)!! }
+            .mapNotNull { it.takeIf { ranked -> ranked.candidate.previewIdentity != null } }
+            .groupBy { it.candidate.previewIdentity!! }
             .mapValues { (_, sameIdentity) ->
                 sameIdentity.minWithOrNull(
                     compareByDescending<RankedCandidate> { it.candidate.visibleFraction.coerceIn(0f, 1f) }
@@ -526,6 +558,8 @@ class StreamPreviewCoordinator(
 
     private fun normalize(login: String?): String? =
         login?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+
+    private fun livePreviewIdentity(login: String): String = "live:$login"
 
     private data class Viewport(
         val candidates: List<StreamPreviewCandidate>,

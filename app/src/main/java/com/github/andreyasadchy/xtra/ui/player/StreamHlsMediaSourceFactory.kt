@@ -121,6 +121,25 @@ class StreamHlsMediaSourceFactory(
         )
         .build()
 
+    fun createVodMediaItem(
+        mediaId: String,
+        uri: String,
+        title: String?,
+        channelName: String?,
+        channelLogo: String?,
+    ): MediaItem = MediaItem.Builder()
+        .setMediaId(mediaId)
+        .setUri(uri.toUri())
+        .setMimeType(MimeTypes.APPLICATION_M3U8)
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle(title ?: channelName)
+                .setArtist(channelName)
+                .setArtworkUri(channelLogo?.toUri())
+                .build()
+        )
+        .build()
+
     fun stateFor(mediaId: String): StreamProxyState = proxyStates.getOrPut(mediaId) { StreamProxyState() }
 
     fun findState(mediaId: String): StreamProxyState? = proxyStates[mediaId]

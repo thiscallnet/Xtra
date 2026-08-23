@@ -234,6 +234,24 @@ class StreamMedia3Runtime(
     }
 
     @Synchronized
+    fun createVodMediaItem(
+        videoId: String,
+        url: String,
+        title: String? = null,
+        channelName: String? = null,
+        channelLogo: String? = null,
+    ): MediaItem {
+        val generation = ensureGeneration()
+        return generation.hlsFactory.createVodMediaItem(
+            mediaId(generation.configuration, "vod:$videoId", url),
+            url,
+            title,
+            channelName,
+            channelLogo,
+        )
+    }
+
+    @Synchronized
     fun getPreloadedMediaSource(channelLogin: String, url: String): PreloadedLiveMediaSource? {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 playback handoff must run on the main looper" }
         val generation = currentGeneration ?: return null
