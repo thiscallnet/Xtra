@@ -24,9 +24,12 @@ import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
+import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
 import com.github.andreyasadchy.xtra.ui.following.streams.FollowedStreamsViewModel.Companion.FollowedStreamsViewModelFactory
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -48,12 +51,17 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        pagingAdapter = StreamsShelfPagingAdapter(this) {
+        val selectTag: (String) -> Unit = {
             findNavController().navigate(
                 TopStreamsFragmentDirections.actionGlobalTopFragment(
                     tags = arrayOf(it),
                 )
             )
+        }
+        pagingAdapter = if (requireContext().prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled") {
+            StreamsCompactAdapter(this, selectTag)
+        } else {
+            StreamsShelfPagingAdapter(this, selectTag)
         }
         setAdapter(binding.recyclerView, pagingAdapter)
         streamPreloadViewportController = StreamPreloadViewportController(
