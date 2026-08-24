@@ -38,7 +38,7 @@ import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.SORT_
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog.Companion.SORT_VIEWERS_ASC
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
+import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
@@ -99,10 +99,10 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
                                 setTitle(getString(R.string.logout_title))
                                 requireContext().tokenPrefs().getString(C.USERNAME, null)?.let { setMessage(getString(R.string.logout_msg, it)) }
                                 setNegativeButton(getString(R.string.no), null)
-                                setPositiveButton(getString(R.string.yes)) { _, _ -> activity.logoutResultLauncher?.launch(Intent(activity, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_LOGOUT, true)) }
+                                setPositiveButton(getString(R.string.yes)) { _, _ -> activity.logoutResultLauncher?.launch(Intent(activity, TwitchWebLoginActivity::class.java).putExtra(TwitchWebLoginActivity.EXTRA_LOGOUT, true)) }
                             }.show()
                         } else {
-                            activity.loginResultLauncher?.launch(Intent(activity, LoginActivity::class.java))
+                            activity.loginResultLauncher?.launch(Intent(activity, TwitchWebLoginActivity::class.java))
                         }
                         true
                     }
@@ -366,14 +366,6 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
         super.onPause()
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "refresh" -> {
-                pagingAdapter.refresh()
-            }
-        }
-    }
-
     override fun onDestroyView() {
         if (::streamFeedScreenController.isInitialized) {
             streamFeedScreenController.onDestroyView()
@@ -385,3 +377,5 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
         _binding = null
     }
 }
+
+

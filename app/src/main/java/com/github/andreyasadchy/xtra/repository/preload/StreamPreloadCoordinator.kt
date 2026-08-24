@@ -244,7 +244,6 @@ class StreamPreloadCoordinator(
                 videoId = id,
                 playerType = config.playerType,
                 supportedCodecs = config.supportedCodecs,
-                enableIntegrity = config.enableIntegrity,
             ).first
         }.getOrNull() ?: return null
         if (refreshConfiguration().fingerprint != config.fingerprint) return null
@@ -327,7 +326,6 @@ class StreamPreloadCoordinator(
                 proxyPort = config.proxyPort,
                 proxyUser = config.proxyUser,
                 proxyPassword = config.proxyPassword,
-                enableIntegrity = config.enableIntegrity,
                 lowLatency = config.lowLatency,
             )
         }

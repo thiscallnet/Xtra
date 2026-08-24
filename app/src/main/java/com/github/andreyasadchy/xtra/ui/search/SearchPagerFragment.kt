@@ -65,13 +65,6 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.integrity.collect {
-                    (requireActivity() as? MainActivity)?.getNewIntegrityToken(it, childFragmentManager)
-                }
-            }
-        }
         with(binding) {
             val tabList = requireContext().prefs().getString(C.UI_SEARCH_TABS, null).let { tabPref ->
                 val defaultTabs = C.DEFAULT_SEARCH_TABS.split(',')
@@ -172,7 +165,6 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                                         result = result,
                                         networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                                         gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
-                                        enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                                     )
                                     viewLifecycleOwner.lifecycleScope.launch {
                                         repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -279,3 +271,5 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
         _binding = null
     }
 }
+
+

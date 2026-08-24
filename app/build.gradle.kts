@@ -20,7 +20,7 @@ val applicationVersionCode = providers.gradleProperty("ciVersionCode")
     ?: defaultVersionCode
 /**
  * This is Xtra's public Helix client ID, also used by the app's API defaults.
- * Keep it in sync with C.DEFAULT_HELIX_CLIENT_ID. Debug builds use it automatically;
+ * Keep it in sync with the Twitch web client identity used by C. Debug builds use it automatically;
  * release builds must provide their own value.
  */
 val localDevelopmentTwitchPublicClientId = "ilfexgv3nnljz3isbm257gzwrzr7bi"
@@ -67,7 +67,7 @@ android {
 
     defaultConfig {
         applicationId = "com.github.andreyasadchy.xtra"
-        minSdk = 23
+    minSdk = 26
         targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = applicationVersionCode
@@ -161,11 +161,11 @@ dependencies {
 
     implementation(libs.activity)
     implementation(libs.appcompat)
-    implementation(libs.browser)
     implementation(libs.constraintlayout)
     implementation(libs.coordinatorlayout)
     implementation(libs.core)
     implementation(libs.fragment.ktx)
+    implementation(libs.geckoview)
     implementation(libs.lifecycle.service)
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.navigation.fragment)
@@ -178,7 +178,6 @@ dependencies {
     implementation(libs.room.paging)
     implementation(libs.swiperefreshlayout)
     implementation(libs.viewpager2)
-    implementation(libs.webkit)
     implementation(libs.work.runtime)
 
     implementation(libs.cronet.api)

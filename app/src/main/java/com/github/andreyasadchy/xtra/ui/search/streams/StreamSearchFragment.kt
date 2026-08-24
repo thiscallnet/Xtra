@@ -121,16 +121,10 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
         pagingAdapter.retry()
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "refresh" -> {
-                pagingAdapter.refresh()
-            }
-        }
-    }
-
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
     }
 }
+
+

@@ -21,7 +21,3 @@ class TwitchAuthProtocolException(
     message: String,
     cause: Throwable? = null,
 ) : TwitchAuthException(message, cause)
-
-class TwitchAuthAccountMismatchException : TwitchAuthException("Twitch account does not match the account being reauthorized")
-
-class TwitchAuthMissingScopesException : TwitchAuthException("Twitch did not grant the required account scopes")

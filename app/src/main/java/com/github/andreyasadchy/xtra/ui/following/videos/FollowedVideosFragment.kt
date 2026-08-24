@@ -222,14 +222,6 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, Videos
         super.onPause()
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "refresh" -> {
-                pagingAdapter.refresh()
-            }
-        }
-    }
-
     override fun onDestroyView() {
         if (::videoPreviewViewportController.isInitialized) {
             videoPreviewViewportController.stop()
@@ -238,3 +230,5 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, Videos
         _binding = null
     }
 }
+
+

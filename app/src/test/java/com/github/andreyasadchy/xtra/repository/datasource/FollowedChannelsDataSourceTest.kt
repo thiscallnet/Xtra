@@ -114,7 +114,6 @@ class FollowedChannelsDataSourceTest {
                 okHttpClient = lazy { OkHttpClient() },
                 json = testJson,
             ),
-            enableIntegrity = false,
             networkLibrary = null,
             pageLoaderForTest = pageLoader,
             initialOffsetForTest = "cursor",

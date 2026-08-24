@@ -17,22 +17,14 @@ class ImageClickedViewModel(
     private val graphQLRepository: GraphQLRepository,
 ) : ViewModel() {
 
-    val integrity = MutableSharedFlow<String?>()
-
     val emoteCard = MutableStateFlow<EmoteCard?>(null)
 
-    fun loadEmoteCard(emoteId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun loadEmoteCard(emoteId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         if (emoteCard.value == null) {
             viewModelScope.launch {
                 try {
                     val response = if (!emoteId.isNullOrBlank()) {
                         graphQLRepository.loadQueryEmote(networkLibrary, gqlHeaders, emoteId).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("refresh")
-                                    return@launch
-                                }
-                            }
                         }.data!!.emote
                     } else null
                     emoteCard.value = EmoteCard(
@@ -45,12 +37,6 @@ class ImageClickedViewModel(
                 } catch (e: Exception) {
                     try {
                         val response = graphQLRepository.loadEmoteCard(networkLibrary, gqlHeaders, emoteId).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("refresh")
-                                    return@launch
-                                }
-                            }
                         }.data?.emote
                         emoteCard.value = EmoteCard(
                             type = response?.type,

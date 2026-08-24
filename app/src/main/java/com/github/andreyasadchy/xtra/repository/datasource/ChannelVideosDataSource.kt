@@ -24,7 +24,6 @@ class ChannelVideosDataSource(
     private val graphQLRepository: GraphQLRepository,
     private val helixHeaders: Map<String, String>,
     private val helixRepository: HelixRepository,
-    private val enableIntegrity: Boolean,
     private val networkLibrary: String?,
 ) : PagingSource<Int, Video>() {
     private var api: String? = null
@@ -68,9 +67,6 @@ class ChannelVideosDataSource(
 
     private suspend fun gqlQueryLoad(params: LoadParams<Int>): LoadResult<Int, Video> {
         val response = graphQLRepository.loadQueryUserVideos(networkLibrary, gqlHeaders, channelId, channelLogin.takeIf { channelId.isNullOrBlank() }, gqlQuerySort, gqlQueryType?.let { listOf(it) }, params.loadSize, offset)
-        if (enableIntegrity) {
-            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-        }
         val data = response.data!!.user!!
         val items = data.videos!!.edges!!
         val list = items.mapNotNull { item ->
@@ -107,9 +103,6 @@ class ChannelVideosDataSource(
 
     private suspend fun gqlLoad(params: LoadParams<Int>): LoadResult<Int, Video> {
         val response = graphQLRepository.loadChannelVideos(networkLibrary, gqlHeaders, channelLogin, gqlType, gqlSort, params.loadSize, offset)
-        if (enableIntegrity) {
-            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-        }
         val data = response.data!!.user
         val items = data.videos!!.edges
         val list = items.map { item ->

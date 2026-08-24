@@ -21,7 +21,6 @@ data class StreamPlaybackConfiguration(
     val proxyPort: Int?,
     val proxyUser: String?,
     val proxyPassword: String?,
-    val enableIntegrity: Boolean,
     val lowLatency: Boolean,
     val proxyMultivariantPlaylist: Boolean,
     val streamHeaders: Map<String, String>,
@@ -40,7 +39,6 @@ data class StreamPlaybackConfiguration(
             append(proxyPlaybackAccessToken).append('\u0000')
             append(proxyHost).append('\u0000').append(proxyPort).append('\u0000')
             append(proxyUser).append('\u0000').append(proxyPassword).append('\u0000')
-            append(enableIntegrity).append('\u0000')
             append(lowLatency).append('\u0000')
             append(proxyMultivariantPlaylist).append('\u0000')
             streamHeaders.toSortedMap().forEach { (key, value) -> append(key).append('=').append(value).append('\u0000') }
@@ -68,7 +66,6 @@ data class StreamPlaybackConfiguration(
                 proxyPort = prefs.httpProxyPort(),
                 proxyUser = prefs.getString(C.PROXY_USER, null),
                 proxyPassword = prefs.getString(C.PROXY_PASSWORD, null),
-                enableIntegrity = prefs.getBoolean(C.ENABLE_INTEGRITY, false),
                 lowLatency = prefs.getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
                 proxyMultivariantPlaylist = prefs.getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false),
                 streamHeaders = prefs.getString(C.PLAYER_STREAM_HEADERS, null).parseHeaders(),

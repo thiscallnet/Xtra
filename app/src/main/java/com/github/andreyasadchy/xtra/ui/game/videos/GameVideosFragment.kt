@@ -23,7 +23,6 @@ import com.github.andreyasadchy.xtra.databinding.SortBarBinding
 import com.github.andreyasadchy.xtra.model.ui.GameSort
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
@@ -276,15 +275,6 @@ class GameVideosFragment : PagedListFragment(), Scrollable, Sortable, VideosSort
         pagingAdapter.retry()
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        (parentFragment as? IntegrityDialog.Listener)?.onIntegrityTokenLoaded("refresh")
-        when (callback) {
-            "refresh" -> {
-                pagingAdapter.refresh()
-            }
-        }
-    }
-
     override fun onResume() {
         super.onResume()
         if (::videoPreviewViewportController.isInitialized) {
@@ -307,3 +297,5 @@ class GameVideosFragment : PagedListFragment(), Scrollable, Sortable, VideosSort
         _binding = null
     }
 }
+
+

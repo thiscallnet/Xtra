@@ -68,7 +68,6 @@ import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.chat.ChatFragment
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.RadioButtonDialogFragment
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
@@ -94,7 +93,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 
 @OptIn(UnstableApi::class)
-abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment.OnSortOptionChanged, IntegrityDialog.Listener {
+abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment.OnSortOptionChanged {
 
     private var _binding: FragmentPlayerBinding? = null
     protected val binding get() = _binding!!
@@ -190,13 +189,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         with(binding) {
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.integrity.collect {
-                        (requireActivity() as? MainActivity)?.getNewIntegrityToken(it, childFragmentManager)
-                    }
-                }
-            }
             val ignoreCutouts = requireContext().prefs().getBoolean(C.UI_DRAW_BEHIND_CUTOUTS, false)
             val cornerPadding = requireContext().prefs().getBoolean(C.PLAYER_ROUNDED_CORNER_PADDING, false)
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
@@ -667,13 +659,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     fun start() {
         with(binding) {
             clearPlayerError()
-            viewLifecycleOwner.lifecycleScope.launch {
-                viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    playbackService?.integrity?.collect {
-                        (requireActivity() as? MainActivity)?.getNewIntegrityToken(it, childFragmentManager)
-                    }
-                }
-            }
             if (playbackService?.type != BasePlaybackService.OFFLINE_VIDEO) {
                 viewModel.isFollowingChannel(
                     requireContext().tokenPrefs().getString(C.USER_ID, null),
@@ -695,7 +680,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                 networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                                 helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
                                 gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
-                                enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                             )
                         }
                     }
@@ -706,7 +690,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                 videoId,
                                 requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                                 TwitchApiHelper.getGQLHeaders(requireContext()),
-                                requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                             )
                         }
                     }
@@ -1043,7 +1026,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                                 setting,
                                                 requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                                                 TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                                                requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                                             )
                                         }
                                         .show()
@@ -1059,7 +1041,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                         playbackService?.createdAt,
                                         requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                                         TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                                        requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                                     )
                                 }
                             }
@@ -2401,81 +2382,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         }
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "refreshStream" -> {
-                retry(callback)
-                viewModel.isFollowingChannel(
-                    requireContext().tokenPrefs().getString(C.USER_ID, null),
-                    playbackService?.channelId,
-                    playbackService?.channelLogin,
-                    requireContext().prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0,
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                    TwitchApiHelper.getHelixHeaders(requireContext()),
-                )
-            }
-            "refreshVideo" -> {
-                retry(callback)
-                val videoId = playbackService?.videoId
-                viewModel.isFollowingChannel(
-                    requireContext().tokenPrefs().getString(C.USER_ID, null),
-                    playbackService?.channelId,
-                    playbackService?.channelLogin,
-                    requireContext().prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0,
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                    TwitchApiHelper.getHelixHeaders(requireContext()),
-                )
-                if (!videoId.isNullOrBlank() && (requireContext().prefs().getBoolean(C.PLAYER_GAMES_BUTTON, true) || requireContext().prefs().getBoolean(C.PLAYER_MENU_GAMES, false))) {
-                    viewModel.loadGamesList(
-                        videoId,
-                        requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        TwitchApiHelper.getGQLHeaders(requireContext()),
-                        requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                    )
-                }
-            }
-            "refreshClip" -> {
-                retry(callback)
-                viewModel.isFollowingChannel(
-                    requireContext().tokenPrefs().getString(C.USER_ID, null),
-                    playbackService?.channelId,
-                    playbackService?.channelLogin,
-                    requireContext().prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0,
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                    TwitchApiHelper.getHelixHeaders(requireContext()),
-                )
-            }
-            "follow" -> {
-                viewModel.saveFollowChannel(
-                    requireContext().tokenPrefs().getString(C.USER_ID, null),
-                    playbackService?.channelId,
-                    playbackService?.channelLogin,
-                    playbackService?.channelName,
-                    requireContext().prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0,
-                    requireContext().prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false),
-                    !requireContext().prefs().getBoolean(C.UI_ACTIVATE_NOTIFICATIONS_WHEN_FOLLOWING, true),
-                    playbackService?.createdAt,
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                    requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                )
-            }
-            "unfollow" -> {
-                viewModel.deleteFollowChannel(
-                    requireContext().tokenPrefs().getString(C.USER_ID, null),
-                    playbackService?.channelId,
-                    requireContext().prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0,
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                    requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                )
-            }
-        }
-    }
-
     override fun onDestroyView() {
         started = false
         super.onDestroyView()
@@ -2490,3 +2396,9 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         const val KEY_OFFLINE = "offline"
     }
 }
+
+
+
+
+
+

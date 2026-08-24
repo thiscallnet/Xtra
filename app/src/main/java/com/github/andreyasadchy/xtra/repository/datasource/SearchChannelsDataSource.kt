@@ -13,7 +13,6 @@ class SearchChannelsDataSource(
     private val graphQLRepository: GraphQLRepository,
     private val helixHeaders: Map<String, String>,
     private val helixRepository: HelixRepository,
-    private val enableIntegrity: Boolean,
     private val networkLibrary: String?,
 ) : PagingSource<Int, User>() {
     private var api: String? = null
@@ -65,9 +64,6 @@ class SearchChannelsDataSource(
 
     private suspend fun gqlQueryLoad(params: LoadParams<Int>): LoadResult<Int, User> {
         val response = graphQLRepository.loadQuerySearchChannels(networkLibrary, gqlHeaders, query, params.loadSize, offset)
-        if (enableIntegrity) {
-            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-        }
         val data = response.data!!.searchUsers!!
         val list = data.edges!!.mapNotNull { item ->
             item.node?.let {
@@ -94,9 +90,6 @@ class SearchChannelsDataSource(
 
     private suspend fun gqlLoad(params: LoadParams<Int>): LoadResult<Int, User> {
         val response = graphQLRepository.loadSearchChannels(networkLibrary, gqlHeaders, query, offset)
-        if (enableIntegrity) {
-            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-        }
         val data = response.data!!.searchFor.channels
         val list = data.edges.map { item ->
             item.item.let {

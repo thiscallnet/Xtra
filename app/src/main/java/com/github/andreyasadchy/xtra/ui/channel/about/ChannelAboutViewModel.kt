@@ -8,16 +8,12 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.ui.ChannelPanel
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
-import com.github.andreyasadchy.xtra.util.C
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 class ChannelAboutViewModel(
     private val graphQLRepository: GraphQLRepository,
 ) : ViewModel() {
-
-    val integrity = MutableSharedFlow<String?>()
 
     val description = MutableStateFlow<String?>(null)
     val socialMedias = MutableStateFlow<List<Pair<String?, String?>>?>(null)
@@ -27,19 +23,12 @@ class ChannelAboutViewModel(
 
     private var isLoading = false
 
-    fun loadAbout(channelId: String?, channelLogin: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun loadAbout(channelId: String?, channelLogin: String?, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         if ((description.value == null || team.value == null || socialMedias.value == null || panels.value == null) && !isLoading) {
             isLoading = true
             viewModelScope.launch {
                 try {
                     val response = graphQLRepository.loadQueryUserAbout(networkLibrary, gqlHeaders, channelId, channelLogin.takeIf { channelId.isNullOrBlank() })
-                    if (enableIntegrity) {
-                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                            integrity.emit("refresh")
-                            isLoading = false
-                            return@launch
-                        }
-                    }
                     response.data!!.user?.let { user ->
                         description.value = user.description
                         socialMedias.value = user.channel?.socialMedias?.map {

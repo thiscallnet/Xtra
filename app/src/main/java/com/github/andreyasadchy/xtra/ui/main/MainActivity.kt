@@ -65,13 +65,12 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.repository.auth.AuthSessionMaintenanceState
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.download.StreamDownloadService
 import com.github.andreyasadchy.xtra.ui.download.VideoDownloadService
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
+import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel.Companion.MainViewModelFactory
 import com.github.andreyasadchy.xtra.ui.player.BasePlaybackService
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerFragment
@@ -155,7 +154,6 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        observeIntegrityRefreshes()
         fragmentLifecycleCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
             override fun onFragmentViewCreated(
                 fragmentManager: FragmentManager,
@@ -196,10 +194,12 @@ class MainActivity : AppCompatActivity() {
         }
         loginResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
+                findViewById<Toolbar>(R.id.toolbar)?.let { ProfileMenuBinder.bind(it, this) }
                 restartActivity()
             }
         }
         logoutResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            findViewById<Toolbar>(R.id.toolbar)?.let { ProfileMenuBinder.bind(it, this) }
             restartActivity()
         }
         authMaintenanceResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -560,22 +560,7 @@ class MainActivity : AppCompatActivity() {
         }, 250L)
     }
 
-    private fun observeIntegrityRefreshes() {
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.integrity.collect {
-                    if (prefs.getBoolean(C.USE_WEBVIEW_INTEGRITY, true)) {
-                        getNewIntegrityToken(null, supportFragmentManager)
-                    }
-                }
-            }
-        }
-    }
-
     private fun runDeferredStartupTasks() {
-        if (prefs.getBoolean(C.ENABLE_INTEGRITY, false) && TwitchApiHelper.isIntegrityTokenExpired(this)) {
-            getNewIntegrityToken(null, supportFragmentManager)
-        }
         if (prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) && LiveNotificationScheduler.canPostNotifications(this)) {
             LiveNotificationScheduler.enable(this, baselineOnly = false)
         } else {
@@ -639,17 +624,8 @@ class MainActivity : AppCompatActivity() {
                 if (authSessionMaintainer.consumeReauthorizationRequest() == state) {
                     Toast.makeText(this, R.string.token_expired, Toast.LENGTH_LONG).show()
                     launcher.launch(
-                        Intent(this, LoginActivity::class.java)
-                            .putExtra(LoginActivity.EXTRA_REAUTHORIZE, true),
-                    )
-                }
-            }
-            AuthSessionMaintenanceState.COMPATIBILITY_REAUTHORIZATION_REQUIRED -> {
-                if (authSessionMaintainer.consumeReauthorizationRequest() == state) {
-                    Toast.makeText(this, R.string.auth_health_compatibility_message, Toast.LENGTH_LONG).show()
-                    launcher.launch(
-                        Intent(this, LoginActivity::class.java)
-                            .putExtra(LoginActivity.EXTRA_COMPATIBILITY_ONLY, true),
+                        Intent(this, TwitchWebLoginActivity::class.java)
+                            .putExtra(TwitchWebLoginActivity.EXTRA_REAUTHORIZE, true),
                     )
                 }
             }
@@ -946,7 +922,6 @@ class MainActivity : AppCompatActivity() {
                 val networkLibrary = prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP)
                 val gqlHeaders = TwitchApiHelper.getGQLHeaders(this)
                 val helixHeaders = TwitchApiHelper.getHelixHeaders(this)
-                val enableIntegrity = prefs.getBoolean(C.ENABLE_INTEGRITY, false)
                 val clipId = when {
                     uri.host.equals("clips.twitch.tv", ignoreCase = true) -> path.firstOrNull()
                     path.firstOrNull() == "clip" -> path.getOrNull(1)
@@ -954,13 +929,13 @@ class MainActivity : AppCompatActivity() {
                     else -> null
                 }
                 if (!clipId.isNullOrBlank()) {
-                    viewModel.loadClip(clipId, networkLibrary, gqlHeaders, helixHeaders, enableIntegrity)
+                    viewModel.loadClip(clipId, networkLibrary, gqlHeaders, helixHeaders)
                 } else when {
                     path.firstOrNull() == "videos" -> {
                         path.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { id ->
                             val offset = uri.getQueryParameter("t")
                                 ?.let { TwitchApiHelper.getDuration(it).toLong() * 1000 }
-                            viewModel.loadVideo(id, offset, networkLibrary, gqlHeaders, helixHeaders, enableIntegrity)
+                            viewModel.loadVideo(id, offset, networkLibrary, gqlHeaders, helixHeaders)
                         }
                     }
                     path.take(2) == listOf("directory", "category") -> {
@@ -971,7 +946,6 @@ class MainActivity : AppCompatActivity() {
                                 networkLibrary = networkLibrary,
                                 gqlHeaders = gqlHeaders,
                                 helixHeaders = helixHeaders,
-                                enableIntegrity = enableIntegrity,
                             )
                         }
                     }
@@ -983,7 +957,6 @@ class MainActivity : AppCompatActivity() {
                                 networkLibrary = networkLibrary,
                                 gqlHeaders = gqlHeaders,
                                 helixHeaders = helixHeaders,
-                                enableIntegrity = enableIntegrity,
                             )
                         }
                     }
@@ -999,7 +972,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     path.take(2) == listOf("directory", "tags") -> {
                         path.getOrNull(2)?.takeIf { it.isNotBlank() }?.let {
-                            viewModel.loadTag(it, networkLibrary, gqlHeaders, enableIntegrity)
+                            viewModel.loadTag(it, networkLibrary, gqlHeaders)
                         }
                     }
                     path.firstOrNull() == "directory" -> {
@@ -1014,7 +987,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     else -> {
                         path.firstOrNull()?.takeIf { it.isNotBlank() }?.let {
-                            viewModel.loadUser(it, networkLibrary, gqlHeaders, helixHeaders, enableIntegrity)
+                            viewModel.loadUser(it, networkLibrary, gqlHeaders, helixHeaders)
                         }
                     }
                 }
@@ -1062,18 +1035,6 @@ class MainActivity : AppCompatActivity() {
             (host == "twitch.tv" || host?.endsWith(".twitch.tv") == true)
     }
 
-    fun getNewIntegrityToken(callback: String?, fragmentManager: FragmentManager) {
-        if (!viewModel.loadingIntegrityToken) {
-            if (prefs.getBoolean(C.USE_WEBVIEW_INTEGRITY, true)) {
-                viewModel.loadingIntegrityToken = true
-                IntegrityDialog.newInstance(callback).show(fragmentManager, null)
-            }
-        }
-    }
-
-    fun integrityTokenLoaded() {
-        viewModel.loadingIntegrityToken = false
-    }
 
 //Navigation listeners
 
@@ -1465,16 +1426,6 @@ class MainActivity : AppCompatActivity() {
                 AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(langPref))
             }
         }
-        if (version < 4) {
-            if (rawPrefs().getString(C.GQL_CLIENT_ID2, null) == C.LEGACY_GQL_CLIENT_ID2 &&
-                tokenPrefs().getString(C.GQL_TOKEN2, null).isNullOrBlank()
-            ) {
-                rawPrefs().edit {
-                    putString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2)
-                    putString(C.GQL_REDIRECT2, "https://www.twitch.tv/settings/connections")
-                }
-            }
-        }
         if (version < 5) {
             prefs.edit {
                 if (prefs.getString(C.PLAYER_PROXY, "1")?.toIntOrNull() == 0) {
@@ -1502,22 +1453,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
         if (version < 8) {
-            tokenPrefs().edit {
-                putString(C.USER_ID, prefs.getString(C.USER_ID, null))
-                putString(C.USERNAME, prefs.getString(C.USERNAME, null))
-                putString(C.TOKEN, prefs.getString(C.TOKEN, null))
-                putString(C.GQL_TOKEN2, prefs.getString(C.GQL_TOKEN2, null))
-                putString(C.GQL_HEADERS, prefs.getString(C.GQL_HEADERS, null))
-                putLong(C.INTEGRITY_EXPIRATION, prefs.getLong(C.INTEGRITY_EXPIRATION, 0))
-            }
             prefs.edit {
                 remove(C.USER_ID)
                 remove(C.USERNAME)
                 remove(C.TOKEN)
-                remove(C.GQL_TOKEN)
-                remove(C.GQL_TOKEN2)
-                remove(C.GQL_HEADERS)
-                remove(C.INTEGRITY_EXPIRATION)
             }
         }
         if (version < 9) {
@@ -1603,6 +1542,25 @@ class MainActivity : AppCompatActivity() {
                 putInt(C.SETTINGS_VERSION, 14)
             }
         }
+        if (version < 15) {
+            // GeckoView is now the only account authority. Do not let an old OAuth cache make
+            // the profile look signed in; preserve an already-imported Gecko session.
+            val hasWebSession = !tokenPrefs().getString(C.GQL_TOKEN_WEB, null).isNullOrBlank()
+            if (!hasWebSession) {
+                tokenPrefs().edit {
+                    remove(C.USER_ID)
+                    remove(C.USERNAME)
+                    remove(C.TOKEN)
+                    remove(C.TOKEN_CLIENT_ID)
+                    remove(C.TOKEN_SCOPES)
+                }
+            }
+            prefs.edit {
+                putString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
+                putInt(C.SETTINGS_VERSION, 15)
+            }
+        }
         SettingsMigration.migrate(this, freshInstall = freshInstall)
     }
 }
+

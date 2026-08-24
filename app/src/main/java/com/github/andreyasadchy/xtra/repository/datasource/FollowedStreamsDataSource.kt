@@ -17,7 +17,6 @@ class FollowedStreamsDataSource(
     graphQLRepository: GraphQLRepository,
     helixHeaders: Map<String, String>,
     helixRepository: HelixRepository,
-    enableIntegrity: Boolean,
     networkLibrary: String?,
 ) : PagingSource<Int, Stream>() {
     private val loader = FollowedStreamsPageLoader(
@@ -29,7 +28,6 @@ class FollowedStreamsDataSource(
         graphQLRepository = graphQLRepository,
         helixHeaders = { helixHeaders },
         helixRepository = helixRepository,
-        enableIntegrity = enableIntegrity,
         networkLibrary = networkLibrary,
     )
     private var cursor: StreamFeedCursor? = null

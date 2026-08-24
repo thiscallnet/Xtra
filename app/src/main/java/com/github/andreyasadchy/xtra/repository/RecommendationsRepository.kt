@@ -176,7 +176,7 @@ class RecommendationsRepository(
         val officialSession = authSessionStore.read()
         val auth = recommendationAuthFor(
             officialUserId = officialSession?.userId,
-            credential = authSessionStore.readPrivateGqlCredential(nowMillis),
+            credential = authSessionStore.readPrivateGqlCredential(),
         )
         return RecommendationRequestContext(
             auth = auth,
@@ -274,7 +274,6 @@ data class RecommendationResult(
 )
 
 enum class RecommendationAuthMode {
-    COMPATIBILITY,
     WEB,
     ANONYMOUS,
 }
@@ -284,14 +283,6 @@ internal sealed interface RecommendationAuth {
     val userId: String?
     val clientId: String?
     val accessToken: String?
-
-    data class Compatibility(
-        override val userId: String,
-        override val clientId: String,
-        override val accessToken: String,
-    ) : RecommendationAuth {
-        override val mode = RecommendationAuthMode.COMPATIBILITY
-    }
 
     data class Web(
         override val userId: String,
@@ -324,11 +315,6 @@ internal fun recommendationAuthFor(
         !officialUserId.isNullOrBlank() && it.userId == officialUserId
     }
     return when (matchingCredential?.type) {
-        PrivateGqlCredentialType.COMPATIBILITY -> RecommendationAuth.Compatibility(
-            userId = matchingCredential.userId,
-            clientId = matchingCredential.clientId,
-            accessToken = matchingCredential.accessToken,
-        )
         PrivateGqlCredentialType.WEB -> RecommendationAuth.Web(
             userId = matchingCredential.userId,
             clientId = matchingCredential.clientId,

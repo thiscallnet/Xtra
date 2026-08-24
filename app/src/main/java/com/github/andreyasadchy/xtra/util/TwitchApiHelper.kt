@@ -8,7 +8,7 @@ import android.icu.text.CompactDecimalFormat
 import android.os.Build
 import android.text.format.DateUtils
 import com.github.andreyasadchy.xtra.R
-import org.json.JSONObject
+import com.github.andreyasadchy.xtra.XtraApp
 import java.math.RoundingMode
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -245,63 +245,23 @@ object TwitchApiHelper {
 
     fun getGQLHeaders(context: Context, includeToken: Boolean = false): Map<String, String> {
         return mutableMapOf<String, String>().apply {
-            if (context.prefs().getBoolean(C.ENABLE_INTEGRITY, false)) {
-                context.tokenPrefs().getString(C.GQL_HEADERS, null)
-                    ?.let { runCatching { JSONObject(it) }.getOrNull() }
-                    ?.let { json ->
-                        json.keys().forEach { key ->
-                            put(key, json.optString(key))
-                        }
-                    }
-                if (includeToken && get(C.HEADER_TOKEN).isNullOrBlank()) {
-                    context.tokenPrefs().getString(C.GQL_TOKEN2, null)
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { put(C.HEADER_TOKEN, addTokenPrefixGQL(it)) }
-                    if (get(C.HEADER_CLIENT_ID).isNullOrBlank()) {
-                        addStructuredGqlClientId(
-                            headers = this,
-                            storedClientId = context.tokenPrefs().getString(C.GQL_TOKEN2_CLIENT_ID, null),
-                            configuredClientId = context.prefs().getString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2),
-                        )
-                    }
-                }
-            } else {
-                val gqlClientId = context.tokenPrefs().getString(C.GQL_TOKEN2_CLIENT_ID, null)
+            put(
+                C.HEADER_CLIENT_ID,
+                context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
+                    ?: C.DEFAULT_GQL_CLIENT_ID_WEB,
+            )
+            val webToken = context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
+                ?.takeIf { it.isNotBlank() }
+            if (includeToken && webToken != null) {
+                put(C.HEADER_TOKEN, addTokenPrefixGQL(webToken))
+                liveWebCookieHeader(context, "https://gql.twitch.tv/gql")
                     ?.takeIf { it.isNotBlank() }
-                    ?: context.prefs().getString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2)
-                val gqlToken = if (includeToken) {
-                    context.tokenPrefs().getString(C.GQL_TOKEN2, null)?.takeIf { it.isNotBlank() }
-                } else {
-                    null
-                }
-                val gqlWebToken = if (includeToken) {
-                    context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)?.takeIf { it.isNotBlank() }
-                } else {
-                    null
-                }
-                if (!gqlClientId.isNullOrBlank()) {
-                    put(C.HEADER_CLIENT_ID, gqlClientId)
-                }
-                if (!gqlToken.isNullOrBlank()) {
-                    put(C.HEADER_TOKEN, addTokenPrefixGQL(gqlToken))
-                } else if (!gqlWebToken.isNullOrBlank()) {
-                    context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)?.let {
-                        if (it.isNotBlank()) {
-                            put(C.HEADER_CLIENT_ID, it)
-                        }
-                    }
-                    put(C.HEADER_TOKEN, addTokenPrefixGQL(gqlWebToken))
-                }
+                    ?.let { put("Cookie", it) }
             }
         }
     }
 
-    /**
-     * Headers for private operations used by the Twitch web channel page.
-     * Keep these separate from the TV/integrity GQL identity: web operations
-     * can reject an otherwise valid client identity, while this prediction
-     * lookup also works without an Authorization header.
-     */
+    /** Headers for private operations used by the Twitch web channel page. */
     fun getWebGQLHeaders(context: Context, includeToken: Boolean = true): Map<String, String> {
         return mutableMapOf(
             C.HEADER_CLIENT_ID to (context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
@@ -316,6 +276,9 @@ object TwitchApiHelper {
                 context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
                     ?.takeIf { it.isNotBlank() }
                     ?.let { put(C.HEADER_TOKEN, addTokenPrefixGQL(it)) }
+                liveWebCookieHeader(context, "https://gql.twitch.tv/gql")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { put("Cookie", it) }
             }
         }
     }
@@ -359,7 +322,7 @@ object TwitchApiHelper {
         return buildRecommendationGQLHeaders(
             clientId = clientId
                 ?.takeIf { it.isNotBlank() }
-                ?: context.prefs().getString(C.GQL_CLIENT_ID2, C.DEFAULT_GQL_CLIENT_ID2),
+                ?: context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB),
             accessToken = accessToken,
             deviceId = deviceId,
             clientSessionId = clientSessionId,
@@ -381,46 +344,56 @@ object TwitchApiHelper {
         put("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
     }
 
-    fun getHelixHeaders(context: Context): Map<String, String> {
+    /**
+     * Returns Helix headers for the web session. Mutating/account-specific callers can pass the
+     * scopes they require; the web token is withheld when validation did not grant them.
+     */
+    fun getHelixHeaders(
+        context: Context,
+        requiredScopes: Set<String> = emptySet(),
+    ): Map<String, String> {
         return mutableMapOf<String, String>().apply {
-            val clientId = context.tokenPrefs().getString(C.TOKEN_CLIENT_ID, null)
+            val webToken = context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
                 ?.takeIf { it.isNotBlank() }
-                ?: context.prefs().getString(C.HELIX_CLIENT_ID, C.DEFAULT_HELIX_CLIENT_ID)
-            clientId?.let {
-                if (it.isNotBlank()) {
-                    put(C.HEADER_CLIENT_ID, it)
-                }
+            val grantedScopes = webSessionScopes(context)
+            if (webToken != null && requiredScopes.all(grantedScopes::contains)) {
+                put(C.HEADER_CLIENT_ID, context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
+                    ?: C.DEFAULT_GQL_CLIENT_ID_WEB)
+                put(C.HEADER_TOKEN, addTokenPrefixHelix(webToken))
+                liveWebCookieHeader(context, "https://api.twitch.tv/helix/")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { put("Cookie", it) }
+                return@apply
             }
-            context.tokenPrefs().getString(C.TOKEN, null)?.let {
-                if (it.isNotBlank()) {
-                    put(C.HEADER_TOKEN, addTokenPrefixHelix(it))
-                }
-            }
+            put(
+                C.HEADER_CLIENT_ID,
+                context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
+                    ?: C.DEFAULT_GQL_CLIENT_ID_WEB,
+            )
         }
     }
 
-    fun isIntegrityTokenExpired(context: Context): Boolean {
-        return System.currentTimeMillis() >= context.tokenPrefs().getLong(C.INTEGRITY_EXPIRATION, 0)
-    }
+    fun webSessionScopes(context: Context): Set<String> =
+        context.tokenPrefs().getString(C.TOKEN_SCOPES, null)
+            ?.split(' ')
+            ?.filter(String::isNotBlank)
+            ?.toSet()
+            ?: emptySet()
+
+    private fun liveWebCookieHeader(context: Context, url: String): String? =
+        runCatching {
+            (context.applicationContext as? XtraApp)
+                ?.xtraModule
+                ?.twitchWebSessionManager
+                ?.cookieHeaderFor(url)
+        }.getOrNull()
+            ?: context.tokenPrefs().getString(C.TWITCH_WEB_COOKIE_HEADER, null)
 
     fun isSessionValidationDue(context: Context): Boolean {
-        if (context.tokenPrefs().getString(C.TOKEN, null).isNullOrBlank()) return false
+        if (context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null).isNullOrBlank()) return false
         val lastValidatedAt = context.tokenPrefs().getLong(C.TOKEN_VALIDATED_AT, 0)
         return !checkedValidation || lastValidatedAt <= 0 ||
             System.currentTimeMillis() - lastValidatedAt >= SESSION_VALIDATION_INTERVAL_MILLIS
-    }
-
-    internal fun addStructuredGqlClientId(
-        headers: MutableMap<String, String>,
-        storedClientId: String?,
-        configuredClientId: String?,
-    ) {
-        if (headers[C.HEADER_CLIENT_ID].isNullOrBlank()) {
-            val clientId = storedClientId
-                ?.takeIf { it.isNotBlank() }
-                ?: configuredClientId?.takeIf { it.isNotBlank() }
-            clientId?.let { headers[C.HEADER_CLIENT_ID] = it }
-        }
     }
 
     private const val SESSION_VALIDATION_INTERVAL_MILLIS = 60 * 60 * 1_000L

@@ -4,6 +4,7 @@
 
     <fragment android:id="@+id/settingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_app"><argument android:name="settings_screen" android:defaultValue="general" app:argType="string" /></fragment>
     <action android:id="@+id/action_global_settingsFragment" app:destination="@id/settingsFragment" />
+    <fragment android:id="@+id/accountSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_home_account_network" tools:layout="@xml/account_preferences"><argument android:name="settings_screen" android:defaultValue="account" app:argType="string" /></fragment>
     <fragment android:id="@+id/liveNotificationSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_general_notifications" tools:layout="@xml/live_notification_preferences"><argument android:name="settings_screen" android:defaultValue="live_notifications" app:argType="string" /></fragment>
     <action android:id="@+id/action_global_liveNotificationSettingsFragment" app:destination="@id/liveNotificationSettingsFragment" />
     <fragment android:id="@+id/updateSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$UpdateSettingsFragment" android:label="@string/settings_general_updates" tools:layout="@layout/fragment_update_settings" />
@@ -49,5 +50,4 @@
     <fragment android:id="@+id/downloadLiveFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_live_downloads"><argument android:name="settings_screen" android:defaultValue="download_live" app:argType="string" /></fragment>
     <fragment android:id="@+id/proxySettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_proxy"><argument android:name="settings_screen" android:defaultValue="proxy" app:argType="string" /></fragment>
     <fragment android:id="@+id/developerSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_developer_options"><argument android:name="settings_screen" android:defaultValue="developer" app:argType="string" /></fragment>
-    <fragment android:id="@+id/developerApiFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_api_authentication"><argument android:name="settings_screen" android:defaultValue="developer_api" app:argType="string" /></fragment>
 </navigation>

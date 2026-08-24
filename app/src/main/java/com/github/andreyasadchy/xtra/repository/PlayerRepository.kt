@@ -126,10 +126,10 @@ class PlayerRepository(
     private val watchCreditMutex = Mutex()
     private var cachedSpadeEndpoint: CachedSpadeEndpoint? = null
 
-    suspend fun loadStreamPlaylistUrl(context: Context, networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?, enableIntegrity: Boolean, lowLatency: Boolean = context.prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY)): String = withContext(Dispatchers.IO) {
-        val accessToken = loadStreamPlaybackAccessToken(context, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, proxyPlaybackAccessToken, proxyHost, proxyPort, proxyUser, proxyPassword, enableIntegrity).let { token ->
+    suspend fun loadStreamPlaylistUrl(context: Context, networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?, lowLatency: Boolean = context.prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY)): String = withContext(Dispatchers.IO) {
+        val accessToken = loadStreamPlaybackAccessToken(context, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, proxyPlaybackAccessToken, proxyHost, proxyPort, proxyUser, proxyPassword).let { token ->
             if (token.second?.contains("\"forbidden\":true") == true && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                loadStreamPlaybackAccessToken(context, networkLibrary, gqlHeaders.filterNot { it.key == C.HEADER_TOKEN }, channelLogin, randomDeviceId, xDeviceId, playerType, proxyPlaybackAccessToken, proxyHost, proxyPort, proxyUser, proxyPassword, enableIntegrity)
+                loadStreamPlaybackAccessToken(context, networkLibrary, gqlHeaders.filterNot { it.key == C.HEADER_TOKEN }, channelLogin, randomDeviceId, xDeviceId, playerType, proxyPlaybackAccessToken, proxyHost, proxyPort, proxyUser, proxyPassword)
             } else token
         }
         val signature = accessToken.first
@@ -170,13 +170,12 @@ class PlayerRepository(
         proxyPort: Int?,
         proxyUser: String?,
         proxyPassword: String?,
-        enableIntegrity: Boolean,
         requireVerifiedClean: Boolean = false,
     ): StreamPlaylistCandidate? = withContext(Dispatchers.IO) {
         // VAFT keeps one device ID while it probes alternate player types. Reusing
         // one valid ID prevents Twitch from treating each probe as a new client.
         val deviceId = resolvePlaybackDeviceId(gqlHeaders, randomDeviceId, xDeviceId)
-        logAd("clean probe channel=$channelLogin types=${playerTypes.joinToString()} deviceIdLength=${deviceId.length} integrity=$enableIntegrity")
+        logAd("clean probe channel=$channelLogin types=${playerTypes.joinToString()} deviceIdLength=${deviceId.length}")
         playerTypes.forEach { playerType ->
             val url = try {
                 loadStreamPlaylistUrl(
@@ -193,7 +192,6 @@ class PlayerRepository(
                     proxyPort = proxyPort,
                     proxyUser = proxyUser,
                     proxyPassword = proxyPassword,
-                    enableIntegrity = enableIntegrity,
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -251,10 +249,10 @@ class PlayerRepository(
         }
     }
 
-    private suspend fun loadStreamPlaybackAccessToken(context: Context, networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?, enableIntegrity: Boolean): Pair<String?, String?> = withContext(Dispatchers.IO) {
-        val accessTokenHeaders = getPlaybackAccessTokenHeaders(gqlHeaders, randomDeviceId, xDeviceId, enableIntegrity)
+    private suspend fun loadStreamPlaybackAccessToken(context: Context, networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?): Pair<String?, String?> = withContext(Dispatchers.IO) {
+        val accessTokenHeaders = getPlaybackAccessTokenHeaders(gqlHeaders, randomDeviceId, xDeviceId)
         val platform = if (playerType.equals("autoplay", ignoreCase = true)) "android" else "web"
-        logAd("token request channel=$channelLogin playerType=${playerType ?: "null"} platform=$platform integrity=$enableIntegrity deviceIdLength=${accessTokenHeaders["X-Device-Id"]?.length ?: 0} proxy=$proxyPlaybackAccessToken")
+        logAd("token request channel=$channelLogin playerType=${playerType ?: "null"} platform=$platform deviceIdLength=${accessTokenHeaders["X-Device-Id"]?.length ?: 0} proxy=$proxyPlaybackAccessToken")
         val url = "https://gql.twitch.tv/gql"
         val headers = accessTokenHeaders.filterKeys { it == C.HEADER_CLIENT_ID || it == "X-Device-Id" }
         try {
@@ -441,14 +439,10 @@ class PlayerRepository(
                     platform = platform,
                 )
             }
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-            }
             response.data!!.streamPlaybackAccessToken!!.let {
                 it.signature to it.value
             }
         } catch (e: Exception) {
-            if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
             val response = if (proxyPlaybackAccessToken && !proxyHost.isNullOrBlank() && proxyPort != null) {
                 val query = StreamPlaybackAccessTokenQuery(channelLogin, platform, playerType ?: "")
                 val body = buildJsonString {
@@ -654,17 +648,14 @@ class PlayerRepository(
                     playerType = playerType ?: ""
                 )
             }
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-            }
             response.data!!.streamPlaybackAccessToken!!.let {
                 it.signature to it.value
             }
         }
     }
 
-    suspend fun loadVideoPlaylistUrl(networkLibrary: String?, gqlHeaders: Map<String, String>, videoId: String?, playerType: String?, supportedCodecs: String?, enableIntegrity: Boolean): Pair<String, List<String>> = withContext(Dispatchers.IO) {
-        val accessTokenHeaders = getPlaybackAccessTokenHeaders(gqlHeaders = gqlHeaders, randomDeviceId = true, enableIntegrity = enableIntegrity)
+    suspend fun loadVideoPlaylistUrl(networkLibrary: String?, gqlHeaders: Map<String, String>, videoId: String?, playerType: String?, supportedCodecs: String?): Pair<String, List<String>> = withContext(Dispatchers.IO) {
+        val accessTokenHeaders = getPlaybackAccessTokenHeaders(gqlHeaders = gqlHeaders, randomDeviceId = true)
         val accessToken = try {
             val response = graphQLRepository.loadPlaybackAccessToken(
                 networkLibrary = networkLibrary,
@@ -672,14 +663,10 @@ class PlayerRepository(
                 vodId = videoId,
                 playerType = playerType
             )
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-            }
             response.data!!.videoPlaybackAccessToken!!.let {
                 it.signature to it.value
             }
         } catch (e: Exception) {
-            if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
             val response = graphQLRepository.loadQueryVideoPlaybackAccessToken(
                 networkLibrary = networkLibrary,
                 headers = accessTokenHeaders,
@@ -687,9 +674,6 @@ class PlayerRepository(
                 platform = "web",
                 playerType = playerType ?: ""
             )
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-            }
             response.data!!.videoPlaybackAccessToken!!.let {
                 it.signature to it.value
             }
@@ -728,16 +712,15 @@ class PlayerRepository(
         url to backupQualities
     }
 
-    private fun getPlaybackAccessTokenHeaders(gqlHeaders: Map<String, String>, randomDeviceId: Boolean?, xDeviceId: String? = null, enableIntegrity: Boolean): Map<String, String> {
+    private fun getPlaybackAccessTokenHeaders(gqlHeaders: Map<String, String>, randomDeviceId: Boolean?, xDeviceId: String? = null): Map<String, String> {
         val headers = gqlHeaders.toMutableMap()
         headers.keys
             .filter { it.equals("X-Device-Id", ignoreCase = true) && it != "X-Device-Id" }
             .forEach { headers.remove(it) }
         val deviceId = resolvePlaybackDeviceId(gqlHeaders, randomDeviceId, xDeviceId)
-        // VAFT sends X-Device-Id alongside Client-Integrity. Integrity mode must
-        // not silently disable the ad-avoidance header.
+        // Keep one stable device ID alongside the playback request headers.
         headers["X-Device-Id"] = deviceId
-        logAd("headers prepared integrity=$enableIntegrity randomDeviceId=${randomDeviceId != false} deviceIdLength=${deviceId.length}")
+        logAd("headers prepared randomDeviceId=${randomDeviceId != false} deviceIdLength=${deviceId.length}")
         return headers
     }
 
@@ -766,12 +749,9 @@ class PlayerRepository(
         }
     }
 
-    suspend fun loadClipQualities(networkLibrary: String?, gqlHeaders: Map<String, String>, clipId: String?, enableIntegrity: Boolean): List<VideoQuality>? = withContext(Dispatchers.IO) {
+    suspend fun loadClipQualities(networkLibrary: String?, gqlHeaders: Map<String, String>, clipId: String?): List<VideoQuality>? = withContext(Dispatchers.IO) {
         try {
             val response = graphQLRepository.loadClipUrls(networkLibrary, gqlHeaders, clipId)
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-            }
             val accessToken = response.data?.clip?.playbackAccessToken
             response.data!!.clip.assets.let { assets ->
                 (assets.find { it.portraitMetadata?.portraitClipLayout.isNullOrBlank() } ?: assets.firstOrNull())?.videoQualities?.mapIndexedNotNull { index, quality ->
@@ -795,11 +775,7 @@ class PlayerRepository(
                 }
             }
         } catch (e: Exception) {
-            if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
             val response = graphQLRepository.loadQueryClipUrls(networkLibrary, gqlHeaders, clipId!!)
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-            }
             val accessToken = response.data?.clip?.playbackAccessToken
             response.data?.clip?.assets?.let { assets ->
                 (assets.find { it?.portraitMetadata?.portraitClipLayout.isNullOrBlank() } ?: assets.firstOrNull())?.videoQualities?.mapIndexedNotNull { index, quality ->
@@ -1709,7 +1685,7 @@ class PlayerRepository(
         }
     }
 
-    suspend fun loadGlobalBadges(networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, emoteQuality: String, enableIntegrity: Boolean): List<TwitchBadge> = withContext(Dispatchers.IO) {
+    suspend fun loadGlobalBadges(networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, emoteQuality: String): List<TwitchBadge> = withContext(Dispatchers.IO) {
         try {
             val response = graphQLRepository.loadQueryBadges(networkLibrary, gqlHeaders,
                 when (emoteQuality) {
@@ -1719,9 +1695,6 @@ class PlayerRepository(
                     else -> BadgeImageSize.NORMAL
                 }
             )
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-            }
             response.data!!.badges?.mapNotNull {
                 it?.setID?.let { setId ->
                     it.version?.let { version ->
@@ -1740,12 +1713,8 @@ class PlayerRepository(
                 }
             } ?: emptyList()
         } catch (e: Exception) {
-            if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
             try {
                 val response = graphQLRepository.loadChatBadges(networkLibrary, gqlHeaders, "")
-                if (enableIntegrity) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-                }
                 response.data!!.badges?.mapNotNull {
                     it.setID?.let { setId ->
                         it.version?.let { version ->
@@ -1762,7 +1731,6 @@ class PlayerRepository(
                     }
                 } ?: emptyList()
             } catch (e: Exception) {
-                if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
                 if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 helixRepository.getGlobalBadges(networkLibrary, helixHeaders).data.mapNotNull { set ->
                     set.setId?.let { setId ->
@@ -1784,7 +1752,7 @@ class PlayerRepository(
         }
     }
 
-    suspend fun loadChannelBadges(networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, channelId: String?, channelLogin: String?, emoteQuality: String, enableIntegrity: Boolean): List<TwitchBadge> = withContext(Dispatchers.IO) {
+    suspend fun loadChannelBadges(networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, channelId: String?, channelLogin: String?, emoteQuality: String): List<TwitchBadge> = withContext(Dispatchers.IO) {
         try {
             val response = graphQLRepository.loadQueryUserBadges(networkLibrary, gqlHeaders, channelId, channelLogin.takeIf { channelId.isNullOrBlank() },
                 when (emoteQuality) {
@@ -1794,9 +1762,6 @@ class PlayerRepository(
                     else -> BadgeImageSize.NORMAL
                 }
             )
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-            }
             response.data!!.user?.broadcastBadges?.mapNotNull {
                 it?.setID?.let { setId ->
                     it.version?.let { version ->
@@ -1815,12 +1780,8 @@ class PlayerRepository(
                 }
             } ?: emptyList()
         } catch (e: Exception) {
-            if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
             try {
                 val response = graphQLRepository.loadChatBadges(networkLibrary, gqlHeaders, channelLogin)
-                if (enableIntegrity) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-                }
                 response.data!!.badges?.mapNotNull {
                     it.setID?.let { setId ->
                         it.version?.let { version ->
@@ -1837,7 +1798,6 @@ class PlayerRepository(
                     }
                 } ?: emptyList()
             } catch (e: Exception) {
-                if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
                 if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 helixRepository.getChannelBadges(networkLibrary, helixHeaders, channelId).data.mapNotNull { set ->
                     set.setId?.let { setId ->
@@ -1859,13 +1819,10 @@ class PlayerRepository(
         }
     }
 
-    suspend fun loadCheerEmotes(networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, channelId: String?, channelLogin: String?, animateGifs: Boolean, enableIntegrity: Boolean): List<CheerEmote> = withContext(Dispatchers.IO) {
+    suspend fun loadCheerEmotes(networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, channelId: String?, channelLogin: String?, animateGifs: Boolean): List<CheerEmote> = withContext(Dispatchers.IO) {
         try {
             val emotes = mutableListOf<CheerEmote>()
             val response = graphQLRepository.loadQueryUserCheerEmotes(networkLibrary, gqlHeaders, channelId, channelLogin.takeIf { channelId.isNullOrBlank() })
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-            }
             response.data!!.cheerConfig?.displayConfig?.let { config ->
                 val background = config.backgrounds?.find { it == "dark" } ?: config.backgrounds?.lastOrNull() ?: ""
                 val format = if (animateGifs) {
@@ -1930,13 +1887,9 @@ class PlayerRepository(
             }
             emotes
         } catch (e: Exception) {
-            if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
             try {
                 val emotes = mutableListOf<CheerEmote>()
                 val response = graphQLRepository.loadGlobalCheerEmotes(networkLibrary, gqlHeaders)
-                if (enableIntegrity) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-                }
                 response.data!!.cheerConfig.displayConfig.let { config ->
                     val background = config.backgrounds?.find { it == "dark" } ?: config.backgrounds?.lastOrNull() ?: ""
                     val format = if (animateGifs) {
@@ -2001,7 +1954,6 @@ class PlayerRepository(
                 }
                 emotes
             } catch (e: Exception) {
-                if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
                 if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 helixRepository.getCheerEmotes(networkLibrary, helixHeaders, channelId).data.map { set ->
                     set.tiers.mapNotNull { tier ->
@@ -2030,16 +1982,13 @@ class PlayerRepository(
         }
     }
 
-    suspend fun loadUserEmotes(networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, channelId: String?, userId: String?, animateGifs: Boolean, enableIntegrity: Boolean): List<TwitchEmote> = withContext(Dispatchers.IO) {
+    suspend fun loadUserEmotes(networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, channelId: String?, userId: String?, animateGifs: Boolean): List<TwitchEmote> = withContext(Dispatchers.IO) {
         try {
             if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
             val emotes = mutableListOf<TwitchEmote>()
             var offset: String? = null
             do {
                 val response = graphQLRepository.loadUserEmotes(networkLibrary, gqlHeaders, channelId, offset)
-                if (enableIntegrity) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-                }
                 val sets = response.data!!.channel.self.availableEmoteSetsPaginated
                 val items = sets.edges
                 items.map { item ->
@@ -2065,13 +2014,9 @@ class PlayerRepository(
             } while (!items.lastOrNull()?.cursor.isNullOrBlank() && sets.pageInfo?.hasNextPage == true)
             emotes
         } catch (e: Exception) {
-            if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
             try {
                 if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 val response = graphQLRepository.loadQueryUserEmotes(networkLibrary, gqlHeaders)
-                if (enableIntegrity) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-                }
                 response.data!!.user?.emoteSets?.mapNotNull { set ->
                     set.emotes?.mapNotNull { emote ->
                         if (emote?.token != null && (!emote.type?.toString().equals("follower", true) || (emote.owner?.id == null || emote.owner.id == channelId))) {
@@ -2090,7 +2035,6 @@ class PlayerRepository(
                     }
                 }?.flatten() ?: emptyList()
             } catch (e: Exception) {
-                if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
                 if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 val emotes = mutableListOf<TwitchEmote>()
                 var offset: String? = null

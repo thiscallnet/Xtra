@@ -24,7 +24,6 @@ object GameFeedSpecs {
             graphQLRepository = graphQLRepository,
             helixHeaders = { TwitchApiHelper.getHelixHeaders(context) },
             helixRepository = helixRepository,
-            enableIntegrity = context.prefs().getBoolean(C.ENABLE_INTEGRITY, false),
             networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
             pageSize = pageSize,
         )

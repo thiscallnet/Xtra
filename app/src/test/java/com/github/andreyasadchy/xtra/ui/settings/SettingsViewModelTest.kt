@@ -15,7 +15,6 @@ class SettingsViewModelTest {
     @Test
     fun `transient auth health keeps the existing account connected`() {
         assertTrue(isSettingsAccountConnected(AuthHealth.UNKNOWN))
-        assertTrue(isSettingsAccountConnected(AuthHealth.ENHANCED_FEATURES_UNAVAILABLE))
         assertFalse(isSettingsAccountConnected(AuthHealth.SIGNED_OUT))
         assertFalse(isSettingsAccountConnected(AuthHealth.REAUTH_REQUIRED))
     }

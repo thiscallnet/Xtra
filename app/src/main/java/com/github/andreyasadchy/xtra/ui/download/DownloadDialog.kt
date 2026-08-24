@@ -32,7 +32,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.DialogVideoDownloadBinding
 import com.github.andreyasadchy.xtra.model.VideoQuality
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.download.DownloadViewModel.Companion.DownloadViewModelFactory
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
@@ -44,7 +43,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
 
-class DownloadDialog : DialogFragment(), IntegrityDialog.Listener {
+class DownloadDialog : DialogFragment() {
 
     companion object {
         private const val STREAM = "stream"
@@ -166,13 +165,6 @@ class DownloadDialog : DialogFragment(), IntegrityDialog.Listener {
         _binding = DialogVideoDownloadBinding.inflate(layoutInflater)
         val builder = requireContext().getAlertDialogBuilder()
             .setView(binding.root)
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.integrity.collect {
-                    (requireActivity() as? MainActivity)?.getNewIntegrityToken(it, childFragmentManager)
-                }
-            }
-        }
         directoryResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
                 result.data?.data?.let {
@@ -219,7 +211,6 @@ class DownloadDialog : DialogFragment(), IntegrityDialog.Listener {
                     xDeviceId = requireContext().prefs().getString(C.TOKEN_X_DEVICE_ID, "twitch-web-wall-mason"),
                     playerType = requireContext().prefs().getString(C.TOKEN_PLAYER_TYPE, "site"),
                     supportedCodecs = requireContext().prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
-                    enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                 )
             }
             VIDEO -> {
@@ -267,7 +258,6 @@ class DownloadDialog : DialogFragment(), IntegrityDialog.Listener {
                     },
                     playerType = requireContext().prefs().getString(C.TOKEN_PLAYER_TYPE_VIDEO, "channel_home_live"),
                     supportedCodecs = requireContext().prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
-                    enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                 )
             }
             CLIP -> {
@@ -295,7 +285,6 @@ class DownloadDialog : DialogFragment(), IntegrityDialog.Listener {
                             }
                         }
                     },
-                    enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                 )
             }
         }
@@ -679,78 +668,12 @@ class DownloadDialog : DialogFragment(), IntegrityDialog.Listener {
         })
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "stream" -> {
-                viewModel.setStream(
-                    networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), requireContext().prefs().getBoolean(C.TOKEN_INCLUDE_TOKEN_STREAM, true)),
-                    channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
-                    qualities = requireArguments().getStringArray(KEY_QUALITY_NAMES)?.let { names ->
-                        requireArguments().getStringArray(KEY_QUALITY_CODECS)?.let { codecs ->
-                            requireArguments().getStringArray(KEY_QUALITY_BITRATES)?.let { bitrates ->
-                                requireArguments().getStringArray(KEY_QUALITY_URLS)?.let { urls ->
-                                    names.mapIndexed { index, name ->
-                                        VideoQuality(name, codecs.getOrNull(index).takeIf { it != "null" }, bitrates.getOrNull(index).takeIf { it != "null" }?.toIntOrNull(), urls.getOrNull(index))
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    randomDeviceId = requireContext().prefs().getBoolean(C.TOKEN_RANDOM_DEVICE_ID, true),
-                    xDeviceId = requireContext().prefs().getString(C.TOKEN_X_DEVICE_ID, "twitch-web-wall-mason"),
-                    playerType = requireContext().prefs().getString(C.TOKEN_PLAYER_TYPE, "site"),
-                    supportedCodecs = requireContext().prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
-                    enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                )
-            }
-            "video" -> {
-                viewModel.setVideo(
-                    networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), requireContext().prefs().getBoolean(C.TOKEN_INCLUDE_TOKEN_VIDEO, true)),
-                    videoId = requireArguments().getString(KEY_VIDEO_ID),
-                    animatedPreviewUrl = requireArguments().getString(KEY_VIDEO_ANIMATED_PREVIEW),
-                    videoType = requireArguments().getString(KEY_VIDEO_TYPE),
-                    qualities = requireArguments().getStringArray(KEY_QUALITY_NAMES)?.let { names ->
-                        requireArguments().getStringArray(KEY_QUALITY_CODECS)?.let { codecs ->
-                            requireArguments().getStringArray(KEY_QUALITY_BITRATES)?.let { bitrates ->
-                                requireArguments().getStringArray(KEY_QUALITY_URLS)?.let { urls ->
-                                    names.mapIndexed { index, name ->
-                                        VideoQuality(name, codecs.getOrNull(index).takeIf { it != "null" }, bitrates.getOrNull(index).takeIf { it != "null" }?.toIntOrNull(), urls.getOrNull(index))
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    playerType = requireContext().prefs().getString(C.TOKEN_PLAYER_TYPE_VIDEO, "channel_home_live"),
-                    supportedCodecs = requireContext().prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
-                    enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                )
-            }
-            "clip" -> {
-                viewModel.setClip(
-                    networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
-                    clipId = requireArguments().getString(KEY_CLIP_ID),
-                    qualities = requireArguments().getStringArray(KEY_QUALITY_NAMES)?.let { names ->
-                        requireArguments().getStringArray(KEY_QUALITY_CODECS)?.let { codecs ->
-                            requireArguments().getStringArray(KEY_QUALITY_BITRATES)?.let { bitrates ->
-                                requireArguments().getStringArray(KEY_QUALITY_URLS)?.let { urls ->
-                                    names.mapIndexed { index, name ->
-                                        VideoQuality(name, codecs.getOrNull(index).takeIf { it != "null" }, bitrates.getOrNull(index).takeIf { it != "null" }?.toIntOrNull(), urls.getOrNull(index))
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                )
-            }
-        }
-    }
-
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
     }
 }
+
+
+
+

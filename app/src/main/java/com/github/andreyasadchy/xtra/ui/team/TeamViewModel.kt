@@ -29,8 +29,6 @@ class TeamViewModel(
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    val integrity = MutableSharedFlow<String?>()
-
     private val args = TeamFragmentArgs.fromSavedStateHandle(savedStateHandle)
     val team = MutableStateFlow<Team?>(null)
 
@@ -44,24 +42,16 @@ class TeamViewModel(
             teamName = args.teamName,
             gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext),
             graphQLRepository = graphQLRepository,
-            enableIntegrity = applicationContext.prefs().getBoolean(C.ENABLE_INTEGRITY, false),
             networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
         )
     }.flow.cachedIn(viewModelScope)
 
-    fun loadTeamInfo(teamName: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun loadTeamInfo(teamName: String?, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         if (teamName != null && team.value == null && !isLoading) {
             isLoading = true
             viewModelScope.launch {
                 val response = try {
                     val response = graphQLRepository.loadQueryTeam(networkLibrary, gqlHeaders, teamName)
-                    if (enableIntegrity) {
-                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                            integrity.emit("refresh")
-                            isLoading = false
-                            return@launch
-                        }
-                    }
                     response.data!!.team?.let { team ->
                         Team(
                             displayName = team.displayName,

@@ -24,7 +24,6 @@ class GameClipsDataSource(
     private val graphQLRepository: GraphQLRepository,
     private val helixHeaders: Map<String, String>,
     private val helixRepository: HelixRepository,
-    private val enableIntegrity: Boolean,
     private val networkLibrary: String?,
 ) : PagingSource<Int, Clip>() {
     private var api: String? = null
@@ -78,9 +77,6 @@ class GameClipsDataSource(
             first = params.loadSize,
             after = offset
         )
-        if (enableIntegrity) {
-            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-        }
         val data = response.data!!.game!!.clips!!
         val items = data.edges!!
         val list = items.mapNotNull { item ->
@@ -123,9 +119,6 @@ class GameClipsDataSource(
 
     private suspend fun gqlLoad(params: LoadParams<Int>): LoadResult<Int, Clip> {
         val response = graphQLRepository.loadGameClips(networkLibrary, gqlHeaders, gameSlug, gqlPeriod, gqlLanguages, params.loadSize, offset)
-        if (enableIntegrity) {
-            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-        }
         val data = response.data!!.game.clips
         val items = data.edges
         val list = items.map { item ->

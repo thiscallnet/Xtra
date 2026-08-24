@@ -39,14 +39,6 @@ internal fun followedStreamsFallbackSupportsSort(sort: String): Boolean {
     return sort == StreamsSortDialog.SORT_VIEWERS
 }
 
-class StreamFeedIntegrityException : IOException(C.FAILED_INTEGRITY_CHECK)
-
-private fun checkIntegrity(enabled: Boolean, errors: Iterable<Any?>?) {
-    if (enabled && errors?.any { it.toString().contains(C.FAILED_INTEGRITY_CHECK) } == true) {
-        throw StreamFeedIntegrityException()
-    }
-}
-
 /** Select a compatible API only for the first page; subsequent cursors stay on it. */
 internal suspend fun <T> loadFollowedFirstPageWithFallback(
     sort: String,
@@ -60,14 +52,12 @@ internal suspend fun <T> loadFollowedFirstPageWithFallback(
         gql()
     } catch (error: Exception) {
         if (error is CancellationException) throw error
-        if (error is StreamFeedIntegrityException) throw error
         if (!followedStreamsFallbackSupportsSort(sort)) throw error
         try {
             onApiSelected(C.GQL_PERSISTED_QUERY)
             persistedGql()
         } catch (error2: Exception) {
             if (error2 is CancellationException) throw error2
-            if (error2 is StreamFeedIntegrityException) throw error2
             onApiSelected(C.HELIX)
             helix()
         }
@@ -96,7 +86,6 @@ class TopStreamsPageLoader(
     private val graphQLRepository: GraphQLRepository,
     private val helixHeaders: () -> Map<String, String>,
     private val helixRepository: HelixRepository,
-    private val enableIntegrity: Boolean,
     private val networkLibrary: String?,
     private val pageSize: Int = 30,
 ) : StreamFeedPageLoader {
@@ -111,13 +100,11 @@ class TopStreamsPageLoader(
                 loadFromApi(cursor)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                if (error is StreamFeedIntegrityException) throw error
                 try {
                     api = C.GQL_PERSISTED_QUERY
                     loadFromApi(cursor)
                 } catch (error2: Exception) {
                     if (error2 is CancellationException) throw error2
-                    if (error2 is StreamFeedIntegrityException) throw error2
                     api = C.HELIX
                     loadFromApi(cursor)
                 }
@@ -148,7 +135,6 @@ class TopStreamsPageLoader(
             pageSize,
             cursor,
         )
-        checkIntegrity(enableIntegrity, response.errors)
         val data = response.data!!.streams!!
         val edges = data.edges!!
         val items = edges.mapNotNull { edge ->
@@ -188,7 +174,6 @@ class TopStreamsPageLoader(
             pageSize,
             cursor,
         )
-        checkIntegrity(enableIntegrity, response.errors)
         val data = response.data!!.streams
         val edges = data.edges
         return StreamFeedPage(
@@ -258,7 +243,6 @@ class FollowedStreamsPageLoader(
     private val graphQLRepository: GraphQLRepository,
     private val helixHeaders: () -> Map<String, String>,
     private val helixRepository: HelixRepository,
-    private val enableIntegrity: Boolean,
     private val networkLibrary: String?,
 ) : StreamFeedPageLoader {
     private var api: String? = null
@@ -287,7 +271,7 @@ class FollowedStreamsPageLoader(
                 loadLocalWithFallback(localIds)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                if (error is StreamFeedIntegrityException || !hasRemoteCredentials) throw error
+                if (!hasRemoteCredentials) throw error
                 emptyList()
             }
         }
@@ -339,7 +323,6 @@ class FollowedStreamsPageLoader(
             gqlQueryLocal(ids)
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            if (error is StreamFeedIntegrityException) throw error
             if (helixHeaders()[C.HEADER_TOKEN].isNullOrBlank()) throw error
             helixLocal(ids)
         }
@@ -347,7 +330,6 @@ class FollowedStreamsPageLoader(
 
     private suspend fun gqlQueryLoad(cursor: String?): StreamFeedPage {
         val response = graphQLRepository.loadQueryUserFollowedStreams(networkLibrary, gqlHeaders(), 100, cursor, gqlQuerySort)
-        checkIntegrity(enableIntegrity, response.errors)
         val data = response.data!!.user!!.followedLiveUsers!!
         val edges = data.edges!!
         return StreamFeedPage(
@@ -378,7 +360,6 @@ class FollowedStreamsPageLoader(
 
     private suspend fun gqlLoad(cursor: String?): StreamFeedPage {
         val response = graphQLRepository.loadFollowedStreams(networkLibrary, gqlHeaders(), 100, cursor)
-        checkIntegrity(enableIntegrity, response.errors)
         val data = response.data!!.currentUser.followedLiveUsers
         val edges = data.edges
         return StreamFeedPage(
@@ -436,7 +417,6 @@ class FollowedStreamsPageLoader(
     private suspend fun gqlQueryLocal(ids: List<String>): List<Stream> {
         val items = ids.chunked(100).map { chunk ->
             val response = graphQLRepository.loadQueryUsersStream(networkLibrary, gqlHeaders(), chunk)
-            checkIntegrity(enableIntegrity, response.errors)
             response.data!!.users!!
         }.flatMap { it }
         return items.mapNotNull { item ->
@@ -526,7 +506,6 @@ class GameStreamsPageLoader(
     private val graphQLRepository: GraphQLRepository,
     private val helixHeaders: () -> Map<String, String>,
     private val helixRepository: HelixRepository,
-    private val enableIntegrity: Boolean,
     private val networkLibrary: String?,
     private val pageSize: Int = 30,
 ) : StreamFeedPageLoader {
@@ -541,13 +520,11 @@ class GameStreamsPageLoader(
                 loadFromApi(cursor)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                if (error is StreamFeedIntegrityException) throw error
                 try {
                     api = C.GQL_PERSISTED_QUERY
                     loadFromApi(cursor)
                 } catch (error2: Exception) {
                     if (error2 is CancellationException) throw error2
-                    if (error2 is StreamFeedIntegrityException) throw error2
                     api = C.HELIX
                     loadFromApi(cursor)
                 }
@@ -581,7 +558,6 @@ class GameStreamsPageLoader(
             first = pageSize,
             after = cursor,
         )
-        checkIntegrity(enableIntegrity, response.errors)
         val data = response.data!!.game!!.streams!!
         val edges = data.edges!!
         return StreamFeedPage(
@@ -612,7 +588,6 @@ class GameStreamsPageLoader(
 
     private suspend fun gqlLoad(cursor: String?): StreamFeedPage {
         val response = graphQLRepository.loadGameStreams(networkLibrary, gqlHeaders(), gameSlug, gqlSort, tags, gqlLanguages, pageSize, cursor)
-        checkIntegrity(enableIntegrity, response.errors)
         val data = response.data!!.game.streams
         val edges = data.edges
         return StreamFeedPage(

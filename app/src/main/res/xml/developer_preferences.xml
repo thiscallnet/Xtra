@@ -1,7 +1,5 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
     <SwitchPreferenceCompat android:defaultValue="false" android:key="developer_options_enabled" android:title="@string/settings_developer_enabled" app:iconSpaceReserved="false" />
-    <PreferenceCategory android:title="@string/settings_api_authentication" app:iconSpaceReserved="false" />
-    <Preference android:key="developer_api_authentication" android:title="@string/settings_api_authentication" app:iconSpaceReserved="false" />
     <PreferenceCategory android:title="@string/settings_networking" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="Automatic" android:entries="@array/networkLibraryEntries" android:entryValues="@array/networkLibraryEntries" android:key="network_library" android:summary="%s" android:title="@string/settings_network_engine" app:iconSpaceReserved="false" />
     <PreferenceCategory android:title="@string/settings_chat_diagnostics" app:iconSpaceReserved="false" />
@@ -18,7 +16,4 @@
     <SwitchPreferenceCompat android:defaultValue="false" android:dependency="developer_options_enabled" android:key="proxy_multivariant_playlist" android:title="@string/proxy_multivariant_playlist" app:iconSpaceReserved="false" app:singleLineTitle="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:dependency="developer_options_enabled" android:key="proxy_media_playlist" android:title="@string/proxy_media_playlist" app:iconSpaceReserved="false" app:singleLineTitle="false" />
     <PreferenceCategory android:title="@string/settings_twitch_api_diagnostics" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="enable_integrity" android:title="@string/use_integrity" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="use_webview_integrity" android:title="@string/get_webview_integrity" app:iconSpaceReserved="false" />
-    <Preference android:key="get_integrity_token" android:title="@string/get_integrity_token" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

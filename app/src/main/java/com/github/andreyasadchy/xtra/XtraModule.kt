@@ -34,6 +34,7 @@ import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.SavedFiltersRepository
 import com.github.andreyasadchy.xtra.repository.ViewingStatsRepository
 import com.github.andreyasadchy.xtra.repository.auth.AuthSessionMaintainer
+import com.github.andreyasadchy.xtra.repository.auth.TwitchWebSessionManager
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPager
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
@@ -177,8 +178,7 @@ class XtraModule(application: Application) {
                                 it.allHeadersAsList?.forEach {
                                     val value = if (it.key.equals("authorization", true) ||
                                         it.key.equals("cookie", true) ||
-                                        it.key.equals("set-cookie", true) ||
-                                        it.key.equals("client-integrity", true)
+                                        it.key.equals("set-cookie", true)
                                     ) {
                                         "<redacted>"
                                     } else {
@@ -210,7 +210,6 @@ class XtraModule(application: Application) {
                     redactHeader("Authorization")
                     redactHeader("Cookie")
                     redactHeader("Set-Cookie")
-                    redactHeader("Client-Integrity")
                 })
             }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
@@ -521,6 +520,10 @@ class XtraModule(application: Application) {
 
     val authSessionMaintainer by lazy {
         AuthSessionMaintainer(application, authRepository)
+    }
+
+    val twitchWebSessionManager by lazy {
+        TwitchWebSessionManager(application, authRepository, authSessionMaintainer)
     }
 
     val bookmarksRepository by lazy {

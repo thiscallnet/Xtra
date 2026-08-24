@@ -22,7 +22,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-abstract class PagedListFragment : BaseNetworkFragment(), IntegrityDialog.Listener {
+abstract class PagedListFragment : BaseNetworkFragment() {
 
     private var pageErrorSnackbar: Snackbar? = null
     private var pageError: LoadState.Error? = null
@@ -194,9 +194,6 @@ abstract class PagedListFragment : BaseNetworkFragment(), IntegrityDialog.Listen
             this.pageErrorState = null
         }
 
-        if ((refreshError ?: appendError ?: prependError)?.error?.message == C.FAILED_INTEGRITY_CHECK) {
-            (requireActivity() as? MainActivity)?.getNewIntegrityToken("refresh", childFragmentManager)
-        }
     }
 
     override fun onDestroyView() {
@@ -208,3 +205,4 @@ abstract class PagedListFragment : BaseNetworkFragment(), IntegrityDialog.Listen
         super.onDestroyView()
     }
 }
+

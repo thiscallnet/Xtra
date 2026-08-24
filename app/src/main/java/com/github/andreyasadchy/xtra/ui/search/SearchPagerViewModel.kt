@@ -16,25 +16,16 @@ class SearchPagerViewModel(
     private val graphQLRepository: GraphQLRepository,
 ) : ViewModel() {
 
-    val integrity = MutableSharedFlow<String?>()
-
     val userResult = MutableStateFlow<Pair<String?, String?>?>(null)
     private var isLoading = false
 
-    fun loadUserResult(checkedId: Int, result: String, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun loadUserResult(checkedId: Int, result: String, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         if (userResult.value == null && !isLoading) {
             isLoading = true
             viewModelScope.launch {
                 try {
                     userResult.value = if (checkedId == 0) {
                         val response = graphQLRepository.loadQueryUserResultID(networkLibrary, gqlHeaders, result)
-                        if (enableIntegrity) {
-                            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                integrity.emit("refresh")
-                                isLoading = false
-                                return@launch
-                            }
-                        }
                         response.data!!.userResultByID?.let {
                             when {
                                 it.onUser != null -> Pair(null, null)
@@ -45,13 +36,6 @@ class SearchPagerViewModel(
                         }
                     } else {
                         val response = graphQLRepository.loadQueryUserResultLogin(networkLibrary, gqlHeaders, result)
-                        if (enableIntegrity) {
-                            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                integrity.emit("refresh")
-                                isLoading = false
-                                return@launch
-                            }
-                        }
                         response.data!!.userResultByLogin?.let {
                             when {
                                 it.onUser != null -> Pair(null, null)

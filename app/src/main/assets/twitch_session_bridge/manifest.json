@@ -1,0 +1,27 @@
+{
+  "manifest_version": 2,
+  "name": "Xtra Twitch Session Bridge",
+  "version": "1.1",
+  "description": "Passes the Twitch auth session to Xtra without logging secrets.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "twitch-session-bridge@xtra"
+    }
+  },
+  "permissions": [
+    "cookies",
+    "nativeMessaging",
+    "geckoViewAddons",
+    "*://twitch.tv/*",
+    "*://*.twitch.tv/*"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://twitch.tv/*", "*://*.twitch.tv/*"],
+      "js": ["request-session.js"]
+    }
+  ]
+}

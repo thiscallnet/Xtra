@@ -33,10 +33,9 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentTeamBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Team
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
+import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
@@ -54,7 +53,7 @@ import io.noties.markwon.linkify.LinkifyPlugin
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-class TeamFragment : PagedListFragment(), Scrollable, IntegrityDialog.Listener {
+class TeamFragment : PagedListFragment(), Scrollable {
 
     private var _binding: FragmentTeamBinding? = null
     private val binding get() = _binding!!
@@ -104,10 +103,10 @@ class TeamFragment : PagedListFragment(), Scrollable, IntegrityDialog.Listener {
                                 setTitle(getString(R.string.logout_title))
                                 requireContext().tokenPrefs().getString(C.USERNAME, null)?.let { setMessage(getString(R.string.logout_msg, it)) }
                                 setNegativeButton(getString(R.string.no), null)
-                                setPositiveButton(getString(R.string.yes)) { _, _ -> activity.logoutResultLauncher?.launch(Intent(activity, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_LOGOUT, true)) }
+                                setPositiveButton(getString(R.string.yes)) { _, _ -> activity.logoutResultLauncher?.launch(Intent(activity, TwitchWebLoginActivity::class.java).putExtra(TwitchWebLoginActivity.EXTRA_LOGOUT, true)) }
                             }.show()
                         } else {
-                            activity.loginResultLauncher?.launch(Intent(activity, LoginActivity::class.java))
+                            activity.loginResultLauncher?.launch(Intent(activity, TwitchWebLoginActivity::class.java))
                         }
                         true
                     }
@@ -145,13 +144,6 @@ class TeamFragment : PagedListFragment(), Scrollable, IntegrityDialog.Listener {
             )
         }
         setAdapter(binding.recyclerViewLayout.recyclerView, pagingAdapter)
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.integrity.collect {
-                    (requireActivity() as? MainActivity)?.getNewIntegrityToken(it, childFragmentManager)
-                }
-            }
-        }
     }
 
     override fun initialize() {
@@ -159,7 +151,6 @@ class TeamFragment : PagedListFragment(), Scrollable, IntegrityDialog.Listener {
             teamName = args.teamName,
             networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
             gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
-            enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
         )
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -293,23 +284,8 @@ class TeamFragment : PagedListFragment(), Scrollable, IntegrityDialog.Listener {
             teamName = args.teamName,
             networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
             gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
-            enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
         )
         pagingAdapter.retry()
-    }
-
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "refresh" -> {
-                viewModel.loadTeamInfo(
-                    teamName = args.teamName,
-                    networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
-                    enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                )
-                pagingAdapter.refresh()
-            }
-        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -324,3 +300,7 @@ class TeamFragment : PagedListFragment(), Scrollable, IntegrityDialog.Listener {
         _binding = null
     }
 }
+
+
+
+

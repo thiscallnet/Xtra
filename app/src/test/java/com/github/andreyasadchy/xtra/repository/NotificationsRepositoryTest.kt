@@ -78,7 +78,7 @@ class NotificationsRepositoryTest {
     }
 
     @Test
-    fun `compatibility preferences filter followed channels`() {
+    fun `web session preferences filter followed channels`() {
         assertEquals(
             setOf("enabled"),
             selectNotificationChannelIds(
@@ -89,11 +89,11 @@ class NotificationsRepositoryTest {
     }
 
     @Test
-    fun `unavailable compatibility preferences fall back to Helix follows`() = runBlocking {
+    fun `unavailable web session preferences fall back to Helix follows`() = runBlocking {
         val preferences = loadOptionalNotificationPreferenceIds(
-            compatibilityAuthAvailable = false,
+            webSessionAvailable = false,
         ) {
-            error("the loader must not run without compatibility auth")
+            error("the loader must not run without an authenticated web session")
         }
 
         assertEquals(
@@ -107,9 +107,9 @@ class NotificationsRepositoryTest {
     }
 
     @Test
-    fun `transient compatibility preference failure retains the previous channel set`() = runBlocking {
+    fun `transient web session preference failure retains the previous channel set`() = runBlocking {
         val preferences = loadOptionalNotificationPreferenceIds(
-            compatibilityAuthAvailable = true,
+            webSessionAvailable = true,
         ) {
             throw java.io.IOException("temporary GraphQL outage")
         }
@@ -126,9 +126,9 @@ class NotificationsRepositoryTest {
     }
 
     @Test
-    fun `transient compatibility preference failure uses Helix follows for an empty cache`() = runBlocking {
+    fun `transient web session preference failure uses Helix follows for an empty cache`() = runBlocking {
         val preferences = loadOptionalNotificationPreferenceIds(
-            compatibilityAuthAvailable = true,
+            webSessionAvailable = true,
         ) {
             throw java.io.IOException("temporary GraphQL outage")
         }
@@ -152,7 +152,7 @@ class NotificationsRepositoryTest {
             throw GraphQLApiException("temporary server failure")
         }
 
-        assertTrue(authFailure is NotificationPreferenceLoadResult.CompatibilityUnavailable)
+        assertTrue(authFailure is NotificationPreferenceLoadResult.WebSessionUnavailable)
         assertTrue(serverFailure is NotificationPreferenceLoadResult.TransientFailure)
     }
 

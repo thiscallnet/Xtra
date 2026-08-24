@@ -348,7 +348,6 @@ class MultiviewViewModel(
             proxyPort = preferences.httpProxyPort().takeUnless { bypassHttpProxy },
             proxyUser = preferences.getString(C.PROXY_USER, null),
             proxyPassword = preferences.getString(C.PROXY_PASSWORD, null),
-            enableIntegrity = preferences.getBoolean(C.ENABLE_INTEGRITY, false),
         )
     }
 
@@ -377,7 +376,6 @@ class MultiviewViewModel(
                 proxyPort = preferences.httpProxyPort().takeUnless { bypassHttpProxy },
                 proxyUser = preferences.getString(C.PROXY_USER, null),
                 proxyPassword = preferences.getString(C.PROXY_PASSWORD, null),
-                enableIntegrity = preferences.getBoolean(C.ENABLE_INTEGRITY, false),
                 requireVerifiedClean = requireVerifiedClean,
             )
         } catch (cancelled: CancellationException) {

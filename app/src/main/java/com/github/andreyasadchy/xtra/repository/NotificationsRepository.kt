@@ -54,7 +54,7 @@ internal fun isFatalLiveNotificationGraphQlError(
 
 internal sealed interface NotificationPreferenceLoadResult {
     data class Loaded(val enabledIds: Set<String>) : NotificationPreferenceLoadResult
-    data object CompatibilityUnavailable : NotificationPreferenceLoadResult
+    data object WebSessionUnavailable : NotificationPreferenceLoadResult
     data object TransientFailure : NotificationPreferenceLoadResult
 }
 
@@ -212,7 +212,7 @@ class NotificationsRepository(
         } while (!offset.isNullOrBlank())
         val previousIds = notificationUsersDao.getAll().map { it.channelId }
         val preferenceEnabledIds = loadOptionalNotificationPreferenceIds(
-            compatibilityAuthAvailable = !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank(),
+            webSessionAvailable = !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank(),
         ) {
             loadGraphQlNotificationEnabledIds(networkLibrary, gqlHeaders)
         }
@@ -524,7 +524,7 @@ class NotificationsRepository(
 }
 
 /**
- * GQL supplies Twitch's notification preference filter. Without compatibility auth, Helix is
+ * GQL supplies Twitch's notification preference filter. Without an authenticated web session, Helix is
  * still authoritative for follows and the explicit fallback is every followed channel.
  */
 internal fun selectNotificationChannelIds(
@@ -544,7 +544,7 @@ internal fun selectNotificationChannelIds(
         followedIds = followedIds,
         preferenceEnabledIds = preferenceResult.enabledIds,
     )
-    NotificationPreferenceLoadResult.CompatibilityUnavailable -> followedIds.toSet()
+    NotificationPreferenceLoadResult.WebSessionUnavailable -> followedIds.toSet()
     NotificationPreferenceLoadResult.TransientFailure -> {
         val followed = followedIds.toSet()
         val previous = previousNotificationIds.toSet()
@@ -553,17 +553,17 @@ internal fun selectNotificationChannelIds(
 }
 
 internal suspend fun loadOptionalNotificationPreferenceIds(
-    compatibilityAuthAvailable: Boolean,
+    webSessionAvailable: Boolean,
     load: suspend () -> Set<String>,
 ): NotificationPreferenceLoadResult {
-    if (!compatibilityAuthAvailable) return NotificationPreferenceLoadResult.CompatibilityUnavailable
+    if (!webSessionAvailable) return NotificationPreferenceLoadResult.WebSessionUnavailable
     return try {
         NotificationPreferenceLoadResult.Loaded(load())
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         if (isNotificationPreferenceAuthUnavailable(e)) {
-            NotificationPreferenceLoadResult.CompatibilityUnavailable
+            NotificationPreferenceLoadResult.WebSessionUnavailable
         } else {
             NotificationPreferenceLoadResult.TransientFailure
         }

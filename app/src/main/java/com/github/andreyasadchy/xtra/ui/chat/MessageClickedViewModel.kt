@@ -19,24 +19,15 @@ class MessageClickedViewModel(
     private val helixRepository: HelixRepository,
 ) : ViewModel() {
 
-    val integrity = MutableSharedFlow<String?>()
-
     val user = MutableStateFlow<Pair<User?, Boolean?>?>(null)
     private var isLoading = false
 
-    fun loadUser(channelId: String?, channelLogin: String?, targetId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun loadUser(channelId: String?, channelLogin: String?, targetId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>) {
         if (user.value == null && !isLoading) {
             isLoading = true
             viewModelScope.launch {
                 val response = try {
                     val response = graphQLRepository.loadQueryUserMessageClicked(networkLibrary, gqlHeaders, channelId, channelLogin.takeIf { channelId.isNullOrBlank() }, targetId)
-                    if (enableIntegrity) {
-                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                            integrity.emit("refresh")
-                            isLoading = false
-                            return@launch
-                        }
-                    }
                     response.data!!.user?.let {
                         User(
                             id = it.id,

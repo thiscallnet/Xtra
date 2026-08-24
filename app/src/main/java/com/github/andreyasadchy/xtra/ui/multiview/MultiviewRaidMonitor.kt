@@ -112,16 +112,10 @@ internal class MultiviewRaidMonitor(
             onRaid: (identity: String, raid: Raid) -> Unit,
         ): MultiviewRaidMonitor {
             val preferences = context.prefs()
-            val gqlHeaders = TwitchApiHelper.getGQLHeaders(context, true)
-            val enableIntegrity = preferences.getBoolean(C.ENABLE_INTEGRITY, false)
             val gqlClientId = preferences.getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
             val gqlToken = context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
-            val clientId = if (enableIntegrity) gqlHeaders[C.HEADER_CLIENT_ID] else gqlClientId
-            val token = if (enableIntegrity) {
-                gqlHeaders[C.HEADER_TOKEN]?.removePrefix("OAuth ")
-            } else {
-                gqlToken
-            }
+            val clientId = gqlClientId
+            val token = gqlToken
 
             return MultiviewRaidMonitor(
                 scope = scope,
