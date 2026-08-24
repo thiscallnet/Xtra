@@ -14,7 +14,6 @@ import androidx.activity.addCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
-import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
@@ -23,28 +22,13 @@ import androidx.lifecycle.lifecycleScope
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.ActivityLoginBinding
-import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.applyTheme
-import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
-
-internal suspend fun clearAccountScopedState(
-    disableScheduler: () -> Unit,
-    disableNotifications: () -> Unit,
-    clearNotificationState: suspend () -> Unit,
-    clearAccountMetadata: suspend () -> Unit,
-) {
-    disableScheduler()
-    disableNotifications()
-    clearNotificationState()
-    clearAccountMetadata()
-}
 
 class LoginActivity : AppCompatActivity() {
     private lateinit var binding: ActivityLoginBinding
@@ -64,10 +48,11 @@ class LoginActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         val reauthorize = intent.getBooleanExtra(EXTRA_REAUTHORIZE, false)
+        val compatibilityOnly = intent.getBooleanExtra(EXTRA_COMPATIBILITY_ONLY, false)
         val logout = intent.getBooleanExtra(EXTRA_LOGOUT, false)
         previousUserId = tokenPrefs().getString(C.USER_ID, null)
         previousUserLogin = tokenPrefs().getString(C.USERNAME, null)
-        if (reauthorize && previousUserId.isNullOrBlank() && !logout) {
+        if ((reauthorize || compatibilityOnly) && previousUserId.isNullOrBlank() && !logout) {
             Toast.makeText(this, R.string.account_reauthorize_identity_unknown, Toast.LENGTH_LONG).show()
             setResult(RESULT_CANCELED)
             finish()
@@ -76,7 +61,7 @@ class LoginActivity : AppCompatActivity() {
 
         viewModel = ViewModelProvider(
             this,
-            LoginViewModel.Factory(application, reauthorize),
+            LoginViewModel.Factory(application, reauthorize, compatibilityOnly),
         )[LoginViewModel::class.java]
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
@@ -282,7 +267,14 @@ class LoginActivity : AppCompatActivity() {
     private fun cancelLogin() {
         if (finished) return
         if (!viewModel.cancel()) return
-        setResult(RESULT_CANCELED)
+        if (viewModel.didChangeOfficialAccount()) scheduleAccountScopedStateCleanup()
+        if (viewModel.hasCommittedOfficialSession()) {
+            TwitchApiHelper.checkedValidation = true
+            xtraApp.xtraModule.authSessionMaintainer.onAuthenticationStateChanged()
+            setResult(RESULT_OK)
+        } else {
+            setResult(RESULT_CANCELED)
+        }
         finish()
     }
 
@@ -318,20 +310,7 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun scheduleAccountScopedStateCleanup() {
-        val context = applicationContext
-        val module = xtraApp.xtraModule
-        val userId = previousUserId
-        val userLogin = previousUserLogin
-        xtraApp.applicationScope.launch(Dispatchers.IO) {
-            clearAccountScopedState(
-                disableScheduler = { LiveNotificationScheduler.disable(context) },
-                disableNotifications = {
-                    context.prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
-                },
-                clearNotificationState = { module.notificationsRepository.clearNotificationState() },
-                clearAccountMetadata = { module.metadataCache.clearAccount(userId, userLogin) },
-            )
-        }
+        xtraApp.scheduleAccountScopedStateCleanup(previousUserId, previousUserLogin)
     }
 
     /**
@@ -367,6 +346,7 @@ class LoginActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_REAUTHORIZE = "com.github.andreyasadchy.xtra.REAUTHORIZE"
+        const val EXTRA_COMPATIBILITY_ONLY = "com.github.andreyasadchy.xtra.COMPATIBILITY_ONLY"
         const val EXTRA_LOGOUT = "com.github.andreyasadchy.xtra.LOGOUT"
     }
 }

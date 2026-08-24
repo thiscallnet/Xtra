@@ -1431,4 +1431,7 @@
     <string name="settings_layout_preview">معاينة</string>
     <string name="settings_tabs_preview_help">تتبع المعاينة الترتيب والعناصر الظاهرة أدناه.</string>
     <string name="settings_sections_preview_help">تعرض المعاينة الرفوف الظاهرة بالترتيب الحالي.</string>
+    <string name="auth_health_compatibility_title">ميزات Twitch المحسّنة غير متاحة</string>
+    <string name="auth_health_compatibility_message">لا يزال حساب Twitch متصلاً. أعد الاتصال بالميزات المحسّنة لاستعادة وظائف التوافق.</string>
+    <string name="auth_health_compatibility_reconnect">إعادة الاتصال بالميزات المحسّنة</string>
 </resources>

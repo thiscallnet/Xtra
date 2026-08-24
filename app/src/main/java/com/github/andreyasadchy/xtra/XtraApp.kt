@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Application
 import android.os.Build
 import android.os.SystemClock
+import androidx.core.content.edit
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -20,11 +21,17 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.coil.CacheControlCacheStrategy
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.tokenPrefs
+import com.github.andreyasadchy.xtra.repository.auth.AuthSessionStore
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPrewarmScheduler
+import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okio.Buffer
 import okio.buffer
 import okio.source
@@ -40,6 +47,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
 
     lateinit var xtraModule: XtraModule
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val accountCleanupMutex = Mutex()
 
     @Volatile
     var isInForeground: Boolean = false
@@ -51,6 +59,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         INSTANCE = this
         xtraModule = XtraModule(this)
+        reconcilePendingAccountScopedState()
         xtraModule.authSessionMaintainer.start(applicationScope)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
@@ -88,6 +97,48 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             val conscrypt = Conscrypt.newProvider()
             Security.insertProviderAt(conscrypt, 1)
+        }
+    }
+
+    internal fun scheduleAccountScopedStateCleanup(userId: String?, login: String?) {
+        val sessionStore = AuthSessionStore(prefs(), tokenPrefs())
+        if (!sessionStore.markAccountCleanupPending(userId, login)) return
+        reconcilePendingAccountScopedState()
+    }
+
+    private fun reconcilePendingAccountScopedState() {
+        val sessionStore = AuthSessionStore(prefs(), tokenPrefs())
+        if (sessionStore.pendingAccountCleanups().isEmpty()) return
+        applicationScope.launch(Dispatchers.IO) {
+            accountCleanupMutex.withLock {
+                val pending = sessionStore.pendingAccountCleanups()
+                if (pending.isEmpty()) return@withLock
+                val globalCleanupSucceeded = runCatching {
+                    clearAccountScopedState(
+                        disableScheduler = { LiveNotificationScheduler.disable(this@XtraApp) },
+                        disableNotifications = {
+                            prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
+                        },
+                        clearNotificationState = { xtraModule.notificationsRepository.clearNotificationState() },
+                        clearAccountMetadata = {},
+                    )
+                }.isSuccess
+                if (!globalCleanupSucceeded) return@withLock
+                pending.forEach { target ->
+                    runCatching {
+                        val activeSession = sessionStore.read()
+                        val belongsToActiveAccount = when {
+                            !target.userId.isNullOrBlank() -> target.userId == activeSession?.userId
+                            !target.login.isNullOrBlank() -> target.login.equals(activeSession?.login, ignoreCase = true)
+                            else -> false
+                        }
+                        if (!belongsToActiveAccount) {
+                            xtraModule.metadataCache.clearAccount(target.userId, target.login)
+                        }
+                        check(sessionStore.clearAccountCleanup(target))
+                    }
+                }
+            }
         }
     }
 

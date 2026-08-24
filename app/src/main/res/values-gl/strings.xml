@@ -1431,4 +1431,7 @@
     <string name="settings_layout_preview">Vista previa</string>
     <string name="settings_tabs_preview_help">A vista previa segue a orde e visibilidade que aparecen abaixo.</string>
     <string name="settings_sections_preview_help">A vista previa mostra as seccións visibles na súa orde actual.</string>
+    <string name="auth_health_compatibility_title">Funcións melloradas de Twitch non dispoñibles</string>
+    <string name="auth_health_compatibility_message">A túa conta de Twitch segue conectada. Volve conectar as funcións melloradas para restaurar a funcionalidade de compatibilidade.</string>
+    <string name="auth_health_compatibility_reconnect">Volver conectar funcións melloradas</string>
 </resources>

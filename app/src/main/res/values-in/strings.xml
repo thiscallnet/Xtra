@@ -1432,4 +1432,7 @@
     <string name="settings_layout_preview">Pratinjau</string>
     <string name="settings_tabs_preview_help">Pratinjau mengikuti urutan dan visibilitas di bawah.</string>
     <string name="settings_sections_preview_help">Pratinjau menampilkan bagian yang terlihat dalam urutan saat ini.</string>
+    <string name="auth_health_compatibility_title">Fitur Twitch lanjutan tidak tersedia</string>
+    <string name="auth_health_compatibility_message">Akun Twitch Anda masih terhubung. Hubungkan kembali fitur lanjutan untuk memulihkan fungsi kompatibilitas.</string>
+    <string name="auth_health_compatibility_reconnect">Hubungkan kembali fitur lanjutan</string>
 </resources>

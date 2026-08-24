@@ -1431,4 +1431,7 @@
     <string name="settings_layout_preview">Anteprima</string>
     <string name="settings_tabs_preview_help">L’anteprima segue l’ordine e la visibilità indicati sotto.</string>
     <string name="settings_sections_preview_help">L’anteprima mostra le sezioni visibili nell’ordine attuale.</string>
+    <string name="auth_health_compatibility_title">Funzionalità Twitch avanzate non disponibili</string>
+    <string name="auth_health_compatibility_message">Il tuo account Twitch è ancora connesso. Riconnetti le funzionalità avanzate per ripristinare le funzioni di compatibilità.</string>
+    <string name="auth_health_compatibility_reconnect">Riconnetti le funzionalità avanzate</string>
 </resources>

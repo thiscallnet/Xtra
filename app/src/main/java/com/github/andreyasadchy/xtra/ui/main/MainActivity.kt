@@ -646,10 +646,10 @@ class MainActivity : AppCompatActivity() {
             }
             AuthSessionMaintenanceState.COMPATIBILITY_REAUTHORIZATION_REQUIRED -> {
                 if (authSessionMaintainer.consumeReauthorizationRequest() == state) {
-                    Toast.makeText(this, R.string.token_expired, Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, R.string.auth_health_compatibility_message, Toast.LENGTH_LONG).show()
                     launcher.launch(
                         Intent(this, LoginActivity::class.java)
-                            .putExtra(LoginActivity.EXTRA_REAUTHORIZE, true),
+                            .putExtra(LoginActivity.EXTRA_COMPATIBILITY_ONLY, true),
                     )
                 }
             }

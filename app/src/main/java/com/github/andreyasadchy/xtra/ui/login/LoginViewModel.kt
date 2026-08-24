@@ -36,16 +36,21 @@ import java.io.IOException
 
 internal fun canCancelLogin(finalCommitStarted: Boolean): Boolean = !finalCommitStarted
 
+internal fun isCompatibilityLoginPhase(
+    compatibilityOnly: Boolean,
+    officialCommittedThisFlow: Boolean,
+): Boolean = compatibilityOnly || officialCommittedThisFlow
+
 /**
- * Runs the two Twitch grants as one Xtra login transaction.
+ * Runs the official Twitch grant and the optional compatibility grant for an Xtra login.
  *
- * The grants are intentionally held only in memory until [AuthCoordinator.commitCompleteSession]
- * succeeds. This keeps a cancelled or failed second step from publishing a partial account, and
- * keeps an existing account intact during reauthorization.
+ * The official grant is committed as soon as it validates. Compatibility remains staged until its
+ * own validation and can be repaired without changing the official account.
  */
 class LoginViewModel(
     application: Application,
     private val reauthorize: Boolean,
+    private val compatibilityOnly: Boolean = false,
 ) : ViewModel() {
     private val app = application as XtraApp
     private val networkLibrary = application.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
@@ -58,15 +63,21 @@ class LoginViewModel(
     private var stagedOfficial: AuthSession? = null
     private var stagedCompatibility: CompatibilitySession? = null
     private var finalCommitStarted = false
+    private var officialCommittedThisFlow = false
+    private var officialAccountChanged = false
 
     val state: StateFlow<LoginUiState> = _state.asStateFlow()
     val browserRequest = browserRequests.receiveAsFlow()
+
+    fun hasCommittedOfficialSession(): Boolean = officialCommittedThisFlow
+
+    fun didChangeOfficialAccount(): Boolean = officialAccountChanged
 
     fun startAuthorization() {
         if (authorizationJob?.isActive == true) return
         LoginAuthorizationService.start(app)
         authorizationJob = viewModelScope.launch {
-            runOfficialAuthorization()
+            if (compatibilityOnly) runCompatibilityOnlyAuthorization() else runOfficialAuthorization()
         }
     }
 
@@ -107,13 +118,13 @@ class LoginViewModel(
         if (finalCommitStarted) return
         authorizationJob?.cancel()
         LoginAuthorizationService.stop(app)
-        _state.value = if (stagedOfficial == null) {
-            LoginUiState.Error(LoginError.BROWSER_UNAVAILABLE, recoverable = true)
-        } else {
+        _state.value = if (isCompatibilityLoginPhase(compatibilityOnly, officialCommittedThisFlow)) {
             LoginUiState.CompatibilityError(
                 type = LoginError.BROWSER_UNAVAILABLE,
                 recoverable = true,
             )
+        } else {
+            LoginUiState.Error(LoginError.BROWSER_UNAVAILABLE, recoverable = true)
         }
     }
 
@@ -187,14 +198,21 @@ class LoginViewModel(
                 requestToken = { deviceCode, scopes -> repository.pollDeviceAuthorization(configuredClientId, deviceCode, scopes) },
             ).poll(deviceAuthorization, HELIX_LOGIN_SCOPES)
             _state.value = LoginUiState.Validating
-            stagedOfficial = coordinator.validateOfficial(
+            val official = coordinator.validateOfficial(
                 tokenResponse = tokenResponse,
                 expectedClientId = configuredClientId,
                 reauthorize = reauthorize,
             )
+            stagedOfficial = official
             tokenResponse = null
-            // The official grant is staged, not committed. Let the user clearly start the
-            // second Twitch page and keep retrying that page possible on account mismatch.
+            val commit = withContext(NonCancellable) {
+                coordinator.commitOfficialSession(official, reauthorize)
+            }
+            officialCommittedThisFlow = true
+            officialAccountChanged = commit.accountChanged
+            stagedOfficial = null
+            // The official grant is usable on its own. The second page only enables enhanced
+            // compatibility features and can be retried without restarting official OAuth.
             _state.value = LoginUiState.CompatibilityReady
         } catch (e: CancellationException) {
             revokeTokenAfterCancellation(clientId, tokenResponse)
@@ -210,20 +228,54 @@ class LoginViewModel(
 
     private suspend fun runCompatibilityAuthorization() {
         try {
-            val official = stagedOfficial
-                ?: throw TwitchAuthProtocolException("The first Twitch authorization is no longer available")
+            val official = stagedOfficial ?: sessionStore.read()
+                ?: throw TwitchAuthProtocolException("The official Twitch authorization is no longer available")
             val compatibility = acquireCompatibility(official.userId)
             stagedCompatibility = compatibility
             finalCommitStarted = true
             _state.value = LoginUiState.Committing
             val commit = withContext(NonCancellable) {
-                coordinator.commitCompleteSession(
-                    official = official,
-                    compatibility = compatibility,
-                    reauthorize = reauthorize,
-                )
+                coordinator.commitCompatibilitySession(compatibility)
             }
             stagedOfficial = null
+            stagedCompatibility = null
+            finalCommitStarted = false
+            LoginAuthorizationService.stop(app)
+            _state.value = LoginUiState.Complete(
+                accountChanged = officialAccountChanged || commit.accountChanged,
+                revocationFailures = commit.revocationFailures,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            finalCommitStarted = false
+            // A failed compatibility validation leaves the official grant active so the user can
+            // retry only step 2. A failure after a validated compatibility grant exists must
+            // discard that grant because it is not active.
+            if (stagedCompatibility != null || e is TwitchAuthException &&
+                e.message?.contains("save", ignoreCase = true) == true
+            ) {
+                discardStagedCredentials()
+            }
+            LoginAuthorizationService.stop(app)
+            _state.value = LoginUiState.CompatibilityError(
+                type = mapError(e),
+                recoverable = isRecoverable(e),
+            )
+        }
+    }
+
+    private suspend fun runCompatibilityOnlyAuthorization() {
+        try {
+            val official = sessionStore.read()
+                ?: throw TwitchAuthProtocolException("The official Twitch authorization is no longer available")
+            val compatibility = acquireCompatibility(official.userId)
+            stagedCompatibility = compatibility
+            finalCommitStarted = true
+            _state.value = LoginUiState.Committing
+            val commit = withContext(NonCancellable) {
+                coordinator.commitCompatibilitySession(compatibility)
+            }
             stagedCompatibility = null
             finalCommitStarted = false
             LoginAuthorizationService.stop(app)
@@ -235,9 +287,6 @@ class LoginViewModel(
             throw e
         } catch (e: Exception) {
             finalCommitStarted = false
-            // A failed compatibility validation keeps the official grant staged so the user can
-            // retry only step 2. A failure after a validated pair exists (for example persistence)
-            // must discard both grants because neither is active.
             if (stagedCompatibility != null || e is TwitchAuthException &&
                 e.message?.contains("save", ignoreCase = true) == true
             ) {
@@ -322,7 +371,7 @@ class LoginViewModel(
         if (authorizationJob?.isActive == true) return
         LoginAuthorizationService.start(app)
         authorizationJob = viewModelScope.launch {
-            runCompatibilityAuthorization()
+            if (compatibilityOnly) runCompatibilityOnlyAuthorization() else runCompatibilityAuthorization()
         }
     }
 
@@ -356,11 +405,12 @@ class LoginViewModel(
     class Factory(
         private val application: Application,
         private val reauthorize: Boolean,
+        private val compatibilityOnly: Boolean = false,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(LoginViewModel::class.java))
-            return LoginViewModel(application, reauthorize) as T
+            return LoginViewModel(application, reauthorize, compatibilityOnly) as T
         }
     }
 }

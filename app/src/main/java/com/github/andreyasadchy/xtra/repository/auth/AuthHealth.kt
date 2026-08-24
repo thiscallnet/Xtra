@@ -1,14 +1,15 @@
 package com.github.andreyasadchy.xtra.repository.auth
 
-/** Describes whether the signed-in account has all credentials Xtra can maintain. */
+/** Describes the official account session and its optional enhanced capability. */
 enum class AuthHealth {
     SIGNED_OUT,
     HEALTHY,
+    ENHANCED_FEATURES_UNAVAILABLE,
     REAUTH_REQUIRED,
     UNKNOWN;
 
     val requiresUserAction: Boolean
-        get() = this == REAUTH_REQUIRED
+        get() = this == REAUTH_REQUIRED || this == ENHANCED_FEATURES_UNAVAILABLE
 }
 
 internal fun classifyAuthHealth(
@@ -21,7 +22,6 @@ internal fun classifyAuthHealth(
     storedAccountIdentityPresent: Boolean = false,
 ): AuthHealth = when {
     officialState == OfficialAuthState.REAUTHORIZATION_REQUIRED -> AuthHealth.REAUTH_REQUIRED
-    compatibilityState == CompatibilityAuthState.REAUTHORIZATION_REQUIRED -> AuthHealth.REAUTH_REQUIRED
     officialState == OfficialAuthState.TRANSIENT_FAILURE ||
         compatibilityState == CompatibilityAuthState.TRANSIENT_FAILURE -> AuthHealth.UNKNOWN
     officialState == OfficialAuthState.IDLE -> {
@@ -35,5 +35,5 @@ internal fun classifyAuthHealth(
     compatibilityState == CompatibilityAuthState.AVAILABLE &&
         structuredCompatibilityPresent &&
         compatibilityUserMatches -> AuthHealth.HEALTHY
-    else -> AuthHealth.REAUTH_REQUIRED
+    else -> AuthHealth.ENHANCED_FEATURES_UNAVAILABLE
 }
