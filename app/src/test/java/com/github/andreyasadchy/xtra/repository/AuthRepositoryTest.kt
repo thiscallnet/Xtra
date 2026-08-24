@@ -9,6 +9,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
+import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
@@ -51,6 +52,46 @@ class AuthRepositoryTest {
             listOf("Bearer raw-helix-token", "OAuth raw-gql-token"),
             authorizationHeaders,
         )
+    }
+
+    @Test
+    fun `diagnostic transport preserves the browser OAuth scheme and probe headers`() {
+        var captured: Request? = null
+        val client = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                captured = chain.request()
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body("{}".toResponseBody("application/json".toMediaType()))
+                    .build()
+            }
+            .build()
+        val repository = AuthRepository(
+            httpEngine = lazy { null },
+            cronetEngine = lazy { null },
+            cronetExecutor = lazy { Executors.newSingleThreadExecutor() },
+            okHttpClient = lazy { client },
+            json = Json { ignoreUnknownKeys = true },
+        )
+
+        runBlocking {
+            repository.diagnosticGet(
+                networkLibrary = "okhttp",
+                url = "https://id.twitch.tv/oauth2/validate",
+                headers = mapOf(
+                    "Authorization" to "OAuth browser-token",
+                    "Client-Id" to "web-client",
+                    "Origin" to "https://www.twitch.tv",
+                ),
+            )
+        }
+
+        assertEquals("OAuth browser-token", captured?.header("Authorization"))
+        assertEquals("web-client", captured?.header("Client-Id"))
+        assertEquals("https://www.twitch.tv", captured?.header("Origin"))
     }
 
     @Test

@@ -11,10 +11,28 @@ data class AuthCommitResult(
     val revocationFailures: Int,
 )
 
+enum class AuthFaultPoint {
+    BEFORE_OFFICIAL_REFRESH_REQUEST,
+    AFTER_OFFICIAL_REFRESH_RESPONSE_BEFORE_PERSISTENCE,
+    AFTER_OFFICIAL_PERSISTENCE_BEFORE_VALIDATION,
+    AFTER_OFFICIAL_VALIDATION_BEFORE_FINAL_PERSISTENCE,
+    AFTER_OFFICIAL_FINAL_PERSISTENCE,
+    BEFORE_COMPATIBILITY_REFRESH_REQUEST,
+    AFTER_COMPATIBILITY_REFRESH_RESPONSE_BEFORE_PERSISTENCE,
+    AFTER_COMPATIBILITY_PERSISTENCE_BEFORE_VALIDATION,
+    AFTER_COMPATIBILITY_VALIDATION_BEFORE_FINAL_PERSISTENCE,
+    AFTER_COMPATIBILITY_FINAL_PERSISTENCE,
+}
+
+fun interface AuthFaultInjector {
+    suspend fun hit(point: AuthFaultPoint)
+}
+
 class AuthCoordinator(
     private val repository: TwitchAuthOperations,
     private val sessionStore: AuthSessionStore,
     private val nowMillis: () -> Long = { System.currentTimeMillis() },
+    private val faultInjector: AuthFaultInjector = AuthFaultInjector { },
 ) {
     /** Validates the official grant without publishing it to the active account. */
     suspend fun validateOfficial(
@@ -140,11 +158,19 @@ class AuthCoordinator(
         )
     }
 
-    suspend fun refreshIfNeeded(force: Boolean = false): AuthSession? = SESSION_MUTEX.withLock {
+    suspend fun refreshIfNeeded(
+        force: Boolean = false,
+        expectedAccessToken: String? = null,
+    ): AuthSession? = SESSION_MUTEX.withLock {
         val current = sessionStore.read() ?: return null
+        // A caller that saw an old 401 must join a refresh another caller already completed.
+        // Without this check, every concurrent 401 would consume the same one-time refresh grant.
+        if (expectedAccessToken != null && current.accessToken != expectedAccessToken) return current
         if (!force && !current.isAccessTokenExpired(nowMillis())) return current
         val refreshToken = current.refreshToken ?: return current
+        faultInjector.hit(AuthFaultPoint.BEFORE_OFFICIAL_REFRESH_REQUEST)
         val response = repository.refreshUserToken(current.clientId, refreshToken)
+        faultInjector.hit(AuthFaultPoint.AFTER_OFFICIAL_REFRESH_RESPONSE_BEFORE_PERSISTENCE)
         val accessToken = response.accessToken?.takeIf { it.isNotBlank() }
             ?: throw TwitchAuthProtocolException("Twitch did not return a refreshed access token")
         val expiresIn = response.expiresIn?.takeIf { it > 0 }
@@ -165,6 +191,7 @@ class AuthCoordinator(
         ) {
             throw TwitchAuthException("Unable to save the refreshed Twitch session")
         }
+        faultInjector.hit(AuthFaultPoint.AFTER_OFFICIAL_PERSISTENCE_BEFORE_VALIDATION)
         val validation = repository.validate(accessToken)
         if (validation.clientId != current.clientId || validation.userId != current.userId) {
             throw TwitchAuthAccountMismatchException()
@@ -172,6 +199,7 @@ class AuthCoordinator(
         if (!hasRequiredOfficialScopes(validation.scopes)) {
             throw TwitchAuthMissingScopesException()
         }
+        faultInjector.hit(AuthFaultPoint.AFTER_OFFICIAL_VALIDATION_BEFORE_FINAL_PERSISTENCE)
         val refreshed = current.copy(
             accessToken = accessToken,
             refreshToken = rotatedRefreshToken,
@@ -191,8 +219,13 @@ class AuthCoordinator(
         ) {
             throw TwitchAuthException("Unable to save the refreshed Twitch session")
         }
+        faultInjector.hit(AuthFaultPoint.AFTER_OFFICIAL_FINAL_PERSISTENCE)
         return refreshed
     }
+
+    /** Refreshes once for a request that was sent with [expectedAccessToken]. */
+    suspend fun refreshAfterUnauthorized(expectedAccessToken: String): AuthSession? =
+        refreshIfNeeded(force = true, expectedAccessToken = expectedAccessToken)
 
     /** Validates the compatibility grant without persisting it. */
     suspend fun validateCompatibility(
@@ -248,12 +281,18 @@ class AuthCoordinator(
             if (accessToken.isNullOrBlank()) 0 else revoke(clientId, accessToken)
         }
 
-    suspend fun refreshCompatibilityIfNeeded(force: Boolean = false): CompatibilitySession? = SESSION_MUTEX.withLock {
+    suspend fun refreshCompatibilityIfNeeded(
+        force: Boolean = false,
+        expectedAccessToken: String? = null,
+    ): CompatibilitySession? = SESSION_MUTEX.withLock {
         val current = sessionStore.readCompatibility() ?: return null
+        if (expectedAccessToken != null && current.accessToken != expectedAccessToken) return current
         if (!force && !current.isAccessTokenExpired(nowMillis())) return current
         val refreshToken = current.refreshToken?.takeIf { it.isNotBlank() }
             ?: throw TwitchAuthProtocolException("Twitch compatibility session has no refresh token")
+        faultInjector.hit(AuthFaultPoint.BEFORE_COMPATIBILITY_REFRESH_REQUEST)
         val response = repository.refreshUserToken(current.clientId, refreshToken)
+        faultInjector.hit(AuthFaultPoint.AFTER_COMPATIBILITY_REFRESH_RESPONSE_BEFORE_PERSISTENCE)
         val accessToken = response.accessToken?.takeIf { it.isNotBlank() }
             ?: throw TwitchAuthProtocolException("Twitch did not return a refreshed compatibility access token")
         val replacementRefreshToken = response.refreshToken?.takeIf { it.isNotBlank() }
@@ -270,6 +309,7 @@ class AuthCoordinator(
         if (!sessionStore.updateCompatibilitySession(replacement)) {
             throw TwitchAuthException("Unable to save the refreshed Twitch compatibility session")
         }
+        faultInjector.hit(AuthFaultPoint.AFTER_COMPATIBILITY_PERSISTENCE_BEFORE_VALIDATION)
         val validation = repository.validateCompatibility(accessToken)
         if (validation.clientId != current.clientId || validation.userId != current.userId) {
             throw TwitchAuthAccountMismatchException()
@@ -281,11 +321,17 @@ class AuthCoordinator(
             scopes = validation.scopes.toSet().ifEmpty { response.scopes.toSet().ifEmpty { current.scopes } },
             tokenType = response.tokenType ?: current.tokenType,
         )
+        faultInjector.hit(AuthFaultPoint.AFTER_COMPATIBILITY_VALIDATION_BEFORE_FINAL_PERSISTENCE)
         if (!sessionStore.updateCompatibilitySession(refreshed)) {
             throw TwitchAuthException("Unable to save the refreshed Twitch compatibility session")
         }
+        faultInjector.hit(AuthFaultPoint.AFTER_COMPATIBILITY_FINAL_PERSISTENCE)
         return refreshed
     }
+
+    /** Refreshes compatibility once for a request that was sent with [expectedAccessToken]. */
+    suspend fun refreshCompatibilityAfterUnauthorized(expectedAccessToken: String): CompatibilitySession? =
+        refreshCompatibilityIfNeeded(force = true, expectedAccessToken = expectedAccessToken)
 
     suspend fun clearCompatibility() = SESSION_MUTEX.withLock {
         if (!sessionStore.clearCompatibilitySession()) {

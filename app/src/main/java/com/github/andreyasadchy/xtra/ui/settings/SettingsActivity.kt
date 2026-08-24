@@ -1455,6 +1455,13 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         private fun configureDeveloperCredentials() {
+            findPreference<Preference>("auth_lab")?.apply {
+                isVisible = BuildConfig.DEBUG
+                setOnPreferenceClickListener {
+                    startActivity(Intent(requireContext(), AuthLabActivity::class.java))
+                    true
+                }
+            }
             listOf(C.USER_ID, C.USERNAME, C.TOKEN, C.GQL_TOKEN2, C.GQL_TOKEN_WEB).forEach { key ->
                 findPreference<EditTextPreference>(key)?.apply {
                     isPersistent = false

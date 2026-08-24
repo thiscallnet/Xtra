@@ -66,6 +66,16 @@
             </intent-filter>
         </activity>
         <activity android:name=".ui.settings.SettingsActivity" />
+        <activity
+            android:name=".ui.settings.AuthLabActivity"
+            android:exported="false"
+            android:screenOrientation="unspecified"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.settings.AuthLabWebLoginActivity"
+            android:exported="false"
+            android:screenOrientation="unspecified"
+            android:windowSoftInputMode="adjustResize" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

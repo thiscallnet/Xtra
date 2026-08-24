@@ -132,7 +132,7 @@ internal suspend fun recoverCompatibilitySessionAfterUnauthorized(
             return CompatibilityUnauthorizedRecovery.INVALID
         }
     return try {
-        val refreshed = coordinator.refreshCompatibilityIfNeeded(force = true)
+        val refreshed = coordinator.refreshCompatibilityAfterUnauthorized(previousToken)
         if (refreshed == null || refreshed.accessToken == previousToken) {
             onInvalid()
             CompatibilityUnauthorizedRecovery.INVALID
@@ -267,7 +267,10 @@ class AuthSessionMaintainer(
         if (helixResult == ValidationResult.UNAUTHORIZED) {
             val previousToken = sessionStore.read()?.accessToken
             helixResult = try {
-                val refreshed = coordinator.refreshIfNeeded(force = true)
+                val refreshed = coordinator.refreshIfNeeded(
+                    force = true,
+                    expectedAccessToken = previousToken,
+                )
                 if (refreshed == null || refreshed.accessToken == previousToken) {
                     ValidationResult.INVALID
                 } else {

@@ -1,4 +1,5 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <Preference android:key="auth_lab" android:title="@string/auth_lab_title" android:summary="@string/auth_lab_summary" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="0" android:entries="@array/loginApiEntries" android:entryValues="@array/miscValues" android:key="api_login" android:summary="%s" android:title="@string/settings_api_login" app:iconSpaceReserved="false" />
     <EditTextPreference android:key="helix_client_id" android:title="@string/api_helix_client_id_sensitive" app:iconSpaceReserved="false" />
     <EditTextPreference android:key="helix_redirect" android:title="@string/api_helix_redirect_sensitive" app:iconSpaceReserved="false" />

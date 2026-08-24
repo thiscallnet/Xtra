@@ -5,6 +5,9 @@ import com.github.andreyasadchy.xtra.model.id.DeviceCodeResponse
 import com.github.andreyasadchy.xtra.model.id.TokenResponse
 import com.github.andreyasadchy.xtra.model.id.ValidationResponse
 import com.github.andreyasadchy.xtra.util.C
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -420,6 +423,104 @@ class AuthCoordinatorTest {
     }
 
     @Test
+    fun `concurrent unauthorized callers share one official refresh`() {
+        val (store, _) = seededStore(expired = true)
+        val repository = FakeAuthOperations(
+            officialValidation = ValidationResponse("old-helix", userId = "user", scopes = HELIX_SCOPES),
+            refresh = officialToken("rotated-access", refreshToken = "rotated-refresh"),
+        )
+        val coordinator = AuthCoordinator(repository, store, nowMillis = { 10_000L })
+
+        val sessions = runBlocking {
+            coroutineScope {
+                (1..20).map {
+                    async { coordinator.refreshAfterUnauthorized("old-access") }
+                }.awaitAll()
+            }
+        }
+
+        assertEquals(1, repository.refreshCalls)
+        assertTrue(sessions.all { it?.accessToken == "rotated-access" })
+        assertEquals("rotated-refresh", store.read()?.refreshToken)
+    }
+
+    @Test
+    fun `refresh response fault before persistence keeps the old pair`() {
+        val (store, tokenPreferences) = seededStore(expired = true)
+        val repository = FakeAuthOperations(
+            refresh = officialToken("rotated-access", refreshToken = "rotated-refresh"),
+        )
+        val error = runCatching {
+            runBlocking {
+                AuthCoordinator(
+                    repository = repository,
+                    sessionStore = store,
+                    nowMillis = { 10_000L },
+                    faultInjector = AuthFaultInjector { point ->
+                        if (point == AuthFaultPoint.AFTER_OFFICIAL_REFRESH_RESPONSE_BEFORE_PERSISTENCE) {
+                            error("injected process death")
+                        }
+                    },
+                ).refreshIfNeeded()
+            }
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertEquals("old-access", store.read()?.accessToken)
+        assertEquals("old-refresh", store.read()?.refreshToken)
+        assertEquals("old-access", tokenPreferences.getString(C.TOKEN, null))
+    }
+
+    @Test
+    fun `refresh persistence fault keeps the rotated pair for restart recovery`() {
+        val (store, _) = seededStore(expired = true)
+        val repository = FakeAuthOperations(
+            officialValidation = ValidationResponse("old-helix", userId = "user", scopes = HELIX_SCOPES),
+            refresh = officialToken("rotated-access", refreshToken = "rotated-refresh"),
+        )
+        val error = runCatching {
+            runBlocking {
+                AuthCoordinator(
+                    repository = repository,
+                    sessionStore = store,
+                    nowMillis = { 10_000L },
+                    faultInjector = AuthFaultInjector { point ->
+                        if (point == AuthFaultPoint.AFTER_OFFICIAL_PERSISTENCE_BEFORE_VALIDATION) {
+                            error("injected process death")
+                        }
+                    },
+                ).refreshIfNeeded()
+            }
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertEquals("rotated-access", store.read()?.accessToken)
+        assertEquals("rotated-refresh", store.read()?.refreshToken)
+    }
+
+    @Test
+    fun `diagnostic history stores fingerprints and redacts credential text`() {
+        val preferences = MemoryPreferences()
+        val log = AuthDiagnosticLog(preferences, nowMillis = { 1234L })
+
+        log.record(
+            credential = AuthLabCredentialSource.WEB,
+            operation = "/oauth2/validate",
+            httpStatus = 401,
+            classification = "UNAUTHORIZED",
+            message = "server echoed access-token and refresh-token",
+            accessToken = "access-token",
+            refreshToken = "refresh-token",
+        )
+
+        val raw = preferences.getString(C.AUTH_EVENT_HISTORY, null).orEmpty()
+        assertFalse(raw.contains("access-token"))
+        assertFalse(raw.contains("refresh-token"))
+        assertEquals(tokenFingerprint("access-token"), log.read().single().accessFingerprint)
+        assertEquals(tokenFingerprint("refresh-token"), log.read().single().refreshFingerprint)
+    }
+
+    @Test
     fun `compatibility refresh persists the rotated pair before validation`() {
         val (store, tokenPreferences) = seededStore()
         tokenPreferences.edit().putLong(C.GQL_TOKEN2_EXPIRES_AT, 1L).commit()
@@ -547,11 +648,15 @@ class AuthCoordinatorTest {
         private val refresh: TokenResponse = TokenResponse(),
     ) : TwitchAuthOperations {
         val revoked = mutableListOf<Pair<String, String>>()
+        var refreshCalls = 0
         var onRevoke: suspend (String, String) -> Unit = { _, _ -> }
 
         override suspend fun startDeviceAuthorization(clientId: String, scopes: Collection<String>) = DeviceCodeResponse()
         override suspend fun pollDeviceAuthorization(clientId: String, deviceCode: String, scopes: Collection<String>) = TokenResponse()
-        override suspend fun refreshUserToken(clientId: String, refreshToken: String) = refresh
+        override suspend fun refreshUserToken(clientId: String, refreshToken: String): TokenResponse {
+            refreshCalls++
+            return refresh
+        }
         override suspend fun validate(accessToken: String): ValidationResponse =
             officialValidationError?.let { throw it } ?: officialValidation
         override suspend fun validateCompatibility(accessToken: String): ValidationResponse =

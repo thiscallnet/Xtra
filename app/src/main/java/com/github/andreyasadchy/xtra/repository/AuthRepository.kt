@@ -35,8 +35,9 @@ private const val TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 private const val VALIDATE_URL = "https://id.twitch.tv/oauth2/validate"
 private const val REVOKE_URL = "https://id.twitch.tv/oauth2/revoke"
 private val FORM_MEDIA_TYPE = "application/x-www-form-urlencoded".toMediaType()
+private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
-private data class AuthHttpResponse(
+internal data class AuthHttpResponse(
     val statusCode: Int,
     val body: String,
 )
@@ -163,6 +164,34 @@ class AuthRepository(
         ensureSuccess(response)
     }
 
+    /** Raw read-only transport for the debug authentication lab. */
+    internal suspend fun diagnosticGet(
+        networkLibrary: String?,
+        url: String,
+        headers: Map<String, String>,
+    ): AuthHttpResponse {
+        val authorization = headers.entries
+            .firstOrNull { it.key.equals("Authorization", ignoreCase = true) }
+            ?.value
+            ?.takeIf { it.isNotBlank() }
+            ?: throw TwitchAuthProtocolException("Authentication lab request has no authorization")
+        return executeGet(networkLibrary, url, authorization, headers)
+    }
+
+    /** Raw JSON POST transport for the debug authentication lab. */
+    internal suspend fun diagnosticPost(
+        networkLibrary: String?,
+        url: String,
+        headers: Map<String, String>,
+        body: String,
+    ): AuthHttpResponse = executePost(
+        networkLibrary = networkLibrary,
+        url = url,
+        body = body,
+        headers = headers,
+        mediaType = JSON_MEDIA_TYPE,
+    )
+
     /** Legacy raw-body entry point retained for developer tooling during migration. */
     @Deprecated("Use startDeviceAuthorization")
     suspend fun getDeviceCode(networkLibrary: String?, body: String): DeviceCodeResponse = withContext(Dispatchers.IO) {
@@ -188,7 +217,9 @@ class AuthRepository(
         networkLibrary: String?,
         url: String,
         authorization: String,
+        headers: Map<String, String> = emptyMap(),
     ): AuthHttpResponse {
+        val requestHeaders = headers.filterKeys { !it.equals("Authorization", ignoreCase = true) }
         return try {
             when {
                 networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -199,6 +230,7 @@ class AuthRepository(
                         cronetExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
                     ).apply {
+                        requestHeaders.forEach { (name, value) -> addHeader(name, value) }
                         addHeader("Authorization", authorization)
                     }.build()
                     timeout.start(request, continuation)
@@ -218,6 +250,7 @@ class AuthRepository(
                         NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
                         cronetExecutor.value,
                     ).apply {
+                        requestHeaders.forEach { (name, value) -> addHeader(name, value) }
                         addHeader("Authorization", authorization)
                     }.build()
                     timeout.start(request, continuation)
@@ -233,6 +266,9 @@ class AuthRepository(
                     okHttpClient.value.newCall(
                         Request.Builder()
                             .url(url)
+                            .apply {
+                                requestHeaders.forEach { (name, value) -> header(name, value) }
+                            }
                             .header("Authorization", authorization)
                             .build(),
                     ).executeAsync().use { response ->
@@ -251,6 +287,8 @@ class AuthRepository(
         networkLibrary: String?,
         url: String,
         body: String,
+        headers: Map<String, String> = emptyMap(),
+        mediaType: okhttp3.MediaType = FORM_MEDIA_TYPE,
     ): AuthHttpResponse {
         val bodyBytes = body.toByteArray()
         return try {
@@ -263,7 +301,8 @@ class AuthRepository(
                         cronetExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
                     ).apply {
-                        addHeader("Content-Type", FORM_MEDIA_TYPE.toString())
+                        headers.forEach { (name, value) -> addHeader(name, value) }
+                        addHeader("Content-Type", mediaType.toString())
                         setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(bodyBytes), cronetExecutor.value)
                     }.build()
                     timeout.start(request, continuation)
@@ -283,7 +322,8 @@ class AuthRepository(
                         NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
                         cronetExecutor.value,
                     ).apply {
-                        addHeader("Content-Type", FORM_MEDIA_TYPE.toString())
+                        headers.forEach { (name, value) -> addHeader(name, value) }
+                        addHeader("Content-Type", mediaType.toString())
                         setUploadDataProvider(UploadDataProviders.create(bodyBytes), cronetExecutor.value)
                     }.build()
                     timeout.start(request, continuation)
@@ -299,8 +339,11 @@ class AuthRepository(
                     okHttpClient.value.newCall(
                         Request.Builder()
                             .url(url)
-                            .header("Content-Type", FORM_MEDIA_TYPE.toString())
-                            .post(body.toRequestBody(FORM_MEDIA_TYPE))
+                            .apply {
+                                headers.forEach { (name, value) -> header(name, value) }
+                            }
+                            .header("Content-Type", mediaType.toString())
+                            .post(body.toRequestBody(mediaType))
                             .build(),
                     ).executeAsync().use { response ->
                         AuthHttpResponse(response.code, response.body.string())

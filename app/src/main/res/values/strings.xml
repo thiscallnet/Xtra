@@ -498,6 +498,10 @@
     <string name="settings_developer_unlocking">%d more taps to enable Developer options</string>
     <string name="settings_developer_unlocked">Developer options enabled</string>
     <string name="settings_api_authentication">API &amp; authentication</string>
+    <string name="auth_lab_title">Authentication Lab</string>
+    <string name="auth_lab_summary">Compare credential validation and read-only Twitch operations. Debug only.</string>
+    <string name="auth_lab_history_cleared">History cleared.</string>
+    <string name="auth_lab_web_login_title">Twitch page login</string>
     <string name="settings_networking">Networking</string>
     <string name="settings_network_engine">Network engine</string>
     <string name="settings_stream_preloading">Smart stream preloading</string>
