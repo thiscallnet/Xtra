@@ -1434,4 +1434,6 @@
     <string name="auth_health_compatibility_title">Erweiterte Twitch-Funktionen nicht verfügbar</string>
     <string name="auth_health_compatibility_message">Dein Twitch-Konto ist weiterhin verbunden. Verbinde die erweiterten Funktionen erneut, um die Kompatibilitätsfunktionen wiederherzustellen.</string>
     <string name="auth_health_compatibility_reconnect">Erweiterte Funktionen erneut verbinden</string>
+    <string name="discover_previous_trending">Vorheriger angesagter Stream</string>
+    <string name="discover_next_trending">Nächster angesagter Stream</string>
 </resources>

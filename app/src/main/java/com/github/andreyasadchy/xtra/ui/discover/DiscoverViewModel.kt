@@ -179,14 +179,14 @@ class DiscoverViewModel(
     }
 
     private fun loadingSections(): List<FollowingOverviewSection> = listOf(
-        section(KEY_BIG_EVENTS, R.string.discover_big_events, isLoading = true),
+        section(KEY_BIG_EVENTS, R.string.trending, isLoading = true),
         section(KEY_RECOMMENDED, R.string.discover_live_channels, isLoading = true),
         section(KEY_TRENDING, R.string.discover_trending, isLoading = true),
         section(KEY_CATEGORIES, R.string.discover_categories, loadingType = FollowingOverviewLoadingType.GAME, isLoading = true),
     )
 
     private fun emptySections(): List<FollowingOverviewSection> = listOf(
-        section(KEY_BIG_EVENTS, R.string.discover_big_events),
+        section(KEY_BIG_EVENTS, R.string.trending),
         section(KEY_RECOMMENDED, R.string.discover_live_channels),
         section(KEY_TRENDING, R.string.discover_trending),
         section(KEY_CATEGORIES, R.string.discover_categories),
@@ -199,7 +199,7 @@ class DiscoverViewModel(
         trendingStreams: List<Stream>,
         topGames: List<Game>,
     ): List<FollowingOverviewSection> = listOf(
-        section(KEY_BIG_EVENTS, R.string.discover_big_events, streams = topStreams),
+        section(KEY_BIG_EVENTS, R.string.trending, streams = topStreams),
         section(KEY_RECOMMENDED, R.string.discover_live_channels, streams = recommendations),
         section(
             key = KEY_TRENDING,
@@ -228,6 +228,7 @@ class DiscoverViewModel(
         isLoading = isLoading,
         loadingType = loadingType,
         showSeeAll = key == KEY_TRENDING || key == KEY_CATEGORIES,
+        isFeatured = key == KEY_BIG_EVENTS,
     )
 
     companion object {

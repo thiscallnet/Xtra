@@ -25,6 +25,7 @@ data class FollowingOverviewSection(
     val isLoading: Boolean = false,
     val loadingType: FollowingOverviewLoadingType = FollowingOverviewLoadingType.STREAM,
     val showSeeAll: Boolean = true,
+    val isFeatured: Boolean = false,
 )
 
 class FollowingOverviewAdapter(
@@ -43,6 +44,7 @@ class FollowingOverviewAdapter(
     private val videoRecycledViewPool = RecyclerView.RecycledViewPool()
     private val upcomingRecycledViewPool = RecyclerView.RecycledViewPool()
     private val gameRecycledViewPool = RecyclerView.RecycledViewPool()
+    private val featuredRecycledViewPool = RecyclerView.RecycledViewPool()
     private val skeletonRecycledViewPool = RecyclerView.RecycledViewPool()
 
     init {
@@ -72,6 +74,7 @@ class FollowingOverviewAdapter(
         private val videoShelfAdapter = VideoShelfAdapter(onVideoClick)
         private val upcomingShelfAdapter = UpcomingStreamShelfAdapter(onUpcomingClick)
         private val gameShelfAdapter = GameShelfAdapter(onGameClick)
+        private val featuredShelfAdapter = FeaturedStreamShelfAdapter(onStreamClick)
         private val skeletonShelfAdapter = ShelfSkeletonAdapter()
         private var shelfType: ShelfType? = null
         private var boundStreamShelfKey: String? = null
@@ -99,12 +102,13 @@ class FollowingOverviewAdapter(
             binding.seeAll.setOnClickListener { onSeeAll(section.key) }
             val nextShelfType = when {
                 showSkeleton -> ShelfType.SKELETON
+                section.isFeatured && section.streams.isNotEmpty() -> ShelfType.FEATURED
                 section.games.isNotEmpty() -> ShelfType.GAME
                 section.videos.isNotEmpty() -> ShelfType.VIDEO
                 section.scheduledStreams.isNotEmpty() -> ShelfType.UPCOMING
                 else -> ShelfType.STREAM
             }
-            if (nextShelfType != ShelfType.STREAM || section.streams.isEmpty()) {
+            if (nextShelfType !in setOf(ShelfType.STREAM, ShelfType.FEATURED) || section.streams.isEmpty()) {
                 detachStreamShelf()
             }
             if (nextShelfType != ShelfType.VIDEO || section.videos.isEmpty()) {
@@ -124,6 +128,10 @@ class FollowingOverviewAdapter(
                         binding.shelfRecyclerView.swapAdapter(gameShelfAdapter, true)
                         binding.shelfRecyclerView.setRecycledViewPool(gameRecycledViewPool)
                     }
+                    ShelfType.FEATURED -> {
+                        binding.shelfRecyclerView.swapAdapter(featuredShelfAdapter, true)
+                        binding.shelfRecyclerView.setRecycledViewPool(featuredRecycledViewPool)
+                    }
                     ShelfType.SKELETON -> {
                         binding.shelfRecyclerView.swapAdapter(skeletonShelfAdapter, true)
                         binding.shelfRecyclerView.setRecycledViewPool(skeletonRecycledViewPool)
@@ -135,6 +143,10 @@ class FollowingOverviewAdapter(
                 }
                 shelfType = nextShelfType
             }
+            binding.heroPrevious.visibility = if (section.isFeatured && section.streams.size > 1) android.view.View.VISIBLE else android.view.View.GONE
+            binding.heroNext.visibility = if (section.isFeatured && section.streams.size > 1) android.view.View.VISIBLE else android.view.View.GONE
+            binding.heroPrevious.setOnClickListener { featuredShelfAdapter.scrollBy(binding.shelfRecyclerView, -1) }
+            binding.heroNext.setOnClickListener { featuredShelfAdapter.scrollBy(binding.shelfRecyclerView, 1) }
             when (nextShelfType) {
                 ShelfType.VIDEO -> {
                     videoShelfAdapter.submitList(section.videos)
@@ -148,6 +160,17 @@ class FollowingOverviewAdapter(
                 }
                 ShelfType.UPCOMING -> upcomingShelfAdapter.submitList(section.scheduledStreams)
                 ShelfType.GAME -> gameShelfAdapter.submitList(section.games)
+                ShelfType.FEATURED -> {
+                    featuredShelfAdapter.submitList(section.streams)
+                    featuredShelfAdapter.centerInitialCard(binding.shelfRecyclerView)
+                    if (hasItems && boundStreamShelfKey != section.key) {
+                        detachStreamShelf()
+                        boundStreamShelfKey = section.key
+                        onStreamShelfAttached?.invoke(section.key, binding.shelfRecyclerView) { position ->
+                            featuredShelfAdapter.currentList.getOrNull(position)
+                        }
+                    }
+                }
                 ShelfType.SKELETON -> skeletonShelfAdapter.setLoadingType(section.loadingType)
                 ShelfType.STREAM -> {
                     shelfAdapter.submitList(section.streams)
@@ -173,7 +196,7 @@ class FollowingOverviewAdapter(
         }
     }
 
-    private enum class ShelfType { STREAM, VIDEO, UPCOMING, GAME, SKELETON }
+    private enum class ShelfType { STREAM, FEATURED, VIDEO, UPCOMING, GAME, SKELETON }
 
     private companion object {
         val DIFF_CALLBACK = object : DiffUtil.ItemCallback<FollowingOverviewSection>() {

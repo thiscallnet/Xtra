@@ -1434,4 +1434,6 @@
     <string name="auth_health_compatibility_title">ميزات Twitch المحسّنة غير متاحة</string>
     <string name="auth_health_compatibility_message">لا يزال حساب Twitch متصلاً. أعد الاتصال بالميزات المحسّنة لاستعادة وظائف التوافق.</string>
     <string name="auth_health_compatibility_reconnect">إعادة الاتصال بالميزات المحسّنة</string>
+    <string name="discover_previous_trending">البث الرائج السابق</string>
+    <string name="discover_next_trending">البث الرائج التالي</string>
 </resources>

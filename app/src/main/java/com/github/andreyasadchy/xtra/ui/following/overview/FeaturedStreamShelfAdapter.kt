@@ -1,0 +1,228 @@
+package com.github.andreyasadchy.xtra.ui.following.overview
+
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import androidx.core.view.MarginLayoutParamsCompat
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.PagerSnapHelper
+import androidx.recyclerview.widget.RecyclerView
+import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.databinding.ItemFeaturedStreamShelfBinding
+import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.ui.common.loadStreamProfileImage
+import com.github.andreyasadchy.xtra.ui.common.loadStreamThumbnail
+import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
+import com.github.andreyasadchy.xtra.ui.common.streamIdentity
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.prefs
+import kotlin.math.abs
+import kotlin.math.max
+
+/** A centered, snap-to-card stream shelf used for the Discover hero. */
+class FeaturedStreamShelfAdapter(
+    private val onStreamClick: (Stream) -> Unit,
+) : ListAdapter<Stream, FeaturedStreamShelfAdapter.ViewHolder>(DIFF_CALLBACK) {
+
+    private var snapHelper: PagerSnapHelper? = null
+    private var initialCardPositioned = false
+    private var originalPadding: IntArray? = null
+
+    init {
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int): Long = getItem(position).streamIdentity().hashCode().toLong()
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder =
+        ViewHolder(ItemFeaturedStreamShelfBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        (holder.itemView.parent as? RecyclerView)?.let(::updateShelfLayout)
+        holder.bind(getItem(position))
+    }
+
+    override fun onViewRecycled(holder: ViewHolder) {
+        (holder.itemView.context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
+            .detachSurface(holder.previewSurface)
+        super.onViewRecycled(holder)
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        originalPadding = intArrayOf(
+            recyclerView.paddingLeft,
+            recyclerView.paddingTop,
+            recyclerView.paddingRight,
+            recyclerView.paddingBottom,
+        )
+        recyclerView.clipToPadding = false
+        val helper = PagerSnapHelper()
+        helper.attachToRecyclerView(recyclerView)
+        snapHelper = helper
+        recyclerView.addOnScrollListener(scrollListener)
+        recyclerView.addOnLayoutChangeListener(layoutChangeListener)
+        recyclerView.post { updateShelfLayout(recyclerView) }
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        recyclerView.removeOnScrollListener(scrollListener)
+        recyclerView.removeOnLayoutChangeListener(layoutChangeListener)
+        if (snapHelper != null) snapHelper?.attachToRecyclerView(null)
+        snapHelper = null
+        originalPadding?.let { padding ->
+            recyclerView.setPadding(padding[0], padding[1], padding[2], padding[3])
+        }
+        originalPadding = null
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
+
+    fun scrollBy(recyclerView: RecyclerView, direction: Int) {
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return
+        val currentPosition = layoutManager.findFirstCompletelyVisibleItemPosition()
+            .takeIf { it != RecyclerView.NO_POSITION }
+            ?: layoutManager.findFirstVisibleItemPosition()
+        if (currentPosition == RecyclerView.NO_POSITION) return
+        recyclerView.smoothScrollToPosition((currentPosition + direction).coerceIn(0, itemCount - 1))
+    }
+
+    fun centerInitialCard(recyclerView: RecyclerView) {
+        if (initialCardPositioned || itemCount < 2) return
+        recyclerView.post {
+            if (!initialCardPositioned && itemCount > 1) {
+                initialCardPositioned = true
+                recyclerView.smoothScrollToPosition(1)
+            }
+        }
+    }
+
+    private val scrollListener = object : RecyclerView.OnScrollListener() {
+        override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+            transformChildren(recyclerView)
+        }
+
+        override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+            transformChildren(recyclerView)
+        }
+    }
+
+    private val layoutChangeListener = View.OnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+        updateShelfLayout(view as RecyclerView)
+    }
+
+    private fun updateShelfLayout(recyclerView: RecyclerView) {
+        if (recyclerView.width <= 0) return
+        val cardWidth = cardWidth(recyclerView)
+        val sidePadding = ((recyclerView.width - cardWidth) / 2).coerceAtLeast(0)
+        if (recyclerView.paddingLeft != sidePadding || recyclerView.paddingRight != sidePadding) {
+            recyclerView.setPadding(sidePadding, recyclerView.paddingTop, sidePadding, recyclerView.paddingBottom)
+        }
+        repeat(recyclerView.childCount) { index ->
+            val child = recyclerView.getChildAt(index)
+            val params = (child.layoutParams as? RecyclerView.LayoutParams)
+                ?: RecyclerView.LayoutParams(cardWidth, heroHeight(recyclerView, cardWidth))
+            params.width = cardWidth
+            params.height = heroHeight(recyclerView, cardWidth)
+            MarginLayoutParamsCompat.setMarginEnd(
+                params,
+                -(48 * recyclerView.resources.displayMetrics.density).toInt(),
+            )
+            child.layoutParams = params
+        }
+        transformChildren(recyclerView)
+    }
+
+    private fun transformChildren(recyclerView: RecyclerView) {
+        val center = recyclerView.width / 2f
+        val span = max(1f, cardWidth(recyclerView) * 0.9f)
+        repeat(recyclerView.childCount) { index ->
+            val child = recyclerView.getChildAt(index)
+            val childCenter = (child.left + child.right) / 2f
+            val distance = (abs(childCenter - center) / span).coerceIn(0f, 1f)
+            val emphasis = 1f - distance
+            child.scaleX = 0.88f + emphasis * 0.12f
+            child.scaleY = 0.88f + emphasis * 0.12f
+            child.alpha = 0.62f + emphasis * 0.38f
+            child.translationZ = emphasis * 8f
+        }
+    }
+
+    private fun cardWidth(recyclerView: RecyclerView): Int {
+        val width = recyclerView.width
+        val density = recyclerView.resources.displayMetrics.density
+        val widthDp = width / density
+        val fraction = if (widthDp >= 600f) 0.68f else 0.9f
+        return (width * fraction).toInt().coerceAtLeast((280 * density).toInt().coerceAtMost(width))
+    }
+
+    private fun heroHeight(recyclerView: RecyclerView, cardWidth: Int): Int {
+        val density = recyclerView.resources.displayMetrics.density
+        val mediaWidth = cardWidth * 1.7f / 2.7f
+        return max((220 * density).toInt(), (mediaWidth * 9f / 16f).toInt())
+    }
+
+    inner class ViewHolder(
+        private val binding: ItemFeaturedStreamShelfBinding,
+    ) : RecyclerView.ViewHolder(binding.root) {
+        val previewSurface get() = binding.previewPlayerView
+
+        fun bind(stream: Stream) {
+            val context = binding.root.context
+            with(binding) {
+                (context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
+                    .detachSurface(previewPlayerView)
+                root.setOnClickListener { onStreamClick(stream) }
+
+                loadStreamThumbnail(context, thumbnail, stream)
+                thumbnail.contentDescription = stream.title?.takeIf { it.isNotBlank() }
+                    ?: context.getString(R.string.live)
+                liveBadge.text = context.getString(R.string.live)
+                viewers.text = stream.viewerCount?.let { count ->
+                    context.resources.getQuantityString(
+                        R.plurals.viewers,
+                        count,
+                        TwitchApiHelper.formatCount(
+                            count,
+                            context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true),
+                        ),
+                    )
+                }.orEmpty()
+                viewers.visibility = if (viewers.text.isNullOrBlank()) View.GONE else View.VISIBLE
+
+                title.text = stream.title?.trim().orEmpty()
+                title.visibility = if (title.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                channel.text = stream.channelName?.trim().orEmpty()
+                channel.visibility = if (channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                category.text = stream.gameName?.trim().orEmpty()
+                category.visibility = if (category.text.isNullOrBlank()) View.GONE else View.VISIBLE
+
+                val tags = if (context.prefs().getBoolean(C.UI_TAGS, true)) stream.tags.orEmpty().take(1) else emptyList()
+                tagOne.text = tags.firstOrNull().orEmpty()
+                tagOne.visibility = if (tags.isNotEmpty()) View.VISIBLE else View.GONE
+
+                if (stream.channelImage != null) {
+                    avatar.visibility = View.VISIBLE
+                    loadStreamProfileImage(context, avatar, stream)
+                } else {
+                    avatar.visibility = View.GONE
+                    avatar.setImageDrawable(null)
+                    avatar.tag = null
+                }
+            }
+        }
+    }
+
+    private companion object {
+        val DIFF_CALLBACK = object : DiffUtil.ItemCallback<Stream>() {
+            override fun areItemsTheSame(oldItem: Stream, newItem: Stream): Boolean =
+                oldItem.streamIdentity() == newItem.streamIdentity()
+
+            override fun areContentsTheSame(oldItem: Stream, newItem: Stream): Boolean =
+                streamContentsSame(oldItem, newItem)
+        }
+    }
+}

@@ -40,14 +40,45 @@
             tools:ignore="UsingOnClickInXml" />
     </LinearLayout>
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/shelfRecyclerView"
+    <FrameLayout
+        android:id="@+id/shelfContainer"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:clipToPadding="false"
-        android:overScrollMode="never"
-        android:paddingStart="0dp"
-        android:paddingEnd="0dp" />
+        android:layout_height="wrap_content">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/shelfRecyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp" />
+
+        <ImageButton
+            android:id="@+id/heroPrevious"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center_vertical|start"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/discover_previous_trending"
+            android:padding="12dp"
+            android:rotation="180"
+            android:src="@drawable/ic_settings_arrow_forward"
+            android:tint="?attr/colorOnSurface"
+            android:visibility="gone" />
+
+        <ImageButton
+            android:id="@+id/heroNext"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center_vertical|end"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/discover_next_trending"
+            android:padding="12dp"
+            android:src="@drawable/ic_settings_arrow_forward"
+            android:tint="?attr/colorOnSurface"
+            android:visibility="gone" />
+    </FrameLayout>
 
     <TextView
         android:id="@+id/emptyMessage"

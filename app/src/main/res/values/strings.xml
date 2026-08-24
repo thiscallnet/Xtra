@@ -34,6 +34,8 @@
     <string name="discover_no_live_channels">Nothing is live here right now.</string>
     <string name="discover_no_categories">Twitch could not load categories right now.</string>
     <string name="discover_no_content">Discover could not load anything right now. Try again later.</string>
+    <string name="discover_previous_trending">Previous trending stream</string>
+    <string name="discover_next_trending">Next trending stream</string>
     <string name="following">Following</string>
     <string name="following_overview">Overview</string>
     <string name="following_categories">Categories</string>
