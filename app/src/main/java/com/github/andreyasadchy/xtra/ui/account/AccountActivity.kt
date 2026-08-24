@@ -211,6 +211,13 @@ class AccountActivity : AppCompatActivity() {
                 action = R.string.auth_health_reconnect,
                 reauthorize = true,
             )
+            AuthHealth.ENHANCED_FEATURES_UNAVAILABLE -> AuthHealthCardSpec(
+                title = R.string.auth_health_compatibility_title,
+                message = R.string.auth_health_compatibility_message,
+                action = R.string.auth_health_compatibility_reconnect,
+                reauthorize = false,
+                compatibilityOnly = true,
+            )
             AuthHealth.SIGNED_OUT,
             AuthHealth.HEALTHY,
             AuthHealth.UNKNOWN,
@@ -225,6 +232,7 @@ class AccountActivity : AppCompatActivity() {
             loginLauncher.launch(
                 Intent(this, LoginActivity::class.java).apply {
                     putExtra(LoginActivity.EXTRA_REAUTHORIZE, spec.reauthorize)
+                    putExtra(LoginActivity.EXTRA_COMPATIBILITY_ONLY, spec.compatibilityOnly)
                 },
             )
         }
@@ -819,6 +827,7 @@ class AccountActivity : AppCompatActivity() {
         val message: Int,
         val action: Int,
         val reauthorize: Boolean,
+        val compatibilityOnly: Boolean = false,
     )
 
     companion object {

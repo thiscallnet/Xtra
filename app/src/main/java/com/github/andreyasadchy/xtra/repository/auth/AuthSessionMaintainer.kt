@@ -137,7 +137,7 @@ internal suspend fun recoverCompatibilitySessionAfterUnauthorized(
             onInvalid()
             CompatibilityUnauthorizedRecovery.INVALID
         } else {
-            // AuthCoordinator validates the replacement before persisting it.
+            // AuthCoordinator durably stores the rotated pair before validating it.
             CompatibilityUnauthorizedRecovery.RECOVERED
         }
     } catch (error: CancellationException) {
@@ -334,6 +334,8 @@ class AuthSessionMaintainer(
             } else if ((!expectedUserId.isNullOrBlank() && response.userId != expectedUserId) ||
                 (!expectedLogin.isNullOrBlank() && !response.login.isNullOrBlank() && !response.login.equals(expectedLogin, ignoreCase = true))
             ) {
+                ValidationResult.INVALID
+            } else if (!hasRequiredOfficialScopes(response.scopes)) {
                 ValidationResult.INVALID
             } else {
                 applicationContext.tokenPrefs().edit {

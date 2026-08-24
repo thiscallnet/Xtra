@@ -1431,4 +1431,7 @@
     <string name="settings_layout_preview">プレビュー</string>
     <string name="settings_tabs_preview_help">プレビューには下の順序と表示状態が反映されます。</string>
     <string name="settings_sections_preview_help">プレビューには現在の順序で表示されるセクションが表示されます。</string>
+    <string name="auth_health_compatibility_title">Twitch の拡張機能を利用できません</string>
+    <string name="auth_health_compatibility_message">Twitch アカウントは接続されたままです。互換性機能を復元するには、拡張機能に再接続してください。</string>
+    <string name="auth_health_compatibility_reconnect">拡張機能に再接続</string>
 </resources>

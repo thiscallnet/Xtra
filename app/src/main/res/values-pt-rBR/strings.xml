@@ -1431,4 +1431,7 @@
     <string name="settings_layout_preview">Prévia</string>
     <string name="settings_tabs_preview_help">A prévia segue a ordem e a visibilidade abaixo.</string>
     <string name="settings_sections_preview_help">A prévia mostra as seções visíveis na ordem atual.</string>
+    <string name="auth_health_compatibility_title">Recursos avançados da Twitch indisponíveis</string>
+    <string name="auth_health_compatibility_message">Sua conta da Twitch ainda está conectada. Reconecte os recursos avançados para restaurar a funcionalidade de compatibilidade.</string>
+    <string name="auth_health_compatibility_reconnect">Reconectar recursos avançados</string>
 </resources>

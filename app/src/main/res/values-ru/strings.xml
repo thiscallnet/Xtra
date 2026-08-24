@@ -1431,4 +1431,7 @@
     <string name="settings_layout_preview">Предпросмотр</string>
     <string name="settings_tabs_preview_help">Предпросмотр учитывает порядок и видимость ниже.</string>
     <string name="settings_sections_preview_help">Предпросмотр показывает видимые разделы в текущем порядке.</string>
+    <string name="auth_health_compatibility_title">Расширенные функции Twitch недоступны</string>
+    <string name="auth_health_compatibility_message">Ваш аккаунт Twitch по-прежнему подключён. Подключите расширенные функции повторно, чтобы восстановить функции совместимости.</string>
+    <string name="auth_health_compatibility_reconnect">Подключить расширенные функции повторно</string>
 </resources>

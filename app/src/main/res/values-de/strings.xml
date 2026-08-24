@@ -1431,4 +1431,7 @@
     <string name="settings_layout_preview">Vorschau</string>
     <string name="settings_tabs_preview_help">Die Vorschau folgt der unten angezeigten Reihenfolge und Sichtbarkeit.</string>
     <string name="settings_sections_preview_help">Die Vorschau zeigt die sichtbaren Bereiche in ihrer aktuellen Reihenfolge.</string>
+    <string name="auth_health_compatibility_title">Erweiterte Twitch-Funktionen nicht verfügbar</string>
+    <string name="auth_health_compatibility_message">Dein Twitch-Konto ist weiterhin verbunden. Verbinde die erweiterten Funktionen erneut, um die Kompatibilitätsfunktionen wiederherzustellen.</string>
+    <string name="auth_health_compatibility_reconnect">Erweiterte Funktionen erneut verbinden</string>
 </resources>

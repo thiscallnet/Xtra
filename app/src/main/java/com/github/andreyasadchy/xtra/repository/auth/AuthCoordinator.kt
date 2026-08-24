@@ -39,7 +39,7 @@ class AuthCoordinator(
         if (!isReauthorizationUserAllowed(reauthorize, previousUserId, userId)) {
             throw TwitchAuthAccountMismatchException()
         }
-        if (reauthorize && !hasRequiredReauthorizationScopes(validation.scopes)) {
+        if (!hasRequiredOfficialScopes(validation.scopes)) {
             throw TwitchAuthMissingScopesException()
         }
 
@@ -95,6 +95,51 @@ class AuthCoordinator(
         )
     }
 
+    /** Commits the official account independently from the optional compatibility capability. */
+    suspend fun commitOfficialSession(
+        official: AuthSession,
+        reauthorize: Boolean,
+    ): AuthCommitResult = SESSION_MUTEX.withLock {
+        val previousSession = sessionStore.read()
+        val previousUserId = previousSession?.userId ?: sessionStore.storedUserId()
+        val previousLogin = previousSession?.login ?: sessionStore.storedLogin()
+        if (!isReauthorizationUserAllowed(reauthorize, previousUserId, official.userId)) {
+            throw TwitchAuthAccountMismatchException()
+        }
+        val sameStoredAccount = when {
+            previousUserId != null -> previousUserId == official.userId
+            previousLogin != null -> official.login?.equals(previousLogin, ignoreCase = true) == true
+            else -> false
+        }
+        val accountChanged = (previousUserId != null || previousLogin != null) && !sameStoredAccount
+        if (!sessionStore.commitOfficialSession(official)) {
+            throw TwitchAuthException("Unable to save the official Twitch session")
+        }
+        AuthCommitResult(
+            session = official,
+            accountChanged = accountChanged,
+            revocationFailures = 0,
+        )
+    }
+
+    /** Commits compatibility without changing the already authenticated official account. */
+    suspend fun commitCompatibilitySession(
+        compatibility: CompatibilitySession,
+    ): AuthCommitResult = SESSION_MUTEX.withLock {
+        val official = sessionStore.read() ?: throw TwitchAuthException("No official Twitch session is available")
+        if (official.userId != compatibility.userId) {
+            throw TwitchAuthAccountMismatchException()
+        }
+        if (!sessionStore.updateCompatibilitySession(compatibility)) {
+            throw TwitchAuthException("Unable to save the Twitch compatibility session")
+        }
+        AuthCommitResult(
+            session = official,
+            accountChanged = false,
+            revocationFailures = 0,
+        )
+    }
+
     suspend fun refreshIfNeeded(force: Boolean = false): AuthSession? = SESSION_MUTEX.withLock {
         val current = sessionStore.read() ?: return null
         if (!force && !current.isAccessTokenExpired(nowMillis())) return current
@@ -104,16 +149,33 @@ class AuthCoordinator(
             ?: throw TwitchAuthProtocolException("Twitch did not return a refreshed access token")
         val expiresIn = response.expiresIn?.takeIf { it > 0 }
             ?: throw TwitchAuthProtocolException("Twitch did not return a refreshed token lifetime")
+        val rotatedRefreshToken = response.refreshToken?.takeIf { it.isNotBlank() }
+            ?: throw TwitchAuthProtocolException("Twitch refresh response did not contain a refresh token")
+        val expiresAtMillis = nowMillis() + expiresIn * 1_000L
+        if (!sessionStore.updateTokens(
+                accessToken = accessToken,
+                refreshToken = rotatedRefreshToken,
+                expiresAtMillis = expiresAtMillis,
+                clientId = current.clientId,
+                userId = current.userId,
+                login = current.login,
+                scopes = current.scopes,
+                validatedAtMillis = null,
+            )
+        ) {
+            throw TwitchAuthException("Unable to save the refreshed Twitch session")
+        }
         val validation = repository.validate(accessToken)
         if (validation.clientId != current.clientId || validation.userId != current.userId) {
             throw TwitchAuthAccountMismatchException()
         }
-        val rotatedRefreshToken = response.refreshToken?.takeIf { it.isNotBlank() }
-            ?: throw TwitchAuthProtocolException("Twitch refresh response did not contain a refresh token")
+        if (!hasRequiredOfficialScopes(validation.scopes)) {
+            throw TwitchAuthMissingScopesException()
+        }
         val refreshed = current.copy(
             accessToken = accessToken,
             refreshToken = rotatedRefreshToken,
-            expiresAtMillis = nowMillis() + expiresIn * 1_000L,
+            expiresAtMillis = expiresAtMillis,
             login = validation.login ?: current.login,
             scopes = validation.scopes.toSet().ifEmpty { current.scopes },
         )
@@ -196,6 +258,18 @@ class AuthCoordinator(
             ?: throw TwitchAuthProtocolException("Twitch did not return a refreshed compatibility access token")
         val replacementRefreshToken = response.refreshToken?.takeIf { it.isNotBlank() }
             ?: throw TwitchAuthProtocolException("Twitch compatibility refresh response did not contain a refresh token")
+        val expiresAtMillis = response.expiresIn
+            ?.takeIf { it > 0 }
+            ?.let { nowMillis() + it * 1_000L }
+            ?: current.expiresAtMillis
+        val replacement = current.copy(
+            accessToken = accessToken,
+            refreshToken = replacementRefreshToken,
+            expiresAtMillis = expiresAtMillis,
+        )
+        if (!sessionStore.updateCompatibilitySession(replacement)) {
+            throw TwitchAuthException("Unable to save the refreshed Twitch compatibility session")
+        }
         val validation = repository.validateCompatibility(accessToken)
         if (validation.clientId != current.clientId || validation.userId != current.userId) {
             throw TwitchAuthAccountMismatchException()
@@ -203,10 +277,7 @@ class AuthCoordinator(
         val refreshed = current.copy(
             accessToken = accessToken,
             refreshToken = replacementRefreshToken,
-            expiresAtMillis = response.expiresIn
-                ?.takeIf { it > 0 }
-                ?.let { nowMillis() + it * 1_000L }
-                ?: current.expiresAtMillis,
+            expiresAtMillis = expiresAtMillis,
             scopes = validation.scopes.toSet().ifEmpty { response.scopes.toSet().ifEmpty { current.scopes } },
             tokenType = response.tokenType ?: current.tokenType,
         )

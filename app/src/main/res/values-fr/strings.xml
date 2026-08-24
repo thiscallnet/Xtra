@@ -1431,4 +1431,7 @@
     <string name="settings_layout_preview">Aperçu</string>
     <string name="settings_tabs_preview_help">L’aperçu suit l’ordre et la visibilité indiqués ci-dessous.</string>
     <string name="settings_sections_preview_help">L’aperçu affiche les sections visibles dans leur ordre actuel.</string>
+    <string name="auth_health_compatibility_title">Fonctionnalités Twitch avancées indisponibles</string>
+    <string name="auth_health_compatibility_message">Votre compte Twitch est toujours connecté. Reconnectez les fonctionnalités avancées pour rétablir les fonctions de compatibilité.</string>
+    <string name="auth_health_compatibility_reconnect">Reconnecter les fonctionnalités avancées</string>
 </resources>

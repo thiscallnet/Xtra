@@ -1431,4 +1431,7 @@
     <string name="settings_layout_preview">預覽</string>
     <string name="settings_tabs_preview_help">預覽會依照下方的順序和可見性顯示。</string>
     <string name="settings_sections_preview_help">預覽會依目前順序顯示可見區段。</string>
+    <string name="auth_health_compatibility_title">Twitch 增強功能無法使用</string>
+    <string name="auth_health_compatibility_message">您的 Twitch 帳戶仍保持連線。請重新連線增強功能，以恢復相容性功能。</string>
+    <string name="auth_health_compatibility_reconnect">重新連線增強功能</string>
 </resources>

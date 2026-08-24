@@ -276,6 +276,9 @@
     <string name="auth_health_reauth_title">Reconnect to Twitch</string>
     <string name="auth_health_reauth_message">Your Xtra sign-in is incomplete or no longer valid. Reconnect to Twitch to enable all account features.</string>
     <string name="auth_health_reconnect">Reconnect to Twitch</string>
+    <string name="auth_health_compatibility_title">Enhanced Twitch features unavailable</string>
+    <string name="auth_health_compatibility_message">Your Twitch account is still connected. Reconnect enhanced features to restore compatibility functionality.</string>
+    <string name="auth_health_compatibility_reconnect">Reconnect enhanced features</string>
     <string name="auth_health_account_details">Account details</string>
     <string name="auth_health_not_now">Not now</string>
     <string name="account_open_twitch">Open Twitch</string>

@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.login
 
+import com.github.andreyasadchy.xtra.clearAccountScopedState
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,6 +13,13 @@ class LoginTransactionTest {
     fun `cancellation is rejected once the complete session commit starts`() {
         assertTrue(canCancelLogin(finalCommitStarted = false))
         assertFalse(canCancelLogin(finalCommitStarted = true))
+    }
+
+    @Test
+    fun `browser failure after official commit stays in compatibility recovery`() {
+        assertTrue(isCompatibilityLoginPhase(compatibilityOnly = false, officialCommittedThisFlow = true))
+        assertTrue(isCompatibilityLoginPhase(compatibilityOnly = true, officialCommittedThisFlow = false))
+        assertFalse(isCompatibilityLoginPhase(compatibilityOnly = false, officialCommittedThisFlow = false))
     }
 
     @Test

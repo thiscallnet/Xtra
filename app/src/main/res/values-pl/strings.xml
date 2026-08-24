@@ -1433,4 +1433,7 @@
     <string name="settings_layout_preview">Podgląd</string>
     <string name="settings_tabs_preview_help">Podgląd odzwierciedla kolejność i widoczność poniżej.</string>
     <string name="settings_sections_preview_help">Podgląd pokazuje widoczne sekcje w bieżącej kolejności.</string>
+    <string name="auth_health_compatibility_title">Rozszerzone funkcje Twitcha są niedostępne</string>
+    <string name="auth_health_compatibility_message">Twoje konto Twitch jest nadal połączone. Połącz ponownie rozszerzone funkcje, aby przywrócić funkcje zgodności.</string>
+    <string name="auth_health_compatibility_reconnect">Połącz ponownie rozszerzone funkcje</string>
 </resources>

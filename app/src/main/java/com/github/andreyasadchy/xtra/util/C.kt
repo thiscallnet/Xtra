@@ -49,6 +49,8 @@ object C {
     const val TOKEN_CLIENT_ID = "token_client_id"
     const val TOKEN_SCOPES = "token_scopes"
     const val TOKEN_VALIDATED_AT = "token_validated_at"
+    const val ACCOUNT_CLEANUP_PENDING = "account_cleanup_pending"
+    const val ACCOUNT_CLEANUP_TARGETS = "account_cleanup_targets"
     const val USERNAME = "username"
     const val USER_ID = "user_id"
     const val PROFILE_IMAGE_URL = "profile_image_url"

@@ -50,6 +50,11 @@ data class PrivateGqlCredential(
     val userId: String,
 )
 
+internal data class PendingAccountCleanup(
+    val userId: String?,
+    val login: String?,
+)
+
 data class StoredCredentials(
     val helixClientId: String?,
     val helixToken: String?,
@@ -84,6 +89,35 @@ class AuthSessionStore(
     private val preferences: SharedPreferences,
     private val tokenPreferences: SharedPreferences,
 ) {
+    internal fun pendingAccountCleanups(): List<PendingAccountCleanup> =
+        tokenPreferences.getStringSet(C.ACCOUNT_CLEANUP_TARGETS, mutableSetOf())
+            .orEmpty()
+            .mapNotNull(::decodePendingAccountCleanup)
+
+    fun markAccountCleanupPending(userId: String?, login: String?): Boolean {
+        if (userId.isNullOrBlank() && login.isNullOrBlank()) return true
+        val targets = pendingAccountCleanupValues()
+        targets += encodePendingAccountCleanup(userId, login)
+        return tokenPreferences.edit()
+            .putBoolean(C.ACCOUNT_CLEANUP_PENDING, true)
+            .putStringSet(C.ACCOUNT_CLEANUP_TARGETS, targets)
+            .commit()
+    }
+
+    internal fun clearAccountCleanup(target: PendingAccountCleanup): Boolean {
+        val targets = pendingAccountCleanupValues()
+        if (!targets.remove(encodePendingAccountCleanup(target.userId, target.login))) return true
+        val editor = tokenPreferences.edit()
+        if (targets.isEmpty()) {
+            editor.remove(C.ACCOUNT_CLEANUP_PENDING)
+            editor.remove(C.ACCOUNT_CLEANUP_TARGETS)
+        } else {
+            editor.putBoolean(C.ACCOUNT_CLEANUP_PENDING, true)
+            editor.putStringSet(C.ACCOUNT_CLEANUP_TARGETS, targets)
+        }
+        return editor.commit()
+    }
+
     fun read(): AuthSession? {
         val accessToken = tokenPreferences.getString(C.TOKEN, null)?.takeIf { it.isNotBlank() } ?: return null
         val clientId = tokenPreferences.getString(C.TOKEN_CLIENT_ID, null)
@@ -246,6 +280,7 @@ class AuthSessionStore(
         }
         val editor = tokenPreferences.edit()
         editor.apply {
+            appendAccountCleanupTarget(this, official.userId, official.login)
             putString(C.TOKEN, official.accessToken)
             putString(C.TOKEN_REFRESH, official.refreshToken)
             putLong(C.TOKEN_EXPIRES_AT, official.expiresAtMillis)
@@ -270,6 +305,41 @@ class AuthSessionStore(
             remove(C.GQL_TOKEN_WEB)
             remove(C.GQL_TOKEN_WEB_USER_ID)
             putLong(C.INTEGRITY_EXPIRATION, 0)
+        }
+        return editor.commit()
+    }
+
+    /** Persists the official account without requiring compatibility GQL to be available. */
+    fun commitOfficialSession(official: AuthSession): Boolean {
+        if (official.refreshToken.isNullOrBlank()) return false
+        val compatibilityBelongsToAccount =
+            tokenPreferences.getString(C.GQL_TOKEN2_USER_ID, null) == official.userId
+        val editor = tokenPreferences.edit()
+        editor.apply {
+            appendAccountCleanupTarget(this, official.userId, official.login)
+            putString(C.TOKEN, official.accessToken)
+            putString(C.TOKEN_REFRESH, official.refreshToken)
+            putLong(C.TOKEN_EXPIRES_AT, official.expiresAtMillis)
+            putString(C.TOKEN_CLIENT_ID, official.clientId)
+            putString(C.TOKEN_SCOPES, official.scopes.sorted().joinToString(" "))
+            putLong(C.TOKEN_VALIDATED_AT, System.currentTimeMillis())
+            putString(C.USER_ID, official.userId)
+            putString(C.USERNAME, official.login)
+
+            if (!compatibilityBelongsToAccount) {
+                remove(C.GQL_TOKEN2)
+                remove(C.GQL_TOKEN2_REFRESH)
+                remove(C.GQL_TOKEN2_EXPIRES_AT)
+                remove(C.GQL_TOKEN2_CLIENT_ID)
+                remove(C.GQL_TOKEN2_USER_ID)
+                remove(C.GQL_TOKEN2_SCOPES)
+                remove(C.GQL_TOKEN2_TYPE)
+                remove(C.GQL_HEADERS)
+                remove(C.GQL_TOKEN)
+                remove(C.GQL_TOKEN_WEB)
+                remove(C.GQL_TOKEN_WEB_USER_ID)
+                putLong(C.INTEGRITY_EXPIRATION, 0)
+            }
         }
         return editor.commit()
     }
@@ -313,7 +383,7 @@ class AuthSessionStore(
         return tokenPreferences.edit().putString(C.GQL_TOKEN_WEB_USER_ID, userId).commit()
     }
 
-    /** Writes rotated access/refresh tokens only after the replacement has been validated. */
+    /** Durably writes a replacement access/refresh pair returned by Twitch. */
     fun updateTokens(
         accessToken: String,
         refreshToken: String?,
@@ -322,6 +392,7 @@ class AuthSessionStore(
         userId: String,
         login: String?,
         scopes: Collection<String>,
+        validatedAtMillis: Long? = System.currentTimeMillis(),
     ): Boolean {
         val editor = tokenPreferences.edit()
         editor.apply {
@@ -330,7 +401,7 @@ class AuthSessionStore(
             putLong(C.TOKEN_EXPIRES_AT, expiresAtMillis)
             putString(C.TOKEN_CLIENT_ID, clientId)
             putString(C.TOKEN_SCOPES, scopes.sorted().joinToString(" "))
-            putLong(C.TOKEN_VALIDATED_AT, System.currentTimeMillis())
+            validatedAtMillis?.let { putLong(C.TOKEN_VALIDATED_AT, it) }
             putString(C.USER_ID, userId)
             putString(C.USERNAME, login)
         }
@@ -338,8 +409,18 @@ class AuthSessionStore(
     }
 
     fun clearAll(): Boolean {
-        val editor = tokenPreferences.edit()
-        editor.clear()
+        val targets = pendingAccountCleanupValues()
+        val previousUserId = tokenPreferences.getString(C.USER_ID, null)
+        val previousLogin = tokenPreferences.getString(C.USERNAME, null)
+        if (!previousUserId.isNullOrBlank() || !previousLogin.isNullOrBlank()) {
+            targets += encodePendingAccountCleanup(previousUserId, previousLogin)
+        }
+        val editor = tokenPreferences.edit().clear()
+        if (targets.isNotEmpty()) {
+            editor
+                .putBoolean(C.ACCOUNT_CLEANUP_PENDING, true)
+                .putStringSet(C.ACCOUNT_CLEANUP_TARGETS, targets)
+        }
         return editor.commit()
     }
 
@@ -348,4 +429,46 @@ class AuthSessionStore(
             ?.let { runCatching { JSONObject(it) }.getOrNull() }
 
     private fun String?.hasText(): Boolean = !isNullOrBlank()
+
+    private fun pendingAccountCleanupValues(): MutableSet<String> =
+        tokenPreferences.getStringSet(C.ACCOUNT_CLEANUP_TARGETS, mutableSetOf())?.toMutableSet()
+            ?: mutableSetOf()
+
+    private fun appendAccountCleanupTarget(
+        editor: SharedPreferences.Editor,
+        newUserId: String,
+        newLogin: String?,
+    ) {
+        val previousUserId = tokenPreferences.getString(C.USER_ID, null)
+        val previousLogin = tokenPreferences.getString(C.USERNAME, null)
+        val accountChanged = when {
+            !previousUserId.isNullOrBlank() -> previousUserId != newUserId
+            !previousLogin.isNullOrBlank() -> !previousLogin.equals(newLogin, ignoreCase = true)
+            else -> false
+        }
+        if (!accountChanged || (previousUserId.isNullOrBlank() && previousLogin.isNullOrBlank())) return
+        val targets = pendingAccountCleanupValues()
+        targets += encodePendingAccountCleanup(previousUserId, previousLogin)
+        editor
+            .putBoolean(C.ACCOUNT_CLEANUP_PENDING, true)
+            .putStringSet(C.ACCOUNT_CLEANUP_TARGETS, targets)
+    }
+
+    private fun encodePendingAccountCleanup(userId: String?, login: String?): String =
+        "${userId.orEmpty()}$ACCOUNT_CLEANUP_SEPARATOR${login.orEmpty()}"
+
+    private fun decodePendingAccountCleanup(value: String): PendingAccountCleanup? {
+        val separator = value.indexOf(ACCOUNT_CLEANUP_SEPARATOR)
+        val userId = if (separator >= 0) value.substring(0, separator) else value
+        val login = if (separator >= 0) value.substring(separator + 1) else ""
+        if (userId.isBlank() && login.isBlank()) return null
+        return PendingAccountCleanup(
+            userId = userId.takeIf { it.isNotBlank() },
+            login = login.takeIf { it.isNotBlank() },
+        )
+    }
+
+    private companion object {
+        const val ACCOUNT_CLEANUP_SEPARATOR = '|'
+    }
 }

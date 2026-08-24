@@ -154,6 +154,116 @@ class AuthCoordinatorTest {
     }
 
     @Test
+    fun `compatibility-only replacement preserves the official session`() {
+        val (store, tokenPreferences) = seededStore()
+        val coordinator = AuthCoordinator(FakeAuthOperations(), store)
+
+        runBlocking {
+            coordinator.commitCompatibilitySession(oldCompatibility().copy(accessToken = "replacement-gql"))
+        }
+
+        assertEquals("old-access", store.read()?.accessToken)
+        assertEquals("old-refresh", store.read()?.refreshToken)
+        assertEquals("replacement-gql", tokenPreferences.getString(C.GQL_TOKEN2, null))
+    }
+
+    @Test
+    fun `official session can be committed without compatibility credentials`() {
+        val preferences = MemoryPreferences()
+        val tokenPreferences = MemoryPreferences()
+        val store = AuthSessionStore(preferences, tokenPreferences)
+        val coordinator = AuthCoordinator(FakeAuthOperations(), store)
+
+        runBlocking {
+            coordinator.commitOfficialSession(oldOfficial(), reauthorize = false)
+        }
+
+        assertEquals("old-access", store.read()?.accessToken)
+        assertEquals("old-refresh", store.read()?.refreshToken)
+        assertNull(store.readCompatibility())
+    }
+
+    @Test
+    fun `official account replacement clears compatibility from another account`() {
+        val (store, tokenPreferences) = seededStore()
+        val coordinator = AuthCoordinator(FakeAuthOperations(), store)
+        val replacement = oldOfficial().copy(userId = "other-user", accessToken = "other-access")
+
+        runBlocking {
+            coordinator.commitOfficialSession(replacement, reauthorize = false)
+        }
+
+        assertEquals("other-access", store.read()?.accessToken)
+        assertNull(store.readCompatibility())
+        assertNull(tokenPreferences.getString(C.GQL_TOKEN2, null))
+        assertTrue(tokenPreferences.getBoolean(C.ACCOUNT_CLEANUP_PENDING, false))
+        assertEquals(
+            listOf(PendingAccountCleanup(userId = "user", login = "viewer")),
+            store.pendingAccountCleanups(),
+        )
+    }
+
+    @Test
+    fun `pending account cleanup can be acknowledged after process recovery`() {
+        val (store, tokenPreferences) = seededStore()
+        val coordinator = AuthCoordinator(FakeAuthOperations(), store)
+        val replacement = oldOfficial().copy(userId = "other-user", accessToken = "other-access")
+
+        runBlocking {
+            coordinator.commitOfficialSession(replacement, reauthorize = false)
+        }
+
+        val target = store.pendingAccountCleanups().single()
+        assertTrue(store.clearAccountCleanup(target))
+        assertTrue(store.pendingAccountCleanups().isEmpty())
+        assertFalse(tokenPreferences.getBoolean(C.ACCOUNT_CLEANUP_PENDING, false))
+    }
+
+    @Test
+    fun `clearing auth credentials preserves pending account cleanup`() {
+        val (store, tokenPreferences) = seededStore()
+        val target = PendingAccountCleanup(userId = "previous-user", login = "previous-viewer")
+
+        assertTrue(store.markAccountCleanupPending(target.userId, target.login))
+        assertTrue(store.clearAll())
+
+        assertTrue(store.pendingAccountCleanups().contains(target))
+        assertTrue(
+            store.pendingAccountCleanups().contains(
+                PendingAccountCleanup(userId = "user", login = "viewer"),
+            ),
+        )
+        assertTrue(tokenPreferences.getBoolean(C.ACCOUNT_CLEANUP_PENDING, false))
+    }
+
+    @Test
+    fun `fresh login rejects an incomplete official scope grant`() {
+        val preferences = MemoryPreferences()
+        val tokenPreferences = MemoryPreferences()
+        val store = AuthSessionStore(preferences, tokenPreferences)
+        val repository = FakeAuthOperations(
+            officialValidation = ValidationResponse(
+                "new-helix",
+                userId = "new-user",
+                scopes = (REQUIRED_OFFICIAL_SCOPES - "user:write:chat").toList(),
+            ),
+        )
+
+        val error = runCatching {
+            runBlocking {
+                AuthCoordinator(repository, store).validateOfficial(
+                    officialToken("incomplete-access"),
+                    "new-helix",
+                    reauthorize = false,
+                )
+            }
+        }.exceptionOrNull()
+
+        assertTrue(error is TwitchAuthMissingScopesException)
+        assertNull(store.read())
+    }
+
+    @Test
     fun `compatibility account mismatch leaves the active pair untouched`() {
         val (store, tokenPreferences) = seededStore()
         val repository = FakeAuthOperations(
@@ -289,6 +399,46 @@ class AuthCoordinatorTest {
     }
 
     @Test
+    fun `official refresh persists the rotated pair before validation`() {
+        val (store, tokenPreferences) = seededStore(expired = true)
+        val validatedAt = tokenPreferences.getLong(C.TOKEN_VALIDATED_AT, 0L)
+        val repository = FakeAuthOperations(
+            officialValidationError = TwitchAuthHttpException(statusCode = 503),
+            refresh = officialToken("refreshed-access", refreshToken = "rotated-refresh"),
+        )
+
+        runCatching {
+            runBlocking {
+                AuthCoordinator(repository, store, nowMillis = { 10_000L }).refreshIfNeeded()
+            }
+        }
+
+        assertEquals("refreshed-access", store.read()?.accessToken)
+        assertEquals("rotated-refresh", store.read()?.refreshToken)
+        assertEquals(validatedAt, tokenPreferences.getLong(C.TOKEN_VALIDATED_AT, 0L))
+        assertEquals("old-gql", tokenPreferences.getString(C.GQL_TOKEN2, null))
+    }
+
+    @Test
+    fun `compatibility refresh persists the rotated pair before validation`() {
+        val (store, tokenPreferences) = seededStore()
+        tokenPreferences.edit().putLong(C.GQL_TOKEN2_EXPIRES_AT, 1L).commit()
+        val repository = FakeAuthOperations(
+            compatibilityValidationError = TwitchAuthHttpException(statusCode = 503),
+            refresh = compatibilityToken("refreshed-gql").copy(refreshToken = "rotated-gql-refresh"),
+        )
+
+        runCatching {
+            runBlocking {
+                AuthCoordinator(repository, store, nowMillis = { 10_000L }).refreshCompatibilityIfNeeded()
+            }
+        }
+
+        assertEquals("refreshed-gql", tokenPreferences.getString(C.GQL_TOKEN2, null))
+        assertEquals("rotated-gql-refresh", tokenPreferences.getString(C.GQL_TOKEN2_REFRESH, null))
+    }
+
+    @Test
     fun `raw legacy compatibility credentials are not a complete session`() {
         val preferences = MemoryPreferences()
         val tokenPreferences = MemoryPreferences()
@@ -392,6 +542,8 @@ class AuthCoordinatorTest {
     private class FakeAuthOperations(
         private val officialValidation: ValidationResponse = ValidationResponse("old-helix", userId = "user", scopes = HELIX_SCOPES),
         private val compatibilityValidation: ValidationResponse = ValidationResponse("old-gql-client", userId = "user", scopes = GQL_SCOPES),
+        private val officialValidationError: Exception? = null,
+        private val compatibilityValidationError: Exception? = null,
         private val refresh: TokenResponse = TokenResponse(),
     ) : TwitchAuthOperations {
         val revoked = mutableListOf<Pair<String, String>>()
@@ -400,8 +552,10 @@ class AuthCoordinatorTest {
         override suspend fun startDeviceAuthorization(clientId: String, scopes: Collection<String>) = DeviceCodeResponse()
         override suspend fun pollDeviceAuthorization(clientId: String, deviceCode: String, scopes: Collection<String>) = TokenResponse()
         override suspend fun refreshUserToken(clientId: String, refreshToken: String) = refresh
-        override suspend fun validate(accessToken: String) = officialValidation
-        override suspend fun validateCompatibility(accessToken: String) = compatibilityValidation
+        override suspend fun validate(accessToken: String): ValidationResponse =
+            officialValidationError?.let { throw it } ?: officialValidation
+        override suspend fun validateCompatibility(accessToken: String): ValidationResponse =
+            compatibilityValidationError?.let { throw it } ?: compatibilityValidation
         override suspend fun revoke(clientId: String, accessToken: String) {
             revoked += clientId to accessToken
             onRevoke(clientId, accessToken)
@@ -468,8 +622,8 @@ class AuthCoordinatorTest {
     }
 
     private companion object {
-        val HELIX_SCOPES = listOf("user:edit", "user:read:follows")
-        val REAUTH_SCOPES = HELIX_SCOPES + REAUTHORIZATION_ACCOUNT_SCOPES
+        val HELIX_SCOPES = REQUIRED_OFFICIAL_SCOPES.toList()
+        val REAUTH_SCOPES = HELIX_SCOPES
         val GQL_SCOPES = listOf("channel_read", "chat:read")
     }
 }

@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.login
 
 import android.net.Uri
 import com.github.andreyasadchy.xtra.model.id.DeviceCodeResponse
+import com.github.andreyasadchy.xtra.repository.auth.REQUIRED_OFFICIAL_SCOPES
 
 enum class LoginError {
     SETUP_REQUIRED,
@@ -36,7 +37,7 @@ sealed interface LoginUiState {
         val isPolling: Boolean,
     ) : LoginUiState
 
-    /** The first grant is staged; the second approval is still required before Xtra is signed in. */
+    /** The official grant is active; the second approval enables enhanced compatibility features. */
     data object CompatibilityReady : LoginUiState
 
     data object Validating : LoginUiState
@@ -64,33 +65,7 @@ sealed interface LoginUiState {
     ) : LoginUiState
 }
 
-internal val HELIX_LOGIN_SCOPES = listOf(
-    "channel:edit:commercial", // ChannelPage / commercials.
-    "channel:manage:broadcast", // Stream markers and broadcast settings.
-    "channel:manage:moderators", // Channel moderation management.
-    "channel:manage:raids", // Channel raids.
-    "channel:manage:vips", // Channel VIP management.
-    "channel:moderate", // Channel moderation actions.
-    "channel:read:polls", // Own-channel poll/EventSub activity.
-    "channel:read:predictions", // Own-channel prediction/EventSub activity.
-    "chat:edit", // IRC chat commands.
-    "chat:read", // IRC chat messages.
-    "moderator:manage:announcements", // Chat announcements.
-    "moderator:manage:banned_users", // Moderation bans.
-    "moderator:manage:chat_messages", // Moderation chat actions.
-    "moderator:manage:chat_settings", // Chat settings.
-    "moderator:read:chatters", // Chatter lists.
-    "moderator:read:followers", // Channel followers.
-    "user:manage:chat_color", // Chat color.
-    "user:manage:whispers", // Whispers.
-    "user:edit", // Account/profile editing.
-    "user:read:blocked_users", // Account blocked-user list.
-    "user:manage:blocked_users", // Account blocked-user actions.
-    "user:read:chat", // Chat identity and permissions.
-    "user:read:emotes", // User chat emotes.
-    "user:read:follows", // Followed streams/channels.
-    "user:write:chat", // Helix chat messages.
-)
+internal val HELIX_LOGIN_SCOPES = REQUIRED_OFFICIAL_SCOPES.toList()
 
 internal val GQL_COMPATIBILITY_SCOPES = listOf(
     "channel_read",

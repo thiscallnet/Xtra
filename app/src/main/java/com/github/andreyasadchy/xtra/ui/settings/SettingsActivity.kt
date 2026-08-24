@@ -135,7 +135,9 @@ internal fun serializeSpeedOptions(items: List<SettingsDragListItem>): String =
     items.joinToString(",") { "${it.key}:${if (it.enabled) "1" else "0"}" }
 
 internal fun isSettingsAccountConnected(health: AuthHealth): Boolean =
-    health == AuthHealth.HEALTHY || health == AuthHealth.UNKNOWN
+    health == AuthHealth.HEALTHY ||
+        health == AuthHealth.ENHANCED_FEATURES_UNAVAILABLE ||
+        health == AuthHealth.UNKNOWN
 
 internal fun needsUpdateNotificationUserAction(
     permissionMissing: Boolean,
@@ -242,7 +244,7 @@ class SettingsActivity : AppCompatActivity() {
 
     fun openAccountAction() {
         val health = (application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
-        accountActionIsLogout = health == AuthHealth.HEALTHY
+        accountActionIsLogout = isSettingsAccountConnected(health)
         loginResultLauncher?.launch(Intent(this, LoginActivity::class.java).apply {
             if (health == AuthHealth.REAUTH_REQUIRED) {
                 putExtra(LoginActivity.EXTRA_REAUTHORIZE, true)

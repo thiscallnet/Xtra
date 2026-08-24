@@ -1455,4 +1455,7 @@
     <string name="settings_layout_preview">Náhľad</string>
     <string name="settings_tabs_preview_help">Náhľad sleduje poradie a viditeľnosť uvedené nižšie.</string>
     <string name="settings_sections_preview_help">Náhľad zobrazuje viditeľné sekcie v aktuálnom poradí.</string>
+    <string name="auth_health_compatibility_title">Rozšírené funkcie Twitchu nie sú dostupné</string>
+    <string name="auth_health_compatibility_message">Váš účet Twitch je stále pripojený. Znova pripojte rozšírené funkcie a obnovte funkcie kompatibility.</string>
+    <string name="auth_health_compatibility_reconnect">Znova pripojiť rozšírené funkcie</string>
 </resources>

@@ -1432,4 +1432,7 @@
     <string name="settings_layout_preview">Önizleme</string>
     <string name="settings_tabs_preview_help">Önizleme, aşağıdaki sırayı ve görünürlüğü izler.</string>
     <string name="settings_sections_preview_help">Önizleme, görünür bölümleri geçerli sıralarında gösterir.</string>
+    <string name="auth_health_compatibility_title">Gelişmiş Twitch özellikleri kullanılamıyor</string>
+    <string name="auth_health_compatibility_message">Twitch hesabınız bağlı olmaya devam ediyor. Uyumluluk işlevlerini geri yüklemek için gelişmiş özellikleri yeniden bağlayın.</string>
+    <string name="auth_health_compatibility_reconnect">Gelişmiş özellikleri yeniden bağla</string>
 </resources>

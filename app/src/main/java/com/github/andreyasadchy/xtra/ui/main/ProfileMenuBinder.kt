@@ -187,6 +187,13 @@ object ProfileMenuBinder {
                 intent = Intent(activity, LoginActivity::class.java)
                     .putExtra(LoginActivity.EXTRA_REAUTHORIZE, true),
             )
+            AuthHealth.ENHANCED_FEATURES_UNAVAILABLE -> AuthHealthDialogSpec(
+                title = R.string.auth_health_compatibility_title,
+                message = R.string.auth_health_compatibility_message,
+                actionLabel = R.string.auth_health_compatibility_reconnect,
+                intent = Intent(activity, LoginActivity::class.java)
+                    .putExtra(LoginActivity.EXTRA_COMPATIBILITY_ONLY, true),
+            )
             else -> return
         }
         MaterialAlertDialogBuilder(activity)

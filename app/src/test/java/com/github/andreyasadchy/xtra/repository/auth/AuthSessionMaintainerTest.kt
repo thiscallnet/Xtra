@@ -7,8 +7,9 @@ import org.junit.Test
 
 class AuthSessionMaintainerTest {
     @Test
-    fun `only incomplete authentication requests user attention`() {
+    fun `only invalid authentication requests user attention`() {
         assertTrue(AuthHealth.REAUTH_REQUIRED.requiresUserAction)
+        assertTrue(AuthHealth.ENHANCED_FEATURES_UNAVAILABLE.requiresUserAction)
         assertFalse(AuthHealth.SIGNED_OUT.requiresUserAction)
         assertFalse(AuthHealth.HEALTHY.requiresUserAction)
         assertFalse(AuthHealth.UNKNOWN.requiresUserAction)
@@ -30,9 +31,9 @@ class AuthSessionMaintainerTest {
     }
 
     @Test
-    fun `missing compatibility is reconnect-required rather than limited`() {
+    fun `missing compatibility keeps the official account connected`() {
         assertEquals(
-            AuthHealth.REAUTH_REQUIRED,
+            AuthHealth.ENHANCED_FEATURES_UNAVAILABLE,
             classifyAuthHealth(
                 officialState = OfficialAuthState.VALID,
                 compatibilityState = CompatibilityAuthState.UNAVAILABLE,
@@ -47,14 +48,15 @@ class AuthSessionMaintainerTest {
     @Test
     fun `legacy and incomplete credential topologies require full reconnect`() {
         val cases = listOf(
-            Triple(OfficialAuthState.VALID, false, true),
-            Triple(OfficialAuthState.VALID, false, false),
-            Triple(OfficialAuthState.IDLE, false, true),
-            Triple(OfficialAuthState.VALID, true, false),
+            Triple(OfficialAuthState.VALID, false, true) to AuthHealth.ENHANCED_FEATURES_UNAVAILABLE,
+            Triple(OfficialAuthState.VALID, false, false) to AuthHealth.REAUTH_REQUIRED,
+            Triple(OfficialAuthState.IDLE, false, true) to AuthHealth.REAUTH_REQUIRED,
+            Triple(OfficialAuthState.VALID, true, false) to AuthHealth.REAUTH_REQUIRED,
         )
-        cases.forEach { (officialState, identityPresent, legacyPresent) ->
+        cases.forEach { (case, expectedHealth) ->
+            val (officialState, identityPresent, legacyPresent) = case
             assertEquals(
-                AuthHealth.REAUTH_REQUIRED,
+                expectedHealth,
                 classifyAuthHealth(
                     officialState = officialState,
                     compatibilityState = CompatibilityAuthState.UNAVAILABLE,
@@ -71,7 +73,7 @@ class AuthSessionMaintainerTest {
     @Test
     fun `wrong compatibility account is never healthy`() {
         assertEquals(
-            AuthHealth.REAUTH_REQUIRED,
+            AuthHealth.ENHANCED_FEATURES_UNAVAILABLE,
             classifyAuthHealth(
                 officialState = OfficialAuthState.VALID,
                 compatibilityState = CompatibilityAuthState.AVAILABLE,
@@ -127,7 +129,7 @@ class AuthSessionMaintainerTest {
     @Test
     fun `successful complete replacement clears reconnect-required state`() {
         assertEquals(
-            AuthHealth.REAUTH_REQUIRED,
+            AuthHealth.ENHANCED_FEATURES_UNAVAILABLE,
             classifyAuthHealth(
                 officialState = OfficialAuthState.VALID,
                 compatibilityState = CompatibilityAuthState.REAUTHORIZATION_REQUIRED,
@@ -188,6 +190,20 @@ class AuthSessionMaintainerTest {
 
         assertEquals(OfficialAuthState.VALID, state.officialState)
         assertEquals(CompatibilityAuthState.AVAILABLE, state.compatibilityState)
+        assertFalse(state.shouldSkipOfficialValidation())
+        assertEquals(AuthSessionMaintenanceState.VALID, state.maintenanceState)
+    }
+
+    @Test
+    fun `official-only authentication replacement clears official reauthorization`() {
+        val state = AuthSessionMaintenanceStateMachine()
+        state.setOfficialState(OfficialAuthState.REAUTHORIZATION_REQUIRED)
+        state.setCompatibilityState(CompatibilityAuthState.REAUTHORIZATION_REQUIRED)
+
+        state.onAuthenticationStateChanged(hasOfficialSession = true, hasCompatibilitySession = false)
+
+        assertEquals(OfficialAuthState.VALID, state.officialState)
+        assertEquals(CompatibilityAuthState.UNAVAILABLE, state.compatibilityState)
         assertFalse(state.shouldSkipOfficialValidation())
         assertEquals(AuthSessionMaintenanceState.VALID, state.maintenanceState)
     }
