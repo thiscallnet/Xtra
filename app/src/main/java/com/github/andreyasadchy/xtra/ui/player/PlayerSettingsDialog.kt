@@ -13,6 +13,7 @@ import androidx.core.view.isVisible
 import androidx.media3.common.Tracks
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.PlayerSettingsBinding
+import com.github.andreyasadchy.xtra.ui.settings.PlayerControlLayoutEditor
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.SettingsMigration
@@ -58,6 +59,10 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
         val arguments = requireArguments()
         val type = arguments.getString(TYPE)
         with(binding) {
+            menuCustomizeControls.visibility = View.VISIBLE
+            menuCustomizeControls.setOnClickListener {
+                showControlLayoutEditor()
+            }
             if (type != BasePlaybackService.STREAM && requireContext().prefs().getBoolean(C.PLAYER_MENU_SPEED, false)) {
                 menuSpeed.visibility = View.VISIBLE
                 menuSpeed.setOnClickListener {
@@ -252,6 +257,24 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
         }
         reorderMenuItems()
         setMenuTextColor(view)
+    }
+
+    private fun showControlLayoutEditor() {
+        val host = parentFragment
+        val hostContext = host?.context ?: requireContext()
+        dismiss()
+
+        val show = {
+            if (host == null || host.isAdded) {
+                PlayerControlLayoutEditor.showDialog(hostContext) {
+                    when (host) {
+                        is Media3PlayerFragment -> host.applyControlLayoutFromEditor()
+                        is PlayerFragment -> host.applyControlLayoutFromEditor()
+                    }
+                }
+            }
+        }
+        host?.view?.post(show) ?: show()
     }
 
     private fun reorderMenuItems() {

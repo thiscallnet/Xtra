@@ -1436,4 +1436,5 @@
     <string name="auth_health_compatibility_reconnect">Erweiterte Funktionen erneut verbinden</string>
     <string name="discover_previous_trending">Vorheriger angesagter Stream</string>
     <string name="discover_next_trending">Nächster angesagter Stream</string>
+    <string name="settings_customize_controls_save">Änderungen speichern</string>
 </resources>

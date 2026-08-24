@@ -77,7 +77,7 @@ object PlayerControlLayout {
     fun applyToPlayer(context: Context, binding: FragmentPlayerBinding) {
         val placements = controlPlacements(
             context.prefs().getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
-            defaultControlLayout(),
+            legacyControlLayout(context),
         )
         with(binding.playerControls) {
             val containers = mapOf(
@@ -90,26 +90,7 @@ object PlayerControlLayout {
                 ANCHOR_BOTTOM_CENTER to bottomCenterLayout,
                 ANCHOR_BOTTOM_END to bottomRightLayout,
             )
-            val controls = mapOf(
-                "minimize" to minimize,
-                "download" to download,
-                "follow" to follow,
-                "sleep" to sleepTimer,
-                "aspect" to aspectRatio,
-                "speed" to speed,
-                "quality" to quality,
-                "restart" to restart,
-                "live" to seekLive,
-                "clip" to clip,
-                "chapters" to vodGames,
-                "volume" to volume,
-                "compressor" to audioCompressor,
-                "mode" to audioOnly,
-                "subtitles" to subtitles,
-                "chat_input" to toggleChatInput,
-                "chat" to toggleChat,
-                "fullscreen" to fullscreen,
-            )
+            val controls = playerControlViews(binding)
             val placementByAction = placements.associateBy { it.action }
             val quickOrderByAnchor = placements
                 .filter { it.group == GROUP_QUICK }
@@ -123,8 +104,10 @@ object PlayerControlLayout {
                     (view.parent as? ViewGroup)?.removeView(view)
                     container.addView(view)
                 }
-                if (placement?.group != GROUP_QUICK) {
-                    view.visibility = View.GONE
+                view.visibility = if (placement?.group == GROUP_QUICK && view.hasOnClickListeners()) {
+                    View.VISIBLE
+                } else {
+                    View.GONE
                 }
             }
             containers.forEach { (anchor, container) ->
@@ -157,6 +140,56 @@ object PlayerControlLayout {
         val group = when {
             definition.canQuick && definition.quickDefault -> GROUP_QUICK
             definition.menuDefault -> GROUP_MENU
+            else -> GROUP_HIDDEN
+        }
+        "${definition.action}:$group"
+    }
+
+    /**
+     * Rebuild the runtime visibility baseline without deciding where a control belongs.
+     * A click listener is the player-specific signal that the control is currently eligible.
+     */
+    fun refreshAvailableControls(binding: FragmentPlayerBinding) {
+        playerControlViews(binding).values.forEach { view ->
+            view.visibility = if (view.hasOnClickListeners()) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun playerControlViews(binding: FragmentPlayerBinding): Map<String, View> = with(binding.playerControls) {
+        mapOf(
+            "minimize" to minimize,
+            "download" to download,
+            "follow" to follow,
+            "sleep" to sleepTimer,
+            "aspect" to aspectRatio,
+            "speed" to speed,
+            "quality" to quality,
+            "restart" to restart,
+            "live" to seekLive,
+            "clip" to clip,
+            "chapters" to vodGames,
+            "volume" to volume,
+            "compressor" to audioCompressor,
+            "mode" to audioOnly,
+            "subtitles" to subtitles,
+            "chat_input" to toggleChatInput,
+            "chat" to toggleChat,
+            "fullscreen" to fullscreen,
+        )
+    }
+
+    // Keep pre-editor installations faithful to their old visibility preferences until
+    // they have a serialized layout of their own.
+    private fun legacyControlLayout(context: Context): String = controlDefinitions.joinToString(",") { definition ->
+        val quick = definition.canQuick && definition.quickKey?.let {
+            context.prefs().getBoolean(it, definition.quickDefault)
+        } == true
+        val menu = definition.canMenu && definition.menuKey?.let {
+            context.prefs().getBoolean(it, definition.menuDefault)
+        } == true
+        val group = when {
+            quick -> GROUP_QUICK
+            menu -> GROUP_MENU
             else -> GROUP_HIDDEN
         }
         "${definition.action}:$group"

@@ -1436,4 +1436,5 @@
     <string name="auth_health_compatibility_reconnect">重新連線增強功能</string>
     <string name="discover_previous_trending">上一個熱門直播</string>
     <string name="discover_next_trending">下一個熱門直播</string>
+    <string name="settings_customize_controls_save">儲存變更</string>
 </resources>

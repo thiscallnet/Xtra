@@ -741,7 +741,9 @@ object SettingsMigration {
             source.quickKey?.let { putBoolean(it, group == "quick") }
             source.menuKey?.let { putBoolean(it, group == "menu") }
         }
-        putBoolean(C.PLAYER_MENU, controlSources.any { groups[it.action] == "menu" })
+        // The More menu always contains the control customizer, so removing every
+        // other menu action must not remove the only in-player route back to it.
+        putBoolean(C.PLAYER_MENU, true)
     }
 
     internal fun syncLegacyControlVisibility(preferences: SharedPreferences, serializedLayout: String) {

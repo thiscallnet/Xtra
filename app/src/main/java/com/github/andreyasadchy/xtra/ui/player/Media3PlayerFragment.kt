@@ -254,7 +254,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             resizeMode = requireContext().prefs().getInt(C.ASPECT_RATIO_LANDSCAPE, AspectRatioFrameLayout.RESIZE_MODE_FIT)
             aspectRatioFrameLayout.setAspectRatio(16f / 9f)
             initLayout()
-            PlayerControlLayout.applyToPlayer(requireContext(), binding)
             changePlayerMode()
             val viewConfiguration = ViewConfiguration.get(requireContext())
             val touchSlop = viewConfiguration.scaledTouchSlop
@@ -262,6 +261,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             val longPressTimeout = ViewConfiguration.getLongPressTimeout()
             val moveFreely = requireContext().prefs().getBoolean(C.PLAYER_MOVE_FREELY, false)
             val doubleTap = requireContext().prefs().getBoolean(C.PLAYER_DOUBLE_TAP, true) && requireContext().prefs().isChatEnabled()
+            var controlTouchActive = false
             val controllerTapDetector = GestureDetector(
                 requireContext(),
                 object : GestureDetector.SimpleOnGestureListener() {
@@ -324,7 +324,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 tapEventTime = event.eventTime
                 if (isMaximized) {
                     if (playerControls.root.isVisible) {
-                        playerControls.root.dispatchTouchEvent(event)
+                        controlTouchActive = playerControls.root.dispatchTouchEvent(event)
                     } else {
                         controllerTapDetector.onTouchEvent(event)
                     }
@@ -350,6 +350,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
             fun upAction(event: MotionEvent) {
                 if (isMaximized) {
+                    if (controlTouchActive) {
+                        playerControls.root.dispatchTouchEvent(event)
+                        controlTouchActive = false
+                        return
+                    }
                     if (playerControls.progressBar.isPressed) {
                         playerControls.root.dispatchTouchEvent(event)
                     } else {
@@ -494,7 +499,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         MotionEvent.ACTION_MOVE -> {
                             if (isMaximized) {
                                 playerControls.root.dispatchTouchEvent(event)
-                                if (!playerControls.progressBar.isPressed && !statusBarSwipe && activePointerId != -1) {
+                                if (!controlTouchActive && !playerControls.progressBar.isPressed && !statusBarSwipe && activePointerId != -1) {
                                     val pointerIndex = event.findPointerIndex(activePointerId)
                                     if (pointerIndex != -1) {
                                         val y = event.getY(pointerIndex)
@@ -696,37 +701,31 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         minimize()
                     }
                 }
-                if (requireContext().prefs().getBoolean(C.PLAYER_MINIMIZE, true)) {
-                    minimize.visibility = View.VISIBLE
-                    minimize.setOnClickListener { minimize() }
+                // Placement controls where an eligible action is shown; it must not
+                // prevent the action from being rebound when the editor saves live.
+                minimize.visibility = View.VISIBLE
+                minimize.setOnClickListener { minimize() }
+                volume.visibility = View.VISIBLE
+                volume.setOnClickListener {
+                    showController(force = true)
+                    showVolumeDialog()
                 }
-                if (requireContext().prefs().getBoolean(C.PLAYER_VOLUME_BUTTON, true)) {
-                    volume.visibility = View.VISIBLE
-                    volume.setOnClickListener {
-                        showController(force = true)
-                        showVolumeDialog()
+                quality.visibility = View.VISIBLE
+                quality.setOnClickListener {
+                    showController(force = true)
+                    showQualityDialog()
+                }
+                audioOnly.visibility = View.VISIBLE
+                audioOnly.setOnClickListener {
+                    showController(force = true)
+                    when (viewModel.quality?.name) {
+                        AUDIO_ONLY_QUALITY -> changeQuality(VideoQuality(CHAT_ONLY_QUALITY))
+                        CHAT_ONLY_QUALITY -> changeQuality(viewModel.previousQuality)
+                        else -> changeQuality(viewModel.qualities?.find { it.name == AUDIO_ONLY_QUALITY })
                     }
+                    changePlayerMode()
                 }
-                if (requireContext().prefs().getBoolean(C.PLAYER_SETTINGS, true)) {
-                    quality.visibility = View.VISIBLE
-                    quality.setOnClickListener {
-                        showController(force = true)
-                        showQualityDialog()
-                    }
-                }
-                if (requireContext().prefs().getBoolean(C.PLAYER_MODE, false)) {
-                    audioOnly.visibility = View.VISIBLE
-                    audioOnly.setOnClickListener {
-                        showController(force = true)
-                        when (viewModel.quality?.name) {
-                            AUDIO_ONLY_QUALITY -> changeQuality(VideoQuality(CHAT_ONLY_QUALITY))
-                            CHAT_ONLY_QUALITY -> changeQuality(viewModel.previousQuality)
-                            else -> changeQuality(viewModel.qualities?.find { it.name == AUDIO_ONLY_QUALITY })
-                        }
-                        changePlayerMode()
-                    }
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && requireContext().prefs().getBoolean(C.PLAYER_AUDIO_COMPRESSOR_BUTTON, true)) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     audioCompressor.visibility = View.VISIBLE
                     if (requireContext().prefs().getBoolean(C.PLAYER_AUDIO_COMPRESSOR, false)) {
                         audioCompressor.setImageResource(R.drawable.baseline_audio_compressor_on_24dp)
@@ -738,19 +737,17 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         toggleAudioCompressor()
                     }
                 }
-                if (requireContext().prefs().getBoolean(C.PLAYER_MENU, true)) {
-                    menu.visibility = View.VISIBLE
-                    menu.setOnClickListener {
-                        showController(force = true)
-                        PlayerSettingsDialog.newInstance(
-                            type = videoType,
-                            speedText = getCurrentSpeed()?.let { speed ->
-                                requireContext().prefs().getString(C.PLAYER_SPEED_LIST, "0.25\n0.5\n0.75\n1.0\n1.25\n1.5\n1.75\n2.0\n3.0\n4.0\n8.0")
-                                    ?.split("\n")?.find { it == speed.toString() }
-                            },
-                            vodGames = !viewModel.gamesList.value.isNullOrEmpty()
-                        ).show(childFragmentManager, "closeOnPip")
-                    }
+                menu.visibility = View.VISIBLE
+                menu.setOnClickListener {
+                    showController(force = true)
+                    PlayerSettingsDialog.newInstance(
+                        type = videoType,
+                        speedText = getCurrentSpeed()?.let { speed ->
+                            requireContext().prefs().getString(C.PLAYER_SPEED_LIST, "0.25\n0.5\n0.75\n1.0\n1.25\n1.5\n1.75\n2.0\n3.0\n4.0\n8.0")
+                                ?.split("\n")?.find { it == speed.toString() }
+                        },
+                        vodGames = !viewModel.gamesList.value.isNullOrEmpty()
+                    ).show(childFragmentManager, "closeOnPip")
                 }
                 if (videoType == STREAM) {
                     viewLifecycleOwner.lifecycleScope.launch {
@@ -767,7 +764,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
                                 !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank())
                     ) {
-                        if (requireContext().prefs().getBoolean(C.PLAYER_CHAT_BAR_TOGGLE, false) && requireContext().prefs().isChatEnabled()) {
+                        if (requireContext().prefs().isChatEnabled()) {
                             toggleChatInput.visibility = View.VISIBLE
                             toggleChatInput.setOnClickListener {
                                 showController(force = true)
@@ -827,19 +824,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             }
                         }
                     }
-                    if (requireContext().prefs().getBoolean(C.PLAYER_RESTART, true)) {
-                        restart.visibility = View.VISIBLE
-                        restart.setOnClickListener {
-                            showController(force = true)
-                            restartPlayer()
-                        }
+                    restart.visibility = View.VISIBLE
+                    restart.setOnClickListener {
+                        showController(force = true)
+                        restartPlayer()
                     }
-                    if (requireContext().prefs().getBoolean(C.PLAYER_SEEK_LIVE, false)) {
-                        seekLive.visibility = View.VISIBLE
-                        seekLive.setOnClickListener {
-                            showController(force = true)
-                            seekToLivePosition()
-                        }
+                    seekLive.visibility = View.VISIBLE
+                    seekLive.setOnClickListener {
+                        showController(force = true)
+                        seekToLivePosition()
                     }
                     if (requireContext().prefs().getBoolean(C.PLAYER_VIEWER_LIST, false)) {
                         viewersLayout.isFocusable = true
@@ -868,12 +861,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     )
                     updateViewerCount(requireArguments().getInt(KEY_VIEWER_COUNT).takeIf { it != -1 })
                 } else {
-                    if (requireContext().prefs().getBoolean(C.PLAYER_SPEED_BUTTON, true)) {
-                        speed.visibility = View.VISIBLE
-                        speed.setOnClickListener {
-                            showController(force = true)
-                            showSpeedDialog()
-                        }
+                    speed.visibility = View.VISIBLE
+                    speed.setOnClickListener {
+                        showController(force = true)
+                        showSpeedDialog()
                     }
                 }
                 if (videoType == VIDEO) {
@@ -920,8 +911,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                                 showController(force = true)
                                                 showVodGames()
                                             }
+                                        } else {
+                                            vodGames.setOnClickListener(null)
+                                            vodGames.visibility = View.GONE
                                         }
                                         (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setVodGames()
+                                    } else {
+                                        vodGames.setOnClickListener(null)
+                                        vodGames.visibility = View.GONE
                                     }
                                 }
                             }
@@ -993,12 +990,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         }
                     }
                 } else {
-                    if (requireContext().prefs().getBoolean(C.PLAYER_SLEEP, false)) {
-                        sleepTimer.visibility = View.VISIBLE
-                        sleepTimer.setOnClickListener {
-                            showController(force = true)
-                            showSleepTimerDialog()
-                        }
+                    sleepTimer.visibility = View.VISIBLE
+                    sleepTimer.setOnClickListener {
+                        showController(force = true)
+                        showSleepTimerDialog()
                     }
                 }
                 if (videoType == OFFLINE_VIDEO) {
@@ -1041,15 +1036,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             }
                         }
                     }
-                    if (requireContext().prefs().getBoolean(C.PLAYER_DOWNLOAD, false)) {
-                        download.visibility = View.VISIBLE
-                        download.setOnClickListener {
-                            showController(force = true)
-                            showDownloadDialog()
-                        }
+                    download.visibility = View.VISIBLE
+                    download.setOnClickListener {
+                        showController(force = true)
+                        showDownloadDialog()
                     }
                     val setting = requireContext().prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0
-                    if (requireContext().prefs().getBoolean(C.PLAYER_FOLLOW, false) && (setting == 0 || setting == 1)) {
+                    if (setting == 0 || setting == 1) {
                         follow.visibility = View.VISIBLE
                         follow.setOnClickListener {
                             showController(force = true)
@@ -1162,7 +1155,30 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 }
                 chatFragment = fragment
             }
+            refreshPlayerControls()
+            PlayerControlLayout.applyToPlayer(requireContext(), binding)
         }
+    }
+
+    fun applyControlLayoutFromEditor() {
+        if (!isAdded || _binding == null) return
+        initLayout()
+        refreshPlayerControls()
+        PlayerControlLayout.applyToPlayer(requireContext(), binding)
+        showController(force = true)
+    }
+
+    private fun refreshPlayerControls() {
+        if (!viewModel.gamesList.value.isNullOrEmpty()) {
+            binding.playerControls.vodGames.setOnClickListener {
+                showController(force = true)
+                showVodGames()
+            }
+        } else {
+            binding.playerControls.vodGames.setOnClickListener(null)
+            binding.playerControls.vodGames.visibility = View.GONE
+        }
+        PlayerControlLayout.refreshAvailableControls(binding)
     }
 
     private fun initLayout() {
@@ -1214,9 +1230,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             showController(force = true)
                             requireActivity().requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                         }
+                    } else {
+                        fullscreen.setOnClickListener(null)
+                        fullscreen.visibility = View.GONE
                     }
                     aspectRatio.visibility = View.GONE
+                    aspectRatio.setOnClickListener(null)
                     toggleChat.visibility = View.GONE
+                    toggleChat.setOnClickListener(null)
                 }
             } else {
                 requireActivity().window.decorView.setOnSystemUiVisibilityChangeListener {
@@ -1302,6 +1323,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             requireActivity().requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                             requireActivity().requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                         }
+                    } else {
+                        fullscreen.setOnClickListener(null)
+                        fullscreen.visibility = View.GONE
                     }
                     if (requireContext().prefs().getBoolean(C.PLAYER_ASPECT, true)) {
                         aspectRatio.visibility = View.VISIBLE
@@ -1309,6 +1333,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             showController(force = true)
                             setResizeMode()
                         }
+                    } else {
+                        aspectRatio.setOnClickListener(null)
+                        aspectRatio.visibility = View.GONE
                     }
                     if (requireContext().prefs().getBoolean(C.PLAYER_CHAT_TOGGLE, true) && requireContext().prefs().isChatEnabled()) {
                         toggleChat.visibility = View.VISIBLE
@@ -1327,6 +1354,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                 showChat()
                             }
                         }
+                    } else {
+                        toggleChat.setOnClickListener(null)
+                        toggleChat.visibility = View.GONE
                     }
                 }
             }
@@ -2269,6 +2299,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(chatLayout.windowToken, 0)
                 chatLayout.clearFocus()
                 initLayout()
+                refreshPlayerControls()
                 PlayerControlLayout.applyToPlayer(requireContext(), binding)
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.dismiss()

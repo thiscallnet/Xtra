@@ -1441,4 +1441,5 @@
     <string name="auth_health_compatibility_reconnect">Volver a conectar funciones mejoradas</string>
     <string name="discover_previous_trending">Stream en tendencia anterior</string>
     <string name="discover_next_trending">Siguiente stream en tendencia</string>
+    <string name="settings_customize_controls_save">Guardar cambios</string>
 </resources>

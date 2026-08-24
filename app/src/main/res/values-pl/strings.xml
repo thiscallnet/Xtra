@@ -1438,4 +1438,5 @@
     <string name="auth_health_compatibility_reconnect">Połącz ponownie rozszerzone funkcje</string>
     <string name="discover_previous_trending">Poprzedni popularny stream</string>
     <string name="discover_next_trending">Następny popularny stream</string>
+    <string name="settings_customize_controls_save">Zapisz zmiany</string>
 </resources>
