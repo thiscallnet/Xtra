@@ -53,6 +53,7 @@ class StreamPreviewSelectionPolicyTest {
                 StreamPreviewSelectionCandidate("second", visibleFraction = 0.90f, centerProximity = 0.9f, order = 1),
             ),
             activeIdentities = emptySet(),
+            maxActivePreviews = 2,
         )
 
         assertTrue(selected.contains("first"))
@@ -67,10 +68,24 @@ class StreamPreviewSelectionPolicyTest {
                 StreamPreviewSelectionCandidate("third", 0.70f, 0.5f, 2),
             ),
             activeIdentities = emptySet(),
+            maxActivePreviews = 2,
         )
 
         assertEquals(listOf("first", "second"), selected)
         assertFalse(selected.contains("third"))
+    }
+
+    @Test
+    fun defaultSelectionUsesOnePreviewSlot() {
+        val selected = StreamPreviewSelectionPolicy.select(
+            candidates = listOf(
+                StreamPreviewSelectionCandidate("first", 0.90f, 0.5f, 0),
+                StreamPreviewSelectionCandidate("second", 0.80f, 0.5f, 1),
+            ),
+            activeIdentities = emptySet(),
+        )
+
+        assertEquals(listOf("first"), selected)
     }
 
     @Test
@@ -125,6 +140,7 @@ class StreamPreviewSelectionPolicyTest {
                 StreamPreviewSelectionCandidate("new-b", 0.90f, 0.9f, 3),
             ),
             activeIdentities = setOf("active-a", "active-b"),
+            maxActivePreviews = 2,
         )
 
         assertEquals(listOf("new-a", "new-b"), selected)
@@ -139,6 +155,7 @@ class StreamPreviewSelectionPolicyTest {
                 StreamPreviewSelectionCandidate("channel-b", 0.80f, 0.5f, 2),
             ),
             activeIdentities = emptySet(),
+            maxActivePreviews = 2,
         )
 
         assertEquals(2, selected.size)

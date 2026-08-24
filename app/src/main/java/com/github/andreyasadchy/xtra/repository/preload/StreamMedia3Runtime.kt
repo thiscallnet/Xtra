@@ -62,19 +62,14 @@ class StreamMedia3Runtime(
     companion object {
         private const val TAG = "StreamMedia3"
         const val PRELOAD_TARGET_BYTES = 32 * 1024 * 1024
-        const val SAMPLE_PRELOAD_MAX_AGE_MS = 4_500L
         const val SAMPLE_PRELOAD_DURATION_MS = 1_800L
         private const val STAGE_NOT_ACHIEVED = -1
     }
 
     private val context = context.applicationContext
-    private val mainHandler = android.os.Handler(Looper.getMainLooper())
     private val states = mutableListOf<Generation>()
     private var currentGeneration: Generation? = null
     private var desiredCandidates: List<LiveMediaPreloadCandidate> = emptyList()
-    private val staleRefresh = Runnable {
-        if (desiredCandidates.isNotEmpty() && currentGeneration != null) reconcile(desiredCandidates)
-    }
     private val playbackPreferences = context.prefs()
     private val tokenPreferences = context.tokenPrefs()
     private val configurationPreferenceKeys = setOf(
@@ -126,7 +121,6 @@ class StreamMedia3Runtime(
     @Synchronized
     fun reconcile(candidates: List<LiveMediaPreloadCandidate>) {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 preload reconciliation must run on the main looper" }
-        mainHandler.removeCallbacks(staleRefresh)
         desiredCandidates = candidates
         val generation = ensureGeneration()
         val desired = candidates
@@ -145,10 +139,8 @@ class StreamMedia3Runtime(
                 )
             },
             candidates = desired.values.map {
-                MediaPreloadPlanEntry(it.channelLogin, it.url, it.rank, addedAtMs = now)
+                MediaPreloadPlanEntry(it.channelLogin, it.url, it.rank)
             },
-            nowMs = now,
-            staleAfterMs = SAMPLE_PRELOAD_MAX_AGE_MS,
         )
         plan.removed.forEach { removed ->
             val entry = generation.entries[removed.channelLogin] ?: return@forEach
@@ -157,14 +149,7 @@ class StreamMedia3Runtime(
                 return@forEach
             }
             generation.entries.remove(removed.channelLogin)
-            if (removed.rank == 0 && removed.samplesLoadedAtMs != null &&
-                now - removed.samplesLoadedAtMs >= SAMPLE_PRELOAD_MAX_AGE_MS &&
-                desired[removed.channelLogin]?.url == removed.url
-            ) {
-                debug("preload_stale_refresh", entry.channelLogin)
-            } else {
-                debug("preload_evicted", entry.channelLogin)
-            }
+            debug("preload_evicted", entry.channelLogin)
             generation.manager.remove(entry.mediaItem)
         }
 
@@ -195,13 +180,11 @@ class StreamMedia3Runtime(
         }
         generation.manager.setCurrentPlayingIndex(0)
         generation.manager.invalidate()
-        scheduleStaleRefresh(generation)
     }
 
     @Synchronized
     fun clearPreloads(keepChannelLogin: String? = null) {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 preload clearing must run on the main looper" }
-        mainHandler.removeCallbacks(staleRefresh)
         desiredCandidates = emptyList()
         currentGeneration?.let { generation ->
             val keep = keepChannelLogin?.trim()?.lowercase()
@@ -238,7 +221,6 @@ class StreamMedia3Runtime(
     @Synchronized
     fun invalidateConfiguration() {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 preload invalidation must run on the main looper" }
-        mainHandler.removeCallbacks(staleRefresh)
         desiredCandidates = emptyList()
         currentGeneration?.let { generation ->
             if (shouldResetPreloadManager(generation.player != null)) {
@@ -309,7 +291,6 @@ class StreamMedia3Runtime(
                 requestedUrl = url,
                 configurationMatches = generation.configuration.fingerprint == StreamPlaybackConfiguration.from(context).fingerprint,
                 nowMs = now,
-                staleAfterMs = SAMPLE_PRELOAD_MAX_AGE_MS,
         )) return null
         val age = now - (entry.samplesLoadedAtMs ?: entry.addedAtMs)
         val source = runCatching { generation.manager.getMediaSource(entry.mediaItem) }.getOrNull() ?: return null
@@ -434,7 +415,6 @@ class StreamMedia3Runtime(
                 entry.achievedStage = targetStage(entry.rank)
                 if (entry.rank == 0) entry.samplesLoadedAtMs = elapsedRealtimeMs()
                 logStage(entry.rank, entry.channelLogin)
-                if (entry.rank == 0) scheduleStaleRefresh(generation)
             }
 
             override fun onError(preloadException: PreloadException) {
@@ -474,15 +454,6 @@ class StreamMedia3Runtime(
 
     private fun debug(event: String, login: String?) {
         if (BuildConfig.DEBUG) Log.d(TAG, "$event${login?.let { " channel=$it" }.orEmpty()}")
-    }
-
-    private fun scheduleStaleRefresh(generation: Generation) {
-        mainHandler.removeCallbacks(staleRefresh)
-        if (generation.entries.values.any {
-                it.rank == 0 && !generation.playbackOwnership.protects(it.mediaItem)
-            }) {
-            mainHandler.postDelayed(staleRefresh, SAMPLE_PRELOAD_MAX_AGE_MS)
-        }
     }
 
     private data class Entry(

@@ -34,15 +34,12 @@
                 android:scaleType="centerCrop"
                 tools:src="@tools:sample/backgrounds/scenic" />
 
-            <androidx.media3.ui.PlayerView
-                android:id="@+id/previewPlayerView"
+            <FrameLayout
+                android:id="@+id/previewHost"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:importantForAccessibility="no"
-                android:visibility="gone"
-                app:resize_mode="zoom"
-                app:show_buffering="never"
-                app:use_controller="false" />
+                android:visibility="gone" />
 
             <View
                 android:layout_width="match_parent"

@@ -25,7 +25,7 @@ data class StreamPreloadCandidate(
 )
 
 object StreamPreloadPolicy {
-    const val MAX_URL_CANDIDATES = 3
+    const val MAX_URL_CANDIDATES = 2
     const val MAX_VOD_PREVIEW_URLS = 8
     const val MAX_RESOLVER_CONCURRENCY = 2
     const val URL_DWELL_MS = 350L

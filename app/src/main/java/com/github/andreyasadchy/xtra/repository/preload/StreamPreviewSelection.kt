@@ -17,7 +17,7 @@ object StreamPreviewSelectionPolicy {
     fun select(
         candidates: Collection<StreamPreviewSelectionCandidate>,
         activeIdentities: Set<String>,
-        maxActivePreviews: Int = MAX_ACTIVE_PREVIEWS,
+        maxActivePreviews: Int = 1,
     ): List<String> {
         val active = activeIdentities.mapTo(mutableSetOf(), ::normalizeIdentity)
         val ordered = candidates

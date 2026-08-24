@@ -49,6 +49,7 @@ class FeaturedStreamShelfAdapter(
     override fun onViewRecycled(holder: ViewHolder) {
         (holder.itemView.context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
             .detachSurface(holder.previewSurface)
+        holder.boundPreviewIdentity = null
         super.onViewRecycled(holder)
     }
 
@@ -125,13 +126,16 @@ class FeaturedStreamShelfAdapter(
             val child = recyclerView.getChildAt(index)
             val params = (child.layoutParams as? RecyclerView.LayoutParams)
                 ?: RecyclerView.LayoutParams(cardWidth, heroHeight(recyclerView, cardWidth))
-            params.width = cardWidth
-            params.height = heroHeight(recyclerView, cardWidth)
-            MarginLayoutParamsCompat.setMarginEnd(
-                params,
-                -(48 * recyclerView.resources.displayMetrics.density).toInt(),
-            )
-            child.layoutParams = params
+            val targetHeight = heroHeight(recyclerView, cardWidth)
+            val targetMarginEnd = -(48 * recyclerView.resources.displayMetrics.density).toInt()
+            if (params.width != cardWidth || params.height != targetHeight ||
+                MarginLayoutParamsCompat.getMarginEnd(params) != targetMarginEnd
+            ) {
+                params.width = cardWidth
+                params.height = targetHeight
+                MarginLayoutParamsCompat.setMarginEnd(params, targetMarginEnd)
+                child.layoutParams = params
+            }
         }
         transformChildren(recyclerView)
     }
@@ -168,13 +172,18 @@ class FeaturedStreamShelfAdapter(
     inner class ViewHolder(
         private val binding: ItemFeaturedStreamShelfBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
-        val previewSurface get() = binding.previewPlayerView
+        val previewSurface get() = binding.previewHost
+        var boundPreviewIdentity: String? = null
 
         fun bind(stream: Stream) {
             val context = binding.root.context
-            with(binding) {
+            val nextPreviewIdentity = stream.streamIdentity()
+            if (boundPreviewIdentity != nextPreviewIdentity) {
                 (context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
-                    .detachSurface(previewPlayerView)
+                    .detachSurface(previewSurface)
+                boundPreviewIdentity = nextPreviewIdentity
+            }
+            with(binding) {
                 root.setOnClickListener { onStreamClick(stream) }
 
                 loadStreamThumbnail(context, thumbnail, stream)

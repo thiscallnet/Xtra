@@ -10,12 +10,18 @@ internal object ShelfCardSizing {
             RecyclerView.LayoutParams.WRAP_CONTENT,
             RecyclerView.LayoutParams.WRAP_CONTENT,
         )
-        params.width = cardWidth(shelf)
-        itemView.layoutParams = params
+        val targetWidth = cardWidth(shelf)
+        if (params.width != targetWidth) {
+            params.width = targetWidth
+            itemView.layoutParams = params
+        }
     }
 
     private fun cardWidth(shelf: RecyclerView): Int {
-        val availableWidth = (shelf.width - shelf.paddingLeft - shelf.paddingRight).coerceAtLeast(1)
+        val measuredWidth = shelf.width.takeIf { it > 0 }
+            ?: shelf.rootView.width.takeIf { it > 0 }
+            ?: shelf.resources.displayMetrics.widthPixels
+        val availableWidth = (measuredWidth - shelf.paddingLeft - shelf.paddingRight).coerceAtLeast(1)
         val density = shelf.resources.displayMetrics.density
         val widthDp = availableWidth / density
         val cardWidthDp = when {

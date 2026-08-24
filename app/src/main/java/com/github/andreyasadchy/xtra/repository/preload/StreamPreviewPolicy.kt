@@ -41,7 +41,7 @@ enum class StreamPreviewDelay(val preferenceValue: String, val delayMs: Long) {
 
     companion object {
         fun fromPreference(value: String?): StreamPreviewDelay =
-            entries.firstOrNull { it.preferenceValue == value } ?: if (value == null) IMMEDIATE else NORMAL
+            entries.firstOrNull { it.preferenceValue == value } ?: if (value == null) FAST else NORMAL
     }
 }
 
@@ -62,7 +62,7 @@ object StreamPreviewPolicy {
     }
 
     fun allowsMultiplePreviews(context: Context): Boolean =
-        context.prefs().getBoolean(C.STREAM_PREVIEW_MULTIPLE, true)
+        context.prefs().getBoolean(C.STREAM_PREVIEW_MULTIPLE, false)
 
     fun quality(context: Context): StreamPreviewQuality =
         StreamPreviewQuality.fromPreference(context.prefs().getString(C.STREAM_PREVIEW_QUALITY, StreamPreviewQuality.P360.preferenceValue))

@@ -39,15 +39,13 @@ class StreamShelfAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
-        holder.itemView.post {
-            (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
-        }
         holder.bind(getItem(position))
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
         (holder.itemView.context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
             .detachSurface(holder.previewSurface)
+        holder.boundPreviewIdentity = null
         super.onViewRecycled(holder)
     }
 
@@ -76,13 +74,18 @@ class StreamShelfAdapter(
     inner class ViewHolder(
         private val binding: ItemStreamShelfBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
-        val previewSurface get() = binding.previewPlayerView
+        val previewSurface get() = binding.previewHost
+        var boundPreviewIdentity: String? = null
 
         fun bind(stream: Stream) {
             val context = binding.root.context
-            with(binding) {
+            val nextPreviewIdentity = stream.streamIdentity()
+            if (boundPreviewIdentity != nextPreviewIdentity) {
                 (context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
-                    .detachSurface(previewPlayerView)
+                    .detachSurface(previewSurface)
+                boundPreviewIdentity = nextPreviewIdentity
+            }
+            with(binding) {
                 root.setOnClickListener { onStreamClick(stream) }
 
                 loadStreamThumbnail(context, thumbnail, stream)

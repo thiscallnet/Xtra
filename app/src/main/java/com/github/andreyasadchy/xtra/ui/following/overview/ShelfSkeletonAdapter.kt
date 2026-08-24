@@ -19,6 +19,11 @@ class ShelfSkeletonAdapter(
 ) : RecyclerView.Adapter<ShelfSkeletonAdapter.ViewHolder>() {
 
     private var loadingType = FollowingOverviewLoadingType.STREAM
+    private val layoutChangeListener = View.OnLayoutChangeListener { view, left, _, right, _, oldLeft, _, oldRight, _ ->
+        if (right - left != oldRight - oldLeft) {
+            applyCardSizing(view as RecyclerView)
+        }
+    }
 
     override fun getItemCount(): Int = skeletonCount
 
@@ -37,6 +42,23 @@ class ShelfSkeletonAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
         holder.bind(loadingType)
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        recyclerView.addOnLayoutChangeListener(layoutChangeListener)
+        recyclerView.post { applyCardSizing(recyclerView) }
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        recyclerView.removeOnLayoutChangeListener(layoutChangeListener)
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
+
+    private fun applyCardSizing(recyclerView: RecyclerView) {
+        repeat(recyclerView.childCount) { index ->
+            ShelfCardSizing.apply(recyclerView.getChildAt(index), recyclerView)
+        }
     }
 
     class ViewHolder(

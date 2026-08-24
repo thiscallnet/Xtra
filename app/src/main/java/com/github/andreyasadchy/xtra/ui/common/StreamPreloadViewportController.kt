@@ -3,9 +3,9 @@ package com.github.andreyasadchy.xtra.ui.common
 import android.graphics.Rect
 import android.view.View
 import android.view.ViewTreeObserver
+import android.widget.FrameLayout
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
-import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
@@ -23,9 +23,10 @@ class StreamPreloadViewportController(
     private val recyclerView: RecyclerView,
     private val streamAtPosition: ((Int) -> Stream?)? = null,
     private val isParentScrolling: () -> Boolean = { false },
-    private val previewAtPosition: ((Int, PlayerView) -> StreamPreviewCandidate?)? = null,
+    private val previewAtPosition: ((Int, FrameLayout) -> StreamPreviewCandidate?)? = null,
 ) {
     private var scrollState = RecyclerView.SCROLL_STATE_IDLE
+    private var scrollingReported = false
     private var started = false
     private var publishPosted = false
     private val publishRunnable = Runnable {
@@ -35,11 +36,12 @@ class StreamPreloadViewportController(
     private val scrollListener = object : RecyclerView.OnScrollListener() {
         override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
             scrollState = newState
-            requestPublish()
+            updateScrollingState()
+            if (!isScrolling()) requestPublish()
         }
 
         override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-            requestPublish()
+            if (!isScrolling()) requestPublish()
         }
     }
     private val scrollChangedListener = ViewTreeObserver.OnScrollChangedListener { requestPublish() }
@@ -62,6 +64,7 @@ class StreamPreloadViewportController(
         recyclerView.addOnLayoutChangeListener(layoutChangeListener)
         recyclerView.addOnAttachStateChangeListener(attachStateListener)
         recyclerView.viewTreeObserver.addOnScrollChangedListener(scrollChangedListener)
+        updateScrollingState()
         requestPublish()
     }
 
@@ -76,11 +79,13 @@ class StreamPreloadViewportController(
         }
         recyclerView.removeCallbacks(publishRunnable)
         publishPosted = false
+        scrollingReported = false
         coordinator?.detachViewport(viewportKey)
         previewCoordinator.detachViewport(viewportKey)
     }
 
     fun onResume() {
+        updateScrollingState()
         requestPublish()
     }
 
@@ -90,11 +95,14 @@ class StreamPreloadViewportController(
     }
 
     fun onParentScrollStateChanged() {
+        updateScrollingState()
         requestPublish()
     }
 
     private fun requestPublish() {
         if (!started) return
+        updateScrollingState()
+        if (isScrolling()) return
         if (publishPosted) return
         publishPosted = true
         recyclerView.postOnAnimation(publishRunnable)
@@ -102,6 +110,8 @@ class StreamPreloadViewportController(
 
     private fun publish() {
         if (!started) return
+        updateScrollingState()
+        if (isScrolling()) return
         if (!fragment.isAdded || fragment.view == null ||
             !fragment.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
             !recyclerView.isAttachedToWindow
@@ -119,12 +129,13 @@ class StreamPreloadViewportController(
         val horizontal = (recyclerView.layoutManager as? LinearLayoutManager)?.orientation == RecyclerView.HORIZONTAL
         val viewportCenter = if (horizontal) viewportRect.centerX() else viewportRect.centerY()
         val viewportSize = if (horizontal) viewportRect.width() else viewportRect.height()
-        val candidates = buildList {
+        val visibleCards = buildList {
             repeat(recyclerView.childCount) { childIndex ->
                 val child = recyclerView.getChildAt(childIndex)
                 val position = recyclerView.getChildAdapterPosition(child)
                 if (position == RecyclerView.NO_POSITION) return@repeat
-                val stream = streamAtPosition?.invoke(position) ?: return@repeat
+                val stream = streamAtPosition?.invoke(position)
+                if (stream == null && previewAtPosition == null) return@repeat
                 val childRect = Rect()
                 if (!child.getGlobalVisibleRect(childRect)) return@repeat
                 val fullArea = (child.width.toLong() * child.height.toLong()).coerceAtLeast(1L)
@@ -134,65 +145,80 @@ class StreamPreloadViewportController(
                 val childCenter = if (horizontal) childRect.centerX() else childRect.centerY()
                 val halfSpan = max(1, viewportSize / 2 + if (horizontal) child.width else child.height)
                 val centerProximity = 1f - (abs(childCenter - viewportCenter).toFloat() / halfSpan).coerceIn(0f, 1f)
-                val channelLogin = stream.channelLogin?.trim().orEmpty()
-                if (channelLogin.isNotEmpty()) {
-                    add(
-                        StreamPreloadCandidate(
-                            streamKey = streamKey(stream),
-                            channelLogin = channelLogin,
-                            visibleFraction = visibleFraction,
-                            centerProximity = centerProximity,
-                            title = stream.title,
-                            channelName = stream.channelName,
-                            channelLogo = stream.channelImage,
-                        )
-                    )
-                }
-            }
-        }
-        coordinator?.updateViewport(viewportKey, candidates, isScrolling())
-        val previewCandidates = buildList {
-            repeat(recyclerView.childCount) { childIndex ->
-                val child = recyclerView.getChildAt(childIndex)
-                val position = recyclerView.getChildAdapterPosition(child)
-                if (position == RecyclerView.NO_POSITION) return@repeat
-                val childRect = Rect()
-                if (!child.getGlobalVisibleRect(childRect)) return@repeat
-                val fullArea = (child.width.toLong() * child.height.toLong()).coerceAtLeast(1L)
-                val visibleArea = childRect.width().toLong() * childRect.height().toLong()
-                val visibleFraction = (visibleArea.toDouble() / fullArea).toFloat().coerceIn(0f, 1f)
-                if (visibleFraction <= 0f) return@repeat
-                val childCenter = if (horizontal) childRect.centerX() else childRect.centerY()
-                val halfSpan = max(1, viewportSize / 2 + if (horizontal) child.width else child.height)
-                val centerProximity = 1f - (abs(childCenter - viewportCenter).toFloat() / halfSpan).coerceIn(0f, 1f)
-                val surface = child.findViewById<PlayerView>(R.id.previewPlayerView) ?: return@repeat
-                val candidate = if (previewAtPosition != null) {
-                    previewAtPosition.invoke(position, surface)
-                } else {
-                    streamAtPosition?.invoke(position)?.let { stream ->
-                        val channelLogin = stream.channelLogin?.trim().orEmpty()
-                        channelLogin.takeIf { it.isNotEmpty() }?.let {
-                            StreamPreviewCandidate(
-                                streamKey = streamKey(stream),
-                                channelLogin = it,
-                                visibleFraction = visibleFraction,
-                                centerProximity = centerProximity,
-                                title = stream.title,
-                                channelName = stream.channelName,
-                                channelLogo = stream.channelImage,
-                                surface = surface,
-                            )
+                val surface = child.findViewById<FrameLayout>(R.id.previewHost)
+                val previewCandidate = surface?.let {
+                    if (previewAtPosition != null) {
+                        previewAtPosition.invoke(position, it)
+                    } else {
+                        stream?.let { currentStream ->
+                            val channelLogin = currentStream.channelLogin?.trim().orEmpty()
+                            channelLogin.takeIf { it.isNotEmpty() }?.let { login ->
+                                StreamPreviewCandidate(
+                                    streamKey = streamKey(currentStream),
+                                    channelLogin = login,
+                                    visibleFraction = visibleFraction,
+                                    centerProximity = centerProximity,
+                                    title = currentStream.title,
+                                    channelName = currentStream.channelName,
+                                    channelLogo = currentStream.channelImage,
+                                    surface = it,
+                                )
+                            }
                         }
                     }
-                }
-                candidate?.let { add(it.copy(visibleFraction = visibleFraction, centerProximity = centerProximity, surface = surface)) }
+                }?.copy(
+                    visibleFraction = visibleFraction,
+                    centerProximity = centerProximity,
+                    surface = surface,
+                )
+                add(VisibleCard(stream, visibleFraction, centerProximity, previewCandidate))
             }
         }
-        previewCoordinator.updateViewport(viewportKey, previewCandidates, isScrolling())
+        coordinator?.updateViewport(
+            viewportKey,
+            visibleCards.mapNotNull { card ->
+                val stream = card.stream ?: return@mapNotNull null
+                val channelLogin = stream.channelLogin?.trim().orEmpty()
+                channelLogin.takeIf { it.isNotEmpty() }?.let { login ->
+                    StreamPreloadCandidate(
+                        streamKey = streamKey(stream),
+                        channelLogin = login,
+                        visibleFraction = card.visibleFraction,
+                        centerProximity = card.centerProximity,
+                        title = stream.title,
+                        channelName = stream.channelName,
+                        channelLogo = stream.channelImage,
+                    )
+                }
+            },
+            scrolling = isScrolling(),
+        )
+        previewCoordinator.updateViewport(
+            viewportKey,
+            visibleCards.mapNotNull { it.previewCandidate },
+            scrolling = isScrolling(),
+        )
     }
+
+    private data class VisibleCard(
+        val stream: Stream?,
+        val visibleFraction: Float,
+        val centerProximity: Float,
+        val previewCandidate: StreamPreviewCandidate?,
+    )
 
     private fun isScrolling(): Boolean =
         scrollState != RecyclerView.SCROLL_STATE_IDLE || isParentScrolling()
+
+    private fun updateScrollingState() {
+        val scrolling = isScrolling()
+        if (scrolling == scrollingReported) return
+        scrollingReported = scrolling
+        if (scrolling) {
+            coordinator?.setViewportScrolling(viewportKey, true)
+            previewCoordinator.onScrolling(viewportKey)
+        }
+    }
 
     private fun streamKey(stream: Stream): String =
         stream.channelId?.takeIf { it.isNotBlank() }?.let { "channel:$it" }

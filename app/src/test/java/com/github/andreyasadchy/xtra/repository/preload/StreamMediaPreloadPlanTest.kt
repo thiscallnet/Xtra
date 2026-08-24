@@ -14,8 +14,6 @@ class StreamMediaPreloadPlanTest {
                 MediaPreloadPlanEntry("second", "two", 1),
                 MediaPreloadPlanEntry("third", "three", 2),
             ),
-            nowMs = 100,
-            staleAfterMs = 4_500,
         )
 
         assertEquals(listOf(0, 1, 2), plan.added.map { it.rank })
@@ -27,8 +25,6 @@ class StreamMediaPreloadPlanTest {
         val plan = StreamMediaPreloadPlan.reconcile(
             existing = listOf(old),
             candidates = emptyList(),
-            nowMs = 100,
-            staleAfterMs = 4_500,
         )
 
         assertEquals(listOf(old), plan.removed)
@@ -41,8 +37,6 @@ class StreamMediaPreloadPlanTest {
         val plan = StreamMediaPreloadPlan.reconcile(
             existing = listOf(old),
             candidates = listOf(MediaPreloadPlanEntry("FOO", "signed-new", 1)),
-            nowMs = 1_100,
-            staleAfterMs = 4_500,
         )
 
         assertEquals(listOf(old), plan.removed)
@@ -50,32 +44,55 @@ class StreamMediaPreloadPlanTest {
     }
 
     @Test
-    fun staleRankZeroSampleIsRefreshed() {
+    fun rankedSampleIsRetainedUntilTheCandidateChanges() {
         val old = MediaPreloadPlanEntry("foo", "signed", 0, samplesLoadedAtMs = 1_000)
         val plan = StreamMediaPreloadPlan.reconcile(
             existing = listOf(old),
             candidates = listOf(MediaPreloadPlanEntry("foo", "signed", 0)),
-            nowMs = 5_500,
-            staleAfterMs = 4_500,
         )
 
-        assertEquals(listOf(old), plan.removed)
-        assertEquals(listOf("foo"), plan.added.map { it.channelLogin })
+        assertEquals(listOf(old), plan.retained)
+        assertTrue(plan.removed.isEmpty())
+        assertTrue(plan.added.isEmpty())
     }
 
     @Test
     fun preloadTargetIsExplicitlyBounded() {
         assertEquals(32 * 1024 * 1024, StreamMedia3Runtime.PRELOAD_TARGET_BYTES)
-        assertEquals(4_500L, StreamMedia3Runtime.SAMPLE_PRELOAD_MAX_AGE_MS)
+        assertEquals(1_800L, StreamMedia3Runtime.SAMPLE_PRELOAD_DURATION_MS)
     }
 
     @Test
     fun handoffUsesOnlyTheExactCurrentGenerationAndUrl() {
         val entry = MediaPreloadPlanEntry("foo", "signed-url", 0, samplesLoadedAtMs = 1_000)
 
-        assertTrue(StreamMediaPreloadHandoff.isUsable(entry, "FOO", "signed-url", true, 2_000, 4_500))
-        assertTrue(!StreamMediaPreloadHandoff.isUsable(entry, "foo", "different-url", true, 2_000, 4_500))
-        assertTrue(!StreamMediaPreloadHandoff.isUsable(entry, "foo", "signed-url", false, 2_000, 4_500))
-        assertTrue(!StreamMediaPreloadHandoff.isUsable(entry, "foo", "signed-url", true, 5_500, 4_500))
+        assertTrue(StreamMediaPreloadHandoff.isUsable(entry, "FOO", "signed-url", true, nowMs = 5_000))
+        assertTrue(!StreamMediaPreloadHandoff.isUsable(entry, "foo", "different-url", true, nowMs = 5_000))
+        assertTrue(!StreamMediaPreloadHandoff.isUsable(entry, "foo", "signed-url", false, nowMs = 5_000))
+        assertTrue(StreamMediaPreloadHandoff.isUsable(entry, "foo", "signed-url", true, nowMs = 5_000))
+    }
+
+    @Test
+    fun oldRankZeroSamplesAreNotUsedForLivePlaybackHandoff() {
+        val entry = MediaPreloadPlanEntry("foo", "signed-url", 0, samplesLoadedAtMs = 1_000)
+
+        assertTrue(
+            StreamMediaPreloadHandoff.isUsable(
+                entry,
+                "foo",
+                "signed-url",
+                configurationMatches = true,
+                nowMs = 1_000 + StreamMediaPreloadHandoff.MAX_PRELOADED_HANDOFF_AGE_MS,
+            ),
+        )
+        assertTrue(
+            !StreamMediaPreloadHandoff.isUsable(
+                entry,
+                "foo",
+                "signed-url",
+                configurationMatches = true,
+                nowMs = 1_001 + StreamMediaPreloadHandoff.MAX_PRELOADED_HANDOFF_AGE_MS,
+            ),
+        )
     }
 }
