@@ -71,6 +71,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                     if (awayMs != null) {
                         StreamFeedPrewarmScheduler.recordBackgroundReturn(this@XtraApp, awayMs)
                         xtraModule.streamFeedRefreshCoordinator.onAppForeground(awayMs)
+                        xtraModule.gameFeedRefreshCoordinator.onAppForeground(awayMs)
                     }
                     backgroundStartedElapsedMs = null
                     StreamFeedPrewarmScheduler.cancel(this@XtraApp)

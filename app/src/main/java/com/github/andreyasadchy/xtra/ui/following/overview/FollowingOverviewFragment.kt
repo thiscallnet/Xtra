@@ -74,7 +74,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                 )
             },
             onSeeAll = ::showAll,
-            onStreamShelfAttached = { key, recyclerView, streamAtPosition ->
+            onStreamShelfAttached = { key, recyclerView, streamAtPosition, _ ->
                 streamShelfPreloadControllers.remove(key)?.stop()
                 StreamPreloadViewportController(
                     fragment = this,

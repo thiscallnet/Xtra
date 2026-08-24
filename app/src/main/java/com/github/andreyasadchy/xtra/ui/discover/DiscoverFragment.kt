@@ -25,7 +25,9 @@ import com.github.andreyasadchy.xtra.databinding.FragmentDiscoverBinding
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
+import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCandidate
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
+import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewAdapter
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -37,6 +39,8 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class DiscoverFragment : BaseNetworkFragment(), Scrollable {
@@ -132,7 +136,7 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
                     ),
                 )
             },
-            onStreamShelfAttached = { key, recyclerView, streamAtPosition ->
+            onStreamShelfAttached = { key, recyclerView, streamAtPosition, isFeatured ->
                 streamShelfPreloadControllers.remove(key)?.stop()
                 StreamPreloadViewportController(
                     fragment = this,
@@ -141,6 +145,28 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
                     recyclerView = recyclerView,
                     streamAtPosition = streamAtPosition,
                     isParentScrolling = { discoverScrolling },
+                    previewAtPosition = if (isFeatured) {
+                        { position, surface ->
+                            if (centeredAdapterPosition(recyclerView) != position) {
+                                null
+                            } else {
+                                streamAtPosition(position)?.let { stream ->
+                                    stream.channelLogin?.trim()?.takeIf { it.isNotEmpty() }?.let { login ->
+                                        StreamPreviewCandidate(
+                                            streamKey = "channel:${stream.channelId ?: login}",
+                                            channelLogin = login,
+                                            visibleFraction = 0f,
+                                            centerProximity = 0f,
+                                            title = stream.title,
+                                            channelName = stream.channelName,
+                                            channelLogo = stream.channelImage,
+                                            surface = surface,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else null,
                 ).also {
                     streamShelfPreloadControllers[key] = it
                     it.start()
@@ -182,6 +208,14 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
         }
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    while (isActive) {
+                        delay(90_000L)
+                        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                            viewModel.refresh(RefreshReason.SCREEN_VISIBLE)
+                        }
+                    }
+                }
                 viewModel.state.collectLatest { state ->
                     adapter.submitList(state.sections)
                     binding.emptyState.isVisible = !state.isLoading && state.hasError
@@ -191,15 +225,16 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
     }
 
     override fun initialize() {
-        viewModel.refresh()
+        viewModel.refresh(RefreshReason.INITIAL)
     }
 
     override fun onNetworkRestored() {
-        viewModel.refresh()
+        viewModel.refresh(RefreshReason.NETWORK_RESTORED, force = true)
     }
 
     override fun onResume() {
         super.onResume()
+        viewModel.refresh(RefreshReason.SCREEN_VISIBLE)
         streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::onResume)
     }
 
@@ -222,6 +257,19 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
                 )
             }
         }
+    }
+
+    private fun centeredAdapterPosition(recyclerView: RecyclerView): Int? {
+        val center = recyclerView.width / 2
+        return (0 until recyclerView.childCount)
+            .mapNotNull { index ->
+                val child = recyclerView.getChildAt(index)
+                val position = recyclerView.getChildAdapterPosition(child)
+                position.takeIf { it != RecyclerView.NO_POSITION }
+                    ?.let { it to kotlin.math.abs((child.left + child.right) / 2 - center) }
+            }
+            .minByOrNull { it.second }
+            ?.first
     }
 
     override fun scrollToTop() {

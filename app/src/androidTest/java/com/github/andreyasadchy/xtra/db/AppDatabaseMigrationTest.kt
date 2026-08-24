@@ -126,6 +126,16 @@ class AppDatabaseMigrationTest {
         database.close()
     }
 
+    @Test
+    fun migrateVersion49To50CreatesGameFeedSchema() {
+        val name = "migration-v49-game-feed.db"
+        prepareVersion49Database(name)
+
+        val database = openMigratedDatabase(name)
+        assertGameFeedSchema(database.openHelper.readableDatabase)
+        database.close()
+    }
+
     private fun openMigratedDatabase(name: String): AppDatabase {
         return Room.databaseBuilder(context, AppDatabase::class.java, name)
             .addMigrations(
@@ -176,6 +186,7 @@ class AppDatabaseMigrationTest {
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_notification_events_channelId ON notification_events(channelId)")
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_notification_events_queuedAt ON notification_events(queuedAt)")
                 },
+                GameFeedMigrations.FROM_49,
             )
             .build()
             .also { it.openHelper.writableDatabase }
@@ -205,12 +216,29 @@ class AppDatabaseMigrationTest {
         sqlite.execSQL("DROP TABLE IF EXISTS stream_feed_states")
         sqlite.execSQL("DROP INDEX IF EXISTS index_metadata_cache_lastAccessAt")
         sqlite.execSQL("DROP TABLE IF EXISTS metadata_cache")
-        sqlite.execSQL("DROP TABLE IF EXISTS favorite_emotes")
+        sqlite.execSQL("DROP INDEX IF EXISTS index_game_feed_items_feedKey_position")
+        sqlite.execSQL("DROP TABLE IF EXISTS game_feed_items")
+        sqlite.execSQL("DROP TABLE IF EXISTS game_feed_states")
+        if (version < 46) {
+            sqlite.execSQL("DROP TABLE IF EXISTS favorite_emotes")
+        }
         if (historicalVersion39) {
             sqlite.execSQL("DROP TABLE IF EXISTS notification_events")
             sqlite.execSQL("CREATE TABLE live_notification_logs (id INTEGER PRIMARY KEY NOT NULL)")
         }
         sqlite.execSQL("PRAGMA user_version = $version")
+        database.close()
+    }
+
+    private fun prepareVersion49Database(name: String) {
+        context.deleteDatabase(name)
+        databaseNames += name
+        val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
+        val sqlite = database.openHelper.writableDatabase
+        sqlite.execSQL("DROP INDEX IF EXISTS index_game_feed_items_feedKey_position")
+        sqlite.execSQL("DROP TABLE IF EXISTS game_feed_items")
+        sqlite.execSQL("DROP TABLE IF EXISTS game_feed_states")
+        sqlite.execSQL("PRAGMA user_version = 49")
         database.close()
     }
 
@@ -410,6 +438,16 @@ class AppDatabaseMigrationTest {
         assertTrue(columnExists(database, "stream_feed_states", "staleTailRetainedAt"))
         assertTrue(tableExists(database, "metadata_cache"))
         assertTrue(indexExists(database, "index_metadata_cache_lastAccessAt"))
+    }
+
+    private fun assertGameFeedSchema(database: SupportSQLiteDatabase) {
+        assertTrue(tableExists(database, "game_feed_items"))
+        assertTrue(tableExists(database, "game_feed_states"))
+        assertTrue(indexExists(database, "index_game_feed_items_feedKey_position"))
+        assertTrue(columnExists(database, "game_feed_items", "generation"))
+        assertTrue(columnExists(database, "game_feed_states", "nextCursorApi"))
+        assertTrue(columnExists(database, "game_feed_states", "activeGeneration"))
+        assertTrue(columnExists(database, "game_feed_states", "staleTailRetainedAt"))
     }
 
     private fun tableExists(database: SupportSQLiteDatabase, tableName: String): Boolean {

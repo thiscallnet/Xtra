@@ -44,12 +44,23 @@ class StreamPreloadViewportController(
     }
     private val scrollChangedListener = ViewTreeObserver.OnScrollChangedListener { requestPublish() }
     private val layoutChangeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> requestPublish() }
+    private val attachStateListener = object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(view: View) {
+            requestPublish()
+        }
+
+        override fun onViewDetachedFromWindow(view: View) {
+            coordinator?.detachViewport(viewportKey)
+            previewCoordinator.detachViewport(viewportKey)
+        }
+    }
 
     fun start() {
         if (started) return
         started = true
         recyclerView.addOnScrollListener(scrollListener)
         recyclerView.addOnLayoutChangeListener(layoutChangeListener)
+        recyclerView.addOnAttachStateChangeListener(attachStateListener)
         recyclerView.viewTreeObserver.addOnScrollChangedListener(scrollChangedListener)
         requestPublish()
     }
@@ -59,6 +70,7 @@ class StreamPreloadViewportController(
         started = false
         recyclerView.removeOnScrollListener(scrollListener)
         recyclerView.removeOnLayoutChangeListener(layoutChangeListener)
+        recyclerView.removeOnAttachStateChangeListener(attachStateListener)
         if (recyclerView.viewTreeObserver.isAlive) {
             recyclerView.viewTreeObserver.removeOnScrollChangedListener(scrollChangedListener)
         }
@@ -154,8 +166,10 @@ class StreamPreloadViewportController(
                 val halfSpan = max(1, viewportSize / 2 + if (horizontal) child.width else child.height)
                 val centerProximity = 1f - (abs(childCenter - viewportCenter).toFloat() / halfSpan).coerceIn(0f, 1f)
                 val surface = child.findViewById<PlayerView>(R.id.previewPlayerView) ?: return@repeat
-                val candidate = previewAtPosition?.invoke(position, surface)
-                    ?: streamAtPosition?.invoke(position)?.let { stream ->
+                val candidate = if (previewAtPosition != null) {
+                    previewAtPosition.invoke(position, surface)
+                } else {
+                    streamAtPosition?.invoke(position)?.let { stream ->
                         val channelLogin = stream.channelLogin?.trim().orEmpty()
                         channelLogin.takeIf { it.isNotEmpty() }?.let {
                             StreamPreviewCandidate(
@@ -170,6 +184,7 @@ class StreamPreloadViewportController(
                             )
                         }
                     }
+                }
                 candidate?.let { add(it.copy(visibleFraction = visibleFraction, centerProximity = centerProximity, surface = surface)) }
             }
         }

@@ -47,16 +47,18 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
         ViewingInterval::class,
         CachedStreamFeedItem::class,
         StreamFeedState::class,
+        CachedGameFeedItem::class,
+        GameFeedState::class,
         MetadataCacheEntry::class,
     ],
-    version = 49,
+    version = 50,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
 
     companion object {
-        const val VERSION = 49
-        const val IDENTITY_HASH = "243a0903bd8e9b4072bcad0cca25f28d"
+        const val VERSION = 50
+        const val IDENTITY_HASH = "1bfd4f2978b8169f4a5c4a6544030b07"
     }
 
     abstract fun offlineVideos(): OfflineVideosDao
@@ -79,5 +81,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun playbackStates(): PlaybackStatesDao
     abstract fun viewingStats(): ViewingStatsDao
     abstract fun streamFeedDao(): StreamFeedDao
+    abstract fun gameFeedDao(): GameFeedDao
     abstract fun metadataCache(): MetadataCacheDao
 }

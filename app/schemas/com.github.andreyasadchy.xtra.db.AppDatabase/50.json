@@ -1,0 +1,1871 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 50,
+    "identityHash": "1bfd4f2978b8169f4a5c4a6544030b07",
+    "entities": [
+      {
+        "tableName": "videos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`url` TEXT, `source_url` TEXT, `source_start_position` INTEGER, `name` TEXT, `channel_id` TEXT, `channel_login` TEXT, `channel_name` TEXT, `channel_logo` TEXT, `thumbnail` TEXT, `gameId` TEXT, `gameSlug` TEXT, `gameName` TEXT, `duration` INTEGER, `upload_date` INTEGER, `download_date` INTEGER, `last_watch_position` INTEGER, `progress` INTEGER NOT NULL, `max_progress` INTEGER NOT NULL, `bytes` INTEGER NOT NULL, `downloadPath` TEXT, `fromTime` INTEGER, `toTime` INTEGER, `status` INTEGER NOT NULL, `type` TEXT, `videoId` TEXT, `videoCreatedAt` TEXT, `clipId` TEXT, `quality` TEXT, `downloadChat` INTEGER NOT NULL, `downloadChatEmotes` INTEGER NOT NULL, `chatProgress` INTEGER NOT NULL, `maxChatProgress` INTEGER NOT NULL, `chatBytes` INTEGER NOT NULL, `chatOffsetSeconds` INTEGER NOT NULL, `chatUrl` TEXT, `playlistToFile` INTEGER NOT NULL, `live` INTEGER NOT NULL, `lastSegmentUrl` TEXT, `liveCommentsArrayStarted` INTEGER NOT NULL, `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "url",
+            "columnName": "url",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceUrl",
+            "columnName": "source_url",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceStartPosition",
+            "columnName": "source_start_position",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelId",
+            "columnName": "channel_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelLogin",
+            "columnName": "channel_login",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelName",
+            "columnName": "channel_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelLogo",
+            "columnName": "channel_logo",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnail",
+            "columnName": "thumbnail",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameSlug",
+            "columnName": "gameSlug",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameName",
+            "columnName": "gameName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "duration",
+            "columnName": "duration",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "uploadDate",
+            "columnName": "upload_date",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "downloadDate",
+            "columnName": "download_date",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastWatchPosition",
+            "columnName": "last_watch_position",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "progress",
+            "columnName": "progress",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxProgress",
+            "columnName": "max_progress",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bytes",
+            "columnName": "bytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "downloadPath",
+            "columnName": "downloadPath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fromTime",
+            "columnName": "fromTime",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "toTime",
+            "columnName": "toTime",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoId",
+            "columnName": "videoId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoCreatedAt",
+            "columnName": "videoCreatedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "clipId",
+            "columnName": "clipId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "quality",
+            "columnName": "quality",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "downloadChat",
+            "columnName": "downloadChat",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "downloadChatEmotes",
+            "columnName": "downloadChatEmotes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chatProgress",
+            "columnName": "chatProgress",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxChatProgress",
+            "columnName": "maxChatProgress",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chatBytes",
+            "columnName": "chatBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chatOffsetSeconds",
+            "columnName": "chatOffsetSeconds",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chatUrl",
+            "columnName": "chatUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "playlistToFile",
+            "columnName": "playlistToFile",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "live",
+            "columnName": "live",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSegmentUrl",
+            "columnName": "lastSegmentUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "liveCommentsArrayStarted",
+            "columnName": "liveCommentsArrayStarted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_videos_url",
+            "unique": false,
+            "columnNames": [
+              "url"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_videos_url` ON `${TABLE_NAME}` (`url`)"
+          },
+          {
+            "name": "index_videos_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_videos_status` ON `${TABLE_NAME}` (`status`)"
+          },
+          {
+            "name": "index_videos_videoId",
+            "unique": false,
+            "columnNames": [
+              "videoId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_videos_videoId` ON `${TABLE_NAME}` (`videoId`)"
+          },
+          {
+            "name": "index_videos_channel_id",
+            "unique": false,
+            "columnNames": [
+              "channel_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_videos_channel_id` ON `${TABLE_NAME}` (`channel_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "recent_emotes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`name` TEXT NOT NULL, `used_at` INTEGER NOT NULL, PRIMARY KEY(`name`))",
+        "fields": [
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "usedAt",
+            "columnName": "used_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "name"
+          ]
+        }
+      },
+      {
+        "tableName": "favorite_emotes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`provider` TEXT NOT NULL, `emote_id` TEXT NOT NULL, `favorited_at` INTEGER NOT NULL, `sort_order` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`provider`, `emote_id`))",
+        "fields": [
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emoteId",
+            "columnName": "emote_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "favoritedAt",
+            "columnName": "favorited_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sort_order",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "provider",
+            "emote_id"
+          ]
+        }
+      },
+      {
+        "tableName": "video_positions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `position` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "video_history",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `position` INTEGER NOT NULL, `durationSeconds` INTEGER, `channelId` TEXT, `channelLogin` TEXT, `channelName` TEXT, `channelImageURL` TEXT, `title` TEXT, `thumbnailURL` TEXT, `gameId` TEXT, `gameSlug` TEXT, `gameName` TEXT, `createdAt` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationSeconds",
+            "columnName": "durationSeconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "channelId",
+            "columnName": "channelId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelLogin",
+            "columnName": "channelLogin",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelName",
+            "columnName": "channelName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelImageURL",
+            "columnName": "channelImageURL",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnailURL",
+            "columnName": "thumbnailURL",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameSlug",
+            "columnName": "gameSlug",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameName",
+            "columnName": "gameName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_video_history_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_video_history_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          },
+          {
+            "name": "index_video_history_channelId",
+            "unique": false,
+            "columnNames": [
+              "channelId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_video_history_channelId` ON `${TABLE_NAME}` (`channelId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "local_follows",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT, `userLogin` TEXT, `userName` TEXT, `channelLogo` TEXT, `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "userLogin",
+            "columnName": "userLogin",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "userName",
+            "columnName": "userName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelLogo",
+            "columnName": "channelLogo",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "local_follows_games",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`gameId` TEXT, `gameSlug` TEXT, `gameName` TEXT, `boxArt` TEXT, `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameSlug",
+            "columnName": "gameSlug",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameName",
+            "columnName": "gameName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "boxArt",
+            "columnName": "boxArt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "bookmarks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`videoId` TEXT, `userId` TEXT, `userLogin` TEXT, `userName` TEXT, `userType` TEXT, `userBroadcasterType` TEXT, `userLogo` TEXT, `gameId` TEXT, `gameSlug` TEXT, `gameName` TEXT, `title` TEXT, `createdAt` TEXT, `thumbnail` TEXT, `type` TEXT, `duration` TEXT, `animatedPreviewURL` TEXT, `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "videoId",
+            "columnName": "videoId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "userLogin",
+            "columnName": "userLogin",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "userName",
+            "columnName": "userName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "userType",
+            "columnName": "userType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "userBroadcasterType",
+            "columnName": "userBroadcasterType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "userLogo",
+            "columnName": "userLogo",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameSlug",
+            "columnName": "gameSlug",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameName",
+            "columnName": "gameName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnail",
+            "columnName": "thumbnail",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "duration",
+            "columnName": "duration",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "animatedPreviewURL",
+            "columnName": "animatedPreviewURL",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_bookmarks_videoId",
+            "unique": false,
+            "columnNames": [
+              "videoId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_bookmarks_videoId` ON `${TABLE_NAME}` (`videoId`)"
+          },
+          {
+            "name": "index_bookmarks_userId",
+            "unique": false,
+            "columnNames": [
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_bookmarks_userId` ON `${TABLE_NAME}` (`userId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "vod_bookmark_ignored_users",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`user_id` TEXT NOT NULL, PRIMARY KEY(`user_id`))",
+        "fields": [
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "user_id"
+          ]
+        }
+      },
+      {
+        "tableName": "sort_channel",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `videoSort` TEXT, `videoType` TEXT, `clipPeriod` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "videoSort",
+            "columnName": "videoSort",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoType",
+            "columnName": "videoType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "clipPeriod",
+            "columnName": "clipPeriod",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "sort_game",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `streamSort` TEXT, `streamTags` TEXT, `streamLanguages` TEXT, `videoSort` TEXT, `videoPeriod` TEXT, `videoType` TEXT, `videoLanguages` TEXT, `clipPeriod` TEXT, `clipLanguages` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamSort",
+            "columnName": "streamSort",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "streamTags",
+            "columnName": "streamTags",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "streamLanguages",
+            "columnName": "streamLanguages",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoSort",
+            "columnName": "videoSort",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoPeriod",
+            "columnName": "videoPeriod",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoType",
+            "columnName": "videoType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoLanguages",
+            "columnName": "videoLanguages",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "clipPeriod",
+            "columnName": "clipPeriod",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "clipLanguages",
+            "columnName": "clipLanguages",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "shown_notifications",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`channelId` TEXT NOT NULL, `startedAt` INTEGER NOT NULL, PRIMARY KEY(`channelId`))",
+        "fields": [
+          {
+            "fieldPath": "channelId",
+            "columnName": "channelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "startedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "channelId"
+          ]
+        }
+      },
+      {
+        "tableName": "notifications",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`channelId` TEXT NOT NULL, PRIMARY KEY(`channelId`))",
+        "fields": [
+          {
+            "fieldPath": "channelId",
+            "columnName": "channelId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "channelId"
+          ]
+        }
+      },
+      {
+        "tableName": "notification_events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`eventId` TEXT NOT NULL, `channelId` TEXT NOT NULL, `streamId` TEXT, `channelLogin` TEXT, `channelName` TEXT, `channelImageURL` TEXT, `gameName` TEXT, `title` TEXT, `thumbnailURL` TEXT, `createdAt` TEXT, `viewerCount` INTEGER, `startedAt` INTEGER NOT NULL, `queuedAt` INTEGER NOT NULL, PRIMARY KEY(`eventId`))",
+        "fields": [
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channelId",
+            "columnName": "channelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamId",
+            "columnName": "streamId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelLogin",
+            "columnName": "channelLogin",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelName",
+            "columnName": "channelName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelImageURL",
+            "columnName": "channelImageURL",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameName",
+            "columnName": "gameName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnailURL",
+            "columnName": "thumbnailURL",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "viewerCount",
+            "columnName": "viewerCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "startedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "queuedAt",
+            "columnName": "queuedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "eventId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_notification_events_channelId",
+            "unique": false,
+            "columnNames": [
+              "channelId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_notification_events_channelId` ON `${TABLE_NAME}` (`channelId`)"
+          },
+          {
+            "name": "index_notification_events_queuedAt",
+            "unique": false,
+            "columnNames": [
+              "queuedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_notification_events_queuedAt` ON `${TABLE_NAME}` (`queuedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "translate_all_messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`channelId` TEXT NOT NULL, PRIMARY KEY(`channelId`))",
+        "fields": [
+          {
+            "fieldPath": "channelId",
+            "columnName": "channelId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "channelId"
+          ]
+        }
+      },
+      {
+        "tableName": "filters",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`gameId` TEXT, `gameSlug` TEXT, `gameName` TEXT, `tags` TEXT, `languages` TEXT, `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameSlug",
+            "columnName": "gameSlug",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameName",
+            "columnName": "gameName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "languages",
+            "columnName": "languages",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "recent_search",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`query` TEXT NOT NULL, `type` TEXT NOT NULL, `lastSearched` INTEGER NOT NULL, `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "query",
+            "columnName": "query",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSearched",
+            "columnName": "lastSearched",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recent_search_type_lastSearched",
+            "unique": false,
+            "columnNames": [
+              "type",
+              "lastSearched"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recent_search_type_lastSearched` ON `${TABLE_NAME}` (`type`, `lastSearched`)"
+          },
+          {
+            "name": "index_recent_search_query_type",
+            "unique": false,
+            "columnNames": [
+              "query",
+              "type"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recent_search_query_type` ON `${TABLE_NAME}` (`query`, `type`)"
+          }
+        ]
+      },
+      {
+        "tableName": "playback_states",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`type` TEXT, `streamId` TEXT, `videoId` TEXT, `clipId` TEXT, `offlineVideoId` INTEGER, `channelId` TEXT, `channelLogin` TEXT, `channelName` TEXT, `channelImage` TEXT, `gameId` TEXT, `gameSlug` TEXT, `gameName` TEXT, `title` TEXT, `thumbnail` TEXT, `createdAt` TEXT, `viewerCount` INTEGER, `durationSeconds` INTEGER, `videoType` TEXT, `videoOffsetSeconds` INTEGER, `videoCreatedAt` TEXT, `videoAnimatedPreviewURL` TEXT, `videoUrl` TEXT, `position` INTEGER, `paused` INTEGER NOT NULL, `qualities` TEXT, `quality` TEXT, `previousQuality` TEXT, `restoreQuality` INTEGER NOT NULL, `playlistUrl` TEXT, `restorePlaylist` INTEGER NOT NULL, `useCustomProxy` INTEGER NOT NULL, `skipAccessToken` INTEGER NOT NULL, `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "streamId",
+            "columnName": "streamId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoId",
+            "columnName": "videoId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "clipId",
+            "columnName": "clipId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "offlineVideoId",
+            "columnName": "offlineVideoId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "channelId",
+            "columnName": "channelId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelLogin",
+            "columnName": "channelLogin",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelName",
+            "columnName": "channelName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelImage",
+            "columnName": "channelImage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameSlug",
+            "columnName": "gameSlug",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameName",
+            "columnName": "gameName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnail",
+            "columnName": "thumbnail",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "viewerCount",
+            "columnName": "viewerCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "durationSeconds",
+            "columnName": "durationSeconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "videoType",
+            "columnName": "videoType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoOffsetSeconds",
+            "columnName": "videoOffsetSeconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "videoCreatedAt",
+            "columnName": "videoCreatedAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoAnimatedPreviewURL",
+            "columnName": "videoAnimatedPreviewURL",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoUrl",
+            "columnName": "videoUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "paused",
+            "columnName": "paused",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "qualities",
+            "columnName": "qualities",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "quality",
+            "columnName": "quality",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "previousQuality",
+            "columnName": "previousQuality",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "restoreQuality",
+            "columnName": "restoreQuality",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playlistUrl",
+            "columnName": "playlistUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "restorePlaylist",
+            "columnName": "restorePlaylist",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "useCustomProxy",
+            "columnName": "useCustomProxy",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "skipAccessToken",
+            "columnName": "skipAccessToken",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "viewing_sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `channel_id` TEXT NOT NULL, `channel_login` TEXT, `channel_name` TEXT, `channel_image` TEXT, `content_type` TEXT NOT NULL, `content_id` TEXT, `started_at` INTEGER NOT NULL, `ended_at` INTEGER NOT NULL, `watched_ms` INTEGER NOT NULL, `last_checkpoint_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channelId",
+            "columnName": "channel_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channelLogin",
+            "columnName": "channel_login",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelName",
+            "columnName": "channel_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelImage",
+            "columnName": "channel_image",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentType",
+            "columnName": "content_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentId",
+            "columnName": "content_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "started_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endedAt",
+            "columnName": "ended_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watchedMs",
+            "columnName": "watched_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastCheckpointAt",
+            "columnName": "last_checkpoint_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_viewing_sessions_started_at",
+            "unique": false,
+            "columnNames": [
+              "started_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_sessions_started_at` ON `${TABLE_NAME}` (`started_at`)"
+          },
+          {
+            "name": "index_viewing_sessions_channel_id_started_at",
+            "unique": false,
+            "columnNames": [
+              "channel_id",
+              "started_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_sessions_channel_id_started_at` ON `${TABLE_NAME}` (`channel_id`, `started_at`)"
+          }
+        ]
+      },
+      {
+        "tableName": "viewing_intervals",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `session_id` INTEGER NOT NULL, `channel_id` TEXT NOT NULL, `channel_login` TEXT, `channel_name` TEXT, `channel_image` TEXT, `category_id` TEXT, `category_name` TEXT, `category_image` TEXT, `content_type` TEXT NOT NULL, `content_id` TEXT, `stream_title` TEXT, `start_at` INTEGER NOT NULL, `end_at` INTEGER NOT NULL, `watched_ms` INTEGER NOT NULL, `last_checkpoint_at` INTEGER NOT NULL, FOREIGN KEY(`session_id`) REFERENCES `viewing_sessions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionId",
+            "columnName": "session_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channelId",
+            "columnName": "channel_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channelLogin",
+            "columnName": "channel_login",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelName",
+            "columnName": "channel_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelImage",
+            "columnName": "channel_image",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "category_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "categoryName",
+            "columnName": "category_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "categoryImage",
+            "columnName": "category_image",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "contentType",
+            "columnName": "content_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentId",
+            "columnName": "content_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "streamTitle",
+            "columnName": "stream_title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "startAt",
+            "columnName": "start_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endAt",
+            "columnName": "end_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watchedMs",
+            "columnName": "watched_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastCheckpointAt",
+            "columnName": "last_checkpoint_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_viewing_intervals_start_at",
+            "unique": false,
+            "columnNames": [
+              "start_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_intervals_start_at` ON `${TABLE_NAME}` (`start_at`)"
+          },
+          {
+            "name": "index_viewing_intervals_channel_id_start_at",
+            "unique": false,
+            "columnNames": [
+              "channel_id",
+              "start_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_intervals_channel_id_start_at` ON `${TABLE_NAME}` (`channel_id`, `start_at`)"
+          },
+          {
+            "name": "index_viewing_intervals_category_id_start_at",
+            "unique": false,
+            "columnNames": [
+              "category_id",
+              "start_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_intervals_category_id_start_at` ON `${TABLE_NAME}` (`category_id`, `start_at`)"
+          },
+          {
+            "name": "index_viewing_intervals_content_type_start_at",
+            "unique": false,
+            "columnNames": [
+              "content_type",
+              "start_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_intervals_content_type_start_at` ON `${TABLE_NAME}` (`content_type`, `start_at`)"
+          },
+          {
+            "name": "index_viewing_intervals_session_id",
+            "unique": false,
+            "columnNames": [
+              "session_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_viewing_intervals_session_id` ON `${TABLE_NAME}` (`session_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "viewing_sessions",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "session_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "stream_feed_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`feedKey` TEXT NOT NULL, `itemKey` TEXT NOT NULL, `position` INTEGER NOT NULL, `streamId` TEXT, `channelId` TEXT, `channelLogin` TEXT, `channelName` TEXT, `channelImageURL` TEXT, `gameId` TEXT, `gameSlug` TEXT, `gameName` TEXT, `title` TEXT, `thumbnailURL` TEXT, `createdAt` TEXT, `viewerCount` INTEGER, `tags` TEXT, `generation` INTEGER NOT NULL, PRIMARY KEY(`feedKey`, `itemKey`))",
+        "fields": [
+          {
+            "fieldPath": "feedKey",
+            "columnName": "feedKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemKey",
+            "columnName": "itemKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "streamId",
+            "columnName": "streamId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelId",
+            "columnName": "channelId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelLogin",
+            "columnName": "channelLogin",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelName",
+            "columnName": "channelName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channelImageURL",
+            "columnName": "channelImageURL",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameSlug",
+            "columnName": "gameSlug",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameName",
+            "columnName": "gameName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnailURL",
+            "columnName": "thumbnailURL",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "viewerCount",
+            "columnName": "viewerCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "generation",
+            "columnName": "generation",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "feedKey",
+            "itemKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_stream_feed_items_feedKey_position",
+            "unique": false,
+            "columnNames": [
+              "feedKey",
+              "position"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_stream_feed_items_feedKey_position` ON `${TABLE_NAME}` (`feedKey`, `position`)"
+          },
+          {
+            "name": "index_stream_feed_items_feedKey_channelId",
+            "unique": false,
+            "columnNames": [
+              "feedKey",
+              "channelId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_stream_feed_items_feedKey_channelId` ON `${TABLE_NAME}` (`feedKey`, `channelId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "stream_feed_states",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`feedKey` TEXT NOT NULL, `nextCursor` TEXT, `lastSuccessAt` INTEGER, `lastAttemptAt` INTEGER, `lastAccessAt` INTEGER NOT NULL, `failureBackoffUntil` INTEGER, `rateLimitUntil` INTEGER, `nextCursorApi` TEXT, `activeGeneration` INTEGER NOT NULL, `staleTailRetainedAt` INTEGER, PRIMARY KEY(`feedKey`))",
+        "fields": [
+          {
+            "fieldPath": "feedKey",
+            "columnName": "feedKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextCursor",
+            "columnName": "nextCursor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastSuccessAt",
+            "columnName": "lastSuccessAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastAttemptAt",
+            "columnName": "lastAttemptAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastAccessAt",
+            "columnName": "lastAccessAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "failureBackoffUntil",
+            "columnName": "failureBackoffUntil",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "rateLimitUntil",
+            "columnName": "rateLimitUntil",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "nextCursorApi",
+            "columnName": "nextCursorApi",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "activeGeneration",
+            "columnName": "activeGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "staleTailRetainedAt",
+            "columnName": "staleTailRetainedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "feedKey"
+          ]
+        }
+      },
+      {
+        "tableName": "game_feed_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`feedKey` TEXT NOT NULL, `itemKey` TEXT NOT NULL, `position` INTEGER NOT NULL, `gameId` TEXT, `gameSlug` TEXT, `gameName` TEXT, `boxArtURL` TEXT, `viewerCount` INTEGER, `broadcasterCount` INTEGER, `tags` TEXT, `generation` INTEGER NOT NULL, PRIMARY KEY(`feedKey`, `itemKey`))",
+        "fields": [
+          {
+            "fieldPath": "feedKey",
+            "columnName": "feedKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemKey",
+            "columnName": "itemKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "position",
+            "columnName": "position",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameId",
+            "columnName": "gameId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameSlug",
+            "columnName": "gameSlug",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gameName",
+            "columnName": "gameName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "boxArtURL",
+            "columnName": "boxArtURL",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "viewerCount",
+            "columnName": "viewerCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "broadcasterCount",
+            "columnName": "broadcasterCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "generation",
+            "columnName": "generation",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "feedKey",
+            "itemKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_game_feed_items_feedKey_position",
+            "unique": false,
+            "columnNames": [
+              "feedKey",
+              "position"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_game_feed_items_feedKey_position` ON `${TABLE_NAME}` (`feedKey`, `position`)"
+          }
+        ]
+      },
+      {
+        "tableName": "game_feed_states",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`feedKey` TEXT NOT NULL, `nextCursor` TEXT, `lastSuccessAt` INTEGER, `lastAttemptAt` INTEGER, `lastAccessAt` INTEGER NOT NULL, `failureBackoffUntil` INTEGER, `rateLimitUntil` INTEGER, `nextCursorApi` TEXT, `activeGeneration` INTEGER NOT NULL, `staleTailRetainedAt` INTEGER, PRIMARY KEY(`feedKey`))",
+        "fields": [
+          {
+            "fieldPath": "feedKey",
+            "columnName": "feedKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextCursor",
+            "columnName": "nextCursor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastSuccessAt",
+            "columnName": "lastSuccessAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastAttemptAt",
+            "columnName": "lastAttemptAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastAccessAt",
+            "columnName": "lastAccessAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "failureBackoffUntil",
+            "columnName": "failureBackoffUntil",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "rateLimitUntil",
+            "columnName": "rateLimitUntil",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "nextCursorApi",
+            "columnName": "nextCursorApi",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "activeGeneration",
+            "columnName": "activeGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "staleTailRetainedAt",
+            "columnName": "staleTailRetainedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "feedKey"
+          ]
+        }
+      },
+      {
+        "tableName": "metadata_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`kind` TEXT NOT NULL, `cacheKey` TEXT NOT NULL, `payload` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `lastAccessAt` INTEGER NOT NULL, PRIMARY KEY(`kind`, `cacheKey`))",
+        "fields": [
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cacheKey",
+            "columnName": "cacheKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAccessAt",
+            "columnName": "lastAccessAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "kind",
+            "cacheKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_metadata_cache_lastAccessAt",
+            "unique": false,
+            "columnNames": [
+              "lastAccessAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_metadata_cache_lastAccessAt` ON `${TABLE_NAME}` (`lastAccessAt`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1bfd4f2978b8169f4a5c4a6544030b07')"
+    ]
+  }
+}
