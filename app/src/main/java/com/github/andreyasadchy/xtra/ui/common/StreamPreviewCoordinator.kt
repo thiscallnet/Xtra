@@ -178,6 +178,9 @@ class StreamPreviewCoordinator(
         activePreviews.keys.toList()
             .filter { it != identity }
             .forEach(::releasePreview)
+        // Preview SurfaceViews are compositor layers and can remain above the new player view.
+        // Keep the warm player, but hide its old card surface for the duration of the handoff.
+        activePreviews[identity]?.let(::detachPreviewSurface)
         previewLifecycle.retainOnly(identity)
     }
 
@@ -204,15 +207,17 @@ class StreamPreviewCoordinator(
     /** Unbinds only the view. The player remains reusable during the offscreen grace period. */
     fun detachSurface(surface: PlayerView) {
         val active = activePreviews.values.firstOrNull { it.surface === surface }
-        active?.surface = null
         active?.let {
+            detachPreviewSurface(it)
             val now = SystemClock.elapsedRealtime()
             previewLifecycle.markOffscreen(it.identity, now)
             lifecycleReconciler.reconcile(now, additionalDeadlines = failedUntil.values)
         }
-        surface.player = null
-        surface.alpha = 0f
-        surface.visibility = View.GONE
+        if (active == null) {
+            surface.player = null
+            surface.alpha = 0f
+            surface.visibility = View.GONE
+        }
     }
 
     fun refresh() = scheduleSelection()
@@ -546,14 +551,19 @@ class StreamPreviewCoordinator(
         dwellStarts.remove(login)
         previewLifecycle.failed(login)
         activePreviews.remove(login)?.let { active ->
-            active.surface?.let { surface ->
-                surface.player = null
-                surface.alpha = 0f
-                surface.visibility = View.GONE
-            }
+            detachPreviewSurface(active)
             runCatching { active.player.stop() }
             runCatching { active.player.release() }
         }
+    }
+
+    private fun detachPreviewSurface(active: ActivePreview) {
+        active.surface?.let { surface ->
+            surface.player = null
+            surface.alpha = 0f
+            surface.visibility = View.GONE
+        }
+        active.surface = null
     }
 
     private fun normalize(login: String?): String? =
