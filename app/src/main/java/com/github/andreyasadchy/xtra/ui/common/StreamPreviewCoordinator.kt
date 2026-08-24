@@ -631,9 +631,10 @@ class StreamPreviewCoordinator(
     }
 
     private fun cancelPendingStarts() {
-        pendingStarts.values.forEach(Job::cancel)
+        val jobs = pendingStarts.values.toList()
         pendingStarts.clear()
         dwellStarts.clear()
+        jobs.forEach(Job::cancel)
     }
 
     private fun scheduleLifecycleReconciliation(delayMs: Long, callback: () -> Unit): () -> Unit {
