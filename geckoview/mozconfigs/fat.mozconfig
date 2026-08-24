@@ -1,0 +1,7 @@
+# Configuration used only to repackage the already-built architecture Maven
+# archives into Mozilla's official multi-ABI GeckoView AAR.
+
+mk_add_options AUTOCLOBBER=1
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-xtra-fat
+ac_add_options --target=aarch64
+ac_add_options --disable-compile-environment

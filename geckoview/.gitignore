@@ -1,0 +1,10 @@
+obj-*
+source
+source-seed
+source-snapshot
+artifacts
+.sccache
+.mozbuild
+scripts/__pycache__
+*.aar
+*.log

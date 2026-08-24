@@ -1,0 +1,2 @@
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-xtra-armv7-safe
+ac_add_options --target=arm-linux-androideabi

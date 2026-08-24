@@ -1,0 +1,19 @@
+# This file is sourced by Mozilla's configure machinery. Keep options limited
+# to flags verified against the pinned Gecko revision in SOURCE_REVISION.
+
+ac_add_options --enable-project=mobile/android
+ac_add_options --enable-geckoview-lite
+ac_add_options --disable-debug
+ac_add_options --enable-optimize
+ac_add_options --disable-tests
+ac_add_options --disable-crashreporter
+ac_add_options --disable-printing
+ac_add_options --disable-backgroundtasks
+ac_add_options --disable-pref-extensions
+ac_add_options --num-content-services=1
+ac_add_options --with-ccache=sccache
+
+# Telemetry reporting is not part of an Xtra authentication engine build.
+unset MOZ_TELEMETRY_REPORTING
+
+mk_add_options AUTOCLOBBER=1

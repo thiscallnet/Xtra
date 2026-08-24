@@ -1,0 +1,3 @@
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-xtra-armv7-nowebrtc
+ac_add_options --target=arm-linux-androideabi
+ac_add_options --disable-webrtc

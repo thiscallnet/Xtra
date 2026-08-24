@@ -104,6 +104,60 @@ jobs:
       run: |
         set -euo pipefail
         printf '{"versionName":"%s","versionCode":%s}\n' "$VERSION_NAME" "$VERSION_CODE" > xtra-release-metadata.json
+    - name: Download pinned custom GeckoView
+      id: custom-geckoview
+      env:
+        GH_TOKEN: ${{ github.token }}
+        CUSTOM_GECKOVIEW_RELEASE_TAG: ${{ vars.XTRA_GECKOVIEW_RELEASE_TAG }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -z "${CUSTOM_GECKOVIEW_RELEASE_TAG:-}" ]]; then
+          echo "XTRA_GECKOVIEW_RELEASE_TAG is not configured; using stock GeckoView"
+          exit 0
+        fi
+
+        download_dir="$RUNNER_TEMP/xtra-geckoview"
+        mkdir -p "$download_dir"
+        gh release download "$CUSTOM_GECKOVIEW_RELEASE_TAG" \
+          --pattern '*.aar' \
+          --pattern '*.json' \
+          --dir "$download_dir"
+
+        mapfile -t aar_files < <(find "$download_dir" -maxdepth 1 -type f -name '*.aar' -print)
+        mapfile -t manifest_files < <(find "$download_dir" -maxdepth 1 -type f -name '*.json' -print)
+        if [[ "${#aar_files[@]}" -ne 1 || "${#manifest_files[@]}" -ne 1 ]]; then
+          echo "Custom GeckoView release must contain exactly one AAR and one manifest" >&2
+          exit 1
+        fi
+
+        aar="${aar_files[0]}"
+        manifest="${manifest_files[0]}"
+        expected_revision="$(sed -n '2p' geckoview/SOURCE_REVISION)"
+        actual_revision="$(jq -er '.sourceRevision | strings' "$manifest")"
+        actual_profile="$(jq -er '.profile | strings' "$manifest")"
+        actual_abis="$(jq -er '.abis | arrays | sort | join(",")' "$manifest")"
+        expected_sha256="$(jq -er '.sha256 | strings' "$manifest")"
+        actual_sha256="$(sha256sum "$aar" | awk '{print $1}')"
+        if [[ "$actual_revision" != "$expected_revision" ]]; then
+          echo "Custom GeckoView source revision mismatch" >&2
+          exit 1
+        fi
+        if [[ "$actual_profile" != "safe" ]]; then
+          echo "Custom GeckoView profile mismatch: $actual_profile" >&2
+          exit 1
+        fi
+        if [[ "$actual_abis" != "arm64-v8a,armeabi-v7a" ]]; then
+          echo "Custom GeckoView ABI set mismatch: $actual_abis" >&2
+          exit 1
+        fi
+        if [[ "$actual_sha256" != "$expected_sha256" ]]; then
+          echo "Custom GeckoView SHA-256 mismatch" >&2
+          exit 1
+        fi
+
+        echo "path=$aar" >> "$GITHUB_OUTPUT"
+        echo "Using pinned custom GeckoView $(basename "$aar")"
     - name: Run JVM tests
       run: ./gradlew testDebugUnitTest
 
@@ -116,6 +170,7 @@ jobs:
     - name: Build with Gradle
       env:
         TWITCH_PUBLIC_CLIENT_ID: ${{ vars.TWITCH_PUBLIC_CLIENT_ID }}
+        CUSTOM_GECKOVIEW_AAR: ${{ steps.custom-geckoview.outputs.path }}
       shell: bash
       run: |
         set -euo pipefail
@@ -123,9 +178,15 @@ jobs:
           echo "Repository variable TWITCH_PUBLIC_CLIENT_ID is required for release builds" >&2
           exit 1
         fi
-        ./gradlew assembleRelease \
-          "-PciVersionCode=${{ steps.version.outputs.code }}" \
+        gradle_args=(
+          assembleRelease
+          "-PciVersionCode=${{ steps.version.outputs.code }}"
           "-PtwitchPublicClientId=${TWITCH_PUBLIC_CLIENT_ID}"
+        )
+        if [[ -n "${CUSTOM_GECKOVIEW_AAR:-}" ]]; then
+          gradle_args+=("-PxtraGeckoViewAar=${CUSTOM_GECKOVIEW_AAR}")
+        fi
+        ./gradlew "${gradle_args[@]}"
 
     - name: Verify release metadata against APK
       env:
@@ -171,6 +232,16 @@ jobs:
           echo "Metadata: versionName=$metadata_version_name versionCode=$metadata_version_code" >&2
           exit 1
         fi
+        apk_size_bytes="$(stat -c '%s' "$apk_asset")"
+        max_apk_size_bytes=$((300 * 1024 * 1024))
+        if (( apk_size_bytes > max_apk_size_bytes )); then
+          echo "Release APK exceeds the 300 MiB regression guard: $apk_size_bytes bytes" >&2
+          exit 1
+        fi
+        echo "Largest release APK members (uncompressed / compressed bytes):"
+        unzip -lv "$apk_asset" |
+          awk 'NR > 3 && $1 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { print $1 " / " $3 "  " $8 }' |
+          sort -nr | sed -n '1,20p'
         apk_sha256="$(sha256sum "$apk_asset" | awk '{print $1}')"
         metadata_tmp="$(mktemp)"
         jq --arg sha256 "$apk_sha256" '. + {sha256: $sha256}' "$metadata_asset" > "$metadata_tmp"
