@@ -40,6 +40,18 @@ data class PreloadedLiveMediaSource(
     val targetStage: Int,
 )
 
+internal fun shouldResetPreloadManager(hasPrimaryPlaybackPlayer: Boolean): Boolean = !hasPrimaryPlaybackPlayer
+
+internal fun shouldReleasePreloadGeneration(
+    isCurrentGeneration: Boolean,
+    wasPrimaryPlaybackGeneration: Boolean,
+): Boolean = wasPrimaryPlaybackGeneration || !isCurrentGeneration
+
+internal fun shouldDeferProtectedPreloadReplacement(
+    mediaItem: MediaItem,
+    ownership: StreamMedia3PlaybackOwnership,
+): Boolean = ownership.protects(mediaItem)
+
 /** Shared Media3 builder/configuration owner for real live playback and speculative media. */
 @UnstableApi
 class StreamMedia3Runtime(
@@ -139,7 +151,12 @@ class StreamMedia3Runtime(
             staleAfterMs = SAMPLE_PRELOAD_MAX_AGE_MS,
         )
         plan.removed.forEach { removed ->
-            val entry = generation.entries.remove(removed.channelLogin) ?: return@forEach
+            val entry = generation.entries[removed.channelLogin] ?: return@forEach
+            if (generation.playbackOwnership.protects(entry.mediaItem)) {
+                debug("preload_protected", entry.channelLogin)
+                return@forEach
+            }
+            generation.entries.remove(removed.channelLogin)
             if (removed.rank == 0 && removed.samplesLoadedAtMs != null &&
                 now - removed.samplesLoadedAtMs >= SAMPLE_PRELOAD_MAX_AGE_MS &&
                 desired[removed.channelLogin]?.url == removed.url
@@ -161,13 +178,19 @@ class StreamMedia3Runtime(
                 channelName = candidate.channelName,
                 channelLogo = candidate.channelLogo,
             )
-            generation.entries[login] = Entry(
+            val entry = Entry(
                 channelLogin = login,
                 url = candidate.url,
                 mediaItem = item,
                 rank = candidate.rank,
                 addedAtMs = now,
             )
+            if (!generation.entries.replaceUnlessProtected(login, entry) {
+                    shouldDeferProtectedPreloadReplacement(it.mediaItem, generation.playbackOwnership)
+                }) {
+                debug("preload_replacement_deferred", login)
+                return@forEach
+            }
             generation.manager.add(item, candidate.rank)
         }
         generation.manager.setCurrentPlayingIndex(0)
@@ -183,11 +206,25 @@ class StreamMedia3Runtime(
         currentGeneration?.let { generation ->
             val keep = keepChannelLogin?.trim()?.lowercase()
             if (keep == null) {
-                generation.manager.reset()
-                generation.entries.clear()
+                if (shouldResetPreloadManager(generation.player != null)) {
+                    generation.manager.reset()
+                    generation.entries.clear()
+                } else {
+                    generation.entries.values.toList()
+                        .filterNot { generation.playbackOwnership.protects(it.mediaItem) }
+                        .forEach {
+                            generation.manager.remove(it.mediaItem)
+                            generation.entries.remove(it.channelLogin)
+                        }
+                    generation.manager.setCurrentPlayingIndex(0)
+                    generation.manager.invalidate()
+                }
             } else {
                 generation.entries.values.toList()
-                    .filter { it.channelLogin != keep }
+                    .filter {
+                        it.channelLogin != keep &&
+                            !generation.playbackOwnership.protects(it.mediaItem)
+                    }
                     .forEach {
                         generation.manager.remove(it.mediaItem)
                         generation.entries.remove(it.channelLogin)
@@ -204,13 +241,17 @@ class StreamMedia3Runtime(
         mainHandler.removeCallbacks(staleRefresh)
         desiredCandidates = emptyList()
         currentGeneration?.let { generation ->
-            generation.manager.reset()
-            generation.entries.clear()
-            if (generation.player == null) {
+            if (shouldResetPreloadManager(generation.player != null)) {
+                generation.manager.reset()
+                generation.entries.clear()
                 generation.manager.release()
                 states.remove(generation)
+                currentGeneration = null
+            } else {
+                // The primary player may still be reading a source owned by this
+                // generation. Retain it until PlaybackService releases the player.
+                currentGeneration = null
             }
-            currentGeneration = null
         }
     }
 
@@ -276,6 +317,24 @@ class StreamMedia3Runtime(
     }
 
     @Synchronized
+    fun setPrimaryPlaybackMediaItem(mediaItem: MediaItem?) {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 playback handoff must run on the main looper" }
+        val targetGeneration = mediaItem?.let { target ->
+            states.asReversed().firstOrNull { generation ->
+                generation.entries.values.any { it.mediaItem === target }
+            }
+        }
+        val currentMediaItem = states.asReversed()
+            .firstOrNull { it.playbackOwnership.currentMediaItem() != null }
+            ?.playbackOwnership
+            ?.currentMediaItem()
+        if (currentMediaItem === mediaItem && (mediaItem == null || targetGeneration != null)) return
+        states.forEach { it.playbackOwnership.release() }
+        targetGeneration?.playbackOwnership?.setPrimaryMediaItem(mediaItem)
+        if (desiredCandidates.isNotEmpty()) reconcile(desiredCandidates)
+    }
+
+    @Synchronized
     fun createLiveMediaSource(mediaItem: MediaItem): MediaSource {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 live source creation must run on the main looper" }
         return ensureGeneration().hlsFactory.createMediaSource(mediaItem)
@@ -321,26 +380,36 @@ class StreamMedia3Runtime(
     @Synchronized
     fun releasePlaybackPlayer(player: ExoPlayer?) {
         if (player == null) return
+        val playbackGenerations = states.filter { it.player === player }.toSet()
         states.forEach { generation ->
-            if (generation.player === player) generation.player = null
+            if (generation.player === player) {
+                generation.playbackOwnership.release()
+                generation.player = null
+            }
         }
         states.toList()
-            .filter { it !== currentGeneration && it.player == null }
+            .filter {
+                it.player == null && shouldReleasePreloadGeneration(
+                    isCurrentGeneration = it === currentGeneration,
+                    wasPrimaryPlaybackGeneration = it in playbackGenerations,
+                )
+            }
             .forEach { generation ->
                 generation.manager.release()
                 states.remove(generation)
+                if (currentGeneration === generation) currentGeneration = null
             }
     }
 
     private fun ensureGeneration(): Generation {
         val configuration = StreamPlaybackConfiguration.from(context)
         currentGeneration?.takeIf { it.configuration.fingerprint == configuration.fingerprint }?.let { return it }
-        currentGeneration?.takeIf { it.player == null }?.let { old ->
-            old.manager.release()
-            states.remove(old)
+        currentGeneration?.let { old ->
+            if (shouldResetPreloadManager(old.player != null)) {
+                old.manager.release()
+                states.remove(old)
+            }
         }
-        currentGeneration?.takeIf { it.player != null }?.manager?.reset()
-        currentGeneration?.takeIf { it.player != null }?.entries?.clear()
         currentGeneration = null
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(15_000, 50_000, 2_000, 2_000)
@@ -409,7 +478,9 @@ class StreamMedia3Runtime(
 
     private fun scheduleStaleRefresh(generation: Generation) {
         mainHandler.removeCallbacks(staleRefresh)
-        if (generation.entries.values.any { it.rank == 0 }) {
+        if (generation.entries.values.any {
+                it.rank == 0 && !generation.playbackOwnership.protects(it.mediaItem)
+            }) {
             mainHandler.postDelayed(staleRefresh, SAMPLE_PRELOAD_MAX_AGE_MS)
         }
     }
@@ -429,8 +500,9 @@ class StreamMedia3Runtime(
         val hlsFactory: StreamHlsMediaSourceFactory,
         val builder: DefaultPreloadManager.Builder,
         val manager: DefaultPreloadManager,
-        val entries: MutableMap<String, Entry> = linkedMapOf(),
+        val entries: StreamMedia3PreloadEntries<Entry> = StreamMedia3PreloadEntries(),
         var player: ExoPlayer? = null,
+        val playbackOwnership: StreamMedia3PlaybackOwnership = StreamMedia3PlaybackOwnership(),
     )
 
 }

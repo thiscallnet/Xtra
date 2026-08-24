@@ -89,6 +89,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
@@ -101,6 +102,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -170,9 +173,15 @@ class ChatViewModel(
     private var pubSubJob: Job? = null
     private var channelPointsJob: Job? = null
     private var claimJob: Job? = null
-    private var watchStreakJob: Job? = null
-    private var watchStreakRetryJob: Job? = null
+    private var watchStreakWorkerJob: Job? = null
+    private var watchStreakRefreshJob: Job? = null
     private var watchStreakSession = 0L
+    private var lastWatchStreakReconciliationElapsedRealtime: Long? = null
+    private val watchStreakRequestMutex = Mutex()
+    private val watchStreakRequestSignal = Channel<Unit>(Channel.CONFLATED)
+    private val pendingWatchStreakRequests = WatchStreakReconciliationQueue<WatchStreakRequest> {
+        it.reconciliation
+    }
     private var stvEventApi: STVEventApiWebSocket? = null
     private var stvEventApiJob: Job? = null
     private var stvUserId: String? = null
@@ -1546,6 +1555,75 @@ class ChatViewModel(
         )
     }
 
+    private fun startWatchStreakRefresh(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        channelId: String?,
+    ) {
+        watchStreakRefreshJob?.cancel()
+        watchStreakRefreshJob = null
+        val expectedChannelId = channelId
+        val expectedChannelLogin = activeChannelLogin
+        val expectedUserId = loggedInUserId
+        val expectedSession = watchStreakSession
+        if (!shouldContinueWatchStreakRefresh(
+                expectedSession = expectedSession,
+                currentSession = watchStreakSession,
+                expectedChannelId = expectedChannelId,
+                currentChannelId = activeChannelId,
+                expectedChannelLogin = expectedChannelLogin,
+                currentChannelLogin = activeChannelLogin,
+                expectedUserId = expectedUserId,
+                currentUserId = loggedInUserId,
+                gqlToken = gqlHeaders[C.HEADER_TOKEN],
+            )
+        ) {
+            return
+        }
+        lateinit var refreshJob: Job
+        refreshJob = viewModelScope.launch {
+            while (isActive) {
+                delay(WATCH_STREAK_REFRESH_INTERVAL_MILLIS)
+                val currentGqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
+                val currentUserId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
+                if (!shouldContinueWatchStreakRefresh(
+                        expectedSession = expectedSession,
+                        currentSession = watchStreakSession,
+                        expectedChannelId = expectedChannelId,
+                        currentChannelId = activeChannelId,
+                        expectedChannelLogin = expectedChannelLogin,
+                        currentChannelLogin = activeChannelLogin,
+                        expectedUserId = expectedUserId,
+                        currentUserId = currentUserId,
+                        gqlToken = currentGqlHeaders[C.HEADER_TOKEN],
+                    )
+                ) {
+                    break
+                }
+                // A live notice is optional. This request keeps the snapshot
+                // fresh when Twitch omits the notice entirely.
+                loadWatchStreak(networkLibrary, currentGqlHeaders, expectedChannelId)
+            }
+        }
+        watchStreakRefreshJob = refreshJob
+        refreshJob.invokeOnCompletion {
+            if (watchStreakRefreshJob === refreshJob) {
+                watchStreakRefreshJob = null
+            }
+        }
+    }
+
+    private data class WatchStreakRequest(
+        val networkLibrary: String?,
+        val gqlHeaders: Map<String, String>,
+        val channelId: String,
+        val delayMillis: Long,
+        val reconciliation: WatchStreakReconciliation,
+        val expectedSession: Long,
+        val expectedChannelLogin: String?,
+        val expectedUserId: String?,
+    )
+
     private fun loadWatchStreak(
         networkLibrary: String?,
         gqlHeaders: Map<String, String>,
@@ -1553,112 +1631,116 @@ class ChatViewModel(
         delayMillis: Long = 0L,
         reconciliation: WatchStreakReconciliation? = null,
     ) {
-        if (channelId.isNullOrBlank() || gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-            return
-        }
-        val expectedChannelId = channelId
-        val expectedChannelLogin = activeChannelLogin
-        val expectedSession = watchStreakSession
-        watchStreakJob?.cancel()
-        watchStreakRetryJob?.cancel()
-        watchStreakRetryJob = null
-        watchStreakJob = viewModelScope.launch {
-            try {
-                if (delayMillis > 0L) delay(delayMillis)
-                if (watchStreakSession != expectedSession ||
-                    activeChannelId != expectedChannelId ||
-                    activeChannelLogin != expectedChannelLogin
-                ) {
-                    return@launch
-                }
-                val response = graphQLRepository.loadWatchStreak(networkLibrary, gqlHeaders, channelId)
-                if (watchStreakSession != expectedSession ||
-                    activeChannelId != expectedChannelId ||
-                    activeChannelLogin != expectedChannelLogin
-                ) {
-                    return@launch
-                }
-                val responseCount = watchStreakCount(response)
-                updateWatchStreakStatus(response)
-                if (reconciliation != null) {
-                    val snapshotStatus = watchStreakSnapshotStatus(reconciliation, responseCount)
-                    Log.d(
-                        WatchCreditTelemetry.LOG_TAG,
-                        "watch-streak reconciliation first snapshot source=${reconciliation.source} status=$snapshotStatus",
-                    )
-                    if (shouldRetryWatchStreakReconciliation(reconciliation, responseCount, retryAttempt = 0)) {
-                        scheduleWatchStreakRetry(
-                            networkLibrary = networkLibrary,
-                            gqlHeaders = gqlHeaders,
-                            channelId = channelId,
-                            expectedChannelId = expectedChannelId,
-                            expectedChannelLogin = expectedChannelLogin,
-                            expectedSession = expectedSession,
-                            reconciliation = reconciliation,
-                            retryAttempt = 1,
-                        )
-                    }
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
+        val expectedChannelId = channelId?.takeUnless { it.isBlank() } ?: return
+        if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) return
+        pendingWatchStreakRequests.enqueue(
+            WatchStreakRequest(
+                networkLibrary = networkLibrary,
+                gqlHeaders = gqlHeaders,
+                channelId = expectedChannelId,
+                delayMillis = delayMillis,
+                reconciliation = reconciliation ?: WatchStreakReconciliation(
+                    source = WatchStreakReconciliationSource.PERIODIC,
+                    countBeforeEvent = null,
+                ),
+                expectedSession = watchStreakSession,
+                expectedChannelLogin = activeChannelLogin,
+                expectedUserId = loggedInUserId,
+            ),
+        )
+        watchStreakRequestSignal.trySend(Unit)
+        if (watchStreakWorkerJob?.isActive != true) {
+            watchStreakWorkerJob = viewModelScope.launch {
+                runWatchStreakWorker()
             }
         }
     }
 
-    private fun scheduleWatchStreakRetry(
-        networkLibrary: String?,
-        gqlHeaders: Map<String, String>,
-        channelId: String,
-        expectedChannelId: String?,
-        expectedChannelLogin: String?,
-        expectedSession: Long,
-        reconciliation: WatchStreakReconciliation,
-        retryAttempt: Int,
-    ) {
-        val retryDelayMillis = watchStreakReconciliationRetryDelaysMillis.getOrNull(retryAttempt - 1) ?: return
-        if (watchStreakRetryJob?.isActive == true) return
-        watchStreakRetryJob = viewModelScope.launch {
-            try {
-                delay(retryDelayMillis)
-                if (watchStreakSession != expectedSession ||
-                    activeChannelId != expectedChannelId ||
-                    activeChannelLogin != expectedChannelLogin
-                ) {
-                    return@launch
-                }
-                val response = graphQLRepository.loadWatchStreak(networkLibrary, gqlHeaders, channelId)
-                if (watchStreakSession != expectedSession ||
-                    activeChannelId != expectedChannelId ||
-                    activeChannelLogin != expectedChannelLogin
-                ) {
-                    return@launch
-                }
-                val responseCount = watchStreakCount(response)
-                updateWatchStreakStatus(response)
-                val snapshotStatus = watchStreakSnapshotStatus(reconciliation, responseCount)
-                Log.d(
-                    WatchCreditTelemetry.LOG_TAG,
-                    "watch-streak reconciliation retry attempt=$retryAttempt source=${reconciliation.source} status=$snapshotStatus",
+    private suspend fun runWatchStreakWorker() {
+        while (currentCoroutineContext().isActive) {
+            val request = pendingWatchStreakRequests.take()
+            if (request == null) {
+                watchStreakRequestSignal.receive()
+                continue
+            }
+            processWatchStreakRequest(request)
+        }
+    }
+
+    private suspend fun processWatchStreakRequest(request: WatchStreakRequest) {
+        try {
+            if (request.delayMillis > 0L) delay(request.delayMillis)
+            if (pendingWatchStreakRequests.hasHigherPriorityThan(request.reconciliation)) return
+            if (!isCurrentWatchStreakRequest(request)) return
+            var response = watchStreakRequestMutex.withLock {
+                graphQLRepository.loadWatchStreak(
+                    request.networkLibrary,
+                    request.gqlHeaders,
+                    request.channelId,
                 )
-                if (shouldRetryWatchStreakReconciliation(reconciliation, responseCount, retryAttempt)) {
-                    watchStreakRetryJob = null
-                    scheduleWatchStreakRetry(
-                        networkLibrary = networkLibrary,
-                        gqlHeaders = gqlHeaders,
-                        channelId = channelId,
-                        expectedChannelId = expectedChannelId,
-                        expectedChannelLogin = expectedChannelLogin,
-                        expectedSession = expectedSession,
-                        reconciliation = reconciliation,
-                        retryAttempt = retryAttempt + 1,
+            }
+            if (!isCurrentWatchStreakRequest(request)) return
+            var responseCount = watchStreakCount(response)
+            updateWatchStreakStatus(response)
+            if (request.reconciliation.source != WatchStreakReconciliationSource.PERIODIC) {
+                logWatchStreakReconciliation(
+                    request.reconciliation,
+                    responseCount,
+                    retryAttempt = null,
+                )
+            }
+
+            var retryAttempt = 0
+            while (shouldRetryWatchStreakReconciliation(request.reconciliation, responseCount, retryAttempt)) {
+                if (pendingWatchStreakRequests.hasHigherPriorityThan(request.reconciliation)) return
+                val retryDelayMillis = watchStreakReconciliationRetryDelaysMillis.getOrNull(retryAttempt) ?: return
+                delay(retryDelayMillis)
+                if (pendingWatchStreakRequests.hasHigherPriorityThan(request.reconciliation)) return
+                if (!isCurrentWatchStreakRequest(request)) return
+                response = watchStreakRequestMutex.withLock {
+                    graphQLRepository.loadWatchStreak(
+                        request.networkLibrary,
+                        request.gqlHeaders,
+                        request.channelId,
                     )
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
+                if (!isCurrentWatchStreakRequest(request)) return
+                responseCount = watchStreakCount(response)
+                updateWatchStreakStatus(response)
+                logWatchStreakReconciliation(
+                    request.reconciliation,
+                    responseCount,
+                    retryAttempt = retryAttempt + 1,
+                )
+                retryAttempt++
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
         }
+    }
+
+    private fun isCurrentWatchStreakRequest(request: WatchStreakRequest): Boolean =
+        watchStreakSession == request.expectedSession &&
+            activeChannelId == request.channelId &&
+            activeChannelLogin == request.expectedChannelLogin &&
+            loggedInUserId == request.expectedUserId
+
+    private fun logWatchStreakReconciliation(
+        reconciliation: WatchStreakReconciliation,
+        responseCount: Int?,
+        retryAttempt: Int?,
+    ) {
+        val status = watchStreakSnapshotStatus(reconciliation, responseCount)
+        val phase = if (retryAttempt == null) {
+            "first snapshot"
+        } else {
+            "retry attempt=$retryAttempt"
+        }
+        Log.d(
+            WatchCreditTelemetry.LOG_TAG,
+            "watch-streak reconciliation $phase source=${reconciliation.source} status=$status",
+        )
     }
 
     private fun loadChannelPoints(
@@ -2045,6 +2127,7 @@ class ChatViewModel(
         if (isLoggedIn) {
             loadChannelPoints(networkLibrary, gqlHeaders, channelLogin, enableIntegrity)
             loadWatchStreak(networkLibrary, gqlHeaders, channelId)
+            startWatchStreakRefresh(networkLibrary, gqlHeaders, channelId)
         }
         if (applicationContext.prefs().getBoolean(C.DEBUG_EVENT_SUB_CHAT, false) && !helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             eventSub = EventSubWebSocket(trustManager, EventSubListener(helixHeaders, gqlHeaders, channelLogin, showUserNotice, showClearChat, usePubSub, networkLibrary, isLoggedIn, accountId, channelId))
@@ -2138,6 +2221,7 @@ class ChatViewModel(
         resetSlowModeState()
         _connectionState.value = ConnectionState.IDLE
         watchStreakSession++
+        lastWatchStreakReconciliationElapsedRealtime = null
         activeChannelId = null
         activeChannelLogin = null
         synchronized(channelEmotes) {
@@ -2150,10 +2234,11 @@ class ChatViewModel(
         channelPointsJob = null
         claimJob?.cancel()
         claimJob = null
-        watchStreakJob?.cancel()
-        watchStreakJob = null
-        watchStreakRetryJob?.cancel()
-        watchStreakRetryJob = null
+        watchStreakRefreshJob?.cancel()
+        watchStreakRefreshJob = null
+        watchStreakWorkerJob?.cancel()
+        watchStreakWorkerJob = null
+        pendingWatchStreakRequests.clear()
         channelPoints.value = null
         watchStreak.value = null
         clearPollPresentation()
@@ -3004,7 +3089,10 @@ class ChatViewModel(
                 messageChannelId = messageChannelId,
                 reasonCode = points.reasonCode,
                 currentCount = watchStreak.value?.streakCount,
+                nowMs = SystemClock.elapsedRealtime(),
+                lastReconciliationAtMs = lastWatchStreakReconciliationElapsedRealtime,
             )?.let { reconciliation ->
+                lastWatchStreakReconciliationElapsedRealtime = SystemClock.elapsedRealtime()
                 reconcileWatchStreak(
                     networkLibrary = networkLibrary,
                     gqlHeaders = gqlHeaders,
