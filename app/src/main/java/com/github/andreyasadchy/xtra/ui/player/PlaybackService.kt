@@ -140,6 +140,10 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
 
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(mediaItem)
+                }
+
                 override fun onRenderedFirstFrame() {
                     streamStartupTrace?.markFirstFrame()
                     streamStartupTrace?.let { xtraModule.streamPreviewCoordinator.onFullscreenPlaybackFirstFrame(it.channelLogin) }
@@ -286,6 +290,7 @@ class PlaybackService : MediaSessionService() {
                                         }.build()
                                     )
                                 )
+                                xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(null)
                                 session.player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
                                 session.player.setPlaybackSpeed(prefs().getFloat(C.PLAYER_SPEED, 1f))
                                 session.player.prepare()
@@ -336,6 +341,7 @@ class PlaybackService : MediaSessionService() {
                                         }.build()
                                     )
                                 )
+                                xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(null)
                                 session.player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
                                 session.player.setPlaybackSpeed(prefs().getFloat(C.PLAYER_SPEED, 1f))
                                 session.player.prepare()
@@ -373,6 +379,7 @@ class PlaybackService : MediaSessionService() {
                                         )
                                     }.build()
                                 )
+                                xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(null)
                                 session.player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
                                 session.player.setPlaybackSpeed(prefs().getFloat(C.PLAYER_SPEED, 1f))
                                 session.player.prepare()
@@ -425,6 +432,7 @@ class PlaybackService : MediaSessionService() {
                                                 savePosition()
                                                 runAfterPlaybackPersistence {
                                                     mediaSession?.player?.clearMediaItems()
+                                                    xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(null)
                                                     pauseAllPlayersAndStopSelf()
                                                 }
                                             }
@@ -566,11 +574,10 @@ class PlaybackService : MediaSessionService() {
                     "tapToStartStreamMs=${streamStartupTrace?.tapToStartStreamMs() ?: -1}",
             )
         }
-        if (preloaded != null) {
-            player.setMediaSource(preloaded.mediaSource)
-        } else {
-            player.setMediaSource(runtime.createLiveMediaSource(mediaItem))
-        }
+        player.setMediaSource(
+            preloaded?.mediaSource ?: runtime.createLiveMediaSource(mediaItem)
+        )
+        runtime.setPrimaryPlaybackMediaItem(preloaded?.mediaItem)
         player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
         player.setPlaybackSpeed(1f)
         player.prepare()
@@ -799,6 +806,7 @@ class PlaybackService : MediaSessionService() {
             return
         }
         player?.clearMediaItems()
+        xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(null)
         runAfterPlaybackPersistence {
             pauseAllPlayersAndStopSelf()
         }
