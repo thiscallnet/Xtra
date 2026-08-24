@@ -37,6 +37,17 @@ val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
         requestedTask in setOf("assemble", "build", "bundle")
 }
 
+val releaseAbis = setOf("arm64-v8a", "armeabi-v7a")
+val universalReleaseAbi = "universal"
+val releaseAbi = providers.gradleProperty("releaseAbi")
+    .orElse("arm64-v8a")
+    .get()
+    .also { abi ->
+        require(abi in releaseAbis || abi == universalReleaseAbi) {
+            "releaseAbi must be one of ${releaseAbis.joinToString()} or $universalReleaseAbi, got $abi"
+        }
+    }
+
 if (releaseTaskRequested) {
     require(configuredTwitchPublicClientId != null) {
         "twitchPublicClientId is required for release builds"
@@ -78,6 +89,7 @@ android {
 
     defaultConfig {
         applicationId = "com.github.andreyasadchy.xtra"
+        // GeckoView 150's AAR manifest requires API 26.
         minSdk = 26
         targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -130,6 +142,15 @@ android {
                 "lib/armeabi-v7a/libtranslate_jni.so",
                 "lib/armeabi-v7a/liblanguage_id_l2c_jni.so",
             ))
+        }
+    }
+
+    if (releaseTaskRequested && releaseAbi != universalReleaseAbi) {
+        defaultConfig {
+            ndk {
+                abiFilters.clear()
+                abiFilters.add(releaseAbi)
+            }
         }
     }
 }

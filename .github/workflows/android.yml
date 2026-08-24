@@ -183,15 +183,33 @@ jobs:
           echo "Repository variable TWITCH_PUBLIC_CLIENT_ID is required for release builds" >&2
           exit 1
         fi
-        gradle_args=(
-          assembleRelease
-          "-PciVersionCode=${{ steps.version.outputs.code }}"
-          "-PtwitchPublicClientId=${TWITCH_PUBLIC_CLIENT_ID}"
-        )
-        if [[ -n "${CUSTOM_GECKOVIEW_AAR:-}" ]]; then
-          gradle_args+=("-PxtraGeckoViewAar=${CUSTOM_GECKOVIEW_AAR}")
-        fi
-        ./gradlew "${gradle_args[@]}"
+        release_output=app/build/outputs/apk/release
+        release_staging=release-apks
+        release_abis=(arm64-v8a armeabi-v7a)
+        release_builds=(universal "${release_abis[@]}")
+        rm -rf "$release_staging"
+        mkdir -p "$release_staging"
+        for abi in "${release_builds[@]}"; do
+          ./gradlew --no-daemon :app:clean :app:assembleRelease \
+            "-PciVersionCode=${{ steps.version.outputs.code }}" \
+            "-PtwitchPublicClientId=${TWITCH_PUBLIC_CLIENT_ID}" \
+            "-PreleaseAbi=${abi}"
+          source_apk="$release_output/app-release.apk"
+          if [[ ! -f "$source_apk" ]]; then
+            echo "Gradle did not produce an APK for ${abi}: ${source_apk}" >&2
+            exit 1
+          fi
+          if [[ "$abi" == universal ]]; then
+            target_name=app-release.apk
+          else
+            target_name="xtra-${abi}.apk"
+          fi
+          cp "$source_apk" "$release_staging/$target_name"
+        done
+
+        rm -rf "$release_output"
+        mkdir -p "$release_output"
+        cp "$release_staging"/*.apk "$release_output/"
 
     - name: Verify release metadata against APK
       env:
@@ -200,12 +218,7 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
-        apk_asset=app/build/outputs/apk/release/app-release.apk
         metadata_asset=xtra-release-metadata.json
-        if [[ ! -f "$apk_asset" ]]; then
-          echo "Expected release APK is missing: $apk_asset" >&2
-          exit 1
-        fi
         if [[ ! -f "$metadata_asset" ]]; then
           echo "Release metadata is missing: $metadata_asset" >&2
           exit 1
@@ -223,40 +236,89 @@ jobs:
           echo "Could not locate aapt2 to inspect the release APK" >&2
           exit 1
         fi
-        badging="$($aapt2 dump badging "$apk_asset")"
-        package_line="$(grep -m1 '^package: ' <<< "$badging" || true)"
-        apk_version_name="$(sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p" <<< "$package_line")"
-        apk_version_code="$(sed -n "s/.*versionCode='\\([^']*\\)'.*/\\1/p" <<< "$package_line")"
-        if [[ -z "$apk_version_name" || -z "$apk_version_code" ]]; then
-          echo "Could not read version identity from $apk_asset" >&2
-          exit 1
-        fi
-        if [[ "$apk_version_name" != "$metadata_version_name" || "$apk_version_code" != "$metadata_version_code" ]]; then
-          echo "Built APK identity does not match xtra-release-metadata.json" >&2
-          echo "APK: versionName=$apk_version_name versionCode=$apk_version_code" >&2
-          echo "Metadata: versionName=$metadata_version_name versionCode=$metadata_version_code" >&2
-          exit 1
-        fi
-        apk_size_bytes="$(stat -c '%s' "$apk_asset")"
-        max_apk_size_bytes=$((160 * 1024 * 1024))
-        if (( apk_size_bytes > max_apk_size_bytes )); then
-          echo "Release APK exceeds the 160 MiB custom-Gecko regression guard: $apk_size_bytes bytes" >&2
-          exit 1
-        fi
-        echo "Largest release APK members (uncompressed / compressed bytes):"
-        unzip -lv "$apk_asset" |
-          awk 'NR > 3 && $1 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { print $1 " / " $3 "  " $8 }' |
-          sort -nr | sed -n '1,20p'
-        apk_sha256="$(sha256sum "$apk_asset" | awk '{print $1}')"
+        release_abis=(arm64-v8a armeabi-v7a)
+        release_apk_names=(app-release.apk xtra-arm64-v8a.apk xtra-armeabi-v7a.apk)
+        arm64_apk_name=xtra-arm64-v8a.apk
+        arm32_apk_name=xtra-armeabi-v7a.apk
+        max_apk_bytes=$((150 * 1024 * 1024))
+        max_bridge_apk_bytes=$((300 * 1024 * 1024))
+        declare -A apk_sha256_by_name=()
+        for apk_name in "${release_apk_names[@]}"; do
+          apk_asset="app/build/outputs/apk/release/${apk_name}"
+          if [[ ! -f "$apk_asset" ]]; then
+            echo "Expected release APK is missing: $apk_asset" >&2
+            exit 1
+          fi
+          badging="$($aapt2 dump badging "$apk_asset")"
+          package_line="$(grep -m1 '^package: ' <<< "$badging" || true)"
+          apk_version_name="$(sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p" <<< "$package_line")"
+          apk_version_code="$(sed -n "s/.*versionCode='\\([^']*\\)'.*/\\1/p" <<< "$package_line")"
+          if [[ -z "$apk_version_name" || -z "$apk_version_code" ]]; then
+            echo "Could not read version identity from $apk_asset" >&2
+            exit 1
+          fi
+          if [[ "$apk_version_name" != "$metadata_version_name" || "$apk_version_code" != "$metadata_version_code" ]]; then
+            echo "Built APK identity does not match xtra-release-metadata.json: $apk_name" >&2
+            echo "APK: versionName=$apk_version_name versionCode=$apk_version_code" >&2
+            echo "Metadata: versionName=$metadata_version_name versionCode=$metadata_version_code" >&2
+            exit 1
+          fi
+        native_abis="$(unzip -Z1 "$apk_asset" | sed -n 's#^lib/\([^/]*\)/.*#\1#p' | sort -u)"
+          if [[ "$apk_name" == app-release.apk ]]; then
+            expected_native_abis=(arm64-v8a armeabi-v7a x86 x86_64)
+          else
+            expected_abi="${apk_name#xtra-}"
+            expected_abi="${expected_abi%.apk}"
+            expected_native_abis=("$expected_abi")
+          fi
+          expected_native_abis_text="$(printf '%s\\n' "${expected_native_abis[@]}" | sort -u)"
+          if [[ "$native_abis" != "$expected_native_abis_text" ]]; then
+            echo "$apk_name contains unexpected native ABIs: ${native_abis//$'\\n'/, }" >&2
+            exit 1
+          fi
+          apk_size="$(stat -c '%s' "$apk_asset")"
+          if [[ "$apk_name" == app-release.apk ]]; then
+            size_limit=$max_bridge_apk_bytes
+            size_limit_label='300 MiB bridge limit'
+          else
+            size_limit=$max_apk_bytes
+            size_limit_label='150 MiB split limit'
+          fi
+          if (( apk_size > size_limit )); then
+            echo "$apk_name is larger than the $size_limit_label: ${apk_size} bytes" >&2
+            exit 1
+          fi
+          apk_sha256_by_name["$apk_name"]="$(sha256sum "$apk_asset" | awk '{print $1}')"
+          echo "Verified $apk_name versionName=$apk_version_name versionCode=$apk_version_code size=${apk_size} bytes sha256=${apk_sha256_by_name[$apk_name]}"
+        done
+        ls -lh app/build/outputs/apk/release/*.apk
+        for apk_asset in app/build/outputs/apk/release/*.apk; do
+          echo "Largest entries in $apk_asset (uncompressed / compressed bytes):"
+          unzip -lv "$apk_asset" |
+            awk 'NR > 3 && $1 ~ /^[0-9]+$/ { print $1 " / " $3 "  " $8 }' |
+            sort -nr | head -20
+        done
         metadata_tmp="$(mktemp)"
-        jq --arg sha256 "$apk_sha256" '. + {sha256: $sha256}' "$metadata_asset" > "$metadata_tmp"
+        jq \
+          --arg universal "${apk_sha256_by_name[app-release.apk]}" \
+          --arg arm64 "${apk_sha256_by_name[$arm64_apk_name]}" \
+          --arg arm32 "${apk_sha256_by_name[$arm32_apk_name]}" \
+          '. + {sha256: $universal, sha256ByAsset: {"xtra-arm64-v8a.apk": $arm64, "xtra-armeabi-v7a.apk": $arm32}}' \
+          "$metadata_asset" > "$metadata_tmp"
         mv "$metadata_tmp" "$metadata_asset"
         metadata_sha256="$(jq -er '.sha256 | strings' "$metadata_asset")"
-        if [[ "$metadata_sha256" != "$apk_sha256" ]]; then
-          echo "Release metadata SHA-256 does not match the APK" >&2
+        if [[ "$metadata_sha256" != "${apk_sha256_by_name[app-release.apk]}" ]]; then
+          echo "Release metadata SHA-256 does not match app-release.apk" >&2
           exit 1
         fi
-        echo "Verified release APK versionName=$apk_version_name versionCode=$apk_version_code sha256=$apk_sha256"
+        for abi in "${release_abis[@]}"; do
+          apk_name="xtra-${abi}.apk"
+          metadata_sha256="$(jq -er --arg name "$apk_name" '.sha256ByAsset[$name] | strings' "$metadata_asset")"
+          if [[ "$metadata_sha256" != "${apk_sha256_by_name[$apk_name]}" ]]; then
+            echo "Release metadata SHA-256 does not match $apk_name" >&2
+            exit 1
+          fi
+        done
 
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -306,12 +368,19 @@ jobs:
         tag="v${VERSION}-build.${GITHUB_RUN_NUMBER}"
         repository_url="https://github.com/${GITHUB_REPOSITORY}.git"
 
-        apk_asset=app/build/outputs/apk/release/app-release.apk
+        release_abis=(arm64-v8a armeabi-v7a)
+        release_apk_dir=app/build/outputs/apk/release
+        release_apks=("${release_apk_dir}/app-release.apk")
+        for abi in "${release_abis[@]}"; do
+          release_apks+=("${release_apk_dir}/xtra-${abi}.apk")
+        done
         metadata_asset=xtra-release-metadata.json
-        if [[ ! -f "$apk_asset" ]]; then
-          echo "No app-release.apk was produced" >&2
-          exit 1
-        fi
+        for apk_asset in "${release_apks[@]}"; do
+          if [[ ! -f "$apk_asset" ]]; then
+            echo "Expected release APK was not produced: $apk_asset" >&2
+            exit 1
+          fi
+        done
         if [[ ! -f "$metadata_asset" ]]; then
           echo "No release metadata was produced" >&2
           exit 1
@@ -421,7 +490,8 @@ jobs:
         }
 
         verify_apk_asset() {
-          local name=app-release.apk
+          local name="$1"
+          local apk_asset="$release_apk_dir/$name"
           local local_digest
           local remote_digest
           local verification_dir
@@ -465,10 +535,14 @@ jobs:
 
         verify_release_postconditions() {
           verify_tag
-          ensure_asset_present app-release.apk "$apk_asset"
+          for apk_asset in "${release_apks[@]}"; do
+            ensure_asset_present "$(basename "$apk_asset")" "$apk_asset"
+          done
           ensure_asset_present xtra-release-metadata.json "$metadata_asset"
           verify_tag
-          verify_apk_asset
+          for apk_asset in "${release_apks[@]}"; do
+            verify_apk_asset "$(basename "$apk_asset")"
+          done
           verify_metadata_asset
         }
 
@@ -514,7 +588,7 @@ jobs:
               --target "$GITHUB_SHA" \
               --title "Xtra ${VERSION} (build ${GITHUB_RUN_NUMBER})" \
               --notes-file notes.txt \
-              "$apk_asset" "$metadata_asset"; then
+              "${release_apks[@]}" "$metadata_asset"; then
             if release_exists; then
               echo "Release ${tag} was created before the upload completed; recovering it"
             else
@@ -524,7 +598,7 @@ jobs:
           fi
         fi
 
-        # Keep a release draft until both assets have been repaired and
+        # Keep a release draft until all assets have been repaired and
         # verified. Published releases are immutable, so an unexpected asset
         # mismatch fails the workflow instead of being hidden by clobbering.
         verify_release_postconditions

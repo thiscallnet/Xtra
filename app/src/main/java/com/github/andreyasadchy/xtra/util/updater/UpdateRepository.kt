@@ -198,7 +198,7 @@ class UpdateRepository(
                         )) {
                             UpdateDecision.Available -> {
                                 stage = UpdateStage.ASSET_SELECTION
-                                val asset = UpdatePolicy.selectAsset(release).getOrElse { throw it }
+                                val asset = UpdatePolicy.selectAsset(release, supportedAbis()).getOrElse { throw it }
                                 publishCheckResult(generation, checkStart.installSessionId) {
                                     // Serialize candidate replacement with UI-triggered downloads.
                                     // Whichever operation gets this lock first owns the old
@@ -491,7 +491,7 @@ class UpdateRepository(
             _state.value is UpdateState.AwaitingUserAction
         ) return
         try {
-            val asset = UpdatePolicy.selectAsset(release).getOrElse { throw it }
+            val asset = UpdatePolicy.selectAsset(release, supportedAbis()).getOrElse { throw it }
             if (activeDownloadId != null) {
                 if (loadPersistedRelease()?.id == release.id) {
                     clearSuppressionForExplicitDownload(release)
@@ -1138,7 +1138,9 @@ class UpdateRepository(
             .putLong(C.UPDATE_AVAILABLE_SIZE, asset.size ?: -1L)
         release.expectedVersionCode?.let { editor.putLong(C.UPDATE_AVAILABLE_EXPECTED_VERSION_CODE, it) }
             ?: editor.remove(C.UPDATE_AVAILABLE_EXPECTED_VERSION_CODE)
-        release.expectedSha256?.let { editor.putString(C.UPDATE_AVAILABLE_EXPECTED_SHA256, it) }
+        (release.expectedSha256ByAsset[asset.name] ?: release.expectedSha256)?.let {
+            editor.putString(C.UPDATE_AVAILABLE_EXPECTED_SHA256, it)
+        }
             ?: editor.remove(C.UPDATE_AVAILABLE_EXPECTED_SHA256)
         release.publishedAt?.let { editor.putString(C.UPDATE_AVAILABLE_PUBLISHED_AT, it) }
             ?: editor.remove(C.UPDATE_AVAILABLE_PUBLISHED_AT)
@@ -1472,6 +1474,9 @@ class UpdateRepository(
         val suffix = release.id.replace(Regex("[^A-Za-z0-9._-]"), "_")
         return "xtra-update-$suffix-${asset.name.substringAfterLast('/')}"
     }
+
+    private fun supportedAbis(): List<String> = runCatching { Build.SUPPORTED_ABIS?.toList().orEmpty() }
+        .getOrDefault(emptyList())
 
     private fun markAttempted() {
         preferences.edit { putLong(C.UPDATE_LAST_ATTEMPTED, System.currentTimeMillis()) }
