@@ -56,7 +56,8 @@ jobs:
           cache-provider: basic
       - name: Build for CodeQL
         # CodeQL only needs a compilable release graph; publishing validates the real ID.
-        run: ./gradlew assembleRelease "-PtwitchPublicClientId=codeql-placeholder"
+        # Bytecode tracing makes the Kotlin compiler's default daemon heap unreliable.
+        run: ./gradlew assembleRelease "-PtwitchPublicClientId=codeql-placeholder" "-Pkotlin.daemon.jvmargs=-Xmx4g"
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@4c0873ef8656cb3c50b3f42fb63bc1ade0cfa827 # v4
         with:
