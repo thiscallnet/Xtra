@@ -19,7 +19,6 @@ import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
 import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.setupWithNavController
-import androidx.paging.PagingData
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
@@ -32,6 +31,7 @@ import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.games.GamesViewModel.Companion.GamesViewModelFactory
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.C
@@ -40,9 +40,15 @@ import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class GamesFragment : PagedListFragment(), Scrollable, GamesSortDialog.OnFilter {
+
+    override val initializeWithoutNetwork = true
 
     private var _binding: FragmentGamesBinding? = null
     private val binding get() = _binding!!
@@ -145,6 +151,16 @@ class GamesFragment : PagedListFragment(), Scrollable, GamesSortDialog.OnFilter 
                 }
             }
         }
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (isActive) {
+                    delay(5 * 60_000L)
+                    if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                        viewModel.refreshCurrent(RefreshReason.SCREEN_VISIBLE)
+                    }
+                }
+            }
+        }
         val enableScrollTopButton = !args.tags.isNullOrEmpty()
         initializeAdapter(binding.recyclerViewLayout, pagingAdapter, enableScrollTopButton = enableScrollTopButton)
         if (enableScrollTopButton && requireContext().prefs().getBoolean(C.UI_SCROLL_TOP, true)) {
@@ -184,7 +200,6 @@ class GamesFragment : PagedListFragment(), Scrollable, GamesSortDialog.OnFilter 
 
     private fun addTag(tag: Tag) {
         viewLifecycleOwner.lifecycleScope.launch {
-            pagingAdapter.submitData(PagingData.empty())
             val tags = viewModel.tags.plus(tag).sortedBy { it.id }.toTypedArray()
             viewModel.setFilter(tags)
             viewModel.filtersText.value = buildString {
@@ -201,7 +216,6 @@ class GamesFragment : PagedListFragment(), Scrollable, GamesSortDialog.OnFilter 
 
     override fun onChange(tags: Array<Tag>) {
         viewLifecycleOwner.lifecycleScope.launch {
-            pagingAdapter.submitData(PagingData.empty())
             viewModel.setFilter(tags)
             viewModel.filtersText.value = if (viewModel.tags.isNotEmpty()) {
                 buildString {
@@ -225,7 +239,22 @@ class GamesFragment : PagedListFragment(), Scrollable, GamesSortDialog.OnFilter 
     }
 
     override fun onNetworkRestored() {
+        viewModel.refreshCurrent(RefreshReason.NETWORK_RESTORED, force = true)
         pagingAdapter.retry()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewModel.filter.filterNotNull().first()
+            viewModel.setVisibleFeed()
+            viewModel.refreshCurrent(RefreshReason.SCREEN_VISIBLE)
+        }
+    }
+
+    override fun onPause() {
+        viewModel.clearVisibleFeed()
+        super.onPause()
     }
 
     override fun onIntegrityTokenLoaded(callback: String?) {
@@ -237,6 +266,7 @@ class GamesFragment : PagedListFragment(), Scrollable, GamesSortDialog.OnFilter 
     }
 
     override fun onDestroyView() {
+        viewModel.clearVisibleFeed()
         super.onDestroyView()
         _binding = null
     }

@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.following.overview
 
+import android.os.Parcelable
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
@@ -34,7 +35,7 @@ class FollowingOverviewAdapter(
     private val onUpcomingClick: (UpcomingStream) -> Unit,
     private val onSeeAll: (String) -> Unit,
     private val onGameClick: (Game) -> Unit = {},
-    private val onStreamShelfAttached: ((String, RecyclerView, (Int) -> Stream?) -> Unit)? = null,
+    private val onStreamShelfAttached: ((String, RecyclerView, (Int) -> Stream?, Boolean) -> Unit)? = null,
     private val onStreamShelfDetached: ((String) -> Unit)? = null,
     private val onVideoShelfAttached: ((String, RecyclerView, (Int) -> VideoHistory?) -> Unit)? = null,
     private val onVideoShelfDetached: ((String) -> Unit)? = null,
@@ -46,6 +47,7 @@ class FollowingOverviewAdapter(
     private val gameRecycledViewPool = RecyclerView.RecycledViewPool()
     private val featuredRecycledViewPool = RecyclerView.RecycledViewPool()
     private val skeletonRecycledViewPool = RecyclerView.RecycledViewPool()
+    private val shelfLayoutStates = mutableMapOf<String, Parcelable>()
 
     init {
         setHasStableIds(true)
@@ -62,9 +64,15 @@ class FollowingOverviewAdapter(
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
+        holder.saveShelfState()
         holder.detachStreamShelf()
         holder.detachVideoShelf()
         super.onViewRecycled(holder)
+    }
+
+    override fun onViewDetachedFromWindow(holder: ViewHolder) {
+        holder.saveShelfState()
+        super.onViewDetachedFromWindow(holder)
     }
 
     inner class ViewHolder(
@@ -79,6 +87,7 @@ class FollowingOverviewAdapter(
         private var shelfType: ShelfType? = null
         private var boundStreamShelfKey: String? = null
         private var boundVideoShelfKey: String? = null
+        private var boundSectionKey: String? = null
 
         init {
             binding.shelfRecyclerView.apply {
@@ -92,6 +101,10 @@ class FollowingOverviewAdapter(
         }
 
         fun bind(section: FollowingOverviewSection) {
+            if (boundSectionKey != section.key) {
+                saveShelfState()
+                boundSectionKey = section.key
+            }
             section.title?.let { binding.sectionTitle.text = it } ?: binding.sectionTitle.setText(section.titleRes)
             val hasItems = section.streams.isNotEmpty() || section.games.isNotEmpty() || section.videos.isNotEmpty() || section.scheduledStreams.isNotEmpty()
             val showSkeleton = section.isLoading && !hasItems
@@ -150,6 +163,7 @@ class FollowingOverviewAdapter(
             when (nextShelfType) {
                 ShelfType.VIDEO -> {
                     videoShelfAdapter.submitList(section.videos)
+                    restoreShelfState(section.key)
                     if (hasItems && boundVideoShelfKey != section.key) {
                         detachVideoShelf()
                         boundVideoShelfKey = section.key
@@ -158,29 +172,55 @@ class FollowingOverviewAdapter(
                         }
                     }
                 }
-                ShelfType.UPCOMING -> upcomingShelfAdapter.submitList(section.scheduledStreams)
-                ShelfType.GAME -> gameShelfAdapter.submitList(section.games)
+                ShelfType.UPCOMING -> {
+                    upcomingShelfAdapter.submitList(section.scheduledStreams)
+                    restoreShelfState(section.key)
+                }
+                ShelfType.GAME -> {
+                    gameShelfAdapter.submitList(section.games)
+                    restoreShelfState(section.key)
+                }
                 ShelfType.FEATURED -> {
                     featuredShelfAdapter.submitList(section.streams)
-                    featuredShelfAdapter.centerInitialCard(binding.shelfRecyclerView)
+                    if (shelfLayoutStates[section.key] == null) {
+                        featuredShelfAdapter.centerInitialCard(binding.shelfRecyclerView)
+                    }
+                    restoreShelfState(section.key)
                     if (hasItems && boundStreamShelfKey != section.key) {
                         detachStreamShelf()
                         boundStreamShelfKey = section.key
-                        onStreamShelfAttached?.invoke(section.key, binding.shelfRecyclerView) { position ->
+                        onStreamShelfAttached?.invoke(section.key, binding.shelfRecyclerView, { position ->
                             featuredShelfAdapter.currentList.getOrNull(position)
-                        }
+                        }, true)
                     }
                 }
                 ShelfType.SKELETON -> skeletonShelfAdapter.setLoadingType(section.loadingType)
                 ShelfType.STREAM -> {
                     shelfAdapter.submitList(section.streams)
+                    restoreShelfState(section.key)
                     if (hasItems && boundStreamShelfKey != section.key) {
                         detachStreamShelf()
                         boundStreamShelfKey = section.key
-                        onStreamShelfAttached?.invoke(section.key, binding.shelfRecyclerView) { position ->
+                        onStreamShelfAttached?.invoke(section.key, binding.shelfRecyclerView, { position ->
                             shelfAdapter.currentList.getOrNull(position)
-                        }
+                        }, false)
                     }
+                }
+            }
+        }
+
+        fun saveShelfState() {
+            val key = boundSectionKey ?: return
+            binding.shelfRecyclerView.layoutManager?.onSaveInstanceState()?.let { shelfLayoutStates[key] = it }
+        }
+
+        private fun restoreShelfState(key: String) {
+            val state = shelfLayoutStates.remove(key) ?: return
+            binding.shelfRecyclerView.post {
+                if (boundSectionKey == key) {
+                    binding.shelfRecyclerView.layoutManager?.onRestoreInstanceState(state)
+                } else {
+                    shelfLayoutStates.putIfAbsent(key, state)
                 }
             }
         }

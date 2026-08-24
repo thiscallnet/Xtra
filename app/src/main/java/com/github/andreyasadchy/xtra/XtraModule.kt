@@ -13,6 +13,7 @@ import androidx.room.migration.Migration
 import com.github.andreyasadchy.xtra.db.AppDatabase
 import com.github.andreyasadchy.xtra.db.MetadataCacheMigrations
 import com.github.andreyasadchy.xtra.db.StreamFeedMigrations
+import com.github.andreyasadchy.xtra.db.GameFeedMigrations
 import com.github.andreyasadchy.xtra.db.ViewingStatsMigrations
 import com.github.andreyasadchy.xtra.repository.AuthRepository
 import com.github.andreyasadchy.xtra.repository.BookmarksRepository
@@ -36,6 +37,9 @@ import com.github.andreyasadchy.xtra.repository.auth.AuthSessionMaintainer
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPager
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
+import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedCache
+import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedPager
+import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCoordinator
 import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
@@ -73,6 +77,18 @@ class XtraModule(application: Application) {
 
     val streamFeedPager by lazy {
         StreamFeedPager(streamFeedCache, streamFeedRefreshCoordinator)
+    }
+
+    val gameFeedCache by lazy {
+        GameFeedCache(database)
+    }
+
+    val gameFeedRefreshCoordinator by lazy {
+        GameFeedRefreshCoordinator(gameFeedCache)
+    }
+
+    val gameFeedPager by lazy {
+        GameFeedPager(gameFeedCache, gameFeedRefreshCoordinator)
     }
 
     val streamMedia3Runtime by lazy {
@@ -495,6 +511,7 @@ class XtraModule(application: Application) {
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_notification_events_channelId ON notification_events(channelId)")
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_notification_events_queuedAt ON notification_events(queuedAt)")
                 },
+                GameFeedMigrations.FROM_49,
             )
         }.build()
 
