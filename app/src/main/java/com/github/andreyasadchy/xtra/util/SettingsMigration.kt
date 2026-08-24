@@ -686,40 +686,7 @@ object SettingsMigration {
         }
     }
 
-    private data class ControlSource(
-        val action: String,
-        val quickKey: String?,
-        val quickDefault: Boolean,
-        val menuKey: String?,
-        val menuDefault: Boolean,
-    )
-
-    private val controlSources = listOf(
-        ControlSource("minimize", C.PLAYER_MINIMIZE, true, null, false),
-        ControlSource("download", C.PLAYER_DOWNLOAD, false, C.PLAYER_MENU_DOWNLOAD, true),
-        ControlSource("follow", C.PLAYER_FOLLOW, false, null, false),
-        ControlSource("quality", C.PLAYER_SETTINGS, true, C.PLAYER_MENU_QUALITY, false),
-        ControlSource("speed", C.PLAYER_SPEED_BUTTON, true, C.PLAYER_MENU_SPEED, false),
-        ControlSource("chapters", C.PLAYER_GAMES_BUTTON, true, C.PLAYER_MENU_GAMES, false),
-        ControlSource("restart", C.PLAYER_RESTART, true, C.PLAYER_MENU_RESTART, false),
-        ControlSource("live", C.PLAYER_SEEK_LIVE, false, null, false),
-        ControlSource("clip", C.PLAYER_CLIP_BUTTON, true, null, false),
-        ControlSource("volume", C.PLAYER_VOLUME_BUTTON, true, C.PLAYER_MENU_VOLUME, false),
-        ControlSource("compressor", C.PLAYER_AUDIO_COMPRESSOR_BUTTON, true, null, false),
-        ControlSource("mode", C.PLAYER_MODE, false, null, false),
-        ControlSource("subtitles", C.PLAYER_SUBTITLES, false, C.PLAYER_MENU_SUBTITLES, true),
-        ControlSource("chat_input", C.PLAYER_CHAT_BAR_TOGGLE, false, C.PLAYER_MENU_CHAT_BAR, true),
-        ControlSource("chat", C.PLAYER_CHAT_TOGGLE, true, C.PLAYER_MENU_CHAT_TOGGLE, false),
-        ControlSource("fullscreen", C.PLAYER_FULLSCREEN, true, null, false),
-        ControlSource("viewers", C.PLAYER_VIEWER_LIST, false, C.PLAYER_MENU_VIEWER_LIST, true),
-        ControlSource("bookmark", null, false, C.PLAYER_MENU_BOOKMARK, true),
-        ControlSource("share", null, false, C.PLAYER_MENU_SHARE, true),
-        ControlSource("find_vod", null, false, C.PLAYER_MENU_FIND_VOD, true),
-        ControlSource("sleep", C.PLAYER_SLEEP, false, C.PLAYER_MENU_SLEEP, true),
-        ControlSource("aspect", C.PLAYER_ASPECT, true, C.PLAYER_MENU_ASPECT, false),
-        ControlSource("reload_emotes", null, false, C.PLAYER_MENU_RELOAD_EMOTES, true),
-        ControlSource("disconnect_chat", null, false, C.PLAYER_MENU_CHAT_DISCONNECT, true),
-    )
+    private val controlSources = PlayerControlLayout.controlDefinitions
 
     internal fun controlGroup(quickEnabled: Boolean, menuEnabled: Boolean): String = when {
         quickEnabled -> "quick"
@@ -743,11 +710,11 @@ object SettingsMigration {
         if (split(',').any { it.substringBefore(':') == "clip" }) this else "$this,clip:quick"
 
     internal fun defaultControlLayout(): String = controlSources.joinToString(",") {
-        "${it.action}:${controlGroup(it.quickDefault, it.menuDefault)}"
+        "${it.action}:${controlGroup(it.canQuick && it.quickDefault, it.menuDefault)}"
     }
 
     private fun controlLayout(preferences: SharedPreferences): String = controlSources.joinToString(",") { source ->
-        val quick = source.quickKey?.let { preferences.getBoolean(it, source.quickDefault) } ?: false
+        val quick = source.canQuick && source.quickKey?.let { preferences.getBoolean(it, source.quickDefault) } == true
         val menu = source.menuKey?.let { preferences.getBoolean(it, source.menuDefault) } ?: false
         "${source.action}:${controlGroup(quick, menu)}"
     }
@@ -765,9 +732,8 @@ object SettingsMigration {
 
     private fun SharedPreferences.Editor.syncLegacyControlVisibility(serializedLayout: String) {
         val groups = serializedLayout.split(',').mapNotNull { item ->
-            val parts = item.split(':', limit = 2)
-            parts.getOrNull(0)?.takeIf { it.isNotBlank() }?.let { action ->
-                action to (parts.getOrNull(1) ?: "hidden")
+            PlayerControlLayout.parseControlPlacement(item)?.let { placement ->
+                placement.action to placement.group
             }
         }.toMap()
         controlSources.forEach { source ->
@@ -776,5 +742,11 @@ object SettingsMigration {
             source.menuKey?.let { putBoolean(it, group == "menu") }
         }
         putBoolean(C.PLAYER_MENU, controlSources.any { groups[it.action] == "menu" })
+    }
+
+    internal fun syncLegacyControlVisibility(preferences: SharedPreferences, serializedLayout: String) {
+        preferences.edit {
+            syncLegacyControlVisibility(serializedLayout)
+        }
     }
 }

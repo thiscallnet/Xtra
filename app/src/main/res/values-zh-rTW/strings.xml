@@ -1417,4 +1417,18 @@
     <string name="update_frequency_daily">每天一次</string>
     <string name="update_frequency_3_days">每3天</string>
     <string name="update_frequency_weekly">每週一次</string>
+    <string name="settings_customize_controls_help">將控制項拖曳到角落或邊緣。點按控制項可在播放器、更多選單和隱藏之間切換。</string>
+    <string name="settings_customize_controls_selected">已選取：%1$s</string>
+    <string name="settings_customize_controls_selected_none">選取控制項以查看目前位置。</string>
+    <string name="settings_customize_controls_reset">重設版面配置</string>
+    <string name="settings_customize_controls_empty">這裡沒有內容</string>
+    <string name="settings_customize_controls_enable">在播放器中顯示%1$s</string>
+    <string name="settings_customize_controls_enable_menu">在更多選單中顯示%1$s</string>
+    <string name="settings_customize_controls_hide">隱藏%1$s</string>
+    <string name="settings_customize_controls_preview_description">模擬播放器預覽。拖曳可見的控制按鈕來調整位置。</string>
+    <string name="settings_customize_controls_snap_hint">放開以吸附</string>
+    <string name="settings_customize_controls_drag_action">拖曳或點按%1$s</string>
+    <string name="settings_layout_preview">預覽</string>
+    <string name="settings_tabs_preview_help">預覽會依照下方的順序和可見性顯示。</string>
+    <string name="settings_sections_preview_help">預覽會依目前順序顯示可見區段。</string>
 </resources>

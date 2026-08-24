@@ -274,6 +274,27 @@ class SettingsMigrationTest {
     }
 
     @Test
+    fun `new anchored control layout keeps legacy visibility groups in sync`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION - 1,
+                C.SETTINGS_PLAYER_CONTROL_LAYOUT to "minimize:quick:top_start,quality:menu:top_end,bookmark:menu:top_end",
+                C.PLAYER_MINIMIZE to false,
+                C.PLAYER_SETTINGS to true,
+                C.PLAYER_MENU_QUALITY to false,
+                C.PLAYER_MENU_BOOKMARK to false,
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        assertTrue(preferences.getBoolean(C.PLAYER_MINIMIZE, false))
+        assertFalse(preferences.getBoolean(C.PLAYER_SETTINGS, true))
+        assertTrue(preferences.getBoolean(C.PLAYER_MENU_QUALITY, false))
+        assertTrue(preferences.getBoolean(C.PLAYER_MENU_BOOKMARK, false))
+    }
+
+    @Test
     fun `empty migrated control layout is repaired to production defaults`() {
         assertEquals(
             SettingsMigration.defaultControlLayout(),

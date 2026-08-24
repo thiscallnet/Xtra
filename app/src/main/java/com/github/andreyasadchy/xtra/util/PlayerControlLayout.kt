@@ -7,53 +7,175 @@ import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
 
 object PlayerControlLayout {
 
+    const val GROUP_QUICK = "quick"
+    const val GROUP_MENU = "menu"
+    const val GROUP_HIDDEN = "hidden"
+
+    const val ANCHOR_TOP_START = "top_start"
+    const val ANCHOR_TOP_CENTER = "top_center"
+    const val ANCHOR_TOP_END = "top_end"
+    const val ANCHOR_MIDDLE_START = "middle_start"
+    const val ANCHOR_MIDDLE_END = "middle_end"
+    const val ANCHOR_BOTTOM_START = "bottom_start"
+    const val ANCHOR_BOTTOM_CENTER = "bottom_center"
+    const val ANCHOR_BOTTOM_END = "bottom_end"
+
+    val anchors = setOf(
+        ANCHOR_TOP_START,
+        ANCHOR_TOP_CENTER,
+        ANCHOR_TOP_END,
+        ANCHOR_MIDDLE_START,
+        ANCHOR_MIDDLE_END,
+        ANCHOR_BOTTOM_START,
+        ANCHOR_BOTTOM_CENTER,
+        ANCHOR_BOTTOM_END,
+    )
+
+    data class ControlPlacement(
+        val action: String,
+        var group: String,
+        var anchor: String,
+    )
+
+    data class ControlDefinition(
+        val action: String,
+        val quickKey: String?,
+        val quickDefault: Boolean,
+        val menuKey: String?,
+        val menuDefault: Boolean,
+        val canQuick: Boolean,
+        val canMenu: Boolean,
+    )
+
+    internal val controlDefinitions = listOf(
+        ControlDefinition("minimize", C.PLAYER_MINIMIZE, true, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("download", C.PLAYER_DOWNLOAD, false, C.PLAYER_MENU_DOWNLOAD, true, canQuick = true, canMenu = true),
+        ControlDefinition("follow", C.PLAYER_FOLLOW, false, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("quality", C.PLAYER_SETTINGS, true, C.PLAYER_MENU_QUALITY, false, canQuick = true, canMenu = true),
+        ControlDefinition("speed", C.PLAYER_SPEED_BUTTON, true, C.PLAYER_MENU_SPEED, false, canQuick = true, canMenu = true),
+        ControlDefinition("chapters", C.PLAYER_GAMES_BUTTON, true, C.PLAYER_MENU_GAMES, false, canQuick = true, canMenu = true),
+        ControlDefinition("restart", C.PLAYER_RESTART, true, C.PLAYER_MENU_RESTART, false, canQuick = true, canMenu = true),
+        ControlDefinition("live", C.PLAYER_SEEK_LIVE, false, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("clip", C.PLAYER_CLIP_BUTTON, true, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("volume", C.PLAYER_VOLUME_BUTTON, true, C.PLAYER_MENU_VOLUME, false, canQuick = true, canMenu = true),
+        ControlDefinition("compressor", C.PLAYER_AUDIO_COMPRESSOR_BUTTON, true, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("mode", C.PLAYER_MODE, false, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("subtitles", C.PLAYER_SUBTITLES, false, C.PLAYER_MENU_SUBTITLES, true, canQuick = true, canMenu = true),
+        ControlDefinition("chat_input", C.PLAYER_CHAT_BAR_TOGGLE, false, C.PLAYER_MENU_CHAT_BAR, true, canQuick = true, canMenu = true),
+        ControlDefinition("chat", C.PLAYER_CHAT_TOGGLE, true, C.PLAYER_MENU_CHAT_TOGGLE, false, canQuick = true, canMenu = true),
+        ControlDefinition("fullscreen", C.PLAYER_FULLSCREEN, true, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("viewers", C.PLAYER_VIEWER_LIST, false, C.PLAYER_MENU_VIEWER_LIST, true, canQuick = false, canMenu = true),
+        ControlDefinition("bookmark", null, false, C.PLAYER_MENU_BOOKMARK, true, canQuick = false, canMenu = true),
+        ControlDefinition("share", null, false, C.PLAYER_MENU_SHARE, true, canQuick = false, canMenu = true),
+        ControlDefinition("find_vod", null, false, C.PLAYER_MENU_FIND_VOD, true, canQuick = false, canMenu = true),
+        ControlDefinition("sleep", C.PLAYER_SLEEP, false, C.PLAYER_MENU_SLEEP, true, canQuick = true, canMenu = true),
+        ControlDefinition("aspect", C.PLAYER_ASPECT, true, C.PLAYER_MENU_ASPECT, false, canQuick = true, canMenu = true),
+        ControlDefinition("reload_emotes", null, false, C.PLAYER_MENU_RELOAD_EMOTES, true, canQuick = false, canMenu = true),
+        ControlDefinition("disconnect_chat", null, false, C.PLAYER_MENU_CHAT_DISCONNECT, true, canQuick = false, canMenu = true),
+    )
+
     fun applyToPlayer(context: Context, binding: FragmentPlayerBinding) {
-        val order = orderedActions(
+        val placements = controlPlacements(
             context.prefs().getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
-            SettingsMigration.defaultControlLayout(),
+            defaultControlLayout(),
         )
         with(binding.playerControls) {
-            reorderChildren(
-                topLeftLayout,
-                order,
-                mapOf("minimize" to minimize),
+            val containers = mapOf(
+                ANCHOR_TOP_START to topLeftLayout,
+                ANCHOR_TOP_CENTER to topCenterLayout,
+                ANCHOR_TOP_END to topRightLayout,
+                ANCHOR_MIDDLE_START to middleLeftLayout,
+                ANCHOR_MIDDLE_END to middleRightLayout,
+                ANCHOR_BOTTOM_START to bottomLeftLayout,
+                ANCHOR_BOTTOM_CENTER to bottomCenterLayout,
+                ANCHOR_BOTTOM_END to bottomRightLayout,
             )
-            reorderChildren(
-                topRightLayout,
-                order,
-                mapOf(
-                    "download" to download,
-                    "follow" to follow,
-                    "sleep" to sleepTimer,
-                    "aspect" to aspectRatio,
-                    "speed" to speed,
-                    "quality" to quality,
-                ),
+            val controls = mapOf(
+                "minimize" to minimize,
+                "download" to download,
+                "follow" to follow,
+                "sleep" to sleepTimer,
+                "aspect" to aspectRatio,
+                "speed" to speed,
+                "quality" to quality,
+                "restart" to restart,
+                "live" to seekLive,
+                "clip" to clip,
+                "chapters" to vodGames,
+                "volume" to volume,
+                "compressor" to audioCompressor,
+                "mode" to audioOnly,
+                "subtitles" to subtitles,
+                "chat_input" to toggleChatInput,
+                "chat" to toggleChat,
+                "fullscreen" to fullscreen,
             )
-            reorderChildren(
-                bottomLeftLayout,
-                order,
-                mapOf(
-                    "restart" to restart,
-                    "live" to seekLive,
-                    "clip" to clip,
-                    "chapters" to vodGames,
-                    "volume" to volume,
-                    "compressor" to audioCompressor,
-                    "mode" to audioOnly,
-                ),
-            )
-            reorderChildren(
-                bottomRightLayout,
-                order,
-                mapOf(
-                    "subtitles" to subtitles,
-                    "chat_input" to toggleChatInput,
-                    "chat" to toggleChat,
-                    "fullscreen" to fullscreen,
-                ),
-            )
+            val placementByAction = placements.associateBy { it.action }
+            val quickOrderByAnchor = placements
+                .filter { it.group == GROUP_QUICK }
+                .groupBy { it.anchor }
+                .mapValues { (_, items) -> items.map { it.action } }
+
+            controls.forEach { (action, view) ->
+                val placement = placementByAction[action]
+                val container = containers[placement?.anchor] ?: containers.getValue(defaultAnchor(action))
+                if (view.parent !== container) {
+                    (view.parent as? ViewGroup)?.removeView(view)
+                    container.addView(view)
+                }
+                if (placement?.group != GROUP_QUICK) {
+                    view.visibility = View.GONE
+                }
+            }
+            containers.forEach { (anchor, container) ->
+                reorderChildren(
+                    container,
+                    quickOrderByAnchor[anchor].orEmpty(),
+                    controls,
+                )
+            }
         }
+    }
+
+    fun controlPlacements(serialized: String?, fallback: String): List<ControlPlacement> {
+        val fallbackItems = fallback.split(',').mapNotNull(::parseControlPlacement)
+        val knownActions = fallbackItems.map { it.action }.toSet()
+        val savedItems = serialized.orEmpty().split(',').mapNotNull(::parseControlPlacement)
+            .filter { it.action in knownActions }
+        return (savedItems + fallbackItems).distinctBy { it.action }
+    }
+
+    fun serializeControlLayout(items: List<ControlPlacement>): String = items
+        .distinctBy { it.action }
+        .joinToString(",") { item ->
+            val group = normalizedGroup(item.action, item.group)
+            val anchor = item.anchor.takeIf { it in anchors } ?: defaultAnchor(item.action)
+            "${item.action}:$group:$anchor"
+        }
+
+    internal fun defaultControlLayout(): String = controlDefinitions.joinToString(",") { definition ->
+        val group = when {
+            definition.canQuick && definition.quickDefault -> GROUP_QUICK
+            definition.menuDefault -> GROUP_MENU
+            else -> GROUP_HIDDEN
+        }
+        "${definition.action}:$group"
+    }
+
+    internal fun canQuick(action: String): Boolean = controlDefinitions
+        .firstOrNull { it.action == action }
+        ?.canQuick == true
+
+    internal fun canMenu(action: String): Boolean = controlDefinitions
+        .firstOrNull { it.action == action }
+        ?.canMenu == true
+
+    fun defaultAnchor(action: String): String = when (action) {
+        "minimize" -> ANCHOR_TOP_START
+        "download", "follow", "quality", "speed", "sleep", "aspect" -> ANCHOR_TOP_END
+        "chapters", "restart", "live", "clip", "volume", "compressor", "mode" -> ANCHOR_BOTTOM_START
+        "subtitles", "chat_input", "chat", "fullscreen" -> ANCHOR_BOTTOM_END
+        else -> ANCHOR_TOP_END
     }
 
     fun orderedActions(serialized: String?, fallback: String): List<String> {
@@ -80,6 +202,23 @@ object PlayerControlLayout {
 
         orderedChildren.forEach(container::removeView)
         orderedChildren.forEach(container::addView)
+    }
+
+    internal fun parseControlPlacement(serialized: String): ControlPlacement? {
+        val parts = serialized.split(':')
+        val action = parts.getOrNull(0)?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        val group = parts.getOrNull(1)?.trim()?.takeIf {
+            it in setOf(GROUP_QUICK, GROUP_MENU, GROUP_HIDDEN)
+        } ?: GROUP_HIDDEN
+        val anchor = parts.getOrNull(2)?.trim()?.takeIf { it in anchors } ?: defaultAnchor(action)
+        return ControlPlacement(action, normalizedGroup(action, group), anchor)
+    }
+
+    private fun normalizedGroup(action: String, group: String): String = when {
+        group == GROUP_QUICK && !canQuick(action) -> if (canMenu(action)) GROUP_MENU else GROUP_HIDDEN
+        group == GROUP_MENU && !canMenu(action) -> if (canQuick(action)) GROUP_QUICK else GROUP_HIDDEN
+        group in setOf(GROUP_QUICK, GROUP_MENU, GROUP_HIDDEN) -> group
+        else -> GROUP_HIDDEN
     }
 
     private fun parseActions(serialized: String): List<String> = serialized

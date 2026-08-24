@@ -402,6 +402,17 @@
     <string name="settings_watch_history">Watch history</string>
     <string name="settings_clear_positions">Clear watch positions</string>
     <string name="settings_customize_controls">Customize controls</string>
+    <string name="settings_customize_controls_help">Drag a control to a corner or edge. Tap it to cycle between the player, More menu and hidden.</string>
+    <string name="settings_customize_controls_selected">Selected: %1$s</string>
+    <string name="settings_customize_controls_selected_none">Select a control to see its current position.</string>
+    <string name="settings_customize_controls_reset">Reset layout</string>
+    <string name="settings_customize_controls_empty">Nothing here</string>
+    <string name="settings_customize_controls_enable">Show %1$s on the player</string>
+    <string name="settings_customize_controls_enable_menu">Show %1$s in More menu</string>
+    <string name="settings_customize_controls_hide">Hide %1$s</string>
+    <string name="settings_customize_controls_preview_description">Fake player preview. Drag the visible control buttons to reposition them.</string>
+    <string name="settings_customize_controls_snap_hint">Release to snap</string>
+    <string name="settings_customize_controls_drag_action">Drag or tap %1$s</string>
     <string name="settings_seek_controls">Seek controls</string>
     <string name="settings_gestures">Gestures</string>
     <string name="settings_clip_capture">Local clips</string>
@@ -1433,6 +1444,9 @@
     <string name="settings_download_restart_wait_summary">Keep waiting briefly after a stream ends so a quick restart can continue the capture.</string>
     <string name="live_notifications_following_summary">Automatically enable live alerts for channels you follow through Xtra. Twitch notification preferences are used when compatibility authorization is available.</string>
     <string name="settings_customize_controls_summary">Quick controls, More menu and Hidden</string>
+    <string name="settings_layout_preview">Preview</string>
+    <string name="settings_tabs_preview_help">The preview follows the order and visibility below.</string>
+    <string name="settings_sections_preview_help">The preview shows the visible shelves in their current order.</string>
     <string name="settings_playback_speed_options_summary">Choose and reorder speed values</string>
     <string name="settings_double_tap_chat_summary">Toggle chat with a double tap while watching.</string>
     <string name="avoid_rounded_corners_summary">Inset player content so physical curved corners and cutouts do not obscure video or controls.</string>

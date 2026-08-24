@@ -1417,4 +1417,18 @@
     <string name="update_frequency_daily">Une fois par jour</string>
     <string name="update_frequency_3_days">Tous les 3 jours</string>
     <string name="update_frequency_weekly">Une fois par semaine</string>
+    <string name="settings_customize_controls_help">Faites glisser une commande vers un coin ou un bord. Touchez-la pour alterner entre le lecteur, le menu Plus et l’état masqué.</string>
+    <string name="settings_customize_controls_selected">Sélectionné : %1$s</string>
+    <string name="settings_customize_controls_selected_none">Sélectionnez une commande pour voir sa position actuelle.</string>
+    <string name="settings_customize_controls_reset">Réinitialiser la disposition</string>
+    <string name="settings_customize_controls_empty">Rien ici</string>
+    <string name="settings_customize_controls_enable">Afficher %1$s dans le lecteur</string>
+    <string name="settings_customize_controls_enable_menu">Afficher %1$s dans le menu Plus</string>
+    <string name="settings_customize_controls_hide">Masquer %1$s</string>
+    <string name="settings_customize_controls_preview_description">Aperçu d’un lecteur fictif. Faites glisser les boutons de commande visibles pour les repositionner.</string>
+    <string name="settings_customize_controls_snap_hint">Relâchez pour aligner</string>
+    <string name="settings_customize_controls_drag_action">Faites glisser ou touchez %1$s</string>
+    <string name="settings_layout_preview">Aperçu</string>
+    <string name="settings_tabs_preview_help">L’aperçu suit l’ordre et la visibilité indiqués ci-dessous.</string>
+    <string name="settings_sections_preview_help">L’aperçu affiche les sections visibles dans leur ordre actuel.</string>
 </resources>

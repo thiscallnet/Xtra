@@ -1419,4 +1419,18 @@
     <string name="update_frequency_daily">Raz dziennie</string>
     <string name="update_frequency_3_days">Co 3 dni</string>
     <string name="update_frequency_weekly">Raz w tygodniu</string>
+    <string name="settings_customize_controls_help">Przeciągnij element sterujący do rogu lub krawędzi. Dotknij go, aby przełączać między odtwarzaczem, menu Więcej i ukryciem.</string>
+    <string name="settings_customize_controls_selected">Wybrano: %1$s</string>
+    <string name="settings_customize_controls_selected_none">Wybierz element sterujący, aby zobaczyć jego bieżące położenie.</string>
+    <string name="settings_customize_controls_reset">Resetuj układ</string>
+    <string name="settings_customize_controls_empty">Nic tutaj nie ma</string>
+    <string name="settings_customize_controls_enable">Pokaż %1$s w odtwarzaczu</string>
+    <string name="settings_customize_controls_enable_menu">Pokaż %1$s w menu Więcej</string>
+    <string name="settings_customize_controls_hide">Ukryj %1$s</string>
+    <string name="settings_customize_controls_preview_description">Podgląd fikcyjnego odtwarzacza. Przeciągnij widoczne przyciski sterowania, aby je przenieść.</string>
+    <string name="settings_customize_controls_snap_hint">Puść, aby przyciągnąć</string>
+    <string name="settings_customize_controls_drag_action">Przeciągnij lub dotknij %1$s</string>
+    <string name="settings_layout_preview">Podgląd</string>
+    <string name="settings_tabs_preview_help">Podgląd odzwierciedla kolejność i widoczność poniżej.</string>
+    <string name="settings_sections_preview_help">Podgląd pokazuje widoczne sekcje w bieżącej kolejności.</string>
 </resources>

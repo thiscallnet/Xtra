@@ -1417,4 +1417,18 @@
     <string name="update_frequency_daily">Раз в день</string>
     <string name="update_frequency_3_days">Каждые 3 дня</string>
     <string name="update_frequency_weekly">Раз в неделю</string>
+    <string name="settings_customize_controls_help">Перетащите элемент управления в угол или к краю. Нажмите его, чтобы переключаться между плеером, меню «Ещё» и скрытым состоянием.</string>
+    <string name="settings_customize_controls_selected">Выбрано: %1$s</string>
+    <string name="settings_customize_controls_selected_none">Выберите элемент управления, чтобы увидеть его текущее положение.</string>
+    <string name="settings_customize_controls_reset">Сбросить расположение</string>
+    <string name="settings_customize_controls_empty">Здесь ничего нет</string>
+    <string name="settings_customize_controls_enable">Показывать %1$s в плеере</string>
+    <string name="settings_customize_controls_enable_menu">Показывать %1$s в меню «Ещё»</string>
+    <string name="settings_customize_controls_hide">Скрыть %1$s</string>
+    <string name="settings_customize_controls_preview_description">Предпросмотр фиктивного плеера. Перетащите видимые кнопки управления, чтобы изменить их положение.</string>
+    <string name="settings_customize_controls_snap_hint">Отпустите, чтобы закрепить</string>
+    <string name="settings_customize_controls_drag_action">Перетащите или нажмите %1$s</string>
+    <string name="settings_layout_preview">Предпросмотр</string>
+    <string name="settings_tabs_preview_help">Предпросмотр учитывает порядок и видимость ниже.</string>
+    <string name="settings_sections_preview_help">Предпросмотр показывает видимые разделы в текущем порядке.</string>
 </resources>

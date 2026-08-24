@@ -1417,4 +1417,18 @@
     <string name="update_frequency_daily">Uma vez por dia</string>
     <string name="update_frequency_3_days">A cada 3 dias</string>
     <string name="update_frequency_weekly">Uma vez por semana</string>
+    <string name="settings_customize_controls_help">Arraste um controle para um canto ou uma borda. Toque nele para alternar entre o player, o menu Mais e oculto.</string>
+    <string name="settings_customize_controls_selected">Selecionado: %1$s</string>
+    <string name="settings_customize_controls_selected_none">Selecione um controle para ver sua posição atual.</string>
+    <string name="settings_customize_controls_reset">Redefinir layout</string>
+    <string name="settings_customize_controls_empty">Não há nada aqui</string>
+    <string name="settings_customize_controls_enable">Mostrar %1$s no player</string>
+    <string name="settings_customize_controls_enable_menu">Mostrar %1$s no menu Mais</string>
+    <string name="settings_customize_controls_hide">Ocultar %1$s</string>
+    <string name="settings_customize_controls_preview_description">Prévia de um player fictício. Arraste os botões de controle visíveis para reposicioná-los.</string>
+    <string name="settings_customize_controls_snap_hint">Solte para encaixar</string>
+    <string name="settings_customize_controls_drag_action">Arraste ou toque em %1$s</string>
+    <string name="settings_layout_preview">Prévia</string>
+    <string name="settings_tabs_preview_help">A prévia segue a ordem e a visibilidade abaixo.</string>
+    <string name="settings_sections_preview_help">A prévia mostra as seções visíveis na ordem atual.</string>
 </resources>
