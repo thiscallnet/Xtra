@@ -3,7 +3,6 @@ package com.github.andreyasadchy.xtra.util.updater
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
@@ -104,44 +103,6 @@ class UpdateDomainTest {
     }
 
     @Test
-    fun releaseMetadataCarriesPerAbiApkSha256() {
-        val arm64 = "a".repeat(64)
-        val arm32 = "b".repeat(64)
-        val response = JsonObject(
-            json.parseToJsonElement(response("v2.58.5-build.173")).jsonObject +
-                (RELEASE_METADATA_RESPONSE_KEY to buildJsonObject {
-                    put("versionName", "2.58.5")
-                    put("versionCode", 294L)
-                    put("sha256ByAsset", buildJsonObject {
-                        put("xtra-arm64-v8a.apk", arm64)
-                        put("xtra-armeabi-v7a.apk", arm32)
-                    })
-                }),
-        )
-
-        val release = (ReleaseParser.parse(response, "https://example.test") as ReleaseParseResult.Success).release
-
-        assertEquals(mapOf("xtra-arm64-v8a.apk" to arm64, "xtra-armeabi-v7a.apk" to arm32), release.expectedSha256ByAsset)
-        assertNull(release.expectedSha256)
-    }
-
-    @Test
-    fun unsupportedPerAssetSha256TypeIsRejected() {
-        val response = JsonObject(
-            json.parseToJsonElement(response("v2.58.5-build.173")).jsonObject +
-                (RELEASE_METADATA_RESPONSE_KEY to buildJsonObject {
-                    put("versionName", "2.58.5")
-                    put("versionCode", 294L)
-                    put("sha256ByAsset", buildJsonArray {
-                        add(JsonPrimitive("not-an-object"))
-                    })
-                }),
-        )
-
-        assertTrue(ReleaseParser.parse(response, "https://example.test") is ReleaseParseResult.Failure)
-    }
-
-    @Test
     fun missingAndAmbiguousApkAssetsFailDeliberately() {
         val noApk = parse("v2.58.5-build.125", assets = listOf("notes.txt"))
         assertEquals(UpdateError.MissingApk, (UpdatePolicy.selectAsset(noApk).exceptionOrNull() as? UpdateException)?.error)
@@ -157,42 +118,6 @@ class UpdateDomainTest {
             assets = listOf("xtra-arm64-release.apk", "app-release.apk"),
         )
         assertEquals("app-release.apk", UpdatePolicy.selectAsset(deterministic).getOrThrow().name)
-    }
-
-    @Test
-    fun abiSpecificReleaseSelectsTheBestSupportedAbi() {
-        val splitRelease = parse(
-            "v2.58.5-build.125",
-            assets = listOf("xtra-arm64-v8a.apk", "xtra-armeabi-v7a.apk"),
-        )
-        assertEquals(listOf("xtra-arm64-v8a.apk", "xtra-armeabi-v7a.apk"), splitRelease.assets.map(UpdateAsset::name))
-
-        assertEquals(
-            "xtra-arm64-v8a.apk",
-            UpdatePolicy.selectAsset(splitRelease, listOf("arm64-v8a", "armeabi-v7a")).getOrThrow().name,
-        )
-        assertEquals(
-            "xtra-armeabi-v7a.apk",
-            UpdatePolicy.selectAsset(splitRelease, listOf("armeabi-v7a")).getOrThrow().name,
-        )
-        assertEquals(
-            UpdateError.MissingApk,
-            (UpdatePolicy.selectAsset(splitRelease, listOf("x86_64")).exceptionOrNull() as? UpdateException)?.error,
-        )
-    }
-
-    @Test
-    fun abiSpecificReleasePrefersSplitAssetOverUniversalBridge() {
-        val bridgedRelease = parse(
-            "v2.58.5-build.125",
-            assets = listOf("app-release.apk", "xtra-arm64-v8a.apk", "xtra-armeabi-v7a.apk"),
-        )
-
-        assertEquals(
-            "xtra-arm64-v8a.apk",
-            UpdatePolicy.selectAsset(bridgedRelease, listOf("arm64-v8a")).getOrThrow().name,
-        )
-        assertEquals("app-release.apk", UpdatePolicy.selectAsset(bridgedRelease).getOrThrow().name)
     }
 
     @Test

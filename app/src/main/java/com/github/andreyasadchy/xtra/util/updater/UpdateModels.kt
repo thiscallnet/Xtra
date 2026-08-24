@@ -26,7 +26,6 @@ data class UpdateRelease(
     val draft: Boolean,
     val expectedVersionCode: Long? = null,
     val expectedSha256: String? = null,
-    val expectedSha256ByAsset: Map<String, String> = emptyMap(),
 ) {
     val id: String
         get() = tagName

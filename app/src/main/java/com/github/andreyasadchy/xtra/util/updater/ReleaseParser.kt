@@ -4,7 +4,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -16,7 +15,6 @@ object ReleaseParser {
 
     private val json = Json { ignoreUnknownKeys = true }
     private val tag = Regex("^v?([0-9]+(?:\\.[0-9]+)+)(?:-build\\.(\\d+))?$", RegexOption.IGNORE_CASE)
-    private val sha256 = Regex("^[0-9a-f]{64}$", RegexOption.IGNORE_CASE)
 
     fun parse(raw: String, fallbackUrl: String): ReleaseParseResult = try {
         parse(json.parseToJsonElement(raw).jsonObject, fallbackUrl)
@@ -54,25 +52,10 @@ object ReleaseParser {
             metadata["versionCode"]?.jsonPrimitive?.longOrNull?.takeIf { it > 0L }
                 ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
         }
-        val expectedSha256 = metadata?.get("sha256")?.let { element ->
-            val digest = (element as? JsonPrimitive)?.contentOrNull
-                ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
-            digest.lowercase().takeIf { it.matches(sha256) }
+        val expectedSha256 = metadata?.string("sha256")?.let { digest ->
+            digest.lowercase().takeIf { it.matches(Regex("^[0-9a-f]{64}$")) }
                 ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
         }
-        val expectedSha256ByAsset = metadata?.get("sha256ByAsset")?.let { element ->
-            val objectValue = runCatching { element.jsonObject }.getOrNull()
-                ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
-            buildMap {
-                for ((name, value) in objectValue) {
-                    val digest = (value as? JsonPrimitive)?.contentOrNull
-                        ?.lowercase()
-                        ?.takeIf { it.matches(sha256) }
-                        ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
-                    put(name, digest)
-                }
-            }
-        }.orEmpty()
         val body = response.string("body").orEmpty().trim()
         val commits = response["commits"]?.asArrayOrNull()?.mapNotNull { it.asObjectString("message") } ?: emptyList()
         val release = UpdateRelease(
@@ -89,7 +72,6 @@ object ReleaseParser {
             draft = response.boolean("draft") ?: false,
             expectedVersionCode = expectedVersionCode,
             expectedSha256 = expectedSha256,
-            expectedSha256ByAsset = expectedSha256ByAsset,
         )
         return ReleaseParseResult.Success(release)
     }

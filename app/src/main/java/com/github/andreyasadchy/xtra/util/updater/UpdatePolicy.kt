@@ -170,34 +170,15 @@ object UpdatePolicy {
     private fun versionParts(value: String): List<Int> = semanticVersion.find(value)?.groupValues?.get(1)
         ?.split('.')?.mapNotNull { it.toIntOrNull() }.orEmpty()
 
-    fun selectAsset(
-        release: UpdateRelease?,
-        supportedAbis: List<String> = emptyList(),
-    ): Result<UpdateAsset> {
+    fun selectAsset(release: UpdateRelease?): Result<UpdateAsset> {
         if (release == null) return Result.failure(UpdateException(UpdateError.UnexpectedResponse, stage = UpdateStage.ASSET_SELECTION))
         val candidates = release.assets.filter(::isCandidate)
         if (candidates.isEmpty()) return Result.failure(UpdateException(UpdateError.MissingApk, stage = UpdateStage.ASSET_SELECTION))
-
-        val abiCandidate = supportedAbis.asSequence().mapNotNull { abi ->
-            candidates.singleOrNull { it.name.equals(assetNameForAbi(abi), ignoreCase = true) }
-        }.firstOrNull()
-        if (abiCandidate != null) return Result.success(abiCandidate)
-
-        val legacy = candidates.filter { it.name.equals("app-release.apk", ignoreCase = true) }
-        if (legacy.size == 1) return Result.success(legacy.single())
-
-        if (supportedAbis.isNotEmpty() && candidates.any(::isAbiSpecific)) {
-            return Result.failure(UpdateException(UpdateError.MissingApk, stage = UpdateStage.ASSET_SELECTION))
-        }
+        val preferred = candidates.filter { it.name.equals("app-release.apk", ignoreCase = true) }
+        if (preferred.size == 1) return Result.success(preferred.single())
         if (candidates.size != 1) return Result.failure(UpdateException(UpdateError.AmbiguousApk, stage = UpdateStage.ASSET_SELECTION))
         return Result.success(candidates.single())
     }
-
-    fun assetNameForAbi(abi: String): String = "xtra-$abi.apk"
-
-    private fun isAbiSpecific(asset: UpdateAsset): Boolean = asset.name.matches(
-        Regex("xtra-(arm64-v8a|armeabi-v7a|x86|x86_64)\\.apk", RegexOption.IGNORE_CASE),
-    )
 
     private fun isCandidate(asset: UpdateAsset): Boolean {
         val name = asset.name.lowercase()
