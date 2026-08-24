@@ -847,6 +847,11 @@
     <string name="settings_corner_square">Kotak</string>
     <string name="settings_profile_pictures">Gambar profil</string>
     <string name="settings_density">Kepadatan tampilan</string>
+    <string name="settings_font">Font</string>
+    <string name="settings_font_sans_serif">Sans serif</string>
+    <string name="settings_font_sans_serif_condensed">Sans serif sempit</string>
+    <string name="settings_font_serif">Serif</string>
+    <string name="settings_font_monospace">Monospace</string>
     <string name="settings_theme_device_colors">Gunakan warna perangkat</string>
     <string name="settings_theme_device_colors_summary">Gunakan warna dari wallpaper perangkat Anda bila didukung.</string>
     <string name="settings_theme_system">Sistem</string>

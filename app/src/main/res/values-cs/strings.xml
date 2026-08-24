@@ -327,6 +327,11 @@
     <string name="settings_corner_square">Čtvercový</string>
     <string name="settings_profile_pictures">Profilové obrázky</string>
     <string name="settings_density">Hustota zobrazení</string>
+    <string name="settings_font">Písmo</string>
+    <string name="settings_font_sans_serif">Bezpatkové písmo</string>
+    <string name="settings_font_sans_serif_condensed">Zúžené bezpatkové písmo</string>
+    <string name="settings_font_serif">Patkové písmo</string>
+    <string name="settings_font_monospace">Neproporcionální písmo</string>
     <string name="settings_theme_device_colors">Použijte barvy zařízení</string>
     <string name="settings_theme_device_colors_summary">Pokud je to podporováno, použijte barvy z tapety zařízení.</string>
     <string name="settings_theme_system">Systém</string>

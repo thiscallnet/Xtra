@@ -1943,6 +1943,7 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<ListPreference>(C.SETTINGS_THEME_MODE)?.onPreferenceChangeListener = changeListener
             findPreference<SwitchPreferenceCompat>(C.SETTINGS_DEVICE_COLORS)?.onPreferenceChangeListener = changeListener
             findPreference<ListPreference>(C.SETTINGS_DENSITY)?.onPreferenceChangeListener = changeListener
+            findPreference<ListPreference>(C.SETTINGS_FONT_FAMILY)?.onPreferenceChangeListener = changeListener
             findPreference<ListPreference>(C.UI_THEME_ROUNDED_CORNERS)?.onPreferenceChangeListener = changeListener
             findPreference<ListPreference>(C.SETTINGS_PROFILE_PICTURE_STYLE)?.onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, value ->
                 requireContext().prefs().edit { putBoolean(C.UI_ROUND_USER_IMAGE, value == "round") }

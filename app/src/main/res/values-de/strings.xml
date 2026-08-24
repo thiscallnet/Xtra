@@ -846,6 +846,11 @@
     <string name="settings_corner_square">Quadratisch</string>
     <string name="settings_profile_pictures">Profilbilder</string>
     <string name="settings_density">Anzeigedichte</string>
+    <string name="settings_font">Schriftart</string>
+    <string name="settings_font_sans_serif">Serifenlos</string>
+    <string name="settings_font_sans_serif_condensed">Schmal serifenlos</string>
+    <string name="settings_font_serif">Serifenschrift</string>
+    <string name="settings_font_monospace">Nichtproportional</string>
     <string name="settings_theme_device_colors">Gerätefarben verwenden</string>
     <string name="settings_theme_device_colors_summary">Farben aus dem Hintergrundbild Ihres Geräts verwenden, sofern unterstützt.</string>
     <string name="settings_theme_system">System</string>

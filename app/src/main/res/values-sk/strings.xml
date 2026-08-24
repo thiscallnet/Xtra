@@ -327,6 +327,11 @@
     <string name="settings_corner_square">Štvorcový</string>
     <string name="settings_profile_pictures">Profilové obrázky</string>
     <string name="settings_density">Hustota zobrazenia</string>
+    <string name="settings_font">Písmo</string>
+    <string name="settings_font_sans_serif">Bezpätkové</string>
+    <string name="settings_font_sans_serif_condensed">Zúžené bezpätkové</string>
+    <string name="settings_font_serif">Pätné</string>
+    <string name="settings_font_monospace">Neproporcionálne</string>
     <string name="settings_theme_device_colors">Použite farby zariadenia</string>
     <string name="settings_theme_device_colors_summary">Ak je to podporované, použite farby z tapety zariadenia.</string>
     <string name="settings_theme_system">systém</string>

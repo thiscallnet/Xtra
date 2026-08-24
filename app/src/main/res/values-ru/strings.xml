@@ -846,6 +846,11 @@
     <string name="settings_corner_square">Квадратный</string>
     <string name="settings_profile_pictures">Изображения профиля</string>
     <string name="settings_density">Плотность дисплея</string>
+    <string name="settings_font">Шрифт</string>
+    <string name="settings_font_sans_serif">Без засечек</string>
+    <string name="settings_font_sans_serif_condensed">Узкий шрифт без засечек</string>
+    <string name="settings_font_serif">С засечками</string>
+    <string name="settings_font_monospace">Моноширинный</string>
     <string name="settings_theme_device_colors">Использовать цвета устройства</string>
     <string name="settings_theme_device_colors_summary">Используйте цвета обоев вашего устройства, если они поддерживаются.</string>
     <string name="settings_theme_system">Система</string>

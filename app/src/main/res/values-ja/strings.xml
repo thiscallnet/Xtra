@@ -846,6 +846,11 @@
     <string name="settings_corner_square">正方形</string>
     <string name="settings_profile_pictures">プロフィール写真</string>
     <string name="settings_density">表示密度</string>
+    <string name="settings_font">フォント</string>
+    <string name="settings_font_sans_serif">サンセリフ</string>
+    <string name="settings_font_sans_serif_condensed">サンセリフ（凝縮）</string>
+    <string name="settings_font_serif">セリフ</string>
+    <string name="settings_font_monospace">等幅</string>
     <string name="settings_theme_device_colors">デバイスの色を使用</string>
     <string name="settings_theme_device_colors_summary">サポートされている場合は、デバイスの壁紙の色を使用します。</string>
     <string name="settings_theme_system">システム</string>

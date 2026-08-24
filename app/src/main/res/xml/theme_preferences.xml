@@ -27,6 +27,15 @@
         app:iconSpaceReserved="false" />
 
     <ListPreference
+        android:defaultValue="system"
+        android:entries="@array/settingsFontEntries"
+        android:entryValues="@array/settingsFontValues"
+        android:key="settings_font_family"
+        android:summary="%s"
+        android:title="@string/settings_font"
+        app:iconSpaceReserved="false" />
+
+    <ListPreference
         android:defaultValue="0"
         android:entries="@array/roundedCornerEntries"
         android:entryValues="@array/roundedCornerValues"

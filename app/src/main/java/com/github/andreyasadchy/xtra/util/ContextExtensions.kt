@@ -279,6 +279,7 @@ fun Activity.applyTheme() {
     val deviceColors = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
         prefs().getBoolean(C.SETTINGS_DEVICE_COLORS, false)
     val compact = prefs().getString(C.SETTINGS_DENSITY, "comfortable") == "compact"
+    val fontFamily = prefs().getString(C.SETTINGS_FONT_FAMILY, C.FONT_SYSTEM) ?: C.FONT_SYSTEM
     val noCorners = prefs().getString(C.UI_THEME_ROUNDED_CORNERS, "0") == "2"
     val smallCorners = prefs().getString(C.UI_THEME_ROUNDED_CORNERS, "0") == "1"
     val style = when (resolvedMode) {
@@ -308,6 +309,21 @@ fun Activity.applyTheme() {
         }
     }
     setTheme(style)
+    if (fontFamily != C.FONT_SYSTEM) {
+        when (fontFamily) {
+            C.FONT_SANS_SERIF -> R.style.AppFontFamilySansSerif
+            C.FONT_SANS_SERIF_CONDENSED -> R.style.AppFontFamilySansSerifCondensed
+            C.FONT_SERIF -> R.style.AppFontFamilySerif
+            C.FONT_MONOSPACE -> R.style.AppFontFamilyMonospace
+            else -> null
+        }?.let { fontStyle ->
+            theme.applyStyle(fontStyle, true)
+            theme.applyStyle(
+                if (compact) R.style.AppFontCompactAppearance else R.style.AppFontAppearance,
+                true,
+            )
+        }
+    }
     if (deviceColors && resolvedMode in setOf("light", "dark", "amoled")) {
         DynamicColors.applyToActivityIfAvailable(
             this,
