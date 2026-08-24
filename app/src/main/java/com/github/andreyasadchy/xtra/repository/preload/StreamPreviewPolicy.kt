@@ -50,7 +50,8 @@ object StreamPreviewPolicy {
         isPlayerFullscreen: Boolean,
         networkAllowed: Boolean,
         handoffPending: Boolean,
-    ): Boolean = !isPlayerFullscreen && networkAllowed && !handoffPending
+        isPlayerActive: Boolean = false,
+    ): Boolean = !isPlayerFullscreen && !isPlayerActive && networkAllowed && !handoffPending
 
     fun mode(context: Context): StreamPreviewMode {
         val preferences = context.prefs()

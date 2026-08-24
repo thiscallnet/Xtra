@@ -2374,7 +2374,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             val wasMaximized = isMaximized
             isMaximized = false
             if (wasMaximized) {
-                (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)?.onPlayerReturnedToBrowsing()
+                (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)?.onPlayerReturnedToBrowsing(playerStillOpen = true)
             }
             if (videoType == STREAM && chatFragment?.emoteMenuIsVisible() == true) {
                 chatFragment?.toggleBackPressedCallback(false)

@@ -55,6 +55,9 @@ class StreamFeedRefreshCoordinator(
     @Volatile
     private var playerFullscreen = false
 
+    @Volatile
+    private var playerActive = false
+
     fun setVisibleFeed(spec: StreamFeedSpec) {
         visibleFeed = spec
     }
@@ -301,8 +304,12 @@ class StreamFeedRefreshCoordinator(
     val isPlayerFullscreen: Boolean
         get() = playerFullscreen
 
+    val isPlayerActive: Boolean
+        get() = playerActive
+
     /** Mark any fullscreen player active; only a live stream starts the freshness timer. */
     fun playbackEntered(isLive: Boolean = true) {
+        playerActive = true
         playerFullscreen = true
         if (isLive && livePlaybackStartedElapsedMs == null) {
             livePlaybackStartedElapsedMs = elapsedRealtimeMs()
@@ -313,6 +320,7 @@ class StreamFeedRefreshCoordinator(
 
     /** Switch content while keeping the player fullscreen. */
     fun playbackChanged(isLive: Boolean) {
+        playerActive = true
         playerFullscreen = true
         if (isLive) {
             if (livePlaybackStartedElapsedMs == null) {
@@ -325,8 +333,10 @@ class StreamFeedRefreshCoordinator(
         }
     }
 
-    fun playbackReturned() {
+    fun playbackReturned(playerStillOpen: Boolean = false) {
         playerFullscreen = false
+        playerActive = playerStillOpen
+        if (playerStillOpen) return
         val started = livePlaybackStartedElapsedMs ?: return
         livePlaybackStartedElapsedMs = null
         val viewedMs = (elapsedRealtimeMs() - started).coerceAtLeast(0L)
