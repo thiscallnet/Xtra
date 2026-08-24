@@ -85,7 +85,7 @@ class VideosAdapter(
         private val showGame: Boolean,
         private val showChannel: Boolean,
     ) : RecyclerView.ViewHolder(binding.root) {
-        val previewSurface get() = binding.previewPlayerView
+        val previewSurface get() = binding.previewHost
         private var boundPreviewIdentity: String? = null
 
         private val streamPreviewCoordinator
@@ -95,7 +95,7 @@ class VideosAdapter(
             val nextPreviewIdentity = item?.id?.trim()?.takeIf { it.isNotEmpty() }?.let { "vod:$it" }
             with(binding) {
                 if (boundPreviewIdentity != nextPreviewIdentity) {
-                    streamPreviewCoordinator.detachSurface(previewPlayerView)
+                    streamPreviewCoordinator.detachSurface(previewHost)
                     boundPreviewIdentity = nextPreviewIdentity
                 }
                 if (item != null) {

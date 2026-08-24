@@ -72,8 +72,6 @@ class StreamMedia3RuntimeLifecycleTest {
         val plan = StreamMediaPreloadPlan.reconcile(
             existing = listOf(MediaPreloadPlanEntry("channel", "old-url", rank = 0)),
             candidates = listOf(MediaPreloadPlanEntry("channel", "new-url", rank = 1)),
-            nowMs = 100L,
-            staleAfterMs = 4_500L,
         )
 
         assertEquals(listOf("old-url"), plan.removed.map { it.url })

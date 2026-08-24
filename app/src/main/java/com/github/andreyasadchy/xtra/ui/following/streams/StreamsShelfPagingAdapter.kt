@@ -43,20 +43,25 @@ class StreamsShelfPagingAdapter(
     override fun onViewRecycled(holder: ViewHolder) {
         (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
             .detachSurface(holder.previewSurface)
+        holder.boundPreviewIdentity = null
         super.onViewRecycled(holder)
     }
 
     inner class ViewHolder(
         private val binding: ItemStreamShelfBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
-        val previewSurface get() = binding.previewPlayerView
+        val previewSurface get() = binding.previewHost
+        var boundPreviewIdentity: String? = null
 
         fun bind(item: Stream?) {
             val context = fragment.requireContext()
-            with(binding) {
+            val nextPreviewIdentity = item?.streamIdentity()
+            if (boundPreviewIdentity != nextPreviewIdentity) {
                 (context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
-                    .detachSurface(previewPlayerView)
-
+                    .detachSurface(previewSurface)
+                boundPreviewIdentity = nextPreviewIdentity
+            }
+            with(binding) {
                 if (item == null) {
                     reset()
                     return

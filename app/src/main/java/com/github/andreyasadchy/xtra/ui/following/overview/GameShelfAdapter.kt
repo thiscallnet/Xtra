@@ -35,9 +35,6 @@ class GameShelfAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
-        holder.itemView.post {
-            (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
-        }
         holder.bind(getItem(position))
     }
 

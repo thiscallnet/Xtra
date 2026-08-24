@@ -63,10 +63,16 @@ class StreamPreloadCoordinator(
     private var mediaPreloadKeepChannelLogin: String? = null
 
     @Volatile
+    private var mediaPreloadsKnownCleared = false
+
+    @Volatile
     private var configuration: StreamPlaybackConfiguration? = null
 
     @Volatile
     private var selectedChannelLogin: String? = null
+
+    @Volatile
+    private var previewActive = false
 
     private val resolver = StreamPreloadResolver(
         scope = scope,
@@ -82,21 +88,21 @@ class StreamPreloadCoordinator(
             detachViewport(viewportKey)
             return
         }
+        val wasScrolling = viewports.values.any { it.scrolling }
         mediaPreloadKeepChannelLogin = null
         val now = elapsedRealtimeMs()
         val normalized = candidates
             .filter { it.channelLogin.isNotBlank() }
             .associateBy { it.streamKey.ifBlank { it.channelLogin.trim().lowercase() } }
         viewports[viewportKey] = ViewportState(normalized, scrolling)
-        if (scrolling) {
-            normalized.keys.forEach { dwellStarts[it] = now }
-        } else {
-            normalized.keys.forEach { dwellStarts.putIfAbsent(it, now) }
+        val isScrolling = viewports.values.any { it.scrolling }
+        if (isScrolling) {
+            if (!wasScrolling) enterScrolling()
+            return
         }
+        normalized.keys.forEach { dwellStarts.putIfAbsent(it, now) }
         pruneDwellStarts(now)
-        if (scrolling) {
-            cancelScheduledJobs()
-            configuration?.fingerprint?.let { resolver.cancelObsolete(it, emptySet()) } ?: resolver.cancelAll()
+        if (wasScrolling && preloadMode() == StreamPreloadMode.OFF) {
             clearMediaPreloads()
         } else if (preloadMode() != StreamPreloadMode.OFF) {
             reconcilePreloads(refreshConfiguration())
@@ -104,17 +110,23 @@ class StreamPreloadCoordinator(
     }
 
     fun detachViewport(viewportKey: String) {
+        val wasScrolling = viewports.values.any { it.scrolling }
         viewports.remove(viewportKey)
+        val isScrolling = viewports.values.any { it.scrolling }
         val activeKeys = viewports.values.flatMap { it.candidates.keys }.toSet()
         scheduledJobs.keys.filter { it !in activeKeys }.forEach { key ->
             scheduledJobs.remove(key)?.cancel()
             dwellStarts.remove(key)
         }
+        if (isScrolling) {
+            if (!wasScrolling) enterScrolling()
+            return
+        }
         if (viewports.isEmpty() || preloadMode() == StreamPreloadMode.OFF) {
             cancelScheduledJobs()
             cancelBrowsingFlights()
             clearMediaPreloads()
-        } else if (preloadMode() != StreamPreloadMode.OFF) {
+        } else if (wasScrolling || preloadMode() != StreamPreloadMode.OFF) {
             reconcilePreloads(refreshConfiguration())
         } else {
             clearMediaPreloads()
@@ -124,15 +136,17 @@ class StreamPreloadCoordinator(
     fun setViewportScrolling(viewportKey: String, scrolling: Boolean) {
         val state = viewports[viewportKey] ?: return
         if (state.scrolling == scrolling) return
+        val wasScrolling = viewports.values.any { it.scrolling }
         viewports[viewportKey] = state.copy(scrolling = scrolling)
-        if (scrolling) {
+        val isScrolling = viewports.values.any { it.scrolling }
+        if (isScrolling) {
             val now = elapsedRealtimeMs()
             state.candidates.keys.forEach { dwellStarts[it] = now }
-            cancelScheduledJobs()
-            configuration?.fingerprint?.let { resolver.cancelObsolete(it, emptySet()) } ?: resolver.cancelAll()
-            clearMediaPreloads()
-        } else if (preloadMode() != StreamPreloadMode.OFF) {
+            if (!wasScrolling) enterScrolling()
+        } else if (wasScrolling && preloadMode() != StreamPreloadMode.OFF) {
             reconcilePreloads(refreshConfiguration())
+        } else if (wasScrolling) {
+            clearMediaPreloads()
         }
     }
 
@@ -146,6 +160,17 @@ class StreamPreloadCoordinator(
 
     fun onAppForeground() {
         refreshConfiguration()
+    }
+
+    /** Keeps speculative sample loading out of the way while a preview is decoding. */
+    fun setPreviewActive(active: Boolean) {
+        if (previewActive == active) return
+        previewActive = active
+        if (active) {
+            clearMediaPreloads()
+        } else if (preloadMode() != StreamPreloadMode.OFF) {
+            requestMediaPreloadReconcile()
+        }
     }
 
     /** Stop browsing work when playback takes ownership, retaining only the selected flight. */
@@ -326,6 +351,7 @@ class StreamPreloadCoordinator(
     private fun requestMediaPreloadReconcile() {
         scheduleMediaOperation("media_reconcile") { runtime ->
             if (!mediaPreloadEligible()) {
+                mediaPreloadsKnownCleared = true
                 runtime.clearPreloads(mediaPreloadKeepChannelLogin)
                 return@scheduleMediaOperation
             }
@@ -354,16 +380,22 @@ class StreamPreloadCoordinator(
                 }
             }
             if (!mediaPreloadEligible()) {
+                mediaPreloadsKnownCleared = true
                 runtime.clearPreloads(mediaPreloadKeepChannelLogin)
                 return@scheduleMediaOperation
             }
             runtime.reconcile(candidates)
+            mediaPreloadsKnownCleared = false
             mediaPreloadKeepChannelLogin = null
         }
     }
 
     private fun clearMediaPreloads(keepChannelLogin: String? = null) {
-        mediaPreloadKeepChannelLogin = keepChannelLogin?.trim()?.lowercase()
+        val normalizedKeep = keepChannelLogin?.trim()?.lowercase()
+        if (mediaPreloadsKnownCleared && mediaPreloadKeepChannelLogin == normalizedKeep) return
+        mediaPreloadKeepChannelLogin = normalizedKeep
+        mediaPreloadsKnownCleared = true
+        debug("media_clear", mediaPreloadKeepChannelLogin)
         scheduleMediaOperation("media_clear") { runtime ->
             runtime.clearPreloads(mediaPreloadKeepChannelLogin)
         }
@@ -371,6 +403,7 @@ class StreamPreloadCoordinator(
 
     private fun mediaPreloadEligible(): Boolean =
         preloadMode() != StreamPreloadMode.OFF &&
+            !previewActive &&
             viewports.isNotEmpty() &&
             viewports.values.none { it.scrolling } &&
             canPreload() &&
@@ -425,6 +458,13 @@ class StreamPreloadCoordinator(
 
     private fun cancelBrowsingFlights() {
         cancelBrowsingFlights(resolver, configuration?.fingerprint)
+    }
+
+    private fun enterScrolling() {
+        debug("scroll_enter", null)
+        cancelScheduledJobs()
+        cancelBrowsingFlights()
+        clearMediaPreloads()
     }
 
     private fun refreshConfiguration(): StreamPlaybackConfiguration {

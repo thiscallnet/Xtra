@@ -49,6 +49,7 @@ class StreamsCompactAdapter(
     override fun onViewRecycled(holder: PagingViewHolder) {
         (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
             .detachSurface(holder.previewSurface)
+        holder.boundPreviewIdentity = null
         super.onViewRecycled(holder)
     }
 
@@ -57,12 +58,17 @@ class StreamsCompactAdapter(
         private val fragment: Fragment,
         private val showGame: Boolean,
     ) : RecyclerView.ViewHolder(binding.root) {
-        val previewSurface get() = binding.previewPlayerView
+        val previewSurface get() = binding.previewHost
+        var boundPreviewIdentity: String? = null
 
         fun bind(item: Stream?) {
-            with(binding) {
+            val nextPreviewIdentity = item?.streamIdentity()
+            if (boundPreviewIdentity != nextPreviewIdentity) {
                 (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
-                    .detachSurface(previewPlayerView)
+                    .detachSurface(previewSurface)
+                boundPreviewIdentity = nextPreviewIdentity
+            }
+            with(binding) {
                 if (item != null) {
                     val context = fragment.requireContext()
                     val selectionMode = onStreamClick != null

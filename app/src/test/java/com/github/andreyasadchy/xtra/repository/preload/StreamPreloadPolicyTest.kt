@@ -32,6 +32,11 @@ class StreamPreloadPolicyTest {
     }
 
     @Test
+    fun browsingUrlWarmupIsBoundedToTwoCandidates() {
+        assertEquals(2, StreamPreloadPolicy.MAX_URL_CANDIDATES)
+    }
+
+    @Test
     fun customStreamProxyDisablesTwitchUrlPreload() {
         assertTrue(!StreamPreloadPolicy.allowsTwitchUrlPreload(true, "https://proxy/\$channel"))
         assertTrue(StreamPreloadPolicy.allowsTwitchUrlPreload(true, ""))

@@ -28,8 +28,8 @@
                 tools:src="@tools:sample/backgrounds/scenic"
                 tools:visibility="visible" />
 
-            <androidx.media3.ui.PlayerView
-                android:id="@+id/previewPlayerView"
+            <FrameLayout
+                android:id="@+id/previewHost"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
                 android:importantForAccessibility="no"
@@ -38,9 +38,7 @@
                 app:layout_constraintEnd_toEndOf="@id/thumbnail"
                 app:layout_constraintStart_toStartOf="@id/thumbnail"
                 app:layout_constraintTop_toTopOf="@id/thumbnail"
-                app:resize_mode="zoom"
-                app:show_buffering="never"
-                app:use_controller="false" />
+                />
 
             <TextView
                 android:id="@+id/liveBadge"

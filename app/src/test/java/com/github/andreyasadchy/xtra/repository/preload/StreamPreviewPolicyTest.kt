@@ -6,11 +6,11 @@ import org.junit.Test
 
 class StreamPreviewPolicyTest {
     @Test
-    fun missingPreviewModeEnablesAllNetworksAndImmediateIsAvailable() {
+    fun missingPreviewModeUsesAConservativeBrowsingDefault() {
         assertEquals(StreamPreviewMode.WIFI_AND_MOBILE, StreamPreviewMode.fromPreference(null))
         assertEquals(StreamPreviewQuality.P360, StreamPreviewQuality.fromPreference(null))
-        assertEquals(StreamPreviewDelay.IMMEDIATE, StreamPreviewDelay.fromPreference(null))
-        assertEquals(0L, StreamPreviewDelay.IMMEDIATE.delayMs)
+        assertEquals(StreamPreviewDelay.FAST, StreamPreviewDelay.fromPreference(null))
+        assertEquals(750L, StreamPreviewDelay.FAST.delayMs)
         assertEquals(StreamPreviewDelay.FAST, StreamPreviewDelay.fromPreference("fast"))
     }
 

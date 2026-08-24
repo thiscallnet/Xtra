@@ -18,8 +18,6 @@ object StreamMediaPreloadPlan {
     fun reconcile(
         existing: Collection<MediaPreloadPlanEntry>,
         candidates: Collection<MediaPreloadPlanEntry>,
-        nowMs: Long,
-        staleAfterMs: Long,
     ): MediaPreloadPlan {
         val desired = candidates.associateBy { it.channelLogin.trim().lowercase() }
         val retained = mutableListOf<MediaPreloadPlanEntry>()
@@ -27,9 +25,10 @@ object StreamMediaPreloadPlan {
         val added = mutableListOf<MediaPreloadPlanEntry>()
         existing.forEach { current ->
             val next = desired[current.channelLogin.trim().lowercase()]
-            val stale = current.rank == 0 && current.samplesLoadedAtMs != null &&
-                nowMs - current.samplesLoadedAtMs >= staleAfterMs
-            if (next == null || next.url != current.url || next.rank != current.rank || stale) {
+            // A live HLS preload remains useful while its candidate, URL, and
+            // playback configuration are unchanged. Refreshing it on a timer
+            // creates network and Media3 churn while the user is idle.
+            if (next == null || next.url != current.url || next.rank != current.rank) {
                 removed += current
             } else {
                 retained += current
@@ -43,18 +42,23 @@ object StreamMediaPreloadPlan {
 }
 
 object StreamMediaPreloadHandoff {
+    const val MAX_PRELOADED_HANDOFF_AGE_MS = 5_000L
+
     fun isUsable(
         entry: MediaPreloadPlanEntry?,
         requestedChannelLogin: String,
         requestedUrl: String,
         configurationMatches: Boolean,
         nowMs: Long,
-        staleAfterMs: Long,
     ): Boolean {
         if (!configurationMatches || entry == null) return false
         if (!entry.channelLogin.equals(requestedChannelLogin, ignoreCase = true)) return false
         if (entry.url != requestedUrl) return false
-        val age = nowMs - (entry.samplesLoadedAtMs ?: entry.addedAtMs)
-        return entry.rank != 0 || age < staleAfterMs
+        if (entry.rank == 0) {
+            val loadedAtMs = entry.samplesLoadedAtMs ?: entry.addedAtMs
+            val ageMs = (nowMs - loadedAtMs).coerceAtLeast(0L)
+            if (ageMs > MAX_PRELOADED_HANDOFF_AGE_MS) return false
+        }
+        return true
     }
 }

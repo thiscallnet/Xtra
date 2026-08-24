@@ -66,7 +66,7 @@ class VideoShelfAdapter(
     inner class ViewHolder(
         private val binding: ItemVideoShelfBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
-        val previewSurface get() = binding.previewPlayerView
+        val previewSurface get() = binding.previewHost
         private var boundPreviewIdentity: String? = null
 
         private val streamPreviewCoordinator

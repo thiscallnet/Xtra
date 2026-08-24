@@ -14,12 +14,15 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C as Media3C
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.repository.preload.StreamMedia3Runtime
@@ -54,12 +57,21 @@ data class StreamPreviewCandidate(
     val channelName: String? = null,
     val channelLogo: String? = null,
     val videoId: String? = null,
-    val surface: PlayerView,
+    val surface: FrameLayout,
 ) {
     /** Live previews share a channel slot; VOD previews get their own slot. */
     val previewIdentity: String?
         get() = videoId?.trim()?.takeIf { it.isNotEmpty() }?.let { "vod:$it" }
             ?: channelLogin.trim().lowercase().takeIf { it.isNotEmpty() }?.let { "live:$it" }
+}
+
+internal fun revealPreviewSurface(playerView: PlayerView, surface: View?) {
+    playerView.alpha = 1f
+    playerView.visibility = View.VISIBLE
+    surface?.let {
+        it.alpha = 1f
+        it.visibility = View.VISIBLE
+    }
 }
 
 /** App-scoped owner of a small pool of muted browsing preview players. */
@@ -76,6 +88,8 @@ class StreamPreviewCoordinator(
     private val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
     private val viewports = linkedMapOf<String, Viewport>()
     private val activePreviews = linkedMapOf<String, ActivePreview>()
+    private var sharedPreviewPlayer: ExoPlayer? = null
+    private var sharedPreviewView: PlayerView? = null
     private val previewLifecycle = StreamPreviewLifecycle()
     private val pendingStarts = mutableMapOf<String, Job>()
     private val dwellStarts = mutableMapOf<String, Long>()
@@ -86,6 +100,17 @@ class StreamPreviewCoordinator(
         schedule = ::scheduleLifecycleReconciliation,
         onExpired = ::scheduleSelection,
     )
+    private val sharedPreviewPlayerListener = object : Player.Listener {
+        override fun onRenderedFirstFrame() {
+            activePreviews.values.firstOrNull { it.player === sharedPreviewPlayer }?.let(::handleFirstFrame)
+        }
+
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            activePreviews.values.firstOrNull { it.player === sharedPreviewPlayer }?.let { active ->
+                handlePreviewFailure(active.identity, active.player)
+            }
+        }
+    }
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = requestPolicyRecheck()
@@ -102,6 +127,7 @@ class StreamPreviewCoordinator(
         scope.launch {
             if (key == C.STREAM_PREVIEW_MODE && StreamPreviewPolicy.mode(context) == StreamPreviewMode.OFF) {
                 stopPreview()
+                releaseSharedPreviewPlayer()
             } else {
                 if (key == C.STREAM_PREVIEW_QUALITY) applyPreviewQuality()
                 scheduleSelection()
@@ -151,6 +177,7 @@ class StreamPreviewCoordinator(
     fun onAppBackground() {
         viewports.clear()
         stopPreview()
+        releaseSharedPreviewPlayer()
     }
 
     fun onAppForeground() = scheduleSelection()
@@ -204,8 +231,10 @@ class StreamPreviewCoordinator(
     fun isPreviewing(channelLogin: String): Boolean =
         normalize(channelLogin)?.let(::livePreviewIdentity)?.let(activePreviews::containsKey) == true
 
+    fun isPreviewActive(): Boolean = activePreviews.isNotEmpty()
+
     /** Unbinds only the view. The player remains reusable during the offscreen grace period. */
-    fun detachSurface(surface: PlayerView) {
+    fun detachSurface(surface: FrameLayout) {
         val active = activePreviews.values.firstOrNull { it.surface === surface }
         active?.let {
             detachPreviewSurface(it)
@@ -214,7 +243,7 @@ class StreamPreviewCoordinator(
             lifecycleReconciler.reconcile(now, additionalDeadlines = failedUntil.values)
         }
         if (active == null) {
-            surface.player = null
+            surface.removeAllViews()
             surface.alpha = 0f
             surface.visibility = View.GONE
         }
@@ -259,6 +288,10 @@ class StreamPreviewCoordinator(
             .filter { it.visibleFraction >= StreamPreviewSelectionPolicy.STOP_VISIBLE_FRACTION }
             .mapNotNull { it.previewIdentity }
         val scrolling = viewports.values.any { it.scrolling }
+        if (scrolling) {
+            cancelPendingStarts()
+            pauseActivePreviews()
+        }
         previewLifecycle.observeVisible(reasonablyVisible, now, scrolling = scrolling)
         previewLifecycle.expire(now)
         lifecycleReconciler.reconcile(now, additionalDeadlines = failedUntil.values)
@@ -315,8 +348,13 @@ class StreamPreviewCoordinator(
             val active = activePreviews[identity]
             if (active != null) {
                 attachSurfaceIfNeeded(active, candidate)
+                if (scrolling) {
+                    pausePreview(active)
+                } else {
+                    resumePreview(active)
+                }
             } else {
-                scheduleStart(candidate, now)
+                if (!scrolling) scheduleStart(candidate, now)
             }
         }
     }
@@ -390,8 +428,17 @@ class StreamPreviewCoordinator(
 
         var player: ExoPlayer? = null
         try {
-            val builtPlayer = mediaRuntime.buildPreviewPlayer(context, previewTrackSelectionParameters())
+            val builtPlayer = if (maxActivePreviews() == 1 || activePreviews.isEmpty()) {
+                ensureSharedPreviewPlayer()
+            } else {
+                mediaRuntime.buildPreviewPlayer(context, previewTrackSelectionParameters())
+            }
             player = builtPlayer
+            val playerView = if (builtPlayer === sharedPreviewPlayer) {
+                ensureSharedPreviewView()
+            } else {
+                createPreviewView()
+            }
             val mediaItem = if (latestCandidate.videoId.isNullOrBlank()) {
                 mediaRuntime.createLiveMediaItem(
                     channelLogin = latestCandidate.channelLogin,
@@ -409,8 +456,9 @@ class StreamPreviewCoordinator(
                     channelLogo = latestCandidate.channelLogo,
                 )
             }
-            val active = ActivePreview(identity = identity, player = player)
+            val active = ActivePreview(identity = identity, player = player, playerView = playerView)
             activePreviews[identity] = active
+            urlCoordinator.setPreviewActive(true)
             previewLifecycle.track(identity, SystemClock.elapsedRealtime())
             builtPlayer.repeatMode = if (latestCandidate.videoId.isNullOrBlank()) {
                 Player.REPEAT_MODE_OFF
@@ -418,36 +466,65 @@ class StreamPreviewCoordinator(
                 Player.REPEAT_MODE_ONE
             }
             attachSurfaceIfNeeded(active, latestCandidate)
-            builtPlayer.addListener(object : Player.Listener {
-                override fun onRenderedFirstFrame() {
-                    val current = activePreviews[identity]
-                    if (current?.player === builtPlayer) {
-                        current.firstFrameRendered = true
-                        current.surface?.let { surface ->
-                            surface.alpha = 1f
-                            surface.visibility = View.VISIBLE
-                        }
-                        if (BuildConfig.DEBUG) Log.d("StreamPreview", "first_frame identity=$identity")
-                    }
-                }
+            if (builtPlayer !== sharedPreviewPlayer) {
+                builtPlayer.addListener(object : Player.Listener {
+                    override fun onRenderedFirstFrame() = handleFirstFrame(active)
 
-                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    if (BuildConfig.DEBUG) Log.d("StreamPreview", "failed identity=$identity type=${error.errorCodeName}")
-                    handlePreviewFailure(identity, builtPlayer)
-                }
-            })
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        if (BuildConfig.DEBUG) Log.d("StreamPreview", "failed identity=$identity type=${error.errorCodeName}")
+                        handlePreviewFailure(identity, builtPlayer)
+                    }
+                })
+            }
             builtPlayer.setMediaItem(mediaItem)
             builtPlayer.volume = 0f
             builtPlayer.prepare()
             builtPlayer.playWhenReady = true
             if (BuildConfig.DEBUG) Log.d("StreamPreview", "started identity=$identity quality=${StreamPreviewPolicy.quality(context)}")
         } catch (cancellation: CancellationException) {
-            player?.let { runCatching { it.release() } }
+            player?.let(::discardPreviewPlayer)
             throw cancellation
         } catch (error: Throwable) {
-            player?.let { runCatching { it.release() } }
+            player?.let(::discardPreviewPlayer)
             markPreviewFailure(identity)
         }
+    }
+
+    private fun ensureSharedPreviewPlayer(): ExoPlayer =
+        sharedPreviewPlayer ?: mediaRuntime.buildPreviewPlayer(
+            context,
+            previewTrackSelectionParameters(),
+        ).also { player ->
+            player.addListener(sharedPreviewPlayerListener)
+            sharedPreviewPlayer = player
+        }
+
+    private fun ensureSharedPreviewView(): PlayerView =
+        sharedPreviewView ?: createPreviewView().also { sharedPreviewView = it }
+
+    private fun createPreviewView(): PlayerView =
+        PlayerView(context).apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            useController = false
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            visibility = View.GONE
+            alpha = 0f
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+        }
+
+    private fun handleFirstFrame(active: ActivePreview) {
+        if (activePreviews[active.identity]?.player !== active.player) return
+        active.firstFrameRendered = true
+        revealPreviewSurface(active.playerView, active.surface)
+        if (BuildConfig.DEBUG) Log.d("StreamPreview", "first_frame identity=${active.identity}")
+    }
+
+    private fun discardPreviewPlayer(player: ExoPlayer) {
+        runCatching { player.stop() }
+        if (player !== sharedPreviewPlayer) runCatching { player.release() }
     }
 
     private fun handlePreviewFailure(identity: String, player: ExoPlayer) {
@@ -464,15 +541,19 @@ class StreamPreviewCoordinator(
 
     private fun attachSurfaceIfNeeded(active: ActivePreview, candidate: StreamPreviewCandidate) {
         if (active.surface !== candidate.surface) {
-            active.surface?.let { oldSurface ->
-                oldSurface.player = null
-                oldSurface.alpha = 0f
-                oldSurface.visibility = View.GONE
-            }
+            if (active.surface != null) detachPreviewSurface(active)
             active.surface = candidate.surface
         }
-        candidate.surface.player = active.player
-        candidate.surface.alpha = if (active.firstFrameRendered) 1f else 0f
+        (active.playerView.parent as? ViewGroup)
+            ?.takeIf { it !== candidate.surface }
+            ?.removeView(active.playerView)
+        if (active.playerView.parent !== candidate.surface) {
+            candidate.surface.addView(active.playerView)
+        }
+        active.playerView.player = active.player
+        active.playerView.alpha = if (active.firstFrameRendered) 1f else 0f
+        active.playerView.visibility = View.VISIBLE
+        candidate.surface.alpha = 1f
         candidate.surface.visibility = View.VISIBLE
     }
 
@@ -481,6 +562,23 @@ class StreamPreviewCoordinator(
         activePreviews.values.forEach { active ->
             runCatching { active.player.setTrackSelectionParameters(parameters) }
         }
+    }
+
+    private fun pauseActivePreviews() {
+        activePreviews.values.forEach(::pausePreview)
+    }
+
+    private fun pausePreview(active: ActivePreview) {
+        if (active.pausedForScrolling) return
+        active.player.pause()
+        active.pausedForScrolling = true
+    }
+
+    private fun resumePreview(active: ActivePreview) {
+        if (!active.pausedForScrolling) return
+        active.pausedForScrolling = false
+        active.player.playWhenReady = true
+        active.player.play()
     }
 
     private fun previewTrackSelectionParameters(): TrackSelectionParameters =
@@ -553,16 +651,34 @@ class StreamPreviewCoordinator(
         activePreviews.remove(login)?.let { active ->
             detachPreviewSurface(active)
             runCatching { active.player.stop() }
-            runCatching { active.player.release() }
+            if (active.player !== sharedPreviewPlayer) runCatching { active.player.release() }
         }
+        urlCoordinator.setPreviewActive(activePreviews.isNotEmpty())
+    }
+
+    private fun releaseSharedPreviewPlayer() {
+        sharedPreviewPlayer?.let { player ->
+            runCatching { player.removeListener(sharedPreviewPlayerListener) }
+            runCatching { player.stop() }
+            runCatching { player.release() }
+        }
+        sharedPreviewView?.let { view ->
+            (view.parent as? ViewGroup)?.removeView(view)
+            view.player = null
+        }
+        sharedPreviewView = null
+        sharedPreviewPlayer = null
     }
 
     private fun detachPreviewSurface(active: ActivePreview) {
         active.surface?.let { surface ->
-            surface.player = null
+            surface.removeView(active.playerView)
             surface.alpha = 0f
             surface.visibility = View.GONE
         }
+        active.playerView.player = null
+        active.playerView.alpha = 0f
+        active.playerView.visibility = View.GONE
         active.surface = null
     }
 
@@ -584,8 +700,10 @@ class StreamPreviewCoordinator(
     private data class ActivePreview(
         val identity: String,
         val player: ExoPlayer,
-        var surface: PlayerView? = null,
+        val playerView: PlayerView,
+        var surface: FrameLayout? = null,
         var firstFrameRendered: Boolean = false,
+        var pausedForScrolling: Boolean = false,
     )
 
     private companion object {

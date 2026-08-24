@@ -29,6 +29,6 @@ class StreamPreloadUrlOwnershipTest {
         assertEquals("signed-url-a", previewUrl)
         assertEquals("signed-url-a", playbackUrl)
         assertEquals(1, repositoryCalls.get())
-        assertTrue(StreamMediaPreloadHandoff.isUsable(handoffEntry, "foo", playbackUrl!!, true, 1_000L, 4_500L))
+        assertTrue(StreamMediaPreloadHandoff.isUsable(handoffEntry, "foo", playbackUrl!!, true, nowMs = 0L))
     }
 }
