@@ -66,6 +66,11 @@
             </intent-filter>
         </activity>
         <activity android:name=".ui.settings.SettingsActivity" />
+        <activity
+            android:name=".ui.login.TwitchWebLoginActivity"
+            android:exported="false"
+            android:screenOrientation="unspecified"
+            android:windowSoftInputMode="adjustResize" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -79,11 +84,6 @@
             android:name=".ui.account.AccountActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
-        <activity
-            android:name=".ui.login.LoginActivity"
-            android:configChanges="orientation|screenSize"
-            android:windowSoftInputMode="adjustResize" />
-
         <service
             android:name=".ui.player.ExoPlayerService"
             android:foregroundServiceType="mediaPlayback" />
@@ -122,15 +122,6 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Persistent on-device Twitch live stream monitoring" />
-        </service>
-
-        <service
-            android:name=".ui.login.LoginAuthorizationService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Twitch device authorization polling while the user completes sign-in" />
         </service>
 
         <service

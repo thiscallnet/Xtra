@@ -88,7 +88,6 @@ class FollowedVideosViewModel(
                 },
                 gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true),
                 graphQLRepository = graphQLRepository,
-                enableIntegrity = applicationContext.prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                 networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
             )
         }.flow

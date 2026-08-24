@@ -978,7 +978,7 @@ class VideoDownloadService : LifecycleService() {
                     val jobs = mutableListOf<Job>().apply {
                         add(launch(Dispatchers.IO) {
                             try {
-                                val badges = xtraModule.playerRepository.loadGlobalBadges(networkLibrary, helixHeaders, gqlHeaders, emoteQuality, false)
+                                val badges = xtraModule.playerRepository.loadGlobalBadges(networkLibrary, helixHeaders, gqlHeaders, emoteQuality)
                                 globalBadgeList.addAll(badges)
                             } catch (e: Exception) {
 
@@ -1052,7 +1052,7 @@ class VideoDownloadService : LifecycleService() {
                             })
                             add(launch(Dispatchers.IO) {
                                 try {
-                                    val badges = xtraModule.playerRepository.loadChannelBadges(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, emoteQuality, false)
+                                    val badges = xtraModule.playerRepository.loadChannelBadges(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, emoteQuality)
                                     channelBadgeList.addAll(badges)
                                 } catch (e: Exception) {
 
@@ -1060,7 +1060,7 @@ class VideoDownloadService : LifecycleService() {
                             })
                             add(launch(Dispatchers.IO) {
                                 try {
-                                    val emotes = xtraModule.playerRepository.loadCheerEmotes(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, animateGifs = true, enableIntegrity = false)
+                                    val emotes = xtraModule.playerRepository.loadCheerEmotes(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, animateGifs = true)
                                     cheerEmoteList.addAll(emotes)
                                 } catch (e: Exception) {
 

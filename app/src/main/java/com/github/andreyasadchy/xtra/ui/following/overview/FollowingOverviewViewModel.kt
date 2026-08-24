@@ -248,11 +248,6 @@ class FollowingOverviewViewModel(
                     first = RECENT_VOD_LIMIT,
                     after = null,
                 )
-                if (applicationContext.prefs().getBoolean(C.ENABLE_INTEGRITY, false)) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                        throw IllegalStateException(it.message)
-                    }
-                }
                 response.data?.user?.followedVideos?.edges
                     ?.mapNotNull { edge -> edge?.node?.let(::toVideo) }
                     ?: throw IllegalStateException("Missing followed video data")
@@ -271,11 +266,6 @@ class FollowingOverviewViewModel(
                     limit = RECENT_VOD_LIMIT,
                     cursor = null,
                 )
-                if (applicationContext.prefs().getBoolean(C.ENABLE_INTEGRITY, false)) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                        throw IllegalStateException(it.message)
-                    }
-                }
                 response.data?.currentUser?.followedVideos?.edges
                     ?.map { item -> toVideo(item.node) }
                     ?: throw IllegalStateException("Missing followed video data")
@@ -407,8 +397,7 @@ class FollowingOverviewViewModel(
     private suspend fun loadFollowedChannels(): List<FollowedChannel>? {
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val hasAuthenticatedRemoteIdentity = !accountId.value.isNullOrBlank() ||
-                !applicationContext.tokenPrefs().getString(C.GQL_TOKEN2, null).isNullOrBlank() ||
-                !applicationContext.tokenPrefs().getString(C.TOKEN, null).isNullOrBlank()
+                !applicationContext.tokenPrefs().getString(C.GQL_TOKEN_WEB, null).isNullOrBlank()
         val remoteFollowLookupAttempted = hasAuthenticatedRemoteIdentity
         val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
         if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
@@ -419,11 +408,6 @@ class FollowingOverviewViewModel(
                     first = FOLLOWED_CHANNEL_LIMIT,
                     after = null,
                 )
-                if (applicationContext.prefs().getBoolean(C.ENABLE_INTEGRITY, false)) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                        throw IllegalStateException(it.message)
-                    }
-                }
                 response.data?.user?.follows?.edges
                     ?.mapNotNull { edge -> edge?.node?.let { node ->
                         node.id?.let { id -> FollowedChannel(id, node.login, node.displayName, node.profileImageURL) }
@@ -438,11 +422,6 @@ class FollowingOverviewViewModel(
                     limit = FOLLOWED_CHANNEL_LIMIT,
                     cursor = null,
                 )
-                if (applicationContext.prefs().getBoolean(C.ENABLE_INTEGRITY, false)) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                        throw IllegalStateException(it.message)
-                    }
-                }
                 response.data?.user?.follows?.edges
                     ?.mapNotNull { edge -> edge.node.let { node ->
                         node.id?.let { id -> FollowedChannel(id, node.login, node.displayName, node.profileImageURL) }

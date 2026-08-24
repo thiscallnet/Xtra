@@ -10,16 +10,12 @@ class ChannelSuggestionsDataSource(
     private val channelLogin: String?,
     private val gqlHeaders: Map<String, String>,
     private val graphQLRepository: GraphQLRepository,
-    private val enableIntegrity: Boolean,
     private val networkLibrary: String?,
 ) : PagingSource<Int, Stream>() {
 
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Stream> {
         return try {
             val response = graphQLRepository.loadChannelSuggestions(networkLibrary, gqlHeaders, channelLogin)
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-            }
             val list = response.data!!.sideNav.sections.edges.find {
                 it.node.id == "provider-side-nav-similar-streamer-currently-watching-1"
             }?.node?.content?.edges?.map { item ->

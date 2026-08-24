@@ -21,7 +21,6 @@ class StreamPlaybackConfigurationTest {
         proxyPort = null,
         proxyUser = null,
         proxyPassword = null,
-        enableIntegrity = false,
         lowLatency = lowLatency,
         proxyMultivariantPlaylist = false,
         streamHeaders = emptyMap(),

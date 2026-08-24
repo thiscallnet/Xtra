@@ -31,7 +31,6 @@ import com.github.andreyasadchy.xtra.databinding.DialogChatMessageClickBinding
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.ui.chat.MessageClickedViewModel.Companion.MessageClickedViewModelFactory
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -45,7 +44,7 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.time.Instant
 
-class MessageClickedDialog : BottomSheetDialogFragment(), IntegrityDialog.Listener {
+class MessageClickedDialog : BottomSheetDialogFragment() {
 
     interface OnButtonClickListener {
         fun onCreateMessageClickedChatAdapter(): MessageClickedChatAdapter?
@@ -96,13 +95,6 @@ class MessageClickedDialog : BottomSheetDialogFragment(), IntegrityDialog.Listen
         val behavior = BottomSheetBehavior.from(view.parent as View)
         behavior.skipCollapsed = true
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.integrity.collect {
-                    (requireActivity() as? MainActivity)?.getNewIntegrityToken(it, childFragmentManager)
-                }
-            }
-        }
         with(binding) {
             adapter = listener.onCreateMessageClickedChatAdapter()
             recyclerView.let {
@@ -176,7 +168,6 @@ class MessageClickedDialog : BottomSheetDialogFragment(), IntegrityDialog.Listen
                                 networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                                 gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
                                 helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
-                                enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                             )
                             viewLifecycleOwner.lifecycleScope.launch {
                                 repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -466,29 +457,12 @@ class MessageClickedDialog : BottomSheetDialogFragment(), IntegrityDialog.Listen
         }
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "refresh" -> {
-                val userId = adapter?.selectedMessage?.userId
-                val userLogin = adapter?.selectedMessage?.userLogin
-                if (userId != null || userLogin != null) {
-                    val targetId = requireArguments().getString(KEY_CHANNEL_ID)
-                    viewModel.loadUser(
-                        channelId = userId,
-                        channelLogin = userLogin,
-                        targetId = if (userId != targetId) targetId else null,
-                        networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
-                        helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
-                        enableIntegrity = requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                    )
-                }
-            }
-        }
-    }
-
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
     }
 }
+
+
+
+

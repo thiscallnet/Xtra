@@ -128,14 +128,6 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable {
         super.onPause()
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "refresh" -> {
-                pagingAdapter.refresh()
-            }
-        }
-    }
-
     override fun onDestroyView() {
         if (::streamFeedScreenController.isInitialized) {
             streamFeedScreenController.onDestroyView()
@@ -147,3 +139,5 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable {
         _binding = null
     }
 }
+
+

@@ -21,7 +21,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.repository.auth.AuthHealth
 import com.github.andreyasadchy.xtra.ui.account.AccountActivity
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
+import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
@@ -30,7 +30,6 @@ import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.shape.ShapeAppearanceModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -42,9 +41,6 @@ object ProfileMenuBinder {
     private const val AVATAR_PADDING_DP = 4
     private const val BADGE_SIZE_DP = 17
     private const val AUTH_BADGE_TAG = "xtra.auth-health-badge"
-
-    private var loadingUserId: String? = null
-    private var loadingJob: Job? = null
 
     fun bind(toolbar: androidx.appcompat.widget.Toolbar, activity: MainActivity) {
         val item = toolbar.menu.findItem(R.id.profile) ?: return
@@ -92,6 +88,7 @@ object ProfileMenuBinder {
         val item = toolbar.menu.findItem(R.id.profile) ?: return
         val container = item.actionView as? FrameLayout ?: return
         if (!isLoggedIn(activity)) {
+            container.findViewWithTag<TextView>(AUTH_BADGE_TAG)?.let(container::removeView)
             item.title = activity.getString(R.string.sign_in)
             container.contentDescription = activity.getString(R.string.sign_in)
             container.setOnClickListener { launchLogin(activity) }
@@ -147,7 +144,7 @@ object ProfileMenuBinder {
             !activity.tokenPrefs().getString(C.USERNAME, null).isNullOrBlank()
 
     private fun launchLogin(activity: MainActivity) {
-        val intent = Intent(activity, LoginActivity::class.java)
+        val intent = Intent(activity, TwitchWebLoginActivity::class.java)
         activity.loginResultLauncher?.launch(intent) ?: activity.startActivity(intent)
     }
 
@@ -184,15 +181,8 @@ object ProfileMenuBinder {
                 title = R.string.auth_health_reauth_title,
                 message = R.string.auth_health_reauth_message,
                 actionLabel = R.string.auth_health_reconnect,
-                intent = Intent(activity, LoginActivity::class.java)
-                    .putExtra(LoginActivity.EXTRA_REAUTHORIZE, true),
-            )
-            AuthHealth.ENHANCED_FEATURES_UNAVAILABLE -> AuthHealthDialogSpec(
-                title = R.string.auth_health_compatibility_title,
-                message = R.string.auth_health_compatibility_message,
-                actionLabel = R.string.auth_health_compatibility_reconnect,
-                intent = Intent(activity, LoginActivity::class.java)
-                    .putExtra(LoginActivity.EXTRA_COMPATIBILITY_ONLY, true),
+                intent = Intent(activity, TwitchWebLoginActivity::class.java)
+                    .putExtra(TwitchWebLoginActivity.EXTRA_REAUTHORIZE, true),
             )
             else -> return
         }
@@ -248,23 +238,17 @@ object ProfileMenuBinder {
         if (userId.isNullOrBlank() && login.isNullOrBlank()) {
             return
         }
-        synchronized(this) {
-            if (loadingUserId == userId && loadingJob?.isActive == true) {
-                return
+        activity.lifecycleScope.launch {
+            val imageUrl = withContext(Dispatchers.IO) {
+                fetchProfileImage(activity, userId, login)
             }
-            loadingUserId = userId
-            loadingJob = activity.lifecycleScope.launch {
-                val imageUrl = withContext(Dispatchers.IO) {
-                    fetchProfileImage(activity, userId, login)
+            if (!imageUrl.isNullOrBlank()) {
+                activity.tokenPrefs().edit {
+                    putString(C.PROFILE_IMAGE_URL, imageUrl)
+                    putString(C.PROFILE_IMAGE_USER_ID, userId)
                 }
-                if (!imageUrl.isNullOrBlank()) {
-                    activity.tokenPrefs().edit {
-                        putString(C.PROFILE_IMAGE_URL, imageUrl)
-                        putString(C.PROFILE_IMAGE_USER_ID, userId)
-                    }
-                    if (avatar.isAttachedToWindow) {
-                        loadImage(activity, avatar, imageUrl)
-                    }
+                if (avatar.isAttachedToWindow) {
+                    loadImage(activity, avatar, imageUrl)
                 }
             }
         }

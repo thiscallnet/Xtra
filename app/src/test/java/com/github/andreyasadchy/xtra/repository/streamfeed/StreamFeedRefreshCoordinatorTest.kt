@@ -98,33 +98,6 @@ class StreamFeedRefreshCoordinatorTest {
     }
 
     @Test
-    fun integrityRetryReadsHeadersFromTheCurrentProvider() = runBlocking {
-        val key = StreamFeedKey("top:integrity")
-        val cache = FakeCache(key, emptyList(), StreamFeedState(key.value, lastSuccessAt = 0L))
-        var currentHeaders = mapOf("X-Integrity" to "expired")
-        val observedHeaders = mutableListOf<Map<String, String>>()
-        val headers = { currentHeaders }
-        val loader = object : StreamFeedPageLoader {
-            override suspend fun load(cursor: StreamFeedCursor?): StreamFeedPage {
-                observedHeaders += headers()
-                if (headers()["X-Integrity"] == "expired") {
-                    throw com.github.andreyasadchy.xtra.repository.datasource.StreamFeedIntegrityException()
-                }
-                return StreamFeedPage(emptyList(), null)
-            }
-        }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val coordinator = StreamFeedRefreshCoordinator(cache, scope, { 1_000_000L }, { 1_000L }, false)
-        val spec = StreamFeedSpec(key, loader)
-
-        assertTrue(runCatching { coordinator.forceRefresh(spec, RefreshReason.INITIAL) }.isFailure)
-        currentHeaders = mapOf("X-Integrity" to "fresh")
-        assertEquals(RefreshDecision.REFRESH, coordinator.forceRefresh(spec, RefreshReason.USER_PULL).decision)
-        assertEquals(listOf("expired", "fresh"), observedHeaders.map { it["X-Integrity"] })
-        scope.cancel()
-    }
-
-    @Test
     fun networkRestorationBypassesTransportFailureBackoff() = runBlocking {
         val key = StreamFeedKey("top:network-restored")
         val cache = FakeCache(

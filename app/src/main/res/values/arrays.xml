@@ -405,12 +405,6 @@
         <item>@string/chatFirstMsgEntries3</item>
     </string-array>
 
-    <string-array name="loginApiEntries" translatable="false">
-        <item>@string/both</item>
-        <item>GQL</item>
-        <item>Helix</item>
-    </string-array>
-
     <string-array name="timestampEntries" translatable="false">
         <item>@string/timestamp_format_0</item>
         <item>@string/timestamp_format_1</item>

@@ -22,7 +22,6 @@ import com.github.andreyasadchy.xtra.model.ui.Bookmark
 import com.github.andreyasadchy.xtra.model.ui.ChannelSort
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
@@ -38,7 +37,7 @@ import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
-class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, BookmarksSortDialog.OnFilter, IntegrityDialog.Listener {
+class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, BookmarksSortDialog.OnFilter {
 
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
@@ -53,13 +52,6 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.integrity.collect {
-                    (requireActivity() as? MainActivity)?.getNewIntegrityToken(it, childFragmentManager)
-                }
-            }
-        }
         adapter = BookmarksAdapter(this, {
             viewModel.updateVideo(
                 requireContext().filesDir.path,
@@ -67,7 +59,6 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
                 requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                 TwitchApiHelper.getGQLHeaders(requireContext()),
                 TwitchApiHelper.getHelixHeaders(requireContext()),
-                requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
             )
         }, {
             DownloadDialog.newVideoInstance(
@@ -233,7 +224,6 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
                 requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                 TwitchApiHelper.getGQLHeaders(requireContext()),
                 TwitchApiHelper.getHelixHeaders(requireContext()),
-                requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
             )
         }
         val helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext())
@@ -289,21 +279,12 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
     override fun onNetworkRestored() {
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "users" -> {
-                viewModel.updateUsers(
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    TwitchApiHelper.getGQLHeaders(requireContext()),
-                    TwitchApiHelper.getHelixHeaders(requireContext()),
-                    requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                )
-            }
-        }
-    }
-
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
     }
 }
+
+
+
+

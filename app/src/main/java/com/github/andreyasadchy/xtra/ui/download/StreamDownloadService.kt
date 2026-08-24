@@ -296,7 +296,7 @@ class StreamDownloadService : LifecycleService() {
         val quality = offlineVideo.quality
         var startTime = System.currentTimeMillis()
         var endTime = startWait?.let { System.currentTimeMillis() + it }
-        var playlistUrl = xtraModule.playerRepository.loadStreamPlaylistUrl(this@StreamDownloadService, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, false, null, null, null, null, false, lowLatency = false)
+        var playlistUrl = xtraModule.playerRepository.loadStreamPlaylistUrl(this@StreamDownloadService, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, false, null, null, null, null, lowLatency = false)
         while (true) {
             val playlist = when {
                 networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -471,7 +471,7 @@ class StreamDownloadService : LifecycleService() {
                     }
                     endTime = endWait?.let { System.currentTimeMillis() + it }
                     if (continueDownloading) {
-                        playlistUrl = xtraModule.playerRepository.loadStreamPlaylistUrl(this@StreamDownloadService, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, false, null, null, null, null, false, lowLatency = false)
+                        playlistUrl = xtraModule.playerRepository.loadStreamPlaylistUrl(this@StreamDownloadService, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, false, null, null, null, null, lowLatency = false)
                     }
                 }
             }
@@ -490,7 +490,7 @@ class StreamDownloadService : LifecycleService() {
 
     private suspend fun proxyPlaylist(playlistUrl: String, networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?, proxyPlaybackAccessToken: Boolean, proxyMultivariantPlaylist: Boolean, proxyHost: String, proxyPort: Int, proxyUser: String?, proxyPassword: String?): String? = withContext(Dispatchers.IO) {
         val playlistUrl = if (proxyPlaybackAccessToken) {
-            xtraModule.playerRepository.loadStreamPlaylistUrl(this@StreamDownloadService, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, true, proxyHost, proxyPort, proxyUser, proxyPassword, false, lowLatency = false)
+            xtraModule.playerRepository.loadStreamPlaylistUrl(this@StreamDownloadService, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, true, proxyHost, proxyPort, proxyUser, proxyPassword, lowLatency = false)
         } else {
             playlistUrl
         }
@@ -1183,7 +1183,7 @@ class StreamDownloadService : LifecycleService() {
             val jobs = mutableListOf<Job>().apply {
                 add(launch(Dispatchers.IO) {
                     try {
-                        val badges = xtraModule.playerRepository.loadGlobalBadges(networkLibrary, helixHeaders, gqlHeaders, emoteQuality, false)
+                        val badges = xtraModule.playerRepository.loadGlobalBadges(networkLibrary, helixHeaders, gqlHeaders, emoteQuality)
                         globalBadgeList.addAll(badges)
                     } catch (e: Exception) {
 
@@ -1257,7 +1257,7 @@ class StreamDownloadService : LifecycleService() {
                     })
                     add(launch(Dispatchers.IO) {
                         try {
-                            val badges = xtraModule.playerRepository.loadChannelBadges(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, emoteQuality, false)
+                            val badges = xtraModule.playerRepository.loadChannelBadges(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, emoteQuality)
                             channelBadgeList.addAll(badges)
                         } catch (e: Exception) {
 
@@ -1265,7 +1265,7 @@ class StreamDownloadService : LifecycleService() {
                     })
                     add(launch(Dispatchers.IO) {
                         try {
-                            val emotes = xtraModule.playerRepository.loadCheerEmotes(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, animateGifs = true, enableIntegrity = false)
+                            val emotes = xtraModule.playerRepository.loadCheerEmotes(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, animateGifs = true)
                             cheerEmoteList.addAll(emotes)
                         } catch (e: Exception) {
 

@@ -39,15 +39,13 @@ class DownloadViewModel(
     private val playerRepository: PlayerRepository,
 ) : ViewModel() {
 
-    val integrity = MutableSharedFlow<String?>()
-
     private val _qualities = MutableStateFlow<List<VideoQuality>?>(null)
     val qualities: StateFlow<List<VideoQuality>?> = _qualities
     val dismiss = MutableStateFlow(false)
     var backupQualities: List<String>? = null
     var selectedQuality: String? = null
 
-    fun setStream(networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String?, qualities: List<VideoQuality>?, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?, enableIntegrity: Boolean) {
+    fun setStream(networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String?, qualities: List<VideoQuality>?, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?) {
         if (_qualities.value == null) {
             if (!qualities.isNullOrEmpty()) {
                 _qualities.value = qualities
@@ -56,7 +54,7 @@ class DownloadViewModel(
                     val default = listOf("source", "1080p60", "1080p30", "720p60", "720p30", "480p30", "360p30", "160p30", "audio_only")
                     try {
                         val list = if (!channelLogin.isNullOrBlank()) {
-                            val url = playerRepository.loadStreamPlaylistUrl(applicationContext, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, false, null, null, null, null, enableIntegrity, lowLatency = false)
+                            val url = playerRepository.loadStreamPlaylistUrl(applicationContext, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, false, null, null, null, null, lowLatency = false)
                             val playlist = withContext(Dispatchers.IO) {
                                 when {
                                     networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -147,12 +145,8 @@ class DownloadViewModel(
                                 }
                             }
                     } catch (e: Exception) {
-                        if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                            integrity.emit("stream")
-                        } else {
-                            _qualities.value = default.map {
-                                VideoQuality(it, url = "")
-                            }
+                        _qualities.value = default.map {
+                            VideoQuality(it, url = "")
                         }
                     }
                 }
@@ -160,14 +154,14 @@ class DownloadViewModel(
         }
     }
 
-    fun setVideo(networkLibrary: String?, gqlHeaders: Map<String, String>, videoId: String?, animatedPreviewUrl: String?, videoType: String?, qualities: List<VideoQuality>?, playerType: String?, supportedCodecs: String?, enableIntegrity: Boolean) {
+    fun setVideo(networkLibrary: String?, gqlHeaders: Map<String, String>, videoId: String?, animatedPreviewUrl: String?, videoType: String?, qualities: List<VideoQuality>?, playerType: String?, supportedCodecs: String?) {
         if (_qualities.value == null) {
             if (!qualities.isNullOrEmpty()) {
                 _qualities.value = qualities
             } else {
                 viewModelScope.launch {
                     try {
-                        val result = playerRepository.loadVideoPlaylistUrl(networkLibrary, gqlHeaders, videoId, playerType, supportedCodecs, enableIntegrity)
+                        val result = playerRepository.loadVideoPlaylistUrl(networkLibrary, gqlHeaders, videoId, playerType, supportedCodecs)
                         val url = result.first
                         backupQualities = result.second
                         val playlist = withContext(Dispatchers.IO) {
@@ -350,9 +344,6 @@ class DownloadViewModel(
                             }
                         }
                     } catch (e: Exception) {
-                        if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                            integrity.emit("video")
-                        }
                         if (e is IllegalAccessException) {
                             dismiss.value = true
                         }
@@ -362,14 +353,14 @@ class DownloadViewModel(
         }
     }
 
-    fun setClip(networkLibrary: String?, gqlHeaders: Map<String, String>, clipId: String?, qualities: List<VideoQuality>?, enableIntegrity: Boolean) {
+    fun setClip(networkLibrary: String?, gqlHeaders: Map<String, String>, clipId: String?, qualities: List<VideoQuality>?) {
         if (_qualities.value == null) {
             if (!qualities.isNullOrEmpty()) {
                 _qualities.value = qualities
             } else {
                 viewModelScope.launch {
                     try {
-                        val list = playerRepository.loadClipQualities(networkLibrary, gqlHeaders, clipId, enableIntegrity)
+                        val list = playerRepository.loadClipQualities(networkLibrary, gqlHeaders, clipId)
                         if (list != null) {
                             _qualities.value = list
                                 .sortedByDescending {
@@ -383,9 +374,6 @@ class DownloadViewModel(
                                 }
                         }
                     } catch (e: Exception) {
-                        if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                            integrity.emit("clip")
-                        }
                     }
                 }
             }

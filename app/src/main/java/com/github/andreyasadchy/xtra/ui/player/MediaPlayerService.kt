@@ -555,12 +555,8 @@ class MediaPlayerService : BasePlaybackService() {
                             proxyPort = prefs().httpProxyPort(),
                             proxyUser = prefs().getString(C.PROXY_USER, null),
                             proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
-                            enableIntegrity = prefs().getBoolean(C.ENABLE_INTEGRITY, false)
                         )
                     } catch (e: Exception) {
-                        if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                            integrity.emit("refreshStream")
-                        }
                         null
                     }
                     playlistUrl = url
@@ -848,12 +844,8 @@ class MediaPlayerService : BasePlaybackService() {
                         videoId = videoId,
                         playerType = prefs().getString(C.TOKEN_PLAYER_TYPE_VIDEO, "channel_home_live"),
                         supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
-                        enableIntegrity = prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                     )
                 } catch (e: Exception) {
-                    if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                        integrity.emit("refreshVideo")
-                    }
                     null
                 }
                 if (result != null) {
@@ -1122,12 +1114,6 @@ class MediaPlayerService : BasePlaybackService() {
                 headers = TwitchApiHelper.getGQLHeaders(this),
                 id = videoId
             )
-            if (prefs().getBoolean(C.ENABLE_INTEGRITY, false)) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                    integrity.emit("refresh")
-                    return
-                }
-            }
             response.data!!.let { item ->
                 item.video?.let {
                     Video(
@@ -1203,12 +1189,8 @@ class MediaPlayerService : BasePlaybackService() {
                         networkLibrary = networkLibrary,
                         gqlHeaders = TwitchApiHelper.getGQLHeaders(this@MediaPlayerService),
                         clipId = clipId,
-                        enableIntegrity = prefs().getBoolean(C.ENABLE_INTEGRITY, false)
                     )
                 } catch (e: Exception) {
-                    if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                        integrity.emit("refreshClip")
-                    }
                     null
                 }
                 if (list != null) {

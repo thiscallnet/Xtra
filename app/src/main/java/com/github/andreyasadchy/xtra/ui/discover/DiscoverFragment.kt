@@ -31,7 +31,7 @@ import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewAdapter
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
+import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.C
@@ -101,11 +101,11 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
                             requireContext().tokenPrefs().getString(C.USERNAME, null)?.let { setMessage(getString(R.string.logout_msg, it)) }
                             setNegativeButton(getString(R.string.no), null)
                             setPositiveButton(getString(R.string.yes)) { _, _ ->
-                                activity.logoutResultLauncher?.launch(Intent(activity, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_LOGOUT, true))
+                                activity.logoutResultLauncher?.launch(Intent(activity, TwitchWebLoginActivity::class.java).putExtra(TwitchWebLoginActivity.EXTRA_LOGOUT, true))
                             }
                         }.show()
                     } else {
-                        activity.loginResultLauncher?.launch(Intent(activity, LoginActivity::class.java))
+                        activity.loginResultLauncher?.launch(Intent(activity, TwitchWebLoginActivity::class.java))
                     }
                     true
                 }

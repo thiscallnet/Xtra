@@ -171,14 +171,6 @@ class VideoSearchFragment : PagedListFragment(), Searchable {
         pagingAdapter.retry()
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "refresh" -> {
-                pagingAdapter.refresh()
-            }
-        }
-    }
-
     override fun onResume() {
         super.onResume()
         if (::videoPreviewViewportController.isInitialized) {
@@ -201,3 +193,5 @@ class VideoSearchFragment : PagedListFragment(), Searchable {
         _binding = null
     }
 }
+
+

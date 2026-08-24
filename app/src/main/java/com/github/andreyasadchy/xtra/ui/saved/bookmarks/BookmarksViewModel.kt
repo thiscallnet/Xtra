@@ -48,8 +48,6 @@ class BookmarksViewModel(
     private val okHttpClient: Lazy<OkHttpClient>,
 ) : ViewModel() {
 
-    val integrity = MutableSharedFlow<String?>()
-
     val positions = playerRepository.loadVideoPositions()
     val ignoredUsers = bookmarksRepository.getIgnoredUsersFlow()
     private var updatedUsers = false
@@ -84,7 +82,7 @@ class BookmarksViewModel(
         }
     }
 
-    fun updateUsers(networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun updateUsers(networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>) {
         if (!updatedUsers) {
             viewModelScope.launch {
                 val bookmarks = bookmarksRepository.getAll()
@@ -94,12 +92,6 @@ class BookmarksViewModel(
                 }.chunked(100).forEach { ids ->
                     try {
                         val response = graphQLRepository.loadQueryUsersType(networkLibrary, gqlHeaders, ids)
-                        if (enableIntegrity) {
-                            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                integrity.emit("users")
-                                return@launch
-                            }
-                        }
                         response.data!!.users?.mapNotNull {
                             if (it != null) {
                                 User(
@@ -156,17 +148,11 @@ class BookmarksViewModel(
         }
     }
 
-    fun updateVideo(filesDir: String, videoId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun updateVideo(filesDir: String, videoId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>) {
         viewModelScope.launch {
             if (!videoId.isNullOrBlank()) {
                 val video = try {
                     val response = graphQLRepository.loadQueryVideo(networkLibrary, gqlHeaders, videoId)
-                    if (enableIntegrity) {
-                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                            integrity.emit("video")
-                            return@launch
-                        }
-                    }
                     response.data!!.let { item ->
                         item.video?.let {
                             Video(

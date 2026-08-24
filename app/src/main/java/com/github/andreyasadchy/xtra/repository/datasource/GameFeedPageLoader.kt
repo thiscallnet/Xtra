@@ -4,7 +4,6 @@ import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
-import com.github.andreyasadchy.xtra.repository.datasource.StreamFeedIntegrityException
 import com.github.andreyasadchy.xtra.util.C
 import kotlinx.coroutines.CancellationException
 import java.io.IOException
@@ -30,7 +29,6 @@ class TwitchGameFeedPageLoader(
     private val graphQLRepository: GraphQLRepository,
     private val helixHeaders: () -> Map<String, String>,
     private val helixRepository: HelixRepository,
-    private val enableIntegrity: Boolean,
     private val networkLibrary: String?,
     private val pageSize: Int = 30,
 ) : GameFeedPageLoader {
@@ -43,12 +41,12 @@ class TwitchGameFeedPageLoader(
             api = C.GQL
             loadFromApi(null)
         } catch (error: Exception) {
-            if (error is CancellationException || error is StreamFeedIntegrityException) throw error
+            if (error is CancellationException) throw error
             try {
                 api = C.GQL_PERSISTED_QUERY
                 loadFromApi(null)
             } catch (persistedError: Exception) {
-                if (persistedError is CancellationException || persistedError is StreamFeedIntegrityException) throw persistedError
+                if (persistedError is CancellationException) throw persistedError
                 api = C.HELIX
                 loadFromApi(null)
             }
@@ -76,7 +74,6 @@ class TwitchGameFeedPageLoader(
             first = pageSize,
             after = cursor,
         )
-        checkIntegrity(response.errors?.map { it.message })
         val data = response.data?.games ?: error("Top games response did not contain games")
         val edges = data.edges.orEmpty()
         return GameFeedPage(
@@ -107,7 +104,6 @@ class TwitchGameFeedPageLoader(
             limit = pageSize,
             cursor = cursor,
         )
-        checkIntegrity(response.errors?.map { it.message })
         val data = response.data?.directoriesWithTags ?: error("Top games response did not contain directories")
         val edges = data.edges
         return GameFeedPage(
@@ -144,9 +140,4 @@ class TwitchGameFeedPageLoader(
         )
     }
 
-    private fun checkIntegrity(messages: Iterable<String?>?) {
-        if (enableIntegrity && messages?.any { it == C.FAILED_INTEGRITY_CHECK } == true) {
-            throw StreamFeedIntegrityException()
-        }
-    }
 }

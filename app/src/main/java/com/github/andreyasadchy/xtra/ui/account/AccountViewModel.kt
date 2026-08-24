@@ -258,13 +258,13 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             requireCapability { it.editChatColor }
             val error = module.helixRepository.updateChatColor(
                 networkLibrary(),
-                helixHeaders(),
+                helixHeaders("user:manage:chat_color"),
                 currentUserId(),
                 color,
             )
             error?.takeIf { it.isNotBlank() }?.let { throw TwitchApiException(400, null, message = it) }
             val canonicalColor = runCatching {
-                module.helixRepository.getChatColor(networkLibrary(), helixHeaders(), currentUserId())
+                module.helixRepository.getChatColor(networkLibrary(), helixHeaders("user:manage:chat_color"), currentUserId())
             }
             _uiState.update { state ->
                 state.copy(
@@ -282,7 +282,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
         mutate(R.string.account_saved) {
             requireCapability { it.editBio }
             require(description.length <= 300) { context.getString(R.string.account_bio_too_long) }
-            val user = module.helixRepository.updateUserDescription(networkLibrary(), helixHeaders(), description)
+            val user = module.helixRepository.updateUserDescription(networkLibrary(), helixHeaders("user:edit"), description)
             _uiState.update { state -> state.copy(user = user ?: state.user) }
             persistAccountCache()
         }
@@ -304,7 +304,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             tags?.let(::validateTags)
             module.helixRepository.updateChannelInformation(
                 networkLibrary(),
-                helixHeaders(),
+                helixHeaders("channel:manage:broadcast"),
                 currentUserId(),
                 title = title,
                 gameId = gameId,
@@ -354,7 +354,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             }
             val error = module.helixRepository.updateChatSettings(
                 networkLibrary(),
-                helixHeaders(),
+                helixHeaders("moderator:manage:chat_settings"),
                 currentUserId(),
                 currentUserId(),
                 emote = update.emote,
@@ -420,7 +420,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             try {
                 val response = module.helixRepository.getBlockedUsers(
                     networkLibrary(),
-                    helixHeaders(),
+                    helixHeaders("user:read:blocked_users"),
                     currentUserId(),
                     cursor = if (reset) null else _uiState.value.blockedUsersCursor,
                 )
@@ -450,7 +450,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
         val id = user.id ?: return
         mutate(R.string.account_unblocked) {
             requireCapability { it.manageBlockedUsers }
-            module.helixRepository.unblockUser(networkLibrary(), helixHeaders(), id)
+            module.helixRepository.unblockUser(networkLibrary(), helixHeaders("user:manage:blocked_users"), id)
             _uiState.update { state -> state.copy(blockedUsers = state.blockedUsers.filterNot { it.id == id }) }
             persistAccountCache()
         }
@@ -484,7 +484,10 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
 
     private fun networkLibrary() = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
 
-    private fun helixHeaders() = TwitchApiHelper.getHelixHeaders(context)
+    private fun helixHeaders(requiredScope: String? = null) = TwitchApiHelper.getHelixHeaders(
+        context = context,
+        requiredScopes = requiredScope?.let(::setOf).orEmpty(),
+    )
 
     private fun currentUserId(): String = _uiState.value.user?.id
         ?: context.tokenPrefs().getString(C.USER_ID, null)

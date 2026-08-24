@@ -40,12 +40,11 @@ import com.github.andreyasadchy.xtra.databinding.FragmentGamePagerBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.game.GamePagerViewModel.Companion.GamePagerViewModelFactory
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
+import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
@@ -62,7 +61,7 @@ import com.google.android.material.tabs.TabLayoutMediator
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, IntegrityDialog.Listener {
+class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
 
     override val initializeWithoutNetwork = true
 
@@ -87,13 +86,6 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.integrity.collect {
-                    (requireActivity() as? MainActivity)?.getNewIntegrityToken(it, childFragmentManager)
-                }
-            }
-        }
         with(binding) {
             val activity = requireActivity() as MainActivity
             if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
@@ -142,7 +134,6 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
                                             setting,
                                             requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                                             TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                                            requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                                         )
                                     }
                                     .show()
@@ -156,7 +147,6 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
                                     requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                                     TwitchApiHelper.getGQLHeaders(requireContext(), true),
                                     TwitchApiHelper.getHelixHeaders(requireContext()),
-                                    requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                                 )
                             }
                         }
@@ -180,10 +170,10 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
                                 setTitle(getString(R.string.logout_title))
                                 requireContext().tokenPrefs().getString(C.USERNAME, null)?.let { setMessage(getString(R.string.logout_msg, it)) }
                                 setNegativeButton(getString(R.string.no), null)
-                                setPositiveButton(getString(R.string.yes)) { _, _ -> activity.logoutResultLauncher?.launch(Intent(activity, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_LOGOUT, true)) }
+                                setPositiveButton(getString(R.string.yes)) { _, _ -> activity.logoutResultLauncher?.launch(Intent(activity, TwitchWebLoginActivity::class.java).putExtra(TwitchWebLoginActivity.EXTRA_LOGOUT, true)) }
                             }.show()
                         } else {
-                            activity.loginResultLauncher?.launch(Intent(activity, LoginActivity::class.java))
+                            activity.loginResultLauncher?.launch(Intent(activity, TwitchWebLoginActivity::class.java))
                         }
                         true
                     }
@@ -323,7 +313,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
             requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
             TwitchApiHelper.getGQLHeaders(requireContext()),
             TwitchApiHelper.getHelixHeaders(requireContext()),
-            requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
+            false,
         )
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -468,54 +458,8 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
             requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
             TwitchApiHelper.getGQLHeaders(requireContext()),
             TwitchApiHelper.getHelixHeaders(requireContext()),
-            requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
             revalidate = true,
         )
-    }
-
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "refresh" -> {
-                viewModel.loadGame(
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    TwitchApiHelper.getGQLHeaders(requireContext()),
-                    TwitchApiHelper.getHelixHeaders(requireContext()),
-                    requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                    revalidate = true,
-                )
-                val setting = requireContext().prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0
-                if (setting < 2) {
-                    viewModel.isFollowingGame(
-                        args.gameId,
-                        setting,
-                        requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                    )
-                }
-            }
-            "follow" -> {
-                viewModel.saveFollowGame(
-                    args.gameId,
-                    args.gameSlug,
-                    args.gameName,
-                    requireContext().prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0,
-                    requireContext().filesDir.path,
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                    TwitchApiHelper.getHelixHeaders(requireContext()),
-                    requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                )
-            }
-            "unfollow" -> {
-                viewModel.deleteFollowGame(
-                    args.gameId,
-                    requireContext().prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0,
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                    requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                )
-            }
-        }
     }
 
     override fun onDestroyView() {
@@ -523,3 +467,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost, Integ
         _binding = null
     }
 }
+
+
+
+

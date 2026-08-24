@@ -49,8 +49,6 @@ class GamePagerViewModel(
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    val integrity = MutableSharedFlow<String?>()
-
     private val args = GamePagerFragmentArgs.fromSavedStateHandle(savedStateHandle)
     private val _isFollowing = MutableStateFlow<Boolean?>(null)
     val isFollowing: StateFlow<Boolean?> = _isFollowing
@@ -64,7 +62,6 @@ class GamePagerViewModel(
         val networkLibrary: String?,
         val gqlHeaders: Map<String, String>,
         val helixHeaders: Map<String, String>,
-        val enableIntegrity: Boolean,
     )
 
     private val loadCoordinator: LoadRequestCoalescer<LoadRequest>
@@ -85,11 +82,10 @@ class GamePagerViewModel(
         networkLibrary: String?,
         gqlHeaders: Map<String, String>,
         helixHeaders: Map<String, String>,
-        enableIntegrity: Boolean,
         revalidate: Boolean = false,
     ) {
         loadCoordinator.request(
-            LoadRequest(networkLibrary, gqlHeaders, helixHeaders, enableIntegrity),
+            LoadRequest(networkLibrary, gqlHeaders, helixHeaders),
             revalidate = revalidate,
         )
     }
@@ -109,12 +105,6 @@ class GamePagerViewModel(
                         slug = args.gameSlug.takeIf { args.gameId.isNullOrBlank() },
                         name = args.gameName.takeIf { args.gameId.isNullOrBlank() && args.gameSlug.isNullOrBlank() },
                     )
-                    if (request.enableIntegrity) {
-                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                            integrity.emit("refresh")
-                            return
-                        }
-                    }
                     response.data!!.game?.let {
                         val game = Game(
                             id = it.id,
@@ -198,18 +188,12 @@ class GamePagerViewModel(
         }
     }
 
-    fun saveFollowGame(gameId: String?, gameSlug: String?, gameName: String?, setting: Int, filesDir: String, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun saveFollowGame(gameId: String?, gameSlug: String?, gameName: String?, setting: Int, filesDir: String, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>) {
         viewModelScope.launch {
             try {
                 if (!gameId.isNullOrBlank()) {
                     if (setting == 0 && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         val errorMessage = graphQLRepository.loadFollowGame(networkLibrary, gqlHeaders, gameId).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("follow")
-                                    return@launch
-                                }
-                            }
                         }.errors?.firstOrNull()?.message
                         if (!errorMessage.isNullOrBlank()) {
                             follow.value = Pair(true, errorMessage)
@@ -304,18 +288,12 @@ class GamePagerViewModel(
         }
     }
 
-    fun deleteFollowGame(gameId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun deleteFollowGame(gameId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         viewModelScope.launch {
             try {
                 if (!gameId.isNullOrBlank()) {
                     if (setting == 0 && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         val errorMessage = graphQLRepository.loadUnfollowGame(networkLibrary, gqlHeaders, gameId).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("unfollow")
-                                    return@launch
-                                }
-                            }
                         }.errors?.firstOrNull()?.message
                         if (!errorMessage.isNullOrBlank()) {
                             follow.value = Pair(false, errorMessage)

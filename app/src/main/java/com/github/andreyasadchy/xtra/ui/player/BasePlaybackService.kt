@@ -23,8 +23,6 @@ abstract class BasePlaybackService : LifecycleService() {
 
     lateinit var xtraModule: XtraModule
 
-    val integrity = MutableSharedFlow<String?>()
-
     var type: String? = null
     var streamId: String? = null
     var videoId: String? = null

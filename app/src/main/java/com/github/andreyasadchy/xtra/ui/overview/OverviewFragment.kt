@@ -20,7 +20,7 @@ import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewFragment
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewSections
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
+import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
@@ -85,11 +85,11 @@ class OverviewFragment : Fragment(), Scrollable, FragmentHost {
                                 requireContext().tokenPrefs().getString(C.USERNAME, null)?.let { setMessage(getString(R.string.logout_msg, it)) }
                                 setNegativeButton(getString(R.string.no), null)
                                 setPositiveButton(getString(R.string.yes)) {
-                                    _, _ -> activity.logoutResultLauncher?.launch(Intent(activity, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_LOGOUT, true))
+                                    _, _ -> activity.logoutResultLauncher?.launch(Intent(activity, TwitchWebLoginActivity::class.java).putExtra(TwitchWebLoginActivity.EXTRA_LOGOUT, true))
                                 }
                             }.show()
                         } else {
-                            activity.loginResultLauncher?.launch(Intent(activity, LoginActivity::class.java))
+                            activity.loginResultLauncher?.launch(Intent(activity, TwitchWebLoginActivity::class.java))
                         }
                         true
                     }

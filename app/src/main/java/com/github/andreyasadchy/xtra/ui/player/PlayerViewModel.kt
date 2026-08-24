@@ -58,8 +58,6 @@ class PlayerViewModel(
     private val streamFeedRefreshCoordinator: StreamFeedRefreshCoordinator,
 ) : ViewModel() {
 
-    val integrity = MutableSharedFlow<String?>()
-
     val stream = MutableStateFlow<Stream?>(null)
     private var streamUpdateJob: Job? = null
     val isBookmarked = MutableStateFlow<Boolean?>(null)
@@ -72,19 +70,16 @@ class PlayerViewModel(
         playbackPersistence.deletePlaybackStates()
     }
 
-    fun loadStreamInfo(channelId: String?, channelLogin: String?, viewerCount: Int?, loop: Boolean, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun loadStreamInfo(channelId: String?, channelLogin: String?, viewerCount: Int?, loop: Boolean, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>) {
         if (loop) {
             if (streamUpdateJob?.isActive != true) {
                 streamUpdateJob?.cancel()
                 streamUpdateJob = viewModelScope.launch {
                     while (isActive) {
                         try {
-                            updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders, enableIntegrity)
+                            updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
                             delay(5.minutes)
                         } catch (e: Exception) {
-                            if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                                integrity.emit("stream")
-                            }
                             delay(1.minutes)
                         }
                     }
@@ -94,18 +89,15 @@ class PlayerViewModel(
             if (viewerCount == null) {
                 viewModelScope.launch {
                     try {
-                        updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders, enableIntegrity)
+                        updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
                     } catch (e: Exception) {
-                        if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                            integrity.emit("stream")
-                        }
                     }
                 }
             }
         }
     }
 
-    private suspend fun updateStreamInfo(channelId: String?, channelLogin: String?, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    private suspend fun updateStreamInfo(channelId: String?, channelLogin: String?, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>) {
         stream.value = try {
             val response = graphQLRepository.loadQueryUsersStream(
                 networkLibrary = networkLibrary,
@@ -113,9 +105,6 @@ class PlayerViewModel(
                 ids = channelId?.let { listOf(it) },
                 logins = if (channelId.isNullOrBlank()) channelLogin?.let { listOf(it) } else null,
             )
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-            }
             response.data!!.users?.firstOrNull()?.let {
                 Stream(
                     id = it.stream?.id,
@@ -134,7 +123,6 @@ class PlayerViewModel(
                 )
             }
         } catch (e: Exception) {
-            if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
             if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
             try {
                 helixRepository.getStreams(
@@ -159,9 +147,6 @@ class PlayerViewModel(
                 }
             } catch (e: Exception) {
                 val response = graphQLRepository.loadViewerCount(networkLibrary, gqlHeaders, channelLogin)
-                if (enableIntegrity) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-                }
                 response.data!!.user.stream?.let {
                     Stream(
                         id = it.id,
@@ -172,17 +157,11 @@ class PlayerViewModel(
         }
     }
 
-    fun loadGamesList(videoId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun loadGamesList(videoId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         if (gamesList.value == null) {
             viewModelScope.launch {
                 try {
                     val response = graphQLRepository.loadQueryVideoMoments(networkLibrary, gqlHeaders, videoId)
-                    if (enableIntegrity) {
-                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                            integrity.emit("refreshVideo")
-                            return@launch
-                        }
-                    }
                     gamesList.value = response.data!!.video!!.moments!!.edges!!.map { item ->
                         item.node!!.let {
                             Game(
@@ -197,12 +176,6 @@ class PlayerViewModel(
                 } catch (e: Exception) {
                     try {
                         val response = graphQLRepository.loadVideoGames(networkLibrary, gqlHeaders, videoId)
-                        if (enableIntegrity) {
-                            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                integrity.emit("refreshVideo")
-                                return@launch
-                            }
-                        }
                         gamesList.value = response.data!!.video.moments.edges.map { item ->
                             item.node.let {
                                 Game(
@@ -458,18 +431,12 @@ class PlayerViewModel(
         }
     }
 
-    fun saveFollowChannel(userId: String?, channelId: String?, channelLogin: String?, channelName: String?, setting: Int, liveNotificationsEnabled: Boolean, disableNotifications: Boolean, startedAt: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun saveFollowChannel(userId: String?, channelId: String?, channelLogin: String?, channelName: String?, setting: Int, liveNotificationsEnabled: Boolean, disableNotifications: Boolean, startedAt: String?, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         viewModelScope.launch {
             try {
                 if (!channelId.isNullOrBlank()) {
                     if (setting == 0 && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() && userId != channelId) {
                         val errorMessage = graphQLRepository.loadFollowUser(networkLibrary, gqlHeaders, channelId, disableNotifications).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("follow")
-                                    return@launch
-                                }
-                            }
                         }.errors?.firstOrNull()?.message
                         if (!errorMessage.isNullOrBlank()) {
                             follow.value = Pair(true, errorMessage)
@@ -512,18 +479,12 @@ class PlayerViewModel(
         }
     }
 
-    fun deleteFollowChannel(userId: String?, channelId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun deleteFollowChannel(userId: String?, channelId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         viewModelScope.launch {
             try {
                 if (!channelId.isNullOrBlank()) {
                     if (setting == 0 && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() && userId != channelId) {
                         val errorMessage = graphQLRepository.loadUnfollowUser(networkLibrary, gqlHeaders, channelId).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("unfollow")
-                                    return@launch
-                                }
-                            }
                         }.errors?.firstOrNull()?.message
                         if (!errorMessage.isNullOrBlank()) {
                             follow.value = Pair(false, errorMessage)

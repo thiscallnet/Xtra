@@ -25,7 +25,6 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.DialogChatImageClickBinding
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.ui.chat.ImageClickedViewModel.Companion.ImageClickedViewModelFactory
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -35,7 +34,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-class ImageClickedDialog : BottomSheetDialogFragment(), IntegrityDialog.Listener {
+class ImageClickedDialog : BottomSheetDialogFragment() {
 
     companion object {
         private const val IMAGE_URL = "image_url"
@@ -75,13 +74,6 @@ class ImageClickedDialog : BottomSheetDialogFragment(), IntegrityDialog.Listener
         val behavior = BottomSheetBehavior.from(view.parent as View)
         behavior.skipCollapsed = true
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.integrity.collect {
-                    (requireActivity() as? MainActivity)?.getNewIntegrityToken(it, childFragmentManager)
-                }
-            }
-        }
         with(binding) {
             val args = requireArguments()
             val imageLibrary = "0"
@@ -147,7 +139,6 @@ class ImageClickedDialog : BottomSheetDialogFragment(), IntegrityDialog.Listener
                     it,
                     requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                     TwitchApiHelper.getGQLHeaders(requireContext()),
-                    requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
                 )
                 viewLifecycleOwner.lifecycleScope.launch {
                     repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -191,23 +182,12 @@ class ImageClickedDialog : BottomSheetDialogFragment(), IntegrityDialog.Listener
         }
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "refresh" -> {
-                requireArguments().getString(EMOTE_ID)?.let {
-                    viewModel.loadEmoteCard(
-                        it,
-                        requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        TwitchApiHelper.getGQLHeaders(requireContext()),
-                        requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                    )
-                }
-            }
-        }
-    }
-
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
     }
 }
+
+
+
+

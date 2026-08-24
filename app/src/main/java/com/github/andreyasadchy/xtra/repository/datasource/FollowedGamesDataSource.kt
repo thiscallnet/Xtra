@@ -12,7 +12,6 @@ class FollowedGamesDataSource(
     private val localGameFollowsRepository: LocalGameFollowsRepository,
     private val gqlHeaders: Map<String, String>,
     private val graphQLRepository: GraphQLRepository,
-    private val enableIntegrity: Boolean,
     private val networkLibrary: String?,
 ) : PagingSource<Int, Game>() {
 
@@ -45,9 +44,6 @@ class FollowedGamesDataSource(
                     null
                 }
             }?.let {
-                if (it is LoadResult.Error && it.throwable.message == C.FAILED_INTEGRITY_CHECK) {
-                    return it
-                }
                 it as? LoadResult.Page
             }?.data?.forEach { game ->
                 val item = list.find { it.id == game.id }
@@ -72,9 +68,6 @@ class FollowedGamesDataSource(
 
     private suspend fun gqlQueryLoad(): LoadResult<Int, Game> {
         val response = graphQLRepository.loadQueryUserFollowedGames(networkLibrary, gqlHeaders, 100)
-        if (enableIntegrity) {
-            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-        }
         val list = response.data!!.user!!.followedGames!!.nodes!!.mapNotNull { item ->
             item?.let {
                 Game(
@@ -102,9 +95,6 @@ class FollowedGamesDataSource(
 
     private suspend fun gqlLoad(): LoadResult<Int, Game> {
         val response = graphQLRepository.loadFollowedGames(networkLibrary, gqlHeaders, 100)
-        if (enableIntegrity) {
-            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-        }
         val list = response.data!!.currentUser.followedGames.nodes.map { item ->
             item.let {
                 Game(

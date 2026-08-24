@@ -18,25 +18,16 @@ class PlayerViewerListViewModel(
     private val graphQLRepository: GraphQLRepository,
 ) : ViewModel() {
 
-    val integrity = MutableSharedFlow<String?>()
-
     private val _viewerList = MutableStateFlow<ChannelViewerList?>(null)
     val viewerList: StateFlow<ChannelViewerList?> = _viewerList
     private var isLoading = false
 
-    fun loadViewerList(channelLogin: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun loadViewerList(channelLogin: String?, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         if (_viewerList.value == null && !isLoading) {
             isLoading = true
             viewModelScope.launch {
                 try {
                     val response = graphQLRepository.loadQueryUserChatters(networkLibrary, gqlHeaders, login = channelLogin)
-                    if (enableIntegrity) {
-                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                            integrity.emit("refresh")
-                            isLoading = false
-                            return@launch
-                        }
-                    }
                     _viewerList.value = response.data?.user?.channel?.chatters?.let { response ->
                         ChannelViewerList(
                             broadcasters = response.broadcasters?.mapNotNull { it.login } ?: emptyList(),
@@ -49,13 +40,6 @@ class PlayerViewerListViewModel(
                 } catch (e: Exception) {
                     try {
                         val response = graphQLRepository.loadChannelViewerList(networkLibrary, gqlHeaders, channelLogin)
-                        if (enableIntegrity) {
-                            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                integrity.emit("refresh")
-                                isLoading = false
-                                return@launch
-                            }
-                        }
                         _viewerList.value = response.data?.user?.channel?.chatters?.let { response ->
                             ChannelViewerList(
                                 broadcasters = response.broadcasters?.mapNotNull { it.login } ?: emptyList(),

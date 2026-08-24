@@ -24,7 +24,7 @@ class RecommendationsAuthTest {
         val auth = recommendationAuthFor(
             officialUserId = "account-a",
             credential = PrivateGqlCredential(
-                type = PrivateGqlCredentialType.COMPATIBILITY,
+                type = PrivateGqlCredentialType.WEB,
                 clientId = "gql-client",
                 accessToken = "private-token",
                 userId = "account-b",
@@ -36,18 +36,18 @@ class RecommendationsAuthTest {
     }
 
     @Test
-    fun matchingCompatibilityCredentialIsUsedForPersonalSections() {
+    fun matchingWebCredentialIsUsedForPersonalSections() {
         val auth = recommendationAuthFor(
             officialUserId = "account-a",
             credential = PrivateGqlCredential(
-                type = PrivateGqlCredentialType.COMPATIBILITY,
+                type = PrivateGqlCredentialType.WEB,
                 clientId = "gql-client",
                 accessToken = "private-token",
                 userId = "account-a",
             ),
         )
 
-        assertEquals(RecommendationAuthMode.COMPATIBILITY, auth.mode)
+        assertEquals(RecommendationAuthMode.WEB, auth.mode)
         assertEquals("account-a", auth.userId)
     }
 

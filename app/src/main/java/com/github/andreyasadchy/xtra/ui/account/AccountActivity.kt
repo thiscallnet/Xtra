@@ -43,7 +43,7 @@ import com.github.andreyasadchy.xtra.model.helix.game.Game
 import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
 import com.github.andreyasadchy.xtra.model.helix.user.User
 import com.github.andreyasadchy.xtra.repository.auth.AuthHealth
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
+import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -211,13 +211,6 @@ class AccountActivity : AppCompatActivity() {
                 action = R.string.auth_health_reconnect,
                 reauthorize = true,
             )
-            AuthHealth.ENHANCED_FEATURES_UNAVAILABLE -> AuthHealthCardSpec(
-                title = R.string.auth_health_compatibility_title,
-                message = R.string.auth_health_compatibility_message,
-                action = R.string.auth_health_compatibility_reconnect,
-                reauthorize = false,
-                compatibilityOnly = true,
-            )
             AuthHealth.SIGNED_OUT,
             AuthHealth.HEALTHY,
             AuthHealth.UNKNOWN,
@@ -230,9 +223,8 @@ class AccountActivity : AppCompatActivity() {
         binding.authHealthAction.setText(spec.action)
         binding.authHealthAction.setOnClickListener {
             loginLauncher.launch(
-                Intent(this, LoginActivity::class.java).apply {
-                    putExtra(LoginActivity.EXTRA_REAUTHORIZE, spec.reauthorize)
-                    putExtra(LoginActivity.EXTRA_COMPATIBILITY_ONLY, spec.compatibilityOnly)
+                Intent(this, TwitchWebLoginActivity::class.java).apply {
+                    putExtra(TwitchWebLoginActivity.EXTRA_REAUTHORIZE, spec.reauthorize)
                 },
             )
         }
@@ -749,8 +741,8 @@ class AccountActivity : AppCompatActivity() {
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(R.string.account_reconnect) { _, _ ->
                 loginLauncher.launch(
-                    Intent(this, LoginActivity::class.java)
-                        .putExtra(LoginActivity.EXTRA_REAUTHORIZE, true),
+                    Intent(this, TwitchWebLoginActivity::class.java)
+                        .putExtra(TwitchWebLoginActivity.EXTRA_REAUTHORIZE, true),
                 )
             }
             .show()
@@ -763,8 +755,8 @@ class AccountActivity : AppCompatActivity() {
             .setPositiveButton(R.string.log_out) { _, _ ->
                 logoutPending = true
                 loginLauncher.launch(
-                    Intent(this, LoginActivity::class.java)
-                        .putExtra(LoginActivity.EXTRA_LOGOUT, true),
+                    Intent(this, TwitchWebLoginActivity::class.java)
+                        .putExtra(TwitchWebLoginActivity.EXTRA_LOGOUT, true),
                 )
             }
             .show()
@@ -827,7 +819,6 @@ class AccountActivity : AppCompatActivity() {
         val message: Int,
         val action: Int,
         val reauthorize: Boolean,
-        val compatibilityOnly: Boolean = false,
     )
 
     companion object {

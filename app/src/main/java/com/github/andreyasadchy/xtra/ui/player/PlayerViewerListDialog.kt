@@ -14,7 +14,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentViewerListBinding
 import com.github.andreyasadchy.xtra.model.ui.ChannelViewerList
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.PlayerViewerListViewModel.Companion.PlayerViewerListViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
@@ -25,7 +24,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-class PlayerViewerListDialog : BottomSheetDialogFragment(), IntegrityDialog.Listener {
+class PlayerViewerListDialog : BottomSheetDialogFragment() {
 
     companion object {
 
@@ -62,18 +61,10 @@ class PlayerViewerListDialog : BottomSheetDialogFragment(), IntegrityDialog.List
         behavior.skipCollapsed = true
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
         with(binding) {
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.integrity.collect {
-                        (requireActivity() as? MainActivity)?.getNewIntegrityToken(it, childFragmentManager)
-                    }
-                }
-            }
             viewModel.loadViewerList(
                 requireArguments().getString(LOGIN),
                 requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                 TwitchApiHelper.getGQLHeaders(requireContext()),
-                requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
             )
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -175,19 +166,6 @@ class PlayerViewerListDialog : BottomSheetDialogFragment(), IntegrityDialog.List
         }
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        when (callback) {
-            "refresh" -> {
-                viewModel.loadViewerList(
-                    requireArguments().getString(LOGIN),
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    TwitchApiHelper.getGQLHeaders(requireContext()),
-                    requireContext().prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-                )
-            }
-        }
-    }
-
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
@@ -217,3 +195,7 @@ class PlayerViewerListDialog : BottomSheetDialogFragment(), IntegrityDialog.List
         }
     }
 }
+
+
+
+

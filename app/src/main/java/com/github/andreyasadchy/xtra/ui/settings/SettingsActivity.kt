@@ -17,7 +17,6 @@ import android.os.ext.SdkExtensions
 import android.provider.Settings
 import android.text.InputType
 import android.text.format.Formatter
-import android.text.method.PasswordTransformationMethod
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
@@ -83,10 +82,9 @@ import com.github.andreyasadchy.xtra.model.ui.SettingsDragListItem
 import com.github.andreyasadchy.xtra.model.ui.SettingsSearchItem
 import com.github.andreyasadchy.xtra.repository.auth.AuthHealth
 import com.github.andreyasadchy.xtra.ui.account.AccountActivity
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.following.FollowingTabs
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewSections
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
+import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationService
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.SettingsViewModelFactory
@@ -135,7 +133,6 @@ internal fun serializeSpeedOptions(items: List<SettingsDragListItem>): String =
 
 internal fun isSettingsAccountConnected(health: AuthHealth): Boolean =
     health == AuthHealth.HEALTHY ||
-        health == AuthHealth.ENHANCED_FEATURES_UNAVAILABLE ||
         health == AuthHealth.UNKNOWN
 
 internal fun needsUpdateNotificationUserAction(
@@ -244,11 +241,11 @@ class SettingsActivity : AppCompatActivity() {
     fun openAccountAction() {
         val health = (application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
         accountActionIsLogout = isSettingsAccountConnected(health)
-        loginResultLauncher?.launch(Intent(this, LoginActivity::class.java).apply {
+        loginResultLauncher?.launch(Intent(this, TwitchWebLoginActivity::class.java).apply {
             if (health == AuthHealth.REAUTH_REQUIRED) {
-                putExtra(LoginActivity.EXTRA_REAUTHORIZE, true)
+                putExtra(TwitchWebLoginActivity.EXTRA_REAUTHORIZE, true)
             } else {
-                putExtra(LoginActivity.EXTRA_LOGOUT, accountActionIsLogout)
+                putExtra(TwitchWebLoginActivity.EXTRA_LOGOUT, accountActionIsLogout)
             }
         })
     }
@@ -535,6 +532,9 @@ class SettingsActivity : AppCompatActivity() {
             },
             SettingsItem(R.string.settings_section_downloads, R.drawable.ic_settings_download, R.string.settings_home_downloads_summary) {
                 navigate(SettingsNavGraphDirections.actionGlobalDownloadSettingsFragment())
+            },
+            SettingsItem(R.string.settings_home_account_network, R.drawable.ic_settings_network, R.string.settings_home_account_network_summary) {
+                findNavController().navigate(R.id.accountSettingsFragment)
             },
             SettingsItem(R.string.settings_language, R.drawable.ic_settings_data, R.string.settings_item_language_summary) {
                 findNavController().navigate(R.id.languageSettingsFragment)
@@ -985,6 +985,7 @@ class SettingsActivity : AppCompatActivity() {
             setPreferencesFromResource(
                 when (settingsScreen) {
                     SCREEN_LIVE_NOTIFICATIONS -> R.xml.live_notification_preferences
+                    SCREEN_ACCOUNT -> R.xml.account_preferences
                     SCREEN_LANGUAGE -> R.xml.language_preferences
                     SCREEN_BACKUP -> R.xml.backup_preferences
                     SCREEN_ABOUT -> R.xml.about_preferences
@@ -1007,7 +1008,6 @@ class SettingsActivity : AppCompatActivity() {
                     SCREEN_DOWNLOAD_LIVE -> R.xml.download_live_preferences
                     SCREEN_PROXY -> R.xml.proxy_preferences
                     SCREEN_DEVELOPER -> R.xml.developer_preferences
-                    SCREEN_DEVELOPER_API -> R.xml.developer_api_preferences
                     else -> R.xml.general_preferences
                 },
                 rootKey,
@@ -1187,7 +1187,6 @@ class SettingsActivity : AppCompatActivity() {
                 "download_live_page" to R.id.downloadLiveFragment,
                 "advanced_proxy" to R.id.proxySettingsFragment,
                 "developer_options" to R.id.developerSettingsFragment,
-                "developer_api_authentication" to R.id.developerApiFragment,
             )
             destinations.forEach { (key, destination) ->
                 findPreference<Preference>(key)?.setOnPreferenceClickListener {
@@ -1336,7 +1335,6 @@ class SettingsActivity : AppCompatActivity() {
                 requireContext().prefs().edit { putBoolean(C.SETTINGS_HTTP_PROXY_ENABLED, value as Boolean) }
                 true
             }
-            if (settingsScreen == SCREEN_DEVELOPER_API) configureDeveloperCredentials()
             if (settingsScreen == SCREEN_CHAT_TRANSLATION) configureTranslationPreferences()
             if (settingsScreen == SCREEN_PLAYER_SEEK) configureSeekPreferences()
             if (settingsScreen == SCREEN_CHAT_APPEARANCE) configureChatSizePreferences()
@@ -1454,39 +1452,6 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        private fun configureDeveloperCredentials() {
-            listOf(C.USER_ID, C.USERNAME, C.TOKEN, C.GQL_TOKEN2, C.GQL_TOKEN_WEB).forEach { key ->
-                findPreference<EditTextPreference>(key)?.apply {
-                    isPersistent = false
-                    text = requireContext().tokenPrefs().getString(key, null)
-                    if (key in setOf(C.TOKEN, C.GQL_TOKEN2, C.GQL_TOKEN_WEB)) {
-                        summary = "Sensitive value"
-                        setOnBindEditTextListener {
-                            it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                            it.transformationMethod = PasswordTransformationMethod.getInstance()
-                        }
-                    }
-                    setOnPreferenceChangeListener { _, value ->
-                        requireContext().tokenPrefs().edit { putString(key, value.toString()) }
-                        true
-                    }
-                }
-            }
-            findPreference<EditTextPreference>(C.GQL_HEADERS)?.apply {
-                isPersistent = false
-                text = requireContext().tokenPrefs().getString(C.GQL_HEADERS, null)
-                summary = "Sensitive value"
-                setOnBindEditTextListener {
-                    it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                    it.transformationMethod = PasswordTransformationMethod.getInstance()
-                }
-                setOnPreferenceChangeListener { _, value ->
-                    requireContext().tokenPrefs().edit { putString(C.GQL_HEADERS, value.toString()) }
-                    true
-                }
-            }
-        }
-
         private fun configureTranslationPreferences() {
             if (Build.SUPPORTED_64_BIT_ABIS.firstOrNull() != "arm64-v8a") {
                 findPreference<SwitchPreferenceCompat>("chat_translate")?.isVisible = false
@@ -1564,7 +1529,7 @@ class SettingsActivity : AppCompatActivity() {
 
         override fun onResume() {
             super.onResume()
-            if (settingsScreen == SCREEN_PROXY || settingsScreen == SCREEN_DEVELOPER_API) {
+            if (settingsScreen == SCREEN_PROXY) {
                 requireActivity().window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             }
             val preference = findPreference<SwitchPreferenceCompat>("live_notifications_enabled")
@@ -1576,7 +1541,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         override fun onPause() {
-            if (settingsScreen == SCREEN_PROXY || settingsScreen == SCREEN_DEVELOPER_API) {
+            if (settingsScreen == SCREEN_PROXY) {
                 requireActivity().window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
             }
             super.onPause()
@@ -1585,6 +1550,7 @@ class SettingsActivity : AppCompatActivity() {
         private companion object {
             const val ARG_SETTINGS_SCREEN = "settings_screen"
             const val SCREEN_LIVE_NOTIFICATIONS = "live_notifications"
+            const val SCREEN_ACCOUNT = "account"
             const val SCREEN_LANGUAGE = "language"
             const val SCREEN_BACKUP = "backup"
             const val SCREEN_ABOUT = "about"
@@ -1607,7 +1573,6 @@ class SettingsActivity : AppCompatActivity() {
             const val SCREEN_DOWNLOAD_LIVE = "download_live"
             const val SCREEN_PROXY = "proxy"
             const val SCREEN_DEVELOPER = "developer"
-            const val SCREEN_DEVELOPER_API = "developer_api"
         }
     }
 
@@ -2564,6 +2529,7 @@ class SettingsActivity : AppCompatActivity() {
                     requireContext().prefs().getBoolean(C.SETTINGS_DEVELOPER_ENABLED, false)
                 listOf(
                     Triple(R.xml.live_notification_preferences, SettingsNavGraphDirections.actionGlobalLiveNotificationSettingsFragment(), getString(R.string.settings_general_notifications)),
+                    Triple(R.xml.account_preferences, SettingsNavDirections(R.id.accountSettingsFragment), getString(R.string.settings_home_account_network)),
                     Triple(R.xml.update_search_preferences, SettingsNavGraphDirections.actionGlobalUpdateSettingsFragment(), getString(R.string.settings_general_updates)),
                     Triple(R.xml.language_preferences, SettingsNavDirections(R.id.languageSettingsFragment), "App › Language"),
                     Triple(R.xml.backup_preferences, SettingsNavDirections(R.id.backupSettingsFragment), "App › Backup & restore"),
@@ -2594,7 +2560,6 @@ class SettingsActivity : AppCompatActivity() {
                     Triple(R.xml.debug_preferences, SettingsNavGraphDirections.actionGlobalDebugSettingsFragment(), "Advanced"),
                 ).plus(if (developerVisible) listOf(
                     Triple(R.xml.developer_preferences, SettingsNavDirections(R.id.developerSettingsFragment), "Developer options"),
-                    Triple(R.xml.developer_api_preferences, SettingsNavDirections(R.id.developerApiFragment), "Developer options › API & authentication"),
                 ) else emptyList()).forEach { item ->
                     preferenceManager.inflateFromResource(requireContext(), item.first, null).forEach {
                         if (!it.isVisible) return@forEach
@@ -2668,3 +2633,6 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 }
+
+
+

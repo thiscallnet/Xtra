@@ -78,8 +78,6 @@ class Media3PlayerViewModel(
     private val playbackPersistence: PlaybackPersistence,
 ) : ViewModel() {
 
-    val integrity = MutableSharedFlow<String?>()
-
     val streamResult = MutableStateFlow<String?>(null)
     val streamUrlWarm = MutableStateFlow(false)
     var streamUrlAvailableElapsedMs: Long? = null
@@ -209,41 +207,34 @@ class Media3PlayerViewModel(
             proxyPort = preferences.httpProxyPort(),
             proxyUser = preferences.getString(C.PROXY_USER, null),
             proxyPassword = preferences.getString(C.PROXY_PASSWORD, null),
-            enableIntegrity = preferences.getBoolean(C.ENABLE_INTEGRITY, false),
             requireVerifiedClean = requireVerifiedClean,
         )
     }
 
-    fun loadStreamResult(networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?, enableIntegrity: Boolean) {
+    fun loadStreamResult(networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?) {
         if (streamResult.value == null) {
                 viewModelScope.launch {
                     try {
                         val warmUrl = streamPreloadCoordinator.resolveForPlayback(channelLogin)
                         streamUrlWarm.value = warmUrl != null
                         streamResult.value = warmUrl
-                            ?: playerRepository.loadStreamPlaylistUrl(applicationContext, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, proxyPlaybackAccessToken, proxyHost, proxyPort, proxyUser, proxyPassword, enableIntegrity)
+                            ?: playerRepository.loadStreamPlaylistUrl(applicationContext, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, proxyPlaybackAccessToken, proxyHost, proxyPort, proxyUser, proxyPassword)
                         streamUrlAvailableElapsedMs = SystemClock.elapsedRealtime()
                 } catch (e: Exception) {
-                    if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                        integrity.emit("refreshStream")
-                    }
                 }
             }
         }
     }
 
-    fun loadStreamInfo(channelId: String?, channelLogin: String?, viewerCount: Int?, loop: Boolean, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun loadStreamInfo(channelId: String?, channelLogin: String?, viewerCount: Int?, loop: Boolean, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>) {
         if (loop) {
             streamJob?.cancel()
             streamJob = viewModelScope.launch {
                 while (isActive) {
                     try {
-                        updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders, enableIntegrity)
+                        updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
                         delay(5.minutes)
                     } catch (e: Exception) {
-                        if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                            integrity.emit("stream")
-                        }
                         delay(1.minutes)
                     }
                 }
@@ -252,18 +243,15 @@ class Media3PlayerViewModel(
             if (viewerCount == null) {
                 viewModelScope.launch {
                     try {
-                        updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders, enableIntegrity)
+                        updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
                     } catch (e: Exception) {
-                        if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                            integrity.emit("stream")
-                        }
                     }
                 }
             }
         }
     }
 
-    private suspend fun updateStreamInfo(channelId: String?, channelLogin: String?, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    private suspend fun updateStreamInfo(channelId: String?, channelLogin: String?, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>) {
         stream.value = try {
             val response = graphQLRepository.loadQueryUsersStream(
                 networkLibrary = networkLibrary,
@@ -271,9 +259,6 @@ class Media3PlayerViewModel(
                 ids = channelId?.let { listOf(it) },
                 logins = if (channelId.isNullOrBlank()) channelLogin?.let { listOf(it) } else null,
             )
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-            }
             response.data!!.users?.firstOrNull()?.let {
                 Stream(
                     id = it.stream?.id,
@@ -292,7 +277,6 @@ class Media3PlayerViewModel(
                 )
             }
         } catch (e: Exception) {
-            if (e.message == C.FAILED_INTEGRITY_CHECK) throw e
             if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
             try {
                 helixRepository.getStreams(
@@ -317,9 +301,6 @@ class Media3PlayerViewModel(
                 }
             } catch (e: Exception) {
                 val response = graphQLRepository.loadViewerCount(networkLibrary, gqlHeaders, channelLogin)
-                if (enableIntegrity) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { throw Exception(it.message) }
-                }
                 response.data!!.user.stream?.let {
                     Stream(
                         id = it.id,
@@ -330,17 +311,14 @@ class Media3PlayerViewModel(
         }
     }
 
-    fun loadVideo(networkLibrary: String?, gqlHeaders: Map<String, String>, videoId: String?, playerType: String?, supportedCodecs: String?, enableIntegrity: Boolean) {
+    fun loadVideo(networkLibrary: String?, gqlHeaders: Map<String, String>, videoId: String?, playerType: String?, supportedCodecs: String?) {
         if (videoResult.value == null) {
             viewModelScope.launch {
                 try {
-                    val result = playerRepository.loadVideoPlaylistUrl(networkLibrary, gqlHeaders, videoId, playerType, supportedCodecs, enableIntegrity)
+                    val result = playerRepository.loadVideoPlaylistUrl(networkLibrary, gqlHeaders, videoId, playerType, supportedCodecs)
                     videoResult.value = result.first
                     backupQualities = result.second
                 } catch (e: Exception) {
-                    if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                        integrity.emit("refreshVideo")
-                    }
                 }
             }
         }
@@ -363,17 +341,11 @@ class Media3PlayerViewModel(
         playbackPersistence.saveVideoPositionAndWait(VideoPosition(id, position))
     }
 
-    fun loadGamesList(videoId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun loadGamesList(videoId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         if (gamesList.value == null) {
             viewModelScope.launch {
                 try {
                     val response = graphQLRepository.loadQueryVideoMoments(networkLibrary, gqlHeaders, videoId)
-                    if (enableIntegrity) {
-                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                            integrity.emit("refreshVideo")
-                            return@launch
-                        }
-                    }
                     gamesList.value = response.data!!.video!!.moments!!.edges!!.map { item ->
                         item.node!!.let {
                             Game(
@@ -388,12 +360,6 @@ class Media3PlayerViewModel(
                 } catch (e: Exception) {
                     try {
                         val response = graphQLRepository.loadVideoGames(networkLibrary, gqlHeaders, videoId)
-                        if (enableIntegrity) {
-                            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                integrity.emit("refreshVideo")
-                                return@launch
-                            }
-                        }
                         gamesList.value = response.data!!.video.moments.edges.map { item ->
                             item.node.let {
                                 Game(
@@ -626,17 +592,13 @@ class Media3PlayerViewModel(
         }
     }
 
-    fun loadClip(networkLibrary: String?, gqlHeaders: Map<String, String>, id: String?, enableIntegrity: Boolean) {
+    fun loadClip(networkLibrary: String?, gqlHeaders: Map<String, String>, id: String?) {
         if (clipUrls.value == null) {
             viewModelScope.launch {
                 try {
-                    clipUrls.value = playerRepository.loadClipQualities(networkLibrary, gqlHeaders, id, enableIntegrity) ?: emptyList()
+                    clipUrls.value = playerRepository.loadClipQualities(networkLibrary, gqlHeaders, id) ?: emptyList()
                 } catch (e: Exception) {
-                    if (e.message == C.FAILED_INTEGRITY_CHECK) {
-                        integrity.emit("refreshClip")
-                    } else {
-                        clipUrls.value = emptyList()
-                    }
+                    clipUrls.value = emptyList()
                 }
             }
         }
@@ -677,18 +639,12 @@ class Media3PlayerViewModel(
         }
     }
 
-    fun saveFollowChannel(userId: String?, channelId: String?, channelLogin: String?, channelName: String?, setting: Int, liveNotificationsEnabled: Boolean, disableNotifications: Boolean, startedAt: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun saveFollowChannel(userId: String?, channelId: String?, channelLogin: String?, channelName: String?, setting: Int, liveNotificationsEnabled: Boolean, disableNotifications: Boolean, startedAt: String?, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         viewModelScope.launch {
             try {
                 if (!channelId.isNullOrBlank()) {
                     if (setting == 0 && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() && userId != channelId) {
                         val errorMessage = graphQLRepository.loadFollowUser(networkLibrary, gqlHeaders, channelId, disableNotifications).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("follow")
-                                    return@launch
-                                }
-                            }
                         }.errors?.firstOrNull()?.message
                         if (!errorMessage.isNullOrBlank()) {
                             follow.value = Pair(true, errorMessage)
@@ -731,18 +687,12 @@ class Media3PlayerViewModel(
         }
     }
 
-    fun deleteFollowChannel(userId: String?, channelId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun deleteFollowChannel(userId: String?, channelId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         viewModelScope.launch {
             try {
                 if (!channelId.isNullOrBlank()) {
                     if (setting == 0 && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() && userId != channelId) {
                         val errorMessage = graphQLRepository.loadUnfollowUser(networkLibrary, gqlHeaders, channelId).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("unfollow")
-                                    return@launch
-                                }
-                            }
                         }.errors?.firstOrNull()?.message
                         if (!errorMessage.isNullOrBlank()) {
                             follow.value = Pair(false, errorMessage)

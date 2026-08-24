@@ -193,16 +193,11 @@ internal fun developerStringValue(
     defaultValue: String?,
     enabled: Boolean,
 ): String? {
+    if (key == C.GQL_CLIENT_ID_WEB) return C.DEFAULT_GQL_CLIENT_ID_WEB
     if (enabled) {
         return if (key == C.NETWORK_LIBRARY && storedValue == C.AUTOMATIC) C.OKHTTP else storedValue ?: defaultValue
     }
     return when (key) {
-        C.API_LOGIN -> "0"
-        C.HELIX_CLIENT_ID -> C.DEFAULT_HELIX_CLIENT_ID
-        C.HELIX_REDIRECT -> C.DEFAULT_HELIX_REDIRECT
-        C.GQL_CLIENT_ID2 -> C.DEFAULT_GQL_CLIENT_ID2
-        C.GQL_REDIRECT2 -> "https://www.twitch.tv/settings/connections"
-        C.GQL_CLIENT_ID_WEB -> C.DEFAULT_GQL_CLIENT_ID_WEB
         C.NETWORK_LIBRARY -> C.OKHTTP
         C.PLAYER -> C.EXOPLAYER
         C.PLAYER_STREAM_HEADERS -> null
@@ -218,12 +213,10 @@ internal fun developerBooleanValue(key: String?, storedValue: Boolean, enabled: 
     if (enabled) return storedValue
     return when (key) {
         C.DEBUG_API_COMMANDS, C.DEBUG_API_CHAT_MESSAGES -> true
-        C.USE_WEBVIEW_INTEGRITY -> true
         C.DEBUG_CHAT_FULL_MSG,
         C.DEBUG_WEBSOCKET_INFO,
         C.DEBUG_EVENT_SUB_CHAT,
         C.DEBUG_PLAYER_MENU_PLAYLIST_TAGS,
-        C.ENABLE_INTEGRITY,
         C.PROXY_PLAYBACK_ACCESS_TOKEN,
         C.PROXY_MULTIVARIANT_PLAYLIST,
         C.PROXY_MEDIA_PLAYLIST -> false

@@ -25,7 +25,6 @@ import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentArgs
 import com.github.andreyasadchy.xtra.ui.channel.videos.ChannelVideosViewModel.Companion.ChannelVideosViewModelFactory
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
@@ -241,15 +240,6 @@ class ChannelVideosFragment : PagedListFragment(), Scrollable, Sortable, VideosS
         pagingAdapter.retry()
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        (parentFragment as? IntegrityDialog.Listener)?.onIntegrityTokenLoaded("refresh")
-        when (callback) {
-            "refresh" -> {
-                pagingAdapter.refresh()
-            }
-        }
-    }
-
     override fun onResume() {
         super.onResume()
         if (::videoPreviewViewportController.isInitialized) {
@@ -272,3 +262,5 @@ class ChannelVideosFragment : PagedListFragment(), Scrollable, Sortable, VideosS
         _binding = null
     }
 }
+
+

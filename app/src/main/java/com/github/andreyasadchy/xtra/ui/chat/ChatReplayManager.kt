@@ -22,7 +22,6 @@ class ChatReplayManager(
     private val gqlHeaders: Map<String, String>,
     private val graphQLRepository: GraphQLRepository,
     private val json: Json,
-    private val enableIntegrity: Boolean,
     private val videoId: String,
     private val createdAt: Long?,
     private val startTime: Long,
@@ -69,13 +68,6 @@ class ChatReplayManager(
                     graphQLRepository.loadQueryVideoComments(networkLibrary, gqlHeaders, videoId, offset = position.div(1000).toInt())
                 } else {
                     graphQLRepository.loadQueryVideoComments(networkLibrary, gqlHeaders, videoId, cursor = cursor)
-                }
-                if (enableIntegrity) {
-                    response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                        listener.getIntegrityToken()
-                        isLoading = false
-                        return@launch
-                    }
                 }
                 val comments = response.data!!.video!!.comments!!
                 val messages = comments.edges!!.mapNotNull { comment ->
@@ -130,13 +122,6 @@ class ChatReplayManager(
                         graphQLRepository.loadVideoMessages(networkLibrary, gqlHeaders, videoId, offset = position.div(1000).toInt())
                     } else {
                         graphQLRepository.loadVideoMessages(networkLibrary, gqlHeaders, videoId, cursor = cursor)
-                    }
-                    if (enableIntegrity) {
-                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                            listener.getIntegrityToken()
-                            isLoading = false
-                            return@launch
-                        }
                     }
                     val comments = response.data!!.video.comments
                     val messages = comments.edges.mapNotNull { comment ->

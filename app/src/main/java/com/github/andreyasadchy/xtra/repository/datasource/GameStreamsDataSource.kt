@@ -22,7 +22,6 @@ class GameStreamsDataSource(
     graphQLRepository: GraphQLRepository,
     helixHeaders: Map<String, String>,
     helixRepository: HelixRepository,
-    enableIntegrity: Boolean,
     networkLibrary: String?,
 ) : PagingSource<Int, Stream>() {
     private val loader = GameStreamsPageLoader(
@@ -38,7 +37,6 @@ class GameStreamsDataSource(
         graphQLRepository = graphQLRepository,
         helixHeaders = { helixHeaders },
         helixRepository = helixRepository,
-        enableIntegrity = enableIntegrity,
         networkLibrary = networkLibrary,
     )
     private var cursor: StreamFeedCursor? = null

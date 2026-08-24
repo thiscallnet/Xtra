@@ -10,7 +10,6 @@ class SearchVideosDataSource(
     private val query: String,
     private val gqlHeaders: Map<String, String>,
     private val graphQLRepository: GraphQLRepository,
-    private val enableIntegrity: Boolean,
     private val networkLibrary: String?,
 ) : PagingSource<Int, Video>() {
     private var api: String? = null
@@ -56,9 +55,6 @@ class SearchVideosDataSource(
 
     private suspend fun gqlQueryLoad(params: LoadParams<Int>): LoadResult<Int, Video> {
         val response = graphQLRepository.loadQuerySearchVideos(networkLibrary, gqlHeaders, query, params.loadSize, offset)
-        if (enableIntegrity) {
-            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-        }
         val data = response.data!!.searchFor!!.videos!!
         val list = data.items!!.map {
             Video(
@@ -92,9 +88,6 @@ class SearchVideosDataSource(
 
     private suspend fun gqlLoad(params: LoadParams<Int>): LoadResult<Int, Video> {
         val response = graphQLRepository.loadSearchVideos(networkLibrary, gqlHeaders, query, offset)
-        if (enableIntegrity) {
-            response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-        }
         val data = response.data!!.searchFor.videos
         val list = data.edges.map { item ->
             item.item.let {

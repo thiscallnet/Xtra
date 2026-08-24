@@ -11,7 +11,6 @@ class TagsDataSource(
     private val query: String,
     private val gqlHeaders: Map<String, String>,
     private val graphQLRepository: GraphQLRepository,
-    private val enableIntegrity: Boolean,
     private val networkLibrary: String?,
 ) : PagingSource<Int, Tag>() {
 
@@ -38,9 +37,6 @@ class TagsDataSource(
     private suspend fun gqlQueryLoad(): LoadResult<Int, Tag> {
         return if (getGameTags) {
             val response = graphQLRepository.loadQuerySearchGameTags(networkLibrary, gqlHeaders, query, 100)
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-            }
             val list = response.data!!.searchCategoryTags!!.map { item ->
                 Tag(
                     id = item.id,
@@ -54,9 +50,6 @@ class TagsDataSource(
             )
         } else {
             val response = graphQLRepository.loadQuerySearchFreeformTags(networkLibrary, gqlHeaders, query, 100)
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-            }
             val data = response.data!!.searchFreeformTags!!
             val items = data.edges!!
             val list = items.mapNotNull { item ->
@@ -77,9 +70,6 @@ class TagsDataSource(
     private suspend fun gqlLoad(): LoadResult<Int, Tag> {
         return if (getGameTags) {
             val response = graphQLRepository.loadGameTags(networkLibrary, gqlHeaders, query, 100)
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-            }
             val list = response.data!!.searchCategoryTags.map {
                 Tag(
                     id = it.id,
@@ -93,9 +83,6 @@ class TagsDataSource(
             )
         } else {
             val response = graphQLRepository.loadFreeformTags(networkLibrary, gqlHeaders, query, 100)
-            if (enableIntegrity) {
-                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let { return LoadResult.Error(Exception(it.message)) }
-            }
             val data = response.data!!.searchFreeformTags
             val items = data.edges
             val list = items.map { item ->

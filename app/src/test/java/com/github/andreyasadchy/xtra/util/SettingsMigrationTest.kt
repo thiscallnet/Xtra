@@ -330,8 +330,6 @@ class SettingsMigrationTest {
             ),
         )
         assertFalse(SettingsMigration.RESETTABLE_PREFERENCE_KEYS.contains(C.TOKEN))
-        assertFalse(SettingsMigration.RESETTABLE_PREFERENCE_KEYS.contains(C.GQL_HEADERS))
-        assertFalse(SettingsMigration.RESETTABLE_PREFERENCE_KEYS.contains(C.GQL_TOKEN2))
         assertFalse(SettingsMigration.RESETTABLE_PREFERENCE_KEYS.contains(C.USER_ID))
         assertFalse(SettingsMigration.RESETTABLE_PREFERENCE_KEYS.contains(C.USERNAME))
     }

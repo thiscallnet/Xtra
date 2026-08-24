@@ -24,7 +24,6 @@ import com.github.andreyasadchy.xtra.model.ui.Clip
 import com.github.andreyasadchy.xtra.model.ui.GameSort
 import com.github.andreyasadchy.xtra.ui.common.ClipsAdapter
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
-import com.github.andreyasadchy.xtra.ui.common.IntegrityDialog
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
@@ -203,17 +202,10 @@ class GameClipsFragment : PagedListFragment(), Scrollable, Sortable, VideosSortD
         pagingAdapter.retry()
     }
 
-    override fun onIntegrityTokenLoaded(callback: String?) {
-        (parentFragment as? IntegrityDialog.Listener)?.onIntegrityTokenLoaded("refresh")
-        when (callback) {
-            "refresh" -> {
-                pagingAdapter.refresh()
-            }
-        }
-    }
-
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
     }
 }
+
+

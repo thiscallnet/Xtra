@@ -59,8 +59,6 @@ class ChannelPagerViewModel(
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    val integrity = MutableSharedFlow<String?>()
-
     private val args = ChannelPagerFragmentArgs.fromSavedStateHandle(savedStateHandle)
     private val _notificationsEnabled = MutableStateFlow<Boolean?>(null)
     val notificationsEnabled: StateFlow<Boolean?> = _notificationsEnabled
@@ -79,7 +77,6 @@ class ChannelPagerViewModel(
         val networkLibrary: String?,
         val gqlHeaders: Map<String, String>,
         val helixHeaders: Map<String, String>,
-        val enableIntegrity: Boolean,
     )
 
     private val loadCoordinator: LoadRequestCoalescer<LoadRequest>
@@ -100,11 +97,10 @@ class ChannelPagerViewModel(
         networkLibrary: String?,
         gqlHeaders: Map<String, String>,
         helixHeaders: Map<String, String>,
-        enableIntegrity: Boolean,
         revalidate: Boolean = false,
     ) {
         loadCoordinator.request(
-            LoadRequest(networkLibrary, gqlHeaders, helixHeaders, enableIntegrity),
+            LoadRequest(networkLibrary, gqlHeaders, helixHeaders),
             revalidate = revalidate,
         )
     }
@@ -118,12 +114,6 @@ class ChannelPagerViewModel(
                 cached?.let(::applyChannelSnapshot)
                 try {
                     val response = graphQLRepository.loadQueryUserChannelPage(request.networkLibrary, request.gqlHeaders, args.channelId, if (args.channelId.isNullOrBlank()) args.channelLogin else null)
-                    if (request.enableIntegrity) {
-                        response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                            integrity.emit("refresh")
-                            return
-                        }
-                    }
                     response.data!!.user?.let {
                         val snapshot = ChannelPageCacheSnapshot(
                             stream = Stream(
@@ -249,18 +239,12 @@ class ChannelPagerViewModel(
         _user.value = snapshot.user
     }
 
-    fun enableNotifications(userId: String?, channelId: String?, setting: Int, notificationsEnabled: Boolean, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun enableNotifications(userId: String?, channelId: String?, setting: Int, notificationsEnabled: Boolean, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         viewModelScope.launch {
             try {
                 if (!channelId.isNullOrBlank()) {
                     if (setting == 0 && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() && userId != channelId && _isFollowing.value == true) {
                         val errorMessage = graphQLRepository.loadToggleNotificationsUser(networkLibrary, gqlHeaders, channelId, false).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("enableNotifications")
-                                    return@launch
-                                }
-                            }
                         }.errors?.firstOrNull()?.message
                         if (!errorMessage.isNullOrBlank()) {
                             notifications.value = Pair(true, errorMessage)
@@ -295,18 +279,12 @@ class ChannelPagerViewModel(
         }
     }
 
-    fun disableNotifications(userId: String?, channelId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun disableNotifications(userId: String?, channelId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         viewModelScope.launch {
             try {
                 if (!channelId.isNullOrBlank()) {
                     if (setting == 0 && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() && userId != channelId && _isFollowing.value == true) {
                         val errorMessage = graphQLRepository.loadToggleNotificationsUser(networkLibrary, gqlHeaders, channelId, true).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("disableNotifications")
-                                    return@launch
-                                }
-                            }
                         }.errors?.firstOrNull()?.message
                         if (!errorMessage.isNullOrBlank()) {
                             notifications.value = Pair(false, errorMessage)
@@ -364,18 +342,12 @@ class ChannelPagerViewModel(
         }
     }
 
-    fun saveFollowChannel(userId: String?, channelId: String?, channelLogin: String?, channelName: String?, setting: Int, liveNotificationsEnabled: Boolean, disableNotifications: Boolean, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun saveFollowChannel(userId: String?, channelId: String?, channelLogin: String?, channelName: String?, setting: Int, liveNotificationsEnabled: Boolean, disableNotifications: Boolean, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         viewModelScope.launch {
             try {
                 if (!channelId.isNullOrBlank()) {
                     if (setting == 0 && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() && userId != channelId) {
                         val errorMessage = graphQLRepository.loadFollowUser(networkLibrary, gqlHeaders, channelId, disableNotifications).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("follow")
-                                    return@launch
-                                }
-                            }
                         }.errors?.firstOrNull()?.message
                         if (!errorMessage.isNullOrBlank()) {
                             follow.value = Pair(true, errorMessage)
@@ -420,18 +392,12 @@ class ChannelPagerViewModel(
         }
     }
 
-    fun deleteFollowChannel(userId: String?, channelId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>, enableIntegrity: Boolean) {
+    fun deleteFollowChannel(userId: String?, channelId: String?, setting: Int, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         viewModelScope.launch {
             try {
                 if (!channelId.isNullOrBlank()) {
                     if (setting == 0 && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() && userId != channelId) {
                         val errorMessage = graphQLRepository.loadUnfollowUser(networkLibrary, gqlHeaders, channelId).also { response ->
-                            if (enableIntegrity) {
-                                response.errors?.find { it.message == C.FAILED_INTEGRITY_CHECK }?.let {
-                                    integrity.emit("unfollow")
-                                    return@launch
-                                }
-                            }
                         }.errors?.firstOrNull()?.message
                         if (!errorMessage.isNullOrBlank()) {
                             follow.value = Pair(false, errorMessage)
