@@ -1436,4 +1436,6 @@
     <string name="auth_health_compatibility_title">Rozszerzone funkcje Twitcha są niedostępne</string>
     <string name="auth_health_compatibility_message">Twoje konto Twitch jest nadal połączone. Połącz ponownie rozszerzone funkcje, aby przywrócić funkcje zgodności.</string>
     <string name="auth_health_compatibility_reconnect">Połącz ponownie rozszerzone funkcje</string>
+    <string name="discover_previous_trending">Poprzedni popularny stream</string>
+    <string name="discover_next_trending">Następny popularny stream</string>
 </resources>

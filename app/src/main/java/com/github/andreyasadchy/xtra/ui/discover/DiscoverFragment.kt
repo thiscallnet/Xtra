@@ -20,10 +20,12 @@ import androidx.navigation.ui.setupWithNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentDiscoverBinding
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
+import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewAdapter
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -45,6 +47,8 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
     private val binding get() = _binding!!
     private val viewModel: DiscoverViewModel by viewModels { DiscoverViewModel.Factory }
     private lateinit var adapter: FollowingOverviewAdapter
+    private val streamShelfPreloadControllers = mutableMapOf<String, StreamPreloadViewportController>()
+    private var discoverScrolling = false
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentDiscoverBinding.inflate(inflater, container, false)
@@ -128,6 +132,23 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
                     ),
                 )
             },
+            onStreamShelfAttached = { key, recyclerView, streamAtPosition ->
+                streamShelfPreloadControllers.remove(key)?.stop()
+                StreamPreloadViewportController(
+                    fragment = this,
+                    coordinator = (requireActivity().application as XtraApp).xtraModule.streamPreloadCoordinator,
+                    viewportKey = "discover:$key",
+                    recyclerView = recyclerView,
+                    streamAtPosition = streamAtPosition,
+                    isParentScrolling = { discoverScrolling },
+                ).also {
+                    streamShelfPreloadControllers[key] = it
+                    it.start()
+                }
+            },
+            onStreamShelfDetached = { key ->
+                streamShelfPreloadControllers.remove(key)?.stop()
+            },
         )
         binding.recyclerView.apply {
             layoutManager = LinearLayoutManager(context)
@@ -135,6 +156,11 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
             itemAnimator = null
             clipToPadding = false
             addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                    discoverScrolling = newState != RecyclerView.SCROLL_STATE_IDLE
+                    streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::onParentScrollStateChanged)
+                }
+
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                     binding.appBar.isLifted = recyclerView.canScrollVertically(-1)
                 }
@@ -172,6 +198,16 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
         viewModel.refresh()
     }
 
+    override fun onResume() {
+        super.onResume()
+        streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::onResume)
+    }
+
+    override fun onPause() {
+        streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::onPause)
+        super.onPause()
+    }
+
     private fun showAll(key: String) {
         when (key) {
             DiscoverViewModel.KEY_CATEGORIES -> findNavController().navigate(R.id.action_global_gamesFragment)
@@ -194,6 +230,9 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
     }
 
     override fun onDestroyView() {
+        streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::stop)
+        streamShelfPreloadControllers.clear()
+        discoverScrolling = false
         super.onDestroyView()
         _binding = null
     }

@@ -1439,4 +1439,6 @@
     <string name="auth_health_compatibility_title">Funciones mejoradas de Twitch no disponibles</string>
     <string name="auth_health_compatibility_message">Tu cuenta de Twitch sigue conectada. Vuelve a conectar las funciones mejoradas para restaurar la funcionalidad de compatibilidad.</string>
     <string name="auth_health_compatibility_reconnect">Volver a conectar funciones mejoradas</string>
+    <string name="discover_previous_trending">Stream en tendencia anterior</string>
+    <string name="discover_next_trending">Siguiente stream en tendencia</string>
 </resources>

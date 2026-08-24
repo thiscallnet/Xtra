@@ -1435,4 +1435,6 @@
     <string name="auth_health_compatibility_title">Gelişmiş Twitch özellikleri kullanılamıyor</string>
     <string name="auth_health_compatibility_message">Twitch hesabınız bağlı olmaya devam ediyor. Uyumluluk işlevlerini geri yüklemek için gelişmiş özellikleri yeniden bağlayın.</string>
     <string name="auth_health_compatibility_reconnect">Gelişmiş özellikleri yeniden bağla</string>
+    <string name="discover_previous_trending">Önceki popüler yayın</string>
+    <string name="discover_next_trending">Sonraki popüler yayın</string>
 </resources>

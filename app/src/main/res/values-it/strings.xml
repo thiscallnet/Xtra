@@ -1434,4 +1434,6 @@
     <string name="auth_health_compatibility_title">Funzionalità Twitch avanzate non disponibili</string>
     <string name="auth_health_compatibility_message">Il tuo account Twitch è ancora connesso. Riconnetti le funzionalità avanzate per ripristinare le funzioni di compatibilità.</string>
     <string name="auth_health_compatibility_reconnect">Riconnetti le funzionalità avanzate</string>
+    <string name="discover_previous_trending">Stream di tendenza precedente</string>
+    <string name="discover_next_trending">Stream di tendenza successivo</string>
 </resources>

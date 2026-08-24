@@ -1458,4 +1458,6 @@
     <string name="auth_health_compatibility_title">Rozšířené funkce Twitch nejsou dostupné</string>
     <string name="auth_health_compatibility_message">Váš účet Twitch je stále připojen. Znovu připojte rozšířené funkce a obnovte funkce kompatibility.</string>
     <string name="auth_health_compatibility_reconnect">Znovu připojit rozšířené funkce</string>
+    <string name="discover_previous_trending">Předchozí populární stream</string>
+    <string name="discover_next_trending">Následující populární stream</string>
 </resources>

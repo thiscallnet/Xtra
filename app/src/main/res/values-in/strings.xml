@@ -1435,4 +1435,6 @@
     <string name="auth_health_compatibility_title">Fitur Twitch lanjutan tidak tersedia</string>
     <string name="auth_health_compatibility_message">Akun Twitch Anda masih terhubung. Hubungkan kembali fitur lanjutan untuk memulihkan fungsi kompatibilitas.</string>
     <string name="auth_health_compatibility_reconnect">Hubungkan kembali fitur lanjutan</string>
+    <string name="discover_previous_trending">Siaran trending sebelumnya</string>
+    <string name="discover_next_trending">Siaran trending berikutnya</string>
 </resources>

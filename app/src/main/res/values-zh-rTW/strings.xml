@@ -1434,4 +1434,6 @@
     <string name="auth_health_compatibility_title">Twitch 增強功能無法使用</string>
     <string name="auth_health_compatibility_message">您的 Twitch 帳戶仍保持連線。請重新連線增強功能，以恢復相容性功能。</string>
     <string name="auth_health_compatibility_reconnect">重新連線增強功能</string>
+    <string name="discover_previous_trending">上一個熱門直播</string>
+    <string name="discover_next_trending">下一個熱門直播</string>
 </resources>
