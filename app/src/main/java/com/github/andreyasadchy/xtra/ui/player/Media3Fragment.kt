@@ -43,6 +43,7 @@ import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
@@ -967,9 +968,11 @@ class Media3Fragment : Media3PlayerFragment() {
                     }
                 }
             } else {
+                subtitles.setOnClickListener(null)
                 subtitles.visibility = View.GONE
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setSubtitles(textTracks)
+            PlayerControlLayout.applyToPlayer(requireContext(), binding)
         }
     }
 

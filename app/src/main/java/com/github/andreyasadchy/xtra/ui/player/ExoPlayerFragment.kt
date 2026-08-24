@@ -43,6 +43,7 @@ import com.github.andreyasadchy.xtra.ui.player.clip.ClipEditorDialogFragment
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipEditorRestorationState
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipPreparationRepository
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.snackbar.Snackbar
@@ -732,7 +733,7 @@ class ExoPlayerFragment : PlayerFragment() {
     override fun setSubtitlesButton() {
         with(binding.playerControls) {
             val textTracks = playbackService?.player?.currentTracks?.groups?.find { it.type == androidx.media3.common.C.TRACK_TYPE_TEXT }
-            if (textTracks != null && requireContext().prefs().getBoolean(C.PLAYER_SUBTITLES, false)) {
+            if (textTracks != null) {
                 subtitles.visibility = View.VISIBLE
                 if (textTracks.isSelected) {
                     subtitles.setImageResource(androidx.media3.ui.R.drawable.exo_ic_subtitle_on)
@@ -750,9 +751,11 @@ class ExoPlayerFragment : PlayerFragment() {
                     }
                 }
             } else {
+                subtitles.setOnClickListener(null)
                 subtitles.visibility = View.GONE
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setSubtitles(textTracks)
+            PlayerControlLayout.applyToPlayer(requireContext(), binding)
         }
     }
 

@@ -1437,4 +1437,5 @@
     <string name="auth_health_compatibility_reconnect">Hubungkan kembali fitur lanjutan</string>
     <string name="discover_previous_trending">Siaran trending sebelumnya</string>
     <string name="discover_next_trending">Siaran trending berikutnya</string>
+    <string name="settings_customize_controls_save">Simpan perubahan</string>
 </resources>

@@ -1436,4 +1436,5 @@
     <string name="auth_health_compatibility_reconnect">Reconectar recursos avançados</string>
     <string name="discover_previous_trending">Stream em alta anterior</string>
     <string name="discover_next_trending">Próximo stream em alta</string>
+    <string name="settings_customize_controls_save">Salvar alterações</string>
 </resources>

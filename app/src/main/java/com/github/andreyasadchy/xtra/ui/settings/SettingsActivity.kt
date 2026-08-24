@@ -91,7 +91,6 @@ import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationService
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.SettingsViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.XtraApp
@@ -2433,54 +2432,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         private fun showControlLayoutDialog() {
-            val preferences = requireContext().prefs()
-            val items = PlayerControlLayout.controlPlacements(
-                preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
-                SettingsMigration.defaultControlLayout(),
-            )
-            val editor = PlayerControlLayoutEditor(
-                context = requireContext(),
-                initialItems = items,
-                labelFor = ::controlTitle,
-            )
-            requireActivity().getAlertDialogBuilder()
-                .setTitle(R.string.settings_customize_controls)
-                .setView(editor)
-                .setPositiveButton(android.R.string.ok) { _, _ ->
-                    val serialized = editor.serializedLayout()
-                    preferences.edit { putString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, serialized) }
-                    SettingsMigration.syncLegacyControlVisibility(preferences, serialized)
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
-        }
-
-        private fun controlTitle(action: String): String = when (action) {
-            "minimize" -> getString(R.string.player_minimize)
-            "download" -> getString(R.string.player_download)
-            "follow" -> getString(R.string.player_follow)
-            "quality" -> getString(R.string.player_quality)
-            "speed" -> getString(R.string.player_playback_speed)
-            "chapters" -> getString(R.string.player_vod_games)
-            "restart" -> getString(R.string.player_restart)
-            "live" -> getString(R.string.player_seek_live)
-            "clip" -> getString(R.string.player_clip)
-            "volume" -> getString(R.string.player_volume)
-            "compressor" -> getString(R.string.player_audio_compressor)
-            "mode" -> getString(R.string.settings_player_mode)
-            "subtitles" -> getString(R.string.player_subtitles)
-            "chat_input" -> getString(R.string.player_chat_input)
-            "chat" -> getString(R.string.player_show_chat)
-            "fullscreen" -> getString(R.string.fullscreen)
-            "viewers" -> getString(R.string.viewer_list)
-            "bookmark" -> getString(R.string.bookmark)
-            "share" -> getString(R.string.share)
-            "find_vod" -> getString(R.string.find_unlisted_video)
-            "sleep" -> getString(R.string.sleep_timer)
-            "aspect" -> getString(R.string.aspect_ratio)
-            "reload_emotes" -> getString(R.string.reload_emotes)
-            "disconnect_chat" -> getString(R.string.disconnect_chat)
-            else -> action
+            PlayerControlLayoutEditor.showDialog(requireContext())
         }
 
     }

@@ -20,10 +20,15 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.widget.NestedScrollView
 import com.google.android.material.button.MaterialButton
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
+import com.github.andreyasadchy.xtra.util.SettingsMigration
+import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.util.prefs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -51,7 +56,71 @@ class PlayerControlLayoutEditor(
     private val palette = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
     }
+    private val moveSelectedButton = MaterialButton(context).apply {
+        isAllCaps = false
+        minHeight = dp(36)
+        minimumHeight = dp(36)
+        setPadding(dp(8), 0, dp(8), 0)
+        visibility = View.GONE
+        setOnClickListener { selectedAction?.let(::cycleGroup) }
+    }
     private var selectedAction: String? = null
+
+    companion object {
+        fun showDialog(context: Context, onSaved: (String) -> Unit = {}) {
+            val preferences = context.prefs()
+            val items = PlayerControlLayout.controlPlacements(
+                preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
+                SettingsMigration.defaultControlLayout(),
+            )
+            val editor = PlayerControlLayoutEditor(
+                context = context,
+                initialItems = items,
+                labelFor = { action -> controlTitle(context, action) },
+            )
+            context.getAlertDialogBuilder()
+                .setTitle(R.string.settings_customize_controls)
+                .setView(editor)
+                .setPositiveButton(R.string.settings_customize_controls_save) { _, _ ->
+                    val serialized = editor.serializedLayout()
+                    preferences.edit { putString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, serialized) }
+                    SettingsMigration.syncLegacyControlVisibility(preferences, serialized)
+                    onSaved(serialized)
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+
+        private fun controlTitle(context: Context, action: String): String = context.getString(
+            when (action) {
+                "minimize" -> R.string.player_minimize
+                "download" -> R.string.player_download
+                "follow" -> R.string.player_follow
+                "quality" -> R.string.player_quality
+                "speed" -> R.string.player_playback_speed
+                "chapters" -> R.string.player_vod_games
+                "restart" -> R.string.player_restart
+                "live" -> R.string.player_seek_live
+                "clip" -> R.string.player_clip
+                "volume" -> R.string.player_volume
+                "compressor" -> R.string.player_audio_compressor
+                "mode" -> R.string.settings_player_mode
+                "subtitles" -> R.string.player_subtitles
+                "chat_input" -> R.string.player_chat_input
+                "chat" -> R.string.player_show_chat
+                "fullscreen" -> R.string.fullscreen
+                "viewers" -> R.string.viewer_list
+                "bookmark" -> R.string.bookmark
+                "share" -> R.string.share
+                "find_vod" -> R.string.find_unlisted_video
+                "sleep" -> R.string.sleep_timer
+                "aspect" -> R.string.aspect_ratio
+                "reload_emotes" -> R.string.reload_emotes
+                "disconnect_chat" -> R.string.disconnect_chat
+                else -> return action
+            },
+        )
+    }
 
     init {
         isFillViewport = true
@@ -98,6 +167,12 @@ class PlayerControlLayoutEditor(
                 bottomMargin = dp(8)
             },
         )
+        content.addView(
+            moveSelectedButton,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            },
+        )
         content.addView(palette)
         refresh()
     }
@@ -105,14 +180,12 @@ class PlayerControlLayoutEditor(
     fun serializedLayout(): String = PlayerControlLayout.serializeControlLayout(items)
 
     private fun resetLayout() {
-        items.forEach { item ->
-            val original = PlayerControlLayout.controlPlacements(
-                null,
-                PlayerControlLayout.defaultControlLayout(),
-            ).firstOrNull { it.action == item.action }
-            item.group = original?.group ?: PlayerControlLayout.GROUP_HIDDEN
-            item.anchor = PlayerControlLayout.defaultAnchor(item.action)
-        }
+        val defaults = PlayerControlLayout.controlPlacements(
+            null,
+            SettingsMigration.defaultControlLayout(),
+        )
+        items.clear()
+        items.addAll(defaults.map { it.copy(anchor = PlayerControlLayout.defaultAnchor(it.action)) })
         selectedAction = null
         refresh()
     }
@@ -153,6 +226,20 @@ class PlayerControlLayoutEditor(
         selectionText.text = selectedAction?.let { action ->
             context.getString(R.string.settings_customize_controls_selected, labelFor(action))
         } ?: context.getString(R.string.settings_customize_controls_selected_none)
+        val selectedItem = selectedAction?.let { action -> items.firstOrNull { it.action == action } }
+        moveSelectedButton.visibility = if (selectedItem == null) View.GONE else View.VISIBLE
+        selectedItem?.let { item ->
+            val destination = when {
+                item.group == PlayerControlLayout.GROUP_QUICK && PlayerControlLayout.canMenu(item.action) ->
+                    R.string.settings_customize_controls_enable_menu
+                item.group == PlayerControlLayout.GROUP_QUICK -> R.string.settings_customize_controls_hide
+                item.group == PlayerControlLayout.GROUP_MENU -> R.string.settings_customize_controls_hide
+                PlayerControlLayout.canQuick(item.action) -> R.string.settings_customize_controls_enable
+                else -> R.string.settings_customize_controls_enable_menu
+            }
+            moveSelectedButton.text = context.getString(destination, labelFor(item.action))
+            moveSelectedButton.contentDescription = moveSelectedButton.text
+        }
     }
 
     private fun addPaletteSection(titleRes: Int, sectionItems: List<PlayerControlLayout.ControlPlacement>) {
@@ -380,7 +467,9 @@ class PlayerControlLayoutEditor(
                 chips[item.action] = chip
                 addView(chip, LayoutParams(dp(44), dp(44)))
             }
-            menu.visibility = if (items.any { it.group == PlayerControlLayout.GROUP_MENU }) View.VISIBLE else View.GONE
+            // The More menu also contains the in-player customization entry, so keep
+            // the affordance visible even when every other action is hidden.
+            menu.visibility = View.VISIBLE
             positionChildren()
             invalidate()
         }
@@ -389,7 +478,7 @@ class PlayerControlLayoutEditor(
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     parent?.requestDisallowInterceptTouchEvent(true)
-                    selectedAction = action
+                    selectAction(action)
                     draggingAction = action
                     isDragging = false
                     dragStartX = event.rawX
@@ -397,13 +486,6 @@ class PlayerControlLayoutEditor(
                     chipStartX = chip.x
                     chipStartY = chip.y
                     chip.bringToFront()
-                    chips.forEach { (chipAction, control) ->
-                        control.background = chipBackground(chipAction == selectedAction)
-                    }
-                    selectionText.text = context.getString(
-                        R.string.settings_customize_controls_selected,
-                        labelFor(action),
-                    )
                     invalidate()
                     return true
                 }
@@ -424,7 +506,7 @@ class PlayerControlLayoutEditor(
                     if (isDragging) {
                         snapChip(action, chip.x + chip.width / 2f, chip.y + chip.height / 2f)
                     } else {
-                        cycleGroup(action)
+                        selectAction(action)
                     }
                     draggingAction = null
                     isDragging = false
@@ -433,7 +515,8 @@ class PlayerControlLayoutEditor(
                     return true
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    if (isDragging) snapChip(action, chip.x + chip.width / 2f, chip.y + chip.height / 2f)
+                    chip.x = chipStartX
+                    chip.y = chipStartY
                     draggingAction = null
                     isDragging = false
                     parent?.requestDisallowInterceptTouchEvent(false)
@@ -442,6 +525,32 @@ class PlayerControlLayoutEditor(
                 }
             }
             return true
+        }
+
+        private fun selectAction(action: String) {
+            selectedAction = action
+            chips.forEach { (chipAction, control) ->
+                control.background = chipBackground(chipAction == selectedAction)
+            }
+            selectionText.text = context.getString(
+                R.string.settings_customize_controls_selected,
+                labelFor(action),
+            )
+            val item = items.firstOrNull { it.action == action }
+            moveSelectedButton.visibility = if (item == null) View.GONE else View.VISIBLE
+            item?.let {
+                val destination = when {
+                    it.group == PlayerControlLayout.GROUP_QUICK && PlayerControlLayout.canMenu(it.action) ->
+                        R.string.settings_customize_controls_enable_menu
+                    it.group == PlayerControlLayout.GROUP_QUICK -> R.string.settings_customize_controls_hide
+                    it.group == PlayerControlLayout.GROUP_MENU -> R.string.settings_customize_controls_hide
+                    PlayerControlLayout.canQuick(it.action) -> R.string.settings_customize_controls_enable
+                    else -> R.string.settings_customize_controls_enable_menu
+                }
+                moveSelectedButton.text = context.getString(destination, labelFor(it.action))
+                moveSelectedButton.contentDescription = moveSelectedButton.text
+            }
+            invalidate()
         }
 
         private fun snapChip(action: String, centerX: Float, centerY: Float) {

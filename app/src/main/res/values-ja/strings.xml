@@ -1436,4 +1436,5 @@
     <string name="auth_health_compatibility_reconnect">拡張機能に再接続</string>
     <string name="discover_previous_trending">前のトレンド配信</string>
     <string name="discover_next_trending">次のトレンド配信</string>
+    <string name="settings_customize_controls_save">変更を保存</string>
 </resources>
