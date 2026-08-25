@@ -248,6 +248,19 @@ jobs:
             ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
 
+      - name: Use Mozilla sccache
+        shell: bash
+        run: |
+          sccache_dir="$HOME/.mozbuild/sccache"
+          if [[ ! -x "$sccache_dir/sccache" ]]; then
+            echo "Mozilla sccache is missing: $sccache_dir/sccache" >&2
+            exit 1
+          fi
+          echo "$sccache_dir" >> "$GITHUB_PATH"
+          export PATH="$sccache_dir:$PATH"
+          command -v sccache
+          sccache --version
+
       - name: Restore sccache
         id: sccache-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -403,6 +416,19 @@ jobs:
             ~/.cargo
             ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
+
+      - name: Use Mozilla sccache
+        shell: bash
+        run: |
+          sccache_dir="$HOME/.mozbuild/sccache"
+          if [[ ! -x "$sccache_dir/sccache" ]]; then
+            echo "Mozilla sccache is missing: $sccache_dir/sccache" >&2
+            exit 1
+          fi
+          echo "$sccache_dir" >> "$GITHUB_PATH"
+          export PATH="$sccache_dir:$PATH"
+          command -v sccache
+          sccache --version
 
       - name: Restore sccache
         id: sccache-cache
@@ -560,6 +586,19 @@ jobs:
             ~/.cargo
             ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
+
+      - name: Use Mozilla sccache
+        shell: bash
+        run: |
+          sccache_dir="$HOME/.mozbuild/sccache"
+          if [[ ! -x "$sccache_dir/sccache" ]]; then
+            echo "Mozilla sccache is missing: $sccache_dir/sccache" >&2
+            exit 1
+          fi
+          echo "$sccache_dir" >> "$GITHUB_PATH"
+          export PATH="$sccache_dir:$PATH"
+          command -v sccache
+          sccache --version
 
       - name: Restore fat AAR output
         id: fat-cache
