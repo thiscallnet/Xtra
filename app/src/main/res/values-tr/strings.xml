@@ -593,6 +593,7 @@
     <string name="following_no_continue_watching">Takip ettiğiniz kanallarda yeni VOD bulunmuyor.</string>
     <string name="following_upcoming_streams">Yaklaşan Yayınlar</string>
     <string name="following_no_upcoming_streams">Takip ettiğiniz kanalların planlanmış yayınları burada görünür.</string>
+    <string name="following_untitled_stream">Başlıksız yayın</string>
     <string name="following_starts_today">Bugün saat %1$s</string>
     <string name="following_see_all">Tümünü gör</string>
     <string name="following_overview_sections">Takip genel bakış bölümleri</string>

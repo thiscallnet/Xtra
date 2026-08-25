@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.following.overview
 
 import com.github.andreyasadchy.xtra.model.VideoHistory
+import com.github.andreyasadchy.xtra.model.gql.schedule.StreamScheduleResponse
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
 import com.github.andreyasadchy.xtra.repository.TwitchApiException
@@ -127,8 +128,8 @@ class FollowingOverviewContentTest {
     }
 
     @Test
-    fun partialUpcomingScheduleFailureIsNotAnAuthoritativeBatch() {
-        val result = combineChannelItems(
+    fun partialUpcomingScheduleFailureStillShowsSuccessfulSchedules() {
+        val result = combineAvailableChannelItems(
             listOf(
                 ChannelItemsResult.Success(
                     listOf(
@@ -150,7 +151,115 @@ class FollowingOverviewContentTest {
             ),
         )
 
-        assertNull(result)
+        assertEquals(listOf("channel:segment"), result?.map { it.id })
+    }
+
+    @Test
+    fun partialUpcomingRefreshKeepsCachedSchedulesForFailedChannels() {
+        val result = mergeUpcomingStreams(
+            channelIds = listOf("empty", "failed"),
+            results = listOf(
+                ChannelItemsResult.Success(emptyList()),
+                ChannelItemsResult.Failure,
+            ),
+            cachedStreams = listOf(
+                UpcomingStream(
+                    id = "failed:cached",
+                    channelId = "failed",
+                    channelLogin = "failed",
+                    channelName = "Failed",
+                    channelImageURL = null,
+                    title = "Cached stream",
+                    gameName = null,
+                    startTimeMillis = 2_000,
+                    endTimeMillis = null,
+                    isRecurring = false,
+                ),
+                UpcomingStream(
+                    id = "failed:expired",
+                    channelId = "failed",
+                    channelLogin = "failed",
+                    channelName = "Failed",
+                    channelImageURL = null,
+                    title = "Expired stream",
+                    gameName = null,
+                    startTimeMillis = 500,
+                    endTimeMillis = null,
+                    isRecurring = false,
+                ),
+            ),
+            nowMs = 1_000,
+        )
+
+        assertEquals(listOf("failed:cached"), result?.map { it.id })
+    }
+
+    @Test
+    fun upcomingMergeKeepsOnlyTheNextStreamPerChannel() {
+        val result = mergeUpcomingStreams(
+            channelIds = listOf("channel"),
+            results = listOf(
+                ChannelItemsResult.Success(
+                    listOf(
+                        UpcomingStream(
+                            id = "channel:later",
+                            channelId = "channel",
+                            channelLogin = "channel",
+                            channelName = "Channel",
+                            channelImageURL = null,
+                            title = "Later",
+                            gameName = null,
+                            startTimeMillis = 3_000,
+                            endTimeMillis = null,
+                            isRecurring = false,
+                        ),
+                        UpcomingStream(
+                            id = "channel:next",
+                            channelId = "channel",
+                            channelLogin = "channel",
+                            channelName = "Channel",
+                            channelImageURL = null,
+                            title = "Next",
+                            gameName = null,
+                            startTimeMillis = 2_000,
+                            endTimeMillis = null,
+                            isRecurring = false,
+                        ),
+                    ),
+                ),
+            ),
+            cachedStreams = emptyList(),
+            nowMs = 1_000,
+        )
+
+        assertEquals(listOf("channel:next"), result?.map { it.id })
+    }
+
+    @Test
+    fun nextWeekNextSegmentIsKeptWhenCurrentWeekHasNoSegments() {
+        val nextWeekSegment = StreamScheduleResponse.Segment(
+            id = "next-week",
+            startAt = "2026-09-01T19:30:00Z",
+        )
+
+        val result = selectUpcomingScheduleSegment(
+            schedule = StreamScheduleResponse.Schedule(
+                segments = emptyList(),
+                nextSegment = nextWeekSegment,
+            ),
+            nowMs = 1_000,
+        )
+
+        assertEquals("next-week", result?.id)
+    }
+
+    @Test
+    fun allUpcomingScheduleFailuresRemainARefreshFailure() {
+        assertNull(
+            combineAvailableChannelItems<UpcomingStream>(
+                listOf(ChannelItemsResult.Failure, ChannelItemsResult.Failure),
+            ),
+        )
     }
 
     @Test

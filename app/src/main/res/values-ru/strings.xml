@@ -592,6 +592,7 @@
     <string name="following_no_continue_watching">Нет недавних VOD с каналов, на которые вы подписаны.</string>
     <string name="following_upcoming_streams">Предстоящие трансляции</string>
     <string name="following_no_upcoming_streams">Запланированные трансляции с каналов, на которые вы подписаны, появятся здесь.</string>
+    <string name="following_untitled_stream">Стрим без названия</string>
     <string name="following_starts_today">Сегодня в %1$s</string>
     <string name="following_see_all">Показать все</string>
     <string name="following_overview_sections">Разделы обзора подписок</string>

@@ -4,6 +4,7 @@ import android.os.Parcelable
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -75,7 +76,7 @@ class FollowingOverviewAdapter(
         super.onViewDetachedFromWindow(holder)
     }
 
-    inner class ViewHolder(
+        inner class ViewHolder(
         private val binding: ItemFollowingSectionBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
         private val shelfAdapter = StreamShelfAdapter(onStreamClick)
@@ -90,8 +91,8 @@ class FollowingOverviewAdapter(
         private var boundSectionKey: String? = null
 
         init {
+            configureShelfLayout(ShelfType.STREAM)
             binding.shelfRecyclerView.apply {
-                layoutManager = LinearLayoutManager(context, RecyclerView.HORIZONTAL, false)
                 setRecycledViewPool(recycledViewPool)
                 setHasFixedSize(true)
                 itemAnimator = null
@@ -128,6 +129,7 @@ class FollowingOverviewAdapter(
                 detachVideoShelf()
             }
             if (shelfType != nextShelfType) {
+                configureShelfLayout(nextShelfType)
                 when (nextShelfType) {
                     ShelfType.VIDEO -> {
                         binding.shelfRecyclerView.swapAdapter(videoShelfAdapter, true)
@@ -206,6 +208,23 @@ class FollowingOverviewAdapter(
                         }, false)
                     }
                 }
+            }
+        }
+
+        private fun configureShelfLayout(type: ShelfType) {
+            val shelf = binding.shelfRecyclerView
+            if (type == ShelfType.UPCOMING) {
+                val spanCount = if (shelf.resources.configuration.smallestScreenWidthDp >= 600) 2 else 1
+                shelf.layoutManager = GridLayoutManager(shelf.context, spanCount).apply {
+                    spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+                        override fun getSpanSize(position: Int): Int =
+                            if (spanCount > 1 && position == 0) spanCount else 1
+                    }
+                }
+                shelf.setHasFixedSize(false)
+            } else {
+                shelf.layoutManager = LinearLayoutManager(shelf.context, RecyclerView.HORIZONTAL, false)
+                shelf.setHasFixedSize(true)
             }
         }
 

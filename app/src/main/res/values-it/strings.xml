@@ -592,6 +592,7 @@
     <string name="following_no_continue_watching">Non sono disponibili VOD recenti dai canali che segui.</string>
     <string name="following_upcoming_streams">Prossime dirette</string>
     <string name="following_no_upcoming_streams">Le dirette programmate dei canali che segui appariranno qui.</string>
+    <string name="following_untitled_stream">Stream senza titolo</string>
     <string name="following_starts_today">Oggi alle %1$s</string>
     <string name="following_see_all">Vedi tutto</string>
     <string name="following_overview_sections">Sezioni della panoramica dei seguiti</string>

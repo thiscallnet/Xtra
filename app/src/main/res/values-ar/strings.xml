@@ -592,6 +592,7 @@
     <string name="following_no_continue_watching">لا تتوفر مقاطع VOD حديثة من القنوات التي تتابعها.</string>
     <string name="following_upcoming_streams">البثوث القادمة</string>
     <string name="following_no_upcoming_streams">ستظهر هنا البثوث المجدولة من القنوات التي تتابعها.</string>
+    <string name="following_untitled_stream">بث بلا عنوان</string>
     <string name="following_starts_today">اليوم الساعة %1$s</string>
     <string name="following_see_all">عرض الكل</string>
     <string name="following_overview_sections">أقسام نظرة عامة على المتابعة</string>

@@ -18,6 +18,7 @@ object FollowingTabs {
 
     val definitions = listOf(
         Definition("1", R.string.live),
+        Definition("3", R.string.channels),
         Definition("2", R.string.videos),
         Definition("0", R.string.following_categories),
     )

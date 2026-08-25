@@ -98,6 +98,7 @@ import com.github.andreyasadchy.xtra.model.gql.search.SearchGameTagsResponse
 import com.github.andreyasadchy.xtra.model.gql.search.SearchGamesResponse
 import com.github.andreyasadchy.xtra.model.gql.search.SearchStreamTagsResponse
 import com.github.andreyasadchy.xtra.model.gql.search.SearchVideosResponse
+import com.github.andreyasadchy.xtra.model.gql.schedule.StreamScheduleResponse
 import com.github.andreyasadchy.xtra.model.gql.stream.StreamsResponse
 import com.github.andreyasadchy.xtra.model.gql.stream.ViewerCountResponse
 import com.github.andreyasadchy.xtra.model.gql.tag.TagResponse
@@ -199,6 +200,35 @@ class GraphQLRepository(
         mutation SendHighlightedChatMessage(${'$'}input: SendHighlightedChatMessageInput!) {
             sendHighlightedChatMessage(input: ${'$'}input) {
                 error { code }
+            }
+        }
+    """.trimIndent()
+
+    /**
+     * Twitch's website uses this query for channel schedules. Helix returns 404
+     * for channels whose schedules are still visible on the website. Use
+     * nextSegment because segments(relativeDate:) is limited to one week.
+     */
+    private val streamScheduleQuery = """
+        query StreamSchedule(${'$'}login: String!) {
+            user(login: ${'$'}login) {
+                id
+                bannerImageURL
+                channel {
+                    id
+                    schedule {
+                        nextSegment {
+                            id
+                            title
+                            startAt
+                            endAt
+                            isCancelled
+                            cancelledUntil
+                            repeatEndsAfterCount
+                            categories { name }
+                        }
+                    }
+                }
             }
         }
     """.trimIndent()
@@ -677,6 +707,21 @@ class GraphQLRepository(
             logins = if (ids.isNullOrEmpty() && !logins.isNullOrEmpty()) Optional.Present(logins) else Optional.Absent,
         )
         sendQuery(networkLibrary, headers, query)
+    }
+
+    suspend fun loadStreamSchedule(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        login: String,
+    ): StreamScheduleResponse = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("operationName", "StreamSchedule")
+            put("query", streamScheduleQuery)
+            putJsonObject("variables") {
+                put("login", login)
+            }
+        }.toString()
+        json.decodeFromString(sendPersistedQuery(networkLibrary, headers, body))
     }
 
     suspend fun loadQueryUsersStream(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null): ApolloResponse<UsersStreamQuery.Data> = withContext(Dispatchers.IO) {

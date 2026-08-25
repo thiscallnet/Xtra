@@ -87,7 +87,7 @@ class SettingsMigrationTest {
     }
 
     @Test
-    fun `schema 25 preferences migrate following tabs moved out of following`() {
+    fun `schema 25 preferences remove the old overview tab and retain channels`() {
         val preferences = MemoryPreferences(
             mutableMapOf(
                 C.SETTINGS_VERSION to 25,
@@ -98,7 +98,7 @@ class SettingsMigrationTest {
         SettingsMigration.migratePreferences(preferences, freshInstall = false)
 
         assertEquals(C.SETTINGS_SCHEMA_VERSION, preferences.getInt(C.SETTINGS_VERSION, 0))
-        assertEquals("1:0:1,2:0:1,0:0:1", preferences.getString(C.UI_FOLLOWING_TABS, null))
+        assertEquals("1:0:1,2:0:1,0:0:1,3:1:1", preferences.getString(C.UI_FOLLOWING_TABS, null))
     }
 
     @Test

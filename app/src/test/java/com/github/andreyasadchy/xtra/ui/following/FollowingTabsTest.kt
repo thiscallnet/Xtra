@@ -9,14 +9,21 @@ import org.junit.Test
 class FollowingTabsTest {
 
     @Test
-    fun movedTabsAreRemovedDuringMigration() {
+    fun legacyOverviewIsRemovedAndChannelsAreRetainedDuringMigration() {
         val migrated = requireNotNull(
             FollowingTabs.migrateStoredPreference("4:1:1,1:1:1,0:0:1,2:0:1,3:0:1"),
         )
 
         assertTrue(migrated.contains("1:1:1"))
         assertTrue(!migrated.contains("4:"))
-        assertTrue(!migrated.contains("3:"))
+        assertTrue(migrated.contains("3:0:1"))
+    }
+
+    @Test
+    fun channelsAreVisibleInTheDefaultFollowingTabs() {
+        val visibleKeys = FollowingTabs.visibleKeys(C.DEFAULT_FOLLOWING_TABS, showVideos = true)
+
+        assertTrue(visibleKeys.contains("3"))
     }
 
     @Test

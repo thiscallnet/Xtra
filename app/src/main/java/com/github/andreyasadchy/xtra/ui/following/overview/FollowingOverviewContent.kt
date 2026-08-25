@@ -1,6 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.following.overview
 
 import com.github.andreyasadchy.xtra.model.VideoHistory
+import com.github.andreyasadchy.xtra.model.gql.schedule.StreamScheduleResponse
+import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.repository.TwitchApiException
 import kotlinx.coroutines.CancellationException
@@ -34,6 +36,41 @@ internal suspend fun <T> loadChannelItems(
 internal fun <T> combineChannelItems(results: List<ChannelItemsResult<T>>): List<T>? {
     if (results.any { it === ChannelItemsResult.Failure }) return null
     return results.map { (it as ChannelItemsResult.Success<T>).items }.flatten()
+}
+
+internal fun <T> combineAvailableChannelItems(results: List<ChannelItemsResult<T>>): List<T>? {
+    // One transient schedule failure must not hide schedules returned by other channels.
+    val successfulItems = results.mapNotNull { result ->
+        (result as? ChannelItemsResult.Success<T>)?.items
+    }
+    return successfulItems.takeIf { it.isNotEmpty() }?.flatten()
+}
+
+internal fun selectUpcomingScheduleSegment(
+    schedule: StreamScheduleResponse.Schedule?,
+    nowMs: Long,
+): StreamScheduleResponse.Segment? = schedule?.nextSegment?.takeIf { segment ->
+    segment.isCancelled != true &&
+            segment.cancelledUntil.isNullOrBlank() &&
+            segment.startAt?.let(Instant::parseOrNull)?.toEpochMilliseconds()?.let { it > nowMs } == true
+}
+
+internal fun mergeUpcomingStreams(
+    channelIds: List<String>,
+    results: List<ChannelItemsResult<UpcomingStream>>,
+    cachedStreams: List<UpcomingStream>,
+    nowMs: Long,
+): List<UpcomingStream>? {
+    val freshStreams = combineAvailableChannelItems(results) ?: return null
+    val failedChannelIds = channelIds.zip(results)
+        .mapNotNull { (channelId, result) -> channelId.takeIf { result is ChannelItemsResult.Failure } }
+        .toSet()
+    val cachedFailedStreams = cachedStreams.filter { stream ->
+        stream.channelId in failedChannelIds && stream.startTimeMillis > nowMs
+    }
+    return (freshStreams + cachedFailedStreams)
+        .sortedBy(UpcomingStream::startTimeMillis)
+        .distinctBy { it.channelId ?: it.id }
 }
 
 internal fun mergeContinueWatching(

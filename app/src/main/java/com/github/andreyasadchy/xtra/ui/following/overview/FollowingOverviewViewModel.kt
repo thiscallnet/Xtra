@@ -189,7 +189,7 @@ class FollowingOverviewViewModel(
                     }
                     val loadedRecentVideos = recentVideos.await()
                     val loadedUpcomingStreams = if (shouldLoadUpcomingStreams) {
-                        followedChannels.await()?.let { loadUpcomingStreams(it) }
+                        followedChannels.await()?.let { loadUpcomingStreams(it, _upcomingStreams.value) }
                     } else null
                     if (isCurrentOverviewRequest(generation, requestAccountId)) {
                         loadedRecentVideos?.let { recentFollowedVideos.value = it }
@@ -344,10 +344,14 @@ class FollowingOverviewViewModel(
         combineChannelItems(results)
     }
 
-    private suspend fun loadUpcomingStreams(channels: List<FollowedChannel>): List<UpcomingStream>? {
+    private suspend fun loadUpcomingStreams(
+        channels: List<FollowedChannel>,
+        cachedStreams: List<UpcomingStream>,
+    ): List<UpcomingStream>? {
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
         val helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext)
-        val now = Clock.System.now().toEpochMilliseconds()
+        val nowMs = Clock.System.now().toEpochMilliseconds()
         return coroutineScope {
             val requestSemaphore = Semaphore(UPCOMING_REQUEST_CONCURRENCY)
             if (channels.isEmpty()) return@coroutineScope emptyList()
@@ -356,41 +360,99 @@ class FollowingOverviewViewModel(
                     requestSemaphore.withPermit {
                         loadChannelItems(
                             request = {
-                                val schedule = helixRepository.getStreamSchedule(
+                                loadUpcomingChannel(
+                                    channel = channel,
                                     networkLibrary = networkLibrary,
-                                    headers = helixHeaders,
-                                    broadcasterId = channel.id,
-                                    limit = UPCOMING_SEGMENTS_PER_CHANNEL,
-                                ).data ?: throw IllegalStateException("Missing schedule data")
-                                schedule.segments.mapNotNull { segment ->
-                                    if (!segment.canceledUntil.isNullOrBlank()) return@mapNotNull null
-                                    val startTime = segment.startTime?.let(Instant::parseOrNull)
-                                        ?.toEpochMilliseconds()
-                                        ?.takeIf { it > now }
-                                        ?: return@mapNotNull null
-                                    UpcomingStream(
-                                        id = "${channel.id}:${segment.id ?: startTime}",
-                                        channelId = schedule.broadcasterId ?: channel.id,
-                                        channelLogin = schedule.broadcasterLogin ?: channel.login,
-                                        channelName = schedule.broadcasterName ?: channel.name,
-                                        channelImageURL = channel.imageURL,
-                                        title = segment.title,
-                                        gameName = segment.category?.name,
-                                        startTimeMillis = startTime,
-                                        endTimeMillis = segment.endTime?.let(Instant::parseOrNull)?.toEpochMilliseconds(),
-                                        isRecurring = segment.isRecurring,
-                                    )
-                                }
+                                    gqlHeaders = gqlHeaders,
+                                    helixHeaders = helixHeaders,
+                                    nowMs = nowMs,
+                                )
                             },
                             notFoundItems = emptyList(),
                         )
                     }
                 }
             }.awaitAll()
-            combineChannelItems(results)
-                ?.distinctBy { it.id }
-                ?.sortedBy { it.startTimeMillis }
+            mergeUpcomingStreams(
+                channelIds = channels.map(FollowedChannel::id),
+                results = results,
+                cachedStreams = cachedStreams,
+                nowMs = nowMs,
+            )
                 ?.take(UPCOMING_STREAM_LIMIT)
+        }
+    }
+
+    private suspend fun loadUpcomingChannel(
+        channel: FollowedChannel,
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+        nowMs: Long,
+    ): List<UpcomingStream> {
+        channel.login?.takeIf(String::isNotBlank)?.let { login ->
+            try {
+                val response = graphQLRepository.loadStreamSchedule(
+                    networkLibrary = networkLibrary,
+                    headers = gqlHeaders,
+                    login = login,
+                )
+                val scheduleUser = response.data?.user
+                    ?: throw IllegalStateException("Missing schedule user")
+                val scheduleChannel = scheduleUser.channel
+                    ?: throw IllegalStateException("Missing schedule channel")
+                val segment = selectUpcomingScheduleSegment(scheduleChannel.schedule, nowMs)
+                    ?: return emptyList()
+                val startTime = segment.startAt?.let(Instant::parseOrNull)
+                    ?.toEpochMilliseconds()
+                    ?.takeIf { it > nowMs }
+                    ?: return emptyList()
+                return listOf(
+                    UpcomingStream(
+                        id = "${channel.id}:${segment.id ?: startTime}",
+                        channelId = scheduleChannel.id ?: channel.id,
+                        channelLogin = channel.login,
+                        channelName = channel.name,
+                        channelImageURL = channel.imageURL,
+                        previewImageURL = scheduleUser.bannerImageURL,
+                        title = segment.title,
+                        gameName = segment.categories?.firstOrNull()?.name,
+                        startTimeMillis = startTime,
+                        endTimeMillis = segment.endAt?.let(Instant::parseOrNull)?.toEpochMilliseconds(),
+                        isRecurring = (segment.repeatEndsAfterCount ?: 1) > 1,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Fall back to Helix when Twitch changes or rejects the website query.
+            }
+        }
+
+        val schedule = helixRepository.getStreamSchedule(
+            networkLibrary = networkLibrary,
+            headers = helixHeaders,
+            broadcasterId = channel.id,
+            limit = UPCOMING_SEGMENTS_PER_CHANNEL,
+        ).data ?: throw IllegalStateException("Missing schedule data")
+        return schedule.segments.mapNotNull { segment ->
+            if (!segment.canceledUntil.isNullOrBlank()) return@mapNotNull null
+            val startTime = segment.startTime?.let(Instant::parseOrNull)
+                ?.toEpochMilliseconds()
+                ?.takeIf { it > nowMs }
+                ?: return@mapNotNull null
+            UpcomingStream(
+                id = "${channel.id}:${segment.id ?: startTime}",
+                channelId = schedule.broadcasterId ?: channel.id,
+                channelLogin = schedule.broadcasterLogin ?: channel.login,
+                channelName = schedule.broadcasterName ?: channel.name,
+                channelImageURL = channel.imageURL,
+                title = segment.title,
+                gameName = segment.category?.name,
+                startTimeMillis = startTime,
+                endTimeMillis = segment.endTime?.let(Instant::parseOrNull)?.toEpochMilliseconds(),
+                isRecurring = segment.isRecurring,
+            )
         }
     }
 
