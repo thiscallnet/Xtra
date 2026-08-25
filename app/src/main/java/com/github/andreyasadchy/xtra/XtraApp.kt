@@ -61,6 +61,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         xtraModule = XtraModule(this)
         reconcilePendingAccountScopedState()
         xtraModule.authSessionMaintainer.start(applicationScope)
+        xtraModule.twitchWebSessionManager.startIntegrityMaintenance(applicationScope)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 val wasInBackground = startedActivityCount == 0

@@ -133,7 +133,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                                             args.gameId,
                                             setting,
                                             requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                            TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                                            TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                                         )
                                     }
                                     .show()
@@ -145,7 +145,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                                     setting,
                                     requireContext().filesDir.path,
                                     requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                    TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                                    TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                                     TwitchApiHelper.getHelixHeaders(requireContext()),
                                 )
                             }

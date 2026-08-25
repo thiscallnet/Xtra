@@ -1049,7 +1049,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                                 requireArguments().getString(KEY_CHANNEL_ID),
                                                 setting,
                                                 requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                                TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                                                TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                                             )
                                         }
                                         .show()
@@ -1064,7 +1064,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                         !requireContext().prefs().getBoolean(C.UI_ACTIVATE_NOTIFICATIONS_WHEN_FOLLOWING, true),
                                         requireArguments().getString(KEY_STARTED_AT),
                                         requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                        TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                                        TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                                     )
                                 }
                             }

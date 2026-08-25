@@ -71,6 +71,10 @@
             android:exported="false"
             android:screenOrientation="unspecified"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.login.TwitchIntegrityBootstrapActivity"
+            android:exported="false"
+            android:theme="@style/TwitchIntegrityBootstrapTheme" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

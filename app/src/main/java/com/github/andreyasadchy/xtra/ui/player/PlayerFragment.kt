@@ -1025,7 +1025,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                                 playbackService?.channelId,
                                                 setting,
                                                 requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                                TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                                                TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                                             )
                                         }
                                         .show()
@@ -1040,7 +1040,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                         !requireContext().prefs().getBoolean(C.UI_ACTIVATE_NOTIFICATIONS_WHEN_FOLLOWING, true),
                                         playbackService?.createdAt,
                                         requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                        TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                                        TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                                     )
                                 }
                             }

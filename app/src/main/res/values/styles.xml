@@ -1117,6 +1117,14 @@
     </style>
 
     <style name="DarkTheme" parent="BaseDarkTheme" />
+
+    <style name="TwitchIntegrityBootstrapTheme" parent="DarkTheme">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
     <style name="LightTheme" parent="BaseLightTheme" />
     <style name="AmoledTheme" parent="BaseAmoledTheme" />
     <style name="BlueTheme" parent="BaseBlueTheme" />

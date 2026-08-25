@@ -2,11 +2,96 @@ package com.github.andreyasadchy.xtra.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Locale
 import java.util.TimeZone
 
 class TwitchApiHelperTest {
+
+    @Test
+    fun `ordinary gql headers do not carry protected web request metadata`() {
+        val headers = TwitchApiHelper.buildGQLHeaders(
+            clientId = "public-gql-client",
+            accessToken = "web-token",
+            cookieHeader = "auth-token=cookie-token",
+        )
+
+        assertEquals("public-gql-client", headers[C.HEADER_CLIENT_ID])
+        assertEquals("OAuth web-token", headers[C.HEADER_TOKEN])
+        assertEquals("auth-token=cookie-token", headers["Cookie"])
+        assertNull(headers["Client-Session-Id"])
+        assertNull(headers["X-Device-Id"])
+        assertNull(headers["Origin"])
+        assertNull(headers["Referer"])
+        assertNull(headers["User-Agent"])
+    }
+
+    @Test
+    fun `protected gql headers preserve the same request identity across calls`() {
+        val first = TwitchApiHelper.buildWebGQLHeaders(
+            clientId = "web-client",
+            accessToken = "web-token",
+            deviceId = "stable-device",
+            clientSessionId = "stable-session",
+            cookieHeader = "auth-token=cookie-token",
+        )
+        val second = TwitchApiHelper.buildWebGQLHeaders(
+            clientId = "web-client",
+            accessToken = "web-token",
+            deviceId = "stable-device",
+            clientSessionId = "stable-session",
+            cookieHeader = "auth-token=cookie-token",
+        )
+
+        assertEquals(first["X-Device-Id"], second["X-Device-Id"])
+        assertEquals(first["Client-Session-Id"], second["Client-Session-Id"])
+        assertEquals("https://www.twitch.tv", first["Origin"])
+        assertEquals("https://www.twitch.tv/", first["Referer"])
+        assertEquals("OAuth web-token", first[C.HEADER_TOKEN])
+    }
+
+    @Test
+    fun `captured browser headers replace generated identity metadata`() {
+        val headers = TwitchApiHelper.buildCapturedWebGQLHeaders(
+            fallbackClientId = "native-client",
+            fallbackAccessToken = "native-token",
+            cookieHeader = "auth-token=cookie-token",
+            browserHeaders = mapOf(
+                "Authorization" to "OAuth browser-token",
+                "Client-Id" to "browser-client",
+                "Client-Integrity" to "integrity",
+                "Client-Session-Id" to "browser-session",
+                "Client-Version" to "browser-version",
+                "Content-Type" to "text/plain",
+            ),
+        )
+
+        assertEquals("browser-client", headers[C.HEADER_CLIENT_ID])
+        assertEquals("OAuth browser-token", headers[C.HEADER_TOKEN])
+        assertEquals("integrity", headers["Client-Integrity"])
+        assertEquals("browser-session", headers["Client-Session-Id"])
+        assertEquals("browser-version", headers["Client-Version"])
+        assertNull(headers["Content-Type"])
+        assertNull(headers["X-Device-Id"])
+        assertEquals("auth-token=cookie-token", headers["Cookie"])
+    }
+
+    @Test
+    fun `protected headers mark missing browser integrity instead of silently degrading`() {
+        val fallback = TwitchApiHelper.buildWebGQLHeaders(
+            clientId = "native-client",
+            accessToken = "native-token",
+            deviceId = "stable-device",
+            clientSessionId = "stable-session",
+        )
+
+        val headers = TwitchApiHelper.markUnavailableProtectedGQLHeaders(fallback)
+
+        assertTrue(headers is ProtectedGqlHeadersUnavailable)
+        assertEquals("OAuth native-token", headers[C.HEADER_TOKEN])
+        assertNull(headers["Client-Integrity"])
+    }
 
     @Test
     fun `recommendation headers keep the supplied client and stable request identity`() {

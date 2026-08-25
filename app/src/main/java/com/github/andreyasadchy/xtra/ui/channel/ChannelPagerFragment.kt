@@ -179,7 +179,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                                     args.channelId,
                                     setting,
                                     requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                    TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                                    TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                                 )
                             } else {
                                 val notificationsEnabled = requireContext().prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false)
@@ -193,7 +193,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                                         setting,
                                         notificationsEnabled,
                                         requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                        TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                                        TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                                     )
                                 }
                                 if (!args.channelId.isNullOrBlank() && !notificationsEnabled) {
@@ -227,7 +227,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                                             args.channelId,
                                             setting,
                                             requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                            TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                                            TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                                         )
                                     }
                                     .show()
@@ -241,7 +241,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                                     requireContext().prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false),
                                     !requireContext().prefs().getBoolean(C.UI_ACTIVATE_NOTIFICATIONS_WHEN_FOLLOWING, true),
                                     requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                    TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                                    TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                                 )
                             }
                         }

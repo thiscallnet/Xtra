@@ -71,6 +71,7 @@ import com.github.andreyasadchy.xtra.ui.download.VideoDownloadService
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
+import com.github.andreyasadchy.xtra.ui.login.TwitchIntegrityBootstrapActivity
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel.Companion.MainViewModelFactory
 import com.github.andreyasadchy.xtra.ui.player.BasePlaybackService
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerFragment
@@ -140,6 +141,8 @@ class MainActivity : AppCompatActivity() {
     private var networkSnackbar: Snackbar? = null
     private var updateNotificationSnackbar: Snackbar? = null
     private var updateNotificationPermissionLauncher: ActivityResultLauncher<String>? = null
+    private var integrityBootstrapResultLauncher: ActivityResultLauncher<Intent>? = null
+    private var integrityBootstrapInFlight = false
     private var fragmentLifecycleCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
     private var startupTasksReady = false
 
@@ -206,6 +209,9 @@ class MainActivity : AppCompatActivity() {
             if (result.resultCode == RESULT_OK) {
                 restartActivity()
             }
+        }
+        integrityBootstrapResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            integrityBootstrapInFlight = false
         }
         updateNotificationPermissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestPermission(),
@@ -798,6 +804,19 @@ class MainActivity : AppCompatActivity() {
         }
         updateSettingsIndicator()
         restorePlayerFragment()
+        maybeBootstrapIntegrityContext()
+    }
+
+    private fun maybeBootstrapIntegrityContext() {
+        if (integrityBootstrapInFlight || isFinishing || isChangingConfigurations) return
+        if (tokenPrefs().getString(C.GQL_TOKEN_WEB, null).isNullOrBlank()) return
+        val sessionManager = (application as XtraApp).xtraModule.twitchWebSessionManager
+        if (sessionManager.capturedGqlHeadersForCurrentAccount() != null) return
+        integrityBootstrapInFlight = true
+        integrityBootstrapResultLauncher?.launch(
+            Intent(this, TwitchIntegrityBootstrapActivity::class.java)
+                .putExtra(TwitchWebLoginActivity.EXTRA_BOOTSTRAP_INTEGRITY, true),
+        )
     }
 
     override fun onUserInteraction() {

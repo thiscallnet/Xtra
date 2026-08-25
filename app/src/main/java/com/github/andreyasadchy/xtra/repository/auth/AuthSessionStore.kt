@@ -171,7 +171,13 @@ class AuthSessionStore(
                 .putBoolean(C.ACCOUNT_CLEANUP_PENDING, true)
                 .putStringSet(C.ACCOUNT_CLEANUP_TARGETS, targets)
         }
-        return editor.commit()
+        val nativeCleared = editor.commit()
+        val requestIdentityCleared = preferences.edit()
+            .remove(C.TWITCH_GQL_CONTEXT_ACCOUNT_ID)
+            .remove(C.TWITCH_GQL_DEVICE_ID)
+            .remove(C.TWITCH_GQL_CLIENT_SESSION_ID)
+            .commit()
+        return nativeCleared && requestIdentityCleared
     }
 
     private fun String?.hasText(): Boolean = !isNullOrBlank()
@@ -193,6 +199,11 @@ class AuthSessionStore(
             else -> false
         }
         if (!accountChanged || (previousUserId.isNullOrBlank() && previousLogin.isNullOrBlank())) return
+        preferences.edit()
+            .remove(C.TWITCH_GQL_CONTEXT_ACCOUNT_ID)
+            .remove(C.TWITCH_GQL_DEVICE_ID)
+            .remove(C.TWITCH_GQL_CLIENT_SESSION_ID)
+            .apply()
         val targets = pendingAccountCleanupValues()
         targets += encodePendingAccountCleanup(previousUserId, previousLogin)
         editor

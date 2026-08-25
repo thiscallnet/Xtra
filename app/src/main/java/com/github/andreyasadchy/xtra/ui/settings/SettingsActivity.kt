@@ -607,7 +607,7 @@ class SettingsActivity : AppCompatActivity() {
                     viewModel.restoreSettings(
                         list = list,
                         networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                        gqlHeaders = TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                         helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext())
                     )
                 }
@@ -630,7 +630,7 @@ class SettingsActivity : AppCompatActivity() {
             viewModel.toggleNotifications(
                 enabled = enabled,
                 networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                gqlHeaders = TwitchApiHelper.getProtectedGQLHeaders(requireContext()),
                 helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext())
             )
         }

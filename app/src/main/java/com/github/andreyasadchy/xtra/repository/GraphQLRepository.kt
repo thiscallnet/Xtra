@@ -107,6 +107,8 @@ import com.github.andreyasadchy.xtra.model.ui.ChannelPointRewardRedemption
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
+import com.github.andreyasadchy.xtra.util.ProtectedGqlHeadersUnavailable
+import com.github.andreyasadchy.xtra.util.TwitchIntegrityUnavailableException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -204,6 +206,7 @@ class GraphQLRepository(
     """.trimIndent()
 
     private suspend fun <T: Query.Data> sendQuery(networkLibrary: String?, headers: Map<String, String>, query: Query<T>): ApolloResponse<T> = withContext(Dispatchers.IO) {
+        ensureProtectedHeadersAvailable(headers)
         val url = "https://gql.twitch.tv/gql"
         val body = buildJsonString {
             query.apply {
@@ -226,7 +229,7 @@ class GraphQLRepository(
                         cronetExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
                     ).apply {
-                        headers.forEach { addHeader(it.key, it.value) }
+                        graphQLTransportHeaders(headers).forEach { addHeader(it.key, it.value) }
                         addHeader("Content-Type", "application/json")
                         setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), cronetExecutor.value)
                     }.build()
@@ -249,7 +252,7 @@ class GraphQLRepository(
                         NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
                         cronetExecutor.value
                     ).apply {
-                        headers.forEach { addHeader(it.key, it.value) }
+                        graphQLTransportHeaders(headers).forEach { addHeader(it.key, it.value) }
                         addHeader("Content-Type", "application/json")
                         setUploadDataProvider(UploadDataProviders.create(body.toByteArray()), cronetExecutor.value)
                     }.build()
@@ -267,7 +270,7 @@ class GraphQLRepository(
             else -> {
                 okHttpClient.value.newCall(Request.Builder().apply {
                     url(url)
-                    headers(headers.toHeaders())
+                    headers(graphQLTransportHeaders(headers).toHeaders())
                     header("Content-Type", "application/json")
                     post(body.toRequestBody())
                 }.build()).executeAsync().use { response ->
@@ -279,9 +282,17 @@ class GraphQLRepository(
         }
     }
 
+    private data class PersistedQueryResponse(
+        val httpStatusCode: Int,
+        val body: String,
+    )
+
     private suspend fun sendPersistedQuery(networkLibrary: String?, headers: Map<String, String>, body: String): String = withContext(Dispatchers.IO) {
+        ensureProtectedHeadersAvailable(headers)
         val url = "https://gql.twitch.tv/gql"
-        when {
+        val operationName = TwitchGqlDiagnostics.operationName(body)
+        TwitchGqlDiagnostics.logRequest(operationName, headers, body)
+        val response = when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
                 val response = suspendCancellableCoroutine { continuation ->
                     val timeout = NetworkUtils.HttpEngineTimeout()
@@ -290,7 +301,7 @@ class GraphQLRepository(
                         cronetExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
                     ).apply {
-                        headers.forEach { addHeader(it.key, it.value) }
+                        graphQLTransportHeaders(headers).forEach { addHeader(it.key, it.value) }
                         addHeader("Content-Type", "application/json")
                         setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), cronetExecutor.value)
                     }.build()
@@ -301,7 +312,7 @@ class GraphQLRepository(
                         timeout.stop()
                     }
                 }
-                response.body.decodeToString()
+                PersistedQueryResponse(response.info.httpStatusCode, response.body.decodeToString())
             }
             networkLibrary == C.CRONET && cronetEngine.value != null -> {
                 val response = suspendCancellableCoroutine { continuation ->
@@ -311,7 +322,7 @@ class GraphQLRepository(
                         NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
                         cronetExecutor.value
                     ).apply {
-                        headers.forEach { addHeader(it.key, it.value) }
+                        graphQLTransportHeaders(headers).forEach { addHeader(it.key, it.value) }
                         addHeader("Content-Type", "application/json")
                         setUploadDataProvider(UploadDataProviders.create(body.toByteArray()), cronetExecutor.value)
                     }.build()
@@ -322,19 +333,21 @@ class GraphQLRepository(
                         timeout.stop()
                     }
                 }
-                response.body.decodeToString()
+                PersistedQueryResponse(response.info.httpStatusCode, response.body.decodeToString())
             }
             else -> {
                 okHttpClient.value.newCall(Request.Builder().apply {
                     url(url)
-                    headers(headers.toHeaders())
+                    headers(graphQLTransportHeaders(headers).toHeaders())
                     header("Content-Type", "application/json")
                     post(body.toRequestBody())
                 }.build()).executeAsync().use { response ->
-                    response.body.string()
+                    PersistedQueryResponse(response.code, response.body.string())
                 }
             }
         }
+        TwitchGqlDiagnostics.logResponse(operationName, response.httpStatusCode, response.body, headers)
+        response.body
     }
 
     suspend fun loadQueryBadges(networkLibrary: String?, headers: Map<String, String>, quality: BadgeImageSize): ApolloResponse<BadgesQuery.Data> = withContext(Dispatchers.IO) {
@@ -711,6 +724,7 @@ class GraphQLRepository(
     }
 
     suspend fun loadQueryVideoCommentsDownload(networkLibrary: String?, timeout: Long, okHttpClient: Lazy<OkHttpClient>, headers: Map<String, String>, videoId: String?, offset: Int? = null, cursor: String? = null): VideoMessagesResponse = withContext(Dispatchers.IO) {
+        ensureProtectedHeadersAvailable(headers)
         val url = "https://gql.twitch.tv/gql"
         val query = VideoCommentsQuery(
             id = Optional.Present(videoId),
@@ -739,7 +753,7 @@ class GraphQLRepository(
                         cronetExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
                     ).apply {
-                        headers.forEach { addHeader(it.key, it.value) }
+                        graphQLTransportHeaders(headers).forEach { addHeader(it.key, it.value) }
                         addHeader("Content-Type", "application/json")
                         setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), cronetExecutor.value)
                     }.build()
@@ -760,7 +774,7 @@ class GraphQLRepository(
                         NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
                         cronetExecutor.value
                     ).apply {
-                        headers.forEach { addHeader(it.key, it.value) }
+                        graphQLTransportHeaders(headers).forEach { addHeader(it.key, it.value) }
                         addHeader("Content-Type", "application/json")
                         setUploadDataProvider(UploadDataProviders.create(body.toByteArray()), cronetExecutor.value)
                     }.build()
@@ -776,7 +790,7 @@ class GraphQLRepository(
             else -> {
                 okHttpClient.value.newCall(Request.Builder().apply {
                     url(url)
-                    headers(headers.toHeaders())
+                    headers(graphQLTransportHeaders(headers).toHeaders())
                     header("Content-Type", "application/json")
                     post(body.toRequestBody())
                 }.build()).executeAsync().use { response ->
@@ -2152,5 +2166,14 @@ class GraphQLRepository(
             }
         }.toString()
         json.decodeFromString<ErrorResponse>(sendPersistedQuery(networkLibrary, headers, body))
+    }
+}
+
+internal fun graphQLTransportHeaders(headers: Map<String, String>): Map<String, String> =
+    headers.filterKeys { !it.equals("Content-Type", ignoreCase = true) }
+
+internal fun ensureProtectedHeadersAvailable(headers: Map<String, String>) {
+    if (headers is ProtectedGqlHeadersUnavailable) {
+        throw TwitchIntegrityUnavailableException()
     }
 }

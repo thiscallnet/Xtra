@@ -23,9 +23,19 @@ import java.util.Date
 import java.util.Locale
 import kotlin.uuid.Uuid
 
+/** Header set returned while the authenticated GeckoView integrity context is refreshing. */
+internal class ProtectedGqlHeadersUnavailable(
+    private val delegate: Map<String, String>,
+) : Map<String, String> by delegate
+
+internal class TwitchIntegrityUnavailableException : IllegalStateException(
+    "Twitch protected request is waiting for the authenticated GeckoView integrity context",
+)
+
 object TwitchApiHelper {
 
     private val imageSizeRegex = Regex("-\\d+x\\d+.")
+    private val webGqlIdentityLock = Any()
     var checkedValidation = false
     var checkedUpdates = false
     val defaultQualityList = listOf("chunked", "1080p60", "1080p30", "720p60", "720p30", "480p30", "360p30", "160p30", "audio_only")
@@ -244,43 +254,140 @@ object TwitchApiHelper {
     fun addTokenPrefixHelix(token: String) = "Bearer $token"
 
     fun getGQLHeaders(context: Context, includeToken: Boolean = false): Map<String, String> {
-        return mutableMapOf<String, String>().apply {
-            put(
-                C.HEADER_CLIENT_ID,
-                context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
-                    ?: C.DEFAULT_GQL_CLIENT_ID_WEB,
-            )
-            val webToken = context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
-                ?.takeIf { it.isNotBlank() }
-            if (includeToken && webToken != null) {
-                put(C.HEADER_TOKEN, addTokenPrefixGQL(webToken))
+        val webToken = context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
+            ?.takeIf { it.isNotBlank() }
+        return buildGQLHeaders(
+            clientId = context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
+                ?: C.DEFAULT_GQL_CLIENT_ID_WEB,
+            accessToken = webToken?.takeIf { includeToken },
+            cookieHeader = if (includeToken && webToken != null) {
                 liveWebCookieHeader(context, "https://gql.twitch.tv/gql")
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { put("Cookie", it) }
-            }
-        }
+            } else {
+                null
+            },
+        )
+    }
+
+    internal fun buildGQLHeaders(
+        clientId: String,
+        accessToken: String?,
+        cookieHeader: String? = null,
+    ): Map<String, String> = buildMap {
+        put(C.HEADER_CLIENT_ID, clientId)
+        accessToken?.takeIf { it.isNotBlank() }?.let { put(C.HEADER_TOKEN, addTokenPrefixGQL(it)) }
+        cookieHeader?.takeIf { it.isNotBlank() }?.let { put("Cookie", it) }
     }
 
     /** Headers for private operations used by the Twitch web channel page. */
     fun getWebGQLHeaders(context: Context, includeToken: Boolean = true): Map<String, String> {
-        return mutableMapOf(
-            C.HEADER_CLIENT_ID to (context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
-                ?: C.DEFAULT_GQL_CLIENT_ID_WEB),
-            "Client-Session-Id" to Uuid.random().toString(),
-            "X-Device-Id" to Uuid.random().toHexString(),
-            "Origin" to "https://www.twitch.tv",
-            "Referer" to "https://www.twitch.tv/",
-            "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
-        ).apply {
-            if (includeToken) {
-                context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { put(C.HEADER_TOKEN, addTokenPrefixGQL(it)) }
-                liveWebCookieHeader(context, "https://gql.twitch.tv/gql")
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { put("Cookie", it) }
+        val clientId = context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
+            ?: C.DEFAULT_GQL_CLIENT_ID_WEB
+        val accessToken = if (includeToken) context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null) else null
+        val cookieHeader = if (includeToken) liveWebCookieHeader(context, "https://gql.twitch.tv/gql") else null
+        val capturedHeaders = if (includeToken) liveCapturedWebGqlHeaders(context) else null
+        if (!capturedHeaders.isNullOrEmpty()) {
+            return buildCapturedWebGQLHeaders(
+                fallbackClientId = clientId,
+                fallbackAccessToken = accessToken,
+                cookieHeader = cookieHeader,
+                browserHeaders = capturedHeaders,
+            )
+        }
+
+        val identity = getStableWebGqlIdentity(context)
+        return buildWebGQLHeaders(
+            clientId = clientId,
+            accessToken = accessToken,
+            deviceId = identity.deviceId,
+            clientSessionId = identity.clientSessionId,
+            cookieHeader = cookieHeader,
+        )
+    }
+
+    fun getProtectedGQLHeaders(context: Context): Map<String, String> =
+        markUnavailableProtectedGQLHeaders(getWebGQLHeaders(context, includeToken = true))
+
+    internal fun markUnavailableProtectedGQLHeaders(headers: Map<String, String>): Map<String, String> {
+        if (headers[C.HEADER_TOKEN].isNullOrBlank() || !headers["Client-Integrity"].isNullOrBlank()) {
+            return headers
+        }
+        return ProtectedGqlHeadersUnavailable(headers)
+    }
+
+    internal data class WebGqlIdentity(
+        val deviceId: String,
+        val clientSessionId: String,
+    )
+
+    internal fun buildWebGQLHeaders(
+        clientId: String,
+        accessToken: String?,
+        deviceId: String,
+        clientSessionId: String,
+        cookieHeader: String? = null,
+    ): Map<String, String> = buildMap {
+        put(C.HEADER_CLIENT_ID, clientId)
+        accessToken?.takeIf { it.isNotBlank() }?.let { put(C.HEADER_TOKEN, addTokenPrefixGQL(it)) }
+        cookieHeader?.takeIf { it.isNotBlank() }?.let { put("Cookie", it) }
+        put("Client-Session-Id", clientSessionId)
+        put("X-Device-Id", deviceId)
+        put("Origin", "https://www.twitch.tv")
+        put("Referer", "https://www.twitch.tv/")
+        put("User-Agent", WEB_GQL_USER_AGENT)
+    }
+
+    /** Reuses the exact browser metadata when GeckoView has observed a live integrity request. */
+    internal fun buildCapturedWebGQLHeaders(
+        fallbackClientId: String,
+        fallbackAccessToken: String?,
+        cookieHeader: String?,
+        browserHeaders: Map<String, String>,
+    ): Map<String, String> = buildMap {
+        val transportManagedHeaders = setOf(
+            "Accept-Encoding",
+            "Content-Length",
+            "Content-Type",
+        )
+        put(C.HEADER_CLIENT_ID, browserHeaders[C.HEADER_CLIENT_ID] ?: fallbackClientId)
+        val browserAuthorization = browserHeaders[C.HEADER_TOKEN]?.takeIf { it.isNotBlank() }
+        if (browserAuthorization != null) {
+            put(C.HEADER_TOKEN, browserAuthorization)
+        } else {
+            fallbackAccessToken?.takeIf { it.isNotBlank() }?.let { put(C.HEADER_TOKEN, addTokenPrefixGQL(it)) }
+        }
+        cookieHeader?.takeIf { it.isNotBlank() }?.let { put("Cookie", it) }
+        browserHeaders.forEach { (name, value) ->
+            if (name != C.HEADER_CLIENT_ID &&
+                name != C.HEADER_TOKEN &&
+                name !in transportManagedHeaders &&
+                !name.startsWith(":")) {
+                put(name, value)
             }
         }
+    }
+
+    private fun getStableWebGqlIdentity(context: Context): WebGqlIdentity = synchronized(webGqlIdentityLock) {
+        val accountId = context.tokenPrefs().getString(C.GQL_TOKEN_WEB_USER_ID, null)
+            ?.takeIf { it.isNotBlank() }
+            ?: context.tokenPrefs().getString(C.USER_ID, null)?.takeIf { it.isNotBlank() }
+            ?: ANONYMOUS_ACCOUNT_ID
+        val preferences = context.prefs()
+        val storedAccountId = preferences.getString(C.TWITCH_GQL_CONTEXT_ACCOUNT_ID, null)
+        val storedDeviceId = preferences.getString(C.TWITCH_GQL_DEVICE_ID, null)
+        val storedClientSessionId = preferences.getString(C.TWITCH_GQL_CLIENT_SESSION_ID, null)
+        if (storedAccountId == accountId && !storedDeviceId.isNullOrBlank() && !storedClientSessionId.isNullOrBlank()) {
+            return WebGqlIdentity(storedDeviceId, storedClientSessionId)
+        }
+        val identity = WebGqlIdentity(
+            deviceId = Uuid.random().toHexString(),
+            clientSessionId = Uuid.random().toString(),
+        )
+        preferences.edit()
+            .putString(C.TWITCH_GQL_CONTEXT_ACCOUNT_ID, accountId)
+            .putString(C.TWITCH_GQL_DEVICE_ID, identity.deviceId)
+            .putString(C.TWITCH_GQL_CLIENT_SESSION_ID, identity.clientSessionId)
+            .apply()
+        return identity
     }
 
     /** Headers for the authenticated PersonalSections request. */
@@ -389,6 +496,14 @@ object TwitchApiHelper {
         }.getOrNull()
             ?: context.tokenPrefs().getString(C.TWITCH_WEB_COOKIE_HEADER, null)
 
+    private fun liveCapturedWebGqlHeaders(context: Context): Map<String, String>? =
+        runCatching {
+            (context.applicationContext as? XtraApp)
+                ?.xtraModule
+                ?.twitchWebSessionManager
+                ?.capturedGqlHeadersForCurrentAccount()
+        }.getOrNull()
+
     fun isSessionValidationDue(context: Context): Boolean {
         if (context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null).isNullOrBlank()) return false
         val lastValidatedAt = context.tokenPrefs().getLong(C.TOKEN_VALIDATED_AT, 0)
@@ -397,6 +512,8 @@ object TwitchApiHelper {
     }
 
     private const val SESSION_VALIDATION_INTERVAL_MILLIS = 60 * 60 * 1_000L
+    private const val ANONYMOUS_ACCOUNT_ID = "anonymous"
+    private const val WEB_GQL_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
     fun getVideoUrlsFromPreview(url: String, type: String?, list: List<String>?): Map<String, String> {
         val qualityList = list ?: listOf("chunked", "1080p60", "1080p30", "720p60", "720p30", "480p30", "360p30", "160p30", "144p30", "high", "medium", "low", "mobile", "audio_only")

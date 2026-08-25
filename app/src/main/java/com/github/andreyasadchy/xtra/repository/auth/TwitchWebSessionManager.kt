@@ -4,17 +4,21 @@ import android.content.Context
 import android.util.Log
 import com.github.andreyasadchy.xtra.model.id.ValidationResponse
 import com.github.andreyasadchy.xtra.repository.AuthRepository
+import com.github.andreyasadchy.xtra.repository.TwitchGqlDiagnostics
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -53,8 +57,10 @@ class TwitchWebSessionManager(
     private val sessionStore = AuthSessionStore(applicationContext.prefs(), applicationContext.tokenPrefs())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val candidateMutex = Mutex()
+    private val integrityRefreshMutex = Mutex()
     private val sessionLock = Any()
     private val cookiesLock = Any()
+    private val gqlHeadersLock = Any()
     private val _state = MutableStateFlow<TwitchWebSessionState>(TwitchWebSessionState.SignedOut)
     private val _loginSession = MutableStateFlow<GeckoSession?>(null)
     private var runtime: GeckoRuntime? = null
@@ -72,12 +78,17 @@ class TwitchWebSessionManager(
     private var sessionGeneration = 0L
     private var cookieSnapshot: List<TwitchWebCookie> = emptyList()
     private var hasCookieSnapshot = false
+    private var suppressNextBrowserDisappearance = false
+    private var capturedGqlHeaderState: TwitchWebGqlHeaderState? = null
+    private var pendingGqlHeaderState: TwitchWebGqlHeaderState? = null
+    private var integrityMaintenanceJob: Job? = null
 
     val state: StateFlow<TwitchWebSessionState> = _state.asStateFlow()
     val loginSession: StateFlow<GeckoSession?> = _loginSession.asStateFlow()
 
     /** Returns the persistent Gecko session that the login Activity should display. */
     fun openLoginSession(reauthorize: Boolean): GeckoSession = synchronized(sessionLock) {
+        suppressNextBrowserDisappearance = false
         val startingReauthorization = reauthorize && !this.reauthorize
         this.reauthorize = reauthorize
         if (startingReauthorization) {
@@ -102,8 +113,42 @@ class TwitchWebSessionManager(
 
     /** Stops the current Twitch page while retaining the process-wide Gecko profile. */
     fun closeLoginSession() {
+        synchronized(sessionLock) {
+            // Closing the visible GeckoView is not a Twitch logout. The bridge
+            // may report that the page disappeared after the session closes;
+            // keep the authenticated native session and captured integrity
+            // context in that case.
+            suppressNextBrowserDisappearance = true
+        }
         invalidatePendingWork()
         closeSessionInternal()
+    }
+
+    /** Keeps an authenticated Gecko session available to refresh short-lived integrity state. */
+    @Synchronized
+    fun startIntegrityMaintenance(maintenanceScope: CoroutineScope) {
+        if (integrityMaintenanceJob?.isActive == true) return
+        integrityMaintenanceJob = maintenanceScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                try {
+                    refreshIntegrityContextIfNeeded()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.w(TAG, "Integrity bootstrap failed: ${error.javaClass.simpleName}")
+                }
+                delay(INTEGRITY_REFRESH_CHECK_MILLIS)
+            }
+        }
+    }
+
+    /** Called when the login Activity finishes while the authenticated browser session stays open. */
+    fun retainAuthenticatedLoginSession() {
+        synchronized(sessionLock) {
+            reauthorize = false
+            expectedReauthorizationUserId = null
+            suppressNextBrowserDisappearance = false
+        }
     }
 
     fun cookieHeaderFor(url: String): String? {
@@ -113,6 +158,20 @@ class TwitchWebSessionManager(
         }
         return applicationContext.tokenPrefs().getString(C.TWITCH_WEB_COOKIE_HEADER, null)
             ?.takeIf { it.isNotBlank() }
+    }
+
+    /** Returns the latest short-lived integrity context observed in Twitch web traffic. */
+    fun capturedGqlHeadersForCurrentAccount(): Map<String, String>? {
+        val accountId = sessionStore.storedUserId()?.takeIf { it.isNotBlank() } ?: return null
+        val now = System.currentTimeMillis()
+        return synchronized(gqlHeadersLock) {
+            val state = capturedGqlHeaderState ?: return@synchronized null
+            if (!state.isUsable(accountId, now)) {
+                capturedGqlHeaderState = null
+                return@synchronized null
+            }
+            state.headers
+        }
     }
 
     /** Signs out Xtra and optionally clears the persistent Gecko Twitch session. */
@@ -141,6 +200,7 @@ class TwitchWebSessionManager(
             val nativeCleared = withContextNonCancellable { sessionStore.clearAll() }
             if (nativeCleared) {
                 clearAcceptedCookieSnapshot()
+                clearCapturedGqlHeaders()
                 rejectedCandidateToken = null
                 authSessionMaintainer.onAuthenticationStateChanged()
                 _state.value = TwitchWebSessionState.SignedOut
@@ -193,9 +253,38 @@ class TwitchWebSessionManager(
             message: Any,
             sender: WebExtension.MessageSender,
         ): GeckoResult<Any>? {
-            if (nativeApp != NATIVE_APP || message !is JSONObject ||
-                message.optString("type") != "twitch_session"
-            ) return null
+            if (nativeApp != NATIVE_APP || message !is JSONObject) return null
+
+            when (message.optString("type")) {
+                "twitch_gql_browser_request" -> {
+                    TwitchGqlDiagnostics.logBrowserRequest(
+                        requestId = message.optString("requestId").takeIf { it.isNotBlank() },
+                        method = message.optString("method").takeIf { it.isNotBlank() },
+                        headerNames = parseStringArray(message.optJSONArray("headerNames")),
+                    )
+                    return null
+                }
+                "twitch_gql_browser_response" -> {
+                    TwitchGqlDiagnostics.logBrowserResponse(
+                        requestId = message.optString("requestId").takeIf { it.isNotBlank() },
+                        statusCode = message.optInt("statusCode"),
+                        headerNames = parseStringArray(message.optJSONArray("headerNames")),
+                    )
+                    return null
+                }
+                "twitch_gql_browser_error" -> {
+                    TwitchGqlDiagnostics.logBrowserError(
+                        requestId = message.optString("requestId").takeIf { it.isNotBlank() },
+                        error = message.optString("error").takeIf { it.isNotBlank() },
+                    )
+                    return null
+                }
+                "twitch_gql_request_headers" -> {
+                captureGqlRequestHeaders(parseGqlRequestHeaders(message.optJSONObject("headers")))
+                    return null
+                }
+            }
+            if (message.optString("type") != "twitch_session") return null
 
             val reason = message.optString("reason")
             val cookies = parseCookies(message.optJSONArray("cookies"))
@@ -288,6 +377,8 @@ class TwitchWebSessionManager(
                 )
             }
             if (!committed) error("Could not save Twitch session")
+            if (previous?.userId != userId) clearCapturedGqlHeaders()
+            promotePendingGqlHeaders(accessToken, userId)
             publishAcceptedCookies(cookies, persist = false)
             authSessionMaintainer.onAuthenticationStateChanged()
             _state.value = TwitchWebSessionState.Authenticated(
@@ -321,6 +412,7 @@ class TwitchWebSessionManager(
         withContext(Dispatchers.Main.immediate) {
             closeSessionForStorageClear()
         }
+        clearCapturedGqlHeaders()
         if (!clearTwitchSiteData()) {
             if (recoveryGeneration != sessionGeneration) return
             _state.value = TwitchWebSessionState.RecoverableError
@@ -338,6 +430,15 @@ class TwitchWebSessionManager(
 
     private suspend fun signOutAfterBrowserSessionDisappeared(generation: Long) {
         if (generation != sessionGeneration) return
+        val suppressed = synchronized(sessionLock) {
+            if (!suppressNextBrowserDisappearance) {
+                false
+            } else {
+                suppressNextBrowserDisappearance = false
+                true
+            }
+        }
+        if (suppressed) return
         invalidatePendingWork()
         val nativeCleared = withContextNonCancellable { sessionStore.clearAll() }
         if (!nativeCleared) {
@@ -345,6 +446,7 @@ class TwitchWebSessionManager(
             return
         }
         clearAcceptedCookieSnapshot()
+        clearCapturedGqlHeaders()
         authSessionMaintainer.onAuthenticationStateChanged()
         _state.value = TwitchWebSessionState.SignedOut
     }
@@ -366,6 +468,118 @@ class TwitchWebSessionManager(
         synchronized(cookiesLock) {
             cookieSnapshot = emptyList()
             hasCookieSnapshot = true
+        }
+    }
+
+    private fun captureGqlRequestHeaders(headers: Map<String, String>) {
+        val state = TwitchWebGqlHeaderState.capture(
+            headers = headers,
+            accountId = null,
+            capturedAtMillis = System.currentTimeMillis(),
+        )
+        TwitchGqlDiagnostics.logBrowserHeaders(
+            headers = state?.headers ?: headers,
+            integrityExpiresAtMillis = state?.integrityExpiresAtMillis,
+        )
+        state ?: return
+        val stored = sessionStore.read()
+        synchronized(gqlHeadersLock) {
+            if (stored != null && state.matchesAccessToken(stored.accessToken)) {
+                capturedGqlHeaderState = state.withAccount(stored.userId)
+                pendingGqlHeaderState = null
+            } else {
+                pendingGqlHeaderState = state
+            }
+        }
+    }
+
+    private fun promotePendingGqlHeaders(accessToken: String, userId: String) {
+        synchronized(gqlHeadersLock) {
+            val pending = pendingGqlHeaderState
+            if (pending != null && pending.matchesAccessToken(accessToken)) {
+                capturedGqlHeaderState = pending.withAccount(userId)
+                pendingGqlHeaderState = null
+            }
+        }
+    }
+
+    private fun clearCapturedGqlHeaders() {
+        synchronized(gqlHeadersLock) {
+            capturedGqlHeaderState = null
+            pendingGqlHeaderState = null
+        }
+    }
+
+    private suspend fun refreshIntegrityContextIfNeeded() {
+        if (sessionStore.read() == null || reauthorize) return
+        if (capturedGqlHeadersForCurrentAccount() != null) return
+
+        integrityRefreshMutex.withLock {
+            if (sessionStore.read() == null || reauthorize) return@withLock
+            if (capturedGqlHeadersForCurrentAccount() != null) return@withLock
+
+            val browserSession = synchronized(sessionLock) {
+                if (reauthorize) null else session
+            } ?: return@withLock
+            var homeRequested = false
+            repeat(INTEGRITY_BOOTSTRAP_ATTEMPTS) {
+                if (sessionStore.read() == null || reauthorize) return@withLock
+                if (capturedGqlHeadersForCurrentAccount() != null) return@withLock
+                if (!homeRequested && _state.value is TwitchWebSessionState.Authenticated) {
+                    homeRequested = true
+                    withContext(Dispatchers.Main.immediate) {
+                        loadIntegrityHome(browserSession)
+                    }
+                }
+                delay(INTEGRITY_BOOTSTRAP_POLL_MILLIS)
+            }
+            Log.w(TAG, "Integrity bootstrap produced no usable browser context")
+        }
+    }
+
+    private fun loadIntegrityHome(browserSession: GeckoSession) {
+        synchronized(sessionLock) {
+            if (session === browserSession && !reauthorize) {
+                browserSession.loadUri(TWITCH_HOME_URL)
+            }
+        }
+    }
+
+    private fun parseGqlRequestHeaders(headers: JSONObject?): Map<String, String> {
+        if (headers == null) return emptyMap()
+        return listOf(
+            TwitchWebGqlHeaderState.AUTHORIZATION,
+            TwitchWebGqlHeaderState.ACCEPT,
+            TwitchWebGqlHeaderState.ACCEPT_ENCODING,
+            TwitchWebGqlHeaderState.ACCEPT_LANGUAGE,
+            TwitchWebGqlHeaderState.CLIENT_ID,
+            TwitchWebGqlHeaderState.CLIENT_INTEGRITY,
+            TwitchWebGqlHeaderState.CLIENT_SESSION_ID,
+            TwitchWebGqlHeaderState.CLIENT_VERSION,
+            TwitchWebGqlHeaderState.CONTENT_LENGTH,
+            TwitchWebGqlHeaderState.CONTENT_TYPE,
+            TwitchWebGqlHeaderState.DEVICE_ID,
+            TwitchWebGqlHeaderState.ORIGIN,
+            TwitchWebGqlHeaderState.PRIORITY,
+            TwitchWebGqlHeaderState.REFERER,
+            TwitchWebGqlHeaderState.SEC_CH_UA,
+            TwitchWebGqlHeaderState.SEC_CH_UA_MOBILE,
+            TwitchWebGqlHeaderState.SEC_CH_UA_PLATFORM,
+            TwitchWebGqlHeaderState.SEC_FETCH_DEST,
+            TwitchWebGqlHeaderState.SEC_FETCH_MODE,
+            TwitchWebGqlHeaderState.SEC_FETCH_SITE,
+            TwitchWebGqlHeaderState.USER_AGENT,
+        ).mapNotNull { name ->
+            headers.optString(name).takeIf { it.isNotBlank() }?.let { name to it }
+        }.toMap()
+    }
+
+    private fun parseStringArray(array: JSONArray?): List<String> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                array.optString(index).takeIf { it.isNotBlank() }?.let(::add)
+            }
         }
     }
 
@@ -467,9 +681,13 @@ class TwitchWebSessionManager(
         const val PAGE_REQUEST_REASON = "page_request"
         const val TWITCH_BASE_DOMAIN = "twitch.tv"
         const val TWITCH_LOGIN_URL = "https://www.twitch.tv/login"
+        const val TWITCH_HOME_URL = "https://www.twitch.tv/"
         const val GQL_URL = "https://gql.twitch.tv/gql"
         const val SESSION_BRIDGE_LOCATION = "resource://android/assets/twitch_session_bridge/"
         const val SESSION_BRIDGE_ID = "twitch-session-bridge@xtra"
         const val NATIVE_APP = "com.github.andreyasadchy.xtra.session"
+        const val INTEGRITY_BOOTSTRAP_ATTEMPTS = 60
+        const val INTEGRITY_BOOTSTRAP_POLL_MILLIS = 250L
+        const val INTEGRITY_REFRESH_CHECK_MILLIS = 30_000L
     }
 }

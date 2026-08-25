@@ -1785,7 +1785,7 @@ class ChatViewModel(
             )
             return
         }
-        val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
+        val gqlHeaders = TwitchApiHelper.getProtectedGQLHeaders(applicationContext)
         if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             channelPointRedemptionEvents.trySend(
                 ChannelPointRedemptionResult(
@@ -1866,7 +1866,7 @@ class ChatViewModel(
             )
             return
         }
-        val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
+        val gqlHeaders = TwitchApiHelper.getProtectedGQLHeaders(applicationContext)
         if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             watchStreakShareEvents.trySend(
                 WatchStreakShareResult(
@@ -1883,7 +1883,7 @@ class ChatViewModel(
             try {
                 val response = graphQLRepository.shareWatchStreak(
                     networkLibrary = networkLibrary,
-                    headers = gqlHeaders,
+                    headers = TwitchApiHelper.getProtectedGQLHeaders(applicationContext),
                     channelId = channelId,
                     milestoneId = milestoneId,
                     message = message?.takeIf { it.isNotBlank() },
@@ -3104,7 +3104,12 @@ class ChatViewModel(
                         return@launch
                     }
 
-                    val claimResponse = graphQLRepository.loadClaimPoints(networkLibrary, gqlHeaders, channelId, claimId)
+                    val claimResponse = graphQLRepository.loadClaimPoints(
+                        networkLibrary,
+                        TwitchApiHelper.getProtectedGQLHeaders(applicationContext),
+                        channelId,
+                        claimId,
+                    )
                     val claimError = claimResponse.errors?.firstOrNull()?.message
                     Log.d(
                         WatchCreditTelemetry.LOG_TAG,
@@ -3220,7 +3225,11 @@ class ChatViewModel(
                         if (collectPoints && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                             viewModelScope.launch {
                                 try {
-                                    val response = graphQLRepository.loadJoinRaid(networkLibrary, gqlHeaders, it.raidId)
+                                    val response = graphQLRepository.loadJoinRaid(
+                                        networkLibrary,
+                                        TwitchApiHelper.getProtectedGQLHeaders(applicationContext),
+                                        it.raidId,
+                                    )
                                 } catch (e: Exception) {
 
                                 }
@@ -3600,7 +3609,7 @@ class ChatViewModel(
 
         val channelId = activeChannelId
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-        val headers = TwitchApiHelper.getGQLHeaders(applicationContext, true)
+        val headers = TwitchApiHelper.getProtectedGQLHeaders(applicationContext)
         _pollVoteState.value = PollVoteState(
             pollId = pollId,
             pendingChoiceId = choiceId,
@@ -3695,7 +3704,7 @@ class ChatViewModel(
         if (points !in MIN_PREDICTION_POINTS..MAX_PREDICTION_POINTS || (balance != null && points > balance)) return
 
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-        val headers = TwitchApiHelper.getGQLHeaders(applicationContext, true)
+        val headers = TwitchApiHelper.getProtectedGQLHeaders(applicationContext)
         _predictionBetState.value = PredictionBetState(
             predictionId = predictionId,
             outcomeId = outcomeId,

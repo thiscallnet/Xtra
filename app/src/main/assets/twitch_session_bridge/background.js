@@ -1,9 +1,33 @@
 const NATIVE_APP = "com.github.andreyasadchy.xtra.session";
 const AUTH_TOKEN_COOKIE = "auth-token";
 const COOKIE_REPORT_DELAY_MS = 150;
+const GQL_HEADER_NAMES = [
+  "Accept",
+  "Accept-Encoding",
+  "Accept-Language",
+  "Authorization",
+  "Client-Id",
+  "Client-Integrity",
+  "Client-Session-Id",
+  "Client-Version",
+  "Content-Length",
+  "Content-Type",
+  "Priority",
+  "Sec-Ch-Ua",
+  "Sec-Ch-Ua-Mobile",
+  "Sec-Ch-Ua-Platform",
+  "Sec-Fetch-Dest",
+  "Sec-Fetch-Mode",
+  "Sec-Fetch-Site",
+  "X-Device-Id",
+  "Origin",
+  "Referer",
+  "User-Agent"
+];
 
 let lastAuthToken = undefined;
 let lastCookieSignature = undefined;
+let lastGqlHeaderSignature = undefined;
 let pendingReportTimer = null;
 let pendingAuthTokenChange = null;
 let reportQueue = Promise.resolve();
@@ -40,6 +64,7 @@ async function reportSession(reason, changeInfo = null) {
   ]));
 
   const forceReport = reason === "initial" || reason === "page_request";
+  if (forceReport) lastGqlHeaderSignature = undefined;
   if (!forceReport && authToken === lastAuthToken && cookieSignature === lastCookieSignature) return;
   lastAuthToken = authToken;
   lastCookieSignature = cookieSignature;
@@ -102,6 +127,67 @@ browser.cookies.onChanged.addListener(changeInfo => {
   }
   scheduleCookieReport(changeInfo);
 });
+
+function captureGqlRequestHeaders(details) {
+  const observed = new Map();
+  for (const header of details.requestHeaders || []) {
+    const canonicalName = GQL_HEADER_NAMES.find(name =>
+      name.toLowerCase() === String(header.name || "").toLowerCase()
+    );
+    if (canonicalName && header.value) observed.set(canonicalName, header.value);
+  }
+  const headers = {};
+  for (const name of GQL_HEADER_NAMES) {
+    if (observed.has(name)) headers[name] = observed.get(name);
+  }
+  browser.runtime.sendNativeMessage(NATIVE_APP, {
+    type: "twitch_gql_browser_request",
+    requestId: details.requestId || null,
+    method: details.method || null,
+    headerNames: [...new Set((details.requestHeaders || [])
+      .map(header => String(header.name || ""))
+      .filter(Boolean))]
+  }).catch(() => {});
+  if (observed.size === 0) return;
+
+  const signature = JSON.stringify(GQL_HEADER_NAMES.map(name => headers[name] || null));
+  if (signature === lastGqlHeaderSignature) return;
+  lastGqlHeaderSignature = signature;
+  browser.runtime.sendNativeMessage(NATIVE_APP, {
+    type: "twitch_gql_request_headers",
+    headers
+  }).catch(() => {});
+}
+
+browser.webRequest.onBeforeSendHeaders.addListener(
+  captureGqlRequestHeaders,
+  { urls: ["*://gql.twitch.tv/*"] },
+  ["requestHeaders"]
+);
+
+browser.webRequest.onCompleted.addListener(
+  details => {
+    browser.runtime.sendNativeMessage(NATIVE_APP, {
+      type: "twitch_gql_browser_response",
+      requestId: details.requestId || null,
+      statusCode: details.statusCode || 0,
+      headerNames: (details.responseHeaders || []).map(header => header.name).filter(Boolean)
+    }).catch(() => {});
+  },
+  { urls: ["*://gql.twitch.tv/*"] },
+  ["responseHeaders"]
+);
+
+browser.webRequest.onErrorOccurred.addListener(
+  details => {
+    browser.runtime.sendNativeMessage(NATIVE_APP, {
+      type: "twitch_gql_browser_error",
+      requestId: details.requestId || null,
+      error: details.error || null
+    }).catch(() => {});
+  },
+  { urls: ["*://gql.twitch.tv/*"] }
+);
 
 browser.runtime.onMessage.addListener(message => {
   if (message && message.type === "request_session") {
