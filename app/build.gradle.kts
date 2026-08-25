@@ -78,6 +78,7 @@ android {
 
     defaultConfig {
         applicationId = "com.github.andreyasadchy.xtra"
+        // GeckoView 150's AAR manifest requires API 26.
         minSdk = 26
         targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
