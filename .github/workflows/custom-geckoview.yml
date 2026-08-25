@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == pull_request || "$GITHUB_EVENT_NAME" == push ]]; then
             run_heavy=false
             release_both=false
             matrix='{"include":[{"abi":"arm64-v8a","label":"ARM64"}]}'
@@ -340,6 +340,7 @@ jobs:
             geckoview/artifacts/*.target.maven.zip
             geckoview/artifacts/*.json
           if-no-files-found: error
+          retention-days: 1
 
       - name: Upload compact failure diagnostics
         if: failure()
@@ -352,6 +353,7 @@ jobs:
             ${{ runner.temp }}/sccache-stats.txt
             geckoview/artifacts/*.json
           if-no-files-found: ignore
+          retention-days: 7
 
   experimental-nowebrtc:
     name: ARM64 / nowebrtc (experimental)
@@ -500,6 +502,7 @@ jobs:
             geckoview/artifacts/*.target.maven.zip
             geckoview/artifacts/*.json
           if-no-files-found: error
+          retention-days: 7
 
   fat-aar:
     name: Universal ARM GeckoView AAR
@@ -658,6 +661,7 @@ jobs:
           name: xtra-geckoview-universal-safe
           path: geckoview/artifacts/*universal-safe*
           if-no-files-found: error
+          retention-days: 1
 
   integration:
     name: Xtra release with custom GeckoView
@@ -723,6 +727,7 @@ jobs:
           name: xtra-custom-gecko-app-release
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+          retention-days: 3
 
   publish:
     name: Publish universal custom GeckoView
