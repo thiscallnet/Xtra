@@ -1547,12 +1547,13 @@ class MainActivity : AppCompatActivity() {
             // GeckoView is now the only account authority. Do not let an old OAuth cache make
             // the profile look signed in; preserve an already-imported Gecko session.
             val hasWebSession = !tokenPrefs().getString(C.GQL_TOKEN_WEB, null).isNullOrBlank()
-            if (!hasWebSession) {
-                tokenPrefs().edit {
+            tokenPrefs().edit {
+                // A legacy Helix credential is never valid for the Gecko account.
+                remove(C.TOKEN)
+                remove(C.TOKEN_CLIENT_ID)
+                if (!hasWebSession) {
                     remove(C.USER_ID)
                     remove(C.USERNAME)
-                    remove(C.TOKEN)
-                    remove(C.TOKEN_CLIENT_ID)
                     remove(C.TOKEN_SCOPES)
                 }
             }

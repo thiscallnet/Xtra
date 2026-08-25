@@ -124,7 +124,7 @@ class AuthSessionStore(
         return null
     }
 
-    /** Atomically installs the GeckoView Twitch session for both Helix and GQL callers. */
+    /** Atomically installs the GeckoView Twitch session for GQL callers. */
     fun commitWebSession(
         accessToken: String,
         userId: String,
@@ -136,6 +136,9 @@ class AuthSessionStore(
         val editor = tokenPreferences.edit()
         editor.apply {
             appendAccountCleanupTarget(this, userId, login)
+            // Gecko is the account authority. Do not retain an unrelated legacy Helix bearer.
+            remove(C.TOKEN)
+            remove(C.TOKEN_CLIENT_ID)
             putString(C.GQL_TOKEN_WEB, accessToken)
             putString(C.GQL_TOKEN_WEB_USER_ID, userId)
             putString(C.TWITCH_WEB_COOKIE_HEADER, cookieHeader)

@@ -10,6 +10,7 @@ import com.github.andreyasadchy.xtra.model.helix.chat.ChatSettings
 import com.github.andreyasadchy.xtra.model.helix.game.Game
 import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
 import com.github.andreyasadchy.xtra.model.helix.user.User
+import com.github.andreyasadchy.xtra.model.gql.ErrorResponse
 import com.github.andreyasadchy.xtra.repository.AccountCacheSnapshot
 import com.github.andreyasadchy.xtra.repository.TwitchApiException
 import com.github.andreyasadchy.xtra.util.C
@@ -25,11 +26,90 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
+import java.util.Locale
+
+private val CURRENT_USER_ACCOUNT_QUERY = """
+query CurrentUserAccount {
+    currentUser {
+        id
+        login
+        displayName
+        description
+        profileImageURL(width: 300)
+        chatColor
+        chatSettings {
+            isEmoteOnlyModeEnabled
+            isSubscribersOnlyModeEnabled
+            isUniqueChatModeEnabled
+            followersOnlyDurationMinutes
+            slowModeDurationSeconds
+        }
+        broadcastSettings {
+            title
+        }
+        channel {
+            id
+            game
+            broadcasterLanguage
+        }
+        tags {
+            id
+            localizedName
+            scope
+        }
+    }
+}
+""".trimIndent()
+
+private val CURRENT_USER_BLOCKED_USERS_QUERY = """
+query CurrentUserBlockedUsers {
+    currentUser {
+        blockedUsers {
+            id
+            login
+            displayName
+        }
+    }
+}
+""".trimIndent()
+
+private val UPDATE_USER_MUTATION = """
+mutation UpdateUser(${ '$' }input: UpdateUserInput!) {
+    updateUser(input: ${ '$' }input) {
+        __typename
+    }
+}
+""".trimIndent()
+
+private val UPDATE_BROADCAST_SETTINGS_MUTATION = """
+mutation UpdateBroadcastSettings(${ '$' }input: UpdateBroadcastSettingsInput!) {
+    updateBroadcastSettings(input: ${ '$' }input) {
+        __typename
+    }
+}
+""".trimIndent()
+
+private val UNBLOCK_USER_MUTATION = """
+mutation UnblockUser(${ '$' }input: UnblockUserInput!) {
+    unblockUser(input: ${ '$' }input) {
+        __typename
+    }
+}
+""".trimIndent()
 
 data class AccountCapabilities(
     val editBio: Boolean = false,
     val editChatColor: Boolean = false,
     val editChannel: Boolean = false,
+    val editChannelTags: Boolean = false,
     val editChatSettings: Boolean = false,
     val readBlockedUsers: Boolean = false,
     val manageBlockedUsers: Boolean = false,
@@ -39,6 +119,7 @@ data class AccountCapabilities(
             editBio = "user:edit" in scopes,
             editChatColor = "user:manage:chat_color" in scopes,
             editChannel = "channel:manage:broadcast" in scopes,
+            editChannelTags = "channel:manage:broadcast" in scopes,
             editChatSettings = "moderator:manage:chat_settings" in scopes,
             readBlockedUsers = "user:read:blocked_users" in scopes,
             manageBlockedUsers = "user:manage:blocked_users" in scopes,
@@ -46,9 +127,26 @@ data class AccountCapabilities(
     }
 }
 
+private val WEB_ACCOUNT_CAPABILITIES = AccountCapabilities(
+    editBio = true,
+    editChatColor = true,
+    editChannel = true,
+    editChatSettings = true,
+    readBlockedUsers = true,
+    manageBlockedUsers = true,
+)
+
+private data class WebAccountSnapshot(
+    val user: User,
+    val chatColor: String?,
+    val channel: ChannelInformation,
+    val chatSettings: ChatSettings,
+)
+
 data class AccountUiState(
     val loading: Boolean = true,
     val user: User? = null,
+    val webSession: Boolean = false,
     val scopes: Set<String> = emptySet(),
     val capabilities: AccountCapabilities = AccountCapabilities(),
     val chatColor: String? = null,
@@ -92,11 +190,70 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     private suspend fun loadAccount() {
         val headers = TwitchApiHelper.getHelixHeaders(context)
         val token = headers[C.HEADER_TOKEN]
+        val tokenUserId = context.tokenPrefs().getString(C.USER_ID, null)
+        val tokenLogin = context.tokenPrefs().getString(C.USERNAME, null)
+        val webToken = context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
+        val cached = try {
+            module.metadataCache.readAccount(tokenUserId, tokenLogin)
+        } catch (_: Exception) {
+            null
+        }
+        if (!webToken.isNullOrBlank()) {
+            _uiState.update { it.copy(loading = true, error = null, actionError = null, actionMessage = null) }
+            try {
+                val account = loadWebAccount()
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        user = account.user,
+                        webSession = true,
+                        scopes = emptySet(),
+                        capabilities = WEB_ACCOUNT_CAPABILITIES,
+                        chatColor = account.chatColor,
+                        chatColorLoadError = null,
+                        channel = account.channel,
+                        channelLoadError = null,
+                        chatSettings = account.chatSettings,
+                        chatSettingsLoadError = null,
+                        blockedUsers = cached?.blockedUsers.orEmpty(),
+                        blockedUsersCursor = cached?.blockedUsersCursor,
+                        blockedUsersLoading = false,
+                        blockedUsersLoadError = null,
+                        error = null,
+                    )
+                }
+                persistAccountCache(
+                    userId = account.user.id,
+                    login = account.user.login,
+                    chatColorValidated = account.chatColor != null,
+                    channelValidated = true,
+                    chatSettingsValidated = true,
+                )
+                return
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        webSession = false,
+                        scopes = emptySet(),
+                        capabilities = AccountCapabilities(),
+                        chatColorLoadError = null,
+                        channelLoadError = null,
+                        chatSettingsLoadError = null,
+                        blockedUsersLoading = false,
+                        blockedUsersLoadError = null,
+                        error = readableError(error),
+                    )
+                }
+                return
+            }
+        }
         if (token.isNullOrBlank()) {
             _uiState.update {
                 it.copy(
                     loading = false,
-                    user = null,
+                    user = cached?.user ?: cachedUser(),
+                    webSession = false,
                     scopes = emptySet(),
                     capabilities = AccountCapabilities(),
                     chatColor = null,
@@ -115,19 +272,13 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             return
         }
 
-        val tokenUserId = context.tokenPrefs().getString(C.USER_ID, null)
-        val tokenLogin = context.tokenPrefs().getString(C.USERNAME, null)
-        val cached = try {
-            module.metadataCache.readAccount(tokenUserId, tokenLogin)
-        } catch (_: Exception) {
-            null
-        }
         val cachedScopes = cached?.scopes.orEmpty()
         _uiState.update {
             it.copy(
                 loading = true,
                 error = null,
                 user = cached?.user ?: cachedUser(),
+                webSession = false,
                 scopes = cachedScopes,
                 capabilities = AccountCapabilities.from(cachedScopes),
                 chatColor = cached?.chatColor,
@@ -156,6 +307,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 _uiState.update {
                     it.copy(
                         loading = false,
+                        webSession = false,
                         scopes = emptySet(),
                         capabilities = AccountCapabilities(),
                         blockedUsersLoading = false,
@@ -214,6 +366,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     it.copy(
                         loading = false,
                         user = user,
+                        webSession = false,
                         scopes = scopes,
                         capabilities = capabilities,
                         chatColor = loadedColor,
@@ -253,18 +406,85 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private suspend fun loadWebAccount(): WebAccountSnapshot {
+        val response = module.graphQLRepository.executeRawOperation(
+            networkLibrary = networkLibrary(),
+            headers = gqlHeaders(),
+            operationName = "CurrentUserAccount",
+            query = CURRENT_USER_ACCOUNT_QUERY,
+        )
+        val currentUser = response.requireDataObject("currentUser")
+        val userId = currentUser.string("id") ?: error(context.getString(R.string.account_missing_user))
+        val login = currentUser.string("login")
+        val displayName = currentUser.string("displayName")
+        val channel = currentUser.objectValue("channel")
+        val chatSettings = currentUser.objectValue("chatSettings")
+        val tags = currentUser.arrayValue("tags").mapNotNull { tag ->
+            tag.objectValue("tag")?.string("localizedName") ?: tag.string("localizedName")
+        }
+        val followerDuration = chatSettings?.intValue("followersOnlyDurationMinutes")
+        val slowDuration = chatSettings?.intValue("slowModeDurationSeconds")
+        return WebAccountSnapshot(
+            user = User(
+                id = userId,
+                login = login,
+                displayName = displayName,
+                description = currentUser.string("description"),
+                profileImageURL = currentUser.string("profileImageURL"),
+            ),
+            chatColor = currentUser.string("chatColor").takeIf(::isCanonicalChatColor),
+            channel = ChannelInformation(
+                broadcasterId = userId,
+                broadcasterLogin = login,
+                broadcasterName = displayName,
+                gameName = channel?.string("game"),
+                language = channel?.string("broadcasterLanguage")?.lowercase(Locale.ROOT),
+                title = currentUser.objectValue("broadcastSettings")?.string("title"),
+                tags = tags,
+            ),
+            chatSettings = ChatSettings(
+                broadcasterId = userId,
+                moderatorId = userId,
+                followerMode = followerDuration != null,
+                followerModeDuration = followerDuration,
+                slowMode = slowDuration != null,
+                slowModeWaitTime = slowDuration,
+                subscriberMode = chatSettings?.booleanValue("isSubscribersOnlyModeEnabled") ?: false,
+                emoteMode = chatSettings?.booleanValue("isEmoteOnlyModeEnabled") ?: false,
+                uniqueChatMode = chatSettings?.booleanValue("isUniqueChatModeEnabled") ?: false,
+            ),
+        )
+    }
+
     fun updateChatColor(color: String) {
         mutate(R.string.account_saved) {
             requireCapability { it.editChatColor }
+            if (_uiState.value.webSession) {
+                requireNoGraphQLErrors(
+                    module.graphQLRepository.updateChatColor(
+                        networkLibrary(),
+                        gqlHeaders(),
+                        color,
+                    ),
+                )
+                _uiState.update { state ->
+                    state.copy(
+                        chatColor = color.toCanonicalChatColor(),
+                        chatColorLoadError = null,
+                    )
+                }
+                persistAccountCache(chatColorValidated = color.toCanonicalChatColor() != null)
+                return@mutate
+            }
             val error = module.helixRepository.updateChatColor(
                 networkLibrary(),
-                helixHeaders("user:manage:chat_color"),
+                helixHeaders(),
                 currentUserId(),
                 color,
             )
             error?.takeIf { it.isNotBlank() }?.let { throw TwitchApiException(400, null, message = it) }
             val canonicalColor = runCatching {
-                module.helixRepository.getChatColor(networkLibrary(), helixHeaders("user:manage:chat_color"), currentUserId())
+                module.helixRepository.getChatColor(networkLibrary(), helixHeaders(), currentUserId())
             }
             _uiState.update { state ->
                 state.copy(
@@ -282,7 +502,38 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
         mutate(R.string.account_saved) {
             requireCapability { it.editBio }
             require(description.length <= 300) { context.getString(R.string.account_bio_too_long) }
-            val user = module.helixRepository.updateUserDescription(networkLibrary(), helixHeaders("user:edit"), description)
+            if (_uiState.value.webSession) {
+                executeGqlMutation(
+                    operationName = "UpdateUser",
+                    query = UPDATE_USER_MUTATION,
+                    variables = buildJsonObject {
+                        putJsonObject("input") {
+                            put("userID", currentUserId())
+                            put("description", description)
+                        }
+                    },
+                )
+                _uiState.update { state ->
+                    state.user?.let { user ->
+                        state.copy(
+                            user = User(
+                                id = user.id,
+                                login = user.login,
+                                displayName = user.displayName,
+                                type = user.type,
+                                broadcasterType = user.broadcasterType,
+                                profileImageURL = user.profileImageURL,
+                                description = description,
+                                offlineImageUrl = user.offlineImageUrl,
+                                createdAt = user.createdAt,
+                            ),
+                        )
+                    } ?: state
+                }
+                persistAccountCache()
+                return@mutate
+            }
+            val user = module.helixRepository.updateUserDescription(networkLibrary(), helixHeaders(), description)
             _uiState.update { state -> state.copy(user = user ?: state.user) }
             persistAccountCache()
         }
@@ -302,9 +553,36 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 require(isValidStreamTitle(it)) { context.getString(R.string.account_title_too_long) }
             }
             tags?.let(::validateTags)
+            if (_uiState.value.webSession) {
+                check(tags == null) { context.getString(R.string.account_tags_not_editable_in_session) }
+                executeGqlMutation(
+                    operationName = "UpdateBroadcastSettings",
+                    query = UPDATE_BROADCAST_SETTINGS_MUTATION,
+                    variables = buildJsonObject {
+                        putJsonObject("input") {
+                            put("userID", currentUserId())
+                            title?.let { put("status", it) }
+                            (gameId ?: gameName)?.let { put("game", it) }
+                            language?.let { put("broadcasterLanguage", it.uppercase(Locale.ROOT)) }
+                        }
+                    },
+                )
+                _uiState.update { state ->
+                    state.copy(
+                        channel = state.channel?.copy(
+                            title = title ?: state.channel.title,
+                            gameId = gameId ?: state.channel.gameId,
+                            gameName = if (gameId != null) gameName else state.channel.gameName,
+                            language = language ?: state.channel.language,
+                        ),
+                    )
+                }
+                persistAccountCache()
+                return@mutate
+            }
             module.helixRepository.updateChannelInformation(
                 networkLibrary(),
-                helixHeaders("channel:manage:broadcast"),
+                helixHeaders(),
                 currentUserId(),
                 title = title,
                 gameId = gameId,
@@ -352,9 +630,69 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             require(update.slowDuration == null || update.slowDuration in 3..120) {
                 context.getString(R.string.account_slow_interval_invalid)
             }
+            if (_uiState.value.webSession) {
+                val headers = gqlHeaders()
+                if (update.emote != null || update.unique != null) {
+                    requireNoGraphQLErrors(
+                        module.graphQLRepository.updateChatSettings(
+                            networkLibrary(),
+                            headers,
+                            currentUserId(),
+                            emote = update.emote,
+                            unique = update.unique,
+                        ),
+                    )
+                }
+                update.subs?.let { enabled ->
+                    requireNoGraphQLErrors(
+                        module.graphQLRepository.sendMessage(
+                            networkLibrary(),
+                            headers,
+                            currentUserId(),
+                            if (enabled) "/subscribers" else "/subscribersoff",
+                            null,
+                        ),
+                    )
+                }
+                update.followers?.let { enabled ->
+                    requireNoGraphQLErrors(
+                        module.graphQLRepository.setFollowersOnlyMode(
+                            networkLibrary(),
+                            headers,
+                            currentUserId(),
+                            if (enabled) update.followersDuration ?: _uiState.value.chatSettings?.followerModeDuration ?: 0 else -1,
+                        ),
+                    )
+                }
+                update.slow?.let { enabled ->
+                    requireNoGraphQLErrors(
+                        module.graphQLRepository.setSlowMode(
+                            networkLibrary(),
+                            headers,
+                            currentUserId(),
+                            if (enabled) update.slowDuration ?: _uiState.value.chatSettings?.slowModeWaitTime ?: 30 else 0,
+                        ),
+                    )
+                }
+                _uiState.update { state ->
+                    state.copy(
+                        chatSettings = state.chatSettings?.copy(
+                            emoteMode = update.emote ?: state.chatSettings.emoteMode,
+                            followerMode = update.followers ?: state.chatSettings.followerMode,
+                            followerModeDuration = update.followersDuration ?: state.chatSettings.followerModeDuration,
+                            slowMode = update.slow ?: state.chatSettings.slowMode,
+                            slowModeWaitTime = update.slowDuration ?: state.chatSettings.slowModeWaitTime,
+                            subscriberMode = update.subs ?: state.chatSettings.subscriberMode,
+                            uniqueChatMode = update.unique ?: state.chatSettings.uniqueChatMode,
+                        ),
+                    )
+                }
+                persistAccountCache()
+                return@mutate
+            }
             val error = module.helixRepository.updateChatSettings(
                 networkLibrary(),
-                helixHeaders("moderator:manage:chat_settings"),
+                helixHeaders(),
                 currentUserId(),
                 currentUserId(),
                 emote = update.emote,
@@ -392,13 +730,32 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
         categorySearchJob = viewModelScope.launch {
             delay(300)
             runCatching {
-                module.helixRepository.getSearchGames(
-                    networkLibrary(),
-                    helixHeaders(),
-                    query.trim(),
-                    20,
-                    null,
-                ).data
+                if (_uiState.value.webSession) {
+                    val response = module.graphQLRepository.loadQuerySearchGames(
+                        networkLibrary(),
+                        gqlHeaders(),
+                        query.trim(),
+                        20,
+                        null,
+                    )
+                    response.data?.searchCategories?.edges.orEmpty().mapNotNull { edge ->
+                        edge.node?.let { node ->
+                            Game(
+                                id = node.id,
+                                name = node.displayName,
+                                boxArtURL = node.boxArtURL,
+                            )
+                        }
+                    }
+                } else {
+                    module.helixRepository.getSearchGames(
+                        networkLibrary(),
+                        helixHeaders(),
+                        query.trim(),
+                        20,
+                        null,
+                    ).data
+                }
             }.onSuccess { _categoryResults.value = it }
                 .onFailure { _categoryResults.value = emptyList() }
         }
@@ -418,16 +775,35 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 )
             }
             try {
-                val response = module.helixRepository.getBlockedUsers(
-                    networkLibrary(),
-                    helixHeaders("user:read:blocked_users"),
-                    currentUserId(),
-                    cursor = if (reset) null else _uiState.value.blockedUsersCursor,
-                )
+                val users: List<BlockedUser>
+                val cursor: String?
+                if (_uiState.value.webSession) {
+                    val response = module.graphQLRepository.executeRawOperation(
+                        networkLibrary(),
+                        gqlHeaders(),
+                        "CurrentUserBlockedUsers",
+                        CURRENT_USER_BLOCKED_USERS_QUERY,
+                    )
+                    val currentUser = response.requireDataObject("currentUser")
+                    users = currentUser.arrayValue("blockedUsers").mapNotNull { blockedUser ->
+                        blockedUser.objectValue("user")?.blockedUserFromJson()
+                            ?: blockedUser.blockedUserFromJson()
+                    }
+                    cursor = null
+                } else {
+                    val response = module.helixRepository.getBlockedUsers(
+                        networkLibrary(),
+                        helixHeaders(),
+                        currentUserId(),
+                        cursor = if (reset) null else _uiState.value.blockedUsersCursor,
+                    )
+                    users = response.data
+                    cursor = response.pagination?.cursor
+                }
                 _uiState.update {
                     it.copy(
-                        blockedUsers = if (reset) response.data else it.blockedUsers + response.data,
-                        blockedUsersCursor = response.pagination?.cursor,
+                        blockedUsers = if (reset || _uiState.value.webSession) users else it.blockedUsers + users,
+                        blockedUsersCursor = cursor,
                         blockedUsersLoading = false,
                         blockedUsersLoadError = null,
                     )
@@ -450,7 +826,19 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
         val id = user.id ?: return
         mutate(R.string.account_unblocked) {
             requireCapability { it.manageBlockedUsers }
-            module.helixRepository.unblockUser(networkLibrary(), helixHeaders("user:manage:blocked_users"), id)
+            if (_uiState.value.webSession) {
+                executeGqlMutation(
+                    operationName = "UnblockUser",
+                    query = UNBLOCK_USER_MUTATION,
+                    variables = buildJsonObject {
+                        putJsonObject("input") {
+                            put("targetUserID", id)
+                        }
+                    },
+                )
+            } else {
+                module.helixRepository.unblockUser(networkLibrary(), helixHeaders(), id)
+            }
             _uiState.update { state -> state.copy(blockedUsers = state.blockedUsers.filterNot { it.id == id }) }
             persistAccountCache()
         }
@@ -484,10 +872,21 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
 
     private fun networkLibrary() = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
 
-    private fun helixHeaders(requiredScope: String? = null) = TwitchApiHelper.getHelixHeaders(
-        context = context,
-        requiredScopes = requiredScope?.let(::setOf).orEmpty(),
-    )
+    private fun gqlHeaders() = TwitchApiHelper.getWebGQLHeaders(context, includeToken = true)
+
+    private fun helixHeaders() = TwitchApiHelper.getHelixHeaders(context)
+
+    private suspend fun executeGqlMutation(
+        operationName: String,
+        query: String,
+        variables: JsonObject,
+    ) = module.graphQLRepository.executeRawOperation(
+        networkLibrary = networkLibrary(),
+        headers = gqlHeaders(),
+        operationName = operationName,
+        query = query,
+        variables = variables,
+    ).requireData()
 
     private fun currentUserId(): String = _uiState.value.user?.id
         ?: context.tokenPrefs().getString(C.USER_ID, null)
@@ -555,3 +954,56 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     }
 
 }
+
+private fun JsonObject.requireData(): JsonObject {
+    val errors = graphQLErrorMessages()
+    check(errors.isEmpty()) { errors.joinToString("; ") }
+    return objectValue("data") ?: error("Twitch did not return GraphQL data")
+}
+
+private fun JsonObject.requireDataObject(name: String): JsonObject {
+    val data = requireData()
+    return data.objectValue(name) ?: error("Twitch did not return $name")
+}
+
+private fun JsonObject.graphQLErrorMessages(): List<String> = this["errors"]
+    ?.let { runCatching { it.jsonArray }.getOrNull() }
+    .orEmpty()
+    .mapNotNull { element ->
+        runCatching { element.jsonObject.string("message") }.getOrNull()
+    }
+    .ifEmpty { if (this["errors"] != null) listOf("Twitch rejected the GraphQL request") else emptyList() }
+
+private fun JsonObject.objectValue(name: String): JsonObject? = this[name]
+    ?.let { runCatching { it.jsonObject }.getOrNull() }
+
+private fun JsonObject.arrayValue(name: String): List<JsonObject> = this[name]
+    ?.let { runCatching { it.jsonArray }.getOrNull() }
+    .orEmpty()
+    .mapNotNull { element -> runCatching { element.jsonObject }.getOrNull() }
+
+private fun JsonObject.string(name: String): String? = this[name]
+    ?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }
+
+private fun JsonObject.intValue(name: String): Int? = string(name)?.toIntOrNull()
+
+private fun JsonObject.booleanValue(name: String): Boolean? = this[name]
+    ?.let { runCatching { it.jsonPrimitive.content.toBooleanStrictOrNull() }.getOrNull() }
+
+private fun JsonObject.blockedUserFromJson(): BlockedUser? {
+    val id = string("id") ?: return null
+    return BlockedUser(
+        id = id,
+        login = string("login"),
+        displayName = string("displayName"),
+    )
+}
+
+private fun requireNoGraphQLErrors(response: ErrorResponse) {
+    response.errors.orEmpty().mapNotNull { it.message }.takeIf { it.isNotEmpty() }?.let {
+        throw TwitchApiException(400, null, message = it.joinToString("; "))
+    }
+}
+
+private fun String.toCanonicalChatColor(): String? = takeIf { isCanonicalChatColor(it) }
+    ?: TWITCH_CHAT_COLOR_OPTIONS.firstOrNull { it.apiValue.equals(this, ignoreCase = true) }?.hex

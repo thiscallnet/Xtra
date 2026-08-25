@@ -173,7 +173,7 @@ class AccountActivity : AppCompatActivity() {
 
     private fun render(state: AccountUiState) {
         renderHeader(state.user)
-        renderAuthHealth()
+        renderAuthHealth(state)
         binding.progressBar.isVisible = state.loading && state.user == null
         binding.errorText.isVisible = page == PAGE_MAIN && !state.error.isNullOrBlank()
         binding.errorText.text = state.error
@@ -203,18 +203,21 @@ class AccountActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderAuthHealth() {
-        val spec = when (authHealth) {
-            AuthHealth.REAUTH_REQUIRED -> AuthHealthCardSpec(
+    private fun renderAuthHealth(state: AccountUiState) {
+        val spec = when {
+            authHealth == AuthHealth.REAUTH_REQUIRED -> AuthHealthCardSpec(
                 title = R.string.auth_health_reauth_title,
                 message = R.string.auth_health_reauth_message,
                 action = R.string.auth_health_reconnect,
                 reauthorize = true,
             )
-            AuthHealth.SIGNED_OUT,
-            AuthHealth.HEALTHY,
-            AuthHealth.UNKNOWN,
-            -> null
+            state.webSession && page == PAGE_MAIN -> AuthHealthCardSpec(
+                title = R.string.account_web_session_title,
+                message = R.string.account_web_session_message,
+                action = R.string.account_web_session_action,
+                reauthorize = false,
+            )
+            else -> null
         }
         binding.authHealthCard.isVisible = page == PAGE_MAIN && spec != null
         if (page != PAGE_MAIN || spec == null) return
@@ -222,11 +225,16 @@ class AccountActivity : AppCompatActivity() {
         binding.authHealthMessage.setText(spec.message)
         binding.authHealthAction.setText(spec.action)
         binding.authHealthAction.setOnClickListener {
-            loginLauncher.launch(
-                Intent(this, TwitchWebLoginActivity::class.java).apply {
-                    putExtra(TwitchWebLoginActivity.EXTRA_REAUTHORIZE, spec.reauthorize)
-                },
-            )
+            if (spec.reauthorize) {
+                loginLauncher.launch(
+                    Intent(this, TwitchWebLoginActivity::class.java)
+                        .putExtra(TwitchWebLoginActivity.EXTRA_REAUTHORIZE, true),
+                )
+            } else if (state.webSession) {
+                showPermissions(state.scopes, webSession = true)
+            } else {
+                openManageOnTwitch()
+            }
         }
     }
 
@@ -325,8 +333,20 @@ class AccountActivity : AppCompatActivity() {
         addSettingRow(
             binding.channelRows,
             getString(R.string.account_tags),
-            if (editableChannel != null) editableChannel.tags.joinToString(", ").takeUnless { it.isNullOrBlank() } ?: getString(R.string.account_not_set) else channelValue(null),
-            onClick = if (editableChannel != null) ({ showTextEditor(R.string.account_tags, editableChannel.tags.joinToString(", "), 260) { updateTags(it) } }) else channelUnavailableClick,
+            if (editableChannel != null) {
+                editableChannel.tags.joinToString(", ").takeUnless { it.isNullOrBlank() } ?: getString(R.string.account_not_set)
+            } else if (state.webSession && !state.capabilities.editChannelTags) {
+                getString(R.string.account_tags_not_editable_in_session)
+            } else {
+                channelValue(null)
+            },
+            enabled = !state.webSession || state.capabilities.editChannelTags,
+            onClick = when {
+                editableChannel != null && state.capabilities.editChannelTags -> ({ showTextEditor(R.string.account_tags, editableChannel.tags.joinToString(", "), 260) { updateTags(it) } })
+                editableChannel != null -> null
+                state.webSession && !state.capabilities.editChannelTags -> null
+                else -> channelUnavailableClick
+            },
         )
         val chatEnabled = state.capabilities.editChatSettings && state.chatSettings != null && state.chatSettingsLoadError == null
         val chatSettingsClick = when {
@@ -352,8 +372,9 @@ class AccountActivity : AppCompatActivity() {
         addSettingRow(
             binding.accountRows,
             getString(R.string.account_permissions),
-            getString(R.string.account_permissions_summary, state.scopes.size),
-            onClick = { showPermissions(state.scopes) },
+            if (state.webSession) getString(R.string.account_web_session_permissions_summary)
+            else getString(R.string.account_permissions_summary, state.scopes.size),
+            onClick = { showPermissions(state.scopes, state.webSession) },
         )
         addSettingRow(
             binding.accountRows,
@@ -762,17 +783,21 @@ class AccountActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showPermissions(scopes: Set<String>) {
+    private fun showPermissions(scopes: Set<String>, webSession: Boolean) {
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.account_permissions)
-            .setMessage(if (scopes.isEmpty()) getString(R.string.account_no_permissions) else scopes.sorted().joinToString("\n"))
+            .setMessage(
+                if (webSession) getString(R.string.account_web_session_permissions)
+                else if (scopes.isEmpty()) getString(R.string.account_no_permissions)
+                else scopes.sorted().joinToString("\n"),
+            )
             .setPositiveButton(android.R.string.ok, null)
             .show()
     }
 
     private fun openManageOnTwitch() {
         runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, "https://www.twitch.tv/settings/connections".toUri()))
+            startActivity(Intent(Intent.ACTION_VIEW, "https://dashboard.twitch.tv/settings/channel".toUri()))
         }.onFailure {
             Toast.makeText(this, R.string.no_browser_found, Toast.LENGTH_SHORT).show()
         }

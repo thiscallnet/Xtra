@@ -73,7 +73,7 @@ class LiveNotificationMonitor(context: Context) {
             gqlHeaders = gqlHeaders,
             helixHeaders = helixHeaders,
             includeFollowedStreams = false,
-            preferHelix = true,
+            preferHelix = gqlHeaders[C.HEADER_TOKEN].isNullOrBlank(),
             enqueueNotificationEvents = !effectiveBaselineOnly,
             onHelixRateLimit = onHelixRateLimit,
             onApiUsed = { apiUsed = it },

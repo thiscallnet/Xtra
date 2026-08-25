@@ -37,6 +37,28 @@ class TwitchApiHelperTest {
     }
 
     @Test
+    fun `legacy Helix token is suppressed while a Gecko session is active`() {
+        val headers = TwitchApiHelper.buildHelixHeaders(
+            helixToken = "legacy-helix-token",
+            clientId = "legacy-helix-client",
+            webSessionActive = true,
+        )
+
+        assertNull(headers[C.HEADER_TOKEN])
+    }
+
+    @Test
+    fun `legacy Helix token remains available without a Gecko session`() {
+        val headers = TwitchApiHelper.buildHelixHeaders(
+            helixToken = "legacy-helix-token",
+            clientId = "legacy-helix-client",
+            webSessionActive = false,
+        )
+
+        assertEquals("Bearer legacy-helix-token", headers[C.HEADER_TOKEN])
+    }
+
+    @Test
     fun `new timestamp values use the four supported formats`() {
         val previousLocale = Locale.getDefault()
         val previousTimeZone = TimeZone.getDefault()

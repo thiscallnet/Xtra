@@ -7,6 +7,7 @@ import android.icu.number.Precision
 import android.icu.text.CompactDecimalFormat
 import android.os.Build
 import android.text.format.DateUtils
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import java.math.RoundingMode
@@ -345,40 +346,28 @@ object TwitchApiHelper {
     }
 
     /**
-     * Returns Helix headers for the web session. Mutating/account-specific callers can pass the
-     * scopes they require; the web token is withheld when validation did not grant them.
+     * Returns headers for the public/official Helix client. A Gecko web session is the current
+     * account authority, so a retained legacy Helix token must not be used alongside it.
      */
-    fun getHelixHeaders(
-        context: Context,
-        requiredScopes: Set<String> = emptySet(),
-    ): Map<String, String> {
-        return mutableMapOf<String, String>().apply {
-            val webToken = context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
-                ?.takeIf { it.isNotBlank() }
-            val grantedScopes = webSessionScopes(context)
-            if (webToken != null && requiredScopes.all(grantedScopes::contains)) {
-                put(C.HEADER_CLIENT_ID, context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
-                    ?: C.DEFAULT_GQL_CLIENT_ID_WEB)
-                put(C.HEADER_TOKEN, addTokenPrefixHelix(webToken))
-                liveWebCookieHeader(context, "https://api.twitch.tv/helix/")
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { put("Cookie", it) }
-                return@apply
+    fun getHelixHeaders(context: Context): Map<String, String> = buildHelixHeaders(
+        helixToken = context.tokenPrefs().getString(C.TOKEN, null),
+        clientId = context.tokenPrefs().getString(C.TOKEN_CLIENT_ID, null)
+            ?: BuildConfig.TWITCH_PUBLIC_CLIENT_ID,
+        webSessionActive = !context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null).isNullOrBlank(),
+    )
+
+    internal fun buildHelixHeaders(
+        helixToken: String?,
+        clientId: String?,
+        webSessionActive: Boolean,
+    ): Map<String, String> = buildMap {
+        clientId?.takeIf { it.isNotBlank() }?.let { put(C.HEADER_CLIENT_ID, it) }
+        if (!webSessionActive) {
+            helixToken?.takeIf { it.isNotBlank() }?.let {
+                put(C.HEADER_TOKEN, addTokenPrefixHelix(it))
             }
-            put(
-                C.HEADER_CLIENT_ID,
-                context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
-                    ?: C.DEFAULT_GQL_CLIENT_ID_WEB,
-            )
         }
     }
-
-    fun webSessionScopes(context: Context): Set<String> =
-        context.tokenPrefs().getString(C.TOKEN_SCOPES, null)
-            ?.split(' ')
-            ?.filter(String::isNotBlank)
-            ?.toSet()
-            ?: emptySet()
 
     private fun liveWebCookieHeader(context: Context, url: String): String? =
         runCatching {
