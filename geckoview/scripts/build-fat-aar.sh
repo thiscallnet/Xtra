@@ -86,12 +86,16 @@ prepare_gecko_source
 ensure_clean_source_before_patch
 assert_hls_patch_state
 
-started="$SECONDS"
-(
-  cd "$source_dir"
-  ./mach --no-interactive bootstrap --application-choice="GeckoView/Firefox for Android"
-)
-echo "timing phase=bootstrap seconds=$((SECONDS - started))"
+if [[ "${GECKO_SKIP_BOOTSTRAP:-0}" == "1" ]]; then
+  echo "timing phase=bootstrap skipped"
+else
+  started="$SECONDS"
+  (
+    cd "$source_dir"
+    ./mach --no-interactive bootstrap --application-choice="GeckoView/Firefox for Android"
+  )
+  echo "timing phase=bootstrap seconds=$((SECONDS - started))"
+fi
 
 cat "$repo_root/mozconfigs/common.mozconfig" "$repo_root/mozconfigs/fat.mozconfig" > "$mozconfig"
 export MOZCONFIG="$mozconfig"

@@ -37,10 +37,11 @@ permissions:
 
 concurrency:
   group: custom-geckoview-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   CACHE_SCHEMA: v3
+  SCCACHE_CACHE_SCHEMA: v4
 
 jobs:
   validate-recipe:
@@ -89,9 +90,91 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "native_build_scope=$matrix"
 
+  prepare-toolchain:
+    name: Prepare Gecko toolchain
+    needs: validate-recipe
+    if: ${{ needs.validate-recipe.outputs.run_heavy == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Install Gecko build tools
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build patch sccache unzip
+
+      - name: Compute cache keys
+        id: keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_key="$(sha256sum geckoview/SOURCE_REVISION geckoview/SOURCE_LOCK.json | sha256sum | awk '{print $1}')"
+          {
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${CACHE_SCHEMA}"
+            echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore Gecko source snapshot
+        id: source-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/gecko-source-snapshot
+          key: ${{ steps.keys.outputs.source_cache_key }}
+
+      - name: Restore shared Mozilla toolchain state
+        id: mozbuild-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.mozbuild
+          key: ${{ steps.keys.outputs.toolchain_key }}
+
+      - name: Bootstrap Mozilla toolchain
+        id: bootstrap
+        if: steps.source-cache.outputs.cache-hit != 'true' || steps.mozbuild-cache.outputs.cache-hit != 'true'
+        env:
+          GECKO_BOOTSTRAP_ONLY: '1'
+          GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
+          GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
+        run: ./geckoview/scripts/build-aar.sh arm64-v8a safe
+
+      - name: Check Gecko source snapshot
+        id: source-ready
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/gecko-source-snapshot/.xtra-source-snapshot.json" ]]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save Gecko source snapshot cache
+        if: always() && steps.source-ready.outputs.ready == 'true' && steps.source-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/gecko-source-snapshot
+          key: ${{ steps.keys.outputs.source_cache_key }}
+
+      - name: Save shared Mozilla toolchain cache
+        if: always() && steps.bootstrap.outcome == 'success' && steps.mozbuild-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ~/.mozbuild
+          key: ${{ steps.keys.outputs.toolchain_key }}
+
   build-skinny:
     name: ${{ matrix.label }} / safe
-    needs: validate-recipe
+    needs: [validate-recipe, prepare-toolchain]
     if: ${{ needs.validate-recipe.outputs.run_heavy == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -134,8 +217,8 @@ jobs:
           {
             echo "source_key=$source_key"
             echo "recipe_key=$recipe_key"
-            echo "sccache_key=gecko-sccache-${source_key}-${ABI}-safe-${RUNNER_OS}-${RUNNER_ARCH}-${recipe_key}-${CACHE_SCHEMA}"
-            echo "sccache_restore=gecko-sccache-${source_key}-${ABI}-safe-${RUNNER_OS}-${RUNNER_ARCH}-"
+            echo "sccache_key=gecko-sccache-${source_key}-${ABI}-safe-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-${recipe_key}"
+            echo "sccache_restore=gecko-sccache-${source_key}-${ABI}-safe-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-"
             echo "built_key=gecko-built-${source_key}-${ABI}-safe-${recipe_key}-${CACHE_SCHEMA}"
             echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${CACHE_SCHEMA}"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
@@ -160,7 +243,7 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .sccache
-          key: ${{ steps.keys.outputs.sccache_key }}
+          key: ${{ steps.keys.outputs.sccache_key }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ${{ steps.keys.outputs.sccache_restore }}
 
       - name: Restore compiled Gecko output
@@ -173,6 +256,7 @@ jobs:
       - name: Build and verify skinny GeckoView archive
         id: build
         env:
+          GECKO_SKIP_BOOTSTRAP: '1'
           SCCACHE_DIR: ${{ github.workspace }}/.sccache
           GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
           GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
@@ -214,12 +298,12 @@ jobs:
           key: ${{ steps.keys.outputs.toolchain_key }}
 
       - name: Save sccache after build attempt
-        if: always() && steps.sccache-cache.outputs.cache-hit != 'true'
+        if: always()
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         continue-on-error: true
         with:
           path: .sccache
-          key: ${{ steps.keys.outputs.sccache_key }}
+          key: ${{ steps.keys.outputs.sccache_key }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Save compiled Gecko output
         if: always() && steps.build.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
@@ -253,7 +337,7 @@ jobs:
 
   experimental-nowebrtc:
     name: ARM64 / nowebrtc (experimental)
-    needs: validate-recipe
+    needs: [validate-recipe, prepare-toolchain]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.experimental_nowebrtc }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -283,7 +367,8 @@ jobs:
             geckoview/patches/0001-disable-android-hls.patch | sha256sum | awk '{print $1}')"
           {
             echo "source_key=$source_key"
-            echo "sccache_key=gecko-sccache-${source_key}-arm64-v8a-nowebrtc-${RUNNER_OS}-${RUNNER_ARCH}-${recipe_key}-${CACHE_SCHEMA}"
+            echo "sccache_key=gecko-sccache-${source_key}-arm64-v8a-nowebrtc-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-${recipe_key}"
+            echo "sccache_restore=gecko-sccache-${source_key}-arm64-v8a-nowebrtc-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-"
             echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${CACHE_SCHEMA}"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
             echo "built_key=gecko-built-${source_key}-arm64-v8a-nowebrtc-${recipe_key}-${CACHE_SCHEMA}"
@@ -308,7 +393,8 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .sccache
-          key: ${{ steps.keys.outputs.sccache_key }}
+          key: ${{ steps.keys.outputs.sccache_key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.keys.outputs.sccache_restore }}
 
       - name: Restore compiled Gecko output
         id: compiled-cache
@@ -320,6 +406,7 @@ jobs:
       - name: Build and verify experimental archive
         id: build
         env:
+          GECKO_SKIP_BOOTSTRAP: '1'
           SCCACHE_DIR: ${{ github.workspace }}/.sccache
           GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
           GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
@@ -359,12 +446,12 @@ jobs:
           key: ${{ steps.keys.outputs.toolchain_key }}
 
       - name: Persist sccache
-        if: always() && steps.sccache-cache.outputs.cache-hit != 'true'
+        if: always()
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         continue-on-error: true
         with:
           path: .sccache
-          key: ${{ steps.keys.outputs.sccache_key }}
+          key: ${{ steps.keys.outputs.sccache_key }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Persist compiled Gecko output
         if: always() && steps.build.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
@@ -386,7 +473,7 @@ jobs:
 
   fat-aar:
     name: Universal ARM GeckoView AAR
-    needs: [validate-recipe, build-skinny]
+    needs: [validate-recipe, prepare-toolchain, build-skinny]
     if: ${{ needs.validate-recipe.outputs.release_both == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -462,6 +549,7 @@ jobs:
       - name: Build and verify universal fat AAR
         id: build
         env:
+          GECKO_SKIP_BOOTSTRAP: '1'
           GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
           GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
           GECKO_FAT_CACHE_DIR: ${{ runner.temp }}/gecko-fat-cache
