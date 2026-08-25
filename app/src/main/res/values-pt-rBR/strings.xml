@@ -601,6 +601,7 @@
     <string name="scroll_to_top">Rolar para o topo</string>
     <string name="more_options">Mais opções</string>
     <string name="set_as_default">Definir como guia padrão</string>
+    <string name="settings_show_item">Mostrar %1$s</string>
     <string name="list_load_error">Não foi possível carregar este conteúdo.</string>
     <string name="list_refresh_error">Não foi possível atualizar este conteúdo.</string>
     <string name="list_load_more_error">Não foi possível carregar mais conteúdo.</string>
@@ -1376,7 +1377,7 @@
     <string name="settings_customize_controls_snap_hint">Solte para encaixar</string>
     <string name="settings_customize_controls_drag_action">Arraste ou toque em %1$s</string>
     <string name="settings_layout_preview">Prévia</string>
-    <string name="settings_tabs_preview_help">A prévia segue a ordem e a visibilidade abaixo.</string>
+    <string name="settings_tabs_preview_help">Arraste para reordenar. Use a caixa de seleção para mostrar ou ocultar um item. O ícone de início indica o padrão.</string>
     <string name="settings_sections_preview_help">A prévia mostra as seções visíveis na ordem atual.</string>
     <string name="discover_previous_trending">Stream em alta anterior</string>
     <string name="discover_next_trending">Próximo stream em alta</string>

@@ -48,6 +48,7 @@ import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
+import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -298,6 +299,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                     else -> getString(R.string.live)
                 }
             }.attach()
+            tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_GAME_TABS)
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
                 collapsingToolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {

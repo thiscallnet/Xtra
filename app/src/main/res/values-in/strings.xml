@@ -602,6 +602,7 @@
     <string name="scroll_to_top">Gulir ke atas</string>
     <string name="more_options">Opsi lainnya</string>
     <string name="set_as_default">Tetapkan sebagai tab default</string>
+    <string name="settings_show_item">Tampilkan %1$s</string>
     <string name="list_load_error">Tidak dapat memuat konten ini.</string>
     <string name="list_refresh_error">Tidak dapat menyegarkan konten ini.</string>
     <string name="list_load_more_error">Tidak dapat memuat konten lainnya.</string>
@@ -1377,7 +1378,7 @@
     <string name="settings_customize_controls_snap_hint">Lepaskan untuk menempel</string>
     <string name="settings_customize_controls_drag_action">Seret atau ketuk %1$s</string>
     <string name="settings_layout_preview">Pratinjau</string>
-    <string name="settings_tabs_preview_help">Pratinjau mengikuti urutan dan visibilitas di bawah.</string>
+    <string name="settings_tabs_preview_help">Seret untuk mengurutkan ulang. Gunakan kotak centang untuk menampilkan atau menyembunyikan item. Ikon beranda menandai item default.</string>
     <string name="settings_sections_preview_help">Pratinjau menampilkan bagian yang terlihat dalam urutan saat ini.</string>
     <string name="discover_previous_trending">Siaran trending sebelumnya</string>
     <string name="discover_next_trending">Siaran trending berikutnya</string>

@@ -30,6 +30,7 @@ import com.github.andreyasadchy.xtra.ui.saved.SavedPagerViewModel.Companion.Save
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
+import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -219,6 +220,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
                     else -> getString(R.string.bookmarks)
                 }
             }.attach()
+            tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_SAVED_TABS)
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
                 toolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {

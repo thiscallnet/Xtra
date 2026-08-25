@@ -27,7 +27,8 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
     var itemTouchHelper: ItemTouchHelper? = null
     var setDefault: ((SettingsDragListItem) -> Unit)? = null
     var cycleGroup: ((SettingsDragListItem) -> Unit)? = null
-    var showVisibilityToggle = false
+    var showVisibilityToggle = true
+    var minimumVisibleItems = 0
     var onItemChanged: (() -> Unit)? = null
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -83,6 +84,11 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     checkBox.visibility = View.VISIBLE
                     checkBox.setOnCheckedChangeListener(null)
                     checkBox.isChecked = item.enabled
+                    checkBox.isEnabled = canDisableVisibleItem(
+                        itemEnabled = item.enabled,
+                        visibleItemCount = currentList.count { it.enabled },
+                        minimumVisibleItems = minimumVisibleItems,
+                    )
                     checkBox.setOnCheckedChangeListener { _, isChecked ->
                         item.enabled = isChecked
                         onItemChanged?.invoke()
@@ -93,6 +99,7 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     )
                 } else {
                     checkBox.setOnCheckedChangeListener(null)
+                    checkBox.isEnabled = true
                     checkBox.visibility = View.GONE
                 }
             }

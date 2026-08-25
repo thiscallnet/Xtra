@@ -27,6 +27,7 @@ import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
+import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -103,6 +104,8 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
             if (tabs.size > 1) {
                 spinner.visibility = View.VISIBLE
             }
+            spinner.setTabCustomizationLongPress(requireContext(), C.UI_FOLLOWING_TABS)
+            spinner.editText?.setTabCustomizationLongPress(requireContext(), C.UI_FOLLOWING_TABS)
             (spinner.editText as? MaterialAutoCompleteTextView)?.apply {
                 setSimpleItems(tabs.map { getString(FollowingTabs.titleRes(it)) }.toTypedArray().ifEmpty { arrayOf(getString(R.string.live)) })
                 setOnItemClickListener { _, _, position, _ ->

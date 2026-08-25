@@ -30,6 +30,7 @@ import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerViewModel.Companion.SearchPagerViewModelFactory
+import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -145,6 +146,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                     else -> getString(R.string.channels)
                 }
             }.attach()
+            tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_SEARCH_TABS)
             val navController = findNavController()
             val appBarConfiguration = AppBarConfiguration(setOf(R.id.rootGamesFragment, R.id.rootTopFragment, R.id.followPagerFragment, R.id.followMediaFragment, R.id.savedPagerFragment, R.id.savedMediaFragment))
             toolbar.setupWithNavController(navController, appBarConfiguration)

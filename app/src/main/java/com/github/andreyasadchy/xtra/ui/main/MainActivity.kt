@@ -82,6 +82,7 @@ import com.github.andreyasadchy.xtra.ui.player.PlayerFragment
 import com.github.andreyasadchy.xtra.ui.saved.SavedMediaFragment
 import com.github.andreyasadchy.xtra.ui.saved.SavedPagerFragment
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
+import com.github.andreyasadchy.xtra.ui.settings.openTabCustomization
 import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
@@ -1375,6 +1376,15 @@ class MainActivity : AppCompatActivity() {
                 binding.navBarContainer.visibility = View.GONE
             }
             setupWithNavController(navController)
+            post {
+                val menuView = getChildAt(0) as? ViewGroup ?: return@post
+                for (index in 0 until minOf(menu.size(), menuView.childCount)) {
+                    menuView.getChildAt(index).setOnLongClickListener {
+                        openTabCustomization(C.UI_NAVIGATION_TAB_LIST)
+                        true
+                    }
+                }
+            }
             setOnItemSelectedListener {
                 NavigationUI.onNavDestinationSelected(it, navController)
                 return@setOnItemSelectedListener true

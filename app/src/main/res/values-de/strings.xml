@@ -601,6 +601,7 @@
     <string name="scroll_to_top">Scrollen Sie nach oben</string>
     <string name="more_options">Weitere Optionen</string>
     <string name="set_as_default">Als Standardregisterkarte festlegen</string>
+    <string name="settings_show_item">%1$s anzeigen</string>
     <string name="list_load_error">Dieser Inhalt konnte nicht geladen werden.</string>
     <string name="list_refresh_error">Dieser Inhalt konnte nicht aktualisiert werden.</string>
     <string name="list_load_more_error">Es konnten keine weiteren Inhalte geladen werden.</string>
@@ -1376,7 +1377,7 @@
     <string name="settings_customize_controls_snap_hint">Zum Einrasten loslassen</string>
     <string name="settings_customize_controls_drag_action">%1$s ziehen oder antippen</string>
     <string name="settings_layout_preview">Vorschau</string>
-    <string name="settings_tabs_preview_help">Die Vorschau folgt der unten angezeigten Reihenfolge und Sichtbarkeit.</string>
+    <string name="settings_tabs_preview_help">Zum Neuanordnen ziehen. Mit dem Kontrollkästchen kannst du ein Element ein- oder ausblenden. Das Haussymbol kennzeichnet den Standard.</string>
     <string name="settings_sections_preview_help">Die Vorschau zeigt die sichtbaren Bereiche in ihrer aktuellen Reihenfolge.</string>
     <string name="discover_previous_trending">Vorheriger angesagter Stream</string>
     <string name="discover_next_trending">Nächster angesagter Stream</string>

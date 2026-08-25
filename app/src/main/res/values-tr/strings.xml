@@ -602,6 +602,7 @@
     <string name="scroll_to_top">Yukarıya kaydır</string>
     <string name="more_options">Diğer seçenekler</string>
     <string name="set_as_default">Varsayılan sekme olarak ayarla</string>
+    <string name="settings_show_item">%1$s öğesini göster</string>
     <string name="list_load_error">Bu içerik yüklenemedi.</string>
     <string name="list_refresh_error">Bu içerik yenilenemedi.</string>
     <string name="list_load_more_error">Daha fazla içerik yüklenemedi.</string>
@@ -1377,7 +1378,7 @@
     <string name="settings_customize_controls_snap_hint">Mıknatıslamak için bırakın</string>
     <string name="settings_customize_controls_drag_action">%1$s sürükleyin veya dokunun</string>
     <string name="settings_layout_preview">Önizleme</string>
-    <string name="settings_tabs_preview_help">Önizleme, aşağıdaki sırayı ve görünürlüğü izler.</string>
+    <string name="settings_tabs_preview_help">Yeniden sıralamak için sürükleyin. Bir öğeyi göstermek veya gizlemek için onay kutusunu kullanın. Ana ekran simgesi varsayılanı belirtir.</string>
     <string name="settings_sections_preview_help">Önizleme, görünür bölümleri geçerli sıralarında gösterir.</string>
     <string name="discover_previous_trending">Önceki popüler yayın</string>
     <string name="discover_next_trending">Sonraki popüler yayın</string>

@@ -601,6 +601,7 @@
     <string name="scroll_to_top">Faire défiler vers le haut</string>
     <string name="more_options">Plus d\'options</string>
     <string name="set_as_default">Définir comme onglet par défaut</string>
+    <string name="settings_show_item">Afficher %1$s</string>
     <string name="list_load_error">Impossible de charger ce contenu.</string>
     <string name="list_refresh_error">Impossible d\'actualiser ce contenu.</string>
     <string name="list_load_more_error">Impossible de charger plus de contenu.</string>
@@ -1376,7 +1377,7 @@
     <string name="settings_customize_controls_snap_hint">Relâchez pour aligner</string>
     <string name="settings_customize_controls_drag_action">Faites glisser ou touchez %1$s</string>
     <string name="settings_layout_preview">Aperçu</string>
-    <string name="settings_tabs_preview_help">L’aperçu suit l’ordre et la visibilité indiqués ci-dessous.</string>
+    <string name="settings_tabs_preview_help">Faites glisser pour réorganiser. Utilisez la case à cocher pour afficher ou masquer un élément. L’icône d’accueil indique l’élément par défaut.</string>
     <string name="settings_sections_preview_help">L’aperçu affiche les sections visibles dans leur ordre actuel.</string>
     <string name="discover_previous_trending">Stream tendance précédent</string>
     <string name="discover_next_trending">Stream tendance suivant</string>

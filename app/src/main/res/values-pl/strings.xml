@@ -72,6 +72,7 @@
     <string name="delete">Usuń</string>
     <string name="more_options">Więcej opcji</string>
     <string name="set_as_default">Ustaw jako kartę domyślną</string>
+    <string name="settings_show_item">Pokaż %1$s</string>
     <string name="are_you_sure">Czy na pewno chcesz usunąć ten film?</string>
     <string name="token_expired">Twoja sesja wygasła. Zaloguj się ponownie.</string>
     <string name="no_connection">Brak połączenia z Internetem</string>
@@ -1374,7 +1375,7 @@
     <string name="settings_customize_controls_snap_hint">Puść, aby przyciągnąć</string>
     <string name="settings_customize_controls_drag_action">Przeciągnij lub dotknij %1$s</string>
     <string name="settings_layout_preview">Podgląd</string>
-    <string name="settings_tabs_preview_help">Podgląd odzwierciedla kolejność i widoczność poniżej.</string>
+    <string name="settings_tabs_preview_help">Przeciągnij, aby zmienić kolejność. Użyj pola wyboru, aby pokazać lub ukryć element. Ikona domu oznacza element domyślny.</string>
     <string name="settings_sections_preview_help">Podgląd pokazuje widoczne sekcje w bieżącej kolejności.</string>
     <string name="discover_previous_trending">Poprzedni popularny stream</string>
     <string name="discover_next_trending">Następny popularny stream</string>
