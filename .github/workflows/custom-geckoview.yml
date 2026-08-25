@@ -41,6 +41,7 @@ concurrency:
 
 env:
   CACHE_SCHEMA: v3
+  TOOLCHAIN_CACHE_SCHEMA: v4
   SCCACHE_CACHE_SCHEMA: v4
 
 jobs:
@@ -118,7 +119,7 @@ jobs:
           set -euo pipefail
           source_key="$(sha256sum geckoview/SOURCE_REVISION geckoview/SOURCE_LOCK.json | sha256sum | awk '{print $1}')"
           {
-            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${TOOLCHAIN_CACHE_SCHEMA}"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
           } >> "$GITHUB_OUTPUT"
 
@@ -133,7 +134,10 @@ jobs:
         id: mozbuild-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: ~/.mozbuild
+          path: |
+            ~/.mozbuild
+            ~/.cargo
+            ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
 
       - name: Bootstrap Mozilla toolchain
@@ -169,7 +173,10 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         continue-on-error: true
         with:
-          path: ~/.mozbuild
+          path: |
+            ~/.mozbuild
+            ~/.cargo
+            ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
 
   build-skinny:
@@ -220,7 +227,7 @@ jobs:
             echo "sccache_key=gecko-sccache-${source_key}-${ABI}-safe-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-${recipe_key}"
             echo "sccache_restore=gecko-sccache-${source_key}-${ABI}-safe-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-"
             echo "built_key=gecko-built-${source_key}-${ABI}-safe-${recipe_key}-${CACHE_SCHEMA}"
-            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${TOOLCHAIN_CACHE_SCHEMA}"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
           } >> "$GITHUB_OUTPUT"
 
@@ -235,7 +242,10 @@ jobs:
         id: mozbuild-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: ~/.mozbuild
+          path: |
+            ~/.mozbuild
+            ~/.cargo
+            ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
 
       - name: Restore sccache
@@ -294,7 +304,10 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         continue-on-error: true
         with:
-          path: ~/.mozbuild
+          path: |
+            ~/.mozbuild
+            ~/.cargo
+            ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
 
       - name: Save sccache after build attempt
@@ -369,7 +382,7 @@ jobs:
             echo "source_key=$source_key"
             echo "sccache_key=gecko-sccache-${source_key}-arm64-v8a-nowebrtc-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-${recipe_key}"
             echo "sccache_restore=gecko-sccache-${source_key}-arm64-v8a-nowebrtc-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-"
-            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${TOOLCHAIN_CACHE_SCHEMA}"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
             echo "built_key=gecko-built-${source_key}-arm64-v8a-nowebrtc-${recipe_key}-${CACHE_SCHEMA}"
           } >> "$GITHUB_OUTPUT"
@@ -385,7 +398,10 @@ jobs:
         id: mozbuild-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: ~/.mozbuild
+          path: |
+            ~/.mozbuild
+            ~/.cargo
+            ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
 
       - name: Restore sccache
@@ -442,7 +458,10 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         continue-on-error: true
         with:
-          path: ~/.mozbuild
+          path: |
+            ~/.mozbuild
+            ~/.cargo
+            ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
 
       - name: Persist sccache
@@ -521,7 +540,7 @@ jobs:
             echo "arm64_zip=$arm64_zip"
             echo "armv7_zip=$armv7_zip"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
-            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${TOOLCHAIN_CACHE_SCHEMA}"
             echo "fat_key=gecko-fat-${source_key}-${input_key}-${recipe_key}-${CACHE_SCHEMA}"
           } >> "$GITHUB_OUTPUT"
 
@@ -536,7 +555,10 @@ jobs:
         id: mozbuild-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: ~/.mozbuild
+          path: |
+            ~/.mozbuild
+            ~/.cargo
+            ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
 
       - name: Restore fat AAR output
@@ -580,7 +602,10 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         continue-on-error: true
         with:
-          path: ~/.mozbuild
+          path: |
+            ~/.mozbuild
+            ~/.cargo
+            ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
 
       - name: Save fat AAR output
