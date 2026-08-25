@@ -113,7 +113,12 @@ jobs:
       run: |
         set -euo pipefail
         if [[ -z "${CUSTOM_GECKOVIEW_RELEASE_TAG:-}" ]]; then
-          echo "XTRA_GECKOVIEW_RELEASE_TAG is not configured; using stock GeckoView"
+          if [[ "$GITHUB_REF" == "refs/heads/master" ]]; then
+            echo "XTRA_GECKOVIEW_RELEASE_TAG is required for master releases" >&2
+            exit 1
+          fi
+
+          echo "Non-production build: using stock GeckoView"
           exit 0
         fi
 
@@ -233,9 +238,9 @@ jobs:
           exit 1
         fi
         apk_size_bytes="$(stat -c '%s' "$apk_asset")"
-        max_apk_size_bytes=$((300 * 1024 * 1024))
+        max_apk_size_bytes=$((160 * 1024 * 1024))
         if (( apk_size_bytes > max_apk_size_bytes )); then
-          echo "Release APK exceeds the 300 MiB regression guard: $apk_size_bytes bytes" >&2
+          echo "Release APK exceeds the 160 MiB custom-Gecko regression guard: $apk_size_bytes bytes" >&2
           exit 1
         fi
         echo "Largest release APK members (uncompressed / compressed bytes):"
