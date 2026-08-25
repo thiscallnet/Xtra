@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.util.chat
 
 import android.util.Log
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.util.WebSocket
 import com.github.andreyasadchy.xtra.util.watch.WatchCreditTelemetry
 import kotlinx.coroutines.CancellationException
@@ -145,6 +146,7 @@ class HermesWebSocket(
         suspend fun onStreamInfo(message: JSONObject) {}
         suspend fun onRewardMessage(message: JSONObject) {}
         suspend fun onPointsEarned(message: JSONObject) {}
+        suspend fun onPointsSpent(message: JSONObject) {}
         suspend fun onClaimAvailable() {}
         suspend fun onMinuteWatched() {}
         suspend fun onRaidUpdate(message: JSONObject, openStream: Boolean) {}
@@ -202,9 +204,18 @@ class HermesWebSocket(
                                             Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes points-earned received")
                                             listener.onPointsEarned(message)
                                         }
+                                        messageType.startsWith("points-spent") -> {
+                                            Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes points-spent received")
+                                            listener.onPointsSpent(message)
+                                        }
                                         messageType.startsWith("claim-available") -> {
                                             Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes claim-available received")
                                             listener.onClaimAvailable()
+                                        }
+                                        else -> {
+                                            if (BuildConfig.DEBUG) {
+                                                Log.w(WatchCreditTelemetry.LOG_TAG, "Hermes unknown community-points-user event type=$messageType")
+                                            }
                                         }
                                     }
                                 }

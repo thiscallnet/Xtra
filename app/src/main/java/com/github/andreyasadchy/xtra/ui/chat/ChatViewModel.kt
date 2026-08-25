@@ -62,6 +62,7 @@ import com.github.andreyasadchy.xtra.util.chat.ChatReadWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
 import com.github.andreyasadchy.xtra.util.chat.ChatWriteIRCSocket
 import com.github.andreyasadchy.xtra.util.chat.ChatWriteWebSocket
+import com.github.andreyasadchy.xtra.util.chat.ChannelPointsBalanceEvent
 import com.github.andreyasadchy.xtra.util.chat.EventSubConnectionAnnouncementState
 import com.github.andreyasadchy.xtra.util.chat.EventSubChatConnectionState
 import com.github.andreyasadchy.xtra.util.chat.EventSubChatConnectionStatus
@@ -170,6 +171,7 @@ class ChatViewModel(
     private var hermesWebSocket: HermesWebSocket? = null
     private var pubSubJob: Job? = null
     private var channelPointsJob: Job? = null
+    private var channelPointsReconciliationJob: Job? = null
     private var claimJob: Job? = null
     private var watchStreakWorkerJob: Job? = null
     private var watchStreakRefreshJob: Job? = null
@@ -202,6 +204,9 @@ class ChatViewModel(
     private var activeChannelLogin: String? = null
     private var loggedInUserId: String? = null
     private var loggedInUserLogin: String? = null
+    private val channelPointsBalanceReducer = ChannelPointsBalanceReducer()
+    private val channelPointsBalanceLock = Any()
+    private var channelPointsBalanceState = ChannelPointsBalanceReducer.State()
     private var slowModeLastMessageElapsedRealtime: Long? = null
     private var slowModeCountdownJob: Job? = null
     private val slowModeMessageDedupe = SlowModeMessageDedupe()
@@ -1299,9 +1304,62 @@ class ChatViewModel(
         }
     }
 
-    private fun updateChannelPoints(response: ChannelPointContextResponse) {
+    private fun channelPointsBalanceRevision(): Long = synchronized(channelPointsBalanceLock) {
+        channelPointsBalanceState.revision
+    }
+
+    private fun resetChannelPointsBalance() {
+        synchronized(channelPointsBalanceLock) {
+            channelPointsBalanceState = channelPointsBalanceReducer.reset()
+            channelPoints.value = null
+        }
+    }
+
+    private fun applyChannelPointsBalanceEvent(event: ChannelPointsBalanceEvent): Boolean {
+        return synchronized(channelPointsBalanceLock) {
+            channelPointsBalanceState = channelPointsBalanceReducer.applyLiveEvent(
+                state = channelPointsBalanceState,
+                event = event,
+                nowMs = System.currentTimeMillis(),
+            )
+            val balance = channelPointsBalanceState.balance
+            val current = channelPoints.value
+            if (balance == null || current == null) {
+                false
+            } else {
+                if (current.balance != balance) {
+                    channelPoints.value = current.copy(balance = balance)
+                }
+                true
+            }
+        }
+    }
+
+    private fun applyLocalChannelPointsSpend(
+        channelId: String,
+        amount: Int,
+    ) {
+        synchronized(channelPointsBalanceLock) {
+            channelPointsBalanceState = channelPointsBalanceReducer.applyLocalSpend(
+                state = channelPointsBalanceState,
+                channelId = channelId,
+                amount = amount,
+                nowMs = System.currentTimeMillis(),
+            )
+            val balance = channelPointsBalanceState.balance
+            val current = channelPoints.value
+            if (balance != null && current != null && current.balance != balance) {
+                channelPoints.value = current.copy(balance = balance)
+            }
+        }
+    }
+
+    private fun updateChannelPoints(
+        response: ChannelPointContextResponse,
+        requestRevision: Long? = null,
+    ) {
         val channel = response.data?.community?.channel ?: return
-        val balance = channel.self.communityPoints?.balance ?: return
+        val snapshotBalance = channel.self.communityPoints?.balance ?: return
         val settings = channel.communityPointsSettings
         updateChannelPointModifiedEmotes(settings)
         val hasModifiedEmotes = synchronized(channelPointModifiedEmotes) {
@@ -1384,12 +1442,23 @@ class ChatViewModel(
                     WatchStreakReward(streakLength = reward.streakLength ?: index + 2, points = points)
                 }
             }
-        channelPoints.value = ChannelPoints(
-            balance = balance,
-            iconUrl = iconUrl,
-            rewards = rewards,
-            watchStreakRewards = watchStreakRewards,
-        )
+        synchronized(channelPointsBalanceLock) {
+            channelPointsBalanceState = channelPointsBalanceReducer.applySnapshot(
+                state = channelPointsBalanceState,
+                snapshotBalance = snapshotBalance,
+                nowMs = System.currentTimeMillis(),
+                requestRevision = requestRevision,
+            )
+            val balance = channelPointsBalanceState.balance ?: channelPoints.value?.balance
+            if (balance != null) {
+                channelPoints.value = ChannelPoints(
+                    balance = balance,
+                    iconUrl = iconUrl,
+                    rewards = rewards,
+                    watchStreakRewards = watchStreakRewards,
+                )
+            }
+        }
     }
 
     private fun ChannelPointContextResponse.CustomReward.rewardImageUrl(): String? {
@@ -1731,22 +1800,52 @@ class ChatViewModel(
         networkLibrary: String?,
         gqlHeaders: Map<String, String>,
         channelLogin: String?,
+        delayMillis: Long = 0L,
     ) {
         if (channelLogin.isNullOrBlank() || gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             return
         }
         val expectedChannelId = activeChannelId
+        val requestRevision = channelPointsBalanceRevision()
         channelPointsJob?.cancel()
         channelPointsJob = viewModelScope.launch {
             try {
+                if (delayMillis > 0L) delay(delayMillis)
                 val response = graphQLRepository.loadChannelPointsContext(networkLibrary, gqlHeaders, channelLogin)
                 if (activeChannelId != expectedChannelId || activeChannelLogin != channelLogin) {
                     return@launch
                 }
-                updateChannelPoints(response)
+                updateChannelPoints(response, requestRevision)
             } catch (_: Exception) {
             }
         }
+    }
+
+    private fun scheduleChannelPointsReconciliation(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        channelLogin: String?,
+    ) {
+        channelPointsReconciliationJob?.cancel()
+        val expectedChannelId = activeChannelId
+        val expectedChannelLogin = channelLogin
+        lateinit var reconciliationJob: Job
+        reconciliationJob = viewModelScope.launch {
+            try {
+                for (delayMillis in CHANNEL_POINTS_RECONCILIATION_DELAYS_MILLIS) {
+                    delay(delayMillis)
+                    if (activeChannelId != expectedChannelId || activeChannelLogin != expectedChannelLogin) {
+                        return@launch
+                    }
+                    loadChannelPoints(networkLibrary, gqlHeaders, expectedChannelLogin)
+                }
+            } finally {
+                if (channelPointsReconciliationJob === reconciliationJob) {
+                    channelPointsReconciliationJob = null
+                }
+            }
+        }
+        channelPointsReconciliationJob = reconciliationJob
     }
 
     fun redeemChannelPointReward(reward: ChannelPointRewardInfo, textInput: String?, emoteId: String?) {
@@ -1827,6 +1926,7 @@ class ChatViewModel(
                         ),
                     )
                 } else {
+                    applyLocalChannelPointsSpend(channelId, reward.cost)
                     channelPointRedemptionEvents.send(
                         ChannelPointRedemptionResult(
                             reward.title,
@@ -1835,6 +1935,7 @@ class ChatViewModel(
                         ),
                     )
                     loadChannelPoints(networkLibrary, gqlHeaders, channelLogin)
+                    scheduleChannelPointsReconciliation(networkLibrary, gqlHeaders, channelLogin)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -2054,6 +2155,8 @@ class ChatViewModel(
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val accountId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
         val accountLogin = applicationContext.tokenPrefs().getString(C.USERNAME, null)
+        val gqlWebToken = applicationContext.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)?.takeIf { it.isNotBlank() }
+        val hasHermesUserAuth = !accountId.isNullOrBlank() && !gqlWebToken.isNullOrBlank()
         loggedInUserId = accountId
         loggedInUserLogin = accountLogin
         val isLoggedIn = !accountLogin.isNullOrBlank() && (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank())
@@ -2128,22 +2231,27 @@ class ChatViewModel(
         if (usePubSub && !channelId.isNullOrBlank()) {
             val collectPoints = applicationContext.prefs().getBoolean(C.CHAT_POINTS_COLLECT, true)
             val gqlWebClientId = applicationContext.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
-            val gqlWebToken = applicationContext.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
             val notifyPoints = applicationContext.prefs().getBoolean(C.CHAT_POINTS_NOTIFY, false)
             val showRaids = applicationContext.prefs().getBoolean(C.CHAT_RAIDS_SHOW, true)
             hermesWebSocket = HermesWebSocket(
                 channelId = channelId,
                 userId = accountId,
                 gqlClientId = gqlWebClientId,
-                gqlToken = gqlWebToken?.takeIf { it.isNotBlank() },
+                gqlToken = gqlWebToken,
                 collectPoints = collectPoints,
-                listenForPoints = isLoggedIn,
+                listenForPoints = hasHermesUserAuth,
                 showRaids = showRaids,
                 showPolls = showPolls,
                 showPredictions = showPredictions,
                 trustManager = trustManager,
                 listener = PubSubListener(channelLogin, collectPoints, notifyPoints, showRaids, showPolls, showPredictions, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId, showWebSocketDebugInfo, sessionToken)
             )
+            if (isLoggedIn && !hasHermesUserAuth) {
+                Log.w(
+                    WatchCreditTelemetry.LOG_TAG,
+                    "Hermes user-points subscription skipped: GQL web token or account id is missing",
+                )
+            }
             pubSubJob = hermesWebSocket?.connect(viewModelScope)
         }
         // Get Polls/Predictions is broadcaster-scoped in Helix. Only reconcile
@@ -2199,6 +2307,8 @@ class ChatViewModel(
         }
         channelPointsJob?.cancel()
         channelPointsJob = null
+        channelPointsReconciliationJob?.cancel()
+        channelPointsReconciliationJob = null
         claimJob?.cancel()
         claimJob = null
         watchStreakRefreshJob?.cancel()
@@ -2206,7 +2316,7 @@ class ChatViewModel(
         watchStreakWorkerJob?.cancel()
         watchStreakWorkerJob = null
         pendingWatchStreakRequests.clear()
-        channelPoints.value = null
+        resetChannelPointsBalance()
         watchStreak.value = null
         clearPollPresentation()
         latestPoll = null
@@ -2986,6 +3096,8 @@ class ChatViewModel(
                 isActiveWatchCreditSession() &&
                 !channelId.isNullOrBlank()
             ) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes re-subscription healing channel-points balance and watch-streak")
+                loadChannelPoints(networkLibrary, gqlHeaders, channelLogin)
                 Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes re-subscription healing watch-streak")
                 loadWatchStreak(networkLibrary, gqlHeaders, channelId)
             }
@@ -3042,13 +3154,23 @@ class ChatViewModel(
             }
             val result = PubSubUtils.parsePointsEarned(message)
             val points = result.first
-            val messageChannelId = result.second
+            val balanceEvent = PubSubUtils.parseChannelPointsBalanceEvent(
+                message,
+                ChannelPointsBalanceEvent.Type.EARNED,
+            )
+            val messageChannelId = balanceEvent?.channelId ?: result.second
             Log.d(
                 WatchCreditTelemetry.LOG_TAG,
                 "Hermes points-earned channelMatched=${channelId == messageChannelId} channelIdPresent=${!messageChannelId.isNullOrBlank()} reason=${points.reasonCode ?: "unknown"}",
             )
-            if (channelId == messageChannelId) {
-                loadChannelPoints(networkLibrary, gqlHeaders, channelLogin)
+            if (channelId == messageChannelId && balanceEvent != null) {
+                applyChannelPointsBalanceEvent(balanceEvent)
+                scheduleChannelPointsReconciliation(networkLibrary, gqlHeaders, channelLogin)
+                if (balanceEvent.reasonCode.equals("WATCH_STREAK", ignoreCase = true)) {
+                    balanceEvent.streakCount?.let { streakCount ->
+                        updateWatchStreak(streakCount, balanceEvent.delta)
+                    }
+                }
             }
             watchStreakInvalidationForPointsEarned(
                 activeChannelId = channelId,
@@ -3075,6 +3197,23 @@ class ChatViewModel(
                         fullMsg = points.fullMsg
                     ))
                 }
+            }
+        }
+
+        override suspend fun onPointsSpent(message: JSONObject) {
+            if (!isActiveWatchCreditSession()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes points-spent ignored for inactive watch session")
+                return
+            }
+            val balanceEvent = PubSubUtils.parsePointsSpent(message)
+            val messageChannelId = balanceEvent?.channelId
+            Log.d(
+                WatchCreditTelemetry.LOG_TAG,
+                "Hermes points-spent channelMatched=${channelId == messageChannelId} channelIdPresent=${!messageChannelId.isNullOrBlank()} amount=${balanceEvent?.delta}",
+            )
+            if (channelId == messageChannelId && balanceEvent != null) {
+                applyChannelPointsBalanceEvent(balanceEvent)
+                scheduleChannelPointsReconciliation(networkLibrary, gqlHeaders, channelLogin)
             }
         }
 
@@ -3755,7 +3894,15 @@ class ChatViewModel(
                     )
                 }
                 if (success && activeChannelLogin == channelLogin) {
+                    activeChannelId?.let { activeId ->
+                        applyLocalChannelPointsSpend(activeId, points)
+                    }
                     loadChannelPoints(
+                        networkLibrary = networkLibrary,
+                        gqlHeaders = headers,
+                        channelLogin = channelLogin,
+                    )
+                    scheduleChannelPointsReconciliation(
                         networkLibrary = networkLibrary,
                         gqlHeaders = headers,
                         channelLogin = channelLogin,
@@ -5108,6 +5255,7 @@ class ChatViewModel(
 
     companion object {
         private const val WATCH_STREAK_RECONCILIATION_DELAY_MILLIS = 750L
+        private val CHANNEL_POINTS_RECONCILIATION_DELAYS_MILLIS = listOf(750L, 3_000L, 10_000L, 20_000L)
         private const val METERED_CACHE_MAX_AGE_MS = 604_800_000L
         private const val MAX_BADGE_CACHE_FILES = 100
         private const val DEFAULT_REWARD_COLOR = "#9146FF"

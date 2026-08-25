@@ -8,6 +8,26 @@ import com.github.andreyasadchy.xtra.model.chat.Raid
 import org.json.JSONObject
 import kotlin.time.Instant
 
+data class ChannelPointsBalanceEvent(
+    val channelId: String?,
+    val type: Type,
+    /** The event amount as a positive number. The reducer applies the sign. */
+    val delta: Int? = null,
+    val absoluteBalance: Int? = null,
+    val reasonCode: String? = null,
+    val timestamp: Long? = null,
+    val messageId: String? = null,
+    val transactionId: String? = null,
+    val streakCount: Int? = null,
+) {
+    enum class Type {
+        EARNED,
+        SPENT,
+    }
+}
+
+typealias ChannelPointsBalanceEventType = ChannelPointsBalanceEvent.Type
+
 object PubSubUtils {
     fun parsePlaybackMessage(message: JSONObject): PlaybackMessage? {
         val messageType = message.optString("type")
@@ -58,17 +78,94 @@ object PubSubUtils {
     }
 
     fun parsePointsEarned(message: JSONObject): Pair<PointsEarned, String?> {
-        val messageData = message.optJSONObject("data")
-        val messageChannelId = messageData?.optString("channel_id")
-        val pointGain = messageData?.optJSONObject("point_gain")
+        val event = parseChannelPointsBalanceEvent(message, ChannelPointsBalanceEvent.Type.EARNED)
         return Pair(
             PointsEarned(
-                pointsGained = pointGain?.optInt("total_points"),
-                reasonCode = pointGain?.optString("reason_code")?.takeIf { it.isNotBlank() },
-                timestamp = if (messageData?.isNull("timestamp") == false) messageData.optString("timestamp").takeIf { it.isNotBlank() }?.let { Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } } else null,
+                pointsGained = event?.delta,
+                reasonCode = event?.reasonCode,
+                timestamp = event?.timestamp,
+                absoluteBalance = event?.absoluteBalance,
+                streakCount = event?.streakCount,
+                messageId = event?.messageId,
                 fullMsg = message.toString()
             ),
-            messageChannelId
+            event?.channelId
+        )
+    }
+
+    fun parsePointsSpent(message: JSONObject): ChannelPointsBalanceEvent? =
+        parseChannelPointsBalanceEvent(message, ChannelPointsBalanceEvent.Type.SPENT)
+
+    /**
+     * Parses the private user-points messages. Twitch has changed the nesting
+     * of these payloads several times, so all fields are optional and common
+     * aliases are checked recursively.
+     */
+    fun parseChannelPointsBalanceEvent(
+        message: JSONObject,
+        type: ChannelPointsBalanceEvent.Type? = null,
+    ): ChannelPointsBalanceEvent? {
+        val eventType = type ?: message.optionalString("type")?.lowercase()?.let { messageType ->
+            when {
+                messageType.startsWith("points-earned") || messageType.startsWith("points_earned") -> ChannelPointsBalanceEvent.Type.EARNED
+                messageType.startsWith("points-spent") || messageType.startsWith("points_spent") -> ChannelPointsBalanceEvent.Type.SPENT
+                else -> null
+            }
+        } ?: return null
+        val data = message.optJSONObject("data")
+        val detail = data?.optJSONObject(if (eventType == ChannelPointsBalanceEvent.Type.EARNED) "point_gain" else "point_spend")
+            ?: data?.optJSONObject(if (eventType == ChannelPointsBalanceEvent.Type.EARNED) "pointGain" else "pointSpend")
+            ?: data?.optJSONObject(if (eventType == ChannelPointsBalanceEvent.Type.EARNED) "points_earned" else "points_spent")
+            ?: data?.optJSONObject("points")
+            ?: message.optJSONObject(if (eventType == ChannelPointsBalanceEvent.Type.EARNED) "point_gain" else "point_spend")
+        val deltaKeys = if (eventType == ChannelPointsBalanceEvent.Type.EARNED) {
+            setOf("total_points", "points", "amount", "points_earned", "points_gained", "value")
+        } else {
+            setOf("total_points", "points", "amount", "cost", "points_spent", "value")
+        }
+        val absoluteBalanceKeys = setOf(
+            "balance",
+            "new_balance",
+            "current_balance",
+            "total_balance",
+            "points_balance",
+            "channel_points_balance",
+        )
+        val reasonKeys = setOf("reason_code", "reasonCode", "reason")
+        val streakKeys = setOf("streak_count", "streakCount", "current_streak", "watch_streak_count")
+        val channelId = findChannelId(message)
+        val delta = detail?.findNumeric(deltaKeys)
+            ?: data?.findNumeric(deltaKeys)
+            ?: message.findNumeric(deltaKeys)
+        val absoluteBalance = detail?.findNumeric(absoluteBalanceKeys)
+            ?: data?.findNumeric(absoluteBalanceKeys)
+            ?: message.findNumeric(absoluteBalanceKeys)
+        val reasonCode = detail?.findString(reasonKeys)
+            ?: data?.findString(reasonKeys)
+            ?: message.findString(reasonKeys)
+        val streakCount = detail?.findNumeric(streakKeys)
+            ?: data?.findNumeric(streakKeys)
+            ?: message.findNumeric(streakKeys)
+        val timestamp = detail?.findTimestamp()
+            ?: data?.findTimestamp()
+            ?: message.findTimestamp()
+        val messageId = detail?.findMessageId()
+            ?: data?.findMessageId()
+            ?: message.findMessageId()
+        val transactionId = detail?.findString(setOf("transaction_id", "transactionId", "redemption_id", "redemptionId"))
+            ?: data?.findString(setOf("transaction_id", "transactionId", "redemption_id", "redemptionId"))
+            ?: message.findString(setOf("transaction_id", "transactionId", "redemption_id", "redemptionId"))
+        if (channelId == null && delta == null && absoluteBalance == null) return null
+        return ChannelPointsBalanceEvent(
+            channelId = channelId,
+            type = eventType,
+            delta = delta?.takeIf { it >= 0 },
+            absoluteBalance = absoluteBalance?.takeIf { it >= 0 },
+            reasonCode = reasonCode,
+            timestamp = timestamp,
+            messageId = messageId,
+            transactionId = transactionId,
+            streakCount = streakCount?.takeIf { it > 0 },
         )
     }
 
@@ -191,6 +288,90 @@ object PubSubUtils {
     private fun JSONObject.optionalString(key: String): String? =
         if (!has(key) || isNull(key)) null else optString(key).takeIf { it.isNotBlank() }
 
+    private fun JSONObject.findString(keys: Set<String>): String? {
+        keys.firstNotNullOfOrNull { optionalString(it) }?.let { return it }
+        val iterator = keys()
+        while (iterator.hasNext()) {
+            when (val value = opt(iterator.next())) {
+                is JSONObject -> value.findString(keys)?.let { return it }
+                is org.json.JSONArray -> {
+                    for (index in 0 until value.length()) {
+                        value.optJSONObject(index)?.findString(keys)?.let { return it }
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun JSONObject.findNumeric(keys: Set<String>): Int? {
+        keys.firstNotNullOfOrNull { optionalInt(it) }?.let { return it }
+        val iterator = keys()
+        while (iterator.hasNext()) {
+            when (val value = opt(iterator.next())) {
+                is JSONObject -> value.findNumeric(keys)?.let { return it }
+                is org.json.JSONArray -> {
+                    for (index in 0 until value.length()) {
+                        value.optJSONObject(index)?.findNumeric(keys)?.let { return it }
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun JSONObject.findTimestamp(): Long? {
+        val timestampKeys = setOf("timestamp", "created_at", "createdAt", "event_timestamp", "eventTimestamp")
+        timestampKeys.forEach { key ->
+            if (!has(key) || isNull(key)) return@forEach
+            val value = opt(key)
+            val timestamp = when (value) {
+                null -> null
+                is Number -> value.toLong().let { if (it in 1 until 1_000_000_000_000L) it * 1_000L else it }
+                else -> value.toString().toLongOrNull()?.let { if (it in 1 until 1_000_000_000_000L) it * 1_000L else it }
+                    ?: Instant.parseOrNull(value.toString())?.toEpochMilliseconds()
+            }
+            if (timestamp != null && timestamp > 0) return timestamp
+        }
+        val iterator = keys()
+        while (iterator.hasNext()) {
+            when (val value = opt(iterator.next())) {
+                is JSONObject -> value.findTimestamp()?.let { return it }
+                is org.json.JSONArray -> {
+                    for (index in 0 until value.length()) {
+                        value.optJSONObject(index)?.findTimestamp()?.let { return it }
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun JSONObject.findMessageId(): String? {
+        findString(setOf("message_id", "messageId", "event_id", "eventId"))?.let { return it }
+        optionalString("id")?.let { return it }
+        return null
+    }
+
+    private fun findChannelId(message: JSONObject): String? {
+        val channelKeys = setOf("channel_id", "channelId", "channelID")
+        channelKeys.firstNotNullOfOrNull { message.optionalString(it) }?.let { return it }
+        (message.opt("channel") as? String)?.takeIf { it.isNotBlank() }?.let { return it }
+        message.optJSONObject("channel")?.findString(setOf("id", "channel_id", "channelId"))?.let { return it }
+        val iterator = message.keys()
+        while (iterator.hasNext()) {
+            when (val value = message.opt(iterator.next())) {
+                is JSONObject -> findChannelId(value)?.let { return it }
+                is org.json.JSONArray -> {
+                    for (index in 0 until value.length()) {
+                        value.optJSONObject(index)?.let { findChannelId(it) }?.let { return it }
+                    }
+                }
+            }
+        }
+        return null
+    }
+
     private fun JSONObject.optionalInt(key: String): Int? {
         if (!has(key) || isNull(key)) return null
         return opt(key)?.toString()?.toDoubleOrNull()?.toInt()
@@ -309,6 +490,9 @@ object PubSubUtils {
         val pointsGained: Int? = null,
         val reasonCode: String? = null,
         val timestamp: Long? = null,
+        val absoluteBalance: Int? = null,
+        val streakCount: Int? = null,
+        val messageId: String? = null,
         val fullMsg: String? = null,
     )
 }
