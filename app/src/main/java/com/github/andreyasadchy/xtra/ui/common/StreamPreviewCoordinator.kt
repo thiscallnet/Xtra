@@ -291,8 +291,10 @@ class StreamPreviewCoordinator(
             .mapNotNull { it.previewIdentity }
         val scrolling = viewports.values.any { it.scrolling }
         if (scrolling) {
+            // A gesture changes which cards are visible, not whether an existing
+            // preview should play. The lifecycle grace period handles cards that
+            // remain offscreen after the gesture settles.
             cancelPendingStarts()
-            pauseActivePreviews()
         }
         previewLifecycle.observeVisible(reasonablyVisible, now, scrolling = scrolling)
         previewLifecycle.expire(now)
@@ -350,11 +352,6 @@ class StreamPreviewCoordinator(
             val active = activePreviews[identity]
             if (active != null) {
                 attachSurfaceIfNeeded(active, candidate)
-                if (scrolling) {
-                    pausePreview(active)
-                } else {
-                    resumePreview(active)
-                }
             } else {
                 if (!scrolling) scheduleStart(candidate, now)
             }
@@ -573,23 +570,6 @@ class StreamPreviewCoordinator(
         }
     }
 
-    private fun pauseActivePreviews() {
-        activePreviews.values.forEach(::pausePreview)
-    }
-
-    private fun pausePreview(active: ActivePreview) {
-        if (active.pausedForScrolling) return
-        active.player.pause()
-        active.pausedForScrolling = true
-    }
-
-    private fun resumePreview(active: ActivePreview) {
-        if (!active.pausedForScrolling) return
-        active.pausedForScrolling = false
-        active.player.playWhenReady = true
-        active.player.play()
-    }
-
     private fun previewTrackSelectionParameters(): TrackSelectionParameters =
         TrackSelectionParameters.Builder(context).apply {
             setTrackTypeDisabled(Media3C.TRACK_TYPE_AUDIO, true)
@@ -717,7 +697,6 @@ class StreamPreviewCoordinator(
         val playerView: PlayerView,
         var surface: FrameLayout? = null,
         var firstFrameRendered: Boolean = false,
-        var pausedForScrolling: Boolean = false,
     )
 
     private companion object {
