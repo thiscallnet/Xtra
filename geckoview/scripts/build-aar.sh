@@ -92,6 +92,20 @@ cache_dir="${GECKO_COMPILED_CACHE_DIR:-}"
 cache_artifact="${cache_dir:+$cache_dir/$artifact_name.aar}"
 cache_maven="${cache_dir:+$cache_dir/$artifact_name.target.maven.zip}"
 
+if [[ "${GECKO_BOOTSTRAP_ONLY:-0}" == "1" ]]; then
+  prepare_gecko_source
+  ensure_clean_source_before_patch
+  assert_hls_patch_state
+
+  started="$SECONDS"
+  (
+    cd "$source_dir"
+    ./mach --no-interactive bootstrap --application-choice="GeckoView/Firefox for Android"
+  )
+  echo "timing phase=bootstrap seconds=$((SECONDS - started))"
+  exit 0
+fi
+
 if [[ -n "$cache_dir" && -f "$cache_artifact" && -f "$cache_maven" ]]; then
   echo "compiled_gecko_cache=hit abi=$abi profile=$profile compile_digest=$config_digest"
   "$repo_root/scripts/verify-aar.sh" "$cache_artifact" "$abi" "$profile" \
@@ -108,12 +122,16 @@ prepare_gecko_source
 ensure_clean_source_before_patch
 assert_hls_patch_state
 
-started="$SECONDS"
-(
-  cd "$source_dir"
-  ./mach --no-interactive bootstrap --application-choice="GeckoView/Firefox for Android"
-)
-echo "timing phase=bootstrap seconds=$((SECONDS - started))"
+if [[ "${GECKO_SKIP_BOOTSTRAP:-0}" == "1" ]]; then
+  echo "timing phase=bootstrap skipped"
+else
+  started="$SECONDS"
+  (
+    cd "$source_dir"
+    ./mach --no-interactive bootstrap --application-choice="GeckoView/Firefox for Android"
+  )
+  echo "timing phase=bootstrap seconds=$((SECONDS - started))"
+fi
 
 cat "$repo_root/mozconfigs/common.mozconfig" \
   "$repo_root/mozconfigs/${abi}-${profile}.mozconfig" > "$mozconfig"
