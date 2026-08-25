@@ -1338,7 +1338,6 @@ class ChatViewModel(
     private fun applyLocalChannelPointsSpend(
         channelId: String,
         amount: Int,
-        transactionId: String? = null,
     ) {
         synchronized(channelPointsBalanceLock) {
             channelPointsBalanceState = channelPointsBalanceReducer.applyLocalSpend(
@@ -1346,7 +1345,6 @@ class ChatViewModel(
                 channelId = channelId,
                 amount = amount,
                 nowMs = System.currentTimeMillis(),
-                transactionId = transactionId,
             )
             val balance = channelPointsBalanceState.balance
             val current = channelPoints.value
@@ -3897,7 +3895,7 @@ class ChatViewModel(
                 }
                 if (success && activeChannelLogin == channelLogin) {
                     activeChannelId?.let { activeId ->
-                        applyLocalChannelPointsSpend(activeId, points, transactionId = predictionId)
+                        applyLocalChannelPointsSpend(activeId, points)
                     }
                     loadChannelPoints(
                         networkLibrary = networkLibrary,
@@ -5257,7 +5255,7 @@ class ChatViewModel(
 
     companion object {
         private const val WATCH_STREAK_RECONCILIATION_DELAY_MILLIS = 750L
-        private val CHANNEL_POINTS_RECONCILIATION_DELAYS_MILLIS = listOf(750L, 3_000L, 10_000L)
+        private val CHANNEL_POINTS_RECONCILIATION_DELAYS_MILLIS = listOf(750L, 3_000L, 10_000L, 20_000L)
         private const val METERED_CACHE_MAX_AGE_MS = 604_800_000L
         private const val MAX_BADGE_CACHE_FILES = 100
         private const val DEFAULT_REWARD_COLOR = "#9146FF"

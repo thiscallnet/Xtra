@@ -200,9 +200,12 @@ class ChannelPointsBalanceReducer(
                 it.amount == amount
         }
         if (event.transactionId != null) {
-            return localSpends.firstOrNull { it.transactionId == event.transactionId }
+            localSpends.firstOrNull {
+                it.transactionId != null && it.transactionId == event.transactionId
+            }?.let { return it }
         }
         return localSpends.firstOrNull {
+            it.transactionId == null &&
             nowMs - it.appliedAtMs in 0..pendingAdjustmentWindowMillis
         }
     }

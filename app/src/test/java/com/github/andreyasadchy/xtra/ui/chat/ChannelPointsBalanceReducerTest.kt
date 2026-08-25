@@ -38,7 +38,6 @@ class ChannelPointsBalanceReducerTest {
             channelId = "channel-100",
             amount = 500,
             nowMs = 2_000L,
-            transactionId = "redemption-1",
         )
         assertEquals(500, local.balance)
 
@@ -53,6 +52,32 @@ class ChannelPointsBalanceReducerTest {
             ),
             nowMs = 2_100L,
         )
+        assertEquals(500, confirmed.balance)
+        assertTrue(confirmed.pendingAdjustments.isEmpty())
+    }
+
+    @Test
+    fun localSpendWithoutServerIdMatchesHermesEventWithServerId() {
+        val local = reducer.applyLocalSpend(
+            state = ChannelPointsBalanceReducer.State(balance = 1_000),
+            channelId = "channel-100",
+            amount = 500,
+            nowMs = 2_500L,
+        )
+        assertEquals(null, local.pendingAdjustments.single().transactionId)
+
+        val confirmed = reducer.applyLiveEvent(
+            local,
+            ChannelPointsBalanceEvent(
+                channelId = "channel-100",
+                type = ChannelPointsBalanceEvent.Type.SPENT,
+                delta = 500,
+                transactionId = "redemption-123",
+                messageId = "spend-with-server-id",
+            ),
+            nowMs = 2_600L,
+        )
+
         assertEquals(500, confirmed.balance)
         assertTrue(confirmed.pendingAdjustments.isEmpty())
     }
