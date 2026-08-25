@@ -118,6 +118,7 @@
     <string name="delete">Delete</string>
     <string name="more_options">More options</string>
     <string name="set_as_default">Set as default tab</string>
+    <string name="settings_show_item">Show %1$s</string>
     <string name="are_you_sure">Are you sure you want to delete this video?</string>
     <string name="token_expired">Your session has expired. Please log in again.</string>
     <string name="no_connection">No Internet connection</string>
@@ -1420,7 +1421,7 @@
     <string name="live_notifications_following_summary">Automatically enable live alerts for channels you follow through Xtra. Twitch notification preferences are used when an authenticated web session is available.</string>
     <string name="settings_customize_controls_summary">Quick controls, More menu and Hidden</string>
     <string name="settings_layout_preview">Preview</string>
-    <string name="settings_tabs_preview_help">The preview follows the order and visibility below.</string>
+    <string name="settings_tabs_preview_help">Drag to reorder. Use the checkbox to show or hide an item. The home icon marks the default.</string>
     <string name="settings_sections_preview_help">The preview shows the visible shelves in their current order.</string>
     <string name="settings_playback_speed_options_summary">Choose and reorder speed values</string>
     <string name="settings_double_tap_chat_summary">Toggle chat with a double tap while watching.</string>

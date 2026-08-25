@@ -27,6 +27,7 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
     var itemTouchHelper: ItemTouchHelper? = null
     var setDefault: ((SettingsDragListItem) -> Unit)? = null
     var cycleGroup: ((SettingsDragListItem) -> Unit)? = null
+    var showVisibilityToggle = false
     var onItemChanged: (() -> Unit)? = null
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -60,7 +61,6 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     setAsDefault.setImageResource(
                         if (item.group == "quick") R.drawable.baseline_home_black_24 else R.drawable.outline_home_black_24
                     )
-                    checkBox.visibility = View.GONE
                 } else if (setDefault != null) {
                     setAsDefault.visibility = View.VISIBLE
                     checkBox.visibility = View.GONE
@@ -78,6 +78,8 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     }
                 } else {
                     setAsDefault.visibility = View.GONE
+                }
+                if (cycleGroup == null && showVisibilityToggle) {
                     checkBox.visibility = View.VISIBLE
                     checkBox.setOnCheckedChangeListener(null)
                     checkBox.isChecked = item.enabled
@@ -85,6 +87,13 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                         item.enabled = isChecked
                         onItemChanged?.invoke()
                     }
+                    checkBox.contentDescription = root.context.getString(
+                        R.string.settings_show_item,
+                        item.text,
+                    )
+                } else {
+                    checkBox.setOnCheckedChangeListener(null)
+                    checkBox.visibility = View.GONE
                 }
             }
         }

@@ -257,6 +257,7 @@ class SettingsActivity : AppCompatActivity() {
         showDefaultSelector: Boolean = true,
     ) {
         val listAdapter = SettingsDragListAdapter()
+        listAdapter.showVisibilityToggle = true
         val preview = when (prefKey) {
             C.UI_NAVIGATION_TAB_LIST -> SettingsLayoutPreview(this, list, SettingsLayoutPreview.Mode.NAVIGATION)
             C.UI_FOLLOWING_TABS,
@@ -303,10 +304,20 @@ class SettingsActivity : AppCompatActivity() {
                     }
                 }
                 item.default = true
+                item.enabled = true
+                listAdapter.notifyItemChanged(list.indexOf(item))
                 preview?.refresh()
             }
         }
-        listAdapter.onItemChanged = { preview?.refresh() }
+        listAdapter.onItemChanged = {
+            if (showDefaultSelector && list.none { it.default && it.enabled }) {
+                list.firstOrNull { it.enabled }?.let { firstVisible ->
+                    list.forEach { it.default = it === firstVisible }
+                    listAdapter.notifyDataSetChanged()
+                }
+            }
+            preview?.refresh()
+        }
         itemTouchHelper.attachToRecyclerView(recyclerView)
         listAdapter.submitList(list)
         val dialogView = preview?.let { layoutPreview ->
