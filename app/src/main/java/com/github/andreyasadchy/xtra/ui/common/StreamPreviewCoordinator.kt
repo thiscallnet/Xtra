@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -25,6 +26,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.repository.preload.StreamMedia3Runtime
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadCoordinator
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewCoordinatorPolicy
@@ -205,7 +207,6 @@ class StreamPreviewCoordinator(
         activePreviews.keys.toList()
             .filter { it != identity }
             .forEach(::releasePreview)
-        // Preview SurfaceViews are compositor layers and can remain above the new player view.
         // Keep the warm player, but hide its old card surface for the duration of the handoff.
         activePreviews[identity]?.let(::detachPreviewSurface)
         previewLifecycle.retainOnly(identity)
@@ -506,7 +507,7 @@ class StreamPreviewCoordinator(
         sharedPreviewView ?: createPreviewView().also { sharedPreviewView = it }
 
     private fun createPreviewView(): PlayerView =
-        PlayerView(context).apply {
+        (LayoutInflater.from(context).inflate(R.layout.view_stream_preview, null, false) as PlayerView).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             useController = false
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -544,7 +545,11 @@ class StreamPreviewCoordinator(
     }
 
     private fun attachSurfaceIfNeeded(active: ActivePreview, candidate: StreamPreviewCandidate) {
-        if (active.surface !== candidate.surface) {
+        val surfaceChanged = active.surface !== candidate.surface || active.playerView.parent !== candidate.surface
+        if (surfaceChanged) {
+            // A rebound TextureView has no decoded frame yet. Keep the card thumbnail
+            // visible until Media3 confirms that the new output surface has a frame.
+            active.firstFrameRendered = false
             if (active.surface != null) detachPreviewSurface(active)
             active.surface = candidate.surface
         }
