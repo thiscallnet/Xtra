@@ -27,6 +27,8 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
     var itemTouchHelper: ItemTouchHelper? = null
     var setDefault: ((SettingsDragListItem) -> Unit)? = null
     var cycleGroup: ((SettingsDragListItem) -> Unit)? = null
+    var showVisibilityToggle = true
+    var minimumVisibleItems = 0
     var onItemChanged: (() -> Unit)? = null
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -60,7 +62,6 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     setAsDefault.setImageResource(
                         if (item.group == "quick") R.drawable.baseline_home_black_24 else R.drawable.outline_home_black_24
                     )
-                    checkBox.visibility = View.GONE
                 } else if (setDefault != null) {
                     setAsDefault.visibility = View.VISIBLE
                     checkBox.visibility = View.GONE
@@ -78,13 +79,28 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     }
                 } else {
                     setAsDefault.visibility = View.GONE
+                }
+                if (cycleGroup == null && showVisibilityToggle) {
                     checkBox.visibility = View.VISIBLE
                     checkBox.setOnCheckedChangeListener(null)
                     checkBox.isChecked = item.enabled
+                    checkBox.isEnabled = canDisableVisibleItem(
+                        itemEnabled = item.enabled,
+                        visibleItemCount = currentList.count { it.enabled },
+                        minimumVisibleItems = minimumVisibleItems,
+                    )
                     checkBox.setOnCheckedChangeListener { _, isChecked ->
                         item.enabled = isChecked
                         onItemChanged?.invoke()
                     }
+                    checkBox.contentDescription = root.context.getString(
+                        R.string.settings_show_item,
+                        item.text,
+                    )
+                } else {
+                    checkBox.setOnCheckedChangeListener(null)
+                    checkBox.isEnabled = true
+                    checkBox.visibility = View.GONE
                 }
             }
         }

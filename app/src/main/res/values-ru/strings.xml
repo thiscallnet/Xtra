@@ -601,6 +601,7 @@
     <string name="scroll_to_top">Прокрутите вверх</string>
     <string name="more_options">Дополнительные параметры</string>
     <string name="set_as_default">Установить в качестве вкладки по умолчанию</string>
+    <string name="settings_show_item">Показывать %1$s</string>
     <string name="list_load_error">Не удалось загрузить этот контент.</string>
     <string name="list_refresh_error">Не удалось обновить этот контент.</string>
     <string name="list_load_more_error">Не удалось загрузить больше контента.</string>
@@ -1376,7 +1377,7 @@
     <string name="settings_customize_controls_snap_hint">Отпустите, чтобы закрепить</string>
     <string name="settings_customize_controls_drag_action">Перетащите или нажмите %1$s</string>
     <string name="settings_layout_preview">Предпросмотр</string>
-    <string name="settings_tabs_preview_help">Предпросмотр учитывает порядок и видимость ниже.</string>
+    <string name="settings_tabs_preview_help">Перетаскивайте, чтобы изменить порядок. С помощью флажка можно показать или скрыть элемент. Значок главного экрана обозначает значение по умолчанию.</string>
     <string name="settings_sections_preview_help">Предпросмотр показывает видимые разделы в текущем порядке.</string>
     <string name="discover_previous_trending">Предыдущая популярная трансляция</string>
     <string name="discover_next_trending">Следующая популярная трансляция</string>

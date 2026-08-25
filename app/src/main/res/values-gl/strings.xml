@@ -601,6 +601,7 @@
     <string name="scroll_to_top">Desprácese cara arriba</string>
     <string name="more_options">Máis opcións</string>
     <string name="set_as_default">Establecer como pestana predeterminada</string>
+    <string name="settings_show_item">Mostrar %1$s</string>
     <string name="list_load_error">Non se puido cargar este contido.</string>
     <string name="list_refresh_error">Non se puido actualizar este contido.</string>
     <string name="list_load_more_error">Non se puido cargar máis contido.</string>
@@ -1376,7 +1377,7 @@
     <string name="settings_customize_controls_snap_hint">Solta para axustar</string>
     <string name="settings_customize_controls_drag_action">Arrastra ou toca %1$s</string>
     <string name="settings_layout_preview">Vista previa</string>
-    <string name="settings_tabs_preview_help">A vista previa segue a orde e visibilidade que aparecen abaixo.</string>
+    <string name="settings_tabs_preview_help">Arrastra para reordenar. Usa a caixa de verificación para mostrar ou ocultar un elemento. A icona de inicio indica o valor predeterminado.</string>
     <string name="settings_sections_preview_help">A vista previa mostra as seccións visibles na súa orde actual.</string>
     <string name="discover_previous_trending">Emisión en tendencia anterior</string>
     <string name="discover_next_trending">Seguinte emisión en tendencia</string>

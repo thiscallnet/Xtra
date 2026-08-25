@@ -601,6 +601,7 @@
     <string name="scroll_to_top">トップにスクロール</string>
     <string name="more_options">その他のオプション</string>
     <string name="set_as_default">デフォルトのタブとして設定</string>
+    <string name="settings_show_item">%1$sを表示</string>
     <string name="list_load_error">このコンテンツを読み込めませんでした。</string>
     <string name="list_refresh_error">このコンテンツを更新できませんでした。</string>
     <string name="list_load_more_error">これ以上コンテンツを読み込めませんでした。</string>
@@ -1376,7 +1377,7 @@
     <string name="settings_customize_controls_snap_hint">離してスナップ</string>
     <string name="settings_customize_controls_drag_action">%1$sをドラッグまたはタップ</string>
     <string name="settings_layout_preview">プレビュー</string>
-    <string name="settings_tabs_preview_help">プレビューには下の順序と表示状態が反映されます。</string>
+    <string name="settings_tabs_preview_help">ドラッグして並べ替えます。チェックボックスで項目の表示と非表示を切り替えます。ホームアイコンはデフォルトを示します。</string>
     <string name="settings_sections_preview_help">プレビューには現在の順序で表示されるセクションが表示されます。</string>
     <string name="discover_previous_trending">前のトレンド配信</string>
     <string name="discover_next_trending">次のトレンド配信</string>

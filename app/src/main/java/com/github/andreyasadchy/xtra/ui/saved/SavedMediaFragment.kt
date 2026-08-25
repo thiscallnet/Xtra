@@ -32,6 +32,7 @@ import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.saved.filters.FiltersFragment
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
+import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -167,6 +168,8 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
             if (tabs.size > 1) {
                 spinner.visibility = View.VISIBLE
             }
+            spinner.setTabCustomizationLongPress(requireContext(), C.UI_SAVED_TABS)
+            spinner.editText?.setTabCustomizationLongPress(requireContext(), C.UI_SAVED_TABS)
             (spinner.editText as? MaterialAutoCompleteTextView)?.apply {
                 setSimpleItems(tabs.map {
                     when (it) {

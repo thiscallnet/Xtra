@@ -601,6 +601,7 @@
     <string name="scroll_to_top">捲動到頂部</string>
     <string name="more_options">更多選擇</string>
     <string name="set_as_default">設定為預設選項卡</string>
+    <string name="settings_show_item">顯示 %1$s</string>
     <string name="list_load_error">無法載入此內容。</string>
     <string name="list_refresh_error">無法刷新此內容。</string>
     <string name="list_load_more_error">無法載入更多內容。</string>
@@ -1376,7 +1377,7 @@
     <string name="settings_customize_controls_snap_hint">放開以吸附</string>
     <string name="settings_customize_controls_drag_action">拖曳或點按%1$s</string>
     <string name="settings_layout_preview">預覽</string>
-    <string name="settings_tabs_preview_help">預覽會依照下方的順序和可見性顯示。</string>
+    <string name="settings_tabs_preview_help">拖曳即可重新排序。使用核取方塊顯示或隱藏項目。首頁圖示表示預設項目。</string>
     <string name="settings_sections_preview_help">預覽會依目前順序顯示可見區段。</string>
     <string name="discover_previous_trending">上一個熱門直播</string>
     <string name="discover_next_trending">下一個熱門直播</string>

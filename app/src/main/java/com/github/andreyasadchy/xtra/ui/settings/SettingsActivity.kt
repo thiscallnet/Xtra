@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.settings
 
 import android.Manifest
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.admin.DeviceAdminReceiver
 import android.app.admin.DevicePolicyManager
@@ -64,6 +65,7 @@ import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceDataStore
+import androidx.preference.PreferenceGroupAdapter
 import androidx.preference.PreferenceManager
 import androidx.preference.SeekBarPreference
 import androidx.preference.SwitchPreferenceCompat
@@ -150,6 +152,7 @@ class SettingsActivity : AppCompatActivity() {
     private var accountActionIsLogout = false
     private var loginResultLauncher: ActivityResultLauncher<Intent>? = null
     private var accountResultLauncher: ActivityResultLauncher<Intent>? = null
+    private var settingsHighlightPreference: String? = null
     var searchItem: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -207,6 +210,10 @@ class SettingsActivity : AppCompatActivity() {
                 else -> false
             }
         }
+        settingsHighlightPreference = intent.getStringExtra(EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE)
+        if (savedInstanceState == null && intent.getStringExtra(EXTRA_SETTINGS_SCREEN) == SETTINGS_SCREEN_TABS) {
+            navController.navigate(R.id.browsingTabsFragment)
+        }
         binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             private var job: Job? = null
 
@@ -230,6 +237,10 @@ class SettingsActivity : AppCompatActivity() {
                 return false
             }
         })
+    }
+
+    internal fun consumeSettingsHighlightPreference(): String? {
+        return settingsHighlightPreference?.also { settingsHighlightPreference = null }
     }
 
     fun isAccountConnected(): Boolean {
@@ -257,6 +268,9 @@ class SettingsActivity : AppCompatActivity() {
         showDefaultSelector: Boolean = true,
     ) {
         val listAdapter = SettingsDragListAdapter()
+        listAdapter.minimumVisibleItems = minimumVisibleItemsForPreference(prefKey)
+        ensureMinimumVisibleItems(list, listAdapter.minimumVisibleItems)
+        if (showDefaultSelector) promoteDefaultToVisible(list)
         val preview = when (prefKey) {
             C.UI_NAVIGATION_TAB_LIST -> SettingsLayoutPreview(this, list, SettingsLayoutPreview.Mode.NAVIGATION)
             C.UI_FOLLOWING_TABS,
@@ -302,11 +316,17 @@ class SettingsActivity : AppCompatActivity() {
                         it.isClickable = true
                     }
                 }
-                item.default = true
+                setDefaultItem(list, item)
+                listAdapter.notifyDataSetChanged()
                 preview?.refresh()
             }
         }
-        listAdapter.onItemChanged = { preview?.refresh() }
+        listAdapter.onItemChanged = {
+            ensureMinimumVisibleItems(list, listAdapter.minimumVisibleItems)
+            if (showDefaultSelector) promoteDefaultToVisible(list)
+            listAdapter.notifyDataSetChanged()
+            preview?.refresh()
+        }
         itemTouchHelper.attachToRecyclerView(recyclerView)
         listAdapter.submitList(list)
         val dialogView = preview?.let { layoutPreview ->
@@ -338,6 +358,8 @@ class SettingsActivity : AppCompatActivity() {
             .setTitle(title)
             .setView(dialogView)
             .setPositiveButton(getString(android.R.string.ok)) { _, _ ->
+                ensureMinimumVisibleItems(list, listAdapter.minimumVisibleItems)
+                if (showDefaultSelector) promoteDefaultToVisible(list)
                 prefs().edit {
                     putString(prefKey, listAdapter.currentList.joinToString(",") {
                         "${it.key}:${if (it.default) "1" else "0"}:${if (it.enabled) "1" else "0"}"
@@ -1529,6 +1551,9 @@ class SettingsActivity : AppCompatActivity() {
 
         override fun onResume() {
             super.onResume()
+            if (settingsScreen == SCREEN_TABS) {
+                (requireActivity() as? SettingsActivity)?.consumeSettingsHighlightPreference()?.let(::highlightPreference)
+            }
             if (settingsScreen == SCREEN_PROXY) {
                 requireActivity().window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             }
@@ -1538,6 +1563,36 @@ class SettingsActivity : AppCompatActivity() {
                 toggleLiveNotifications(false)
             }
             updateLiveNotificationsSummary()
+        }
+
+        private fun highlightPreference(key: String) {
+            val preference = findPreference<Preference>(key) ?: return
+            val recyclerView = listView as? RecyclerView ?: return
+            val adapter = recyclerView.adapter as? PreferenceGroupAdapter ?: return
+            val position = adapter.getPreferenceAdapterPosition(preference)
+            if (position == RecyclerView.NO_POSITION) return
+            recyclerView.scrollToPosition(position)
+            recyclerView.postDelayed({
+                val itemView = recyclerView.findViewHolderForAdapterPosition(position)?.itemView ?: return@postDelayed
+                if (!ValueAnimator.areAnimatorsEnabled()) return@postDelayed
+                itemView.animate().cancel()
+                itemView.scaleX = 1f
+                itemView.scaleY = 1f
+                itemView.isPressed = true
+                itemView.postDelayed({ itemView.isPressed = false }, 180L)
+                itemView.animate()
+                    .scaleX(1.025f)
+                    .scaleY(1.025f)
+                    .setDuration(120L)
+                    .withEndAction {
+                        itemView.animate()
+                            .scaleX(1f)
+                            .scaleY(1f)
+                            .setDuration(220L)
+                            .start()
+                    }
+                    .start()
+            }, 100L)
         }
 
         override fun onPause() {
@@ -2300,7 +2355,9 @@ class SettingsActivity : AppCompatActivity() {
 
         private fun showSpeedOptionsDialog() {
             val items = readSpeedItems()
-            val listAdapter = SettingsDragListAdapter()
+            val listAdapter = SettingsDragListAdapter().apply {
+                showVisibilityToggle = true
+            }
             val itemTouchHelper = ItemTouchHelper(
                 object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
                     override fun onMove(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {

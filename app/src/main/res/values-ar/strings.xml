@@ -601,6 +601,7 @@
     <string name="scroll_to_top">قم بالتمرير إلى الأعلى</string>
     <string name="more_options">المزيد من الخيارات</string>
     <string name="set_as_default">تعيين كعلامة تبويب افتراضية</string>
+    <string name="settings_show_item">إظهار %1$s</string>
     <string name="list_load_error">تعذر تحميل هذا المحتوى.</string>
     <string name="list_refresh_error">لا يمكن تحديث هذا المحتوى.</string>
     <string name="list_load_more_error">لا يمكن تحميل المزيد من المحتوى.</string>
@@ -1376,7 +1377,7 @@
     <string name="settings_customize_controls_snap_hint">حرر للإرساء</string>
     <string name="settings_customize_controls_drag_action">اسحب أو اضغط %1$s</string>
     <string name="settings_layout_preview">معاينة</string>
-    <string name="settings_tabs_preview_help">تتبع المعاينة الترتيب والعناصر الظاهرة أدناه.</string>
+    <string name="settings_tabs_preview_help">اسحب لإعادة الترتيب. استخدم مربع الاختيار لإظهار عنصر أو إخفائه. تشير أيقونة المنزل إلى الإعداد الافتراضي.</string>
     <string name="settings_sections_preview_help">تعرض المعاينة الرفوف الظاهرة بالترتيب الحالي.</string>
     <string name="discover_previous_trending">البث الرائج السابق</string>
     <string name="discover_next_trending">البث الرائج التالي</string>
