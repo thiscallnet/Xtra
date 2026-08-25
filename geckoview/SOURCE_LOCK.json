@@ -1,0 +1,9 @@
+{
+  "acquisition": "github-commit-archive",
+  "archiveSha256": "f6988ba0c546019059d276bd800d0112376201462420221f4f0770545735cefc",
+  "archiveUrl": "https://github.com/mozilla-firefox/firefox/archive/a077abc2b0f43ed7cc59a8bfcd873e683500d23a.tar.gz",
+  "patchSha256": "94aca01aca4d1478fc45d5b0e7e7fc5db37e94bf38f658c0c1b9157a953f2bbe",
+  "repository": "https://hg.mozilla.org/releases/mozilla-release",
+  "revision": "2853d763c9486ebd79a1d93396ffadc53c91f187",
+  "sourceGitRevision": "a077abc2b0f43ed7cc59a8bfcd873e683500d23a"
+}

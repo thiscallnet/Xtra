@@ -1,0 +1,3 @@
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-xtra-arm64-nowebrtc
+ac_add_options --target=aarch64
+ac_add_options --disable-webrtc

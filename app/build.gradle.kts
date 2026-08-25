@@ -44,6 +44,17 @@ if (releaseTaskRequested) {
 }
 
 val twitchPublicClientId = configuredTwitchPublicClientId ?: localDevelopmentTwitchPublicClientId
+val customGeckoViewAar = providers.gradleProperty("xtraGeckoViewAar")
+    .orNull
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?.let { file(it).absoluteFile }
+
+if (customGeckoViewAar != null) {
+    require(customGeckoViewAar.isFile) {
+        "xtraGeckoViewAar must point to an existing AAR: $customGeckoViewAar"
+    }
+}
 
 require(applicationVersionCode in 1..2_100_000_000) {
     "versionCode must be between 1 and 2,100,000,000"
@@ -67,7 +78,7 @@ android {
 
     defaultConfig {
         applicationId = "com.github.andreyasadchy.xtra"
-    minSdk = 26
+        minSdk = 26
         targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = applicationVersionCode
@@ -108,14 +119,19 @@ android {
     lint {
         disable += "ContentDescription"
     }
-    packaging.jniLibs.excludes.addAll(listOf(
-        "lib/x86/libtranslate_jni.so",
-        "lib/x86/liblanguage_id_l2c_jni.so",
-        "lib/x86_64/libtranslate_jni.so",
-        "lib/x86_64/liblanguage_id_l2c_jni.so",
-        "lib/armeabi-v7a/libtranslate_jni.so",
-        "lib/armeabi-v7a/liblanguage_id_l2c_jni.so",
-    ))
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            excludes.addAll(listOf(
+                "lib/x86/libtranslate_jni.so",
+                "lib/x86/liblanguage_id_l2c_jni.so",
+                "lib/x86_64/libtranslate_jni.so",
+                "lib/x86_64/liblanguage_id_l2c_jni.so",
+                "lib/armeabi-v7a/libtranslate_jni.so",
+                "lib/armeabi-v7a/liblanguage_id_l2c_jni.so",
+            ))
+        }
+    }
 }
 
 ksp {
@@ -165,7 +181,18 @@ dependencies {
     implementation(libs.coordinatorlayout)
     implementation(libs.core)
     implementation(libs.fragment.ktx)
-    implementation(libs.geckoview)
+    if (customGeckoViewAar != null) {
+        implementation(files(customGeckoViewAar))
+        // A local AAR has no Maven metadata, so declare GeckoView's runtime
+        // dependencies explicitly. The stock Maven dependency supplies these
+        // transitively when no custom AAR is selected.
+        implementation("androidx.collection:collection:1.6.0")
+        implementation("androidx.lifecycle:lifecycle-process:2.11.0")
+        implementation("com.google.android.gms:play-services-fido:21.2.0")
+        implementation("org.yaml:snakeyaml:2.2")
+    } else {
+        implementation(libs.geckoview)
+    }
     implementation(libs.lifecycle.service)
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.navigation.fragment)

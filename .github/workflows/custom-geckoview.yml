@@ -1,0 +1,613 @@
+name: Custom GeckoView
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'geckoview/**'
+      - '.github/workflows/custom-geckoview.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'geckoview/**'
+      - '.github/workflows/custom-geckoview.yml'
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Native build scope
+        required: true
+        default: smoke-arm64
+        type: choice
+        options:
+          - smoke-arm64
+          - release-both
+      experimental_nowebrtc:
+        description: Build the ARM64 no-WebRTC experiment
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: Optional xtra-gv-* tag to publish the universal safe AAR under
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: custom-geckoview-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CACHE_SCHEMA: v3
+
+jobs:
+  validate-recipe:
+    name: Validate Gecko recipe
+    runs-on: ubuntu-latest
+    outputs:
+      run_heavy: ${{ steps.scope.outputs.run_heavy }}
+      release_both: ${{ steps.scope.outputs.release_both }}
+      matrix: ${{ steps.scope.outputs.matrix }}
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Validate scripts and pinned recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n geckoview/scripts/*.sh
+          python3 -m py_compile geckoview/scripts/*.py
+          python3 geckoview/scripts/validate-recipe.py
+
+      - name: Select native build scope
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            run_heavy=false
+            release_both=false
+            matrix='{"include":[{"abi":"arm64-v8a","label":"ARM64"}]}'
+          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "${{ inputs.scope }}" == smoke-arm64 ]]; then
+            run_heavy=true
+            release_both=false
+            matrix='{"include":[{"abi":"arm64-v8a","label":"ARM64"}]}'
+          else
+            run_heavy=true
+            release_both=true
+            matrix='{"include":[{"abi":"arm64-v8a","label":"ARM64"},{"abi":"armeabi-v7a","label":"ARMv7"}]}'
+          fi
+          {
+            echo "run_heavy=$run_heavy"
+            echo "release_both=$release_both"
+            echo "matrix=$matrix"
+          } >> "$GITHUB_OUTPUT"
+          echo "native_build_scope=$matrix"
+
+  build-skinny:
+    name: ${{ matrix.label }} / safe
+    needs: validate-recipe
+    if: ${{ needs.validate-recipe.outputs.run_heavy == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.validate-recipe.outputs.matrix) }}
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Install Gecko build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build patch sccache unzip
+
+      - name: Compute cache keys
+        id: keys
+        shell: bash
+        env:
+          ABI: ${{ matrix.abi }}
+        run: |
+          set -euo pipefail
+          source_key="$(sha256sum geckoview/SOURCE_REVISION geckoview/SOURCE_LOCK.json | sha256sum | awk '{print $1}')"
+          recipe_key="$(sha256sum \
+            geckoview/SOURCE_LOCK.json \
+            geckoview/COMPILE_RECIPE_VERSION \
+            geckoview/mozconfigs/common.mozconfig \
+            "geckoview/mozconfigs/${ABI}-safe.mozconfig" \
+            geckoview/patches/0001-disable-android-hls.patch | \
+            sha256sum | awk '{print $1}')"
+          {
+            echo "source_key=$source_key"
+            echo "recipe_key=$recipe_key"
+            echo "sccache_key=gecko-sccache-${source_key}-${ABI}-safe-${RUNNER_OS}-${RUNNER_ARCH}-${recipe_key}-${CACHE_SCHEMA}"
+            echo "sccache_restore=gecko-sccache-${source_key}-${ABI}-safe-${RUNNER_OS}-${RUNNER_ARCH}-"
+            echo "built_key=gecko-built-${source_key}-${ABI}-safe-${recipe_key}-${CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${CACHE_SCHEMA}"
+            echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore Gecko source snapshot
+        id: source-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/gecko-source-snapshot
+          key: ${{ steps.keys.outputs.source_cache_key }}
+
+      - name: Restore shared Mozilla toolchain state
+        id: mozbuild-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.mozbuild
+          key: ${{ steps.keys.outputs.toolchain_key }}
+
+      - name: Restore sccache
+        id: sccache-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .sccache
+          key: ${{ steps.keys.outputs.sccache_key }}
+          restore-keys: ${{ steps.keys.outputs.sccache_restore }}
+
+      - name: Restore compiled Gecko output
+        id: compiled-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/gecko-built-cache
+          key: ${{ steps.keys.outputs.built_key }}
+
+      - name: Build and verify skinny GeckoView archive
+        id: build
+        env:
+          SCCACHE_DIR: ${{ github.workspace }}/.sccache
+          GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
+          GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
+          GECKO_COMPILED_CACHE_DIR: ${{ runner.temp }}/gecko-built-cache
+        run: ./geckoview/scripts/build-aar.sh "${{ matrix.abi }}" safe
+
+      - name: Record sccache statistics
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          sccache --show-stats | tee "$RUNNER_TEMP/sccache-stats.txt"
+
+      - name: Check Gecko source snapshot
+        id: source-ready
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/gecko-source-snapshot/.xtra-source-snapshot.json" ]]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save Gecko source snapshot cache
+        if: always() && steps.source-ready.outputs.ready == 'true' && steps.source-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/gecko-source-snapshot
+          key: ${{ steps.keys.outputs.source_cache_key }}
+
+      - name: Save shared Mozilla toolchain cache
+        if: always() && steps.mozbuild-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ~/.mozbuild
+          key: ${{ steps.keys.outputs.toolchain_key }}
+
+      - name: Save sccache after build attempt
+        if: always() && steps.sccache-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: .sccache
+          key: ${{ steps.keys.outputs.sccache_key }}
+
+      - name: Save compiled Gecko output
+        if: always() && steps.build.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/gecko-built-cache
+          key: ${{ steps.keys.outputs.built_key }}
+
+      - name: Upload skinny Maven archive and provenance
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-${{ matrix.abi }}-safe
+          path: |
+            geckoview/artifacts/*.target.maven.zip
+            geckoview/artifacts/*.json
+          if-no-files-found: error
+
+      - name: Upload compact failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-${{ matrix.abi }}-failure-diagnostics
+          path: |
+            ${{ runner.temp }}/gecko-source/.mozconfig
+            ${{ runner.temp }}/gecko-source/obj-xtra-*/config.status.json
+            ${{ runner.temp }}/sccache-stats.txt
+            geckoview/artifacts/*.json
+          if-no-files-found: ignore
+
+  experimental-nowebrtc:
+    name: ARM64 / nowebrtc (experimental)
+    needs: validate-recipe
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.experimental_nowebrtc }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Install Gecko build tools
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build patch sccache unzip
+
+      - name: Compute cache keys
+        id: keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_key="$(sha256sum geckoview/SOURCE_REVISION geckoview/SOURCE_LOCK.json | sha256sum | awk '{print $1}')"
+          recipe_key="$(sha256sum geckoview/SOURCE_LOCK.json geckoview/COMPILE_RECIPE_VERSION \
+            geckoview/mozconfigs/common.mozconfig geckoview/mozconfigs/arm64-v8a-nowebrtc.mozconfig \
+            geckoview/patches/0001-disable-android-hls.patch | sha256sum | awk '{print $1}')"
+          {
+            echo "source_key=$source_key"
+            echo "sccache_key=gecko-sccache-${source_key}-arm64-v8a-nowebrtc-${RUNNER_OS}-${RUNNER_ARCH}-${recipe_key}-${CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${CACHE_SCHEMA}"
+            echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
+            echo "built_key=gecko-built-${source_key}-arm64-v8a-nowebrtc-${recipe_key}-${CACHE_SCHEMA}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore Gecko source snapshot
+        id: source-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/gecko-source-snapshot
+          key: ${{ steps.keys.outputs.source_cache_key }}
+
+      - name: Restore shared Mozilla toolchain state
+        id: mozbuild-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.mozbuild
+          key: ${{ steps.keys.outputs.toolchain_key }}
+
+      - name: Restore sccache
+        id: sccache-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .sccache
+          key: ${{ steps.keys.outputs.sccache_key }}
+
+      - name: Restore compiled Gecko output
+        id: compiled-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/gecko-built-cache
+          key: ${{ steps.keys.outputs.built_key }}
+
+      - name: Build and verify experimental archive
+        id: build
+        env:
+          SCCACHE_DIR: ${{ github.workspace }}/.sccache
+          GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
+          GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
+          GECKO_COMPILED_CACHE_DIR: ${{ runner.temp }}/gecko-built-cache
+        run: ./geckoview/scripts/build-aar.sh arm64-v8a nowebrtc
+
+      - name: Record sccache statistics
+        if: always()
+        shell: bash
+        run: sccache --show-stats | tee "$RUNNER_TEMP/sccache-stats.txt"
+
+      - name: Check Gecko source snapshot
+        id: source-ready
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/gecko-source-snapshot/.xtra-source-snapshot.json" ]]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Persist Gecko source snapshot
+        if: always() && steps.source-ready.outputs.ready == 'true' && steps.source-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/gecko-source-snapshot
+          key: ${{ steps.keys.outputs.source_cache_key }}
+
+      - name: Persist toolchain state
+        if: always() && steps.mozbuild-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ~/.mozbuild
+          key: ${{ steps.keys.outputs.toolchain_key }}
+
+      - name: Persist sccache
+        if: always() && steps.sccache-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: .sccache
+          key: ${{ steps.keys.outputs.sccache_key }}
+
+      - name: Persist compiled Gecko output
+        if: always() && steps.build.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/gecko-built-cache
+          key: ${{ steps.keys.outputs.built_key }}
+
+      - name: Upload experimental archive
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-arm64-v8a-nowebrtc
+          path: |
+            geckoview/artifacts/*.target.maven.zip
+            geckoview/artifacts/*.json
+          if-no-files-found: error
+
+  fat-aar:
+    name: Universal ARM GeckoView AAR
+    needs: [validate-recipe, build-skinny]
+    if: ${{ needs.validate-recipe.outputs.release_both == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Install Gecko build tools
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build patch unzip
+
+      - name: Download ARM64 Maven archive
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: xtra-geckoview-arm64-v8a-safe
+          path: fat-inputs/arm64
+
+      - name: Download ARMv7 Maven archive
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: xtra-geckoview-armeabi-v7a-safe
+          path: fat-inputs/armv7
+
+      - name: Compute fat-AAR cache keys
+        id: keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          arm64_zip="$(find fat-inputs/arm64 -type f -name '*.target.maven.zip' -print -quit)"
+          armv7_zip="$(find fat-inputs/armv7 -type f -name '*.target.maven.zip' -print -quit)"
+          [[ -n "$arm64_zip" && -n "$armv7_zip" ]] || exit 1
+          source_key="$(sha256sum geckoview/SOURCE_REVISION geckoview/SOURCE_LOCK.json | sha256sum | awk '{print $1}')"
+          input_key="$(sha256sum "$arm64_zip" "$armv7_zip" | sha256sum | awk '{print $1}')"
+          recipe_key="$(sha256sum geckoview/SOURCE_LOCK.json geckoview/COMPILE_RECIPE_VERSION \
+            geckoview/mozconfigs/common.mozconfig geckoview/mozconfigs/fat.mozconfig \
+            geckoview/patches/0001-disable-android-hls.patch | sha256sum | awk '{print $1}')"
+          {
+            echo "arm64_zip=$arm64_zip"
+            echo "armv7_zip=$armv7_zip"
+            echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${CACHE_SCHEMA}"
+            echo "fat_key=gecko-fat-${source_key}-${input_key}-${recipe_key}-${CACHE_SCHEMA}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore Gecko source snapshot
+        id: source-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/gecko-source-snapshot
+          key: ${{ steps.keys.outputs.source_cache_key }}
+
+      - name: Restore shared Mozilla toolchain state
+        id: mozbuild-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.mozbuild
+          key: ${{ steps.keys.outputs.toolchain_key }}
+
+      - name: Restore fat AAR output
+        id: fat-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/gecko-fat-cache
+          key: ${{ steps.keys.outputs.fat_key }}
+
+      - name: Build and verify universal fat AAR
+        id: build
+        env:
+          GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
+          GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
+          GECKO_FAT_CACHE_DIR: ${{ runner.temp }}/gecko-fat-cache
+        shell: bash
+        run: ./geckoview/scripts/build-fat-aar.sh "${{ steps.keys.outputs.arm64_zip }}" "${{ steps.keys.outputs.armv7_zip }}"
+
+      - name: Check Gecko source snapshot
+        id: source-ready
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/gecko-source-snapshot/.xtra-source-snapshot.json" ]]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Persist Gecko source snapshot
+        if: always() && steps.source-ready.outputs.ready == 'true' && steps.source-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/gecko-source-snapshot
+          key: ${{ steps.keys.outputs.source_cache_key }}
+
+      - name: Persist toolchain state
+        if: always() && steps.mozbuild-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ~/.mozbuild
+          key: ${{ steps.keys.outputs.toolchain_key }}
+
+      - name: Save fat AAR output
+        if: always() && steps.build.outcome == 'success' && steps.fat-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/gecko-fat-cache
+          key: ${{ steps.keys.outputs.fat_key }}
+
+      - name: Upload universal AAR
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-universal-safe
+          path: geckoview/artifacts/*universal-safe*
+          if-no-files-found: error
+
+  integration:
+    name: Xtra release with custom GeckoView
+    needs: [validate-recipe, fat-aar]
+    if: ${{ needs.validate-recipe.outputs.release_both == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '21'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+        with:
+          cache-provider: basic
+
+      - name: Download universal AAR
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: xtra-geckoview-universal-safe
+          path: geckoview/artifacts
+
+      - name: Build one release APK with custom GeckoView
+        env:
+          TWITCH_PUBLIC_CLIENT_ID: ${{ vars.TWITCH_PUBLIC_CLIENT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${TWITCH_PUBLIC_CLIENT_ID:-}" ]]; then
+            echo "Repository variable TWITCH_PUBLIC_CLIENT_ID is required for release builds" >&2
+            exit 1
+          fi
+          custom_aar="$(find geckoview/artifacts -maxdepth 1 -type f -name '*.aar' -print -quit)"
+          [[ -n "$custom_aar" ]] || { echo "Universal custom GeckoView AAR is missing" >&2; exit 1; }
+          ./gradlew assembleRelease \
+            "-PxtraGeckoViewAar=$custom_aar" \
+            "-PtwitchPublicClientId=${TWITCH_PUBLIC_CLIENT_ID}"
+          apk="app/build/outputs/apk/release/app-release.apk"
+          test -f "$apk"
+          apk_size_bytes="$(stat -c '%s' "$apk")"
+          max_apk_size_bytes=$((300 * 1024 * 1024))
+          if (( apk_size_bytes > max_apk_size_bytes )); then
+            echo "Custom-Gecko APK exceeds the 300 MiB regression guard: $apk_size_bytes bytes" >&2
+            exit 1
+          fi
+          echo "Custom-Gecko APK size=$apk_size_bytes bytes"
+          echo "Largest custom-Gecko APK members (uncompressed / compressed bytes):"
+          unzip -lv "$apk" |
+            awk 'NR > 3 && $1 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { print $1 " / " $3 "  " $8 }' |
+            sort -nr | sed -n '1,20p'
+
+      - name: Upload integrated release APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-custom-gecko-app-release
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+  publish:
+    name: Publish universal custom GeckoView
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && inputs.scope == 'release-both' && inputs.release_tag != '' }}
+    needs: [validate-recipe, fat-aar, integration]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download universal AAR
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: xtra-geckoview-universal-safe
+          path: artifacts
+
+      - name: Create immutable GeckoView release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$RELEASE_TAG"
+          if [[ ! "$tag" =~ ^xtra-gv-[A-Za-z0-9._-]+$ ]]; then
+            echo "release_tag must match xtra-gv-*" >&2
+            exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release already exists: $tag" >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "Xtra GeckoView $tag" \
+            --notes "Universal ARM custom GeckoView AAR for Xtra. The artifact includes its pinned source revision and SHA-256 manifest." \
+            artifacts/*.aar artifacts/*.json
