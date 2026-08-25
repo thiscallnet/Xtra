@@ -5,20 +5,26 @@ import com.github.andreyasadchy.xtra.util.chat.ChannelPointsBalanceEvent
 /**
  * Keeps the viewer's balance live while GQL catches up.
  *
- * A delta is retained as a pending adjustment until a matching absolute
- * snapshot arrives. That is what prevents an older ChannelPointsContext
- * response, or the matching Hermes spend notification, from undoing or
- * repeating a change already shown to the user.
+ * A delta is retained as a pending adjustment until ChannelPointsContext
+ * catches up. That prevents an older snapshot from undoing a change already
+ * shown to the user. Local spends also stay pending until Hermes confirms
+ * them, while each distinct live event is applied exactly once.
  */
 class ChannelPointsBalanceReducer(
     private val pendingAdjustmentWindowMillis: Long = DEFAULT_PENDING_ADJUSTMENT_WINDOW_MILLIS,
 ) {
+    enum class PendingOrigin {
+        LOCAL_OPTIMISTIC,
+        LIVE_EVENT,
+    }
+
     data class PendingAdjustment(
         val channelId: String,
         val type: ChannelPointsBalanceEvent.Type,
         val amount: Int,
         val appliedAtMs: Long,
         val transactionId: String? = null,
+        val origin: PendingOrigin,
     )
 
     data class State(
@@ -64,14 +70,12 @@ class ChannelPointsBalanceReducer(
             )
         }
 
-        val matchingPending = activePending.firstOrNull { pending ->
-            pending.channelId == event.channelId &&
-                pending.type == event.type &&
-                pending.amount == amount &&
-                ((event.transactionId != null && pending.transactionId != null &&
-                    event.transactionId == pending.transactionId) ||
-                    nowMs - pending.appliedAtMs in 0..pendingAdjustmentWindowMillis)
-        }
+        val matchingPending = findMatchingLocalSpend(
+            pending = activePending,
+            event = event,
+            amount = amount,
+            nowMs = nowMs,
+        )
         val nextPending = if (matchingPending != null) {
             activePending - matchingPending
         } else {
@@ -81,6 +85,7 @@ class ChannelPointsBalanceReducer(
                 amount = amount,
                 appliedAtMs = nowMs,
                 transactionId = event.transactionId,
+                origin = PendingOrigin.LIVE_EVENT,
             )
         }
         val nextBalance = if (matchingPending == null) {
@@ -114,6 +119,7 @@ class ChannelPointsBalanceReducer(
                 amount = amount,
                 appliedAtMs = nowMs,
                 transactionId = transactionId,
+                origin = PendingOrigin.LOCAL_OPTIMISTIC,
             ),
         )
     }
@@ -145,18 +151,30 @@ class ChannelPointsBalanceReducer(
         val pendingExpired = activePending.all {
             nowMs - it.appliedAtMs > pendingAdjustmentWindowMillis
         }
+        if (currentBalance == null) {
+            return state.copy(
+                // The snapshot is the first baseline. A pre-baseline live
+                // event may already be included in it, so never add pending
+                // deltas to this value.
+                balance = snapshotBalance,
+                revision = state.revision + 1L,
+                // Keep local spends matchable until Hermes confirms them.
+                // Live events only caused this reconciliation and must not
+                // affect the next snapshot's arithmetic.
+                pendingAdjustments = activePending.filter {
+                    it.origin == PendingOrigin.LOCAL_OPTIMISTIC
+                },
+            )
+        }
         return when {
             snapshotBalance == currentBalance -> state.copy(
                 balance = snapshotBalance,
                 revision = state.revision + 1L,
-                // Keep the short-lived adjustment so a Hermes confirmation
-                // that arrives after this snapshot cannot subtract twice.
-                pendingAdjustments = activePending,
-            )
-            currentBalance == null && !pendingExpired -> state.copy(
-                balance = (snapshotBalance + pendingDelta).coerceAtLeast(0),
-                revision = state.revision + 1L,
-                pendingAdjustments = activePending,
+                // A matching snapshot confirms live events. Local spends
+                // remain until their Hermes confirmation arrives.
+                pendingAdjustments = activePending.filter {
+                    it.origin == PendingOrigin.LOCAL_OPTIMISTIC
+                },
             )
             !pendingExpired && snapshotBalance == preMutationBalance -> state
             !pendingExpired -> state
@@ -165,6 +183,27 @@ class ChannelPointsBalanceReducer(
                 revision = state.revision + 1L,
                 pendingAdjustments = emptyList(),
             )
+        }
+    }
+
+    private fun findMatchingLocalSpend(
+        pending: List<PendingAdjustment>,
+        event: ChannelPointsBalanceEvent,
+        amount: Int,
+        nowMs: Long,
+    ): PendingAdjustment? {
+        if (event.type != ChannelPointsBalanceEvent.Type.SPENT) return null
+        val localSpends = pending.filter {
+            it.origin == PendingOrigin.LOCAL_OPTIMISTIC &&
+                it.channelId == event.channelId &&
+                it.type == event.type &&
+                it.amount == amount
+        }
+        if (event.transactionId != null) {
+            return localSpends.firstOrNull { it.transactionId == event.transactionId }
+        }
+        return localSpends.firstOrNull {
+            nowMs - it.appliedAtMs in 0..pendingAdjustmentWindowMillis
         }
     }
 

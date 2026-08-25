@@ -1311,24 +1311,28 @@ class ChatViewModel(
     private fun resetChannelPointsBalance() {
         synchronized(channelPointsBalanceLock) {
             channelPointsBalanceState = channelPointsBalanceReducer.reset()
+            channelPoints.value = null
         }
     }
 
     private fun applyChannelPointsBalanceEvent(event: ChannelPointsBalanceEvent): Boolean {
-        val nextState = synchronized(channelPointsBalanceLock) {
+        return synchronized(channelPointsBalanceLock) {
             channelPointsBalanceState = channelPointsBalanceReducer.applyLiveEvent(
                 state = channelPointsBalanceState,
                 event = event,
                 nowMs = System.currentTimeMillis(),
             )
-            channelPointsBalanceState
+            val balance = channelPointsBalanceState.balance
+            val current = channelPoints.value
+            if (balance == null || current == null) {
+                false
+            } else {
+                if (current.balance != balance) {
+                    channelPoints.value = current.copy(balance = balance)
+                }
+                true
+            }
         }
-        val current = channelPoints.value ?: return false
-        val balance = nextState.balance ?: return false
-        if (current.balance != balance) {
-            channelPoints.value = current.copy(balance = balance)
-        }
-        return true
     }
 
     private fun applyLocalChannelPointsSpend(
@@ -1336,7 +1340,7 @@ class ChatViewModel(
         amount: Int,
         transactionId: String? = null,
     ) {
-        val nextState = synchronized(channelPointsBalanceLock) {
+        synchronized(channelPointsBalanceLock) {
             channelPointsBalanceState = channelPointsBalanceReducer.applyLocalSpend(
                 state = channelPointsBalanceState,
                 channelId = channelId,
@@ -1344,11 +1348,9 @@ class ChatViewModel(
                 nowMs = System.currentTimeMillis(),
                 transactionId = transactionId,
             )
-            channelPointsBalanceState
-        }
-        val current = channelPoints.value ?: return
-        nextState.balance?.let { balance ->
-            if (current.balance != balance) {
+            val balance = channelPointsBalanceState.balance
+            val current = channelPoints.value
+            if (balance != null && current != null && current.balance != balance) {
                 channelPoints.value = current.copy(balance = balance)
             }
         }
@@ -1360,16 +1362,6 @@ class ChatViewModel(
     ) {
         val channel = response.data?.community?.channel ?: return
         val snapshotBalance = channel.self.communityPoints?.balance ?: return
-        val balanceState = synchronized(channelPointsBalanceLock) {
-            channelPointsBalanceState = channelPointsBalanceReducer.applySnapshot(
-                state = channelPointsBalanceState,
-                snapshotBalance = snapshotBalance,
-                nowMs = System.currentTimeMillis(),
-                requestRevision = requestRevision,
-            )
-            channelPointsBalanceState
-        }
-        val balance = balanceState.balance ?: snapshotBalance
         val settings = channel.communityPointsSettings
         updateChannelPointModifiedEmotes(settings)
         val hasModifiedEmotes = synchronized(channelPointModifiedEmotes) {
@@ -1452,12 +1444,23 @@ class ChatViewModel(
                     WatchStreakReward(streakLength = reward.streakLength ?: index + 2, points = points)
                 }
             }
-        channelPoints.value = ChannelPoints(
-            balance = balance,
-            iconUrl = iconUrl,
-            rewards = rewards,
-            watchStreakRewards = watchStreakRewards,
-        )
+        synchronized(channelPointsBalanceLock) {
+            channelPointsBalanceState = channelPointsBalanceReducer.applySnapshot(
+                state = channelPointsBalanceState,
+                snapshotBalance = snapshotBalance,
+                nowMs = System.currentTimeMillis(),
+                requestRevision = requestRevision,
+            )
+            val balance = channelPointsBalanceState.balance ?: channelPoints.value?.balance
+            if (balance != null) {
+                channelPoints.value = ChannelPoints(
+                    balance = balance,
+                    iconUrl = iconUrl,
+                    rewards = rewards,
+                    watchStreakRewards = watchStreakRewards,
+                )
+            }
+        }
     }
 
     private fun ChannelPointContextResponse.CustomReward.rewardImageUrl(): String? {
@@ -2316,7 +2319,6 @@ class ChatViewModel(
         watchStreakWorkerJob = null
         pendingWatchStreakRequests.clear()
         resetChannelPointsBalance()
-        channelPoints.value = null
         watchStreak.value = null
         clearPollPresentation()
         latestPoll = null
