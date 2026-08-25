@@ -42,7 +42,6 @@ concurrency:
 env:
   CACHE_SCHEMA: v3
   TOOLCHAIN_CACHE_SCHEMA: v4
-  SCCACHE_CACHE_SCHEMA: v4
 
 jobs:
   validate-recipe:
@@ -185,6 +184,10 @@ jobs:
     if: ${{ needs.validate-recipe.outputs.run_heavy == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    env:
+      SCCACHE_GHA_ENABLED: 'on'
+      SCCACHE_GHA_RW_MODE: READ_WRITE
+      SCCACHE_GHA_VERSION: xtra-geckoview-v1-${{ matrix.abi }}-safe
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -204,7 +207,7 @@ jobs:
       - name: Install Gecko build tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes ninja-build patch sccache unzip
+          sudo apt-get install --yes ninja-build patch unzip
 
       - name: Compute cache keys
         id: keys
@@ -224,8 +227,6 @@ jobs:
           {
             echo "source_key=$source_key"
             echo "recipe_key=$recipe_key"
-            echo "sccache_key=gecko-sccache-${source_key}-${ABI}-safe-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-${recipe_key}"
-            echo "sccache_restore=gecko-sccache-${source_key}-${ABI}-safe-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-"
             echo "built_key=gecko-built-${source_key}-${ABI}-safe-${recipe_key}-${CACHE_SCHEMA}"
             echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${TOOLCHAIN_CACHE_SCHEMA}"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
@@ -261,13 +262,12 @@ jobs:
           command -v sccache
           sccache --version
 
-      - name: Restore sccache
-        id: sccache-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - name: Configure sccache GitHub Actions cache
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
-          path: .sccache
-          key: ${{ steps.keys.outputs.sccache_key }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: ${{ steps.keys.outputs.sccache_restore }}
+          script: |
+            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Restore compiled Gecko output
         id: compiled-cache
@@ -280,7 +280,6 @@ jobs:
         id: build
         env:
           GECKO_SKIP_BOOTSTRAP: '1'
-          SCCACHE_DIR: ${{ github.workspace }}/.sccache
           GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
           GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
           GECKO_COMPILED_CACHE_DIR: ${{ runner.temp }}/gecko-built-cache
@@ -288,6 +287,7 @@ jobs:
 
       - name: Record sccache statistics
         if: always()
+        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
@@ -322,14 +322,6 @@ jobs:
             ~/.cargo
             ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
-
-      - name: Save sccache after build attempt
-        if: always()
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        continue-on-error: true
-        with:
-          path: .sccache
-          key: ${{ steps.keys.outputs.sccache_key }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Save compiled Gecko output
         if: always() && steps.build.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
@@ -367,6 +359,10 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.experimental_nowebrtc }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    env:
+      SCCACHE_GHA_ENABLED: 'on'
+      SCCACHE_GHA_RW_MODE: READ_WRITE
+      SCCACHE_GHA_VERSION: xtra-geckoview-v1-arm64-v8a-nowebrtc
     steps:
       - name: Checkout Xtra configuration
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -380,7 +376,7 @@ jobs:
           distribution: temurin
 
       - name: Install Gecko build tools
-        run: sudo apt-get update && sudo apt-get install --yes ninja-build patch sccache unzip
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build patch unzip
 
       - name: Compute cache keys
         id: keys
@@ -393,8 +389,6 @@ jobs:
             geckoview/patches/0001-disable-android-hls.patch | sha256sum | awk '{print $1}')"
           {
             echo "source_key=$source_key"
-            echo "sccache_key=gecko-sccache-${source_key}-arm64-v8a-nowebrtc-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-${recipe_key}"
-            echo "sccache_restore=gecko-sccache-${source_key}-arm64-v8a-nowebrtc-${RUNNER_OS}-${RUNNER_ARCH}-${SCCACHE_CACHE_SCHEMA}-"
             echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${TOOLCHAIN_CACHE_SCHEMA}"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
             echo "built_key=gecko-built-${source_key}-arm64-v8a-nowebrtc-${recipe_key}-${CACHE_SCHEMA}"
@@ -430,13 +424,12 @@ jobs:
           command -v sccache
           sccache --version
 
-      - name: Restore sccache
-        id: sccache-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - name: Configure sccache GitHub Actions cache
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
-          path: .sccache
-          key: ${{ steps.keys.outputs.sccache_key }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: ${{ steps.keys.outputs.sccache_restore }}
+          script: |
+            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Restore compiled Gecko output
         id: compiled-cache
@@ -449,7 +442,6 @@ jobs:
         id: build
         env:
           GECKO_SKIP_BOOTSTRAP: '1'
-          SCCACHE_DIR: ${{ github.workspace }}/.sccache
           GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
           GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
           GECKO_COMPILED_CACHE_DIR: ${{ runner.temp }}/gecko-built-cache
@@ -457,6 +449,7 @@ jobs:
 
       - name: Record sccache statistics
         if: always()
+        continue-on-error: true
         shell: bash
         run: sccache --show-stats | tee "$RUNNER_TEMP/sccache-stats.txt"
 
@@ -490,14 +483,6 @@ jobs:
             ~/.rustup
           key: ${{ steps.keys.outputs.toolchain_key }}
 
-      - name: Persist sccache
-        if: always()
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        continue-on-error: true
-        with:
-          path: .sccache
-          key: ${{ steps.keys.outputs.sccache_key }}-${{ github.run_id }}-${{ github.run_attempt }}
-
       - name: Persist compiled Gecko output
         if: always() && steps.build.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -522,6 +507,10 @@ jobs:
     if: ${{ needs.validate-recipe.outputs.release_both == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      SCCACHE_GHA_ENABLED: 'on'
+      SCCACHE_GHA_RW_MODE: READ_WRITE
+      SCCACHE_GHA_VERSION: xtra-geckoview-v1-fat-safe
     steps:
       - name: Checkout Xtra configuration
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -599,6 +588,13 @@ jobs:
           export PATH="$sccache_dir:$PATH"
           command -v sccache
           sccache --version
+
+      - name: Configure sccache GitHub Actions cache
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Restore fat AAR output
         id: fat-cache
