@@ -892,7 +892,13 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                json.decodeFromString<UsersResponse>(response.body.decodeToString())
+                val body = response.body.decodeToString()
+                ensureHelixSuccess(
+                    response.info.httpStatusCode,
+                    rateLimit(response.info.headers.asMap),
+                    body,
+                )
+                json.decodeFromString<UsersResponse>(body)
             }
             networkLibrary == C.CRONET && cronetEngine.value != null -> {
                 val response = suspendCancellableCoroutine { continuation ->
@@ -911,14 +917,30 @@ class HelixRepository(
                         timeout.stop()
                     }
                 }
-                json.decodeFromString<UsersResponse>(response.body.decodeToString())
+                val body = response.body.decodeToString()
+                ensureHelixSuccess(
+                    response.info.httpStatusCode,
+                    rateLimit(response.info.allHeaders),
+                    body,
+                )
+                json.decodeFromString<UsersResponse>(body)
             }
             else -> {
                 okHttpClient.value.newCall(Request.Builder().apply {
                     url(url)
                     headers(headers.toHeaders())
                 }.build()).executeAsync().use { response ->
-                    json.decodeFromString<UsersResponse>(response.body.string())
+                    val body = response.body.string()
+                    ensureHelixSuccess(
+                        response.code,
+                        HelixRateLimit(
+                            limit = response.header("Ratelimit-Limit")?.toLongOrNull(),
+                            remaining = response.header("Ratelimit-Remaining")?.toLongOrNull(),
+                            resetEpochSeconds = response.header("Ratelimit-Reset")?.toLongOrNull(),
+                        ),
+                        body,
+                    )
+                    json.decodeFromString<UsersResponse>(body)
                 }
             }
         }

@@ -32,7 +32,7 @@ enum class AuthSessionMaintenanceState {
 }
 
 /**
- * Maintains the one credential Xtra owns: the Twitch web session imported from GeckoView.
+ * Maintains the Twitch web/GQL credential imported from GeckoView.
  *
  * There is deliberately no refresh path here. A Twitch web auth-token is validated in place;
  * transient failures retain the credential, while only an authoritative 401 requests login.

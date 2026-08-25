@@ -263,7 +263,7 @@ class TwitchWebSessionManager(
         lastCandidateToken = accessToken
         _state.value = TwitchWebSessionState.Validating
         try {
-            // Twitch web sessions are OAuth credentials even though Helix uses Bearer tokens.
+            // Twitch web sessions are OAuth credentials for the web/GQL client.
             val response = authRepository.validate(
                 networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                 authorization = "OAuth $accessToken",

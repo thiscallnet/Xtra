@@ -367,6 +367,21 @@ class GraphQLRepository(
         }
     }
 
+    suspend fun executeRawOperation(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        operationName: String,
+        query: String,
+        variables: JsonObject = buildJsonObject {},
+    ): JsonObject = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("operationName", operationName)
+            put("query", query)
+            put("variables", variables)
+        }.toString()
+        json.parseToJsonElement(sendPersistedQuery(networkLibrary, headers, body)).jsonObject
+    }
+
     suspend fun loadQueryBadges(networkLibrary: String?, headers: Map<String, String>, quality: BadgeImageSize): ApolloResponse<BadgesQuery.Data> = withContext(Dispatchers.IO) {
         val query = BadgesQuery(Optional.Present(quality))
         sendQuery(networkLibrary, headers, query)
@@ -1981,7 +1996,13 @@ class GraphQLRepository(
         json.decodeFromString<ErrorResponse>(sendPersistedQuery(networkLibrary, headers, body))
     }
 
-    suspend fun updateChatSettings(networkLibrary: String?, headers: Map<String, String>, channelId: String?, emote: Boolean? = null): ErrorResponse = withContext(Dispatchers.IO) {
+    suspend fun updateChatSettings(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        channelId: String?,
+        emote: Boolean? = null,
+        unique: Boolean? = null,
+    ): ErrorResponse = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
             putJsonObject("extensions") {
                 putJsonObject("persistedQuery") {
@@ -1994,6 +2015,7 @@ class GraphQLRepository(
                 putJsonObject("input") {
                     put("channelID", channelId)
                     emote?.let { put("isEmoteOnlyModeEnabled", it) }
+                    unique?.let { put("isUniqueChatModeEnabled", it) }
                 }
             }
         }.toString()

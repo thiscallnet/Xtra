@@ -63,6 +63,11 @@ internal enum class NotificationUserSyncResult {
     PREFERENCE_TRANSIENT_FAILURE,
 }
 
+private data class GraphQlFollowedChannels(
+    val followedIds: Set<String>,
+    val preferenceEnabledIds: Set<String>,
+)
+
 internal fun isNotificationPreferenceAuthUnavailable(error: Throwable): Boolean = when (error) {
     is MissingAuthenticationException -> true
     is TwitchApiException -> error.statusCode == 401 || error.statusCode == 403
@@ -194,27 +199,43 @@ class NotificationsRepository(
         helixHeaders: Map<String, String>,
         userId: String?,
     ): NotificationUserSyncResult = withContext(Dispatchers.IO) {
-        if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank() || userId.isNullOrBlank()) {
-            throw MissingAuthenticationException("channels/followed sync")
-        }
-        val followedIds = mutableListOf<String>()
-        var offset: String? = null
-        do {
-            val response = helixRepository.getUserFollows(
-                networkLibrary = networkLibrary,
-                headers = helixHeaders,
-                userId = userId,
-                limit = 100,
-                offset = offset,
-            )
-            followedIds.addAll(response.data.mapNotNull { it.id })
-            offset = response.pagination?.cursor
-        } while (!offset.isNullOrBlank())
         val previousIds = notificationUsersDao.getAll().map { it.channelId }
-        val preferenceEnabledIds = loadOptionalNotificationPreferenceIds(
-            webSessionAvailable = !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank(),
-        ) {
-            loadGraphQlNotificationEnabledIds(networkLibrary, gqlHeaders)
+        val hasWebSession = !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()
+        val hasHelixSession = !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !userId.isNullOrBlank()
+        val followedIds: Set<String>
+        val preferenceEnabledIds: NotificationPreferenceLoadResult
+        when {
+            hasWebSession -> {
+                // GeckoView supplies Twitch's private GQL session. Prefer it when both
+                // credentials exist so notification setup does not depend on a stale Helix grant.
+                val followedChannels = loadGraphQlFollowedChannels(networkLibrary, gqlHeaders)
+                followedIds = followedChannels.followedIds
+                preferenceEnabledIds = NotificationPreferenceLoadResult.Loaded(
+                    followedChannels.preferenceEnabledIds,
+                )
+            }
+            hasHelixSession -> {
+                val helixFollowedIds = mutableSetOf<String>()
+                var offset: String? = null
+                do {
+                    val response = helixRepository.getUserFollows(
+                        networkLibrary = networkLibrary,
+                        headers = helixHeaders,
+                        userId = userId,
+                        limit = 100,
+                        offset = offset,
+                    )
+                    helixFollowedIds.addAll(response.data.mapNotNull { it.id })
+                    offset = response.pagination?.cursor
+                } while (!offset.isNullOrBlank())
+                followedIds = helixFollowedIds
+                preferenceEnabledIds = loadOptionalNotificationPreferenceIds(
+                    webSessionAvailable = hasWebSession,
+                ) {
+                    loadGraphQlFollowedChannels(networkLibrary, gqlHeaders).preferenceEnabledIds
+                }
+            }
+            else -> throw MissingAuthenticationException("channels/followed sync")
         }
         val users = selectNotificationChannelIds(followedIds, preferenceEnabledIds, previousIds)
             .map(::NotificationUser)
@@ -230,10 +251,11 @@ class NotificationsRepository(
         }
     }
 
-    private suspend fun loadGraphQlNotificationEnabledIds(
+    private suspend fun loadGraphQlFollowedChannels(
         networkLibrary: String?,
         gqlHeaders: Map<String, String>,
-    ): Set<String> {
+    ): GraphQlFollowedChannels {
+        val followedIds = mutableSetOf<String>()
         val enabledIds = mutableSetOf<String>()
         var offset: String? = null
         do {
@@ -249,12 +271,20 @@ class NotificationsRepository(
                 ?: throw GraphQLApiException("GraphQL response did not include followed-user data", operation = "UserFollowedUsers")
             val items = follows.edges
                 ?: throw GraphQLApiException("GraphQL response did not include followed-user edges", operation = "UserFollowedUsers")
-            items.mapNotNull { item ->
-                item?.node?.takeIf { it.self?.follower?.notificationSettings?.isEnabled == true }?.id
-            }.let(enabledIds::addAll)
+            items.forEach { item ->
+                val node = item?.node ?: return@forEach
+                val id = node.id ?: return@forEach
+                followedIds += id
+                if (node.self?.follower?.notificationSettings?.isEnabled == true) {
+                    enabledIds += id
+                }
+            }
             offset = items.lastOrNull()?.cursor?.toString()
         } while (!offset.isNullOrBlank() && follows.pageInfo?.hasNextPage == true)
-        return enabledIds
+        return GraphQlFollowedChannels(
+            followedIds = followedIds,
+            preferenceEnabledIds = enabledIds,
+        )
     }
 
     /**
@@ -524,8 +554,8 @@ class NotificationsRepository(
 }
 
 /**
- * GQL supplies Twitch's notification preference filter. Without an authenticated web session, Helix is
- * still authoritative for follows and the explicit fallback is every followed channel.
+ * GQL supplies both followed channels and Twitch's notification preference filter when the account is
+ * backed by GeckoView. Official Helix OAuth remains supported as the native fallback.
  */
 internal fun selectNotificationChannelIds(
     followedIds: Iterable<String>,

@@ -624,11 +624,11 @@ class SettingsViewModel(
                     networkLibrary = networkLibrary,
                     gqlHeaders = gqlHeaders,
                     helixHeaders = helixHeaders,
-                    // syncNotificationUsers() already populated the authoritative Helix
+                    // syncNotificationUsers() already populated the authoritative followed
                     // channel set. Do not make setup depend on the optional private GQL
                     // followed-live query, especially when it returns no live channels.
                     includeFollowedStreams = initialNotificationBaselineIncludesFollowedStreams(),
-                    preferHelix = true,
+                    preferHelix = gqlHeaders[C.HEADER_TOKEN].isNullOrBlank(),
                     onApiUsed = { apiUsed = it },
                 )
                 cachedChannelCount = notificationsRepository.getNotificationUserIds().size
