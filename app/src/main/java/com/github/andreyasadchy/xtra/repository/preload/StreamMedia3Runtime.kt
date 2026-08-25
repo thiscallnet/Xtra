@@ -331,6 +331,14 @@ class StreamMedia3Runtime(
         check(Looper.myLooper() == Looper.getMainLooper()) { "Preview player creation must run on the main looper" }
         val generation = ensureGeneration()
         return ExoPlayer.Builder(playerContext, generation.hlsFactory).apply {
+            setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(1_500, 6_000, 250, 500)
+                    .setTargetBufferBytes(4 * 1024 * 1024)
+                    .setPrioritizeTimeOverSizeThresholds(true)
+                    .setBackBuffer(0, false)
+                    .build(),
+            )
             setAudioAttributes(AudioAttributes.DEFAULT, false)
             setHandleAudioBecomingNoisy(false)
         }.build().apply {

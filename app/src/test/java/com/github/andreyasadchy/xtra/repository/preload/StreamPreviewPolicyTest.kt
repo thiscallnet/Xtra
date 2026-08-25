@@ -45,4 +45,14 @@ class StreamPreviewPolicyTest {
         assertTrue(!StreamPreviewPolicy.canStartPreview(isPlayerFullscreen = false, networkAllowed = true, handoffPending = true))
         assertTrue(StreamPreviewPolicy.canStartPreview(isPlayerFullscreen = false, networkAllowed = true, handoffPending = false))
     }
+
+    @Test
+    fun anOpenMinimizedPlayerAlsoBlocksNewPreviewSelection() {
+        assertTrue(!StreamPreviewPolicy.canStartPreview(
+            isPlayerFullscreen = false,
+            isPlayerActive = true,
+            networkAllowed = true,
+            handoffPending = false,
+        ))
+    }
 }

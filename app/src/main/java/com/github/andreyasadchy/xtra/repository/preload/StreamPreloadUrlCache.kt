@@ -10,7 +10,7 @@ data class ResolvedStreamPreload(
 )
 
 class StreamPreloadUrlCache(
-    private val maxEntries: Int = StreamPreloadPolicy.MAX_URL_CANDIDATES,
+    private val maxEntries: Int = StreamPreloadPolicy.MAX_CACHED_STREAM_URLS,
     private val ttlMs: Long = StreamPreloadPolicy.URL_TTL_MS,
     private val elapsedRealtimeMs: () -> Long = { SystemClock.elapsedRealtime() },
 ) {

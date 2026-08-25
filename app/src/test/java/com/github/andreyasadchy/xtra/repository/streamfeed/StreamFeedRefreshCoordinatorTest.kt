@@ -210,9 +210,11 @@ class StreamFeedRefreshCoordinatorTest {
 
         coordinator.playbackEntered()
         assertTrue(coordinator.isPlayerFullscreen)
+        assertTrue(coordinator.isPlayerActive)
         elapsed = StreamFeedFreshnessPolicy.PLAYBACK_RETURN_THRESHOLD_MS
         coordinator.playbackReturned()
         assertFalse(coordinator.isPlayerFullscreen)
+        assertFalse(coordinator.isPlayerActive)
         withTimeout(1_000L) {
             firstLoad.await()
             awaitScopeIdle(scope)
@@ -225,9 +227,35 @@ class StreamFeedRefreshCoordinatorTest {
         // Maximizing the minimized player must keep the original session start.
         coordinator.playbackEntered()
         elapsed += StreamFeedFreshnessPolicy.PLAYBACK_RETURN_THRESHOLD_MS / 2
+        coordinator.playbackReturned(playerStillOpen = true)
+        assertTrue(coordinator.isPlayerActive)
+        assertFalse(coordinator.isPlayerFullscreen)
         coordinator.playbackReturned()
+        assertFalse(coordinator.isPlayerActive)
         withTimeout(1_000L) { secondLoad.await() }
         assertEquals(2, loads)
+        scope.cancel()
+    }
+
+    @Test
+    fun finishingAfterMinimizingPlaybackClearsActivePlayerState() {
+        val key = StreamFeedKey("top:finishing-minimized-player")
+        val cache = FakeCache(
+            key = key,
+            rows = emptyList(),
+            currentState = StreamFeedState(key.value, lastSuccessAt = 0L),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val coordinator = StreamFeedRefreshCoordinator(cache, scope, { 1_000_000L }, { 0L }, false)
+
+        coordinator.playbackEntered()
+        coordinator.playbackReturned(playerStillOpen = true)
+        assertTrue(coordinator.isPlayerActive)
+
+        // Activity.onDestroy() uses the terminal close path even if the player
+        // was previously minimized.
+        coordinator.playbackReturned(playerStillOpen = false)
+        assertFalse(coordinator.isPlayerActive)
         scope.cancel()
     }
 

@@ -44,6 +44,22 @@ class StreamPreloadUrlCacheTest {
     }
 
     @Test
+    fun defaultCacheRetainsRecentEntriesAcrossFeedChanges() {
+        val cache = StreamPreloadUrlCache(elapsedRealtimeMs = { 0L })
+
+        repeat(StreamPreloadPolicy.MAX_CACHED_STREAM_URLS + 1) { index ->
+            cache.put("creator-$index", "signed-url-$index", "config")
+        }
+
+        assertNull(cache.get("creator-0", "config"))
+        assertEquals(
+            "signed-url-${StreamPreloadPolicy.MAX_CACHED_STREAM_URLS}",
+            cache.get("creator-${StreamPreloadPolicy.MAX_CACHED_STREAM_URLS}", "config"),
+        )
+        assertEquals(StreamPreloadPolicy.MAX_CACHED_STREAM_URLS, cache.size())
+    }
+
+    @Test
     fun previewPeekPreservesTheExactUrlForFullscreenPlayback() {
         val cache = StreamPreloadUrlCache(elapsedRealtimeMs = { 0L })
         cache.put("foo", "signed-url-a", "config")

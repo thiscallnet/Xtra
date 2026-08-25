@@ -821,6 +821,7 @@ class MainActivity : AppCompatActivity() {
             supportFragmentManager.unregisterFragmentLifecycleCallbacks(it)
         }
         if (isFinishing) {
+            onPlayerReturnedToBrowsing(playerStillOpen = false)
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
         }
         super.onDestroy()
@@ -1201,7 +1202,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun closePlayer() {
-        onPlayerReturnedToBrowsing()
+        onPlayerReturnedToBrowsing(playerStillOpen = false)
         supportFragmentManager.beginTransaction()
             .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
             .remove(supportFragmentManager.findFragmentById(R.id.playerContainer)!!)
@@ -1216,9 +1217,9 @@ class MainActivity : AppCompatActivity() {
         currentMultiviewFragment()?.resumeAfterExternalPlayer()
     }
 
-    fun onPlayerReturnedToBrowsing() {
+    fun onPlayerReturnedToBrowsing(playerStillOpen: Boolean) {
         (application as XtraApp).xtraModule.streamPreviewCoordinator.onPlaybackReturned()
-        (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackReturned()
+        (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackReturned(playerStillOpen)
     }
 
     fun onPlayerEnteredPlayback(isLive: Boolean = true, channelLogin: String? = null) {

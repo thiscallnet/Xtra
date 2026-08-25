@@ -260,6 +260,7 @@ class StreamPreviewCoordinator(
     private fun scheduleSelection() {
         if (!StreamPreviewPolicy.canStartPreview(
                 isPlayerFullscreen = streamFeedRefreshCoordinator.isPlayerFullscreen,
+                isPlayerActive = streamFeedRefreshCoordinator.isPlayerActive,
                 networkAllowed = StreamPreviewPolicy.allowsNetwork(context),
                 handoffPending = handoffLogin != null,
             )
@@ -396,6 +397,7 @@ class StreamPreviewCoordinator(
         if (failedUntil[identity]?.let { it > SystemClock.elapsedRealtime() } == true) return
         if (!StreamPreviewPolicy.canStartPreview(
                 isPlayerFullscreen = streamFeedRefreshCoordinator.isPlayerFullscreen,
+                isPlayerActive = streamFeedRefreshCoordinator.isPlayerActive,
                 networkAllowed = StreamPreviewPolicy.allowsNetwork(context),
                 handoffPending = handoffLogin != null,
             )
@@ -421,6 +423,7 @@ class StreamPreviewCoordinator(
         if (activePreviews.size >= maxActivePreviews()) return
         if (!StreamPreviewPolicy.canStartPreview(
                 isPlayerFullscreen = streamFeedRefreshCoordinator.isPlayerFullscreen,
+                isPlayerActive = streamFeedRefreshCoordinator.isPlayerActive,
                 networkAllowed = StreamPreviewPolicy.allowsNetwork(context),
                 handoffPending = handoffLogin != null,
             )
@@ -524,6 +527,7 @@ class StreamPreviewCoordinator(
 
     private fun discardPreviewPlayer(player: ExoPlayer) {
         runCatching { player.stop() }
+        runCatching { player.clearMediaItems() }
         if (player !== sharedPreviewPlayer) runCatching { player.release() }
     }
 
@@ -631,8 +635,12 @@ class StreamPreviewCoordinator(
     }
 
     private fun cancelPendingStarts() {
-        pendingStarts.values.forEach(Job::cancel)
+        val jobs = pendingStarts.values.toList()
         pendingStarts.clear()
+        // Cancellation runs the job's finally block synchronously on the main
+        // thread. Clear the map before canceling so that block cannot mutate a
+        // LinkedHashMap iterator that is still in progress.
+        jobs.forEach(Job::cancel)
         dwellStarts.clear()
     }
 
@@ -651,6 +659,7 @@ class StreamPreviewCoordinator(
         activePreviews.remove(login)?.let { active ->
             detachPreviewSurface(active)
             runCatching { active.player.stop() }
+            runCatching { active.player.clearMediaItems() }
             if (active.player !== sharedPreviewPlayer) runCatching { active.player.release() }
         }
         urlCoordinator.setPreviewActive(activePreviews.isNotEmpty())

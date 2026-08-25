@@ -295,7 +295,7 @@ class StreamPreloadCoordinator(
     }
 
     private suspend fun preloadUrl(channelLogin: String, streamKey: String, forPreview: Boolean = false): String? {
-        if (!(if (forPreview) canResolvePreview() else canResolveStream()) || !isEligible(streamKey)) return null
+        if (!(if (forPreview) canResolvePreview() else canResolveStream()) || !isEligible(streamKey, forPreview)) return null
         val config = refreshConfiguration()
         cache.get(channelLogin, config.fingerprint)?.let {
             debug("url_cache_hit", channelLogin)
@@ -433,7 +433,11 @@ class StreamPreloadCoordinator(
     }
 
     private fun isEligible(streamKey: String): Boolean {
-        if (!canPreload() || viewports.values.any { it.scrolling }) return false
+        return isEligible(streamKey, forPreview = false)
+    }
+
+    private fun isEligible(streamKey: String, forPreview: Boolean): Boolean {
+        if (!(if (forPreview) canResolvePreview() else canPreload()) || viewports.values.any { it.scrolling }) return false
         val rankedKeys = StreamPreloadPolicy.rank(currentCandidates())
             .take(StreamPreloadPolicy.MAX_URL_CANDIDATES)
             .map { it.streamKey.ifBlank { it.channelLogin.trim().lowercase() } }
@@ -492,7 +496,7 @@ class StreamPreloadCoordinator(
         val prefs = context.prefs()
         if (prefs.getBoolean(C.PLAYER_STREAM_PROXY, false) && prefs.getString(C.PLAYER_PROXY_URL, null).isNullOrBlank()) return false
         if ((context as? XtraApp)?.isInForeground == false) return false
-        if (streamFeedRefreshCoordinator.isPlayerFullscreen) return false
+        if (streamFeedRefreshCoordinator.isPlayerFullscreen || streamFeedRefreshCoordinator.isPlayerActive) return false
         val powerManager = context.getSystemService(PowerManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && powerManager?.isPowerSaveMode == true) return false
         return true
