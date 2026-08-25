@@ -25,6 +25,7 @@
     <string name="following_no_continue_watching">Brak ostatnich transmisji VOD z obserwowanych kanałów.</string>
     <string name="following_upcoming_streams">Nadchodzące transmisje</string>
     <string name="following_no_upcoming_streams">Zaplanowane transmisje z obserwowanych kanałów pojawią się tutaj.</string>
+    <string name="following_untitled_stream">Stream bez tytułu</string>
     <string name="following_starts_today">Dzisiaj o %1$s</string>
     <string name="following_see_all">Zobacz wszystkie</string>
     <string name="downloads">Pobrane</string>

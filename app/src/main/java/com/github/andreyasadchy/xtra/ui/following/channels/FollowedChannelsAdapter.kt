@@ -30,7 +30,15 @@ class FollowedChannelsAdapter(
         override fun areItemsTheSame(oldItem: User, newItem: User): Boolean =
             oldItem.id == newItem.id
 
-        override fun areContentsTheSame(oldItem: User, newItem: User): Boolean = true
+        override fun areContentsTheSame(oldItem: User, newItem: User): Boolean =
+            oldItem.id == newItem.id &&
+                oldItem.login == newItem.login &&
+                oldItem.name == newItem.name &&
+                oldItem.profileImageURL == newItem.profileImageURL &&
+                oldItem.lastBroadcast == newItem.lastBroadcast &&
+                oldItem.followedAt == newItem.followedAt &&
+                oldItem.accountFollow == newItem.accountFollow &&
+                oldItem.localFollow == newItem.localFollow
     }) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PagingViewHolder {

@@ -31,36 +31,17 @@ class UpcomingStreamShelfAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = ItemUpcomingStreamShelfBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        (parent as? RecyclerView)?.let { ShelfCardSizing.apply(binding.root, it) }
         return ViewHolder(binding)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
-        holder.bind(getItem(position))
-    }
-
-    private val layoutChangeListener = View.OnLayoutChangeListener { view, left, _, right, _, oldLeft, _, oldRight, _ ->
-        if (right - left != oldRight - oldLeft) {
-            val shelf = view as RecyclerView
-            repeat(shelf.childCount) { index -> ShelfCardSizing.apply(shelf.getChildAt(index), shelf) }
-        }
-    }
-
-    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
-        super.onAttachedToRecyclerView(recyclerView)
-        recyclerView.addOnLayoutChangeListener(layoutChangeListener)
-    }
-
-    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
-        recyclerView.removeOnLayoutChangeListener(layoutChangeListener)
-        super.onDetachedFromRecyclerView(recyclerView)
+        holder.bind(getItem(position), showPreview = position == 0)
     }
 
     inner class ViewHolder(
         private val binding: ItemUpcomingStreamShelfBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
-        fun bind(item: UpcomingStream) {
+        fun bind(item: UpcomingStream, showPreview: Boolean) {
             val context = binding.root.context
             binding.root.setOnClickListener { onUpcomingClick(item) }
             val avatarUrl = item.channelImageURL?.let(TwitchApiHelper::getProfileImage)
@@ -74,11 +55,24 @@ class UpcomingStreamShelfAdapter(
             binding.avatar.visibility = if (avatarUrl.isNullOrBlank()) View.INVISIBLE else View.VISIBLE
             binding.channel.text = item.channelName ?: item.channelLogin.orEmpty()
             binding.channel.visibility = if (binding.channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
-            binding.title.text = item.title.orEmpty()
-            binding.title.visibility = if (binding.title.text.isNullOrBlank()) View.GONE else View.VISIBLE
+            binding.title.text = item.title?.takeIf(String::isNotBlank)
+                ?: context.getString(R.string.following_untitled_stream)
+            binding.title.visibility = View.VISIBLE
             binding.category.text = item.gameName.orEmpty()
             binding.category.visibility = if (binding.category.text.isNullOrBlank()) View.GONE else View.VISIBLE
             binding.startTime.text = formatStartTime(context, item.startTimeMillis)
+
+            val previewUrl = item.previewImageURL?.takeIf { showPreview && it.isNotBlank() }
+            binding.previewHost.visibility = if (previewUrl == null) View.GONE else View.VISIBLE
+            binding.previewImage.setImageDrawable(null)
+            if (previewUrl != null) {
+                context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
+                    data(previewUrl)
+                    diskCachePolicy(CachePolicy.ENABLED)
+                    crossfade(true)
+                    target(binding.previewImage)
+                }.build())
+            }
         }
     }
 

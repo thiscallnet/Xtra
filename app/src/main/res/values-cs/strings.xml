@@ -46,6 +46,7 @@
     <string name="following_no_continue_watching">Z kanálů, které sledujete, nejsou k dispozici žádné nedávné záznamy VOD.</string>
     <string name="following_upcoming_streams">Nadcházející streamy</string>
     <string name="following_no_upcoming_streams">Naplánované streamy z kanálů, které sledujete, se zobrazí zde.</string>
+    <string name="following_untitled_stream">Stream bez názvu</string>
     <string name="following_starts_today">Dnes v %1$s</string>
     <string name="following_see_all">Zobrazit vše</string>
     <string name="downloads">Stahování</string>

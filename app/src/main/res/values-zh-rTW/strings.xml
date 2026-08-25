@@ -592,6 +592,7 @@
     <string name="following_no_continue_watching">你追蹤的頻道沒有可用的近期 VOD。</string>
     <string name="following_upcoming_streams">即將開始的直播</string>
     <string name="following_no_upcoming_streams">你追蹤的頻道的預定直播會顯示在這裡。</string>
+    <string name="following_untitled_stream">未命名直播</string>
     <string name="following_starts_today">今天 %1$s</string>
     <string name="following_see_all">查看全部</string>
     <string name="following_overview_sections">追蹤概覽區段</string>

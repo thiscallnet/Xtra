@@ -592,6 +592,7 @@
     <string name="following_no_continue_watching">フォローしているチャンネルに最近のVODはありません。</string>
     <string name="following_upcoming_streams">今後の配信</string>
     <string name="following_no_upcoming_streams">フォローしているチャンネルの予定配信がここに表示されます。</string>
+    <string name="following_untitled_stream">タイトルなしの配信</string>
     <string name="following_starts_today">本日 %1$s</string>
     <string name="following_see_all">すべて表示</string>
     <string name="following_overview_sections">フォロー概要のセクション</string>

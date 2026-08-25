@@ -593,6 +593,7 @@
     <string name="following_no_continue_watching">Tidak ada VOD terbaru yang tersedia dari kanal yang Anda ikuti.</string>
     <string name="following_upcoming_streams">Streaming Mendatang</string>
     <string name="following_no_upcoming_streams">Streaming terjadwal dari kanal yang Anda ikuti akan muncul di sini.</string>
+    <string name="following_untitled_stream">Stream tanpa judul</string>
     <string name="following_starts_today">Hari ini pukul %1$s</string>
     <string name="following_see_all">Lihat semua</string>
     <string name="following_overview_sections">Bagian Ikhtisar Mengikuti</string>

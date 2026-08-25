@@ -6,6 +6,7 @@ data class UpcomingStream(
     val channelLogin: String?,
     val channelName: String?,
     val channelImageURL: String?,
+    val previewImageURL: String? = null,
     val title: String?,
     val gameName: String?,
     val startTimeMillis: Long,
