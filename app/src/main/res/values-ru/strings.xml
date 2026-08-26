@@ -1415,4 +1415,8 @@
     <string name="mark_all_as_seen">Отметить все как просмотренные</string>
     <string name="mark_all_notifications_seen_title">Отметить все уведомления как просмотренные?</string>
     <string name="mark_all_notifications_seen_message">Все уведомления во входящих Twitch будут отмечены как просмотренные.</string>
+    <string name="viewer_list_section">%1$s · %2$d</string>
+    <string name="viewer_list_loading">Loading viewers…</string>
+    <string name="viewer_list_error">Couldn’t load the viewer list.</string>
+    <string name="viewer_list_empty">No viewers are currently listed.</string>
 </resources>

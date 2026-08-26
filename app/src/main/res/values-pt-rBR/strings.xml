@@ -1415,4 +1415,8 @@
     <string name="mark_all_as_seen">Marcar tudo como visto</string>
     <string name="mark_all_notifications_seen_title">Marcar todas as notificações como vistas?</string>
     <string name="mark_all_notifications_seen_message">Isso marcará todas as notificações da sua caixa de entrada da Twitch como vistas.</string>
+    <string name="viewer_list_section">%1$s · %2$d</string>
+    <string name="viewer_list_loading">Loading viewers…</string>
+    <string name="viewer_list_error">Couldn’t load the viewer list.</string>
+    <string name="viewer_list_empty">No viewers are currently listed.</string>
 </resources>

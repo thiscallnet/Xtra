@@ -51,6 +51,7 @@ import com.github.andreyasadchy.xtra.graphql.UserResultIDQuery
 import com.github.andreyasadchy.xtra.graphql.UserResultLoginQuery
 import com.github.andreyasadchy.xtra.graphql.UserVideosQuery
 import com.github.andreyasadchy.xtra.graphql.UsersLastBroadcastQuery
+import com.github.andreyasadchy.xtra.graphql.UsersQuery
 import com.github.andreyasadchy.xtra.graphql.UsersStreamQuery
 import com.github.andreyasadchy.xtra.graphql.UsersTypeQuery
 import com.github.andreyasadchy.xtra.graphql.VideoCommentsQuery
@@ -67,7 +68,6 @@ import com.github.andreyasadchy.xtra.model.gql.ErrorResponse
 import com.github.andreyasadchy.xtra.model.gql.channel.ChannelClipsResponse
 import com.github.andreyasadchy.xtra.model.gql.channel.ChannelSuggestionsResponse
 import com.github.andreyasadchy.xtra.model.gql.channel.ChannelVideosResponse
-import com.github.andreyasadchy.xtra.model.gql.channel.ChannelViewerListResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.BadgesResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.ChannelCheerEmotesResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.ChannelPointContextResponse
@@ -703,6 +703,14 @@ class GraphQLRepository(
 
     suspend fun loadQueryUsersLastBroadcast(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null): ApolloResponse<UsersLastBroadcastQuery.Data> = withContext(Dispatchers.IO) {
         val query = UsersLastBroadcastQuery(
+            ids = if (!ids.isNullOrEmpty()) Optional.Present(ids) else Optional.Absent,
+            logins = if (ids.isNullOrEmpty() && !logins.isNullOrEmpty()) Optional.Present(logins) else Optional.Absent,
+        )
+        sendQuery(networkLibrary, headers, query)
+    }
+
+    suspend fun loadQueryUsers(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null): ApolloResponse<UsersQuery.Data> = withContext(Dispatchers.IO) {
+        val query = UsersQuery(
             ids = if (!ids.isNullOrEmpty()) Optional.Present(ids) else Optional.Absent,
             logins = if (ids.isNullOrEmpty() && !logins.isNullOrEmpty()) Optional.Present(logins) else Optional.Absent,
         )
@@ -1376,22 +1384,6 @@ class GraphQLRepository(
             }
         }.toString()
         json.decodeFromString<VideoGamesResponse>(sendPersistedQuery(networkLibrary, headers, body))
-    }
-
-    suspend fun loadChannelViewerList(networkLibrary: String?, headers: Map<String, String>, channelLogin: String?): ChannelViewerListResponse = withContext(Dispatchers.IO) {
-        val body = buildJsonObject {
-            putJsonObject("extensions") {
-                putJsonObject("persistedQuery") {
-                    put("sha256Hash", "2e71a3399875770c1e5d81a9774d9803129c44cf8f6bad64973aa0d239a88caf")
-                    put("version", 1)
-                }
-            }
-            put("operationName", "CommunityTab")
-            putJsonObject("variables") {
-                put("login", channelLogin)
-            }
-        }.toString()
-        json.decodeFromString<ChannelViewerListResponse>(sendPersistedQuery(networkLibrary, headers, body))
     }
 
     suspend fun loadViewerCount(networkLibrary: String?, headers: Map<String, String>, channelLogin: String?): ViewerCountResponse = withContext(Dispatchers.IO) {

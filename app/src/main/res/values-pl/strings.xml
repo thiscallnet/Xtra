@@ -1413,4 +1413,8 @@
     <string name="mark_all_as_seen">Oznacz wszystko jako wyświetlone</string>
     <string name="mark_all_notifications_seen_title">Oznaczyć wszystkie powiadomienia jako wyświetlone?</string>
     <string name="mark_all_notifications_seen_message">Spowoduje to oznaczenie wszystkich powiadomień w skrzynce odbiorczej Twitcha jako wyświetlone.</string>
+    <string name="viewer_list_section">%1$s · %2$d</string>
+    <string name="viewer_list_loading">Loading viewers…</string>
+    <string name="viewer_list_error">Couldn’t load the viewer list.</string>
+    <string name="viewer_list_empty">No viewers are currently listed.</string>
 </resources>

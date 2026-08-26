@@ -1,0 +1,8 @@
+query Users($ids: [ID!], $logins: [String!]) {
+    users(ids: $ids, logins: $logins) {
+        displayName
+        id
+        login
+        profileImageURL(width: 300)
+    }
+}

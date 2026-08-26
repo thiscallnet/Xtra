@@ -1416,4 +1416,8 @@
     <string name="mark_all_as_seen">Tümünü görüldü olarak işaretle</string>
     <string name="mark_all_notifications_seen_title">Tüm bildirimler görüldü olarak işaretlensin mi?</string>
     <string name="mark_all_notifications_seen_message">Bu, Twitch gelen kutunuzdaki tüm bildirimleri görüldü olarak işaretler.</string>
+    <string name="viewer_list_section">%1$s · %2$d</string>
+    <string name="viewer_list_loading">Loading viewers…</string>
+    <string name="viewer_list_error">Couldn’t load the viewer list.</string>
+    <string name="viewer_list_empty">No viewers are currently listed.</string>
 </resources>
