@@ -36,8 +36,27 @@ class TwitchNotificationsRepository(
 
     suspend fun markNotificationsViewed() {
         val key = requireAccount()
-        privateGqlClient.executeDocument(networkLibrary(), webHeaders(), TwitchPrivateGqlOperations.notificationsView.operationName, TwitchPrivateGqlDocuments.notificationsView)
+        privateGqlClient.executeDocument(
+            networkLibrary(),
+            webHeaders(),
+            TwitchPrivateGqlOperations.notificationsView.operationName,
+            TwitchPrivateGqlDocuments.notificationsView,
+        )
         checkAccount(key)
+    }
+
+    suspend fun markAllNotificationsRead() {
+        val ids = buildList {
+            var cursor: String? = null
+            while (true) {
+                val page = getNotifications(cursor, limit = 50)
+                addAll(page.notifications.filter { it.isUnread }.map { it.id })
+                val next = page.nextCursor?.takeIf { page.hasNextPage && it.isNotBlank() && it != cursor }
+                if (next == null) break
+                cursor = next
+            }
+        }
+        markNotificationsRead(ids)
     }
 
     suspend fun markNotificationsRead(ids: List<String>) {

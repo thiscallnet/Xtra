@@ -256,10 +256,6 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                         activity.settingsResultLauncher?.launch(Intent(activity, SettingsActivity::class.java))
                         true
                     }
-                    R.id.statistics -> {
-                        activity.openStatistics()
-                        true
-                    }
                     R.id.login -> {
                         if (isLoggedIn) {
                             activity.getAlertDialogBuilder().apply {
@@ -523,6 +519,9 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                 }
                 windowInsets
             }
+        }
+        view.doOnLayout {
+            if (isAdded) scrollToTop()
         }
     }
 
@@ -790,7 +789,9 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
     }
 
     override fun scrollToTop() {
-        binding.appBar.setExpanded(true, true)
+        if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
+            binding.appBar.setExpanded(true, true)
+        }
         (currentFragment as? Scrollable)?.scrollToTop()
     }
 

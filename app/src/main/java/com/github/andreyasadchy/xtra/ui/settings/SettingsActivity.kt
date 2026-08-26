@@ -394,7 +394,7 @@ class SettingsActivity : AppCompatActivity() {
             else -> C.DEFAULT_SEARCH_TABS
         }
         val labels = when (prefKey) {
-            C.UI_NAVIGATION_TAB_LIST -> mapOf("0" to getString(R.string.browse), "4" to getString(R.string.discover), "1" to getString(R.string.following_overview), "2" to getString(R.string.following), "3" to getString(R.string.saved))
+            C.UI_NAVIGATION_TAB_LIST -> mapOf("0" to getString(R.string.browse), "4" to getString(R.string.discover), "1" to getString(R.string.following_overview), "2" to getString(R.string.following), "3" to getString(R.string.saved), "5" to getString(R.string.statistics))
             C.UI_FOLLOWING_TABS -> FollowingTabs.definitions.associate { it.key to getString(it.titleRes) }
             C.UI_SAVED_TABS -> mapOf("0" to getString(R.string.bookmarks), "1" to getString(R.string.downloads), "2" to getString(R.string.filters), "3" to getString(R.string.clips))
             C.UI_CHANNEL_TABS -> mapOf("0" to getString(R.string.suggestions), "1" to getString(R.string.videos), "2" to getString(R.string.clips), "3" to getString(R.string.chat), "4" to getString(R.string.about))

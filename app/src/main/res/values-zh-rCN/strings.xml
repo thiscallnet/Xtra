@@ -741,7 +741,6 @@
     <string name="account_chat_settings">聊天设置</string>
     <string name="account_chat_settings_section">聊天设置</string>
     <string name="account_blocked_users">阻止的用户</string>
-    <string name="account_permissions">权限</string>
     <string name="account_manage_on_twitch">在 Twitch 上管理</string>
     <string name="account_open_twitch">打开 Twitch</string>
     <string name="account_not_set">未设置</string>
@@ -752,8 +751,6 @@
     <string name="account_reauthorize_same_account">重新连接当前连接的 Twitch 帐户，或在切换帐户之前注销。</string>
     <string name="account_reauthorize_identity_unknown">重新连接无法验证当前 Twitch 帐户。在启用帐户控制之前注销并重新登录。</string>
     <string name="account_reconnect_feature_message">重新连接 Twitch 以启用 %s。</string>
-    <string name="account_permissions_summary">已授予 %d</string>
-    <string name="account_no_permissions">未报告此令牌的 Helix 权限。</string>
     <string name="account_saved">已保存</string>
     <string name="account_unblocked">用户已解锁</string>
     <string name="account_error">无法加载 Twitch 帐户信息。</string>
@@ -1391,12 +1388,6 @@
     <string name="live_notification_live_now">Live now</string>
     <string name="live_notification_streaming">Streaming %s</string>
     <string name="sign_in">Sign in</string>
-    <string name="account_web_session_title">Twitch web session active</string>
-    <string name="account_web_session_message">Xtra is signed in through Twitch\'s web session. Profile, channel, chat, blocked-user, followed-channel, and live-notification data use that authenticated session.</string>
-    <string name="account_web_session_action">View session details</string>
-    <string name="account_web_session_permissions_summary">Twitch web session</string>
-    <string name="account_web_session_permissions">This is a valid Twitch web session, not a Helix OAuth grant. Xtra uses authenticated GQL for the account controls shown here, followed channels, and live notifications.</string>
-    <string name="account_tags_not_editable_in_session">Tags cannot be edited through this Twitch session</string>
     <string name="notifications">通知</string>
     <string name="whispers">私信</string>
     <string name="my_twitch">我的 Twitch</string>
@@ -1418,4 +1409,10 @@
     <string name="message_failed_tap_to_retry">消息发送失败。点击重试。</string>
     <string name="message_unavailable">消息不可用</string>
     <string name="session_needs_refresh">你的 Twitch 会话需要刷新。</string>
+    <string name="account_tags_manage_on_twitch">可在 Twitch 上编辑标签。</string>
+    <string name="message_send_debug">调试：%s</string>
+    <string name="mark_notification_as_seen">标记通知为已查看</string>
+    <string name="mark_all_as_seen">全部标记为已查看</string>
+    <string name="mark_all_notifications_seen_title">将所有通知标记为已查看？</string>
+    <string name="mark_all_notifications_seen_message">这会将 Twitch 收件箱中的所有通知标记为已查看。</string>
 </resources>

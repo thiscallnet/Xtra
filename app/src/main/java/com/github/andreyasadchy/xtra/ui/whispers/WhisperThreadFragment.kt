@@ -14,11 +14,21 @@ import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
 import androidx.navigation.ui.setupWithNavController
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentWhisperThreadBinding
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchUserSummary
+import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.inbox.messageRes
 import com.github.andreyasadchy.xtra.ui.main.TwitchInboxMenuBinder
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.tokenPrefs
+import coil3.imageLoader
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import coil3.request.target
+import coil3.request.transformations
+import coil3.transform.CircleCropTransformation
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -48,10 +58,33 @@ class WhisperThreadFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         binding.toolbar.setupWithNavController(findNavController())
-        binding.toolbar.title = args.peerDisplayName
+        binding.toolbar.title = getString(R.string.whispers)
         binding.toolbar.setNavigationOnClickListener { findNavController().navigateUp() }
+        val peer = TwitchUserSummary(args.peerId, args.peerLogin, args.peerDisplayName, args.peerImageUrl)
+        binding.peerName.text = peer.displayName
+        binding.peerLogin.text = "@${peer.login}"
+        binding.peerAvatar.setImageResource(R.drawable.baseline_person_black_24)
+        peer.profileImageUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            requireContext().imageLoader.enqueue(
+                ImageRequest.Builder(requireContext())
+                    .data(url)
+                    .crossfade(true)
+                    .transformations(CircleCropTransformation())
+                    .target(binding.peerAvatar)
+                    .build(),
+            )
+        }
+        binding.peerHeader.setOnClickListener { openPeerChannel(peer) }
+        binding.peerName.setOnClickListener { openPeerChannel(peer) }
+        binding.peerAvatar.setOnClickListener { openPeerChannel(peer) }
         binding.composerBar.visibility = if (WHISPER_SEND_ENABLED) View.VISIBLE else View.GONE
-        adapter = WhisperMessagesAdapter(viewModel::retry)
+        val currentUser = TwitchUserSummary(
+            id = requireContext().tokenPrefs().getString(C.USER_ID, null).orEmpty(),
+            login = requireContext().tokenPrefs().getString(C.USERNAME, null).orEmpty(),
+            displayName = requireContext().tokenPrefs().getString(C.USERNAME, null).orEmpty(),
+            profileImageUrl = requireContext().tokenPrefs().getString(C.PROFILE_IMAGE_URL, null),
+        )
+        adapter = WhisperMessagesAdapter(peer, currentUser, viewModel::retry, ::openPeerChannel)
         val layout = LinearLayoutManager(requireContext()).apply { stackFromEnd = true }
         binding.recyclerView.layoutManager = layout
         binding.recyclerView.adapter = adapter
@@ -104,6 +137,17 @@ class WhisperThreadFragment : Fragment() {
             layout.scrollToPosition(state.messages.lastIndex)
         }
         previousCount = state.messages.size
+    }
+
+    private fun openPeerChannel(user: TwitchUserSummary) {
+        findNavController().navigate(
+            ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                channelId = user.id,
+                channelLogin = user.login,
+                channelName = user.displayName,
+                channelImage = user.profileImageUrl,
+            ),
+        )
     }
 
     override fun onDestroyView() {
