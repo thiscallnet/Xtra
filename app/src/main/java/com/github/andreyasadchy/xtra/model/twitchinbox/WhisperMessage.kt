@@ -23,4 +23,5 @@ data class WhisperMessage(
     val isMine: Boolean,
     val cursor: String? = null,
     val localState: LocalSendState = LocalSendState.CONFIRMED,
+    val sendError: String? = null,
 )

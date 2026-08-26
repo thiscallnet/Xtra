@@ -741,7 +741,6 @@
     <string name="account_chat_settings">Chat-Einstellungen</string>
     <string name="account_chat_settings_section">Chat-Einstellungen</string>
     <string name="account_blocked_users">Blockierte Benutzer</string>
-    <string name="account_permissions">Berechtigungen</string>
     <string name="account_manage_on_twitch">Auf Twitch verwalten</string>
     <string name="account_open_twitch">Twitch öffnen</string>
     <string name="account_not_set">Nicht festgelegt</string>
@@ -752,8 +751,6 @@
     <string name="account_reauthorize_same_account">Verbinden Sie sich erneut mit dem aktuell verbundenen Twitch-Konto oder melden Sie sich ab, bevor Sie das Konto wechseln.</string>
     <string name="account_reauthorize_identity_unknown">Die erneute Verbindung kann das aktuelle Twitch-Konto nicht überprüfen. Melden Sie sich ab und erneut an, bevor Sie die Kontosteuerung aktivieren.</string>
     <string name="account_reconnect_feature_message">Verbinden Sie Twitch erneut, um %s zu aktivieren.</string>
-    <string name="account_permissions_summary">%d gewährt</string>
-    <string name="account_no_permissions">Für dieses Token wurden keine Helix-Berechtigungen gemeldet.</string>
     <string name="account_saved">Gespeichert</string>
     <string name="account_unblocked">Benutzer entsperrt</string>
     <string name="account_error">Twitch-Kontoinformationen konnten nicht geladen werden.</string>
@@ -1391,12 +1388,6 @@
     <string name="live_notification_live_now">Live now</string>
     <string name="live_notification_streaming">Streaming %s</string>
     <string name="sign_in">Sign in</string>
-    <string name="account_web_session_title">Twitch web session active</string>
-    <string name="account_web_session_message">Xtra is signed in through Twitch\'s web session. Profile, channel, chat, blocked-user, followed-channel, and live-notification data use that authenticated session.</string>
-    <string name="account_web_session_action">View session details</string>
-    <string name="account_web_session_permissions_summary">Twitch web session</string>
-    <string name="account_web_session_permissions">This is a valid Twitch web session, not a Helix OAuth grant. Xtra uses authenticated GQL for the account controls shown here, followed channels, and live notifications.</string>
-    <string name="account_tags_not_editable_in_session">Tags cannot be edited through this Twitch session</string>
     <string name="notifications">Benachrichtigungen</string>
     <string name="whispers">Flüstern</string>
     <string name="my_twitch">Mein Twitch</string>
@@ -1418,4 +1409,10 @@
     <string name="message_failed_tap_to_retry">Nachricht fehlgeschlagen. Zum Wiederholen tippen.</string>
     <string name="message_unavailable">Nachricht nicht verfügbar</string>
     <string name="session_needs_refresh">Deine Twitch-Sitzung muss aktualisiert werden.</string>
+    <string name="account_tags_manage_on_twitch">Tags können auf Twitch bearbeitet werden.</string>
+    <string name="message_send_debug">Debug: %s</string>
+    <string name="mark_notification_as_seen">Benachrichtigung als gesehen markieren</string>
+    <string name="mark_all_as_seen">Alle als gesehen markieren</string>
+    <string name="mark_all_notifications_seen_title">Alle Benachrichtigungen als gesehen markieren?</string>
+    <string name="mark_all_notifications_seen_message">Alle Benachrichtigungen in deinem Twitch-Posteingang werden als gesehen markiert.</string>
 </resources>

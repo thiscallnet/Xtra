@@ -14,7 +14,10 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ItemTwitchUserResultBinding
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchUserSummary
 
-class TwitchUsersAdapter(private val onClick: (TwitchUserSummary) -> Unit) : RecyclerView.Adapter<TwitchUsersAdapter.ViewHolder>() {
+class TwitchUsersAdapter(
+    private val onClick: (TwitchUserSummary) -> Unit,
+    private val onAvatarClick: (TwitchUserSummary) -> Unit,
+) : RecyclerView.Adapter<TwitchUsersAdapter.ViewHolder>() {
     private var items: List<TwitchUserSummary> = emptyList()
     fun submitList(value: List<TwitchUserSummary>) { items = value; notifyDataSetChanged() }
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = ViewHolder(ItemTwitchUserResultBinding.inflate(LayoutInflater.from(parent.context), parent, false))
@@ -24,9 +27,13 @@ class TwitchUsersAdapter(private val onClick: (TwitchUserSummary) -> Unit) : Rec
     inner class ViewHolder(private val binding: ItemTwitchUserResultBinding) : RecyclerView.ViewHolder(binding.root) {
         fun bind(item: TwitchUserSummary) = with(binding) {
             root.setOnClickListener { onClick(item) }
+            avatar.isClickable = true
+            avatar.isFocusable = true
+            avatar.contentDescription = root.context.getString(R.string.view_profile)
+            avatar.setOnClickListener { onAvatarClick(item) }
             name.text = item.displayName
             login.text = "@${item.login}"
-            avatar.setImageResource(R.drawable.baseline_circle_24)
+            avatar.setImageResource(R.drawable.baseline_person_black_24)
             item.profileImageUrl?.let { url ->
                 avatar.context.imageLoader.enqueue(ImageRequest.Builder(avatar.context).data(url).crossfade(true).transformations(CircleCropTransformation()).target(avatar).build())
             }

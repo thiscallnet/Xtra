@@ -108,10 +108,6 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
                         activity.settingsResultLauncher?.launch(Intent(activity, SettingsActivity::class.java))
                         true
                     }
-                    R.id.statistics -> {
-                        activity.openStatistics()
-                        true
-                    }
                     R.id.login -> {
                         if (isLoggedIn) {
                             activity.getAlertDialogBuilder().apply {

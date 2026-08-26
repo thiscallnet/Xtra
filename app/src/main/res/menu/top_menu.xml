@@ -15,7 +15,7 @@
         android:icon="@drawable/baseline_search_black_24"
         android:title="@string/search"
         app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="ifRoom" />
+        app:showAsAction="always" />
     <item
         android:id="@+id/twitchNotifications"
         android:icon="@drawable/ic_twitch_notifications"
@@ -36,12 +36,6 @@
         android:title="@string/settings"
         app:iconTint="?attr/colorControlNormal"
         app:showAsAction="always" />
-    <item
-        android:id="@+id/statistics"
-        android:icon="@drawable/ic_statistics"
-        android:title="@string/statistics"
-        app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="never" />
     <item
         android:id="@+id/profile"
         android:title="@string/view_profile"

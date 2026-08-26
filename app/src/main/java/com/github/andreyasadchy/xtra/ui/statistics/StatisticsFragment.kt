@@ -64,10 +64,8 @@ class StatisticsFragment : Fragment() {
             )
         )
         binding.toolbar.setupWithNavController(navController, appBarConfiguration)
-        binding.toolbar.menu.findItem(R.id.statistics)?.isVisible = false
         binding.toolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
-                R.id.statistics -> true
                 R.id.search -> {
                     navController.navigate(SearchPagerFragmentDirections.actionGlobalSearchPagerFragment())
                     true

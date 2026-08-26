@@ -10,6 +10,7 @@ import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchUserSummary
 import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperMessage
 import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperThreadDetails
 import com.github.andreyasadchy.xtra.repository.WhispersRepository
+import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -116,7 +117,7 @@ class WhisperThreadViewModel(
     }
 
     fun retry(message: WhisperMessage) {
-        val retried = message.copy(localState = LocalSendState.SENDING)
+        val retried = message.copy(localState = LocalSendState.SENDING, sendError = null)
         pending[message.id] = retried
         _uiState.value = _uiState.value.copy(messages = _uiState.value.messages.map { if (it.id == message.id) retried else it })
         sendPending(retried)
@@ -125,14 +126,15 @@ class WhisperThreadViewModel(
     private fun sendPending(message: WhisperMessage) {
         viewModelScope.launch {
             runCatching { repository.sendWhisper(_uiState.value.peer.id, message.text, message.nonce ?: repository.createWhisperNonce()) }.onSuccess { result ->
-                val confirmed = message.copy(nonce = result.nonce, localState = LocalSendState.CONFIRMED)
+                val confirmed = message.copy(nonce = result.nonce, localState = LocalSendState.CONFIRMED, sendError = null)
                 pending[message.id] = confirmed
                 _uiState.value = _uiState.value.copy(messages = _uiState.value.messages.map { if (it.id == message.id) confirmed else it }, error = null)
                 if (threadId == null) threadId = discoverThreadWithRetry(findThread = { repository.findRecentThreadByPeer(_uiState.value.peer.id) })
                 if (threadId != null) refreshLatest()
             }.onFailure { error ->
-                pending[message.id] = message.copy(localState = LocalSendState.FAILED)
-                _uiState.value = _uiState.value.copy(messages = _uiState.value.messages.map { if (it.id == message.id) message.copy(localState = LocalSendState.FAILED) else it }, error = error.toInboxError())
+                val failed = message.copy(localState = LocalSendState.FAILED, sendError = error.sendDebugDetails())
+                pending[message.id] = failed
+                _uiState.value = _uiState.value.copy(messages = _uiState.value.messages.map { if (it.id == message.id) failed else it }, error = error.toInboxError())
             }
         }
     }
@@ -198,3 +200,25 @@ internal fun mergeWhisperMessages(
 }
 
 private fun Throwable.toInboxError(): TwitchInboxError = (this as? TwitchInboxException)?.error ?: TwitchInboxError.Network
+
+private fun Throwable.sendDebugDetails(): String {
+    val inboxError = (this as? TwitchInboxException)?.error
+    val category = when (inboxError) {
+        TwitchInboxError.SignedOut -> "signed_out"
+        TwitchInboxError.RequiresReauth -> "requires_reauth"
+        TwitchInboxError.Network -> "network"
+        is TwitchInboxError.RateLimited -> "rate_limited"
+        TwitchInboxError.TwitchServerError -> "twitch_server"
+        is TwitchInboxError.GraphQl -> "graphql:${inboxError.operation}"
+        is TwitchInboxError.PrivateApiChanged -> "private_api_changed:${inboxError.operation}"
+        TwitchInboxError.Unknown -> "unknown"
+        null -> this::class.simpleName ?: "unknown"
+    }
+    val detail = when (inboxError) {
+        is TwitchInboxError.GraphQl -> inboxError.safeMessage
+        else -> cause?.message ?: takeIf { it !is TwitchInboxException }?.message
+    }
+    return listOfNotNull(category, sanitizeLiveNotificationTechnicalMessage(detail))
+        .joinToString("; ")
+        .take(300)
+}

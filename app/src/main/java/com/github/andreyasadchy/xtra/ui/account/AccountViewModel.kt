@@ -554,7 +554,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             }
             tags?.let(::validateTags)
             if (_uiState.value.webSession) {
-                check(tags == null) { context.getString(R.string.account_tags_not_editable_in_session) }
+                check(tags == null) { context.getString(R.string.account_tags_manage_on_twitch) }
                 executeGqlMutation(
                     operationName = "UpdateBroadcastSettings",
                     query = UPDATE_BROADCAST_SETTINGS_MUTATION,

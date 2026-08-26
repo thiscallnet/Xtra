@@ -17,6 +17,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentWhispersBinding
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchUserSummary
+import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.inbox.messageRes
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.google.android.material.snackbar.Snackbar
@@ -43,9 +44,9 @@ class WhispersFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         binding.toolbar.title = getString(R.string.whispers)
         binding.toolbar.setupWithNavController(findNavController())
-        threadsAdapter = WhisperThreadsAdapter(::openThread)
-        searchThreadsAdapter = WhisperThreadsAdapter(::openThread)
-        usersAdapter = TwitchUsersAdapter(::openUser)
+        threadsAdapter = WhisperThreadsAdapter(::openThread, ::openPeerChannel)
+        searchThreadsAdapter = WhisperThreadsAdapter(::openThread, ::openPeerChannel)
+        usersAdapter = TwitchUsersAdapter(::openUser, ::openPeerChannel)
         binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerView.adapter = threadsAdapter
         binding.searchResults.layoutManager = LinearLayoutManager(requireContext())
@@ -109,6 +110,17 @@ class WhispersFragment : Fragment() {
     private fun openThread(thread: com.github.andreyasadchy.xtra.model.twitchinbox.WhisperThread) = openUser(thread.peer, thread.id)
 
     private fun openUser(user: TwitchUserSummary) = openUser(user, null)
+
+    private fun openPeerChannel(user: TwitchUserSummary) {
+        findNavController().navigate(
+            ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                channelId = user.id,
+                channelLogin = user.login,
+                channelName = user.displayName,
+                channelImage = user.profileImageUrl,
+            ),
+        )
+    }
 
     private fun openUser(user: TwitchUserSummary, threadId: String?) {
         val args = Bundle().apply {

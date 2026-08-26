@@ -211,12 +211,6 @@ class AccountActivity : AppCompatActivity() {
                 action = R.string.auth_health_reconnect,
                 reauthorize = true,
             )
-            state.webSession && page == PAGE_MAIN -> AuthHealthCardSpec(
-                title = R.string.account_web_session_title,
-                message = R.string.account_web_session_message,
-                action = R.string.account_web_session_action,
-                reauthorize = false,
-            )
             else -> null
         }
         binding.authHealthCard.isVisible = page == PAGE_MAIN && spec != null
@@ -230,8 +224,6 @@ class AccountActivity : AppCompatActivity() {
                     Intent(this, TwitchWebLoginActivity::class.java)
                         .putExtra(TwitchWebLoginActivity.EXTRA_REAUTHORIZE, true),
                 )
-            } else if (state.webSession) {
-                showPermissions(state.scopes, webSession = true)
             } else {
                 openManageOnTwitch()
             }
@@ -312,6 +304,7 @@ class AccountActivity : AppCompatActivity() {
         } else {
             { reconnectFor(R.string.account_channel_section) }
         }
+        val tagsEditable = state.capabilities.editChannelTags
         addSettingRow(
             binding.channelRows,
             getString(R.string.account_stream_title),
@@ -335,16 +328,13 @@ class AccountActivity : AppCompatActivity() {
             getString(R.string.account_tags),
             if (editableChannel != null) {
                 editableChannel.tags.joinToString(", ").takeUnless { it.isNullOrBlank() } ?: getString(R.string.account_not_set)
-            } else if (state.webSession && !state.capabilities.editChannelTags) {
-                getString(R.string.account_tags_not_editable_in_session)
             } else {
                 channelValue(null)
             },
-            enabled = !state.webSession || state.capabilities.editChannelTags,
+            enabled = true,
             onClick = when {
-                editableChannel != null && state.capabilities.editChannelTags -> ({ showTextEditor(R.string.account_tags, editableChannel.tags.joinToString(", "), 260) { updateTags(it) } })
-                editableChannel != null -> null
-                state.webSession && !state.capabilities.editChannelTags -> null
+                editableChannel != null && tagsEditable -> ({ showTextEditor(R.string.account_tags, editableChannel.tags.joinToString(", "), 260) { updateTags(it) } })
+                editableChannel != null -> ({ openManageOnTwitch() })
                 else -> channelUnavailableClick
             },
         )
@@ -369,13 +359,6 @@ class AccountActivity : AppCompatActivity() {
             onClick = if (blockedEnabled) ({ openPage(PAGE_BLOCKED_USERS) }) else ({ reconnectFor(R.string.account_blocked_users) }),
         )
 
-        addSettingRow(
-            binding.accountRows,
-            getString(R.string.account_permissions),
-            if (state.webSession) getString(R.string.account_web_session_permissions_summary)
-            else getString(R.string.account_permissions_summary, state.scopes.size),
-            onClick = { showPermissions(state.scopes, state.webSession) },
-        )
         addSettingRow(
             binding.accountRows,
             getString(R.string.account_manage_on_twitch),
@@ -780,18 +763,6 @@ class AccountActivity : AppCompatActivity() {
                         .putExtra(TwitchWebLoginActivity.EXTRA_LOGOUT, true),
                 )
             }
-            .show()
-    }
-
-    private fun showPermissions(scopes: Set<String>, webSession: Boolean) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.account_permissions)
-            .setMessage(
-                if (webSession) getString(R.string.account_web_session_permissions)
-                else if (scopes.isEmpty()) getString(R.string.account_no_permissions)
-                else scopes.sorted().joinToString("\n"),
-            )
-            .setPositiveButton(android.R.string.ok, null)
             .show()
     }
 

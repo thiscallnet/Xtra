@@ -13,7 +13,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:minHeight="?attr/actionBarSize"
-            />
+            app:menu="@menu/notifications_menu" />
     </com.google.android.material.appbar.AppBarLayout>
     <com.github.andreyasadchy.xtra.ui.view.CustomSwipeRefreshLayout
         android:id="@+id/swipeRefresh"

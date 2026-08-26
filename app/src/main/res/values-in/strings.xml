@@ -742,7 +742,6 @@
     <string name="account_chat_settings">Setelan obrolan</string>
     <string name="account_chat_settings_section">Setelan obrolan</string>
     <string name="account_blocked_users">Pengguna yang diblokir</string>
-    <string name="account_permissions">Izin</string>
     <string name="account_manage_on_twitch">Kelola di Twitch</string>
     <string name="account_open_twitch">Buka Twitch</string>
     <string name="account_not_set">Tidak disetel</string>
@@ -753,8 +752,6 @@
     <string name="account_reauthorize_same_account">Hubungkan kembali dengan akun Twitch yang saat ini terhubung, atau keluar sebelum berpindah akun.</string>
     <string name="account_reauthorize_identity_unknown">Sambungkan kembali tidak dapat memverifikasi akun Twitch saat ini. Keluar dan masuk lagi sebelum mengaktifkan kontrol akun.</string>
     <string name="account_reconnect_feature_message">Hubungkan kembali Twitch untuk mengaktifkan %s.</string>
-    <string name="account_permissions_summary">%d diberikan</string>
-    <string name="account_no_permissions">Tidak ada izin Helix yang dilaporkan untuk token ini.</string>
     <string name="account_saved">Tersimpan</string>
     <string name="account_unblocked">Pengguna tidak diblokir</string>
     <string name="account_error">Informasi akun Twitch tidak dapat dimuat.</string>
@@ -1392,12 +1389,6 @@
     <string name="live_notification_live_now">Live now</string>
     <string name="live_notification_streaming">Streaming %s</string>
     <string name="sign_in">Sign in</string>
-    <string name="account_web_session_title">Twitch web session active</string>
-    <string name="account_web_session_message">Xtra is signed in through Twitch\'s web session. Profile, channel, chat, blocked-user, followed-channel, and live-notification data use that authenticated session.</string>
-    <string name="account_web_session_action">View session details</string>
-    <string name="account_web_session_permissions_summary">Twitch web session</string>
-    <string name="account_web_session_permissions">This is a valid Twitch web session, not a Helix OAuth grant. Xtra uses authenticated GQL for the account controls shown here, followed channels, and live notifications.</string>
-    <string name="account_tags_not_editable_in_session">Tags cannot be edited through this Twitch session</string>
     <string name="notifications">Notifikasi</string>
     <string name="whispers">Bisikan</string>
     <string name="my_twitch">Twitch Saya</string>
@@ -1419,4 +1410,10 @@
     <string name="message_failed_tap_to_retry">Pesan gagal. Ketuk untuk mencoba lagi.</string>
     <string name="message_unavailable">Pesan tidak tersedia</string>
     <string name="session_needs_refresh">Sesi Twitch Anda perlu disegarkan.</string>
+    <string name="account_tags_manage_on_twitch">Tag dapat diedit di Twitch.</string>
+    <string name="message_send_debug">Debug: %s</string>
+    <string name="mark_notification_as_seen">Tandai notifikasi sebagai telah dilihat</string>
+    <string name="mark_all_as_seen">Tandai semua sebagai telah dilihat</string>
+    <string name="mark_all_notifications_seen_title">Tandai semua notifikasi sebagai telah dilihat?</string>
+    <string name="mark_all_notifications_seen_message">Ini akan menandai semua notifikasi di kotak masuk Twitch Anda sebagai telah dilihat.</string>
 </resources>

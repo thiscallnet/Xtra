@@ -23,6 +23,7 @@ import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotificationAction
 import com.github.andreyasadchy.xtra.ui.inbox.messageRes
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.TwitchInboxMenuBinder
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.flow.collectLatest
 import androidx.lifecycle.lifecycleScope
@@ -46,9 +47,22 @@ class TwitchNotificationsFragment : Fragment() {
         val navController = findNavController()
         binding.toolbar.setupWithNavController(navController)
         binding.toolbar.title = getString(R.string.notifications)
-        adapter = TwitchNotificationsAdapter({ item -> viewModel.markRead(item); openAction(item) }, viewModel::dismiss)
+        adapter = TwitchNotificationsAdapter(
+            onClick = { item -> viewModel.markRead(item, TwitchInboxMenuBinder::invalidateSummary); openAction(item) },
+            onAvatarClick = { item -> (item.action as? TwitchNotificationAction.Channel)?.let(::openChannel) },
+            onMarkRead = { item -> viewModel.markRead(item, TwitchInboxMenuBinder::invalidateSummary) },
+            onDismiss = viewModel::dismiss,
+        )
         binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerView.adapter = adapter
+        binding.toolbar.setOnMenuItemClickListener { menuItem ->
+            if (menuItem.itemId == R.id.markAllNotificationsRead) {
+                confirmMarkAllAsSeen()
+                true
+            } else {
+                false
+            }
+        }
         binding.swipeRefresh.setOnRefreshListener { viewModel.refresh() }
         binding.retryButton.setOnClickListener {
             if (viewModel.uiState.value.error?.let { it is com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxError.RequiresReauth || it is com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxError.SignedOut } == true) {
@@ -86,6 +100,11 @@ class TwitchNotificationsFragment : Fragment() {
         binding.emptyText.visibility = if (state.error == null) View.VISIBLE else View.GONE
         binding.errorText.visibility = if (state.error != null) View.VISIBLE else View.GONE
         binding.retryButton.visibility = if (state.error != null) View.VISIBLE else View.GONE
+        binding.toolbar.menu.findItem(R.id.markAllNotificationsRead)?.apply {
+            isVisible = state.items.isNotEmpty()
+            isEnabled = !state.markingAllAsSeen && !state.initialLoading && !state.refreshing && !state.loadingNextPage &&
+                (state.items.any { it.isUnread } || state.canLoadMore)
+        }
         state.error?.let { binding.errorText.setText(it.messageRes()) }
         if (state.error != null && state.items.isNotEmpty()) {
             Snackbar.make(binding.root, state.error.messageRes(), Snackbar.LENGTH_LONG)
@@ -97,12 +116,7 @@ class TwitchNotificationsFragment : Fragment() {
     private fun openAction(item: TwitchNotification) {
         val action = item.action ?: return
         when (action) {
-            is TwitchNotificationAction.Channel -> findNavController().navigate(R.id.action_global_channelPagerFragment, Bundle().apply {
-                putString("channelId", action.id)
-                putString("channelLogin", action.login)
-                putString("channelName", action.displayName)
-                putString("channelImage", action.imageUrl)
-            })
+            is TwitchNotificationAction.Channel -> openChannel(action)
             is TwitchNotificationAction.Game -> findNavController().navigate(R.id.action_global_gamePagerFragment, Bundle().apply {
                 putString("gameId", action.id)
                 putString("gameName", action.name)
@@ -112,6 +126,28 @@ class TwitchNotificationsFragment : Fragment() {
             is TwitchNotificationAction.TwitchWebUrl -> openTwitchUrl(action.url)
             TwitchNotificationAction.None -> Unit
         }
+    }
+
+    private fun openChannel(action: TwitchNotificationAction.Channel) {
+        findNavController().navigate(R.id.action_global_channelPagerFragment, Bundle().apply {
+            putString("channelId", action.id)
+            putString("channelLogin", action.login)
+            putString("channelName", action.displayName)
+            putString("channelImage", action.imageUrl)
+        })
+    }
+
+    private fun confirmMarkAllAsSeen() {
+        val state = viewModel.uiState.value
+        if (state.markingAllAsSeen || state.initialLoading || state.refreshing || state.loadingNextPage || state.items.isEmpty() || (state.items.none { it.isUnread } && !state.canLoadMore)) return
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.mark_all_notifications_seen_title)
+            .setMessage(R.string.mark_all_notifications_seen_message)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.mark_all_as_seen) { _, _ ->
+                viewModel.markAllAsSeen(TwitchInboxMenuBinder::invalidateSummary)
+            }
+            .show()
     }
 
     private fun openTwitchUrl(url: String) {

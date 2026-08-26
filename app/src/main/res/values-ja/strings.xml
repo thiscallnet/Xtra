@@ -741,7 +741,6 @@
     <string name="account_chat_settings">チャット設定</string>
     <string name="account_chat_settings_section">チャット設定</string>
     <string name="account_blocked_users">ブロックされたユーザー</string>
-    <string name="account_permissions">権限</string>
     <string name="account_manage_on_twitch">Twitch で管理</string>
     <string name="account_open_twitch">Twitch を開く</string>
     <string name="account_not_set">未設定</string>
@@ -752,8 +751,6 @@
     <string name="account_reauthorize_same_account">現在接続している Twitch アカウントに再接続するか、アカウントを切り替える前にログアウトしてください。</string>
     <string name="account_reauthorize_identity_unknown">再接続では現在の Twitch アカウントを確認できません。アカウント制御を有効にする前に、ログアウトして再度ログインしてください。</string>
     <string name="account_reconnect_feature_message">Twitch を再接続して %s を有効にします。</string>
-    <string name="account_permissions_summary">%d が付与されました</string>
-    <string name="account_no_permissions">このトークンに対する Helix 権限は報告されませんでした。</string>
     <string name="account_saved">保存されました</string>
     <string name="account_unblocked">ユーザーのブロックが解除されました</string>
     <string name="account_error">Twitch アカウント情報をロードできませんでした。</string>
@@ -1391,12 +1388,6 @@
     <string name="live_notification_live_now">Live now</string>
     <string name="live_notification_streaming">Streaming %s</string>
     <string name="sign_in">Sign in</string>
-    <string name="account_web_session_title">Twitch web session active</string>
-    <string name="account_web_session_message">Xtra is signed in through Twitch\'s web session. Profile, channel, chat, blocked-user, followed-channel, and live-notification data use that authenticated session.</string>
-    <string name="account_web_session_action">View session details</string>
-    <string name="account_web_session_permissions_summary">Twitch web session</string>
-    <string name="account_web_session_permissions">This is a valid Twitch web session, not a Helix OAuth grant. Xtra uses authenticated GQL for the account controls shown here, followed channels, and live notifications.</string>
-    <string name="account_tags_not_editable_in_session">Tags cannot be edited through this Twitch session</string>
     <string name="notifications">通知</string>
     <string name="whispers">ウィスパー</string>
     <string name="my_twitch">マイTwitch</string>
@@ -1418,4 +1409,10 @@
     <string name="message_failed_tap_to_retry">メッセージの送信に失敗しました。タップして再試行。</string>
     <string name="message_unavailable">メッセージを利用できません</string>
     <string name="session_needs_refresh">Twitchセッションを更新する必要があります。</string>
+    <string name="account_tags_manage_on_twitch">Twitchでタグを編集できます。</string>
+    <string name="message_send_debug">デバッグ: %s</string>
+    <string name="mark_notification_as_seen">通知を既読にする</string>
+    <string name="mark_all_as_seen">すべてを既読にする</string>
+    <string name="mark_all_notifications_seen_title">すべての通知を既読にしますか？</string>
+    <string name="mark_all_notifications_seen_message">Twitchの受信トレイにあるすべての通知が既読になります。</string>
 </resources>
