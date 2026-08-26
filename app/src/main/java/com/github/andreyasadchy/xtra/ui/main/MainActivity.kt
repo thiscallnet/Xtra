@@ -1360,6 +1360,7 @@ class MainActivity : AppCompatActivity() {
                 defaultItem == "0" -> it.setStartDestination(R.id.rootGamesFragment)
                 defaultItem == "4" -> it.setStartDestination(R.id.rootDiscoverFragment)
                 defaultItem == "3" -> it.setStartDestination(R.id.savedPagerFragment)
+                defaultItem == "5" -> it.setStartDestination(R.id.statisticsFragment)
             }
         }, null)
         binding.navBar.apply {
@@ -1378,6 +1379,9 @@ class MainActivity : AppCompatActivity() {
                             }
                             "3" -> {
                                 menu.add(Menu.NONE, R.id.savedPagerFragment, Menu.NONE, R.string.saved).setIcon(R.drawable.ic_file_download_black_24dp)
+                            }
+                            "5" -> {
+                                menu.add(Menu.NONE, R.id.statisticsFragment, Menu.NONE, R.string.statistics).setIcon(R.drawable.ic_statistics)
                             }
                         }
                     }

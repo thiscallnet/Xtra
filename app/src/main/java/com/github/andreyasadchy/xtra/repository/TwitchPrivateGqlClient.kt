@@ -6,6 +6,7 @@ import android.os.Build
 import androidx.annotation.RequiresExtension
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxError
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxException
+import com.github.andreyasadchy.xtra.repository.auth.TwitchWebSessionManager
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -36,6 +37,7 @@ class TwitchPrivateGqlClient(
     private val cronetExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val json: Json,
+    private val twitchWebSessionManager: TwitchWebSessionManager,
 ) {
     suspend fun executePersisted(
         networkLibrary: String?,
@@ -79,7 +81,14 @@ class TwitchPrivateGqlClient(
         request: JsonObject,
     ): JsonObject = withContext(Dispatchers.IO) {
         val response = try {
-            post(networkLibrary, headers, request.toString())
+            twitchWebSessionManager.executeIntegrityAwareGql(
+                fallbackHeaders = headers,
+                requireActiveWebSession = true,
+                isFailedIntegrityCheck = { response -> hasFailedIntegrityCheck(response.body) },
+                send = { requestHeaders -> post(networkLibrary, requestHeaders, request.toString()) },
+            )
+        } catch (error: MissingAuthenticationException) {
+            throw TwitchInboxException(TwitchInboxError.RequiresReauth, error)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -100,18 +109,17 @@ class TwitchPrivateGqlClient(
     }
 
     private fun mapError(operation: String, message: String?, statusCode: Int): TwitchInboxError {
-        val lower = message.orEmpty().lowercase()
-        return when {
-            statusCode == 401 || lower.contains("unauthenticated") || lower.contains("authentication") ||
-                lower.contains("token expired") || lower.contains("invalid token") -> TwitchInboxError.RequiresReauth
-            statusCode == 429 || lower.contains("rate limit") -> TwitchInboxError.RateLimited()
-            lower.contains("persistedquerynotfound") || lower.contains("persisted query not found") ->
-                TwitchInboxError.PrivateApiChanged(operation)
-            lower.contains("integrity") -> TwitchInboxError.PrivateApiChanged(operation)
-            lower.contains("internal server") || lower.contains("service unavailable") -> TwitchInboxError.TwitchServerError
-            else -> TwitchInboxError.GraphQl(operation, message?.take(160))
-        }
+        return privateGqlError(operation, message, statusCode)
     }
+
+    private fun hasFailedIntegrityCheck(response: String): Boolean = runCatching {
+        json.parseToJsonElement(response).jsonObject["errors"]?.jsonArray
+            ?.any { error ->
+                error.jsonObject["message"]?.jsonPrimitive?.content
+                    ?.trim()
+                    ?.equals(C.FAILED_INTEGRITY_CHECK, ignoreCase = true) == true
+            } == true
+    }.getOrDefault(false)
 
     private data class Response(val statusCode: Int, val body: String)
 
@@ -157,6 +165,19 @@ class TwitchPrivateGqlClient(
             continuation.invokeOnCancellation { request.cancel(); timeout.stop() }
         }
         return Response(response.info.httpStatusCode, response.body.decodeToString())
+    }
+}
+
+internal fun privateGqlError(operation: String, message: String?, statusCode: Int): TwitchInboxError {
+    val lower = message.orEmpty().lowercase()
+    return when {
+        statusCode == 401 || lower.contains("unauthenticated") || lower.contains("authentication") ||
+            lower.contains("token expired") || lower.contains("invalid token") -> TwitchInboxError.RequiresReauth
+        statusCode == 429 || lower.contains("rate limit") -> TwitchInboxError.RateLimited()
+        lower.contains("persistedquerynotfound") || lower.contains("persisted query not found") ->
+            TwitchInboxError.PrivateApiChanged(operation)
+        lower.contains("internal server") || lower.contains("service unavailable") -> TwitchInboxError.TwitchServerError
+        else -> TwitchInboxError.GraphQl(operation, message?.take(160))
     }
 }
 

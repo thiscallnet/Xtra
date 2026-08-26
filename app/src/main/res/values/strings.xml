@@ -501,6 +501,10 @@
     <string name="settings_developer_enabled">Enable developer options</string>
     <string name="settings_developer_unlocking">%d more taps to enable Developer options</string>
     <string name="settings_developer_unlocked">Developer options enabled</string>
+    <string name="settings_debug_corrupt_gecko_identity" translatable="false">Corrupt Gecko GQL integrity</string>
+    <string name="settings_debug_corrupt_gecko_identity_summary" translatable="false">Inject an invalid Client-Integrity for recovery testing</string>
+    <string name="settings_debug_gecko_identity_corrupted" translatable="false">Invalid integrity installed</string>
+    <string name="settings_debug_gecko_identity_unavailable" translatable="false">No complete Gecko GQL identity is available</string>
     <string name="settings_networking">Networking</string>
     <string name="settings_network_engine">Network engine</string>
     <string name="settings_stream_preloading">Smart stream preloading</string>

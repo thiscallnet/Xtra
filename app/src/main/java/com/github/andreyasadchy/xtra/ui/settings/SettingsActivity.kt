@@ -2076,6 +2076,7 @@ class SettingsActivity : AppCompatActivity() {
                             "1" -> getString(R.string.following_overview)
                             "2" -> getString(R.string.following)
                             "3" -> getString(R.string.saved)
+                            "5" -> getString(R.string.statistics)
                             else -> getString(R.string.following_overview)
                         },
                         default = split[1] != "0",
@@ -2479,6 +2480,26 @@ class SettingsActivity : AppCompatActivity() {
     class DebugSettingsFragment : MaterialPreferenceFragment() {
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.debug_preferences, rootKey)
+            preferenceScreen.addPreference(Preference(requireContext()).apply {
+                key = "debug_corrupt_gecko_gql_identity"
+                title = getString(R.string.settings_debug_corrupt_gecko_identity)
+                summary = getString(R.string.settings_debug_corrupt_gecko_identity_summary)
+                setOnPreferenceClickListener {
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        val manager = (requireContext().applicationContext as XtraApp)
+                            .xtraModule.twitchWebSessionManager
+                        val acquired = manager.refreshGeckoGqlIdentity()
+                        val corrupted = acquired && manager.debugCorruptGeckoGqlIdentity()
+                        Toast.makeText(
+                            requireContext(),
+                            if (corrupted) R.string.settings_debug_gecko_identity_corrupted
+                            else R.string.settings_debug_gecko_identity_unavailable,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                    true
+                }
+            })
             findPreference<ListPreference>(C.NETWORK_LIBRARY)?.apply {
                 val supported = buildList {
                     add(C.AUTOMATIC)

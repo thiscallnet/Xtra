@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.MetadataCache
+import com.github.andreyasadchy.xtra.repository.MissingAuthenticationException
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.resolveChannelFallback
@@ -30,9 +31,11 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.OkHttpClient
@@ -63,6 +66,8 @@ class ChannelPagerViewModel(
     private val _notificationsEnabled = MutableStateFlow<Boolean?>(null)
     val notificationsEnabled: StateFlow<Boolean?> = _notificationsEnabled
     val notifications = MutableStateFlow<Pair<Boolean, String?>?>(null)
+    private val _authenticationRequired = Channel<Unit>(Channel.BUFFERED)
+    val authenticationRequired = _authenticationRequired.receiveAsFlow()
     private val _isFollowing = MutableStateFlow<Boolean?>(null)
     val isFollowing: StateFlow<Boolean?> = _isFollowing
     val follow = MutableStateFlow<Pair<Boolean, String?>?>(null)
@@ -273,8 +278,11 @@ class ChannelPagerViewModel(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: MissingAuthenticationException) {
+                _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
-
             }
         }
     }
@@ -299,8 +307,11 @@ class ChannelPagerViewModel(
                         notifications.value = Pair(false, null)
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: MissingAuthenticationException) {
+                _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
-
             }
         }
     }
@@ -335,8 +346,11 @@ class ChannelPagerViewModel(
                             _notificationsEnabled.value = notificationsRepository.getUserById(channelId) != null
                         }
                     }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: MissingAuthenticationException) {
+                    _authenticationRequired.trySend(Unit)
                 } catch (e: Exception) {
-
                 }
             }
         }
@@ -386,8 +400,11 @@ class ChannelPagerViewModel(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: MissingAuthenticationException) {
+                _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
-
             }
         }
     }
@@ -416,8 +433,11 @@ class ChannelPagerViewModel(
                         _notificationsEnabled.value = false
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: MissingAuthenticationException) {
+                _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
-
             }
         }
     }

@@ -1047,6 +1047,13 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                         }
                         viewLifecycleOwner.lifecycleScope.launch {
                             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                                viewModel.authenticationRequired.collect {
+                                    requestTwitchReauthorization()
+                                }
+                            }
+                        }
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 viewModel.isFollowing.collectLatest {
                                     if (it != null) {
                                         if (it) {

@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.repository
 import android.content.Context
 import android.util.Log
 import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.gql.stream.StreamsResponse
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.auth.AuthSessionStore
@@ -43,6 +44,8 @@ class RecommendationsRepository(
         excludedChannelIds: Set<String> = emptySet(),
     ): RecommendationResult {
         val now = System.currentTimeMillis()
+        val webSessionManager = (context.applicationContext as? XtraApp)
+            ?.xtraModule?.twitchWebSessionManager
         val requestContext = recommendationRequestContext(now)
         val accountKey = requestContext.accountKey
         cacheMutex.withLock {
@@ -66,6 +69,11 @@ class RecommendationsRepository(
             null
         } else {
             try {
+                if (webSessionManager?.isWebSessionActive() == true) {
+                    // Do not delay a cache hit. Acquire only when the personalized
+                    // authenticated request is actually about to be attempted.
+                    webSessionManager.refreshGeckoGqlIdentity()
+                }
                 val response = graphQLRepository.loadPersonalSections(
                     requestContext.networkLibrary,
                     requestContext.personalizedHeaders,

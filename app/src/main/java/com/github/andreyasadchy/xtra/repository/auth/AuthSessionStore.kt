@@ -133,6 +133,8 @@ class AuthSessionStore(
         cookieHeader: String?,
     ): Boolean {
         if (accessToken.isBlank() || userId.isBlank()) return false
+        val previousAccessToken = tokenPreferences.getString(C.GQL_TOKEN_WEB, null)
+        val previousUserId = tokenPreferences.getString(C.GQL_TOKEN_WEB_USER_ID, null)
         val editor = tokenPreferences.edit()
         editor.apply {
             appendAccountCleanupTarget(this, userId, login)
@@ -146,7 +148,9 @@ class AuthSessionStore(
             putLong(C.TOKEN_VALIDATED_AT, System.currentTimeMillis())
             putString(C.USER_ID, userId)
             putString(C.USERNAME, login)
-
+            if (previousAccessToken != accessToken || previousUserId != userId) {
+                clearGeckoGqlIdentity(this)
+            }
         }
         return editor.commit()
     }
@@ -160,6 +164,59 @@ class AuthSessionStore(
             }
             .commit()
 
+    fun readGeckoGqlIdentity(): GeckoGqlIdentity? {
+        val authorization = tokenPreferences.getString(C.GECKO_GQL_AUTHORIZATION, null)
+            ?.takeIf { it.isNotBlank() }
+        val clientId = tokenPreferences.getString(C.GECKO_GQL_CLIENT_ID, null)
+            ?.takeIf { it.isNotBlank() }
+        val clientIntegrity = tokenPreferences.getString(C.GECKO_GQL_CLIENT_INTEGRITY, null)
+            ?.takeIf { it.isNotBlank() }
+        val xDeviceId = tokenPreferences.getString(C.GECKO_GQL_X_DEVICE_ID, null)
+            ?.takeIf { it.isNotBlank() }
+        val userId = tokenPreferences.getString(C.GECKO_GQL_USER_ID, null)
+            ?.takeIf { it.isNotBlank() }
+        val authTokenFingerprint = tokenPreferences
+            .getString(C.GECKO_GQL_AUTH_TOKEN_FINGERPRINT, null)
+            ?.takeIf { it.isNotBlank() }
+        if (authorization == null || clientId == null || clientIntegrity == null ||
+            xDeviceId == null || userId == null || authTokenFingerprint == null
+        ) return null
+        return GeckoGqlIdentity(
+            authorization = authorization,
+            clientId = clientId,
+            clientIntegrity = clientIntegrity,
+            xDeviceId = xDeviceId,
+            clientSessionId = tokenPreferences.getString(C.GECKO_GQL_CLIENT_SESSION_ID, null),
+            userId = userId,
+            authTokenFingerprint = authTokenFingerprint,
+            capturedAt = tokenPreferences.getLong(C.GECKO_GQL_CAPTURED_AT, 0L),
+        )
+    }
+
+    fun commitGeckoGqlIdentity(identity: GeckoGqlIdentity): Boolean {
+        val current = read()
+        if (current == null || identity.userId != current.userId ||
+            !authorizationMatches(identity.authorization, current.accessToken) ||
+            identity.authTokenFingerprint != GeckoGqlIdentity.fingerprintForAccessToken(current.accessToken)
+        ) return false
+        if (identity.authorization.isBlank() || identity.clientId.isBlank() ||
+            identity.clientIntegrity.isBlank() || identity.xDeviceId.isBlank()
+        ) return false
+        return tokenPreferences.edit()
+            .putString(C.GECKO_GQL_AUTHORIZATION, identity.authorization)
+            .putString(C.GECKO_GQL_CLIENT_ID, identity.clientId)
+            .putString(C.GECKO_GQL_CLIENT_INTEGRITY, identity.clientIntegrity)
+            .putString(C.GECKO_GQL_X_DEVICE_ID, identity.xDeviceId)
+            .putOptionalString(C.GECKO_GQL_CLIENT_SESSION_ID, identity.clientSessionId)
+            .putString(C.GECKO_GQL_USER_ID, identity.userId)
+            .putString(C.GECKO_GQL_AUTH_TOKEN_FINGERPRINT, identity.authTokenFingerprint)
+            .putLong(C.GECKO_GQL_CAPTURED_AT, identity.capturedAt)
+            .commit()
+    }
+
+    fun clearGeckoGqlIdentity(): Boolean = tokenPreferences.edit()
+        .apply(::clearGeckoGqlIdentity)
+        .commit()
 
     fun clearAll(): Boolean {
         val targets = pendingAccountCleanupValues()
@@ -178,6 +235,27 @@ class AuthSessionStore(
     }
 
     private fun String?.hasText(): Boolean = !isNullOrBlank()
+
+    private fun SharedPreferences.Editor.putOptionalString(key: String, value: String?): SharedPreferences.Editor =
+        if (value.isNullOrBlank()) remove(key) else putString(key, value)
+
+    private fun clearGeckoGqlIdentity(editor: SharedPreferences.Editor) {
+        editor
+            .remove(C.GECKO_GQL_AUTHORIZATION)
+            .remove(C.GECKO_GQL_CLIENT_ID)
+            .remove(C.GECKO_GQL_CLIENT_INTEGRITY)
+            .remove(C.GECKO_GQL_X_DEVICE_ID)
+            .remove(C.GECKO_GQL_CLIENT_SESSION_ID)
+            .remove(C.GECKO_GQL_USER_ID)
+            .remove(C.GECKO_GQL_AUTH_TOKEN_FINGERPRINT)
+            .remove(C.GECKO_GQL_CAPTURED_AT)
+    }
+
+    private fun authorizationMatches(authorization: String, accessToken: String): Boolean {
+        val prefix = "OAuth "
+        return authorization.startsWith(prefix, ignoreCase = true) &&
+            authorization.substring(prefix.length) == accessToken
+    }
 
     private fun pendingAccountCleanupValues(): MutableSet<String> =
         tokenPreferences.getStringSet(C.ACCOUNT_CLEANUP_TARGETS, mutableSetOf())?.toMutableSet()

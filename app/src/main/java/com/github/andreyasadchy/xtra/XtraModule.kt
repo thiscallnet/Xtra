@@ -181,7 +181,11 @@ class XtraModule(application: Application) {
                                 it.allHeadersAsList?.forEach {
                                     val value = if (it.key.equals("authorization", true) ||
                                         it.key.equals("cookie", true) ||
-                                        it.key.equals("set-cookie", true)
+                                        it.key.equals("set-cookie", true) ||
+                                        it.key.equals("client-id", true) ||
+                                        it.key.equals("client-integrity", true) ||
+                                        it.key.equals("x-device-id", true) ||
+                                        it.key.equals("client-session-id", true)
                                     ) {
                                         "<redacted>"
                                     } else {
@@ -213,6 +217,10 @@ class XtraModule(application: Application) {
                     redactHeader("Authorization")
                     redactHeader("Cookie")
                     redactHeader("Set-Cookie")
+                    redactHeader("Client-Id")
+                    redactHeader("Client-Integrity")
+                    redactHeader("X-Device-Id")
+                    redactHeader("Client-Session-Id")
                 })
             }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
@@ -542,11 +550,25 @@ class XtraModule(application: Application) {
     }
 
     val graphQLRepository by lazy {
-        GraphQLRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json)
+        GraphQLRepository(
+            httpEngine = httpEngine,
+            cronetEngine = cronetEngine,
+            cronetExecutor = cronetExecutor,
+            okHttpClient = okHttpClient,
+            json = json,
+            twitchWebSessionManager = twitchWebSessionManager,
+        )
     }
 
     val twitchPrivateGqlClient by lazy {
-        TwitchPrivateGqlClient(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json)
+        TwitchPrivateGqlClient(
+            httpEngine = httpEngine,
+            cronetEngine = cronetEngine,
+            cronetExecutor = cronetExecutor,
+            okHttpClient = okHttpClient,
+            json = json,
+            twitchWebSessionManager = twitchWebSessionManager,
+        )
     }
 
     val twitchNotificationsRepository by lazy {

@@ -1,15 +1,20 @@
 package com.github.andreyasadchy.xtra.ui.common
 
 import android.content.Context
+import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.view.View
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
+import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel.Companion.MainViewModelFactory
 import kotlinx.coroutines.flow.collectLatest
@@ -30,8 +35,22 @@ abstract class BaseNetworkFragment : Fragment() {
     protected open val initializeWithoutNetwork = false
     private var lastIsOnlineState = false
     private var shouldRestore = false
+    private var reauthorizationLaunched = false
     protected var isInitialized = false
     private var created = false
+
+    /** Routes unrecoverable Twitch web-auth failures through the normal login UI. */
+    protected fun requestTwitchReauthorization() {
+        if (reauthorizationLaunched) return
+        val activity = activity as? MainActivity ?: return
+        val launcher = activity.loginResultLauncher ?: return
+        reauthorizationLaunched = true
+        Toast.makeText(activity, R.string.token_expired, Toast.LENGTH_LONG).show()
+        launcher.launch(
+            Intent(activity, TwitchWebLoginActivity::class.java)
+                .putExtra(TwitchWebLoginActivity.EXTRA_REAUTHORIZE, true),
+        )
+    }
 
     abstract fun initialize()
     abstract fun onNetworkRestored()
@@ -91,6 +110,7 @@ abstract class BaseNetworkFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        reauthorizationLaunched = false
         if (enableNetworkCheck) {
             if (!isInitialized) {
                 if (created || lastIsOnlineState || initializeWithoutNetwork) {

@@ -10,6 +10,7 @@ import android.text.format.DateUtils
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.repository.auth.GeckoGqlIdentity
 import java.math.RoundingMode
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -246,6 +247,13 @@ object TwitchApiHelper {
 
     fun getGQLHeaders(context: Context, includeToken: Boolean = false): Map<String, String> {
         return mutableMapOf<String, String>().apply {
+            val sessionManager = geckoSessionManager(context)
+            if (includeToken) {
+                sessionManager?.geckoGqlHeaders()?.let {
+                    putAll(it)
+                    return@apply
+                }
+            }
             put(
                 C.HEADER_CLIENT_ID,
                 context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
@@ -264,11 +272,13 @@ object TwitchApiHelper {
 
     /** Headers for private operations used by the Twitch web channel page. */
     fun getWebGQLHeaders(context: Context, includeToken: Boolean = true): Map<String, String> {
+        val sessionManager = geckoSessionManager(context)
+        if (includeToken) {
+            sessionManager?.geckoGqlHeaders()?.let { return it }
+        }
         return mutableMapOf(
             C.HEADER_CLIENT_ID to (context.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
                 ?: C.DEFAULT_GQL_CLIENT_ID_WEB),
-            "Client-Session-Id" to Uuid.random().toString(),
-            "X-Device-Id" to Uuid.random().toHexString(),
             "Origin" to "https://www.twitch.tv",
             "Referer" to "https://www.twitch.tv/",
             "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
@@ -282,6 +292,21 @@ object TwitchApiHelper {
                     ?.let { put("Cookie", it) }
             }
         }
+    }
+
+    /** Headers for mutations that Twitch protects with Client-Integrity. */
+    internal fun buildGeckoGqlHeaders(
+        identity: GeckoGqlIdentity,
+        cookieHeader: String?,
+    ): Map<String, String> = buildMap {
+        put(C.HEADER_TOKEN, identity.authorization)
+        put(C.HEADER_CLIENT_ID, identity.clientId)
+        put("Client-Integrity", identity.clientIntegrity)
+        put("X-Device-Id", identity.xDeviceId)
+        identity.clientSessionId?.takeIf { it.isNotBlank() }?.let {
+            put("Client-Session-Id", it)
+        }
+        cookieHeader?.takeIf { it.isNotBlank() }?.let { put("Cookie", it) }
     }
 
     /** Headers for the authenticated PersonalSections request. */
@@ -315,6 +340,19 @@ object TwitchApiHelper {
         accessToken: String?,
         clientSessionId: String,
     ): Map<String, String> {
+        val sessionManager = geckoSessionManager(context)
+        val capturedIdentity = sessionManager?.geckoGqlIdentity()
+            ?.takeIf { identity ->
+                accessToken != null && identity.authorization == addTokenPrefixGQL(accessToken)
+            }
+        if (capturedIdentity != null) {
+            sessionManager.geckoGqlHeaders()?.let { return it }
+        }
+        if (accessToken != null && sessionManager?.isWebSessionActive() == true) {
+            // Do not manufacture a private identity while Gecko acquisition is
+            // unavailable. The caller can fall back to its public request.
+            return emptyMap()
+        }
         val deviceId = context.prefs().getString(C.RECOMMENDATIONS_DEVICE_ID, null)
             ?.takeIf { it.isNotBlank() }
             ?: Uuid.random().toHexString().also {
@@ -377,6 +415,13 @@ object TwitchApiHelper {
                 ?.cookieHeaderFor(url)
         }.getOrNull()
             ?: context.tokenPrefs().getString(C.TWITCH_WEB_COOKIE_HEADER, null)
+
+    private fun geckoSessionManager(context: Context) =
+        runCatching {
+            (context.applicationContext as? XtraApp)
+                ?.xtraModule
+                ?.twitchWebSessionManager
+        }.getOrNull()
 
     fun isSessionValidationDue(context: Context): Boolean {
         if (context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null).isNullOrBlank()) return false
