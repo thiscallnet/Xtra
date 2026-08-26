@@ -101,12 +101,17 @@ class TwitchWebLoginActivity : AppCompatActivity() {
     private fun finishSuccessfully(accountChanged: Boolean) {
         if (finished) return
         finished = true
-        sessionManager.closeLoginSession()
-        setResult(
-            RESULT_OK,
-            Intent().putExtra(EXTRA_ACCOUNT_CHANGED, accountChanged),
-        )
-        finish()
+        lifecycleScope.launch {
+            // Any identity naturally observed during the login page is already
+            // persisted by the session manager. Do not delay login completion
+            // for a best-effort background integrity capture.
+            sessionManager.closeLoginSession()
+            setResult(
+                RESULT_OK,
+                Intent().putExtra(EXTRA_ACCOUNT_CHANGED, accountChanged),
+            )
+            finish()
+        }
     }
 
     private fun cancel() {

@@ -26,6 +26,7 @@ import com.github.andreyasadchy.xtra.repository.BookmarksRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
+import com.github.andreyasadchy.xtra.repository.MissingAuthenticationException
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
@@ -41,11 +42,13 @@ import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -116,6 +119,8 @@ class Media3PlayerViewModel(
     private val _isFollowing = MutableStateFlow<Boolean?>(null)
     val isFollowing: StateFlow<Boolean?> = _isFollowing
     val follow = MutableStateFlow<Pair<Boolean, String?>?>(null)
+    private val _authenticationRequired = Channel<Unit>(Channel.BUFFERED)
+    val authenticationRequired = _authenticationRequired.receiveAsFlow()
 
     suspend fun checkPlaylist(networkLibrary: String?, url: String): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -632,8 +637,11 @@ class Media3PlayerViewModel(
                             localChannelFollowsRepository.getById(channelId) != null
                         }
                     }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: MissingAuthenticationException) {
+                    _authenticationRequired.trySend(Unit)
                 } catch (e: Exception) {
-
                 }
             }
         }
@@ -681,8 +689,11 @@ class Media3PlayerViewModel(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: MissingAuthenticationException) {
+                _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
-
             }
         }
     }
@@ -709,8 +720,11 @@ class Media3PlayerViewModel(
                         notificationsRepository.deleteUser(NotificationUser(channelId))
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: MissingAuthenticationException) {
+                _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
-
             }
         }
     }

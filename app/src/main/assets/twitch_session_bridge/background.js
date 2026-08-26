@@ -7,6 +7,44 @@ let lastCookieSignature = undefined;
 let pendingReportTimer = null;
 let pendingAuthTokenChange = null;
 let reportQueue = Promise.resolve();
+let lastGqlIdentitySignature = undefined;
+
+function requestHeader(requestHeaders, name) {
+  const header = requestHeaders.find(item =>
+    item && item.name && item.name.toLowerCase() === name.toLowerCase()
+  );
+  return header && header.value ? header.value : null;
+}
+
+function reportGqlIdentity(details) {
+  const authorization = requestHeader(details.requestHeaders || [], "Authorization");
+  const clientId = requestHeader(details.requestHeaders || [], "Client-Id");
+  const clientIntegrity = requestHeader(details.requestHeaders || [], "Client-Integrity");
+  const xDeviceId = requestHeader(details.requestHeaders || [], "X-Device-Id");
+  if (!authorization || !clientId || !clientIntegrity || !xDeviceId) return;
+
+  const identity = {
+    authorization,
+    clientId,
+    clientIntegrity,
+    xDeviceId,
+    clientSessionId: requestHeader(details.requestHeaders || [], "Client-Session-Id"),
+    capturedAt: Date.now()
+  };
+  const signature = JSON.stringify([
+    identity.authorization,
+    identity.clientId,
+    identity.clientIntegrity,
+    identity.xDeviceId,
+    identity.clientSessionId
+  ]);
+  if (signature === lastGqlIdentitySignature) return;
+  lastGqlIdentitySignature = signature;
+  browser.runtime.sendNativeMessage(NATIVE_APP, {
+    type: "twitch_integrity",
+    ...identity
+  }).catch(() => {});
+}
 
 function serializeChangeInfo(changeInfo) {
   if (!changeInfo) return null;
@@ -103,8 +141,17 @@ browser.cookies.onChanged.addListener(changeInfo => {
   scheduleCookieReport(changeInfo);
 });
 
+browser.webRequest.onBeforeSendHeaders.addListener(
+  reportGqlIdentity,
+  { urls: ["https://gql.twitch.tv/*"] },
+  ["requestHeaders"]
+);
+
 browser.runtime.onMessage.addListener(message => {
   if (message && message.type === "request_session") {
+    // A new Gecko page may be the native side's request to reacquire the same
+    // browser identity after it invalidated its stored snapshot.
+    lastGqlIdentitySignature = undefined;
     return queueSessionReport("page_request");
   }
   return undefined;

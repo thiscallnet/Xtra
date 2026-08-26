@@ -19,6 +19,7 @@ import com.github.andreyasadchy.xtra.repository.BookmarksRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
+import com.github.andreyasadchy.xtra.repository.MissingAuthenticationException
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
@@ -26,11 +27,13 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -65,6 +68,8 @@ class PlayerViewModel(
     private val _isFollowing = MutableStateFlow<Boolean?>(null)
     val isFollowing: StateFlow<Boolean?> = _isFollowing
     val follow = MutableStateFlow<Pair<Boolean, String?>?>(null)
+    private val _authenticationRequired = Channel<Unit>(Channel.BUFFERED)
+    val authenticationRequired = _authenticationRequired.receiveAsFlow()
 
     fun deletePlaybackStates() {
         playbackPersistence.deletePlaybackStates()
@@ -424,8 +429,11 @@ class PlayerViewModel(
                             localChannelFollowsRepository.getById(channelId) != null
                         }
                     }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: MissingAuthenticationException) {
+                    _authenticationRequired.trySend(Unit)
                 } catch (e: Exception) {
-
                 }
             }
         }
@@ -473,8 +481,11 @@ class PlayerViewModel(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: MissingAuthenticationException) {
+                _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
-
             }
         }
     }
@@ -501,8 +512,11 @@ class PlayerViewModel(
                         notificationsRepository.deleteUser(NotificationUser(channelId))
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: MissingAuthenticationException) {
+                _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
-
             }
         }
     }

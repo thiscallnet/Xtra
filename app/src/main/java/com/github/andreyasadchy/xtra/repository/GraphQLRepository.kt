@@ -105,6 +105,7 @@ import com.github.andreyasadchy.xtra.model.gql.tag.TagResponse
 import com.github.andreyasadchy.xtra.model.gql.video.VideoGamesResponse
 import com.github.andreyasadchy.xtra.model.gql.video.VideoMessagesResponse
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRewardRedemption
+import com.github.andreyasadchy.xtra.repository.auth.TwitchWebSessionManager
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -136,6 +137,7 @@ class GraphQLRepository(
     private val cronetExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val json: Json,
+    private val twitchWebSessionManager: TwitchWebSessionManager? = null,
 ) {
 
     private val watchStreakQuery = """
@@ -233,8 +235,7 @@ class GraphQLRepository(
         }
     """.trimIndent()
 
-    private suspend fun <T: Query.Data> sendQuery(networkLibrary: String?, headers: Map<String, String>, query: Query<T>): ApolloResponse<T> = withContext(Dispatchers.IO) {
-        val url = "https://gql.twitch.tv/gql"
+    private suspend fun <T: Query.Data> sendQuery(networkLibrary: String?, headers: Map<String, String>, query: Query<T>): ApolloResponse<T> {
         val body = buildJsonString {
             query.apply {
                 writeObject {
@@ -247,69 +248,29 @@ class GraphQLRepository(
                 }
             }
         }
-        when {
-            networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.HttpEngineTimeout()
-                    val request = httpEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        cronetExecutor.value,
-                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                    ).apply {
-                        headers.forEach { addHeader(it.key, it.value) }
-                        addHeader("Content-Type", "application/json")
-                        setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), cronetExecutor.value)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                response.body.inputStream().source().buffer().jsonReader().use {
-                    query.parseResponse(it)
-                }
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                        cronetExecutor.value
-                    ).apply {
-                        headers.forEach { addHeader(it.key, it.value) }
-                        addHeader("Content-Type", "application/json")
-                        setUploadDataProvider(UploadDataProviders.create(body.toByteArray()), cronetExecutor.value)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                response.body.inputStream().source().buffer().jsonReader().use {
-                    query.parseResponse(it)
-                }
-            }
-            else -> {
-                okHttpClient.value.newCall(Request.Builder().apply {
-                    url(url)
-                    headers(headers.toHeaders())
-                    header("Content-Type", "application/json")
-                    post(body.toRequestBody())
-                }.build()).executeAsync().use { response ->
-                    response.body.byteStream().source().buffer().jsonReader().use {
-                        query.parseResponse(it)
-                    }
-                }
-            }
+        val response = if (isAuthenticatedGeckoRequest(headers)) {
+            sendIntegrityProtectedQuery(networkLibrary, headers, body)
+        } else {
+            sendRawPersistedQuery(networkLibrary, headers, body)
+        }
+        return response.byteInputStream().source().buffer().jsonReader().use {
+            query.parseResponse(it)
         }
     }
 
-    private suspend fun sendPersistedQuery(networkLibrary: String?, headers: Map<String, String>, body: String): String = withContext(Dispatchers.IO) {
+    private suspend fun sendPersistedQuery(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        body: String,
+    ): String {
+        return if (isAuthenticatedGeckoRequest(headers)) {
+            sendIntegrityProtectedQuery(networkLibrary, headers, body)
+        } else {
+            sendRawPersistedQuery(networkLibrary, headers, body)
+        }
+    }
+
+    private suspend fun sendRawPersistedQuery(networkLibrary: String?, headers: Map<String, String>, body: String): String = withContext(Dispatchers.IO) {
         val url = "https://gql.twitch.tv/gql"
         when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -366,6 +327,30 @@ class GraphQLRepository(
             }
         }
     }
+
+    private suspend fun sendIntegrityProtectedQuery(
+        networkLibrary: String?,
+        fallbackHeaders: Map<String, String>,
+        body: String,
+    ): String {
+        val manager = twitchWebSessionManager
+        return manager?.executeIntegrityAwareGql(
+            fallbackHeaders = fallbackHeaders,
+            isFailedIntegrityCheck = { response -> hasFailedIntegrityCheck(response) },
+            send = { requestHeaders -> sendRawPersistedQuery(networkLibrary, requestHeaders, body) },
+        ) ?: sendRawPersistedQuery(networkLibrary, fallbackHeaders, body)
+    }
+
+    private fun isAuthenticatedGeckoRequest(headers: Map<String, String>): Boolean {
+        val authorization = headers[C.HEADER_TOKEN] ?: return false
+        return authorization.startsWith("OAuth ", ignoreCase = true) &&
+            twitchWebSessionManager?.isWebSessionActive() == true
+    }
+
+    private fun hasFailedIntegrityCheck(response: String): Boolean = runCatching {
+        json.decodeFromString<ErrorResponse>(response).errors
+            ?.any { it.message?.trim()?.equals(C.FAILED_INTEGRITY_CHECK, ignoreCase = true) == true } == true
+    }.getOrDefault(false)
 
     suspend fun executeRawOperation(
         networkLibrary: String?,
@@ -1146,11 +1131,6 @@ class GraphQLRepository(
                 put("withFreeformTags", true)
             }
         }.toString()
-        val headers = if (headers["X-Device-Id"] == null) {
-            headers.toMutableMap().apply {
-                put("X-Device-Id", Uuid.random().toHexString())
-            }
-        } else headers
         json.decodeFromString<ChannelSuggestionsResponse>(sendPersistedQuery(networkLibrary, headers, body))
     }
 

@@ -53,6 +53,13 @@ class TwitchInboxRequestTest {
     }
 
     @Test
+    fun integrityFailureIsNotReportedAsPrivateApiChange() {
+        val error = privateGqlError("Notifications", "failed integrity check", 200)
+        assertTrue(error is TwitchInboxError.GraphQl)
+        assertFalse(error is TwitchInboxError.PrivateApiChanged)
+    }
+
+    @Test
     fun localWhisperSearchKeepsExistingConversationMatches() {
         val peer = TwitchUserSummary("peer-1", "coldblackice", "Coldblackice", null)
         val thread = WhisperThread(

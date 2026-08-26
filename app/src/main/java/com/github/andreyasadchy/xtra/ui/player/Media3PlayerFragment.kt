@@ -1071,6 +1071,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         }
                         viewLifecycleOwner.lifecycleScope.launch {
                             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                                viewModel.authenticationRequired.collect {
+                                    requestTwitchReauthorization()
+                                }
+                            }
+                        }
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 viewModel.isFollowing.collectLatest {
                                     if (it != null) {
                                         if (it) {

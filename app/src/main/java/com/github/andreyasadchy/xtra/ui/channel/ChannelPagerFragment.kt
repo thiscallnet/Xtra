@@ -307,6 +307,13 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
             }
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.authenticationRequired.collect {
+                        requestTwitchReauthorization()
+                    }
+                }
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
                     viewModel.notificationsEnabled.collectLatest {
                         if (it != null) {
                             toolbar.menu.findItem(R.id.toggleNotifications)?.apply {

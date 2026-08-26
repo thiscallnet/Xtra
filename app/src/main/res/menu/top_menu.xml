@@ -35,7 +35,7 @@
         android:icon="@drawable/baseline_settings_black_24"
         android:title="@string/settings"
         app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="never" />
+        app:showAsAction="always" />
     <item
         android:id="@+id/statistics"
         android:icon="@drawable/ic_statistics"
