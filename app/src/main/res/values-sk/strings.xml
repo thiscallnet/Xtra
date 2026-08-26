@@ -1420,4 +1420,25 @@
     <string name="account_web_session_permissions_summary">Twitch web session</string>
     <string name="account_web_session_permissions">This is a valid Twitch web session, not a Helix OAuth grant. Xtra uses authenticated GQL for the account controls shown here, followed channels, and live notifications.</string>
     <string name="account_tags_not_editable_in_session">Tags cannot be edited through this Twitch session</string>
+    <string name="notifications">Oznámenia</string>
+    <string name="whispers">Šepoty</string>
+    <string name="my_twitch">Môj Twitch</string>
+    <string name="most_recent">Najnovšie</string>
+    <string name="search_for_people">Hľadať ľudí</string>
+    <string name="message">Správa</string>
+    <string name="send">Odoslať</string>
+    <string name="reconnect_twitch">Znova pripojiť Twitch</string>
+    <string name="no_notifications_yet">Zatiaľ žiadne oznámenia</string>
+    <string name="no_whispers_yet">Zatiaľ žiadne šepoty</string>
+    <string name="no_people_found">Nenašli sa žiadni ľudia</string>
+    <string name="couldnt_load_notifications">Oznámenia sa nepodarilo načítať</string>
+    <string name="couldnt_load_whispers">Šepoty sa nepodarilo načítať</string>
+    <string name="couldnt_send_message">Správu sa nepodarilo odoslať</string>
+    <string name="dismiss_notification">Zrušiť oznámenie</string>
+    <string name="unread">Neprečítané</string>
+    <string name="people">Ľudia</string>
+    <string name="conversations">Konverzácie</string>
+    <string name="message_failed_tap_to_retry">Správa zlyhala. Klepnutím to skúste znova.</string>
+    <string name="message_unavailable">Správa nie je k dispozícii</string>
+    <string name="session_needs_refresh">Reláciu Twitch treba obnoviť.</string>
 </resources>

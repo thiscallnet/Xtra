@@ -165,6 +165,7 @@ class MainActivity : AppCompatActivity() {
                 view.findViewById<Toolbar>(R.id.toolbar)?.let {
                     SettingsUpdateIndicator.update(it, this@MainActivity)
                     ProfileMenuBinder.bind(it, this@MainActivity)
+                    TwitchInboxMenuBinder.bind(it, this@MainActivity)
                 }
             }
         }.also {
@@ -195,12 +196,18 @@ class MainActivity : AppCompatActivity() {
         }
         loginResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                findViewById<Toolbar>(R.id.toolbar)?.let { ProfileMenuBinder.bind(it, this) }
+                findViewById<Toolbar>(R.id.toolbar)?.let {
+                    ProfileMenuBinder.bind(it, this)
+                    TwitchInboxMenuBinder.bind(it, this)
+                }
                 restartActivity()
             }
         }
         logoutResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            findViewById<Toolbar>(R.id.toolbar)?.let { ProfileMenuBinder.bind(it, this) }
+            findViewById<Toolbar>(R.id.toolbar)?.let {
+                ProfileMenuBinder.bind(it, this)
+                TwitchInboxMenuBinder.bind(it, this)
+            }
             restartActivity()
         }
         authMaintenanceResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -787,7 +794,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        findViewById<Toolbar>(R.id.toolbar)?.let { ProfileMenuBinder.bind(it, this) }
+        findViewById<Toolbar>(R.id.toolbar)?.let {
+            ProfileMenuBinder.bind(it, this)
+            TwitchInboxMenuBinder.bind(it, this)
+        }
         if (prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) && !LiveNotificationScheduler.canPostNotifications(this)) {
             prefs.edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
             LiveNotificationScheduler.disable(this)

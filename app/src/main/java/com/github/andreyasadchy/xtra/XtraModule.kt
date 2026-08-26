@@ -25,6 +25,9 @@ import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.LocalGameFollowsRepository
 import com.github.andreyasadchy.xtra.repository.MetadataCache
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
+import com.github.andreyasadchy.xtra.repository.TwitchNotificationsRepository
+import com.github.andreyasadchy.xtra.repository.TwitchPrivateGqlClient
+import com.github.andreyasadchy.xtra.repository.WhispersRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadCoordinator
@@ -540,6 +543,18 @@ class XtraModule(application: Application) {
 
     val graphQLRepository by lazy {
         GraphQLRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json)
+    }
+
+    val twitchPrivateGqlClient by lazy {
+        TwitchPrivateGqlClient(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json)
+    }
+
+    val twitchNotificationsRepository by lazy {
+        TwitchNotificationsRepository(application, twitchPrivateGqlClient)
+    }
+
+    val whispersRepository by lazy {
+        WhispersRepository(application, twitchPrivateGqlClient, graphQLRepository)
     }
 
     val helixRepository by lazy {

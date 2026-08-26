@@ -121,6 +121,10 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                             prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
                         },
                         clearNotificationState = { xtraModule.notificationsRepository.clearNotificationState() },
+                        clearTwitchInboxState = {
+                            xtraModule.twitchNotificationsRepository.clearAccountState()
+                            xtraModule.whispersRepository.clearAccountState()
+                        },
                         clearAccountMetadata = {},
                     )
                 }.isSuccess

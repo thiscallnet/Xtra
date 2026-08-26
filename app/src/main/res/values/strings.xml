@@ -1457,4 +1457,25 @@
     <string name="statistics_weekday_friday">Friday</string>
     <string name="statistics_weekday_saturday">Saturday</string>
     <string name="statistics_weekday_sunday">Sunday</string>
+    <string name="notifications">Notifications</string>
+    <string name="whispers">Whispers</string>
+    <string name="my_twitch">My Twitch</string>
+    <string name="most_recent">Most Recent</string>
+    <string name="search_for_people">Search for people</string>
+    <string name="message">Message</string>
+    <string name="send">Send</string>
+    <string name="reconnect_twitch">Reconnect Twitch</string>
+    <string name="no_notifications_yet">No notifications yet</string>
+    <string name="no_whispers_yet">No whispers yet</string>
+    <string name="no_people_found">No people found</string>
+    <string name="couldnt_load_notifications">Couldn\'t load notifications</string>
+    <string name="couldnt_load_whispers">Couldn\'t load whispers</string>
+    <string name="couldnt_send_message">Couldn\'t send message</string>
+    <string name="dismiss_notification">Dismiss notification</string>
+    <string name="unread">Unread</string>
+    <string name="people">People</string>
+    <string name="conversations">Conversations</string>
+    <string name="message_failed_tap_to_retry">Message failed. Tap to retry.</string>
+    <string name="message_unavailable">Message unavailable</string>
+    <string name="session_needs_refresh">Your Twitch session needs to be refreshed.</string>
 </resources>

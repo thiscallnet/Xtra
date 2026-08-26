@@ -1397,4 +1397,25 @@
     <string name="account_web_session_permissions_summary">Twitch web session</string>
     <string name="account_web_session_permissions">This is a valid Twitch web session, not a Helix OAuth grant. Xtra uses authenticated GQL for the account controls shown here, followed channels, and live notifications.</string>
     <string name="account_tags_not_editable_in_session">Tags cannot be edited through this Twitch session</string>
+    <string name="notifications">Notifications</string>
+    <string name="whispers">Chuchotements</string>
+    <string name="my_twitch">Mon Twitch</string>
+    <string name="most_recent">Plus récentes</string>
+    <string name="search_for_people">Rechercher des personnes</string>
+    <string name="message">Message</string>
+    <string name="send">Envoyer</string>
+    <string name="reconnect_twitch">Reconnecter Twitch</string>
+    <string name="no_notifications_yet">Aucune notification pour le moment</string>
+    <string name="no_whispers_yet">Aucun chuchotement pour le moment</string>
+    <string name="no_people_found">Aucune personne trouvée</string>
+    <string name="couldnt_load_notifications">Impossible de charger les notifications</string>
+    <string name="couldnt_load_whispers">Impossible de charger les chuchotements</string>
+    <string name="couldnt_send_message">Impossible d’envoyer le message</string>
+    <string name="dismiss_notification">Ignorer la notification</string>
+    <string name="unread">Non lu</string>
+    <string name="people">Personnes</string>
+    <string name="conversations">Conversations</string>
+    <string name="message_failed_tap_to_retry">Échec de l’envoi. Appuyez pour réessayer.</string>
+    <string name="message_unavailable">Message indisponible</string>
+    <string name="session_needs_refresh">Votre session Twitch doit être actualisée.</string>
 </resources>
