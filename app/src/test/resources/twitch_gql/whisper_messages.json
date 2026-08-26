@@ -1,0 +1,19 @@
+{
+  "data": {
+    "whisperThread": {
+      "id": "thread-1",
+      "participants": [
+        {"id":"user-1","login":"current_user","displayName":"Current User","profileImageURL":null,"self":{"whisperPermissions":{"receive":"PERMITTED"}}},
+        {"id":"user-2","login":"peer_login","displayName":"Peer User","profileImageURL":"https://static-cdn.jtvnw.net/peer.png"}
+      ],
+      "messages": {
+        "edges": [
+          {"cursor":"message-cursor-2","node":{"id":"message-2","nonce":null,"content":{"content":"Newest"},"from":{"id":"user-1"},"sentAt":"2026-08-25T12:01:00Z","deletedAt":null}},
+          {"cursor":"message-cursor-1","node":{"id":"message-1","nonce":null,"content":{"content":"Older"},"from":{"id":"user-2"},"sentAt":"2026-08-25T12:00:00Z","deletedAt":null}}
+        ]
+      },
+      "unreadMessagesCount": 1
+    },
+    "currentUser": {"id":"user-1","login":"current_user"}
+  }
+}

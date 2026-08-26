@@ -1397,4 +1397,25 @@
     <string name="account_web_session_permissions_summary">Twitch web session</string>
     <string name="account_web_session_permissions">This is a valid Twitch web session, not a Helix OAuth grant. Xtra uses authenticated GQL for the account controls shown here, followed channels, and live notifications.</string>
     <string name="account_tags_not_editable_in_session">Tags cannot be edited through this Twitch session</string>
+    <string name="notifications">通知</string>
+    <string name="whispers">私信</string>
+    <string name="my_twitch">我的 Twitch</string>
+    <string name="most_recent">最近</string>
+    <string name="search_for_people">搜索用户</string>
+    <string name="message">消息</string>
+    <string name="send">发送</string>
+    <string name="reconnect_twitch">重新连接 Twitch</string>
+    <string name="no_notifications_yet">暂无通知</string>
+    <string name="no_whispers_yet">暂无私信</string>
+    <string name="no_people_found">未找到用户</string>
+    <string name="couldnt_load_notifications">无法加载通知</string>
+    <string name="couldnt_load_whispers">无法加载私信</string>
+    <string name="couldnt_send_message">无法发送消息</string>
+    <string name="dismiss_notification">忽略通知</string>
+    <string name="unread">未读</string>
+    <string name="people">用户</string>
+    <string name="conversations">对话</string>
+    <string name="message_failed_tap_to_retry">消息发送失败。点击重试。</string>
+    <string name="message_unavailable">消息不可用</string>
+    <string name="session_needs_refresh">你的 Twitch 会话需要刷新。</string>
 </resources>

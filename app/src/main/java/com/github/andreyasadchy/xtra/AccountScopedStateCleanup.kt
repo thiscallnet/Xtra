@@ -5,9 +5,11 @@ internal suspend fun clearAccountScopedState(
     disableNotifications: () -> Unit,
     clearNotificationState: suspend () -> Unit,
     clearAccountMetadata: suspend () -> Unit,
+    clearTwitchInboxState: suspend () -> Unit = {},
 ) {
     disableScheduler()
     disableNotifications()
     clearNotificationState()
+    clearTwitchInboxState()
     clearAccountMetadata()
 }

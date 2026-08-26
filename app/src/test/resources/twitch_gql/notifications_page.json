@@ -1,0 +1,51 @@
+{
+  "data": {
+    "currentUser": {
+      "id": "user-1",
+      "notifications": {
+        "edges": [
+          {
+            "cursor": "notification-cursor-1",
+            "node": {
+              "id": "notification-1",
+              "type": "gift_sub",
+              "body": "A viewer gifted you a subscription",
+              "thumbnailURL": "https://static-cdn.jtvnw.net/example.png",
+              "updatedAt": "2026-08-25T12:00:00Z",
+              "isRead": false,
+              "category": "giftsandrewards",
+              "actions": [{"id":"action-1","type":"click","url":"https://www.twitch.tv/drops/inventory","body":"View"}]
+            }
+          },
+          {
+            "cursor": "notification-cursor-2",
+            "node": {
+              "id": "notification-2",
+              "type": "unknown_future_type",
+              "body": "A future Twitch notification",
+              "isRead": true,
+              "actions": [{"id":"unsafe","type":"click","url":"javascript:alert(1)"}]
+            }
+          },
+          {
+            "cursor": "notification-cursor-3",
+            "node": {
+              "id": "notification-3",
+              "type": "channel_notice",
+              "body": "A channel notification",
+              "isRead": false,
+              "extra": {
+                "__typename": "User",
+                "id": "channel-1",
+                "login": "channel_login",
+                "displayName": "Channel Name",
+                "profileImageURL": "https://static-cdn.jtvnw.net/channel.png"
+              }
+            }
+          }
+        ],
+        "pageInfo": {"hasNextPage": true}
+      }
+    }
+  }
+}

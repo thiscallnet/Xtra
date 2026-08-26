@@ -15,19 +15,33 @@
         android:icon="@drawable/baseline_search_black_24"
         android:title="@string/search"
         app:iconTint="?attr/colorControlNormal"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/twitchNotifications"
+        android:icon="@drawable/ic_twitch_notifications"
+        android:title="@string/notifications"
+        android:visible="false"
+        app:iconTint="?attr/colorControlNormal"
+        app:showAsAction="always" />
+    <item
+        android:id="@+id/whispers"
+        android:icon="@drawable/ic_twitch_whispers"
+        android:title="@string/whispers"
+        android:visible="false"
+        app:iconTint="?attr/colorControlNormal"
         app:showAsAction="always" />
     <item
         android:id="@+id/settings"
         android:icon="@drawable/baseline_settings_black_24"
         android:title="@string/settings"
         app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="always" />
+        app:showAsAction="never" />
     <item
         android:id="@+id/statistics"
         android:icon="@drawable/ic_statistics"
         android:title="@string/statistics"
         app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="always" />
+        app:showAsAction="never" />
     <item
         android:id="@+id/profile"
         android:title="@string/view_profile"

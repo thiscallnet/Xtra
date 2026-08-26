@@ -227,4 +227,42 @@
         android:id="@+id/statisticsListFragment"
         android:name="com.github.andreyasadchy.xtra.ui.statistics.StatisticsListFragment"
         android:label="@string/statistics" />
+    <fragment
+        android:id="@+id/twitchNotificationsFragment"
+        android:name="com.github.andreyasadchy.xtra.ui.notifications.TwitchNotificationsFragment"
+        android:label="@string/notifications" />
+    <action
+        android:id="@+id/action_global_twitchNotificationsFragment"
+        app:destination="@id/twitchNotificationsFragment" />
+    <fragment
+        android:id="@+id/whispersFragment"
+        android:name="com.github.andreyasadchy.xtra.ui.whispers.WhispersFragment"
+        android:label="@string/whispers" />
+    <action
+        android:id="@+id/action_global_whispersFragment"
+        app:destination="@id/whispersFragment" />
+    <fragment
+        android:id="@+id/whisperThreadFragment"
+        android:name="com.github.andreyasadchy.xtra.ui.whispers.WhisperThreadFragment"
+        android:label="@string/whispers">
+        <argument
+            android:name="peerId"
+            app:argType="string" />
+        <argument
+            android:name="peerLogin"
+            app:argType="string" />
+        <argument
+            android:name="peerDisplayName"
+            app:argType="string" />
+        <argument
+            android:name="peerImageUrl"
+            app:argType="string"
+            app:nullable="true"
+            android:defaultValue="@null" />
+        <argument
+            android:name="threadId"
+            app:argType="string"
+            app:nullable="true"
+            android:defaultValue="@null" />
+    </fragment>
 </navigation>
