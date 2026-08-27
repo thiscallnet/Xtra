@@ -5,6 +5,7 @@ import android.app.ActivityOptions
 import android.app.PictureInPictureParams
 import android.app.admin.DevicePolicyManager
 import android.content.BroadcastReceiver
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -89,6 +90,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.UiInteractionGovernor
 import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
 import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckScheduler
@@ -143,6 +145,12 @@ class MainActivity : AppCompatActivity() {
     private var updateNotificationPermissionLauncher: ActivityResultLauncher<String>? = null
     private var fragmentLifecycleCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
     private var startupTasksReady = false
+    private var pendingBottomNavigationItemId: Int? = null
+    private var bottomNavigationTransactionInFlight = false
+    private var bottomNavigationDestinationInFlight: Int? = null
+    private var bottomNavigationDrainPosted = false
+    private val bottomNavigationInteractionSource = Any()
+    private var keepStateNavigator: KeepStateFragmentNavigator? = null
 
     //Lifecycle methods
 
@@ -431,7 +439,10 @@ class MainActivity : AppCompatActivity() {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     viewModel.playbackStates.collectLatest { states ->
                         val savedState = states.firstOrNull()
-                        if (savedState != null) {
+                        // This flow is only for restoring a player after process/activity
+                        // recreation. A user-initiated start can overlap a pending database
+                        // read; never replace that player with a second restored fragment.
+                        if (savedState != null && !viewModel.isPlayerOpened && playerFragment == null) {
                             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
                             val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
                                 C.MEDIA_PLAYER -> MediaPlayerFragment()
@@ -446,6 +457,7 @@ class MainActivity : AppCompatActivity() {
                             (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackEntered(
                                 isLive = savedState.type == BasePlaybackService.STREAM,
                             )
+                            (application as XtraApp).xtraModule.streamPreviewCoordinator.onFullscreenPlaybackStarted()
                             startPlayer(fragment)
                         }
                     }
@@ -810,7 +822,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            keepStateNavigator?.trimHiddenTabs()
+        }
+    }
+
     override fun onDestroy() {
+        UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
+        keepStateNavigator?.onNavigationTransactionCommitted = null
+        keepStateNavigator = null
         networkSnackbar?.dismiss()
         networkSnackbar = null
         updateNotificationSnackbar?.dismiss()
@@ -1193,9 +1215,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun startPlayer(fragment: Fragment) {
         playerFragment = fragment
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.playerContainer, fragment).commit()
         viewModel.isPlayerOpened = true
+        val transaction = supportFragmentManager.beginTransaction()
+            .setReorderingAllowed(true)
+            .replace(R.id.playerContainer, fragment)
+        if (supportFragmentManager.findFragmentById(R.id.playerContainer) != null) {
+            // A player can be minimized when the next stream is selected. Commit the replacement
+            // synchronously so the transformed old player cannot draw one more frame over the
+            // new player's handoff cover.
+            transaction.commitNow()
+        } else {
+            transaction.commit()
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
             prefs.getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true)
@@ -1226,11 +1257,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun onPlayerEnteredPlayback(isLive: Boolean = true, channelLogin: String? = null) {
+        viewModel.isPlayerOpened = true
         (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackEntered(isLive)
         (application as XtraApp).xtraModule.streamPreviewCoordinator.onFullscreenPlaybackStarted(channelLogin)
     }
 
     fun onPlayerChangedPlayback(isLive: Boolean) {
+        viewModel.isPlayerOpened = true
         (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackChanged(isLive)
         (application as XtraApp).xtraModule.streamPreviewCoordinator.onFullscreenPlaybackStarted()
     }
@@ -1331,6 +1364,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun initNavigation() {
         navController = (supportFragmentManager.findFragmentById(R.id.navHostFragment) as NavHostFragment).navController
+        navController.setOnBackPressedDispatcher(onBackPressedDispatcher)
         val tabList = prefs.getString(C.UI_NAVIGATION_TAB_LIST, null).let { tabPref ->
             val defaultTabs = C.DEFAULT_NAVIGATION_TAB_LIST.split(',')
             if (tabPref != null) {
@@ -1355,6 +1389,23 @@ class MainActivity : AppCompatActivity() {
                 defaultItem == "5" -> it.setStartDestination(R.id.statisticsFragment)
             }
         }, null)
+        keepStateNavigator = navController.navigatorProvider
+            .getNavigator<androidx.navigation.fragment.FragmentNavigator>("fragment")
+            .let { it as? KeepStateFragmentNavigator }
+            ?.also { navigator ->
+                navigator.onNavigationTransactionCommitted = { destinationId ->
+                    binding.navBar.post {
+                        if (bottomNavigationTransactionInFlight &&
+                            destinationId == bottomNavigationDestinationInFlight
+                        ) {
+                            UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
+                            bottomNavigationTransactionInFlight = false
+                            bottomNavigationDestinationInFlight = null
+                            drainBottomNavigation()
+                        }
+                    }
+                }
+            }
         binding.navBar.apply {
             if (tabList.any { it.split(':')[2] != "0" }) {
                 tabList.forEach {
@@ -1392,16 +1443,47 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             setOnItemSelectedListener {
-                NavigationUI.onNavDestinationSelected(it, navController)
+                pendingBottomNavigationItemId = it.itemId
+                drainBottomNavigation()
                 return@setOnItemSelectedListener true
             }
             setOnItemReselectedListener {
+                if (bottomNavigationTransactionInFlight) return@setOnItemReselectedListener
                 if (!navController.popBackStack(it.itemId, false)) {
-                    val currentFragment = supportFragmentManager.findFragmentById(R.id.navHostFragment)?.childFragmentManager?.fragments?.getOrNull(0)
-                    if (currentFragment is Scrollable) {
+                    val currentFragment = (supportFragmentManager.findFragmentById(R.id.navHostFragment) as? NavHostFragment)
+                        ?.childFragmentManager
+                        ?.primaryNavigationFragment
+                    if (currentFragment is Scrollable && currentFragment.isResumed && currentFragment.view != null) {
                         currentFragment.scrollToTop()
                     }
                 }
+            }
+        }
+    }
+
+    private fun drainBottomNavigation() {
+        if (bottomNavigationDrainPosted) return
+        bottomNavigationDrainPosted = true
+        binding.navBar.post {
+            bottomNavigationDrainPosted = false
+            if (isFinishing || isDestroyed || bottomNavigationTransactionInFlight) return@post
+
+            val itemId = pendingBottomNavigationItemId ?: return@post
+            if (navController.currentDestination?.id == itemId) {
+                pendingBottomNavigationItemId = null
+                return@post
+            }
+
+            val item = binding.navBar.menu.findItem(itemId) ?: return@post
+            pendingBottomNavigationItemId = null
+            bottomNavigationTransactionInFlight = true
+            bottomNavigationDestinationInFlight = itemId
+            UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, true)
+            if (!NavigationUI.onNavDestinationSelected(item, navController)) {
+                bottomNavigationTransactionInFlight = false
+                bottomNavigationDestinationInFlight = null
+                UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
+                drainBottomNavigation()
             }
         }
     }

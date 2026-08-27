@@ -6,10 +6,13 @@ import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.repository.TwitchApiException
 import com.github.andreyasadchy.xtra.repository.datasource.StreamFeedPage
 import com.github.andreyasadchy.xtra.repository.datasource.StreamFeedCursor
+import com.github.andreyasadchy.xtra.util.UiInteractionGovernor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -41,10 +44,15 @@ class StreamFeedRefreshCoordinator(
     private val wallClockMs: () -> Long = { System.currentTimeMillis() },
     private val elapsedRealtimeMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val debugLoggingEnabled: Boolean = BuildConfig.DEBUG,
+    maintenanceScope: CoroutineScope? = null,
 ) {
+    private val maintenanceScope = maintenanceScope
+        ?: CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val refreshFlights = StreamFeedSingleFlight<StreamRefreshResult>(scope)
     private val appendFlights = StreamFeedSingleFlight<StreamAppendResult>(scope)
     private val feedLocks = ConcurrentHashMap<String, Mutex>()
+    private var cleanupJob: Job? = null
+    private val successfulAtByFeed = ConcurrentHashMap<String, Long>()
 
     @Volatile
     private var visibleFeed: StreamFeedSpec? = null
@@ -78,13 +86,33 @@ class StreamFeedRefreshCoordinator(
         return requestRefresh(spec, reason, force = true)
     }
 
+    /**
+     * Fast process-local check for callers on a visible-screen path. A false
+     * result only means that the durable cache must be consulted; it never
+     * makes a freshness decision without the normal coordinator lock.
+     */
+    fun isFreshInMemory(spec: StreamFeedSpec): Boolean {
+        val lastSuccessAt = successfulAtByFeed[spec.key.value] ?: return false
+        return StreamFeedFreshnessPolicy.isFresh(wallClockMs(), lastSuccessAt)
+    }
+
     private suspend fun requestRefresh(
         spec: StreamFeedSpec,
         reason: RefreshReason,
         force: Boolean,
     ): StreamRefreshResult {
-        if (force) {
-            StreamThumbnailRefreshSignal.requestForceRefresh()
+        if (!force) {
+            successfulAtByFeed[spec.key.value]?.let { lastSuccessAt ->
+                val now = wallClockMs()
+                if (StreamFeedFreshnessPolicy.isFresh(now, lastSuccessAt)) {
+                    return StreamRefreshResult(
+                        feedKey = spec.key,
+                        reason = reason,
+                        decision = RefreshDecision.SKIP_FRESH,
+                        cacheAgeMs = StreamFeedFreshnessPolicy.cacheAge(now, lastSuccessAt),
+                    )
+                }
+            }
         }
         val result = refreshFlights.run(spec.key.value) {
             executeRefresh(spec, reason, force)
@@ -105,6 +133,8 @@ class StreamFeedRefreshCoordinator(
         return lock.withLock {
             val now = wallClockMs()
             val state = cache.state(spec.key)
+            state?.lastSuccessAt?.let { successfulAtByFeed[spec.key.value] = it }
+                ?: successfulAtByFeed.remove(spec.key.value)
             val age = StreamFeedFreshnessPolicy.cacheAge(now, state?.lastSuccessAt)
             val rateLimitUntil = state?.rateLimitUntil ?: 0L
             val failureBackoffUntil = state?.failureBackoffUntil ?: 0L
@@ -152,6 +182,7 @@ class StreamFeedRefreshCoordinator(
                     preserveTail = preserveTail,
                     pruneStaleOnEnd = !preserveTail,
                 )
+                successfulAtByFeed[spec.key.value] = completedAt
                 if (shouldPrefetchTail(
                         reason = reason,
                         preserveTail = preserveTail,
@@ -160,7 +191,7 @@ class StreamFeedRefreshCoordinator(
                         nextCursorPresent = page.nextCursor != null,
                     )
                 ) {
-                    scope.launch {
+                    UiInteractionGovernor.runWhenIdle(scope) {
                         try {
                             var prefetchedPages = 0
                             while (prefetchedPages < StreamFeedFreshnessPolicy.MAX_AUTOMATIC_TAIL_PREFETCH_PAGES) {
@@ -180,7 +211,7 @@ class StreamFeedRefreshCoordinator(
                         }
                     }
                 }
-                cache.cleanup(completedAt)
+                scheduleCacheCleanup()
                 val duration = elapsedRealtimeMs() - started
                 debug(spec, reason, RefreshDecision.REFRESH, age, "success items=${page.items.size} duration=$duration")
                 StreamRefreshResult(spec.key, reason, RefreshDecision.REFRESH, age, page.items.size, duration)
@@ -249,7 +280,7 @@ class StreamFeedRefreshCoordinator(
                     completedAt,
                     pruneStaleOnEnd = !speculative,
                 )
-                cache.cleanup(completedAt)
+                scheduleCacheCleanup()
                 debug(spec, RefreshReason.SCREEN_VISIBLE, RefreshDecision.REFRESH, null, "append items=${page.items.size} duration=${elapsedRealtimeMs() - started}")
                 StreamAppendResult(page, page.nextCursor == null)
             } catch (error: CancellationException) {
@@ -284,6 +315,17 @@ class StreamFeedRefreshCoordinator(
                 preserveTail &&
                 cachedItemCount > firstPageItemCount &&
                 nextCursorPresent
+    }
+
+    private fun scheduleCacheCleanup() {
+        synchronized(this) {
+            if (cleanupJob?.isActive == true) return
+            cleanupJob = maintenanceScope.launch {
+                delay(30_000L)
+                UiInteractionGovernor.awaitIdle()
+                cache.cleanup(wallClockMs())
+            }
+        }
     }
 
     fun onAppForeground(awayMs: Long) {
@@ -352,6 +394,9 @@ class StreamFeedRefreshCoordinator(
         scope.launch {
             val now = wallClockMs()
             cache.invalidatePrefix("followed:", now)
+            successfulAtByFeed.keys
+                .filter { it.startsWith("followed:") }
+                .forEach(successfulAtByFeed::remove)
             visibleFeed?.takeIf { it.key.value.startsWith("followed:") }?.let {
                 runCatching { forceRefresh(it, RefreshReason.FOLLOW_STATE_CHANGED) }
             }

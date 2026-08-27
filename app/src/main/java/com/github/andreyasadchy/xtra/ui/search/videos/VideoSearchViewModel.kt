@@ -74,10 +74,10 @@ class VideoSearchViewModel(
         }.flow
     }.cachedIn(viewModelScope)
 
-    fun setQuery(newQuery: String) {
-        if (_query.value != newQuery) {
-            _query.value = newQuery
-        }
+    fun setQuery(newQuery: String): Boolean {
+        if (_query.value == newQuery) return false
+        _query.value = newQuery
+        return true
     }
 
     fun saveRecentSearch(query: String) {

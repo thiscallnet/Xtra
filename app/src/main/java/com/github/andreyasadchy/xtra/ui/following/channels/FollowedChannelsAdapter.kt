@@ -18,9 +18,12 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentFollowedChannelsListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
-import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
+import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
+import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
+import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
+import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.prefs
 import kotlin.time.Instant
 
 class FollowedChannelsAdapter(
@@ -41,56 +44,122 @@ class FollowedChannelsAdapter(
                 oldItem.localFollow == newItem.localFollow
     }) {
 
+    private val imageLoadScheduler = StreamThumbnailIdleScheduler()
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        imageLoadScheduler.attachTo(recyclerView)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        imageLoadScheduler.detach()
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PagingViewHolder {
         val binding = FragmentFollowedChannelsListItemBinding.inflate(LayoutInflater.from(parent.context), parent, false)
         return PagingViewHolder(binding, fragment)
     }
 
     override fun onBindViewHolder(holder: PagingViewHolder, position: Int) {
+        holder.beginImageBind(getItem(position))
         holder.bind(getItem(position))
+    }
+
+    override fun onViewRecycled(holder: PagingViewHolder) {
+        imageLoadScheduler.clear(holder)
+        holder.cancelImageWork()
+        super.onViewRecycled(holder)
     }
 
     inner class PagingViewHolder(
         private val binding: FragmentFollowedChannelsListItemBinding,
         private val fragment: Fragment,
-    ) : RecyclerView.ViewHolder(binding.root) {
+    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
+        private val imageRequests = FeedImageRequestBag()
+        private var boundUserId: String? = null
+        private var boundUser: User? = null
+
+        init {
+            binding.root.setOnClickListener {
+                boundUser?.let { user ->
+                    fragment.findNavController().navigate(
+                        ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                            channelId = user.id,
+                            channelLogin = user.login,
+                            channelName = user.name,
+                            channelImage = user.profileImage,
+                        )
+                    )
+                }
+            }
+        }
+
+        fun beginImageBind(item: User?) {
+            imageLoadScheduler.clear(this)
+            imageRequests.cancel()
+            boundUserId = item?.id
+        }
+
+        override fun cancelImageRequests() {
+            imageRequests.cancel()
+        }
+
+        override fun pauseImageRequests() {
+            imageRequests.cancel(preserveRegistrations = true)
+        }
+
+        fun cancelImageWork() {
+            cancelImageRequests()
+            boundUserId = null
+            boundUser = null
+        }
+
         fun bind(item: User?) {
+            boundUser = item
             with(binding) {
                 if (item != null) {
                     val context = fragment.requireContext()
-                    root.setOnClickListener {
-                        fragment.findNavController().navigate(
-                            ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
-                                channelId = item.id,
-                                channelLogin = item.login,
-                                channelName = item.name,
-                                channelImage = item.profileImage,
-                            )
-                        )
-                    }
+                    val uiPreferences = FeedUiPreferencesStore.current(context)
                     if (item.profileImage != null) {
                         userImage.visibility = View.VISIBLE
                         userImage.contentDescription = item.name?.let {
                             context.getString(R.string.player_open_channel, it)
                         }
-                        fragment.requireContext().imageLoader.enqueue(
-                            ImageRequest.Builder(fragment.requireContext()).apply {
-                                data(item.profileImage)
-                                if (context.prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true)) {
-                                    transformations(CircleCropTransformation())
-                                }
-                                crossfade(true)
-                                target(userImage)
-                            }.build()
-                        )
+                        val userId = item.id
+                        val imageKey = "channel:$userId|${item.profileImage}|round=${uiPreferences.roundUserImage}"
+                        if (userImage.tag != imageKey) {
+                            userImage.setImageDrawable(null)
+                            userImage.tag = imageKey
+                        }
+                        restoreDecodedMemoryImage(imageKey, userImage)
+                        imageLoadScheduler.runOrDefer(this@PagingViewHolder, userImage) {
+                            if (!binding.root.isAttachedToWindow || boundUserId != userId) return@runOrDefer
+                            imageRequests.replace(
+                                userImage,
+                                context.imageLoader.enqueue(
+                                    ImageRequest.Builder(context).apply {
+                                        data(item.profileImage)
+                                        memoryCacheKey(imageKey)
+                                        if (uiPreferences.roundUserImage) {
+                                            transformations(CircleCropTransformation())
+                                        }
+                                        crossfade(false)
+                                        target(userImage)
+                                    }.build()
+                                ),
+                            )
+                        }
                     } else {
                         userImage.visibility = View.GONE
                         userImage.contentDescription = null
+                        userImage.setImageDrawable(null)
+                        userImage.tag = null
                     }
                     if (item.name != null) {
                         username.visibility = View.VISIBLE
                         username.text = if (item.login != null && !item.login.equals(item.name, true)) {
-                            when (context.prefs().getString(C.UI_NAME_DISPLAY, "0")) {
+                            when (uiPreferences.nameDisplay) {
                                 "0" -> "${item.name}(${item.login})"
                                 "1" -> item.name
                                 else -> item.login

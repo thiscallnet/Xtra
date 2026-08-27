@@ -46,16 +46,13 @@ abstract class PagedListFragment : BaseNetworkFragment() {
 
     fun <T : Any, VH : RecyclerView.ViewHolder> initializeAdapter(binding: CommonRecyclerViewLayoutBinding, pagingAdapter: PagingDataAdapter<T, VH>, enableSwipeRefresh: Boolean = true, enableScrollTopButton: Boolean = true) {
         with(binding) {
+            // Live/paged feeds update frequently. Change animations keep old row
+            // holders alive and add extra layout/draw work during refreshes.
+            recyclerView.itemAnimator = null
             setupPagingControls(binding, pagingAdapter, enableSwipeRefresh)
             root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                 updateTopInsetGuard(binding)
             }
-            recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-                override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                    super.onScrolled(recyclerView, dx, dy)
-                    updateTopInsetGuard(binding)
-                }
-            })
             root.post { updateTopInsetGuard(binding) }
             ViewCompat.requestApplyInsets(root)
             viewLifecycleOwner.lifecycleScope.launch {

@@ -24,6 +24,11 @@ import com.github.andreyasadchy.xtra.model.ui.Bookmark
 import com.github.andreyasadchy.xtra.model.ui.BookmarkIgnoredUser
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
+import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
+import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
+import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
+import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
+import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.common.thumbnailState
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -47,9 +52,21 @@ class BookmarksAdapter(
             oldItem.id == newItem.id
 
         override fun areContentsTheSame(oldItem: Bookmark, newItem: Bookmark): Boolean =
-            oldItem.title == newItem.title &&
+                    oldItem.title == newItem.title &&
                     oldItem.duration == newItem.duration
     }) {
+
+    private val imageLoadScheduler = StreamThumbnailIdleScheduler()
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        imageLoadScheduler.attachTo(recyclerView)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        imageLoadScheduler.detach()
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PagingViewHolder {
         val binding = FragmentVideosListItemBinding.inflate(LayoutInflater.from(parent.context), parent, false)
@@ -57,7 +74,14 @@ class BookmarksAdapter(
     }
 
     override fun onBindViewHolder(holder: PagingViewHolder, position: Int) {
+        holder.beginImageBind(getItem(position))
         holder.bind(getItem(position))
+    }
+
+    override fun onViewRecycled(holder: PagingViewHolder) {
+        imageLoadScheduler.clear(holder)
+        holder.cancelImageWork()
+        super.onViewRecycled(holder)
     }
 
     private var positions: List<VideoPosition>? = null
@@ -81,11 +105,34 @@ class BookmarksAdapter(
     inner class PagingViewHolder(
         private val binding: FragmentVideosListItemBinding,
         private val fragment: Fragment,
-    ) : RecyclerView.ViewHolder(binding.root) {
+    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
+        private val imageRequests = FeedImageRequestBag()
+        private var boundBookmarkId: Int? = null
+
+        fun beginImageBind(item: Bookmark?) {
+            imageLoadScheduler.clear(this)
+            imageRequests.cancel()
+            boundBookmarkId = item?.id
+        }
+
+        override fun cancelImageRequests() {
+            imageRequests.cancel()
+        }
+
+        override fun pauseImageRequests() {
+            imageRequests.cancel(preserveRegistrations = true)
+        }
+
+        fun cancelImageWork() {
+            cancelImageRequests()
+            boundBookmarkId = null
+        }
+
         fun bind(item: Bookmark?) {
             with(binding) {
                 if (item != null) {
                     val context = fragment.requireContext()
+                    val uiPreferences = FeedUiPreferencesStore.current(context)
                     val channelListener: (View) -> Unit = {
                         fragment.findNavController().navigate(
                             ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
@@ -138,15 +185,28 @@ class BookmarksAdapter(
                         deleteVideo(item)
                         true
                     }
-                    fragment.requireContext().imageLoader.enqueue(
-                        ImageRequest.Builder(fragment.requireContext()).apply {
-                            data(item.thumbnail)
-                            diskCachePolicy(CachePolicy.DISABLED)
-                            crossfade(true)
-                            target(thumbnail)
-                            thumbnailState()
-                        }.build()
-                    )
+                    val thumbnailKey = "xtra:bookmark-thumbnail:${item.id}|${item.thumbnail}"
+                    if (thumbnail.tag != thumbnailKey) {
+                        thumbnail.setImageDrawable(null)
+                        thumbnail.tag = thumbnailKey
+                    }
+                    restoreDecodedMemoryImage(thumbnailKey, thumbnail)
+                    imageLoadScheduler.runOrDefer(this@PagingViewHolder, thumbnail) {
+                        if (!root.isAttachedToWindow || boundBookmarkId != item.id) return@runOrDefer
+                        imageRequests.replace(
+                            thumbnail,
+                            context.imageLoader.enqueue(
+                                ImageRequest.Builder(context).apply {
+                                    data(item.thumbnail)
+                                    memoryCacheKey(thumbnailKey)
+                                    diskCachePolicy(CachePolicy.ENABLED)
+                                    crossfade(false)
+                                    target(thumbnail)
+                                    thumbnailState()
+                                }.build()
+                            ),
+                        )
+                    }
                     if (item.createdAt != null) {
                         val text = Instant.parseOrNull(item.createdAt)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let {
                             TwitchApiHelper.formatDate(context, it)
@@ -207,17 +267,30 @@ class BookmarksAdapter(
                         userImage.contentDescription = item.userName?.let {
                             context.getString(R.string.player_open_channel, it)
                         }
-                        fragment.requireContext().imageLoader.enqueue(
-                            ImageRequest.Builder(fragment.requireContext()).apply {
-                                data(item.userLogo)
-                                diskCachePolicy(CachePolicy.ENABLED)
-                                if (context.prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true)) {
-                                    transformations(CircleCropTransformation())
-                                }
-                                crossfade(true)
-                                target(userImage)
-                            }.build()
-                        )
+                        val profileKey = "xtra:bookmark-avatar:${item.id}|${item.userLogo}|round=${uiPreferences.roundUserImage}"
+                        if (userImage.tag != profileKey) {
+                            userImage.setImageDrawable(null)
+                            userImage.tag = profileKey
+                        }
+                        restoreDecodedMemoryImage(profileKey, userImage)
+                        imageLoadScheduler.runOrDefer(this@PagingViewHolder, userImage) {
+                            if (!root.isAttachedToWindow || boundBookmarkId != item.id) return@runOrDefer
+                            imageRequests.replace(
+                                userImage,
+                                context.imageLoader.enqueue(
+                                    ImageRequest.Builder(context).apply {
+                                        data(item.userLogo)
+                                        memoryCacheKey(profileKey)
+                                        diskCachePolicy(CachePolicy.ENABLED)
+                                        if (uiPreferences.roundUserImage) {
+                                            transformations(CircleCropTransformation())
+                                        }
+                                        crossfade(false)
+                                        target(userImage)
+                                    }.build()
+                                ),
+                            )
+                        }
                         userImage.setOnClickListener(channelListener)
                     } else {
                         userImage.visibility = View.GONE

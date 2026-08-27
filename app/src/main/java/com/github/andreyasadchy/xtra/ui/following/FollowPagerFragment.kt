@@ -14,11 +14,12 @@ import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
 import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.setupWithNavController
-import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentMediaPagerBinding
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
+import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
+import com.github.andreyasadchy.xtra.ui.common.RecyclerViewLiftTargetConnector
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
@@ -27,10 +28,10 @@ import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.configureForSmoothPaging
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.util.reduceDragSensitivity
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
@@ -42,6 +43,7 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
     private val binding get() = _binding!!
     private var firstLaunch = true
     private var tabKeys: List<String> = emptyList()
+    private var liftTargetConnector: RecyclerViewLiftTargetConnector? = null
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
@@ -58,6 +60,7 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        liftTargetConnector = RecyclerViewLiftTargetConnector(binding.appBar)
         with(binding) {
             val activity = requireActivity() as MainActivity
             val navController = findNavController()
@@ -108,27 +111,22 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
             val adapter = FollowPagerAdapter(this@FollowPagerFragment, tabs)
             viewPager.adapter = adapter
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+                override fun onPageScrollStateChanged(state: Int) {
+                    val scrolling = state != ViewPager2.SCROLL_STATE_IDLE
+                    dispatchPagerScrollState(scrolling)
+                }
+
                 override fun onPageSelected(position: Int) {
                     viewPager.doOnLayout {
                         childFragmentManager.findFragmentByTag("f${position}")?.let { fragment ->
-                            fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
-                                appBar.setLiftOnScrollTargetView(it)
-                                it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-                                    override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                                        super.onScrolled(recyclerView, dx, dy)
-                                        appBar.isLifted = recyclerView.canScrollVertically(-1)
-                                    }
-                                })
-                                it.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                                    appBar.isLifted = it.canScrollVertically(-1)
-                                }
-                            }
+                            fragment.view?.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.recyclerView)?.let { liftTargetConnector?.connect(it) }
+                                ?: disconnectLiftTarget()
                             if (fragment is Sortable) {
                                 fragment.setupSortBar(sortBar)
                             } else {
                                 sortBar.root.visibility = View.GONE
                             }
-                        }
+                        } ?: disconnectLiftTarget()
                     }
                 }
             })
@@ -140,7 +138,7 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
                 )
                 firstLaunch = false
             }
-            viewPager.reduceDragSensitivity()
+            viewPager.configureForSmoothPaging()
             TabLayoutMediator(tabLayout, viewPager) { tab, position ->
                 tab.text = getString(FollowingTabs.titleRes(tabs.getOrNull(position).orEmpty()))
             }.attach()
@@ -155,6 +153,10 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
         }
     }
 
+    private fun disconnectLiftTarget() {
+        liftTargetConnector?.disconnect()
+    }
+
     override fun scrollToTop() {
         binding.appBar.setExpanded(true, true)
         (currentFragment as? Scrollable)?.scrollToTop()
@@ -165,6 +167,8 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     override fun onDestroyView() {
+        dispatchPagerScrollState(false)
+        disconnectLiftTarget()
         super.onDestroyView()
         _binding = null
     }

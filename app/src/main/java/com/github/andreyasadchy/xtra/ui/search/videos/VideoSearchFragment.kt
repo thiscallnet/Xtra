@@ -19,6 +19,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
+import com.github.andreyasadchy.xtra.ui.common.PagerScrollStateAware
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCandidate
 import com.github.andreyasadchy.xtra.ui.common.VideosAdapter
@@ -33,7 +34,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-class VideoSearchFragment : PagedListFragment(), Searchable {
+class VideoSearchFragment : PagedListFragment(), PagerScrollStateAware, Searchable {
 
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
@@ -161,14 +162,20 @@ class VideoSearchFragment : PagedListFragment(), Searchable {
     }
 
     override fun search(query: String) {
-        viewModel.setQuery(query)
-        if (requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
+        val changed = viewModel.setQuery(query)
+        if (changed && query.isNotBlank() && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
             viewModel.saveRecentSearch(query)
         }
     }
 
     override fun onNetworkRestored() {
         pagingAdapter.retry()
+    }
+
+    override fun onPagerScrollStateChanged(scrolling: Boolean) {
+        if (::videoPreviewViewportController.isInitialized) {
+            videoPreviewViewportController.onParentScrollStateChanged(scrolling)
+        }
     }
 
     override fun onResume() {

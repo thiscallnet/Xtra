@@ -9,7 +9,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.FragmentManager
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.setupWithNavController
@@ -17,6 +16,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentMediaBinding
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
+import com.github.andreyasadchy.xtra.ui.common.FragmentTabSwitcher
+import com.github.andreyasadchy.xtra.ui.common.RecyclerViewLiftTargetConnector
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.following.channels.FollowedChannelsFragment
@@ -42,6 +43,8 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
 
     private var previousItem = -1
     private var tabKeys: List<String> = emptyList()
+    private var tabSwitcher: FragmentTabSwitcher? = null
+    private var liftTargetConnector: RecyclerViewLiftTargetConnector? = null
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentById(R.id.fragmentContainer)
@@ -58,6 +61,11 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        liftTargetConnector = RecyclerViewLiftTargetConnector(binding.appBar)
+        tabSwitcher = FragmentTabSwitcher(childFragmentManager, R.id.fragmentContainer) { fragment ->
+            fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let { liftTargetConnector?.connect(it) }
+            if (fragment is Sortable) fragment.setupSortBar(binding.sortBar) else binding.sortBar.root.visibility = View.GONE
+        }
         with(binding) {
             val activity = requireActivity() as MainActivity
             val navController = findNavController()
@@ -106,20 +114,19 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
                 setSimpleItems(tabs.map { getString(FollowingTabs.titleRes(it)) }.toTypedArray().ifEmpty { arrayOf(getString(R.string.live)) })
                 setOnItemClickListener { _, _, position, _ ->
                     if (position != previousItem) {
-                        childFragmentManager.beginTransaction().replace(R.id.fragmentContainer, onSpinnerItemSelected(tabs, position)).commit()
-                        previousItem = position
+                        showTab(tabs, position)
                     }
                 }
                 if (previousItem == -1) {
                     val defaultItem = tabList.find { it.split(':')[1] != "0" }?.split(':')[0] ?: "1"
                     val position = tabs.indexOf(defaultItem).takeIf { it != -1 } ?: tabs.indexOf("1").takeIf { it != -1 } ?: 0
-                    childFragmentManager.beginTransaction().replace(R.id.fragmentContainer, onSpinnerItemSelected(tabs, position)).commit()
-                    previousItem = position
+                    showTab(tabs, position)
                 }
                 if (previousItem <= tabs.lastIndex) {
                     setText(adapter.getItem(previousItem).toString(), false)
                 }
             }
+            /* Legacy per-view listener wiring replaced by FragmentTabSwitcher.
             childFragmentManager.registerFragmentLifecycleCallbacks(object : FragmentManager.FragmentLifecycleCallbacks() {
                 override fun onFragmentViewCreated(fm: FragmentManager, f: Fragment, v: View, savedInstanceState: Bundle?) {
                     f.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
@@ -140,7 +147,7 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
                         sortBar.root.visibility = View.GONE
                     }
                 }
-            }, false)
+            }, false) */
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
                 toolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
@@ -161,6 +168,12 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
         }
     }
 
+    private fun showTab(tabs: List<String>, position: Int) {
+        if (position !in tabs.indices) return
+        previousItem = position
+        tabSwitcher?.show("media_$position") { onSpinnerItemSelected(tabs, position) }
+    }
+
     fun selectFollowingTab(key: String) {
         val position = tabKeys.indexOf(key).takeIf { it >= 0 } ?: return
         if (position == previousItem) return
@@ -168,9 +181,7 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
         (binding.spinner.editText as? MaterialAutoCompleteTextView)?.let { spinner ->
             spinner.setText(spinner.adapter?.getItem(position)?.toString().orEmpty(), false)
         }
-        childFragmentManager.beginTransaction()
-            .replace(R.id.fragmentContainer, onSpinnerItemSelected(tabKeys, position))
-            .commit()
+        tabSwitcher?.show("media_$position") { onSpinnerItemSelected(tabKeys, position) }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -184,6 +195,9 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     override fun onDestroyView() {
+        liftTargetConnector?.disconnect()
+        liftTargetConnector = null
+        tabSwitcher = null
         super.onDestroyView()
         _binding = null
     }

@@ -7,8 +7,10 @@ import com.github.andreyasadchy.xtra.db.GameFeedState
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.repository.datasource.GameFeedPage
+import com.github.andreyasadchy.xtra.repository.ProcessLocalFeedSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -133,10 +135,16 @@ class GameFeedCache(
     private val dao: GameFeedDao = database.gameFeedDao(),
 ) : GameFeedCacheStore {
 
+    private val activeSnapshot = ProcessLocalFeedSnapshot<CachedGameFeedItem>()
+
     override fun pagingSource(feedKey: GameFeedKey) = dao.pagingSource(feedKey.value)
 
     fun activeItemsFlow(feedKey: GameFeedKey, limit: Int): Flow<List<CachedGameFeedItem>> =
-        dao.activeItemsFlow(feedKey.value, limit)
+        activeSnapshot.flow(feedKey.value, limit) {
+            withContext(Dispatchers.IO) {
+                dao.activeItemsFlow(feedKey.value, Int.MAX_VALUE).first()
+            }
+        }
 
     override suspend fun state(feedKey: GameFeedKey): GameFeedState? = withContext(Dispatchers.IO) { dao.state(feedKey.value) }
 
@@ -174,6 +182,7 @@ class GameFeedCache(
         preserveTail: Boolean,
         pruneStaleOnEnd: Boolean,
     ) = withContext(Dispatchers.IO) {
+        var activeItems: List<CachedGameFeedItem> = emptyList()
         database.runInTransaction {
             val current = dao.state(feedKey.value)
             val generation = (current?.activeGeneration ?: 0L) + 1L
@@ -187,6 +196,7 @@ class GameFeedCache(
             if (!preserveTail) dao.deleteItems(feedKey.value)
             if (items.isNotEmpty()) dao.insertItems(items)
             if (page.nextCursor == null && pruneStaleOnEnd) dao.deleteItemsExceptGeneration(feedKey.value, generation)
+            activeItems = items.filter { it.generation == generation }
             val retainsTail = preserveTail && !(page.nextCursor == null && pruneStaleOnEnd) && items.any { it.generation != generation }
             dao.insertState(GameFeedState(
                 feedKey = feedKey.value,
@@ -199,9 +209,11 @@ class GameFeedCache(
                 staleTailRetainedAt = if (retainsTail) current?.staleTailRetainedAt?.takeUnless { expired } ?: nowMs else null,
             ))
         }
+        activeSnapshot.publish(feedKey.value, activeItems)
     }
 
     override suspend fun appendPage(feedKey: GameFeedKey, page: GameFeedPage, nowMs: Long, pruneStaleOnEnd: Boolean) = withContext(Dispatchers.IO) {
+        var activeItems: List<CachedGameFeedItem> = emptyList()
         database.runInTransaction {
             val current = dao.state(feedKey.value) ?: GameFeedState(feedKey.value)
             val expired = staleTailExpired(current, nowMs)
@@ -209,6 +221,7 @@ class GameFeedCache(
             val items = appendCachedGames(feedKey.value, dao.itemsForFeed(feedKey.value), page.items, current.activeGeneration)
             if (items.isNotEmpty()) dao.insertItems(items)
             if (page.nextCursor == null && pruneStaleOnEnd) dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
+            activeItems = items.filter { it.generation == current.activeGeneration }
             val retainsTail = !(page.nextCursor == null && pruneStaleOnEnd) && items.any { it.generation != current.activeGeneration }
             dao.insertState(current.copy(
                 nextCursor = page.nextCursor?.value,
@@ -221,6 +234,7 @@ class GameFeedCache(
                 staleTailRetainedAt = if (retainsTail) current.staleTailRetainedAt?.takeUnless { expired } ?: nowMs else null,
             ))
         }
+        activeSnapshot.publish(feedKey.value, activeItems)
     }
 
     override suspend fun pruneStaleGeneration(feedKey: GameFeedKey) = withContext(Dispatchers.IO) {
@@ -248,6 +262,7 @@ class GameFeedCache(
     }
 
     override suspend fun cleanup(nowMs: Long) = withContext(Dispatchers.IO) {
+        val removedKeys = mutableSetOf<String>()
         database.runInTransaction {
             val cutoff = nowMs - FEED_RETENTION_MS
             val states = dao.allStates()
@@ -258,6 +273,7 @@ class GameFeedCache(
             states.filter { it.lastAccessAt <= cutoff }.forEach { state ->
                 dao.deleteItems(state.feedKey)
                 dao.deleteState(state.feedKey)
+                removedKeys += state.feedKey
             }
             states.asSequence()
                 .filter { it.lastAccessAt >= cutoff }
@@ -266,8 +282,10 @@ class GameFeedCache(
                 .forEach { state ->
                 dao.deleteItems(state.feedKey)
                 dao.deleteState(state.feedKey)
+                removedKeys += state.feedKey
             }
         }
+        removedKeys.forEach(activeSnapshot::clear)
     }
 
     private fun staleTailExpired(state: GameFeedState?, nowMs: Long): Boolean = state != null &&

@@ -64,7 +64,6 @@ class MessageClickedChatAdapter(
     private val showPersonalEmotes: Boolean,
     private val showSystemMessageEmotes: Boolean,
     private val chatUrl: String?,
-    private val getEmoteBytes: ((String, Pair<Long, Int>) -> ByteArray?)?,
     private val fragment: Fragment,
     private val backgroundColor: Int,
     private val imageLibrary: String?,
@@ -122,12 +121,13 @@ class MessageClickedChatAdapter(
             redeemedChatMsg, redeemedNoMsg, rewardChatMsg, replyMessage, { url, name, format, isAnimated, source, thirdParty, emoteId -> imageClick(url, name, format, isAnimated, source, thirdParty, emoteId) },
             useRandomColors, random, useReadableColors, isLightTheme, nameDisplay, useBoldNames, showNamePaints, namePaints, showBadges, showSTVBadges,
             stvBadges, showPersonalEmotes, personalEmoteSets, stvUsers, enableOverlayEmotes, showSystemMessageEmotes, loggedInUser, chatUrl,
-            getEmoteBytes, userColors, savedColors, translateAllMessages, translateMessage, showLanguageDownloadDialog, false, localTwitchEmotes,
+            userColors, savedColors, translateAllMessages, translateMessage, showLanguageDownloadDialog, false, localTwitchEmotes,
             thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes, savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes
         )
         if (chatMessage == selectedMessage) {
             holder.textView.setBackgroundResource(R.color.chatMessageSelected)
         }
+        ChatAdapterUtils.installImagePlaceholders(result.builder, result.images, emoteSize, badgeSize, inlineIconSize)
         holder.bind(chatMessage, result.builder)
         ChatAdapterUtils.loadImages(
             fragment, holder.textView, { holder.bind(chatMessage, it) }, result.images, result.imagePaint, result.userName, result.userNameStartIndex,

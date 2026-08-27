@@ -49,6 +49,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 
 data class StreamPreviewCandidate(
     val streamKey: String,
@@ -96,6 +97,12 @@ class StreamPreviewCoordinator(
     private val pendingStarts = mutableMapOf<String, Job>()
     private val dwellStarts = mutableMapOf<String, Long>()
     private val failedUntil = mutableMapOf<String, Long>()
+    private var selectionJob: Job? = null
+    private var selectionPending = false
+    private var previewsPausedForScroll = false
+    private var pagerScrolling = false
+    private var pagerResumePending = false
+    private var pagerResumeJob: Job? = null
     private var handoffLogin: String? = null
     private val lifecycleReconciler = StreamPreviewLifecycleReconciler(
         lifecycle = previewLifecycle,
@@ -172,7 +179,42 @@ class StreamPreviewCoordinator(
     /** Scrolling is a visibility update, not a release event. */
     fun onScrolling(viewportKey: String) {
         viewports[viewportKey] = viewports[viewportKey]?.copy(scrolling = true) ?: Viewport(emptyList(), true)
+        if (!previewsPausedForScroll) {
+            activePreviews.values.forEach { it.player.playWhenReady = false }
+            previewsPausedForScroll = true
+        }
         previewLifecycle.onScrolling()
+        scheduleSelection()
+    }
+
+    /**
+     * A pager moves complete preview surfaces horizontally. Keep the player state warm, but hide
+     * its TextureView while the page animation is running; TextureView draw synchronization can
+     * otherwise block the UI thread for multiple frames.
+     */
+    fun onPagerScrollStateChanged(scrolling: Boolean) {
+        if (pagerScrolling == scrolling) return
+        pagerScrolling = scrolling
+        if (scrolling) {
+            pagerResumeJob?.cancel()
+            pagerResumeJob = null
+            pagerResumePending = false
+            activePreviews.values.forEach { active ->
+                active.player.playWhenReady = false
+                suspendPreviewSurface(active)
+            }
+            previewsPausedForScroll = true
+            previewLifecycle.onScrolling()
+            cancelPendingStarts()
+        } else {
+            pagerResumePending = true
+            pagerResumeJob = scope.launch {
+                delay(PAGER_PREVIEW_RESUME_DELAY_MS)
+                pagerResumePending = false
+                pagerResumeJob = null
+                if (!pagerScrolling) scheduleSelection()
+            }
+        }
         scheduleSelection()
     }
 
@@ -189,27 +231,13 @@ class StreamPreviewCoordinator(
     }
 
     fun onFullscreenPlaybackStarted(channelLogin: String?) {
-        val login = normalize(channelLogin)
-        val identity = login?.let(::livePreviewIdentity)
-        if (identity == null && handoffLogin != null) {
-            cancelPendingStarts()
-            activePreviews.keys.toList()
-                .filter { it != handoffLogin }
-                .forEach(::releasePreview)
-            return
-        }
-        if (identity == null || activePreviews[identity] == null) {
-            stopPreview()
-            return
-        }
-        handoffLogin = identity
-        cancelPendingStarts()
-        activePreviews.keys.toList()
-            .filter { it != identity }
-            .forEach(::releasePreview)
-        // Keep the warm player, but hide its old card surface for the duration of the handoff.
-        activePreviews[identity]?.let(::detachPreviewSurface)
-        previewLifecycle.retainOnly(identity)
+        // Full-screen playback and browsing previews are mutually exclusive. Keeping a warm
+        // preview player here is unsafe: its PlayerView can be reattached by a pending viewport
+        // reconciliation while the full-screen player is being added, producing a small stale
+        // video over the new player's opaque handoff cover. Releasing every preview also avoids
+        // decoding and composing muted browsing video while the user is watching the stream.
+        hideViewportSurfaces()
+        stopPreview()
     }
 
     fun onFullscreenPlaybackFirstFrame(channelLogin: String?) {
@@ -259,6 +287,22 @@ class StreamPreviewCoordinator(
     }
 
     private fun scheduleSelection() {
+        selectionPending = true
+        if (selectionJob?.isActive == true) return
+        selectionJob = scope.launch {
+            yield()
+            try {
+                while (selectionPending) {
+                    selectionPending = false
+                    reconcileSelection()
+                }
+            } finally {
+                selectionJob = null
+            }
+        }
+    }
+
+    private fun reconcileSelection() {
         if (!StreamPreviewPolicy.canStartPreview(
                 isPlayerFullscreen = streamFeedRefreshCoordinator.isPlayerFullscreen,
                 isPlayerActive = streamFeedRefreshCoordinator.isPlayerActive,
@@ -289,7 +333,15 @@ class StreamPreviewCoordinator(
         val reasonablyVisible = candidates
             .filter { it.visibleFraction >= StreamPreviewSelectionPolicy.STOP_VISIBLE_FRACTION }
             .mapNotNull { it.previewIdentity }
-        val scrolling = viewports.values.any { it.scrolling }
+        val scrolling = pagerScrolling || viewports.values.any { it.scrolling }
+        if (pagerScrolling || pagerResumePending) {
+            cancelPendingStarts()
+            return
+        }
+        if (!scrolling && previewsPausedForScroll) {
+            activePreviews.values.forEach { it.player.playWhenReady = true }
+            previewsPausedForScroll = false
+        }
         if (scrolling) {
             // A gesture changes which cards are visible, not whether an existing
             // preview should play. The lifecycle grace period handles cards that
@@ -542,7 +594,7 @@ class StreamPreviewCoordinator(
     }
 
     private fun attachSurfaceIfNeeded(active: ActivePreview, candidate: StreamPreviewCandidate) {
-        val surfaceChanged = active.surface !== candidate.surface || active.playerView.parent !== candidate.surface
+        val surfaceChanged = active.surface !== candidate.surface
         if (surfaceChanged) {
             // A rebound TextureView has no decoded frame yet. Keep the card thumbnail
             // visible until Media3 confirms that the new output surface has a frame.
@@ -610,9 +662,27 @@ class StreamPreviewCoordinator(
     private fun stopPreview() {
         cancelPendingStarts()
         lifecycleReconciler.cancel()
+        previewsPausedForScroll = false
+        pagerScrolling = false
+        pagerResumeJob?.cancel()
+        pagerResumeJob = null
+        pagerResumePending = false
         handoffLogin = null
         stopActivePreviews()
         previewLifecycle.clear()
+    }
+
+    /** Remove orphaned preview views as well as previews still owned by the coordinator. */
+    private fun hideViewportSurfaces() {
+        viewports.values
+            .flatMap { it.candidates }
+            .map { it.surface }
+            .distinct()
+            .forEach { surface ->
+                surface.removeAllViews()
+                surface.alpha = 0f
+                surface.visibility = View.GONE
+            }
     }
 
     private fun stopActivePreviews() {
@@ -676,6 +746,17 @@ class StreamPreviewCoordinator(
         active.surface = null
     }
 
+    private fun suspendPreviewSurface(active: ActivePreview) {
+        active.surface?.let { surface ->
+            surface.removeView(active.playerView)
+            surface.alpha = 0f
+            surface.visibility = View.GONE
+        }
+        active.playerView.player = null
+        active.playerView.alpha = 0f
+        active.playerView.visibility = View.GONE
+    }
+
     private fun normalize(login: String?): String? =
         login?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
 
@@ -700,6 +781,7 @@ class StreamPreviewCoordinator(
     )
 
     private companion object {
+        const val PAGER_PREVIEW_RESUME_DELAY_MS = 100L
         const val PLAYER_FAILURE_RETRY_MS = 10_000L
     }
 }

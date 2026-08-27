@@ -17,11 +17,17 @@ import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ItemUpcomingStreamShelfBinding
 import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
+import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
+import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
+import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
+import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 
 class UpcomingStreamShelfAdapter(
     private val onUpcomingClick: (UpcomingStream) -> Unit,
 ) : ListAdapter<UpcomingStream, UpcomingStreamShelfAdapter.ViewHolder>(DIFF_CALLBACK) {
+
+    private val imageLoadScheduler = StreamThumbnailIdleScheduler()
 
     init {
         setHasStableIds(true)
@@ -35,24 +41,84 @@ class UpcomingStreamShelfAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        holder.beginImageBind(getItem(position))
         holder.bind(getItem(position), showPreview = position == 0)
+    }
+
+    override fun onViewRecycled(holder: ViewHolder) {
+        imageLoadScheduler.clear(holder)
+        holder.cancelImageWork()
+        super.onViewRecycled(holder)
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        imageLoadScheduler.attachTo(recyclerView)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        imageLoadScheduler.detach()
+        super.onDetachedFromRecyclerView(recyclerView)
     }
 
     inner class ViewHolder(
         private val binding: ItemUpcomingStreamShelfBinding,
-    ) : RecyclerView.ViewHolder(binding.root) {
+    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
+        private val imageRequests = FeedImageRequestBag()
+        private var boundItemId: String? = null
+        private var boundItem: UpcomingStream? = null
+
+        init {
+            binding.root.setOnClickListener { boundItem?.let(onUpcomingClick) }
+        }
+
+        fun beginImageBind(item: UpcomingStream) {
+            imageLoadScheduler.clear(this)
+            imageRequests.cancel()
+            boundItemId = item.id
+        }
+
+        override fun cancelImageRequests() {
+            imageRequests.cancel()
+        }
+
+        override fun pauseImageRequests() {
+            imageRequests.cancel(preserveRegistrations = true)
+        }
+
+        fun cancelImageWork() {
+            cancelImageRequests()
+            boundItemId = null
+            boundItem = null
+        }
+
         fun bind(item: UpcomingStream, showPreview: Boolean) {
             val context = binding.root.context
-            binding.root.setOnClickListener { onUpcomingClick(item) }
+            boundItem = item
             val avatarUrl = item.channelImageURL?.let(TwitchApiHelper::getProfileImage)
-            context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
-                data(avatarUrl)
-                diskCachePolicy(CachePolicy.ENABLED)
-                transformations(CircleCropTransformation())
-                crossfade(true)
-                target(binding.avatar)
-            }.build())
             binding.avatar.visibility = if (avatarUrl.isNullOrBlank()) View.INVISIBLE else View.VISIBLE
+            if (avatarUrl.isNullOrBlank()) {
+                binding.avatar.setImageDrawable(null)
+                binding.avatar.tag = null
+            } else {
+                val avatarKey = "xtra:upcoming-avatar:${item.id}|$avatarUrl"
+                if (binding.avatar.tag != avatarKey) {
+                    binding.avatar.setImageDrawable(null)
+                    binding.avatar.tag = avatarKey
+                }
+                restoreDecodedMemoryImage(avatarKey, binding.avatar)
+                imageLoadScheduler.runOrDefer(this@ViewHolder, binding.avatar) {
+                    if (!binding.root.isAttachedToWindow || boundItemId != item.id) return@runOrDefer
+                    imageRequests.replace(binding.avatar, context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
+                        data(avatarUrl)
+                        memoryCacheKey(avatarKey)
+                        diskCachePolicy(CachePolicy.ENABLED)
+                        transformations(CircleCropTransformation())
+                        crossfade(false)
+                        target(binding.avatar)
+                    }.build()))
+                }
+            }
             binding.channel.text = item.channelName ?: item.channelLogin.orEmpty()
             binding.channel.visibility = if (binding.channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
             binding.title.text = item.title?.takeIf(String::isNotBlank)
@@ -64,14 +130,26 @@ class UpcomingStreamShelfAdapter(
 
             val previewUrl = item.previewImageURL?.takeIf { showPreview && it.isNotBlank() }
             binding.previewHost.visibility = if (previewUrl == null) View.GONE else View.VISIBLE
-            binding.previewImage.setImageDrawable(null)
             if (previewUrl != null) {
-                context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
-                    data(previewUrl)
-                    diskCachePolicy(CachePolicy.ENABLED)
-                    crossfade(true)
-                    target(binding.previewImage)
-                }.build())
+                val previewKey = "xtra:upcoming-preview:${item.id}|$previewUrl"
+                if (binding.previewImage.tag != previewKey) {
+                    binding.previewImage.setImageDrawable(null)
+                    binding.previewImage.tag = previewKey
+                }
+                restoreDecodedMemoryImage(previewKey, binding.previewImage)
+                imageLoadScheduler.runOrDefer(this@ViewHolder, binding.previewImage) {
+                    if (!binding.root.isAttachedToWindow || boundItemId != item.id) return@runOrDefer
+                    imageRequests.replace(binding.previewImage, context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
+                        data(previewUrl)
+                        memoryCacheKey(previewKey)
+                        diskCachePolicy(CachePolicy.ENABLED)
+                        crossfade(false)
+                        target(binding.previewImage)
+                    }.build()))
+                }
+            } else if (binding.previewImage.tag != null) {
+                binding.previewImage.setImageDrawable(null)
+                binding.previewImage.tag = null
             }
         }
     }

@@ -74,6 +74,7 @@ class StreamFeedScreenController(
         val spec = specProvider() ?: return
         coordinator.setVisibleFeed(spec)
         if (coordinator.isPlayerFullscreen) return
+        if (coordinator.isFreshInMemory(spec)) return
         fragment.viewLifecycleOwner.lifecycleScope.launch {
             runCatching { coordinator.maybeRefresh(spec, reason) }
         }

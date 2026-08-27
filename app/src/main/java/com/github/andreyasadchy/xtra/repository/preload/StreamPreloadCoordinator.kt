@@ -20,6 +20,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import java.util.concurrent.ConcurrentHashMap
 
 /** Cancels speculative work while preserving a promoted flight for the current configuration. */
@@ -415,7 +416,8 @@ class StreamPreloadCoordinator(
         synchronized(mediaOperationLock) {
             val epoch = mediaOperationGate.begin()
             mediaReconcileJob?.cancel()
-            mediaReconcileJob = scope.launch(Dispatchers.Main.immediate) {
+            mediaReconcileJob = scope.launch(Dispatchers.Main) {
+                yield()
                 mediaOperationGate.runIfCurrent(epoch) {
                     runCatching { operation(runtime) }
                         .onFailure { debug("${event}_failed", it::class.simpleName) }

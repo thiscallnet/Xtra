@@ -26,6 +26,7 @@ class StreamPreloadViewportController(
     private val previewAtPosition: ((Int, FrameLayout) -> StreamPreviewCandidate?)? = null,
 ) {
     private var scrollState = RecyclerView.SCROLL_STATE_IDLE
+    private var parentScrolling = false
     private var scrollingReported = false
     private var started = false
     private var publishPosted = false
@@ -97,6 +98,13 @@ class StreamPreloadViewportController(
     fun onParentScrollStateChanged() {
         updateScrollingState()
         requestPublish()
+    }
+
+    fun onParentScrollStateChanged(scrolling: Boolean) {
+        if (parentScrolling == scrolling) return
+        parentScrolling = scrolling
+        updateScrollingState()
+        if (!scrolling) requestPublish()
     }
 
     private fun requestPublish() {
@@ -208,7 +216,7 @@ class StreamPreloadViewportController(
     )
 
     private fun isScrolling(): Boolean =
-        scrollState != RecyclerView.SCROLL_STATE_IDLE || isParentScrolling()
+        scrollState != RecyclerView.SCROLL_STATE_IDLE || parentScrolling || isParentScrolling()
 
     private fun updateScrollingState() {
         val scrolling = isScrolling()

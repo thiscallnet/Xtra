@@ -42,6 +42,7 @@ import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
 import com.github.andreyasadchy.xtra.ui.game.GamePagerViewModel.Companion.GamePagerViewModelFactory
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
@@ -50,10 +51,10 @@ import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.configureForSmoothPaging
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.util.reduceDragSensitivity
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.appbar.CollapsingToolbarLayout
 import com.google.android.material.color.MaterialColors
@@ -253,6 +254,10 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
             val adapter = GamePagerAdapter(this@GamePagerFragment, tabs)
             viewPager.adapter = adapter
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+                override fun onPageScrollStateChanged(state: Int) {
+                    dispatchPagerScrollState(state != ViewPager2.SCROLL_STATE_IDLE)
+                }
+
                 override fun onPageSelected(position: Int) {
                     viewPager.doOnLayout {
                         childFragmentManager.findFragmentByTag("f${position}")?.let { fragment ->
@@ -285,8 +290,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                 )
                 firstLaunch = false
             }
-            viewPager.offscreenPageLimit = adapter.itemCount
-            viewPager.reduceDragSensitivity()
+            viewPager.configureForSmoothPaging()
             TabLayoutMediator(tabLayout, viewPager) { tab, position ->
                 tab.text = when (tabs.getOrNull(position)) {
                     "0" -> getString(R.string.videos)
@@ -461,6 +465,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
     }
 
     override fun onDestroyView() {
+        dispatchPagerScrollState(false)
         super.onDestroyView()
         _binding = null
     }

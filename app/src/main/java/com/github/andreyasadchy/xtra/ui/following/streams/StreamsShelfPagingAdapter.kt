@@ -16,14 +16,21 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.loadStreamProfileImage
 import com.github.andreyasadchy.xtra.ui.common.loadStreamThumbnail
+import com.github.andreyasadchy.xtra.ui.common.prepareStreamProfileImage
+import com.github.andreyasadchy.xtra.ui.common.prepareStreamThumbnailImage
+import com.github.andreyasadchy.xtra.ui.common.restoreWarmStreamThumbnail
+import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
+import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
+import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
+import com.github.andreyasadchy.xtra.ui.common.thumbnailIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
+import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
+import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
-import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.prefs
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -32,29 +39,118 @@ class StreamsShelfPagingAdapter(
     private val selectTag: (String) -> Unit,
 ) : PagingDataAdapter<Stream, StreamsShelfPagingAdapter.ViewHolder>(DIFF_CALLBACK) {
 
+    private val thumbnailLoadScheduler = StreamThumbnailIdleScheduler()
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        thumbnailLoadScheduler.attachTo(recyclerView)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        thumbnailLoadScheduler.detach()
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         return ViewHolder(ItemStreamShelfBinding.inflate(LayoutInflater.from(parent.context), parent, false))
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        holder.beginImageBind(getItem(position))
         holder.bind(getItem(position))
+    }
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty() && payloads.all { it === StreamThumbnailChangedPayload }) {
+            holder.beginImageBind(getItem(position))
+            holder.bindThumbnail(getItem(position))
+        } else {
+            super.onBindViewHolder(holder, position, payloads)
+        }
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
         (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
             .detachSurface(holder.previewSurface)
         holder.boundPreviewIdentity = null
+        thumbnailLoadScheduler.clear(holder)
+        holder.cancelImageWork()
         super.onViewRecycled(holder)
     }
 
     inner class ViewHolder(
         private val binding: ItemStreamShelfBinding,
-    ) : RecyclerView.ViewHolder(binding.root) {
+    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
         val previewSurface get() = binding.previewHost
         var boundPreviewIdentity: String? = null
+        private val imageRequests = FeedImageRequestBag()
+        private var boundImageIdentity: String? = null
+        private var boundThumbnailKey: String? = null
+        private var boundStream: Stream? = null
+        private var boundTags: List<String> = emptyList()
+
+        init {
+            binding.root.setOnClickListener {
+                boundStream?.let { (fragment.activity as? MainActivity)?.startStream(it) }
+            }
+            binding.avatar.setOnClickListener { boundStream?.let(::openChannel) }
+            binding.channel.setOnClickListener { boundStream?.let(::openChannel) }
+            binding.category.setOnClickListener { boundStream?.let(::openGame) }
+            binding.multiview.setOnClickListener { boundStream?.let(::openMultiview) }
+            binding.tagOne.setOnClickListener { boundTags.getOrNull(0)?.let(selectTag) }
+            binding.tagTwo.setOnClickListener { boundTags.getOrNull(1)?.let(selectTag) }
+        }
+
+        fun beginImageBind(item: Stream?) {
+            thumbnailLoadScheduler.clear(this)
+            imageRequests.cancel()
+            boundImageIdentity = item?.streamIdentity()
+            boundThumbnailKey = null
+        }
+
+        override fun cancelImageRequests() {
+            imageRequests.cancel()
+        }
+
+        override fun pauseImageRequests() {
+            imageRequests.cancel(preserveRegistrations = true)
+        }
+
+        fun cancelImageWork() {
+            cancelImageRequests()
+            boundImageIdentity = null
+            boundThumbnailKey = null
+            boundStream = null
+            boundTags = emptyList()
+        }
+
+        fun bindThumbnail(item: Stream?) {
+            val stream = item ?: return
+            prepareStreamThumbnailImage(binding.thumbnail, stream)
+            restoreWarmStreamThumbnail(stream, binding.thumbnail)
+            val key = "${stream.thumbnailIdentity()}|generation=${stream.thumbnailGeneration}"
+            boundThumbnailKey = key
+            thumbnailLoadScheduler.runOrDefer(this@ViewHolder, binding.thumbnail) {
+                if (!binding.root.isAttachedToWindow ||
+                    boundImageIdentity != stream.streamIdentity() ||
+                    boundThumbnailKey != key
+                ) return@runOrDefer
+                loadStreamThumbnail(
+                    context = binding.root.context,
+                    imageView = binding.thumbnail,
+                    stream = stream,
+                    scheduleFreshRequest = { freshRequest ->
+                        thumbnailLoadScheduler.runOrDefer(this@ViewHolder, binding.thumbnail, freshRequest)
+                    },
+                )
+                    ?.let { imageRequests.replace(binding.thumbnail, it) }
+            }
+        }
 
         fun bind(item: Stream?) {
             val context = fragment.requireContext()
+            val uiPreferences = com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore.current(context)
+            boundStream = item
             val nextPreviewIdentity = item?.streamIdentity()
             if (boundPreviewIdentity != nextPreviewIdentity) {
                 (context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
@@ -67,8 +163,7 @@ class StreamsShelfPagingAdapter(
                     return
                 }
 
-                root.setOnClickListener { (fragment.activity as? MainActivity)?.startStream(item) }
-                loadStreamThumbnail(context, thumbnail, item)
+                bindThumbnail(item)
                 thumbnail.contentDescription = item.title?.takeIf { it.isNotBlank() }
                     ?: context.getString(R.string.live)
                 liveBadge.visibility = View.VISIBLE
@@ -80,13 +175,13 @@ class StreamsShelfPagingAdapter(
                         count,
                         TwitchApiHelper.formatCount(
                             count,
-                            context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true),
+                            uiPreferences.truncateViewCount,
                         ),
                     )
                 }.orEmpty()
                 viewers.visibility = if (viewers.text.isNullOrBlank()) View.GONE else View.VISIBLE
 
-                val uptimeText = if (context.prefs().getBoolean(C.UI_UPTIME, true)) {
+                val uptimeText = if (uiPreferences.showUptime) {
                     item.createdAt?.let { value ->
                         Instant.parseOrNull(value)?.let { createdAt ->
                             val uptime = Clock.System.now() - createdAt
@@ -102,7 +197,7 @@ class StreamsShelfPagingAdapter(
                 if (item.channelName != null) {
                     channel.visibility = View.VISIBLE
                     channel.text = if (item.channelLogin != null && !item.channelLogin.equals(item.channelName, true)) {
-                        when (context.prefs().getString(C.UI_NAME_DISPLAY, "0")) {
+                        when (uiPreferences.nameDisplay) {
                             "0" -> "${item.channelName}(${item.channelLogin})"
                             "1" -> item.channelName
                             else -> item.channelLogin
@@ -117,66 +212,67 @@ class StreamsShelfPagingAdapter(
                 category.text = item.gameName?.trim().orEmpty()
                 category.visibility = if (category.text.isNullOrBlank()) View.GONE else View.VISIBLE
 
-                val channelListener = View.OnClickListener {
-                    fragment.findNavController().navigate(
-                        ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
-                            channelId = item.channelId,
-                            channelLogin = item.channelLogin,
-                            channelName = item.channelName,
-                            channelImage = item.channelImage,
-                            streamId = item.id,
-                        )
-                    )
-                }
                 if (item.channelImage != null) {
                     avatar.visibility = View.VISIBLE
-                    loadStreamProfileImage(context, avatar, item)
-                    avatar.setOnClickListener(channelListener)
+                    prepareStreamProfileImage(avatar, item)
+                    thumbnailLoadScheduler.runOrDefer(this@ViewHolder, avatar) {
+                        if (binding.root.isAttachedToWindow && boundImageIdentity == item.streamIdentity()) {
+                            loadStreamProfileImage(context, avatar, item)?.let {
+                                imageRequests.replace(binding.avatar, it)
+                            }
+                        }
+                    }
                 } else {
                     avatar.visibility = View.INVISIBLE
                     avatar.setImageDrawable(null)
                     avatar.tag = null
-                    avatar.setOnClickListener(null)
                 }
-                channel.setOnClickListener(channelListener)
-
-                category.setOnClickListener(if (item.gameName.isNullOrBlank()) null else View.OnClickListener {
-                    fragment.findNavController().navigate(
-                        GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                            gameId = item.gameId,
-                            gameSlug = item.gameSlug,
-                            gameName = item.gameName,
-                        )
-                    )
-                })
 
                 multiview.visibility = if (item.channelLogin.isNullOrBlank()) View.GONE else View.VISIBLE
-                multiview.setOnClickListener {
-                    (fragment.activity as? MainActivity)?.let { activity ->
-                        if (activity.playerFragment != null) activity.closePlayer()
-                    }
-                    fragment.findNavController().navigate(R.id.multiviewFragment, MultiviewFragment.arguments(item))
-                }
 
-                val tags = if (context.prefs().getBoolean(C.UI_TAGS, true)) item.tags.orEmpty().take(2) else emptyList()
+                val tags = if (uiPreferences.showTags) item.tags.orEmpty().take(2) else emptyList()
+                boundTags = tags
                 tagOne.text = tags.getOrNull(0).orEmpty()
                 tagOne.visibility = if (tags.isNotEmpty()) View.VISIBLE else View.GONE
-                tagOne.setOnClickListener(tags.getOrNull(0)?.let { tag -> View.OnClickListener { selectTag(tag) } })
                 tagTwo.text = tags.getOrNull(1).orEmpty()
                 tagTwo.visibility = if (tags.size > 1) View.VISIBLE else View.GONE
-                tagTwo.setOnClickListener(tags.getOrNull(1)?.let { tag -> View.OnClickListener { selectTag(tag) } })
             }
+        }
+
+        private fun openChannel(stream: Stream) {
+            fragment.findNavController().navigate(
+                ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                    channelId = stream.channelId,
+                    channelLogin = stream.channelLogin,
+                    channelName = stream.channelName,
+                    channelImage = stream.channelImage,
+                    streamId = stream.id,
+                )
+            )
+        }
+
+        private fun openGame(stream: Stream) {
+            if (stream.gameName.isNullOrBlank()) return
+            fragment.findNavController().navigate(
+                GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                    gameId = stream.gameId,
+                    gameSlug = stream.gameSlug,
+                    gameName = stream.gameName,
+                )
+            )
+        }
+
+        private fun openMultiview(stream: Stream) {
+            (fragment.activity as? MainActivity)?.let { activity ->
+                if (activity.playerFragment != null) activity.closePlayer()
+            }
+            fragment.findNavController().navigate(R.id.multiviewFragment, MultiviewFragment.arguments(stream))
         }
 
         private fun reset() {
             with(binding) {
-                root.setOnClickListener(null)
-                avatar.setOnClickListener(null)
-                channel.setOnClickListener(null)
-                category.setOnClickListener(null)
-                multiview.setOnClickListener(null)
-                tagOne.setOnClickListener(null)
-                tagTwo.setOnClickListener(null)
+                boundStream = null
+                boundTags = emptyList()
                 avatar.visibility = View.INVISIBLE
                 avatar.setImageDrawable(null)
                 avatar.tag = null
@@ -209,6 +305,9 @@ class StreamsShelfPagingAdapter(
 
             override fun areContentsTheSame(oldItem: Stream, newItem: Stream): Boolean =
                 streamContentsSame(oldItem, newItem)
+
+            override fun getChangePayload(oldItem: Stream, newItem: Stream): Any? =
+                if (streamThumbnailOnlyChanged(oldItem, newItem)) StreamThumbnailChangedPayload else null
         }
     }
 }

@@ -4,12 +4,15 @@ import com.github.andreyasadchy.xtra.repository.TwitchApiException
 import com.github.andreyasadchy.xtra.repository.datasource.GameFeedCursor
 import com.github.andreyasadchy.xtra.repository.datasource.GameFeedPage
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
+import com.github.andreyasadchy.xtra.util.UiInteractionGovernor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
@@ -43,10 +46,15 @@ class GameFeedRefreshCoordinator(
     private val cache: GameFeedCacheStore,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val wallClockMs: () -> Long = { System.currentTimeMillis() },
+    maintenanceScope: CoroutineScope? = null,
 ) {
+    private val maintenanceScope = maintenanceScope
+        ?: CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val refreshFlights = SingleFlight<GameRefreshResult>(scope)
     private val appendFlights = SingleFlight<GameAppendResult>(scope)
     private val feedLocks = ConcurrentHashMap<String, Mutex>()
+    private var cleanupJob: Job? = null
+    private val successfulAtByFeed = ConcurrentHashMap<String, Long>()
 
     @Volatile
     private var visibleFeed: GameFeedSpec? = null
@@ -72,7 +80,21 @@ class GameFeedRefreshCoordinator(
 
     suspend fun forceRefresh(spec: GameFeedSpec, reason: RefreshReason): GameRefreshResult = requestRefresh(spec, reason, force = true)
 
+    /** Fast path used by visible screens before launching a refresh coroutine. */
+    fun isFreshInMemory(spec: GameFeedSpec): Boolean {
+        val lastSuccessAt = successfulAtByFeed[spec.key.value] ?: return false
+        return GameFeedFreshnessPolicy.isFresh(wallClockMs(), lastSuccessAt)
+    }
+
     private suspend fun requestRefresh(spec: GameFeedSpec, reason: RefreshReason, force: Boolean): GameRefreshResult {
+        if (!force) {
+            successfulAtByFeed[spec.key.value]?.let { lastSuccessAt ->
+                val now = wallClockMs()
+                if (GameFeedFreshnessPolicy.isFresh(now, lastSuccessAt)) {
+                    return GameRefreshResult(spec.key, reason, GameRefreshDecision.SKIP_FRESH)
+                }
+            }
+        }
         val flight = refreshFlights.run(spec.key.value) { executeRefresh(spec, reason, force) }
         return flight.value.await().let { if (flight.joined) it.copy(decision = GameRefreshDecision.JOIN) else it }
     }
@@ -82,6 +104,8 @@ class GameFeedRefreshCoordinator(
         return lock.withLock {
             val now = wallClockMs()
             val state = cache.state(spec.key)
+            state?.lastSuccessAt?.let { successfulAtByFeed[spec.key.value] = it }
+                ?: successfulAtByFeed.remove(spec.key.value)
             when (gameRefreshDecision(now, state?.lastSuccessAt, state?.lastAttemptAt, state?.failureBackoffUntil, state?.rateLimitUntil, force)) {
                 GameRefreshDecision.SKIP_BACKOFF -> return@withLock GameRefreshResult(spec.key, reason, GameRefreshDecision.SKIP_BACKOFF)
                 GameRefreshDecision.SKIP_FRESH -> return@withLock GameRefreshResult(spec.key, reason, GameRefreshDecision.SKIP_FRESH)
@@ -97,6 +121,7 @@ class GameFeedRefreshCoordinator(
                 val page = spec.loader.load(null)
                 val completedAt = wallClockMs()
                 cache.replaceAfterRefresh(spec.key, page, completedAt, preserveTail, pruneStaleOnEnd = !preserveTail)
+                successfulAtByFeed[spec.key.value] = completedAt
                 if (shouldPrefetchTail(
                         reason = reason,
                         preserveTail = preserveTail,
@@ -105,7 +130,7 @@ class GameFeedRefreshCoordinator(
                         nextCursorPresent = page.nextCursor != null,
                     )
                 ) {
-                    scope.launch {
+                    UiInteractionGovernor.runWhenIdle(scope) {
                         try {
                             var prefetchedPages = 0
                             while (prefetchedPages < GameFeedFreshnessPolicy.MAX_AUTOMATIC_TAIL_PREFETCH_PAGES) {
@@ -119,7 +144,7 @@ class GameFeedRefreshCoordinator(
                         }
                     }
                 }
-                cache.cleanup(completedAt)
+                scheduleCacheCleanup()
                 GameRefreshResult(spec.key, reason, GameRefreshDecision.REFRESH)
             } catch (error: CancellationException) {
                 throw error
@@ -165,6 +190,7 @@ class GameFeedRefreshCoordinator(
             try {
                 val page = spec.loader.load(cursor)
                 cache.appendPage(spec.key, page, wallClockMs(), pruneStaleOnEnd = !speculative)
+                scheduleCacheCleanup()
                 GameAppendResult(page, page.nextCursor == null)
             } catch (error: CancellationException) {
                 throw error
@@ -193,6 +219,17 @@ class GameFeedRefreshCoordinator(
         preserveTail &&
         cachedItemCount > firstPageItemCount &&
         nextCursorPresent
+
+    private fun scheduleCacheCleanup() {
+        synchronized(this) {
+            if (cleanupJob?.isActive == true) return
+            cleanupJob = maintenanceScope.launch {
+                delay(30_000L)
+                UiInteractionGovernor.awaitIdle()
+                cache.cleanup(wallClockMs())
+            }
+        }
+    }
 
     private fun rateLimitUntil(error: Exception, nowMs: Long): Long? {
         val twitchError = error as? TwitchApiException ?: return null

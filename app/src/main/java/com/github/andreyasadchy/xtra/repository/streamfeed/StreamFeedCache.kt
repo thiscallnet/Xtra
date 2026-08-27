@@ -6,8 +6,10 @@ import com.github.andreyasadchy.xtra.db.StreamFeedDao
 import com.github.andreyasadchy.xtra.db.StreamFeedState
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.datasource.StreamFeedPage
+import com.github.andreyasadchy.xtra.repository.ProcessLocalFeedSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 
@@ -203,22 +205,33 @@ internal fun appendCachedPage(
 }
 
 /**
- * Room is the source of truth for stream-feed data. All replacement and page
- * application methods below run their writes in one SQLite transaction.
+ * Room is the durable bootstrap/offline store for stream-feed data. The
+ * process-local active snapshot is the live UI source; replacement and page
+ * application still persist their result in one SQLite transaction.
  */
 class StreamFeedCache(
     private val database: AppDatabase,
     private val dao: StreamFeedDao = database.streamFeedDao(),
 ) : StreamFeedCacheStore {
 
+    private val activeSnapshot = ProcessLocalFeedSnapshot<CachedStreamFeedItem>()
+
     override fun pagingSource(feedKey: StreamFeedKey) = dao.pagingSource(feedKey.value)
 
     fun activeItemsFlow(feedKey: StreamFeedKey, limit: Int): Flow<List<CachedStreamFeedItem>> {
-        return dao.activeItemsFlow(feedKey.value, limit)
+        return activeSnapshot.flow(feedKey.value, limit) {
+            withContext(Dispatchers.IO) {
+                dao.allActiveItemsFlow(feedKey.value).first()
+            }
+        }
     }
 
     fun allActiveItemsFlow(feedKey: StreamFeedKey): Flow<List<CachedStreamFeedItem>> {
-        return dao.allActiveItemsFlow(feedKey.value)
+        return activeSnapshot.flow(feedKey.value, Int.MAX_VALUE) {
+            withContext(Dispatchers.IO) {
+                dao.allActiveItemsFlow(feedKey.value).first()
+            }
+        }
     }
 
     override suspend fun state(feedKey: StreamFeedKey): StreamFeedState? = withContext(Dispatchers.IO) {
@@ -270,6 +283,7 @@ class StreamFeedCache(
         preserveTail: Boolean,
         pruneStaleOnEnd: Boolean,
     ) = withContext(Dispatchers.IO) {
+        var activeItems: List<CachedStreamFeedItem> = emptyList()
         database.runInTransaction {
             val current = dao.state(feedKey.value)
             val generation = (current?.activeGeneration ?: 0L) + 1L
@@ -299,6 +313,7 @@ class StreamFeedCache(
             if (page.nextCursor == null && pruneStaleOnEnd) {
                 dao.deleteItemsExceptGeneration(feedKey.value, generation)
             }
+            activeItems = items.filter { it.generation == generation }
             val retainsStaleTail = preserveTail &&
                     !(page.nextCursor == null && pruneStaleOnEnd) &&
                     items.any { it.generation != generation }
@@ -321,6 +336,7 @@ class StreamFeedCache(
                 )
             )
         }
+        activeSnapshot.publish(feedKey.value, activeItems)
     }
 
     /** Append a downloaded page while keeping an existing channel's position stable. */
@@ -330,6 +346,7 @@ class StreamFeedCache(
         nowMs: Long,
         pruneStaleOnEnd: Boolean,
     ) = withContext(Dispatchers.IO) {
+        var activeItems: List<CachedStreamFeedItem> = emptyList()
         database.runInTransaction {
             val current = dao.state(feedKey.value) ?: StreamFeedState(feedKey.value)
             val expiredTail = staleTailExpired(current, nowMs)
@@ -344,6 +361,7 @@ class StreamFeedCache(
             if (page.nextCursor == null && pruneStaleOnEnd) {
                 dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
             }
+            activeItems = items.filter { it.generation == current.activeGeneration }
             val retainsStaleTail =
                 !(page.nextCursor == null && pruneStaleOnEnd) &&
                         items.any { it.generation != current.activeGeneration }
@@ -364,6 +382,7 @@ class StreamFeedCache(
                 )
             )
         }
+        activeSnapshot.publish(feedKey.value, activeItems)
     }
 
     override suspend fun pruneStaleGeneration(feedKey: StreamFeedKey) = withContext(Dispatchers.IO) {
@@ -416,6 +435,7 @@ class StreamFeedCache(
     }
 
     override suspend fun cleanup(nowMs: Long) = withContext(Dispatchers.IO) {
+        val removedKeys = mutableSetOf<String>()
         database.runInTransaction {
             val cutoff = nowMs - FEED_RETENTION_MS
             val states = dao.allStates()
@@ -428,6 +448,7 @@ class StreamFeedCache(
                 .forEach { state ->
                     dao.deleteItems(state.feedKey)
                     dao.deleteState(state.feedKey)
+                    removedKeys += state.feedKey
                 }
             states.asSequence()
                 .filter { it.lastAccessAt >= cutoff }
@@ -435,7 +456,9 @@ class StreamFeedCache(
                 .forEach { state ->
                     dao.deleteItems(state.feedKey)
                     dao.deleteState(state.feedKey)
+                    removedKeys += state.feedKey
                 }
         }
+        removedKeys.forEach(activeSnapshot::clear)
     }
 }

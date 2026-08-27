@@ -4,7 +4,6 @@ import android.content.ContentResolver
 import android.content.Context
 import android.net.ConnectivityManager
 import android.os.SystemClock
-import android.util.Base64
 import android.util.JsonReader
 import android.util.JsonToken
 import android.util.Log
@@ -143,6 +142,28 @@ class ChatViewModel(
     private val trustManager: Lazy<X509TrustManager>,
     private val json: Json,
 ) : ViewModel() {
+
+    data class ChatSnapshot(
+        val revision: Long,
+        val messages: List<ChatMessage>,
+    )
+
+    sealed interface ChatMutation {
+        val revision: Long
+
+        data class Append(
+            override val revision: Long,
+            val messages: List<ChatMessage>,
+            val trimCount: Int,
+        ) : ChatMutation
+
+        data class Prepend(
+            override val revision: Long,
+            val messages: List<ChatMessage>,
+        ) : ChatMutation
+
+        data class Clear(override val revision: Long) : ChatMutation
+    }
 
     enum class ConnectionState {
         IDLE,
@@ -314,9 +335,8 @@ class ChatViewModel(
     val reloadMessages = MutableStateFlow(false)
     val hideRaid = MutableStateFlow(false)
 
-    val newMessage = MutableSharedFlow<Triple<ChatMessage, Int, Int>>()
-    val addMessages = MutableSharedFlow<Pair<List<ChatMessage>, Int>>()
-    val removeMessages = MutableSharedFlow<Int>()
+    private val chatMutationEvents = Channel<ChatMutation>(Channel.UNLIMITED)
+    val chatMutations: Flow<ChatMutation> = chatMutationEvents.receiveAsFlow()
     val updateUserMessages = MutableSharedFlow<String>()
     val userEmotesUpdated = MutableSharedFlow<Unit>()
     private val channelPointModifiedEmotesUpdated = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
@@ -324,6 +344,7 @@ class ChatViewModel(
 
     private var messageLimit = 600
     val chatMessages = mutableListOf<ChatMessage>()
+    private var chatRevision = 0L
     val autoCompleteList = mutableListOf<Any?>()
     private val chatters = ConcurrentHashMap<String, Chatter>()
 
@@ -979,19 +1000,6 @@ class ChatViewModel(
         }
     }
 
-    fun getEmoteBytes(chatUrl: String, localData: Pair<Long, Int>): ByteArray? {
-        return if (chatUrl.toUri().scheme == ContentResolver.SCHEME_CONTENT) {
-            applicationContext.contentResolver.openInputStream(chatUrl.toUri())?.bufferedReader()
-        } else {
-            FileInputStream(File(chatUrl)).bufferedReader()
-        }?.use { fileReader ->
-            val buffer = CharArray(localData.second)
-            fileReader.skip(localData.first)
-            fileReader.read(buffer, 0, localData.second)
-            Base64.decode(buffer.concatToString(), Base64.NO_WRAP or Base64.NO_PADDING)
-        }
-    }
-
     fun reloadEmotes(channelId: String?, channelLogin: String?) {
         savedGlobalBadges = null
         savedGlobalSTVEmotes = null
@@ -1047,11 +1055,8 @@ class ChatViewModel(
                             if (left > 0) {
                                 val items = list.takeLast(left)
                                 chatMessages.addAll(0, items)
-                                Pair(items, chatMessages.lastIndex)
-                            } else null
-                        }.let {
-                            if (it != null) {
-                                addMessages.emit(it)
+                                chatRevision++
+                                chatMutationEvents.trySend(ChatMutation.Prepend(chatRevision, items))
                             }
                         }
                     }
@@ -1127,18 +1132,17 @@ class ChatViewModel(
             val removeCount = if (chatMessages.size > messageLimit) {
                 chatMessages.size - messageLimit
             } else 0
-            if (newMessage.subscriptionCount.value > 0) {
-                Triple(message, chatMessages.lastIndex, removeCount)
-            } else {
-                if (removeCount > 0) {
-                    repeat(removeCount) {
-                        chatMessages.removeAt(0)
-                    }
-                }
-                null
+            if (removeCount > 0) {
+                chatMessages.subList(0, removeCount).clear()
             }
-        }?.let {
-            newMessage.emit(it)
+            chatRevision++
+            chatMutationEvents.trySend(
+                ChatMutation.Append(
+                    revision = chatRevision,
+                    messages = listOf(message),
+                    trimCount = removeCount,
+                )
+            )
         }
     }
 
@@ -1294,13 +1298,16 @@ class ChatViewModel(
         _slowModeState.value = SlowModeState()
     }
 
-    /** Trims history after a subscriber has consumed a message overflow. */
-    fun trimMessageOverflow() {
+    fun chatSnapshot(): ChatSnapshot = synchronized(chatMessages) {
+        ChatSnapshot(chatRevision, chatMessages.toList())
+    }
+
+    private fun clearChatMessages() {
         synchronized(chatMessages) {
-            val overflow = chatMessages.size - messageLimit
-            if (overflow > 0) {
-                chatMessages.subList(0, overflow).clear()
-            }
+            if (chatMessages.isEmpty()) return
+            chatMessages.clear()
+            chatRevision++
+            chatMutationEvents.trySend(ChatMutation.Clear(chatRevision))
         }
     }
 
@@ -2388,13 +2395,7 @@ class ChatViewModel(
         usedRaidId = null
         raidClosed = true
         viewModelScope.launch {
-            synchronized(chatMessages) {
-                val size = chatMessages.size
-                chatMessages.clear()
-                size
-            }.let {
-                removeMessages.emit(it)
-            }
+            clearChatMessages()
             onMessage(ChatMessage(systemMsg = ContextCompat.getString(applicationContext, R.string.disconnected)))
         }
         if (!hideRaid.value) {
@@ -4602,13 +4603,7 @@ class ChatViewModel(
         }
 
         override suspend fun clearMessages() {
-            synchronized(chatMessages) {
-                val size = chatMessages.size
-                chatMessages.clear()
-                size
-            }.let {
-                removeMessages.emit(it)
-            }
+            clearChatMessages()
         }
 
         override suspend fun getIntegrityToken() {

@@ -7,10 +7,14 @@ import android.graphics.drawable.Drawable
 import android.text.style.ImageSpan
 
 
-class CenteredImageSpan(drawable: Drawable) : ImageSpan(drawable) {
+class CenteredImageSpan(initialDrawable: Drawable) : ImageSpan(initialDrawable) {
+
+    var imageDrawable: Drawable = initialDrawable
+
+    override fun getDrawable(): Drawable = imageDrawable
 
     override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fontMetricsInt: FontMetricsInt?): Int {
-        val drawable = drawable
+        val drawable = imageDrawable
         val rect = drawable.bounds
         if (fontMetricsInt != null) {
             val fmPaint = paint.fontMetricsInt
@@ -26,7 +30,7 @@ class CenteredImageSpan(drawable: Drawable) : ImageSpan(drawable) {
     }
 
     override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
-        val drawable = drawable
+        val drawable = imageDrawable
         canvas.save()
         val fmPaint = paint.fontMetricsInt
         val fontHeight = fmPaint.descent - fmPaint.ascent
