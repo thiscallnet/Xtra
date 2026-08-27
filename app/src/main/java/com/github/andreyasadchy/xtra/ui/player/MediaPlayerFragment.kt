@@ -36,6 +36,8 @@ class MediaPlayerFragment : PlayerFragment() {
 
     override fun onStart() {
         super.onStart()
+        binding.playerSurface.visibility = View.VISIBLE
+        binding.playerTextureView.visibility = View.GONE
         val listener = object : MediaPlayerService.PlayerListener {
             override fun onPrepared(player: MediaPlayer) {
                 clearPlayerError()

@@ -36,6 +36,7 @@ import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
+import com.github.andreyasadchy.xtra.ui.common.logVideoSurfaceBinding
 import com.github.andreyasadchy.xtra.ui.player.TwitchAdController
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
@@ -128,8 +129,14 @@ class MultiviewPlaybackCoordinator(
     fun attach(identity: String, playerView: PlayerView) {
         slots[identity]?.let { slot ->
             if (slot.attachedView !== playerView) {
-                slot.attachedView?.player = null
+                slot.attachedView?.let { oldView ->
+                    logVideoSurfaceBinding("multiview_detach", slot.player, oldView, oldView.player)
+                    oldView.player = null
+                }
                 slot.attachedView = playerView
+            }
+            if (playerView.player !== slot.player) {
+                logVideoSurfaceBinding("multiview_attach", slot.player, playerView, playerView.player)
                 playerView.player = slot.player
             }
         }
@@ -137,6 +144,7 @@ class MultiviewPlaybackCoordinator(
 
     fun detach(identity: String, playerView: PlayerView) {
         slots[identity]?.takeIf { it.attachedView === playerView }?.let { slot ->
+            logVideoSurfaceBinding("multiview_detach", slot.player, playerView, playerView.player)
             playerView.player = null
             slot.attachedView = null
         }
@@ -170,7 +178,7 @@ class MultiviewPlaybackCoordinator(
         backgroundPlayback = false
         slots.values.forEach { slot ->
             restoreBackgroundVideo(slot)
-            slot.attachedView?.player = slot.player
+            slot.attachedView?.let { attach(slot.identity, it) }
             slot.player.playWhenReady = shouldPlayWhenReady(slot)
         }
         maintainBackgroundPlaybackService()
@@ -942,7 +950,12 @@ class MultiviewPlaybackCoordinator(
                 .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                 .build()
         }
-        slot.attachedView?.player = null
+        slot.attachedView?.let { view ->
+            if (view.player === slot.player) {
+                logVideoSurfaceBinding("multiview_detach", slot.player, view, view.player)
+                view.player = null
+            }
+        }
     }
 
     @androidx.media3.common.util.UnstableApi
@@ -1225,7 +1238,12 @@ class MultiviewPlaybackCoordinator(
             stableRecoveryJob?.cancel()
             adAvoidanceJob?.cancel()
             primaryRestoreJob?.cancel()
-            attachedView?.player = null
+            attachedView?.let { view ->
+                if (view.player === player) {
+                    logVideoSurfaceBinding("multiview_detach", player, view, view.player)
+                    view.player = null
+                }
+            }
             attachedView = null
             player.release()
         }

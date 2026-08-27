@@ -26,7 +26,14 @@
                 <SurfaceView
                     android:id="@+id/playerSurface"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent" />
+                    android:layout_height="match_parent"
+                    android:visibility="gone" />
+
+                <TextureView
+                    android:id="@+id/playerTextureView"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:visibility="gone" />
 
             </androidx.media3.ui.AspectRatioFrameLayout>
 
