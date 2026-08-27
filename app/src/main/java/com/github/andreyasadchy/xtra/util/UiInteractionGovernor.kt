@@ -11,7 +11,14 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.Collections
 import java.util.IdentityHashMap
-import java.util.concurrent.CopyOnWriteArrayList
+
+internal fun visibleImageStartsPerFrame(
+    interacting: Boolean,
+): Int = if (interacting) {
+    1
+} else {
+    2
+}
 
 /**
  * Process-local QoS signal for work that competes with touch, scrolling, and
@@ -22,8 +29,6 @@ object UiInteractionGovernor {
     private const val IDLE_SETTLE_MS = 150L
 
     private val activeSources = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
-    private val idleListeners = CopyOnWriteArrayList<() -> Unit>()
-    private val interactionStartListeners = CopyOnWriteArrayList<() -> Unit>()
     private val _isInteracting = MutableStateFlow(false)
     private val imageBudgetLock = Any()
     private var imageBudgetFrame = Long.MIN_VALUE
@@ -32,34 +37,12 @@ object UiInteractionGovernor {
     val isInteracting: StateFlow<Boolean> = _isInteracting.asStateFlow()
 
     fun setInteracting(source: Any, interacting: Boolean) {
-        val becameIdle: Boolean
-        val becameInteracting: Boolean
         synchronized(activeSources) {
             if (interacting) activeSources.add(source) else activeSources.remove(source)
             val next = activeSources.isNotEmpty()
-            becameIdle = _isInteracting.value && !next
-            becameInteracting = !_isInteracting.value && next
             if (_isInteracting.value == next) return
             _isInteracting.value = next
         }
-        if (becameInteracting) interactionStartListeners.forEach { it() }
-        if (becameIdle) idleListeners.forEach { it() }
-    }
-
-    fun addIdleListener(listener: () -> Unit) {
-        idleListeners += listener
-    }
-
-    fun removeIdleListener(listener: () -> Unit) {
-        idleListeners -= listener
-    }
-
-    fun addInteractionStartListener(listener: () -> Unit) {
-        interactionStartListeners += listener
-    }
-
-    fun removeInteractionStartListener(listener: () -> Unit) {
-        interactionStartListeners -= listener
     }
 
     fun runWhenIdle(scope: CoroutineScope, block: suspend () -> Unit): Job = scope.launch {
@@ -82,7 +65,13 @@ object UiInteractionGovernor {
                 imageBudgetFrame = frame
                 imageStartsThisFrame = 0
             }
-            if (imageStartsThisFrame >= VISIBLE_IMAGE_STARTS_PER_FRAME) return false
+
+            val maxStartsThisFrame =
+                visibleImageStartsPerFrame(
+                    interacting = _isInteracting.value,
+                )
+
+            if (imageStartsThisFrame >= maxStartsThisFrame) return false
             imageStartsThisFrame++
             return true
         }
@@ -97,5 +86,4 @@ object UiInteractionGovernor {
     }
 
     private const val FRAME_NANOS = 16_666_667L
-    private const val VISIBLE_IMAGE_STARTS_PER_FRAME = 2
 }
