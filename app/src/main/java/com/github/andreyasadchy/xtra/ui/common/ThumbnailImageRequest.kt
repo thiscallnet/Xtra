@@ -474,19 +474,20 @@ internal fun restoreDecodedMemoryImage(
     cacheKey: String,
     imageView: ImageView,
 ): Boolean {
-    // Most generic feed holders use their image cache key as the ImageView
-    // tag. If this holder already has the correct drawable, there is
-    // literally nothing to do.
-    if (imageView.tag == cacheKey && imageView.drawable != null) {
-        return true
-    }
-
     val cachedImage = imageView.context.imageLoader.memoryCache
         ?.get(MemoryCache.Key(cacheKey))
         ?.image
         ?: return false
 
-    imageView.setImageDrawable(cachedImage.asDrawable(imageView.resources))
+    // Generic feed holders use cacheKey as their normal ImageView tag.
+    // If the correct decoded image is already represented by this holder,
+    // avoid reassigning the drawable. The Coil memory-cache hit is what proves
+    // the image successfully exists; drawable != null by itself is NOT proof.
+    if (imageView.tag != cacheKey || imageView.drawable == null) {
+        imageView.setImageDrawable(
+            cachedImage.asDrawable(imageView.resources)
+        )
+    }
 
     if (BuildConfig.DEBUG) {
         Log.d(
@@ -736,19 +737,32 @@ internal fun restoreWarmStreamProfileImage(
     val url = stream.channelImage ?: return false
     val preferences = FeedUiPreferencesStore.current(context)
 
-    val requestKey = "${stream.streamIdentity()}|$url|round=${preferences.roundUserImage}"
+    val identity = stream.streamIdentity()
+    val requestKey =
+        "$identity|$url|round=${preferences.roundUserImage}"
 
-    // Stream profile ImageViews use streamIdentity() as their normal tag
-    // rather than requestKey, so check both identity and stored request key.
+    // Already displaying the exact successfully satisfied profile request.
     if (
-        imageView.tag == stream.streamIdentity() &&
+        imageView.tag == identity &&
         imageView.getTag(R.id.stream_profile_request_key) == requestKey &&
         imageView.drawable != null
     ) {
         return true
     }
 
-    return restoreDecodedMemoryImage(requestKey, imageView)
+    if (!restoreDecodedMemoryImage(requestKey, imageView)) {
+        return false
+    }
+
+    // This decoded-memory hit satisfies exactly the same request that
+    // loadStreamProfileImage() would mark before starting Coil.
+    // Record it so subsequent binds become a true zero-work fast path.
+    imageView.setTag(
+        R.id.stream_profile_request_key,
+        requestKey,
+    )
+
+    return true
 }
 
 internal fun loadStreamThumbnail(
