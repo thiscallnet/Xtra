@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/chatIdentityBadgeTile"
+    android:layout_width="56dp"
+    android:layout_height="56dp"
+    android:background="@drawable/bg_chat_identity_badge"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?android:selectableItemBackgroundBorderless"
+    android:importantForAccessibility="yes"
+    android:padding="8dp">
+
+    <ImageView
+        android:id="@+id/chatIdentityBadgeImage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="centerInside" />
+</FrameLayout>

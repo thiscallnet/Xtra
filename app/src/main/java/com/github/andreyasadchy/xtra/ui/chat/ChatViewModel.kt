@@ -19,6 +19,9 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.chat.Badge
 import com.github.andreyasadchy.xtra.model.chat.ChannelPointReward
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
+import com.github.andreyasadchy.xtra.model.chat.ChatIdentityState
+import com.github.andreyasadchy.xtra.model.chat.ChatIdentityBadge
+import com.github.andreyasadchy.xtra.model.chat.effectiveBadge
 import com.github.andreyasadchy.xtra.model.chat.Chatter
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
@@ -54,6 +57,10 @@ import com.github.andreyasadchy.xtra.model.ui.WatchStreakShareResult
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
+import com.github.andreyasadchy.xtra.repository.loadChatIdentity
+import com.github.andreyasadchy.xtra.repository.setChannelChatBadge
+import com.github.andreyasadchy.xtra.repository.setGlobalChatBadge
+import com.github.andreyasadchy.xtra.repository.setChatNameColor
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.chat.ChatReadIRCSocket
@@ -115,6 +122,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.Timer
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.InflaterOutputStream
@@ -142,6 +150,11 @@ class ChatViewModel(
     private val trustManager: Lazy<X509TrustManager>,
     private val json: Json,
 ) : ViewModel() {
+
+    private data class CachedChatIdentity(
+        val loadedAtElapsedRealtime: Long,
+        val state: ChatIdentityState,
+    )
 
     data class ChatSnapshot(
         val revision: Long,
@@ -225,6 +238,13 @@ class ChatViewModel(
     private var activeChannelLogin: String? = null
     private var loggedInUserId: String? = null
     private var loggedInUserLogin: String? = null
+    private val chatIdentityCache = mutableMapOf<String, CachedChatIdentity>()
+    private var chatIdentityLoadJob: Job? = null
+    private val chatIdentityMutationMutex = Mutex()
+    private val _chatIdentityState = MutableStateFlow(ChatIdentityState())
+    val chatIdentityState: StateFlow<ChatIdentityState> = _chatIdentityState
+    private val chatIdentityErrors = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val chatIdentityError: Flow<String> = chatIdentityErrors
     private val channelPointsBalanceReducer = ChannelPointsBalanceReducer()
     private val channelPointsBalanceLock = Any()
     private var channelPointsBalanceState = ChannelPointsBalanceReducer.State()
@@ -360,6 +380,202 @@ class ChatViewModel(
     private suspend fun emitThirdPartyEmotesUpdated() {
         markPickerCatalogChanged()
         thirdPartyEmotesUpdated.emit(Unit)
+    }
+
+    fun ensureChatIdentityLoaded(channelId: String?, channelLogin: String?) {
+        if (channelId.isNullOrBlank() || channelLogin.isNullOrBlank()) return
+        val viewerId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
+        if (viewerId.isNullOrBlank()) return
+        val cached = chatIdentityCache[channelId]
+        val now = SystemClock.elapsedRealtime()
+        if (cached != null && now - cached.loadedAtElapsedRealtime < CHAT_IDENTITY_CACHE_TTL_MS) {
+            _chatIdentityState.value = cached.state
+            return
+        }
+        if (chatIdentityLoadJob?.isActive == true && _chatIdentityState.value.loadedChannelId == channelId) {
+            return
+        }
+        chatIdentityLoadJob?.cancel()
+        val previous = _chatIdentityState.value.takeIf { it.loadedChannelId == channelId }
+        _chatIdentityState.value = (previous ?: ChatIdentityState(loadedChannelId = channelId)).copy(
+            loading = true,
+            loadedChannelId = channelId,
+            error = null,
+        )
+        chatIdentityLoadJob = viewModelScope.launch {
+            try {
+                loadChatIdentityFromServer(
+                    viewerId = viewerId,
+                    channelId = channelId,
+                    channelLogin = channelLogin,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (_chatIdentityState.value.loadedChannelId == channelId) {
+                    _chatIdentityState.update { it.copy(loading = false, error = e.message) }
+                }
+                chatIdentityErrors.tryEmit(e.message ?: applicationContext.getString(R.string.chat_identity_load_failed))
+            }
+        }
+    }
+
+    fun setChatIdentityNameColor(color: String) {
+        val normalized = color.trim().uppercase(Locale.ROOT)
+        if (!Regex("^#[0-9A-F]{6}$").matches(normalized)) return
+        if (_chatIdentityState.value.mutationInProgress) return
+        val channelId = _chatIdentityState.value.loadedChannelId ?: activeChannelId ?: return
+        val channelLogin = activeChannelLogin ?: return
+        val viewerId = applicationContext.tokenPrefs().getString(C.USER_ID, null) ?: return
+        viewModelScope.launch {
+            chatIdentityMutationMutex.withLock {
+                val before = _chatIdentityState.value
+                _chatIdentityState.value = before.copy(
+                    nameColor = normalized,
+                    mutationInProgress = true,
+                    error = null,
+                )
+                try {
+                    graphQLRepository.setChatNameColor(
+                        networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                        headers = TwitchApiHelper.getGQLHeaders(applicationContext, true),
+                        color = normalized,
+                    )
+                    loadChatIdentityFromServer(viewerId, channelId, channelLogin)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (_chatIdentityState.value.loadedChannelId == channelId) {
+                        _chatIdentityState.value = before.copy(mutationInProgress = false, error = e.message)
+                    }
+                    chatIdentityErrors.tryEmit(e.message ?: applicationContext.getString(R.string.chat_identity_update_failed))
+                } finally {
+                    if (_chatIdentityState.value.loadedChannelId == channelId && _chatIdentityState.value.mutationInProgress) {
+                        _chatIdentityState.update { it.copy(mutationInProgress = false) }
+                    }
+                }
+            }
+        }
+    }
+
+    fun setChatIdentityGlobalBadge(badge: ChatIdentityBadge?) {
+        mutateChatIdentityPreference(
+            optimistic = { state -> state.copy(selectedGlobalBadge = badge?.key) },
+            request = {
+                graphQLRepository.setGlobalChatBadge(
+                    networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    headers = TwitchApiHelper.getGQLHeaders(applicationContext, true),
+                    badge = badge?.key,
+                )
+            },
+        )
+    }
+
+    fun setChatIdentityChannelBadge(badge: ChatIdentityBadge?) {
+        val channelId = _chatIdentityState.value.loadedChannelId ?: activeChannelId ?: return
+        mutateChatIdentityPreference(
+            optimistic = { state ->
+                state.copy(
+                    useCustomChannelBadge = badge != null,
+                    selectedChannelBadge = badge?.key,
+                )
+            },
+            request = {
+                graphQLRepository.setChannelChatBadge(
+                    networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    headers = TwitchApiHelper.getGQLHeaders(applicationContext, true),
+                    channelId = channelId,
+                    badge = badge?.key,
+                )
+            },
+        )
+    }
+
+    /** Enabling reveals eligible choices; choosing one is what persists the override. */
+    fun setChatIdentityChannelOverride(enabled: Boolean) {
+        if (enabled) {
+            if (!_chatIdentityState.value.mutationInProgress) {
+                _chatIdentityState.update { it.copy(useCustomChannelBadge = true, error = null) }
+            }
+        } else {
+            setChatIdentityChannelBadge(null)
+        }
+    }
+
+    private fun mutateChatIdentityPreference(
+        optimistic: (ChatIdentityState) -> ChatIdentityState,
+        request: suspend () -> Unit,
+    ) {
+        if (_chatIdentityState.value.mutationInProgress) return
+        val channelId = _chatIdentityState.value.loadedChannelId ?: activeChannelId ?: return
+        val channelLogin = activeChannelLogin ?: return
+        val viewerId = applicationContext.tokenPrefs().getString(C.USER_ID, null) ?: return
+        viewModelScope.launch {
+            chatIdentityMutationMutex.withLock {
+                val before = _chatIdentityState.value
+                if (before.mutationInProgress || before.loadedChannelId != channelId) return@withLock
+                _chatIdentityState.value = optimistic(before).copy(
+                    mutationInProgress = true,
+                    error = null,
+                )
+                try {
+                    request()
+                    loadChatIdentityFromServer(viewerId, channelId, channelLogin)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (_chatIdentityState.value.loadedChannelId == channelId) {
+                        _chatIdentityState.value = before.copy(mutationInProgress = false, error = e.message)
+                    }
+                    chatIdentityErrors.tryEmit(e.message ?: applicationContext.getString(R.string.chat_identity_update_failed))
+                } finally {
+                    if (_chatIdentityState.value.loadedChannelId == channelId && _chatIdentityState.value.mutationInProgress) {
+                        _chatIdentityState.update { it.copy(mutationInProgress = false) }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun loadChatIdentityFromServer(
+        viewerId: String,
+        channelId: String,
+        channelLogin: String,
+    ) {
+        val data = graphQLRepository.loadChatIdentity(
+            networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+            headers = TwitchApiHelper.getGQLHeaders(applicationContext, true),
+            viewerId = viewerId,
+            channelId = channelId,
+            channelLogin = channelLogin,
+        )
+        val effectiveBadge = data.effectiveBadges.firstOrNull()
+        val globalBadges = (
+            data.availableGlobalBadges +
+                listOfNotNull(data.selectedGlobalBadge)
+            )
+            .distinctBy { it.key }
+        val state = ChatIdentityState(
+            loadedChannelId = channelId,
+            displayName = data.displayName,
+            nameColor = data.nameColor,
+            effectiveBadge = effectiveBadge,
+            globalBadges = globalBadges,
+            selectedGlobalBadge = data.selectedGlobalBadge?.key,
+            subscriberBadge = data.subscriberBadge,
+            isSubscribed = data.isSubscribed,
+            channelBadges = data.channelBadges,
+            useCustomChannelBadge = data.selectedChannelBadge != null,
+            selectedChannelBadge = data.selectedChannelBadge?.key,
+            campaigns = data.campaigns,
+            badgeSelectionAvailable = true,
+            channelBadgeOverrideAvailable = true,
+            canUseCustomNameColor = data.canUseCustomNameColor,
+        )
+        chatIdentityCache[channelId] = CachedChatIdentity(SystemClock.elapsedRealtime(), state)
+        if (_chatIdentityState.value.loadedChannelId == channelId) {
+            _chatIdentityState.value = state
+        }
     }
 
     fun startLive(
@@ -2155,6 +2371,10 @@ class ChatViewModel(
         val sessionToken = predictionSessionToken
         started = true
         _connectionState.value = ConnectionState.CONNECTING
+        if (_chatIdentityState.value.loadedChannelId != channelId) {
+            chatIdentityLoadJob?.cancel()
+            _chatIdentityState.value = ChatIdentityState(loadedChannelId = channelId)
+        }
         activeChannelId = channelId
         activeChannelLogin = channelLogin
         val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
@@ -5249,6 +5469,7 @@ class ChatViewModel(
     }
 
     companion object {
+        private const val CHAT_IDENTITY_CACHE_TTL_MS = 5 * 60 * 1000L
         private const val WATCH_STREAK_RECONCILIATION_DELAY_MILLIS = 750L
         private val CHANNEL_POINTS_RECONCILIATION_DELAYS_MILLIS = listOf(750L, 3_000L, 10_000L, 20_000L)
         private const val METERED_CACHE_MAX_AGE_MS = 604_800_000L
