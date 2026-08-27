@@ -136,6 +136,19 @@ class AppDatabaseMigrationTest {
         database.close()
     }
 
+    @Test
+    fun migrateVersion50ShownNotificationsPreservesLegacyRows() {
+        val name = "migration-v50-shown-notifications.db"
+        prepareVersion50ShownNotificationsDatabase(name)
+
+        val database = openMigratedDatabase(name)
+        val shown = database.shownNotifications().getAll().single()
+        assertEquals("A", shown.channelId)
+        assertEquals("legacy:A:1000", shown.streamId)
+        assertEquals(1000L, shown.startedAt)
+        database.close()
+    }
+
     private fun openMigratedDatabase(name: String): AppDatabase {
         return Room.databaseBuilder(context, AppDatabase::class.java, name)
             .addMigrations(
@@ -187,6 +200,7 @@ class AppDatabaseMigrationTest {
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_notification_events_queuedAt ON notification_events(queuedAt)")
                 },
                 GameFeedMigrations.FROM_49,
+                NotificationMigrations.FROM_50,
             )
             .build()
             .also { it.openHelper.writableDatabase }
@@ -239,6 +253,18 @@ class AppDatabaseMigrationTest {
         sqlite.execSQL("DROP TABLE IF EXISTS game_feed_items")
         sqlite.execSQL("DROP TABLE IF EXISTS game_feed_states")
         sqlite.execSQL("PRAGMA user_version = 49")
+        database.close()
+    }
+
+    private fun prepareVersion50ShownNotificationsDatabase(name: String) {
+        context.deleteDatabase(name)
+        databaseNames += name
+        val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
+        val sqlite = database.openHelper.writableDatabase
+        sqlite.execSQL("DROP TABLE shown_notifications")
+        sqlite.execSQL("CREATE TABLE shown_notifications (channelId TEXT NOT NULL, startedAt INTEGER NOT NULL, PRIMARY KEY (channelId))")
+        sqlite.execSQL("INSERT INTO shown_notifications (channelId, startedAt) VALUES ('A', 1000)")
+        sqlite.execSQL("PRAGMA user_version = 50")
         database.close()
     }
 

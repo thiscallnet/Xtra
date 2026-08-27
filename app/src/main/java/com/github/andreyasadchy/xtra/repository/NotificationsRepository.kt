@@ -63,6 +63,8 @@ internal enum class NotificationUserSyncResult {
     PREFERENCE_TRANSIENT_FAILURE,
 }
 
+internal typealias LiveNotificationStreamsProvider = suspend () -> List<Stream>
+
 private data class GraphQlFollowedChannels(
     val followedIds: Set<String>,
     val preferenceEnabledIds: Set<String>,
@@ -84,7 +86,10 @@ class NotificationsRepository(
     private val notificationEventsDao: NotificationEventsDao,
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
+    private val liveNotificationStreamsProvider: LiveNotificationStreamsProvider? = null,
 ) {
+
+    private val liveNotificationDeduplicator = LiveNotificationDeduplicator(shownNotificationsDao)
 
     suspend fun getNewStreams(
         networkLibrary: String?,
@@ -107,7 +112,9 @@ class NotificationsRepository(
         ) {
             return@withContext emptyList()
         }
-        if (notificationIds.isNotEmpty()) {
+        if (liveNotificationStreamsProvider != null) {
+            list.addAll(liveNotificationStreamsProvider.invoke())
+        } else if (notificationIds.isNotEmpty()) {
             val localStreams = if (preferHelix && !helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                 try {
                     apiUsed = C.HELIX
@@ -140,7 +147,7 @@ class NotificationsRepository(
             }
             list.addAll(localStreams)
         }
-        if (includeFollowedStreams && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+        if (liveNotificationStreamsProvider == null && includeFollowedStreams && !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             try {
                 if (apiUsed == "none") {
                     apiUsed = C.GQL
@@ -156,24 +163,7 @@ class NotificationsRepository(
                 }
             }
         }
-        val liveStreams = list.distinctBy { it.channelId ?: it.id }
-        val liveList = liveStreams.mapNotNull { stream ->
-            stream.channelId.takeUnless { it.isNullOrBlank() }?.let { channelId ->
-                stream.startedAtMillis()?.let { startedAt ->
-                    ShownNotification(channelId, startedAt)
-                }
-            }
-        }
-        val oldList = shownNotificationsDao.getAll()
-        oldList.filter { item -> liveList.find { it.channelId == item.channelId } == null }.let {
-            shownNotificationsDao.deleteList(it)
-        }
-        val oldByChannel = oldList.associateBy { it.channelId }
-        val newStreams = liveStreams.filter { stream ->
-            val channelId = stream.channelId ?: return@filter false
-            val startedAt = stream.startedAtMillis() ?: return@filter false
-            oldByChannel[channelId]?.startedAt?.let { it >= startedAt } != true
-        }
+        val newStreams = liveNotificationDeduplicator.processStreams(list)
         val notificationStreams = if (enqueueNotificationEvents) {
             enrichNewStreamsWithProfiles(
                 streams = newStreams,
@@ -188,7 +178,6 @@ class NotificationsRepository(
                 stream.startedAtMillis()?.let { NotificationEvent.fromStream(stream, it) }
             }.let(notificationEventsDao::insertList)
         }
-        shownNotificationsDao.insertList(liveList)
         onApiUsed?.invoke(apiUsed)
         notificationStreams
     }
@@ -364,21 +353,25 @@ class NotificationsRepository(
                 )
             items.mapNotNull { item ->
                 item?.node?.let {
+                    val stream = it.stream ?: return@let null
+                    val streamId = stream.id?.takeIf { id -> id.isNotBlank() } ?: return@let null
+                    val createdAt = stream.createdAt?.toString()?.takeIf { value -> value.isNotBlank() }
+                        ?: return@let null
                     if (it.self?.follower?.notificationSettings?.isEnabled == true) {
                         Stream(
-                            id = it.stream?.id,
+                            id = streamId,
                             channelId = it.id,
                             channelLogin = it.login,
                             channelName = it.displayName,
                             channelImageURL = it.profileImageURL,
-                            gameId = it.stream?.game?.id,
-                            gameSlug = it.stream?.game?.slug,
-                            gameName = it.stream?.game?.displayName,
-                            title = it.stream?.broadcaster?.broadcastSettings?.title,
-                            thumbnailURL = it.stream?.previewImageURL,
-                            createdAt = it.stream?.createdAt?.toString(),
-                            viewerCount = it.stream?.viewersCount,
-                            tags = it.stream?.freeformTags?.mapNotNull { tag -> tag.name },
+                            gameId = stream.game?.id,
+                            gameSlug = stream.game?.slug,
+                            gameName = stream.game?.displayName,
+                            title = stream.broadcaster?.broadcastSettings?.title,
+                            thumbnailURL = stream.previewImageURL,
+                            createdAt = createdAt,
+                            viewerCount = stream.viewersCount,
+                            tags = stream.freeformTags?.mapNotNull { tag -> tag.name },
                         )
                     } else null
                 }
@@ -415,7 +408,7 @@ class NotificationsRepository(
         }
         return items.mapNotNull { item ->
             item?.let {
-                if (it.stream?.viewersCount != null) {
+                if (it.stream?.viewersCount != null && !it.stream.id.isNullOrBlank()) {
                     Stream(
                         id = it.stream.id,
                         channelId = it.id,
@@ -472,7 +465,7 @@ class NotificationsRepository(
             }
         }
         return items.mapNotNull {
-            if (it.viewerCount != null) {
+            if (it.viewerCount != null && !it.id.isNullOrBlank() && !it.startedAt.isNullOrBlank()) {
                 Stream(
                     id = it.id,
                     channelId = it.channelId,
