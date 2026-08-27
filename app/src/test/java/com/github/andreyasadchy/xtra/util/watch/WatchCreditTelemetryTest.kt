@@ -8,16 +8,20 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 
 class WatchCreditTelemetryTest {
     @Test
     fun minuteWatchedPayloadUsesAnEventArray() {
         val payload = WatchCreditTelemetry.buildMinuteWatchedPayload(
-            WatchCreditSession(
-                broadcastId = "broadcast-1",
+            TwitchWatchSession(
                 channelId = "channel-1",
                 channelLogin = "channel",
+                streamId = "broadcast-1",
                 userId = "user-1",
+                sessionId = "session-1",
             ),
             clientTimeMillis = 1_704_116_262_123L,
         )
@@ -40,6 +44,23 @@ class WatchCreditTelemetryTest {
         assertEquals("true", properties["logged_in"]?.jsonPrimitive?.content)
         assertEquals("false", properties["hidden"]?.jsonPrimitive?.content)
         assertEquals("false", properties["muted"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun spadeFormBodyUrlEncodesBase64Value() {
+        val payload = "{\"value\":\"\u00BE\u00BF\u00BF\",\"x\":\"\"}"
+        val formBody = encodeSpadeFormBody(payload).toString(StandardCharsets.UTF_8)
+        val encodedValue = formBody.removePrefix("data=")
+
+        assertTrue(encodedValue.contains("%2B"))
+        assertTrue(encodedValue.contains("%2F"))
+        assertTrue(encodedValue.contains("%3D"))
+
+        val base64 = URLDecoder.decode(encodedValue, StandardCharsets.UTF_8.name())
+        assertEquals(
+            payload,
+            Base64.getDecoder().decode(base64).toString(StandardCharsets.UTF_8),
+        )
     }
 
     @Test

@@ -14,7 +14,6 @@ import org.json.JSONObject
 import java.util.Timer
 import javax.net.ssl.X509TrustManager
 import kotlin.concurrent.schedule
-import kotlin.concurrent.scheduleAtFixedRate
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -35,7 +34,6 @@ class HermesWebSocket(
     private var webSocket: WebSocket? = null
     private var pongTimer: Timer? = null
     private var timeout = 15000L
-    private var minuteWatchedTimer: Timer? = null
     private var topics = emptyMap<String, String>()
     private val handledMessageIds = mutableListOf<String>()
     private var hasSubscribed = false
@@ -53,8 +51,6 @@ class HermesWebSocket(
     suspend fun disconnect(job: Job?) = withContext(Dispatchers.IO) {
         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes disconnect requested")
         pongTimer?.cancel()
-        minuteWatchedTimer?.cancel()
-        minuteWatchedTimer = null
         job?.cancel()
         webSocket?.disconnect()
     }
@@ -125,19 +121,6 @@ class HermesWebSocket(
         }
     }
 
-    private suspend fun startMinuteWatchedTimer() = withContext(Dispatchers.IO) {
-        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer started intervalMs=60000")
-        minuteWatchedTimer = Timer().apply {
-            scheduleAtFixedRate(60000, 60000) {
-                val scope = webSocket?.coroutineScope
-                Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer fired scopePresent=${scope != null}")
-                scope?.launch {
-                    listener.onMinuteWatched()
-                }
-            }
-        }
-    }
-
     interface Listener {
         suspend fun onConnect() {}
         /** Called after every topic (re-)subscription message has been sent. */
@@ -148,7 +131,6 @@ class HermesWebSocket(
         suspend fun onPointsEarned(message: JSONObject) {}
         suspend fun onPointsSpent(message: JSONObject) {}
         suspend fun onClaimAvailable() {}
-        suspend fun onMinuteWatched() {}
         suspend fun onRaidUpdate(message: JSONObject, openStream: Boolean) {}
         suspend fun onPollUpdate(message: JSONObject) {}
         suspend fun onPredictionUpdate(message: JSONObject) {}
@@ -254,11 +236,6 @@ class HermesWebSocket(
                         startPongTimer()
                         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes welcome received collectPoints=$collectPoints userIdPresent=${!userId.isNullOrBlank()} gqlTokenPresent=${!gqlToken.isNullOrBlank()}")
                         subscribe()
-                        if (collectPoints && !userId.isNullOrBlank() && !gqlToken.isNullOrBlank() && minuteWatchedTimer == null) {
-                            startMinuteWatchedTimer()
-                        } else if (collectPoints && minuteWatchedTimer == null) {
-                            Log.w(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer not started: missing userId or GQL token")
-                        }
                     }
                 }
             } catch (e: CancellationException) {

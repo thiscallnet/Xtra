@@ -3535,42 +3535,6 @@ class ChatViewModel(
             }
         }
 
-        override suspend fun onMinuteWatched() {
-            if (!isActiveWatchCreditSession()) {
-                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: inactive watch session")
-                return
-            }
-            if (!watchCreditLive) {
-                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: stream is offline")
-                return
-            }
-            var currentStreamId = streamId
-            Log.d(
-                WatchCreditTelemetry.LOG_TAG,
-                "watch heartbeat callback userIdPresent=${!accountId.isNullOrBlank()} channelIdPresent=${!channelId.isNullOrBlank()} channelLoginPresent=${!channelLogin.isNullOrBlank()} streamIdPresent=${!currentStreamId.isNullOrBlank()}",
-            )
-            if (currentStreamId.isNullOrBlank()) {
-                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat missing broadcastId; refreshing current stream")
-                currentStreamId = refreshWatchCreditStreamId("heartbeat")
-                if (currentStreamId.isNullOrBlank()) {
-                    Log.w(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: missing broadcastId")
-                    return
-                }
-            }
-            if (!watchCreditLive) {
-                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: stream went offline during refresh")
-                return
-            }
-            try {
-                val success = playerRepository.sendMinuteWatched(networkLibrary, accountId, currentStreamId, channelId, channelLogin)
-                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat completed success=$success")
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(WatchCreditTelemetry.LOG_TAG, "watch heartbeat failed", e)
-            }
-        }
-
         override suspend fun onRaidUpdate(message: JSONObject, openStream: Boolean) {
             if (showRaids) {
                 PubSubUtils.onRaidUpdate(message, openStream)?.let {

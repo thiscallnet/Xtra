@@ -151,8 +151,13 @@ class ExoPlayerService : BasePlaybackService() {
     private val liveClipBufferManager = LiveClipBufferManager()
     private var liveClipDataSourceFactory: DataSource.Factory? = null
     private var liveClipPreparation: Deferred<ClipPreparationRepository.PreparedLiveClip>? = null
-
     override fun isViewingPlaybackPlaying(): Boolean = player?.isPlaying == true
+
+    override fun isActuallyPlayingForWatchCredit(): Boolean = isWatchCreditPlaybackEligible(
+        type = type,
+        isPlaying = player?.isPlaying == true && player?.playbackState == Player.STATE_READY,
+        isBuffering = player?.playbackState == Player.STATE_BUFFERING,
+    )
 
     override fun isViewingPlaybackBuffering(): Boolean = player?.playbackState == Player.STATE_BUFFERING
 
@@ -315,6 +320,7 @@ class ExoPlayerService : BasePlaybackService() {
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    updateWatchTelemetryPlayback()
                     updatePlaybackState()
                     when (type) {
                         STREAM -> {
@@ -441,6 +447,7 @@ class ExoPlayerService : BasePlaybackService() {
                 }
 
                 override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
+                    updateWatchTelemetryPlayback()
                     updatePlaybackState()
                 }
 
@@ -450,11 +457,13 @@ class ExoPlayerService : BasePlaybackService() {
                         streamRecoveryJob = null
                         streamRecoveryAttempt = 0
                     }
+                    updateWatchTelemetryPlayback()
                     updatePlaybackState()
                     updateNotification()
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    updateWatchTelemetryPlayback()
                     updatePlaybackState()
                     if (isPlaying) {
                         if (savePositionTimer == null && type != STREAM) {
@@ -935,6 +944,8 @@ class ExoPlayerService : BasePlaybackService() {
         playlistUrlOverride: String? = null,
     ) {
         channelLogin?.let { channelLogin ->
+            watchTelemetryReporter.setActuallyPlaying(false)
+            refreshWatchStreamIdentityAsync("stream-load")
             logAd("load stream channel=$channelLogin override=${!playlistUrlOverride.isNullOrBlank()} restart=$restart")
             if (!playlistUrlOverride.isNullOrBlank()) {
                 playlistUrl = playlistUrlOverride
@@ -2400,6 +2411,7 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     override fun onDestroy() {
+        stopWatchTelemetry()
         releaseViewingStats()
         clearLiveClipState()
         streamRecoveryJob?.cancel()

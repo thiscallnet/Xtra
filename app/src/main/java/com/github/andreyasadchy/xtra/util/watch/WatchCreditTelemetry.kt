@@ -8,13 +8,17 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 
-data class WatchCreditSession(
-    val broadcastId: String,
-    val channelId: String,
-    val channelLogin: String,
-    val userId: String,
-)
+internal fun encodeSpadeFormBody(jsonPayload: String): ByteArray {
+    val base64 = Base64.getEncoder().encodeToString(
+        jsonPayload.toByteArray(StandardCharsets.UTF_8),
+    )
+    val encoded = URLEncoder.encode(base64, StandardCharsets.UTF_8.name())
+    return "data=$encoded".toByteArray(StandardCharsets.UTF_8)
+}
 
 object WatchCreditTelemetry {
     const val LOG_TAG = "XtraWatchCredit"
@@ -28,7 +32,7 @@ object WatchCreditTelemetry {
     )
 
     fun buildMinuteWatchedPayload(
-        session: WatchCreditSession,
+        session: TwitchWatchSession,
         clientTimeMillis: Long = System.currentTimeMillis(),
         game: String? = null,
         gameId: String? = null,
@@ -36,7 +40,7 @@ object WatchCreditTelemetry {
         add(buildJsonObject {
             put("event", "minute-watched")
             putJsonObject("properties") {
-                put("broadcast_id", session.broadcastId)
+                put("broadcast_id", session.streamId)
                 put("channel_id", session.channelId)
                 put("channel", session.channelLogin)
                 put("client_time", formatClientTime(clientTimeMillis))

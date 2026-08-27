@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.player
 
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.github.andreyasadchy.xtra.XtraModule
@@ -11,7 +12,13 @@ import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.model.stats.mergeViewingCategoryPatch
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.tokenPrefs
+import com.github.andreyasadchy.xtra.util.watch.TwitchWatchSession
+import com.github.andreyasadchy.xtra.util.watch.WatchTelemetryReporter
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
@@ -22,6 +29,24 @@ import kotlinx.serialization.json.encodeToJsonElement
 abstract class BasePlaybackService : LifecycleService() {
 
     lateinit var xtraModule: XtraModule
+
+    protected abstract fun isActuallyPlayingForWatchCredit(): Boolean
+
+    protected val watchTelemetryReporter by lazy {
+        WatchTelemetryReporter(
+            scope = lifecycleScope,
+            sendMinuteWatched = { watchSession ->
+                xtraModule.playerRepository.sendMinuteWatched(
+                    networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    session = watchSession,
+                )
+            },
+            isAuthenticated = { authenticatedWatchUserId() != null },
+            log = { message -> Log.d(WatchTelemetryReporter.LOG_TAG, message) },
+        )
+    }
+
+    private var watchStreamIdentityRefreshJob: Job? = null
 
     var type: String? = null
     var streamId: String? = null
@@ -61,6 +86,84 @@ abstract class BasePlaybackService : LifecycleService() {
     var chatUrl: String? = null
     var started = false
     var loaded = false
+
+    protected fun updateWatchTelemetryPlayback() {
+        val isActuallyPlaying = type == STREAM && isActuallyPlayingForWatchCredit()
+        if (isActuallyPlaying) {
+            val userId = authenticatedWatchUserId()
+            if (!userId.isNullOrBlank() && !channelId.isNullOrBlank() && !channelLogin.isNullOrBlank()) {
+                watchTelemetryReporter.start(
+                    TwitchWatchSession(
+                        channelId = channelId!!,
+                        channelLogin = channelLogin!!,
+                        streamId = streamId,
+                        userId = userId,
+                    ),
+                )
+            }
+        }
+        watchTelemetryReporter.setActuallyPlaying(isActuallyPlaying)
+    }
+
+    protected fun refreshWatchStreamIdentityAsync(reason: String) {
+        val expectedChannelId = channelId ?: return
+        val expectedChannelLogin = channelLogin ?: return
+        watchStreamIdentityRefreshJob?.cancel()
+        watchStreamIdentityRefreshJob = lifecycleScope.launch {
+            val resolvedStreamId = try {
+                xtraModule.graphQLRepository.loadQueryUsersStream(
+                    networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    headers = TwitchApiHelper.getGQLHeaders(
+                        this@BasePlaybackService,
+                        includeToken = true,
+                    ),
+                    ids = listOf(expectedChannelId),
+                    logins = null,
+                ).data?.users?.firstOrNull()?.stream?.id
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(
+                    WatchTelemetryReporter.LOG_TAG,
+                    "WatchSession stream identity refresh failed " +
+                        "reason=$reason channel=$expectedChannelId " +
+                        "error=${e.javaClass.simpleName}",
+                )
+                null
+            }
+
+            acceptedWatchStreamId(
+                expectedChannelId = expectedChannelId,
+                expectedChannelLogin = expectedChannelLogin,
+                currentChannelId = channelId,
+                currentChannelLogin = channelLogin,
+                currentStreamId = streamId,
+                resolvedStreamId = resolvedStreamId,
+            )?.let { acceptedStreamId ->
+                Log.d(
+                    WatchTelemetryReporter.LOG_TAG,
+                    "WatchSession broadcast changed " +
+                        "old=${streamId ?: "null"} new=$acceptedStreamId",
+                )
+                streamId = acceptedStreamId
+                watchTelemetryReporter.stop()
+                updateWatchTelemetryPlayback()
+            }
+        }
+    }
+
+    protected fun stopWatchTelemetry() {
+        watchStreamIdentityRefreshJob?.cancel()
+        watchStreamIdentityRefreshJob = null
+        watchTelemetryReporter.stop()
+    }
+
+    private fun authenticatedWatchUserId(): String? {
+        val userId = tokenPrefs().getString(C.USER_ID, null)?.takeIf { it.isNotBlank() } ?: return null
+        val gqlToken = TwitchApiHelper.getGQLHeaders(this, includeToken = true)[C.HEADER_TOKEN]
+        val helixToken = TwitchApiHelper.getHelixHeaders(this)[C.HEADER_TOKEN]
+        return userId.takeIf { !gqlToken.isNullOrBlank() || !helixToken.isNullOrBlank() }
+    }
 
     protected suspend fun restorePlaybackState() {
         val savedState = xtraModule.playbackPersistence.takePlaybackState()

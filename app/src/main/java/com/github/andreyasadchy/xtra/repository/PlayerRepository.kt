@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.net.http.HttpEngine
 import android.net.http.ProxyOptions
-import android.util.Base64
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
@@ -50,8 +49,9 @@ import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
-import com.github.andreyasadchy.xtra.util.watch.WatchCreditSession
 import com.github.andreyasadchy.xtra.util.watch.WatchCreditTelemetry
+import com.github.andreyasadchy.xtra.util.watch.TwitchWatchSession
+import com.github.andreyasadchy.xtra.util.watch.encodeSpadeFormBody
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -114,7 +114,7 @@ class PlayerRepository(
     )
 
     private data class CachedSpadeEndpoint(
-        val session: WatchCreditSession,
+        val session: TwitchWatchSession,
         val url: String,
     )
 
@@ -803,33 +803,24 @@ class PlayerRepository(
 
     suspend fun sendMinuteWatched(
         networkLibrary: String?,
-        userId: String?,
-        streamId: String?,
-        channelId: String?,
-        channelLogin: String?,
+        session: TwitchWatchSession,
     ): Boolean = withContext(Dispatchers.IO) {
         watchCreditMutex.withLock {
-            if (userId.isNullOrBlank() || streamId.isNullOrBlank() || channelId.isNullOrBlank() || channelLogin.isNullOrBlank()) {
+            if (session.userId.isBlank() || session.streamId.isNullOrBlank() || session.channelId.isBlank() || session.channelLogin.isBlank()) {
                 Log.w(
                     WatchCreditTelemetry.LOG_TAG,
-                    "watch heartbeat skipped: missing userId=${!userId.isNullOrBlank()} broadcastId=${!streamId.isNullOrBlank()} channelId=${!channelId.isNullOrBlank()} channelLogin=${!channelLogin.isNullOrBlank()}",
+                    "watch telemetry skipped: incomplete authenticated playback session",
                 )
                 return@withLock false
             }
 
-            val session = WatchCreditSession(
-                broadcastId = streamId,
-                channelId = channelId,
-                channelLogin = channelLogin,
-                userId = userId,
-            )
             val cachedEndpoint = cachedSpadeEndpoint?.takeIf { it.session == session }
             if (cachedSpadeEndpoint != null && cachedEndpoint == null) {
                 Log.d(WatchCreditTelemetry.LOG_TAG, "watch session changed; invalidating cached Spade URL")
                 cachedSpadeEndpoint = null
             }
 
-            val spadeUrl = cachedEndpoint?.url ?: discoverSpadeUrl(networkLibrary, channelLogin)
+            val spadeUrl = cachedEndpoint?.url ?: discoverSpadeUrl(networkLibrary, session.channelLogin)
             if (spadeUrl.isNullOrBlank()) {
                 Log.w(WatchCreditTelemetry.LOG_TAG, "Spade URL discovery failed")
                 return@withLock false
@@ -840,29 +831,14 @@ class PlayerRepository(
             }
 
             val body = WatchCreditTelemetry.buildMinuteWatchedPayload(session)
-            val spadeRequest = "data=" + Base64.encodeToString(body.toByteArray(), Base64.NO_WRAP)
+            val spadeRequest = encodeSpadeFormBody(body)
             if (postMinuteWatched(networkLibrary, spadeUrl, spadeRequest)) {
                 return@withLock true
             }
 
-            if (cachedEndpoint == null) {
-                cachedSpadeEndpoint = null
-                return@withLock false
-            }
-
             cachedSpadeEndpoint = null
-            Log.w(WatchCreditTelemetry.LOG_TAG, "cached Spade URL failed; rediscovering and retrying once")
-            val retryUrl = discoverSpadeUrl(networkLibrary, channelLogin)
-            if (retryUrl.isNullOrBlank()) {
-                Log.w(WatchCreditTelemetry.LOG_TAG, "Spade URL rediscovery failed after heartbeat failure")
-                return@withLock false
-            }
-            cachedSpadeEndpoint = CachedSpadeEndpoint(session, retryUrl)
-            val retrySucceeded = postMinuteWatched(networkLibrary, retryUrl, spadeRequest)
-            if (!retrySucceeded) {
-                cachedSpadeEndpoint = null
-            }
-            retrySucceeded
+            Log.w(WatchCreditTelemetry.LOG_TAG, "Spade endpoint failed; it will be rediscovered for a future minute")
+            false
         }
     }
 
@@ -904,7 +880,9 @@ class PlayerRepository(
                             url,
                             cronetExecutor.value,
                             NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
-                        ).build()
+                        ).apply {
+                            addHeader("User-Agent", "Xtra/${BuildConfig.VERSION_NAME}")
+                        }.build()
                         timeout.start(request, continuation)
                         request.start()
                         continuation.invokeOnCancellation {
@@ -932,7 +910,10 @@ class PlayerRepository(
                     WatchCreditHttpResponse(response.info.httpStatusCode, response.body.decodeToString())
                 }
                 else -> {
-                    okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
+                    okHttpClient.value.newCall(Request.Builder().apply {
+                        url(url)
+                        header("User-Agent", "Xtra/${BuildConfig.VERSION_NAME}")
+                    }.build()).executeAsync().use { response ->
                         WatchCreditHttpResponse(response.code, response.body.string())
                     }
                 }
@@ -951,7 +932,7 @@ class PlayerRepository(
     private suspend fun postMinuteWatched(
         networkLibrary: String?,
         spadeUrl: String,
-        spadeRequest: String,
+        spadeRequest: ByteArray,
     ): Boolean {
         return try {
             val statusCode = when {
@@ -963,8 +944,9 @@ class PlayerRepository(
                             cronetExecutor.value,
                             NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
                         ).apply {
+                            addHeader("User-Agent", "Xtra/${BuildConfig.VERSION_NAME}")
                             addHeader("Content-Type", "application/x-www-form-urlencoded")
-                            setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(spadeRequest.toByteArray()), cronetExecutor.value)
+                            setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(spadeRequest), cronetExecutor.value)
                         }.build()
                         timeout.start(request, continuation)
                         request.start()
@@ -983,8 +965,9 @@ class PlayerRepository(
                             NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
                             cronetExecutor.value,
                         ).apply {
+                            addHeader("User-Agent", "Xtra/${BuildConfig.VERSION_NAME}")
                             addHeader("Content-Type", "application/x-www-form-urlencoded")
-                            setUploadDataProvider(UploadDataProviders.create(spadeRequest.toByteArray()), cronetExecutor.value)
+                            setUploadDataProvider(UploadDataProviders.create(spadeRequest), cronetExecutor.value)
                         }.build()
                         timeout.start(request, continuation)
                         request.start()
@@ -998,6 +981,7 @@ class PlayerRepository(
                 else -> {
                     okHttpClient.value.newCall(Request.Builder().apply {
                         url(spadeUrl)
+                        header("User-Agent", "Xtra/${BuildConfig.VERSION_NAME}")
                         header("Content-Type", "application/x-www-form-urlencoded")
                         post(spadeRequest.toRequestBody())
                     }.build()).executeAsync().use { response ->

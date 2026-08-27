@@ -106,6 +106,12 @@ class MediaPlayerService : BasePlaybackService() {
 
     override fun isViewingPlaybackBuffering(): Boolean = playerBuffering
 
+    override fun isActuallyPlayingForWatchCredit(): Boolean = isWatchCreditPlaybackEligible(
+        type = type,
+        isPlaying = runCatching { player?.isPlaying == true }.getOrDefault(false),
+        isBuffering = playerBuffering,
+    )
+
     interface PlayerListener {
         fun onPrepared(player: MediaPlayer)
         fun onSeekComplete(player: MediaPlayer)
@@ -332,19 +338,23 @@ class MediaPlayerService : BasePlaybackService() {
                 playerListener?.onSeekComplete(player)
             }
             player.setOnCompletionListener { player ->
+                playerBuffering = false
                 updatePlaybackState()
                 updateNotification()
+                updateWatchTelemetryPlayback()
                 playerListener?.onCompletion(player)
             }
             player.setOnInfoListener { player, what, extra ->
                 when (what) {
                     MediaPlayer.MEDIA_INFO_BUFFERING_START -> {
                         playerBuffering = true
+                        updateWatchTelemetryPlayback()
                         updatePlaybackState()
                         updateNotification()
                     }
                     MediaPlayer.MEDIA_INFO_BUFFERING_END -> {
                         playerBuffering = false
+                        updateWatchTelemetryPlayback()
                         updatePlaybackState()
                         updateNotification()
                     }
@@ -357,6 +367,7 @@ class MediaPlayerService : BasePlaybackService() {
             }
             player.setOnErrorListener { player, what, extra ->
                 playerBuffering = false
+                updateWatchTelemetryPlayback()
                 updatePlaybackState()
                 updateNotification()
                 if (type == STREAM) {
@@ -534,6 +545,8 @@ class MediaPlayerService : BasePlaybackService() {
     private suspend fun loadStream(restorePauseState: Boolean = false, restart: Boolean = false) {
         streamPlaybackRequested = !restorePauseState || !paused
         channelLogin?.let { channelLogin ->
+            watchTelemetryReporter.setActuallyPlaying(false)
+            refreshWatchStreamIdentityAsync("stream-load")
             if (restart || qualities.isNullOrEmpty()) {
                 val proxyUrl = prefs().getString(C.PLAYER_PROXY_URL, "")
                 if (useCustomProxy && !proxyUrl.isNullOrBlank()) {
@@ -1263,6 +1276,7 @@ class MediaPlayerService : BasePlaybackService() {
         quality = selectedQuality
         quality?.let { quality ->
             player?.let { player ->
+                watchTelemetryReporter.setActuallyPlaying(false)
                 when (quality.name) {
                     AUDIO_ONLY_QUALITY -> {
                         serviceListener?.changeSurfaceVisibility(false)
@@ -1890,6 +1904,7 @@ class MediaPlayerService : BasePlaybackService() {
     }
 
     fun updatePlayingState(updatePlaybackIntent: Boolean = true) {
+        updateWatchTelemetryPlayback()
         updatePlaybackState()
         updateNotification()
         player?.let { player ->
@@ -2011,6 +2026,7 @@ class MediaPlayerService : BasePlaybackService() {
     }
 
     override fun onDestroy() {
+        stopWatchTelemetry()
         releaseViewingStats()
         super.onDestroy()
         streamRecoveryJob?.cancel()
