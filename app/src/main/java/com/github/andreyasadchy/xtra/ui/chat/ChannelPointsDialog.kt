@@ -50,6 +50,7 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.chat.PollState
+import com.github.andreyasadchy.xtra.util.chat.PredictionBetPolicy
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.button.MaterialButton
@@ -749,8 +750,9 @@ class ChannelPointsDialog : DialogFragment() {
         }.joinToString(" · ")
         binding.predictionCardMeta.isVisible = binding.predictionCardMeta.text.isNotBlank()
 
-        val twoOutcomePrediction = outcomes.size == 2 && outcomes.all { !it.id.isNullOrBlank() }
-        binding.predictionOutcomes.orientation = if (twoOutcomePrediction) {
+        val compactPredictionLayout = outcomes.size == 2
+        val wagerablePrediction = PredictionBetPolicy.isPredictionWagerable(outcomes.map { it.id })
+        binding.predictionOutcomes.orientation = if (compactPredictionLayout) {
             LinearLayout.HORIZONTAL
         } else {
             LinearLayout.VERTICAL
@@ -771,7 +773,8 @@ class ChannelPointsDialog : DialogFragment() {
             )
         }
 
-        val canBet = isBettingOpen && twoOutcomePrediction && listener.canBetPrediction()
+        val canBetAvailable = listener.canBetPrediction()
+        val canBet = isBettingOpen && wagerablePrediction && canBetAvailable
         if (binding.predictionBetRow.isVisible != canBet) {
             binding.predictionBetRow.isVisible = canBet
         }
@@ -782,8 +785,8 @@ class ChannelPointsDialog : DialogFragment() {
                 R.string.channel_points_prediction_bet_selected,
                 numberFormat.format(predictionBetState.amount ?: 0),
             )
-            isBettingOpen && !listener.canBetPrediction() -> getString(R.string.channel_points_prediction_bet_login)
-            isBettingOpen && !twoOutcomePrediction -> getString(R.string.channel_points_prediction_bet_unavailable)
+            isBettingOpen && !canBetAvailable -> getString(R.string.channel_points_prediction_bet_login)
+            isBettingOpen && !wagerablePrediction -> getString(R.string.channel_points_prediction_bet_unavailable)
             isBettingOpen && channelPoints != null && channelPoints.balance < MIN_PREDICTION_POINTS -> getString(
                 R.string.channel_points_prediction_bet_balance,
                 numberFormat.format(channelPoints.balance),
@@ -801,18 +804,51 @@ class ChannelPointsDialog : DialogFragment() {
                 }
                 setSelectAllOnFocus(true)
             }
-            binding.predictionBetLeft.text = outcomes[0].title
-            binding.predictionBetRight.text = outcomes[1].title
-            stylePredictionButton(binding.predictionBetLeft, BLUE_PREDICTION_COLOR)
-            stylePredictionButton(binding.predictionBetRight, PINK_PREDICTION_COLOR)
-            binding.predictionBetLeft.isEnabled = !betInFlight && selectedOutcomeId == null
-            binding.predictionBetRight.isEnabled = !betInFlight && selectedOutcomeId == null
-            binding.predictionBetLeft.setOnClickListener {
-                placePredictionBet(binding.predictionBetAmount, outcomes[0].id)
+            renderPredictionBetChoices(
+                prediction = prediction,
+                enabled = !betInFlight,
+            )
+            for (i in 0 until binding.predictionBetChoices.childCount) {
+                val button = binding.predictionBetChoices.getChildAt(i) as? MaterialButton ?: continue
+                val candidateOutcomeId = button.tag as? String
+                button.isEnabled = PredictionBetPolicy.canBetOutcome(
+                    selectedOutcomeId = selectedOutcomeId,
+                    candidateOutcomeId = candidateOutcomeId,
+                    inFlight = betInFlight,
+                )
             }
-            binding.predictionBetRight.setOnClickListener {
-                placePredictionBet(binding.predictionBetAmount, outcomes[1].id)
+        } else {
+            binding.predictionBetChoices.removeAllViews()
+        }
+    }
+
+    private fun renderPredictionBetChoices(prediction: Prediction, enabled: Boolean) {
+        val container = binding.predictionBetChoices
+        container.removeAllViews()
+        val outcomes = prediction.outcomes.orEmpty()
+        outcomes.forEach { outcome ->
+            val outcomeId = outcome.id ?: return@forEach
+            val buttonColor = when {
+                outcome.color.equals("PINK", true) -> PINK_PREDICTION_COLOR
+                outcome.color.equals("BLUE", true) -> BLUE_PREDICTION_COLOR
+                else -> BLUE_PREDICTION_COLOR
             }
+            val button = MaterialButton(requireContext()).apply {
+                text = outcome.title
+                tag = outcomeId
+                isEnabled = enabled
+                stylePredictionButton(this, buttonColor)
+                setOnClickListener {
+                    placePredictionBet(binding.predictionBetAmount, outcomeId)
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    bottomMargin = dp(4)
+                }
+            }
+            container.addView(button)
         }
     }
 

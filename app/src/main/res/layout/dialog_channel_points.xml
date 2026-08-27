@@ -124,18 +124,9 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical"
                     android:visibility="gone">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/predictionBetLeft"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:maxLines="2"
-                        android:textAllCaps="false"
-                        tools:text="Yes, he will win" />
 
                     <EditText
                         android:id="@+id/predictionBetAmount"
@@ -150,14 +141,11 @@
                         android:selectAllOnFocus="true"
                         android:textSize="16sp" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/predictionBetRight"
-                        android:layout_width="0dp"
+                    <LinearLayout
+                        android:id="@+id/predictionBetChoices"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:maxLines="2"
-                        android:textAllCaps="false"
-                        tools:text="No, he will lose" />
+                        android:orientation="vertical" />
                 </LinearLayout>
 
                 <TextView
