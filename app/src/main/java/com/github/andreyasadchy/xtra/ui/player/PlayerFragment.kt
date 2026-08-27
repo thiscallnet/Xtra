@@ -119,6 +119,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     private var startTranslationY = 0f
     private var statusBarSwipe = false
     private var chatStatusBarSwipe = false
+    private var chatTouchActive = false
     private var isAnimating = false
     private var moveAnimation: ViewPropertyAnimator? = null
     protected var useController = true
@@ -581,6 +582,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
 
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
+                        chatTouchActive = true
                         chatStatusBarSwipe = !isPortrait && event.y <= 100
                         chatLinearLayout.dispatchTouchEvent(event)
                     }
@@ -595,7 +597,14 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                             chatLinearLayout.dispatchTouchEvent(event)
                         }
                     }
-                    else -> chatLinearLayout.dispatchTouchEvent(event)
+                    else -> {
+                        chatLinearLayout.dispatchTouchEvent(event)
+                        if (event.actionMasked == MotionEvent.ACTION_UP ||
+                            event.actionMasked == MotionEvent.ACTION_CANCEL
+                        ) {
+                            chatTouchActive = false
+                        }
+                    }
                 }
                 true
             }
@@ -1145,7 +1154,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             if (isInteractionLocked) {
                 setInteractionLocked(true, force = true)
             }
-            updateInteractionLockBackCallback()
             view?.post {
                 if (isInteractionLocked && view != null) {
                     updateInteractionLockBackCallback()
@@ -1843,8 +1851,26 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             return
         }
 
-        isInteractionLocked = locked
         val currentBinding = _binding ?: return
+        if (locked && !isInteractionLocked) {
+            if (chatTouchActive) {
+                MotionEvent.obtain(
+                    SystemClock.uptimeMillis(),
+                    SystemClock.uptimeMillis(),
+                    MotionEvent.ACTION_CANCEL,
+                    0f,
+                    0f,
+                    0,
+                ).also { cancelEvent ->
+                    currentBinding.chatLinearLayout.dispatchTouchEvent(cancelEvent)
+                    cancelEvent.recycle()
+                }
+                chatTouchActive = false
+            }
+            currentBinding.chatLayout.findViewById<RecyclerView>(R.id.recyclerView)?.stopScroll()
+        }
+
+        isInteractionLocked = locked
         with(currentBinding) {
             playerLayout.interactionUnlockView = playerControls.interactionLock
             playerLayout.interactionLocked = locked
