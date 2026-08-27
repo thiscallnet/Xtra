@@ -284,9 +284,7 @@ class StreamPreviewCoordinator(
             lifecycleReconciler.reconcile(now, additionalDeadlines = failedUntil.values)
         }
         if (active == null) {
-            surface.removeAllViews()
-            surface.alpha = 0f
-            surface.visibility = View.GONE
+            clearPreviewSurface(surface)
         }
     }
 
@@ -695,11 +693,21 @@ class StreamPreviewCoordinator(
             .flatMap { it.candidates }
             .map { it.surface }
             .distinct()
-            .forEach { surface ->
-                surface.removeAllViews()
-                surface.alpha = 0f
-                surface.visibility = View.GONE
+            .forEach(::clearPreviewSurface)
+    }
+
+    private fun clearPreviewSurface(surface: FrameLayout) {
+        previewTargetGenerations.invalidate(surface)
+        for (index in surface.childCount - 1 downTo 0) {
+            val child = surface.getChildAt(index)
+            if (child is PlayerView && child.player != null) {
+                logVideoSurfaceBinding("preview_detach", child.player, child, child.player)
+                child.player = null
             }
+            surface.removeViewAt(index)
+        }
+        surface.alpha = 0f
+        surface.visibility = View.GONE
     }
 
     private fun stopActivePreviews() {

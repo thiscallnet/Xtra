@@ -717,7 +717,6 @@ class ExoPlayerFragment : PlayerFragment() {
         liveSurfaceRestoreListener?.let(livePlayer::removeListener)
         liveSurfaceRestoreListener = null
         livePlaybackBeforeClipEditor = null
-        detachVideoOutput(livePlayer)
         binding.clipEditorTransitionCover.visibility = View.GONE
         clipDebug("live first frame/timeout cover hidden")
     }
