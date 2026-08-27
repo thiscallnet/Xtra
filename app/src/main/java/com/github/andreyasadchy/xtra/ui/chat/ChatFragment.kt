@@ -487,6 +487,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         chatIdentity.isVisible = chatIdentityEnabled
                         chatIdentity.isEnabled = chatIdentityEnabled
                         if (chatIdentityEnabled) {
+                            viewModel.ensureChatIdentityLoaded(channelId, channelLogin)
                             viewLifecycleOwner.lifecycleScope.launch {
                                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                                     launch {

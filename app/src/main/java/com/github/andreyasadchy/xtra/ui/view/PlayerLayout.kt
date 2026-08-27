@@ -29,6 +29,14 @@ class PlayerLayout : FrameLayout {
             return super.onInterceptTouchEvent(event)
         }
 
+        // Once the controller has auto-hidden, let the player receive a tap so it
+        // can reveal the unlock button again. While the button is visible, keep
+        // every other control behind the lock.
+        if (interactionUnlockView?.isShown != true) {
+            unlockGesture = false
+            return false
+        }
+
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 unlockGesture = isInsideUnlockView(event)
