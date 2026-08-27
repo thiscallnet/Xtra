@@ -137,8 +137,8 @@ class FollowedChannelsAdapter(
                             userImage.setImageDrawable(null)
                             userImage.tag = imageKey
                         }
-                        restoreDecodedMemoryImage(imageKey, userImage)
-                        imageLoadScheduler.runOrDefer(this@PagingViewHolder, userImage) {
+                        val restored = restoreDecodedMemoryImage(imageKey, userImage)
+                        if (!restored) imageLoadScheduler.runOrDefer(this@PagingViewHolder, userImage) {
                             if (!binding.root.isAttachedToWindow || boundUserId != userId) return@runOrDefer
                             imageRequests.replace(
                                 userImage,

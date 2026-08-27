@@ -5,9 +5,7 @@ import android.util.LruCache
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Instant
@@ -32,9 +30,7 @@ internal data class ChannelCardPresentationKey(
 /** Keeps timestamp and display-name work off the RecyclerView bind path. */
 internal object ChannelCardPresentationCache {
     private const val MAX_ENTRIES = 512
-    private val scope = CoroutineScope(
-        SupervisorJob() + Dispatchers.Default.limitedParallelism(2),
-    )
+    private val scope = FeedPresentationDispatcher.scope
     private val lock = Any()
     private val cache = object : LruCache<ChannelCardPresentationKey, ChannelCardPresentation>(MAX_ENTRIES) {}
     private val pending = HashMap<ChannelCardPresentationKey, MutableList<(ChannelCardPresentation) -> Unit>>()

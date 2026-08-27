@@ -125,13 +125,13 @@ class FollowedGamesAdapter(
                     if (item.boxArt != null) {
                         gameImage.visibility = View.VISIBLE
                         val gameId = item.id
-                        val imageKey = "game:$gameId|${item.boxArt}"
+                        val imageKey = "xtra:game-boxart:$gameId|${item.boxArt}"
                         if (gameImage.tag != imageKey) {
                             gameImage.setImageDrawable(null)
                             gameImage.tag = imageKey
                         }
-                        restoreDecodedMemoryImage(imageKey, gameImage)
-                        imageLoadScheduler.runOrDefer(this@PagingViewHolder, gameImage) {
+                        val restored = restoreDecodedMemoryImage(imageKey, gameImage)
+                        if (!restored) imageLoadScheduler.runOrDefer(this@PagingViewHolder, gameImage) {
                             if (!binding.root.isAttachedToWindow || boundGameId != gameId) return@runOrDefer
                             imageRequests.replace(
                                 gameImage,

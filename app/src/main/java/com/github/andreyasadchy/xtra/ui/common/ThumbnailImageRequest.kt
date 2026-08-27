@@ -470,14 +470,31 @@ private fun restoreWarmStreamThumbnail(cacheKey: String, imageView: ImageView): 
  * The small ConstantState cache above remains a fallback for images Coil has
  * already evicted from its decoded cache.
  */
-internal fun restoreDecodedMemoryImage(cacheKey: String, imageView: ImageView): Boolean {
-    if (imageView.drawable != null) return false
+internal fun restoreDecodedMemoryImage(
+    cacheKey: String,
+    imageView: ImageView,
+): Boolean {
+    // Most generic feed holders use their image cache key as the ImageView
+    // tag. If this holder already has the correct drawable, there is
+    // literally nothing to do.
+    if (imageView.tag == cacheKey && imageView.drawable != null) {
+        return true
+    }
+
     val cachedImage = imageView.context.imageLoader.memoryCache
         ?.get(MemoryCache.Key(cacheKey))
         ?.image
         ?: return false
+
     imageView.setImageDrawable(cachedImage.asDrawable(imageView.resources))
-    if (BuildConfig.DEBUG) Log.d("StreamThumbnail", "memory_restore keyHash=${cacheKey.hashCode().toString(16)}")
+
+    if (BuildConfig.DEBUG) {
+        Log.d(
+            "StreamThumbnail",
+            "memory_restore keyHash=${cacheKey.hashCode().toString(16)}",
+        )
+    }
+
     return true
 }
 
@@ -718,7 +735,19 @@ internal fun restoreWarmStreamProfileImage(
 ): Boolean {
     val url = stream.channelImage ?: return false
     val preferences = FeedUiPreferencesStore.current(context)
+
     val requestKey = "${stream.streamIdentity()}|$url|round=${preferences.roundUserImage}"
+
+    // Stream profile ImageViews use streamIdentity() as their normal tag
+    // rather than requestKey, so check both identity and stored request key.
+    if (
+        imageView.tag == stream.streamIdentity() &&
+        imageView.getTag(R.id.stream_profile_request_key) == requestKey &&
+        imageView.drawable != null
+    ) {
+        return true
+    }
+
     return restoreDecodedMemoryImage(requestKey, imageView)
 }
 

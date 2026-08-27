@@ -106,8 +106,8 @@ class UpcomingStreamShelfAdapter(
                     binding.avatar.setImageDrawable(null)
                     binding.avatar.tag = avatarKey
                 }
-                restoreDecodedMemoryImage(avatarKey, binding.avatar)
-                imageLoadScheduler.runOrDefer(this@ViewHolder, binding.avatar) {
+                val avatarRestored = restoreDecodedMemoryImage(avatarKey, binding.avatar)
+                if (!avatarRestored) imageLoadScheduler.runOrDefer(this@ViewHolder, binding.avatar) {
                     if (!binding.root.isAttachedToWindow || boundItemId != item.id) return@runOrDefer
                     imageRequests.replace(binding.avatar, context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
                         data(avatarUrl)
@@ -136,8 +136,8 @@ class UpcomingStreamShelfAdapter(
                     binding.previewImage.setImageDrawable(null)
                     binding.previewImage.tag = previewKey
                 }
-                restoreDecodedMemoryImage(previewKey, binding.previewImage)
-                imageLoadScheduler.runOrDefer(this@ViewHolder, binding.previewImage) {
+                val previewRestored = restoreDecodedMemoryImage(previewKey, binding.previewImage)
+                if (!previewRestored) imageLoadScheduler.runOrDefer(this@ViewHolder, binding.previewImage) {
                     if (!binding.root.isAttachedToWindow || boundItemId != item.id) return@runOrDefer
                     imageRequests.replace(binding.previewImage, context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
                         data(previewUrl)

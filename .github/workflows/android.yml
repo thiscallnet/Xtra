@@ -114,6 +114,7 @@ jobs:
       run: bash .github/scripts/test-release-lookup.sh
 
     - name: Build with Gradle
+      id: build
       env:
         TWITCH_PUBLIC_CLIENT_ID: ${{ vars.TWITCH_PUBLIC_CLIENT_ID }}
       shell: bash
@@ -130,8 +131,21 @@ jobs:
         # Release and perf share almost all sources. Build them in separate
         # Gradle invocations so Kotlin does not compile both variants at the
         # same time and exhaust the GitHub runner heap.
-        ./gradlew --no-daemon :app:assembleRelease "${build_args[@]}"
-        ./gradlew --no-daemon :app:assemblePerf "${build_args[@]}"
+        # AGP's incremental universal-APK splitter can fail transiently after
+        # a packaging worker is interrupted. Avoid reusing a partial
+        # configuration-cache/package state and retry the complete variant
+        # once; real compilation failures still fail the job.
+        build_variant() {
+          local task="$1"
+          if ./gradlew --no-daemon --no-configuration-cache "$task" "${build_args[@]}"; then
+            return 0
+          fi
+          echo "${task} failed; retrying once after stopping Gradle daemons" >&2
+          ./gradlew --stop || true
+          ./gradlew --no-daemon --no-configuration-cache "$task" "${build_args[@]}"
+        }
+        build_variant :app:assembleRelease
+        build_variant :app:assemblePerf
 
     - name: Inspect release APK
       if: always()
@@ -151,6 +165,7 @@ jobs:
           sed -n '1,20p'
 
     - name: Verify release metadata against APK
+      id: verify-release-apk
       env:
         VERSION_NAME: ${{ steps.version.outputs.name }}
         VERSION_CODE: ${{ steps.version.outputs.code }}
@@ -232,7 +247,11 @@ jobs:
         fi
 
     - name: Upload a Build Artifact
-      if: always() && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+      if: >-
+        success() &&
+        steps.build.outcome == 'success' &&
+        steps.verify-release-apk.outcome == 'success' &&
+        (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       with:
         name: apk
