@@ -24,7 +24,6 @@ import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoor
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpec
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpecs
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedFreshnessPolicy
-import com.github.andreyasadchy.xtra.repository.streamfeed.toStream
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewLoadingType
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewSection
@@ -143,7 +142,7 @@ class DiscoverViewModel(
             streamFeedCache.activeItemsFlow(topStreamsSpec.key, STREAM_LIMIT).collect { items ->
                 topStreamsSection.update { current ->
                     current.copy(
-                        data = items.map { it.toStream() },
+                        data = items,
                         hasLoadedOnce = current.hasLoadedOnce || items.isNotEmpty(),
                         error = if (items.isNotEmpty()) null else current.error,
                     )
@@ -304,7 +303,7 @@ class DiscoverViewModel(
                 streamFeedCache.activeItemsFlow(spec.key, STREAM_LIMIT).collect { items ->
                     trendingStreamsSection.update { current ->
                         current.copy(
-                            data = items.map { it.toStream() },
+                            data = items,
                             hasLoadedOnce = current.hasLoadedOnce || items.isNotEmpty(),
                             error = if (items.isNotEmpty()) null else current.error,
                         )

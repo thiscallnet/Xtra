@@ -1,6 +1,5 @@
 package com.github.andreyasadchy.xtra.ui.common
 
-import android.text.format.DateUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -17,11 +16,12 @@ import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.XtraApp
-import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.prefs
-import kotlin.time.Clock
-import kotlin.time.Instant
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 class StreamsCompactAdapter(
     private val fragment: Fragment,
@@ -41,15 +41,39 @@ class StreamsCompactAdapter(
     }) {
 
     private val thumbnailLoadScheduler = StreamThumbnailIdleScheduler()
+    private val presentationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var presentationPrewarmJob: Job? = null
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
-        thumbnailLoadScheduler.attachTo(recyclerView)
+        attachImageScheduler(recyclerView)
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
-        thumbnailLoadScheduler.detach()
+        detachImageScheduler()
         super.onDetachedFromRecyclerView(recyclerView)
+    }
+
+    internal fun attachImageScheduler(recyclerView: RecyclerView) {
+        thumbnailLoadScheduler.attachTo(recyclerView)
+        presentationPrewarmJob?.cancel()
+        presentationPrewarmJob = presentationScope.launch {
+            onPagesUpdatedFlow.collectLatest {
+                val context = fragment.context ?: return@collectLatest
+                val preferences = FeedUiPreferencesStore.current(context)
+                StreamCardPresentationCache.prewarm(
+                    context = context,
+                    streams = snapshot().items.filterNotNull(),
+                    preferences = preferences,
+                ) {}
+            }
+        }
+    }
+
+    internal fun detachImageScheduler() {
+        presentationPrewarmJob?.cancel()
+        presentationPrewarmJob = null
+        thumbnailLoadScheduler.detach()
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PagingViewHolder {
@@ -72,12 +96,16 @@ class StreamsCompactAdapter(
     }
 
     override fun onViewRecycled(holder: PagingViewHolder) {
+        recycleViewHolder(holder)
+        super.onViewRecycled(holder)
+    }
+
+    internal fun recycleViewHolder(holder: PagingViewHolder) {
         (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
             .detachSurface(holder.previewSurface)
         holder.boundPreviewIdentity = null
         thumbnailLoadScheduler.clear(holder)
         holder.cancelImageWork()
-        super.onViewRecycled(holder)
     }
 
     inner class PagingViewHolder internal constructor(
@@ -99,6 +127,11 @@ class StreamsCompactAdapter(
             binding.username.setOnClickListener { boundStream?.let(::openChannel) }
             binding.gameName.setOnClickListener { boundStream?.let(::openGame) }
             binding.multiview.setOnClickListener { boundStream?.let(::openMultiview) }
+            tagViews.setOnTagClickListener { tag ->
+                boundStream?.let { stream ->
+                    if (onStreamClick != null) onStreamClick.invoke(stream) else selectTag(tag)
+                }
+            }
         }
 
         fun beginImageBind(item: Stream?) {
@@ -157,14 +190,23 @@ class StreamsCompactAdapter(
                 if (item != null) {
                     val context = fragment.requireContext()
                     val uiPreferences = FeedUiPreferencesStore.current(context)
+                    val presentation = StreamCardPresentationCache.get(item, uiPreferences)
+                    if (presentation == null) {
+                        StreamCardPresentationCache.request(context, item, uiPreferences) {
+                            if (boundStream === item && binding.root.isAttachedToWindow) {
+                                applyPresentation(it)
+                            }
+                        }
+                    }
                     val selectionMode = onStreamClick != null
                     multiview.visibility = if (selectionMode || item.channelLogin.isNullOrBlank()) View.GONE else View.VISIBLE
-                    if (item.channelImage != null) {
+                    if (presentation?.channelImage != null || item.channelImage != null) {
                         userImage.visibility = View.VISIBLE
                         userImage.contentDescription = item.channelName?.let {
                             context.getString(R.string.player_open_channel, it)
                         }
                         prepareStreamProfileImage(userImage, item)
+                        restoreWarmStreamProfileImage(context, userImage, item)
                         thumbnailLoadScheduler.runOrDefer(this@PagingViewHolder, binding.userImage) {
                             if (binding.root.isAttachedToWindow && boundImageIdentity == item.streamIdentity()) {
                                 loadStreamProfileImage(context, userImage, item)?.let {
@@ -178,24 +220,16 @@ class StreamsCompactAdapter(
                         userImage.setImageDrawable(null)
                         userImage.tag = null
                     }
-                    if (item.channelName != null) {
+                    if (presentation?.username != null || item.channelName != null) {
                         username.visibility = View.VISIBLE
-                        username.text = if (item.channelLogin != null && !item.channelLogin.equals(item.channelName, true)) {
-                            when (uiPreferences.nameDisplay) {
-                                "0" -> "${item.channelName}(${item.channelLogin})"
-                                "1" -> item.channelName
-                                else -> item.channelLogin
-                            }
-                        } else {
-                            item.channelName
-                        }
+                        username.text = presentation?.username ?: item.channelName
                     } else {
                         username.visibility = View.GONE
                     }
-                    val streamTitle = item.title
+                    val streamTitle = presentation?.title ?: item.title?.takeIf { it.isNotBlank() }
                     if (!streamTitle.isNullOrBlank()) {
                         title.visibility = View.VISIBLE
-                        title.text = streamTitle.trim()
+                        title.text = streamTitle
                     } else {
                         title.visibility = View.GONE
                     }
@@ -215,26 +249,14 @@ class StreamsCompactAdapter(
                         thumbnail.setImageDrawable(null)
                         thumbnail.tag = null
                     }
-                    if (item.viewerCount != null) {
+                    if (presentation?.viewerLabel != null || item.viewerCount != null) {
                         viewers.visibility = View.VISIBLE
-                        val count = item.viewerCount ?: 0
-                        viewers.text = context.resources.getQuantityString(
-                            R.plurals.viewers,
-                            count,
-                            TwitchApiHelper.formatCount(count, uiPreferences.truncateViewCount),
-                        )
+                        viewers.text = presentation?.viewerLabel ?: item.viewerCount?.toString()
                     } else {
                         viewers.visibility = View.GONE
                     }
-                    if (uiPreferences.showUptime && item.createdAt != null) {
-                        val text = item.createdAt?.let {
-                            Instant.parseOrNull(it)?.takeIf { time -> time.toEpochMilliseconds() > 0 }?.let { createdAt ->
-                                val uptime = Clock.System.now() - createdAt
-                                if (uptime.isPositive()) {
-                                    DateUtils.formatElapsedTime(uptime.inWholeSeconds)
-                                } else null
-                            }
-                        }
+                    if (presentation?.uptime != null || (uiPreferences.showUptime && item.createdAt != null)) {
+                        val text = presentation?.uptime
                         if (text != null) {
                             uptime.visibility = View.VISIBLE
                             uptime.text = text
@@ -244,16 +266,11 @@ class StreamsCompactAdapter(
                     } else {
                         uptime.visibility = View.GONE
                     }
-                    if (!item.tags.isNullOrEmpty() && uiPreferences.showTags) {
-                        bindStreamTags(tagViews, item.tags) { tag ->
-                            if (selectionMode) {
-                                onStreamClick.invoke(item)
-                            } else {
-                                selectTag(tag)
-                            }
-                        }
+                    val tags = presentation?.tags ?: if (uiPreferences.showTags) item.tags.orEmpty() else emptyList()
+                    if (tags.isNotEmpty()) {
+                        bindStreamTags(tagViews, tags)
                     } else {
-                        tagsLayout.visibility = View.GONE
+                        clearStreamTags(tagViews)
                     }
                 } else {
                     boundStream = null
@@ -269,6 +286,41 @@ class StreamsCompactAdapter(
                         clearStreamTags(tagViews)
                     tagsLayout.visibility = View.GONE
                     liveBadge.visibility = View.GONE
+                }
+            }
+        }
+
+        private fun applyPresentation(presentation: StreamCardPresentation) {
+            if (boundStream == null) return
+            with(binding) {
+                if (presentation.username != null) {
+                    username.visibility = View.VISIBLE
+                    username.text = presentation.username
+                } else {
+                    username.visibility = View.GONE
+                }
+                if (presentation.title != null) {
+                    title.visibility = View.VISIBLE
+                    title.text = presentation.title
+                } else {
+                    title.visibility = View.GONE
+                }
+                if (presentation.viewerLabel != null) {
+                    viewers.visibility = View.VISIBLE
+                    viewers.text = presentation.viewerLabel
+                } else {
+                    viewers.visibility = View.GONE
+                }
+                if (presentation.uptime != null) {
+                    uptime.visibility = View.VISIBLE
+                    uptime.text = presentation.uptime
+                } else {
+                    uptime.visibility = View.GONE
+                }
+                if (presentation.tags.isNotEmpty()) {
+                    bindStreamTags(tagViews, presentation.tags)
+                } else {
+                    clearStreamTags(tagViews)
                 }
             }
         }

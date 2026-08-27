@@ -146,8 +146,8 @@ internal class StreamThumbnailIdleScheduler {
         ) {
             // Prefetch can bind a holder before it is attached. Retain only
             // its latest recipe; onChildViewAttachedToWindow will enqueue it
-            // if the holder is still relevant.
-            if (recyclerView == null) work()
+            // if the holder is still relevant. Never start optional image
+            // work without a RecyclerView lifecycle/interaction gate.
         } else if (
             recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE && !UiInteractionGovernor.isInteracting.value
         ) {
@@ -263,7 +263,9 @@ internal class FeedImageRequestBag {
  * cancellation handle for both so a recycled holder can stop either stage,
  * including a fresh request scheduled by the cache-stage callback.
  */
-internal class StreamThumbnailRequestHandle {
+internal class StreamThumbnailRequestHandle(
+    private val onCancel: () -> Unit = {},
+) {
     private var disposable: Disposable? = null
     private var cancelled = false
 
@@ -279,9 +281,11 @@ internal class StreamThumbnailRequestHandle {
 
     @Synchronized
     fun cancel() {
+        if (cancelled) return
         cancelled = true
         disposable?.dispose()
         disposable = null
+        onCancel()
     }
 
     @Synchronized
@@ -356,12 +360,18 @@ private class StreamImageTarget(
     private val identity: String,
     private val preserveCurrentImage: Boolean,
     private val requestKey: Any? = null,
+    private val thumbnailRequestKey: Any? = null,
     private val thumbnailCacheKey: String? = null,
+    private val onSuccessApplied: (() -> Unit)? = null,
 ) : ImageViewTarget(imageView) {
 
     private fun isCurrent(): Boolean =
         view.tag == identity &&
-            (requestKey == null || view.getTag(R.id.stream_profile_request_key) == requestKey)
+            when {
+                requestKey != null -> view.getTag(R.id.stream_profile_request_key) == requestKey
+                thumbnailRequestKey != null -> view.getTag(R.id.stream_thumbnail_request_key) == thumbnailRequestKey
+                else -> true
+            }
 
     override fun onStart(placeholder: Image?) {
         if (preserveCurrentImage && isCurrent() && view.drawable != null) return
@@ -372,6 +382,7 @@ private class StreamImageTarget(
         if (isCurrent()) {
             super.onSuccess(result)
             thumbnailCacheKey?.let { rememberWarmStreamThumbnail(it, view) }
+            onSuccessApplied?.invoke()
         }
     }
 
@@ -535,6 +546,16 @@ internal class StreamThumbnailFetchGate(
     }
 
     @Synchronized
+    fun clearAttempt(identity: String, bucket: Long, forceEpoch: Long) {
+        val state = states[identity] ?: return
+        if (state.attemptedBucket == bucket && state.attemptedForceEpoch == forceEpoch) {
+            state.attemptedBucket = null
+            state.attemptedForceEpoch = 0L
+            state.attemptedAtMs = 0L
+        }
+    }
+
+    @Synchronized
     fun markSuccess(identity: String, bucket: Long, forceEpoch: Long) {
         state(identity).apply {
             successfulBucket = bucket
@@ -638,6 +659,7 @@ internal fun prepareStreamThumbnailImage(imageView: ImageView, stream: Stream) {
     if (imageView.tag != identity) {
         imageView.setImageDrawable(null)
         imageView.setTag(R.id.stream_thumbnail_request_key, null)
+        imageView.setTag(R.id.stream_thumbnail_successful_fresh_key, null)
     }
     imageView.tag = identity
 }
@@ -685,6 +707,21 @@ internal fun loadStreamProfileImage(
     }.build())
 }
 
+/**
+ * Restores a decoded profile image synchronously during a warm rebind. The
+ * actual disk/network request remains owned by the idle scheduler.
+ */
+internal fun restoreWarmStreamProfileImage(
+    context: Context,
+    imageView: ImageView,
+    stream: Stream,
+): Boolean {
+    val url = stream.channelImage ?: return false
+    val preferences = FeedUiPreferencesStore.current(context)
+    val requestKey = "${stream.streamIdentity()}|$url|round=${preferences.roundUserImage}"
+    return restoreDecodedMemoryImage(requestKey, imageView)
+}
+
 internal fun loadStreamThumbnail(
     context: Context,
     imageView: ImageView,
@@ -696,6 +733,7 @@ internal fun loadStreamThumbnail(
     if (!sameIdentity) {
         imageView.setImageDrawable(null)
         imageView.setTag(R.id.stream_thumbnail_request_key, null)
+        imageView.setTag(R.id.stream_thumbnail_successful_fresh_key, null)
     }
     imageView.tag = identity
     val bucket = StreamThumbnailPolicy.bucket(System.currentTimeMillis())
@@ -704,6 +742,7 @@ internal fun loadStreamThumbnail(
     if (plan == null) {
         imageView.setImageDrawable(null)
         imageView.setTag(R.id.stream_thumbnail_request_key, null)
+        imageView.setTag(R.id.stream_thumbnail_successful_fresh_key, null)
         return null
     }
 
@@ -722,12 +761,14 @@ internal fun loadStreamThumbnail(
     // do not enqueue the same request again when its image is already shown.
     if (sameIdentity &&
         imageView.drawable != null &&
-        imageView.getTag(R.id.stream_thumbnail_request_key) == requestKey
+        imageView.getTag(R.id.stream_thumbnail_successful_fresh_key) == requestKey
     ) {
         return null
     }
     imageView.setTag(R.id.stream_thumbnail_request_key, requestKey)
-    val requestHandle = StreamThumbnailRequestHandle()
+    val requestHandle = StreamThumbnailRequestHandle {
+        streamThumbnailFetchGate.clearAttempt(identity, bucket, forceEpoch)
+    }
 
     fun enqueueFreshRequest() {
         val nowMs = System.currentTimeMillis()
@@ -753,14 +794,24 @@ internal fun loadStreamThumbnail(
                 stage = "fresh",
                 identity = identity,
                 bucket = bucket,
-                onSuccess = { streamThumbnailFetchGate.markSuccess(identity, bucket, forceEpoch) },
+                onSuccess = {
+                    // The response is valid for this stream even when the
+                    // holder was recycled before the target callback. Keep
+                    // freshness bookkeeping independent from view ownership
+                    // so a successful request is not retried on every bind.
+                    streamThumbnailFetchGate.markSuccess(identity, bucket, forceEpoch)
+                },
             )
             target(
                 StreamImageTarget(
                     imageView = imageView,
                     identity = identity,
                     preserveCurrentImage = preserveCurrentImage,
+                    thumbnailRequestKey = requestKey,
                     thumbnailCacheKey = plan.memoryCacheKey,
+                    onSuccessApplied = {
+                        imageView.setTag(R.id.stream_thumbnail_successful_fresh_key, requestKey)
+                    },
                 ),
             )
         }.build()))

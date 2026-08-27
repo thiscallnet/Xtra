@@ -78,27 +78,51 @@ class BookmarksAdapter(
         holder.bind(getItem(position))
     }
 
+    override fun onBindViewHolder(
+        holder: PagingViewHolder,
+        position: Int,
+        payloads: MutableList<Any>,
+    ) {
+        if (payloads.isNotEmpty() && payloads.all { it === BOOKMARK_POSITION_CHANGED_PAYLOAD }) {
+            holder.bindPosition(getItem(position))
+        } else {
+            super.onBindViewHolder(holder, position, payloads)
+        }
+    }
+
     override fun onViewRecycled(holder: PagingViewHolder) {
         imageLoadScheduler.clear(holder)
         holder.cancelImageWork()
         super.onViewRecycled(holder)
     }
 
-    private var positions: List<VideoPosition>? = null
+    private var positions: Map<Long, Long> = emptyMap()
 
     fun setVideoPositions(positions: List<VideoPosition>) {
-        this.positions = positions
-        if (itemCount != 0) {
-            notifyDataSetChanged()
+        val oldPositions = this.positions
+        val newPositions = positions.associate { it.id to it.position }
+        this.positions = newPositions
+        for (index in 0 until itemCount) {
+            val id = getItem(index)?.videoId?.toLongOrNull() ?: continue
+            if (oldPositions[id] != newPositions[id]) {
+                notifyItemChanged(index, BOOKMARK_POSITION_CHANGED_PAYLOAD)
+            }
         }
     }
 
     private var ignored: List<BookmarkIgnoredUser>? = null
 
     fun setIgnoredUsers(list: List<BookmarkIgnoredUser>) {
+        val oldIds = ignored.orEmpty().mapTo(HashSet()) { it.userId }
+        val newIds = list.mapTo(HashSet()) { it.userId }
         this.ignored = list
-        if (itemCount != 0) {
-            notifyDataSetChanged()
+        if (oldIds != newIds) {
+            val changedIds = (oldIds - newIds) + (newIds - oldIds)
+            for (index in 0 until itemCount) {
+                if (getItem(index)?.userId in changedIds) {
+                    notifyItemChanged(index)
+                }
+            }
         }
     }
 
@@ -152,7 +176,7 @@ class BookmarksAdapter(
                         ))
                     }
                     val durationSeconds = item.duration?.let { duration -> duration.toIntOrNull() ?: TwitchApiHelper.getDuration(duration) }
-                    val position = item.videoId?.toLongOrNull()?.let { id -> positions?.find { it.id == id }?.position }
+                    val position = item.videoId?.toLongOrNull()?.let { id -> positions[id] }
                     val startFromBeginning = position != null && durationSeconds != null && durationSeconds > 0 && position >= (durationSeconds * 1000)
                     val ignore = ignored?.find { it.userId == item.userId } != null
                     root.setOnClickListener {
@@ -311,12 +335,7 @@ class BookmarksAdapter(
                     } else {
                         username.visibility = View.GONE
                     }
-                    if (position != null && durationSeconds != null && durationSeconds > 0L) {
-                        progressBar.progress = (position / (durationSeconds * 10)).toInt()
-                        progressBar.visibility = View.VISIBLE
-                    } else {
-                        progressBar.visibility = View.GONE
-                    }
+                    bindPosition(item)
                     if (!item.title.isNullOrBlank()) {
                         title.visibility = View.VISIBLE
                         title.text = item.title.trim()
@@ -377,5 +396,22 @@ class BookmarksAdapter(
                 }
             }
         }
+
+        fun bindPosition(item: Bookmark?) {
+            val durationSeconds = item?.duration?.let { duration ->
+                duration.toIntOrNull() ?: TwitchApiHelper.getDuration(duration)
+            }
+            val position = item?.videoId?.toLongOrNull()?.let { id -> positions[id] }
+            if (position != null && durationSeconds != null && durationSeconds > 0) {
+                binding.progressBar.progress = (position / (durationSeconds * 10)).toInt()
+                binding.progressBar.visibility = View.VISIBLE
+            } else {
+                binding.progressBar.visibility = View.GONE
+            }
+        }
+    }
+
+    private companion object {
+        val BOOKMARK_POSITION_CHANGED_PAYLOAD = Any()
     }
 }

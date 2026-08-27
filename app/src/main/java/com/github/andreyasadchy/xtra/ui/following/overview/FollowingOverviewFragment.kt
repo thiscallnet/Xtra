@@ -36,6 +36,7 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewViewModel.Companion.FollowingOverviewViewModelFactory
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 private data class RecommendationState(
@@ -145,6 +146,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
             layoutManager = LinearLayoutManager(context)
             adapter = overviewAdapter
             itemAnimator = null
+            setHasFixedSize(true)
             clipToPadding = false
             addOnScrollListener(object : RecyclerView.OnScrollListener() {
                 override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
@@ -261,7 +263,9 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                             else -> section
                         }
                     }
-                }.collectLatest { sections ->
+                }
+                    .distinctUntilChanged(::followingOverviewSectionsSame)
+                    .collectLatest { sections ->
                     binding.emptyState.isVisible = sections.isEmpty()
                     overviewAdapter.submitList(sections)
                 }

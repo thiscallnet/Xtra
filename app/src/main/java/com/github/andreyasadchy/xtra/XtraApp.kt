@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.Application
 import android.os.Build
 import android.os.SystemClock
+import android.os.StrictMode
 import androidx.core.content.edit
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -19,6 +20,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.util.DebugLogger
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
+import com.github.andreyasadchy.xtra.util.MainLooperStallWatchdog
 import com.github.andreyasadchy.xtra.util.coil.CacheControlCacheStrategy
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -58,6 +60,23 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         INSTANCE = this
+        if (BuildConfig.PERF_DIAGNOSTICS) {
+            StrictMode.setThreadPolicy(
+                StrictMode.ThreadPolicy.Builder()
+                    .detectDiskReads()
+                    .detectDiskWrites()
+                    .detectNetwork()
+                    .penaltyLog()
+                    .build(),
+            )
+            StrictMode.setVmPolicy(
+                StrictMode.VmPolicy.Builder()
+                    .detectLeakedClosableObjects()
+                    .penaltyLog()
+                    .build(),
+            )
+        }
+        MainLooperStallWatchdog.start()
         xtraModule = XtraModule(this)
         reconcilePendingAccountScopedState()
         xtraModule.authSessionMaintainer.start(applicationScope)

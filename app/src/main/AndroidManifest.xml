@@ -44,6 +44,7 @@
         android:supportsRtl="true"
         android:theme="@style/DarkTheme"
         tools:ignore="UnusedAttribute">
+        <profileable android:shell="${profileableByShell}" />
         <activity
             android:name=".ui.main.MainActivity"
             android:launchMode="singleTask"

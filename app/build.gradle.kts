@@ -34,6 +34,9 @@ val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
         requestedTask.equals("assembleRelease", ignoreCase = true) ||
         requestedTask.equals("bundleRelease", ignoreCase = true) ||
         requestedTask.equals("publishRelease", ignoreCase = true) ||
+        requestedTask.equals("perf", ignoreCase = true) ||
+        requestedTask.equals("assemblePerf", ignoreCase = true) ||
+        requestedTask.equals("bundlePerf", ignoreCase = true) ||
         requestedTask in setOf("assemble", "build", "bundle")
 }
 
@@ -85,6 +88,8 @@ android {
         versionCode = applicationVersionCode
         versionName = applicationVersionName
         buildConfigField("int", "CI_VERSION_CODE_BASE", defaultVersionCode.toString())
+        buildConfigField("boolean", "PERF_DIAGNOSTICS", "false")
+        manifestPlaceholders["profileableByShell"] = "false"
         buildConfigField(
             "String",
             "TWITCH_PUBLIC_CLIENT_ID",
@@ -97,12 +102,21 @@ android {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-DEBUG"
             signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("boolean", "PERF_DIAGNOSTICS", "true")
         }
         release {
             isShrinkResources = true
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("debug")
+        }
+        create("perf") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".perf"
+            versionNameSuffix = "-PERF"
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("boolean", "PERF_DIAGNOSTICS", "true")
+            manifestPlaceholders["profileableByShell"] = "true"
         }
     }
     buildFeatures {

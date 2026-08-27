@@ -59,7 +59,7 @@ class FollowedGamesFragment : PagedListFragment(), Scrollable {
 
     override fun initialize() {
         viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 viewModel.flow.collectLatest { pagingData ->
                     pagingAdapter.submitData(pagingData)
                 }

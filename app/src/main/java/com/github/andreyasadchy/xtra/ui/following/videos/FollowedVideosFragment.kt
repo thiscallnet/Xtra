@@ -132,7 +132,7 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerS
                     getString(R.string.all)
                 )
             }
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 viewModel.flow.collectLatest { pagingData ->
                     pagingAdapter.submitData(pagingData)
                 }
@@ -141,7 +141,7 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerS
         initializeAdapter(binding, pagingAdapter, enableScrollTopButton = false)
         if (requireContext().prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
             viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                repeatOnLifecycle(Lifecycle.State.RESUMED) {
                     viewModel.positions.collectLatest {
                         (pagingAdapter as VideosAdapter).setVideoPositions(it)
                     }
@@ -149,7 +149,7 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerS
             }
         }
         viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 viewModel.bookmarks.collectLatest {
                     (pagingAdapter as VideosAdapter).setBookmarksList(it)
                 }
@@ -167,7 +167,7 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerS
             ).show(childFragmentManager, null)
         }
         viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 viewModel.sortText.collectLatest {
                     sortBar.sortText.text = it
                 }

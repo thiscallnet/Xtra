@@ -14,7 +14,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
-import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
@@ -25,13 +24,12 @@ import com.github.andreyasadchy.xtra.ui.common.PagerScrollStateAware
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
-import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
 import com.github.andreyasadchy.xtra.ui.following.streams.FollowedStreamsViewModel.Companion.FollowedStreamsViewModelFactory
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStateAware {
@@ -41,7 +39,7 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
     private val viewModel: FollowedStreamsViewModel by viewModels { FollowedStreamsViewModelFactory }
-    private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
+    private lateinit var streamsAdapter: FollowingStreamsListAdapter
     private lateinit var streamFeedScreenController: StreamFeedScreenController
     private lateinit var streamPreloadViewportController: StreamPreloadViewportController
 
@@ -59,18 +57,18 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
                 )
             )
         }
-        pagingAdapter = if (requireContext().prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled") {
-            StreamsCompactAdapter(this, selectTag)
-        } else {
-            StreamsShelfPagingAdapter(this, selectTag)
-        }
-        setAdapter(binding.recyclerView, pagingAdapter)
+        streamsAdapter = FollowingStreamsListAdapter(
+            fragment = this,
+            selectTag = selectTag,
+            compact = requireContext().prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled",
+        )
+        setAdapter(binding.recyclerView, streamsAdapter)
         streamPreloadViewportController = StreamPreloadViewportController(
             fragment = this,
             coordinator = (requireActivity().application as XtraApp).xtraModule.streamPreloadCoordinator,
             viewportKey = "followed-streams",
             recyclerView = binding.recyclerView,
-            streamAtPosition = pagingAdapter::peek,
+            streamAtPosition = streamsAdapter::itemAt,
         ).also { it.start() }
         streamFeedScreenController = StreamFeedScreenController(
             fragment = this,
@@ -90,13 +88,35 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
         viewModel.syncCurrentAccount()
         streamFeedScreenController.onSpecChanged(force = false, reason = RefreshReason.SCREEN_VISIBLE)
         viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.flow.collectLatest { pagingData ->
-                    pagingAdapter.submitData(pagingData)
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                viewModel.flow.collect { streams ->
+                    streamsAdapter.submitStreams(streams)
+                    binding.swipeRefresh.isRefreshing = false
                 }
             }
         }
-        initializeAdapter(binding, pagingAdapter, enableScrollTopButton = false)
+        initializeListAdapter(
+            binding = binding,
+            onRefresh = {
+                binding.swipeRefresh.isRefreshing = true
+                viewLifecycleOwner.lifecycleScope.launch {
+                    viewModel.refreshCurrent(RefreshReason.USER_PULL, force = true).join()
+                    if (viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                        binding.swipeRefresh.isRefreshing = false
+                    }
+                }
+            },
+            enableScrollTopButton = false,
+        )
+        binding.recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                if (dy <= 0 || streamsAdapter.itemCount == 0) return
+                val layoutManager = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return
+                if (layoutManager.findLastVisibleItemPosition() >= streamsAdapter.itemCount - APPEND_THRESHOLD) {
+                    viewModel.appendNextPage()
+                }
+            }
+        })
     }
 
     override fun scrollToTop() {
@@ -144,6 +164,10 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
         }
         super.onDestroyView()
         _binding = null
+    }
+
+    private companion object {
+        const val APPEND_THRESHOLD = 5
     }
 }
 

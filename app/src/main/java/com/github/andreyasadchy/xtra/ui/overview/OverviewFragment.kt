@@ -122,11 +122,13 @@ class OverviewFragment : Fragment(), Scrollable, FragmentHost {
         binding.appBar.setLiftOnScrollTargetView(recyclerView)
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                binding.appBar.isLifted = recyclerView.canScrollVertically(-1)
+                val lifted = recyclerView.canScrollVertically(-1)
+                if (binding.appBar.isLifted != lifted) binding.appBar.isLifted = lifted
             }
         })
         recyclerView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            binding.appBar.isLifted = recyclerView.canScrollVertically(-1)
+            val lifted = recyclerView.canScrollVertically(-1)
+            if (binding.appBar.isLifted != lifted) binding.appBar.isLifted = lifted
         }
     }
 

@@ -111,11 +111,13 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStateAwar
                 it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
                     override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                         super.onScrolled(recyclerView, dx, dy)
-                        appBar.isLifted = recyclerView.canScrollVertically(-1)
+                        val lifted = recyclerView.canScrollVertically(-1)
+                        if (appBar.isLifted != lifted) appBar.isLifted = lifted
                     }
                 })
                 it.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                    appBar.isLifted = it.canScrollVertically(-1)
+                    val lifted = it.canScrollVertically(-1)
+                    if (appBar.isLifted != lifted) appBar.isLifted = lifted
                 }
             }
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->

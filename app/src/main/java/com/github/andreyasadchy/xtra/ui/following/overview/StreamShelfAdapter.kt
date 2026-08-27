@@ -1,6 +1,5 @@
 package com.github.andreyasadchy.xtra.ui.following.overview
 
-import android.text.format.DateUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -16,20 +15,17 @@ import com.github.andreyasadchy.xtra.ui.common.loadStreamThumbnail
 import com.github.andreyasadchy.xtra.ui.common.prepareStreamProfileImage
 import com.github.andreyasadchy.xtra.ui.common.prepareStreamThumbnailImage
 import com.github.andreyasadchy.xtra.ui.common.restoreWarmStreamThumbnail
+import com.github.andreyasadchy.xtra.ui.common.restoreWarmStreamProfileImage
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
+import com.github.andreyasadchy.xtra.ui.common.StreamCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.thumbnailIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
-import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.prefs
-import kotlin.time.Clock
-import kotlin.time.Instant
 
 class StreamShelfAdapter(
     private val onStreamClick: (Stream) -> Unit,
@@ -50,7 +46,6 @@ class StreamShelfAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
         holder.beginImageBind(getItem(position))
         holder.bind(getItem(position))
     }
@@ -159,7 +154,13 @@ class StreamShelfAdapter(
         fun bind(stream: Stream) {
             val context = binding.root.context
             val uiPreferences = FeedUiPreferencesStore.current(context)
+            val presentation = StreamCardPresentationCache.get(stream, uiPreferences)
             boundStream = stream
+            if (presentation == null) {
+                StreamCardPresentationCache.request(context, stream, uiPreferences) {
+                    if (boundStream === stream && binding.root.isAttachedToWindow) applyPresentation(it)
+                }
+            }
             val nextPreviewIdentity = stream.streamIdentity()
             if (boundPreviewIdentity != nextPreviewIdentity) {
                 (context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
@@ -172,45 +173,32 @@ class StreamShelfAdapter(
                     ?: context.getString(R.string.live)
 
                 liveBadge.text = context.getString(R.string.live)
-                viewers.text = stream.viewerCount?.let { count ->
-                    context.resources.getQuantityString(
-                        R.plurals.viewers,
-                        count,
-                        TwitchApiHelper.formatCount(
-                            count,
-                            uiPreferences.truncateViewCount,
-                        ),
-                    )
-                }.orEmpty()
+                viewers.text = presentation?.viewerLabel ?: stream.viewerCount?.toString().orEmpty()
                 viewers.visibility = if (viewers.text.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
 
-                val uptimeText = if (uiPreferences.showUptime) {
-                    stream.createdAt?.let { value ->
-                        Instant.parseOrNull(value)?.let { createdAt ->
-                            val uptime = Clock.System.now() - createdAt
-                            if (uptime.isPositive()) DateUtils.formatElapsedTime(uptime.inWholeSeconds) else null
-                        }
-                    }
-                } else null
+                val uptimeText = presentation?.uptime
                 uptime.text = uptimeText.orEmpty()
                 uptime.visibility = if (uptimeText.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
 
-                title.text = stream.title?.trim().orEmpty()
+                title.text = presentation?.title ?: stream.title.orEmpty()
                 title.visibility = if (title.text.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
-                channel.text = stream.channelName?.trim().orEmpty()
+                channel.text = presentation?.username ?: stream.channelName.orEmpty()
                 channel.visibility = if (channel.text.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
-                category.text = stream.gameName?.trim().orEmpty()
+                category.text = presentation?.gameName ?: stream.gameName.orEmpty()
                 category.visibility = if (category.text.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
 
-                val tags = if (uiPreferences.showTags) stream.tags.orEmpty().take(2) else emptyList()
-                tagOne.text = tags.getOrNull(0).orEmpty()
-                tagOne.visibility = if (tags.size > 0) android.view.View.VISIBLE else android.view.View.GONE
-                tagTwo.text = tags.getOrNull(1).orEmpty()
-                tagTwo.visibility = if (tags.size > 1) android.view.View.VISIBLE else android.view.View.GONE
+                val tags = presentation?.tags ?: if (uiPreferences.showTags) stream.tags.orEmpty() else emptyList()
+                val firstTag = tags.getOrNull(0)?.trim()?.takeIf(String::isNotEmpty)
+                val secondTag = tags.getOrNull(1)?.trim()?.takeIf(String::isNotEmpty)
+                tagOne.text = firstTag.orEmpty()
+                tagOne.visibility = if (firstTag != null) android.view.View.VISIBLE else android.view.View.GONE
+                tagTwo.text = secondTag.orEmpty()
+                tagTwo.visibility = if (secondTag != null) android.view.View.VISIBLE else android.view.View.GONE
 
                 if (stream.channelImage != null) {
                     avatar.visibility = android.view.View.VISIBLE
                     prepareStreamProfileImage(avatar, stream)
+                    restoreWarmStreamProfileImage(context, avatar, stream)
                     thumbnailLoadScheduler.runOrDefer(this@ViewHolder, avatar) {
                         if (binding.root.isAttachedToWindow && boundImageIdentity == stream.streamIdentity()) {
                             loadStreamProfileImage(context, avatar, stream)?.let {
@@ -225,8 +213,28 @@ class StreamShelfAdapter(
                 }
             }
         }
-    }
 
+        private fun applyPresentation(presentation: com.github.andreyasadchy.xtra.ui.common.StreamCardPresentation) {
+            if (boundStream == null) return
+            with(binding) {
+                viewers.text = presentation.viewerLabel.orEmpty()
+                viewers.visibility = if (viewers.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                uptime.text = presentation.uptime.orEmpty()
+                uptime.visibility = if (uptime.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                title.text = presentation.title.orEmpty()
+                title.visibility = if (title.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                channel.text = presentation.username.orEmpty()
+                channel.visibility = if (channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                category.text = presentation.gameName.orEmpty()
+                category.visibility = if (category.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                val tags = presentation.tags.take(2)
+                tagOne.text = tags.firstOrNull()?.trim().orEmpty()
+                tagOne.visibility = if (tagOne.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                tagTwo.text = tags.getOrNull(1)?.trim().orEmpty()
+                tagTwo.visibility = if (tagTwo.text.isNullOrBlank()) View.GONE else View.VISIBLE
+            }
+        }
+    }
     private companion object {
         val DIFF_CALLBACK = object : DiffUtil.ItemCallback<Stream>() {
             override fun areItemsTheSame(oldItem: Stream, newItem: Stream): Boolean =

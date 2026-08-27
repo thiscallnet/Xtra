@@ -36,6 +36,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -143,8 +146,10 @@ class ChatAdapter(
     private val visibleRenderJobs = HashSet<RenderCacheKey>()
     private var visibleRenderQueue = Channel<RenderRequest>(VISIBLE_RENDER_QUEUE_CAPACITY)
     private var prewarmRenderQueue = Channel<RenderRequest>(PREWARM_QUEUE_CAPACITY)
-    private var renderSignal = Channel<Unit>(Channel.CONFLATED)
+    /** One signal represents one queued request; this keeps both workers fed during bursts. */
+    private var renderSignal = Channel<Unit>(Channel.UNLIMITED)
     private var renderWorkers = emptyList<Job>()
+    private val renderWorkerLimit = MutableStateFlow(MAX_RENDER_WORKERS)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingRenderedMessages = Collections.newSetFromMap(
         IdentityHashMap<ChatMessage, Boolean>(),
@@ -480,6 +485,9 @@ class ChatAdapter(
     fun setRenderUpdatesPaused(paused: Boolean) {
         if (renderUpdatesPaused == paused) return
         renderUpdatesPaused = paused
+        // Keep visible work responsive while the list is moving. Release the
+        // second CPU-heavy renderer only after scrolling has settled.
+        renderWorkerLimit.value = if (paused) 1 else MAX_RENDER_WORKERS
         if (!paused) attachedRecyclerView?.postOnAnimation { flushRenderedMessages() }
     }
 
@@ -712,7 +720,7 @@ class ChatAdapter(
         renderScope = newRenderScope()
         visibleRenderQueue = Channel(VISIBLE_RENDER_QUEUE_CAPACITY)
         prewarmRenderQueue = Channel(PREWARM_QUEUE_CAPACITY)
-        renderSignal = Channel(Channel.CONFLATED)
+        renderSignal = Channel(Channel.UNLIMITED)
         if (attachedRecyclerView != null) ensureRenderWorkers()
     }
 
@@ -748,35 +756,37 @@ class ChatAdapter(
         }
     }
 
-    private fun startRenderWorkers(): List<Job> = List(MAX_RENDER_WORKERS) {
+    private fun startRenderWorkers(): List<Job> = List(MAX_RENDER_WORKERS) { workerIndex ->
         renderScope.launch {
-            for (ignored in renderSignal) {
-                while (true) {
-                    val request = visibleRenderQueue.tryReceive().getOrNull()
-                        ?: prewarmRenderQueue.tryReceive().getOrNull()
-                        ?: break
-                    if (request.prewarmGeneration != null && request.prewarmGeneration != prewarmGeneration) {
-                        synchronized(renderJobs) {
-                            if (request.cacheKey !in visibleRenderJobs) {
-                                renderJobs.remove(request.cacheKey)
-                            }
-                            prewarmRenderJobs.remove(request.cacheKey)
-                        }
-                        continue
-                    }
-                    if (request.prewarmGeneration != null) {
-                        val shouldRender = synchronized(renderJobs) {
-                            val supersededByVisible = request.cacheKey in visibleRenderJobs
-                            val stillQueuedAsPrewarm = prewarmRenderJobs.remove(request.cacheKey)
-                            if (!supersededByVisible && !stillQueuedAsPrewarm) {
-                                renderJobs.remove(request.cacheKey)
-                            }
-                            !supersededByVisible && stillQueuedAsPrewarm
-                        }
-                        if (!shouldRender) continue
-                    }
-                    renderMessage(request)
+            while (isActive) {
+                if (workerIndex >= renderWorkerLimit.value) {
+                    renderWorkerLimit.filter { it > workerIndex }.first()
                 }
+                if (renderSignal.receiveCatching().getOrNull() == null) break
+                val request = visibleRenderQueue.tryReceive().getOrNull()
+                    ?: prewarmRenderQueue.tryReceive().getOrNull()
+                    ?: continue
+                if (request.prewarmGeneration != null && request.prewarmGeneration != prewarmGeneration) {
+                    synchronized(renderJobs) {
+                        if (request.cacheKey !in visibleRenderJobs) {
+                            renderJobs.remove(request.cacheKey)
+                        }
+                        prewarmRenderJobs.remove(request.cacheKey)
+                    }
+                    continue
+                }
+                if (request.prewarmGeneration != null) {
+                    val shouldRender = synchronized(renderJobs) {
+                        val supersededByVisible = request.cacheKey in visibleRenderJobs
+                        val stillQueuedAsPrewarm = prewarmRenderJobs.remove(request.cacheKey)
+                        if (!supersededByVisible && !stillQueuedAsPrewarm) {
+                            renderJobs.remove(request.cacheKey)
+                        }
+                        !supersededByVisible && stillQueuedAsPrewarm
+                    }
+                    if (!shouldRender) continue
+                }
+                renderMessage(request)
             }
         }
     }
@@ -787,7 +797,7 @@ class ChatAdapter(
             renderScope = newRenderScope()
             visibleRenderQueue = Channel(VISIBLE_RENDER_QUEUE_CAPACITY)
             prewarmRenderQueue = Channel(PREWARM_QUEUE_CAPACITY)
-            renderSignal = Channel(Channel.CONFLATED)
+            renderSignal = Channel(Channel.UNLIMITED)
         }
         renderWorkers = startRenderWorkers()
     }

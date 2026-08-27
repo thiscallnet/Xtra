@@ -33,6 +33,45 @@ abstract class PagedListFragment : BaseNetworkFragment() {
         recyclerView.adapter = adapter
     }
 
+    fun setAdapter(recyclerView: RecyclerView, adapter: RecyclerView.Adapter<*>) {
+        recyclerView.adapter = adapter
+    }
+
+    protected fun initializeListAdapter(
+        binding: CommonRecyclerViewLayoutBinding,
+        onRefresh: () -> Unit,
+        enableSwipeRefresh: Boolean = true,
+        enableScrollTopButton: Boolean = true,
+    ) {
+        with(binding) {
+            recyclerView.itemAnimator = null
+            // The RecyclerView is sized by the fixed fragment container, not
+            // by its children. Avoid remeasuring the parent as rows change.
+            recyclerView.setHasFixedSize(true)
+            swipeRefresh.isEnabled = enableSwipeRefresh
+            if (enableSwipeRefresh) {
+                swipeRefresh.setOnRefreshListener { onRefresh() }
+            }
+            root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                updateTopInsetGuard(binding)
+            }
+            root.post { updateTopInsetGuard(binding) }
+            ViewCompat.requestApplyInsets(root)
+            if (enableScrollTopButton && requireContext().prefs().getBoolean(C.UI_SCROLL_TOP, true)) {
+                recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                    override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                        super.onScrollStateChanged(recyclerView, newState)
+                        scrollTop.isVisible = shouldShowButton(recyclerView)
+                    }
+                })
+                scrollTop.setOnClickListener {
+                    (parentFragment as? Scrollable)?.scrollToTop()
+                    it.visibility = View.GONE
+                }
+            }
+        }
+    }
+
     fun shouldShowButton(recyclerView: RecyclerView): Boolean {
         val offset = recyclerView.computeVerticalScrollOffset()
         if (offset < 0) {
@@ -49,6 +88,7 @@ abstract class PagedListFragment : BaseNetworkFragment() {
             // Live/paged feeds update frequently. Change animations keep old row
             // holders alive and add extra layout/draw work during refreshes.
             recyclerView.itemAnimator = null
+            recyclerView.setHasFixedSize(true)
             setupPagingControls(binding, pagingAdapter, enableSwipeRefresh)
             root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                 updateTopInsetGuard(binding)

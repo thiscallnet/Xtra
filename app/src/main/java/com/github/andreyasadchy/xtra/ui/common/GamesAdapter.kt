@@ -17,9 +17,12 @@ import com.github.andreyasadchy.xtra.databinding.FragmentGamesListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
-import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.prefs
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 class GamesAdapter(
     private val fragment: Fragment,
@@ -34,13 +37,28 @@ class GamesAdapter(
     }) {
 
     private val imageLoadScheduler = StreamThumbnailIdleScheduler()
+    private val presentationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var presentationPrewarmJob: Job? = null
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
         imageLoadScheduler.attachTo(recyclerView)
+        presentationPrewarmJob?.cancel()
+        presentationPrewarmJob = presentationScope.launch {
+            onPagesUpdatedFlow.collectLatest {
+                val context = fragment.context ?: return@collectLatest
+                GameCardPresentationCache.prewarm(
+                    context = context,
+                    games = snapshot().items.filterNotNull(),
+                    preferences = FeedUiPreferencesStore.current(context),
+                )
+            }
+        }
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        presentationPrewarmJob?.cancel()
+        presentationPrewarmJob = null
         imageLoadScheduler.detach()
         super.onDetachedFromRecyclerView(recyclerView)
     }
@@ -109,10 +127,17 @@ class GamesAdapter(
                 if (item != null) {
                     val context = fragment.requireContext()
                     val uiPreferences = FeedUiPreferencesStore.current(context)
-                    if (item.boxArt != null) {
+                    val presentation = GameCardPresentationCache.get(item, uiPreferences)
+                    if (presentation == null) {
+                        GameCardPresentationCache.request(context, item, uiPreferences) {
+                            if (boundGame === item && binding.root.isAttachedToWindow) applyPresentation(it)
+                        }
+                    }
+                    val boxArt = presentation?.boxArt ?: item.boxArt
+                    if (boxArt != null) {
                         gameImage.visibility = View.VISIBLE
                         val gameId = item.id
-                        val imageKey = "xtra:game-boxart:$gameId|${item.boxArt}"
+                        val imageKey = "xtra:game-boxart:$gameId|$boxArt"
                         if (gameImage.tag != imageKey) {
                             gameImage.setImageDrawable(null)
                             gameImage.tag = imageKey
@@ -124,7 +149,7 @@ class GamesAdapter(
                                 binding.gameImage,
                                 context.imageLoader.enqueue(
                                     ImageRequest.Builder(context).apply {
-                                        data(item.boxArt)
+                                        data(boxArt)
                                         memoryCacheKey(imageKey)
                                         crossfade(false)
                                         target(gameImage)
@@ -137,36 +162,27 @@ class GamesAdapter(
                         gameImage.setImageDrawable(null)
                         gameImage.tag = null
                     }
-                    if (item.name != null) {
+                    if (presentation?.name != null || item.name != null) {
                         gameName.visibility = View.VISIBLE
-                        gameName.text = item.name
+                        gameName.text = presentation?.name ?: item.name
                     } else {
                         gameName.visibility = View.GONE
                     }
-                    if (item.viewerCount != null) {
+                    if (presentation?.viewerLabel != null || item.viewerCount != null) {
                         viewers.visibility = View.VISIBLE
-                        val count = item.viewerCount ?: 0
-                        viewers.text = context.resources.getQuantityString(
-                            R.plurals.viewers,
-                            count,
-                            TwitchApiHelper.formatCount(count, uiPreferences.truncateViewCount)
-                        )
+                        viewers.text = presentation?.viewerLabel ?: item.viewerCount?.toString()
                     } else {
                         viewers.visibility = View.GONE
                     }
-                    if (item.broadcasterCount != null && uiPreferences.showBroadcastersCount) {
+                    if (presentation?.broadcasterLabel != null || (item.broadcasterCount != null && uiPreferences.showBroadcastersCount)) {
                         broadcastersCount.visibility = View.VISIBLE
-                        val count = item.broadcasterCount ?: 0
-                        broadcastersCount.text = context.resources.getQuantityString(
-                            R.plurals.broadcasters,
-                            count,
-                            TwitchApiHelper.formatCount(count, uiPreferences.truncateViewCount)
-                        )
+                        broadcastersCount.text = presentation?.broadcasterLabel ?: item.broadcasterCount?.toString()
                     } else {
                         broadcastersCount.visibility = View.GONE
                     }
-                    if (!item.tags.isNullOrEmpty() && uiPreferences.showTags) {
-                        bindGameTags(tagViews, item.tags.orEmpty(), selectTag)
+                    val tags = presentation?.tags ?: if (uiPreferences.showTags) item.tags.orEmpty() else emptyList()
+                    if (tags.isNotEmpty()) {
+                        bindGameTags(tagViews, tags, selectTag)
                     } else {
                         clearGameTags(tagViews)
                     }
@@ -180,6 +196,35 @@ class GamesAdapter(
                     viewers.visibility = View.GONE
                     broadcastersCount.text = null
                     broadcastersCount.visibility = View.GONE
+                    clearGameTags(tagViews)
+                }
+            }
+        }
+
+        private fun applyPresentation(presentation: GameCardPresentation) {
+            if (boundGame == null) return
+            with(binding) {
+                if (presentation.name != null) {
+                    gameName.visibility = View.VISIBLE
+                    gameName.text = presentation.name
+                } else {
+                    gameName.visibility = View.GONE
+                }
+                if (presentation.viewerLabel != null) {
+                    viewers.visibility = View.VISIBLE
+                    viewers.text = presentation.viewerLabel
+                } else {
+                    viewers.visibility = View.GONE
+                }
+                if (presentation.broadcasterLabel != null) {
+                    broadcastersCount.visibility = View.VISIBLE
+                    broadcastersCount.text = presentation.broadcasterLabel
+                } else {
+                    broadcastersCount.visibility = View.GONE
+                }
+                if (presentation.tags.isNotEmpty()) {
+                    bindGameTags(tagViews, presentation.tags, selectTag)
+                } else {
                     clearGameTags(tagViews)
                 }
             }

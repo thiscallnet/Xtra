@@ -176,6 +176,7 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
             layoutManager = LinearLayoutManager(context)
             this.adapter = this@DiscoverFragment.adapter
             itemAnimator = null
+            setHasFixedSize(true)
             clipToPadding = false
             addOnScrollListener(object : RecyclerView.OnScrollListener() {
                 override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
@@ -184,7 +185,8 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
                 }
 
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                    binding.appBar.isLifted = recyclerView.canScrollVertically(-1)
+                    val lifted = recyclerView.canScrollVertically(-1)
+                    if (binding.appBar.isLifted != lifted) binding.appBar.isLifted = lifted
                 }
             })
             addOnLayoutChangeListener { recyclerView, _, _, right, _, _, _, _, _ ->

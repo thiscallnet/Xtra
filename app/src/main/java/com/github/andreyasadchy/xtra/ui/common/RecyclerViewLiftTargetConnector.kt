@@ -11,6 +11,7 @@ class RecyclerViewLiftTargetConnector(
     private var target: RecyclerView? = null
     private var scrollListener: RecyclerView.OnScrollListener? = null
     private var layoutListener: View.OnLayoutChangeListener? = null
+    private var lastLifted: Boolean? = null
 
     fun connect(recyclerView: RecyclerView) {
         if (target === recyclerView) {
@@ -39,11 +40,15 @@ class RecyclerViewLiftTargetConnector(
         target = null
         scrollListener = null
         layoutListener = null
+        lastLifted = null
         appBar.setLiftOnScrollTargetView(null)
         appBar.isLifted = false
     }
 
     private fun update() {
-        appBar.isLifted = target?.canScrollVertically(-1) == true
+        val lifted = target?.canScrollVertically(-1) == true
+        if (lastLifted == lifted) return
+        lastLifted = lifted
+        appBar.isLifted = lifted
     }
 }

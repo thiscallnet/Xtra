@@ -50,10 +50,16 @@ internal class ProcessLocalFeedSnapshot<T> {
     }
 
     fun publish(key: String, items: List<T>) {
-        val state = snapshots[key] ?: return
+        val state = snapshots.computeIfAbsent(key) { MutableStateFlow(Snapshot()) }
         revisions.computeIfAbsent(key) { AtomicLong() }.incrementAndGet()
         state.value = Snapshot(loaded = true, items = items.toList())
     }
+
+    /** Returns the full in-process snapshot without applying a UI limit. */
+    fun current(key: String): List<T>? = snapshots[key]
+        ?.value
+        ?.takeIf { it.loaded }
+        ?.items
 
     fun clear(key: String) {
         snapshots[key]?.let { state ->

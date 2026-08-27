@@ -2,5 +2,6 @@
 <resources>
     <item name="twitch_inbox_refresh_job" type="id" />
     <item name="stream_thumbnail_request_key" type="id" />
+    <item name="stream_thumbnail_successful_fresh_key" type="id" />
     <item name="stream_profile_request_key" type="id" />
 </resources>
