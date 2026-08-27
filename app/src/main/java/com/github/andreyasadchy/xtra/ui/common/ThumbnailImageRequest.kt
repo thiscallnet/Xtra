@@ -40,34 +40,47 @@ internal interface FeedImageRequestOwner {
     fun pauseImageRequests()
 }
 
-/** Defers optional image work until idle without retaining work for scrolled-off rows. */
+/**
+ * Frame-budgeted scheduler for user-visible feed image work.
+ *
+ * Historical class name retained to avoid adapter churn.
+ *
+ * Interaction changes the amount of image work started per frame. It never
+ * completely stops visible image loading, and beginning a gesture never
+ * cancels requests for holders that remain attached.
+ */
 internal class StreamThumbnailIdleScheduler {
     private var recyclerView: RecyclerView? = null
+
     private class ScheduledWork(
         var work: () -> Unit,
         var scheduled: Boolean = false,
     )
 
-    /** One latest recipe per currently bound owner/slot; never one entry per row crossed. */
-    private val latestWork = IdentityHashMap<Any, IdentityHashMap<Any, ScheduledWork>>()
-    private val attachedOwners = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
+    /**
+     * Keep only the newest request recipe for each currently bound owner/slot.
+     * This avoids accumulating work for every row crossed during a fling.
+     */
+    private val latestWork =
+        IdentityHashMap<Any, IdentityHashMap<Any, ScheduledWork>>()
+    private val attachedOwners =
+        Collections.newSetFromMap(
+            IdentityHashMap<Any, Boolean>(),
+        )
     private var drainPosted = false
     private var drainFrameCallback: Choreographer.FrameCallback? = null
-    private var resumeAttachedWork = false
-    private var drainFrameTimeNanos: Long? = null
-    private val governorInteractionStartListener: () -> Unit = {
-        recyclerView?.let(::cancelForInteraction)
-    }
-    private val governorIdleListener: () -> Unit = {
-        recyclerView?.let { if (it.scrollState == RecyclerView.SCROLL_STATE_IDLE) scheduleDrain(it) }
-    }
+
     private val scrollListener = object : RecyclerView.OnScrollListener() {
         override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
-            UiInteractionGovernor.setInteracting(this@StreamThumbnailIdleScheduler, newState != RecyclerView.SCROLL_STATE_IDLE)
-            if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                if (!UiInteractionGovernor.isInteracting.value) scheduleDrain(recyclerView)
-            } else {
-                cancelForInteraction(recyclerView)
+            UiInteractionGovernor.setInteracting(
+                this@StreamThumbnailIdleScheduler,
+                newState != RecyclerView.SCROLL_STATE_IDLE,
+            )
+
+            // Interaction affects the shared per-frame budget, but does not
+            // block visible image work.
+            if (hasScheduledWork()) {
+                scheduleDrain(recyclerView)
             }
         }
     }
@@ -75,9 +88,17 @@ internal class StreamThumbnailIdleScheduler {
         override fun onChildViewAttachedToWindow(view: android.view.View) {
             val owner = recyclerView?.getChildViewHolder(view) as? FeedImageRequestOwner ?: return
             attachedOwners.add(owner)
-            if (recyclerView?.scrollState == RecyclerView.SCROLL_STATE_IDLE && !UiInteractionGovernor.isInteracting.value) {
-                latestWork[owner]?.values?.forEach { it.scheduled = true }
-                recyclerView?.let(::scheduleDrain)
+
+            // A holder can be bound while RecyclerView is prefetching and
+            // only attach later. Start its newest registered image work as
+            // soon as it becomes relevant to the viewport, even if a fling
+            // is still in progress.
+            latestWork[owner]?.values?.forEach { it.scheduled = true }
+
+            recyclerView?.let { rv ->
+                if (latestWork[owner]?.values?.any(ScheduledWork::scheduled) == true) {
+                    scheduleDrain(rv)
+                }
             }
         }
 
@@ -100,26 +121,25 @@ internal class StreamThumbnailIdleScheduler {
         this.recyclerView = recyclerView
         recyclerView.addOnScrollListener(scrollListener)
         recyclerView.addOnChildAttachStateChangeListener(childAttachListener)
-        UiInteractionGovernor.addIdleListener(governorIdleListener)
-        UiInteractionGovernor.addInteractionStartListener(governorInteractionStartListener)
         UiInteractionGovernor.setInteracting(this, recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE)
-        // The global governor may already be active because another list or
-        // pager is moving. In that case this scheduler does not receive a new
-        // interaction-start callback, so remember to rebuild attached work
-        // when the shared interaction returns to idle.
-        resumeAttachedWork = UiInteractionGovernor.isInteracting.value
+
         for (index in 0 until recyclerView.childCount) {
-            (recyclerView.getChildViewHolder(recyclerView.getChildAt(index)) as? FeedImageRequestOwner)
-                ?.let(attachedOwners::add)
+            val owner = recyclerView.getChildViewHolder(
+                recyclerView.getChildAt(index),
+            ) as? FeedImageRequestOwner ?: continue
+
+            attachedOwners.add(owner)
+            latestWork[owner]?.values?.forEach { it.scheduled = true }
         }
-        if (recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE && !UiInteractionGovernor.isInteracting.value) scheduleDrain(recyclerView)
+
+        if (hasScheduledWork()) {
+            scheduleDrain(recyclerView)
+        }
     }
 
     fun detach() {
         recyclerView?.removeOnScrollListener(scrollListener)
         recyclerView?.removeOnChildAttachStateChangeListener(childAttachListener)
-        UiInteractionGovernor.removeIdleListener(governorIdleListener)
-        UiInteractionGovernor.removeInteractionStartListener(governorInteractionStartListener)
         UiInteractionGovernor.setInteracting(this, false)
         recyclerView = null
         latestWork.clear()
@@ -127,7 +147,6 @@ internal class StreamThumbnailIdleScheduler {
         drainFrameCallback?.let(Choreographer.getInstance()::removeFrameCallback)
         drainFrameCallback = null
         drainPosted = false
-        resumeAttachedWork = false
     }
 
     /** Drops work registered by an old bind before a holder receives a new item. */
@@ -141,22 +160,16 @@ internal class StreamThumbnailIdleScheduler {
         val scheduledWork = ownerWork[slot]
             ?.also { it.work = work }
             ?: ScheduledWork(work).also { ownerWork[slot] = it }
-        if (recyclerView == null ||
-            (owner !in attachedOwners)
-        ) {
-            // Prefetch can bind a holder before it is attached. Retain only
-            // its latest recipe; onChildViewAttachedToWindow will enqueue it
-            // if the holder is still relevant. Never start optional image
-            // work without a RecyclerView lifecycle/interaction gate.
-        } else if (
-            recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE && !UiInteractionGovernor.isInteracting.value
-        ) {
-            // Keep every optional image start on the Choreographer-driven path.
-            // This makes the shared budget real at both 60 Hz and 120 Hz and
-            // prevents a callback-triggered request from bypassing it.
-            scheduledWork.scheduled = true
-            recyclerView.let(::scheduleDrain)
+        // RecyclerView prefetch can bind a holder before it is attached. Keep
+        // only the newest recipe and let onChildViewAttachedToWindow activate
+        // it.
+        if (recyclerView == null || owner !in attachedOwners) {
+            return
         }
+
+        // Visible work is frame-budgeted, not idle-gated.
+        scheduledWork.scheduled = true
+        scheduleDrain(recyclerView)
     }
 
     private fun scheduleDrain(recyclerView: RecyclerView) {
@@ -167,77 +180,55 @@ internal class StreamThumbnailIdleScheduler {
                 if (drainFrameCallback !== this) return
                 drainFrameCallback = null
                 drainPosted = false
-                if (resumeAttachedWork) {
-                    resumeAttachedWork = false
-                    queueAttachedWork(recyclerView)
-                }
-                drain(recyclerView, frameTimeNanos)
+                drain(
+                    recyclerView = recyclerView,
+                    frameTimeNanos = frameTimeNanos,
+                )
             }
         }
         drainFrameCallback = frameCallback
         Choreographer.getInstance().postFrameCallback(frameCallback)
     }
 
-    private fun drain(recyclerView: RecyclerView, frameTimeNanos: Long) {
-        val previousFrameTimeNanos = drainFrameTimeNanos
-        drainFrameTimeNanos = frameTimeNanos
-        try {
-            if (this.recyclerView !== recyclerView ||
-                recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE ||
-                UiInteractionGovernor.isInteracting.value
-            ) return
+    private fun drain(
+        recyclerView: RecyclerView,
+        frameTimeNanos: Long,
+    ) {
+        if (this.recyclerView !== recyclerView) return
 
-            val ownerIterator = attachedOwners.iterator()
-            while (ownerIterator.hasNext()) {
-                val owner = ownerIterator.next()
-                val slotIterator = latestWork[owner]?.values?.iterator() ?: continue
-                while (slotIterator.hasNext()) {
-                    val scheduledWork = slotIterator.next()
-                    if (!scheduledWork.scheduled) continue
-                    if (!UiInteractionGovernor.tryAcquireVisibleImageStart(drainFrameTimeNanos)) {
-                        scheduleDrain(recyclerView)
-                        return
-                    }
-                    scheduledWork.scheduled = false
-                    scheduledWork.work()
+        val ownerIterator = attachedOwners.iterator()
+        while (ownerIterator.hasNext()) {
+            val owner = ownerIterator.next()
+            val slotIterator = latestWork[owner]?.values?.iterator() ?: continue
+
+            while (slotIterator.hasNext()) {
+                val scheduledWork = slotIterator.next()
+                if (!scheduledWork.scheduled) continue
+
+                // Shared process-wide frame budget. This works during
+                // interaction as well. The governor supplies a smaller
+                // budget while the user is interacting.
+                if (!UiInteractionGovernor.tryAcquireVisibleImageStart(frameTimeNanos)) {
+                    scheduleDrain(recyclerView)
+                    return
                 }
+
+                scheduledWork.scheduled = false
+                scheduledWork.work()
             }
-            if (hasScheduledWork()) scheduleDrain(recyclerView)
-        } finally {
-            drainFrameTimeNanos = previousFrameTimeNanos
+        }
+
+        if (hasScheduledWork()) {
+            scheduleDrain(recyclerView)
         }
     }
 
-    private fun cancelAttachedImageWork(recyclerView: RecyclerView) {
-        for (index in 0 until recyclerView.childCount) {
-            (recyclerView.getChildViewHolder(recyclerView.getChildAt(index)) as? FeedImageRequestOwner)
-                ?.pauseImageRequests()
+    private fun hasScheduledWork(): Boolean =
+        attachedOwners.any { owner ->
+            latestWork[owner]
+                ?.values
+                ?.any(ScheduledWork::scheduled) == true
         }
-    }
-
-    private fun cancelForInteraction(recyclerView: RecyclerView) {
-        // Drop frame-eligible work. latestWork remains a single current-bind
-        // recipe per attached holder/slot so it can be resumed after the
-        // gesture without retaining every row crossed during the fling.
-        attachedOwners.forEach { owner ->
-            latestWork[owner]?.values?.forEach { it.scheduled = false }
-        }
-        cancelAttachedImageWork(recyclerView)
-        resumeAttachedWork = true
-    }
-
-    private fun queueAttachedWork(recyclerView: RecyclerView) {
-        for (index in 0 until recyclerView.childCount) {
-            val owner = recyclerView.getChildViewHolder(recyclerView.getChildAt(index)) as? FeedImageRequestOwner
-                ?: continue
-            attachedOwners.add(owner)
-            latestWork[owner]?.values?.forEach { it.scheduled = true }
-        }
-    }
-
-    private fun hasScheduledWork(): Boolean = attachedOwners.any { owner ->
-        latestWork[owner]?.values?.any(ScheduledWork::scheduled) == true
-    }
 }
 
 /** Owns optional image work for one recycled feed holder. */
