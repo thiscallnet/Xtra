@@ -479,15 +479,9 @@ internal fun restoreDecodedMemoryImage(
         ?.image
         ?: return false
 
-    // Generic feed holders use cacheKey as their normal ImageView tag.
-    // If the correct decoded image is already represented by this holder,
-    // avoid reassigning the drawable. The Coil memory-cache hit is what proves
-    // the image successfully exists; drawable != null by itself is NOT proof.
-    if (imageView.tag != cacheKey || imageView.drawable == null) {
-        imageView.setImageDrawable(
-            cachedImage.asDrawable(imageView.resources)
-        )
-    }
+    imageView.setImageDrawable(
+        cachedImage.asDrawable(imageView.resources)
+    )
 
     if (BuildConfig.DEBUG) {
         Log.d(
