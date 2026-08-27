@@ -101,6 +101,7 @@
                     android:layout_height="24dp"
                     android:layout_marginEnd="6dp"
                     android:contentDescription="@null"
+                    android:scaleType="fitCenter"
                     android:visibility="gone" />
 
                 <TextView

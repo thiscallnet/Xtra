@@ -8,12 +8,12 @@
     android:focusable="true"
     android:foreground="?android:selectableItemBackgroundBorderless"
     android:importantForAccessibility="yes"
-    android:padding="8dp">
+    android:padding="6dp">
 
     <ImageView
         android:id="@+id/chatIdentityBadgeImage"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:contentDescription="@null"
-        android:scaleType="centerInside" />
+        android:scaleType="fitCenter" />
 </FrameLayout>
