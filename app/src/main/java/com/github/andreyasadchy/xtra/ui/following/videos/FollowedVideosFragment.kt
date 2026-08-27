@@ -23,6 +23,7 @@ import com.github.andreyasadchy.xtra.model.ui.ChannelSort
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
+import com.github.andreyasadchy.xtra.ui.common.PagerScrollStateAware
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCandidate
@@ -37,7 +38,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, VideosSortDialog.OnFilter {
+class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerScrollStateAware, VideosSortDialog.OnFilter {
 
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
@@ -206,6 +207,12 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, Videos
 
     override fun onNetworkRestored() {
         pagingAdapter.retry()
+    }
+
+    override fun onPagerScrollStateChanged(scrolling: Boolean) {
+        if (::videoPreviewViewportController.isInitialized) {
+            videoPreviewViewportController.onParentScrollStateChanged(scrolling)
+        }
     }
 
     override fun onResume() {

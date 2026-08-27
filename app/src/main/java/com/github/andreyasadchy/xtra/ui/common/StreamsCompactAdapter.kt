@@ -35,33 +35,118 @@ class StreamsCompactAdapter(
 
         override fun areContentsTheSame(oldItem: Stream, newItem: Stream): Boolean =
             streamContentsSame(oldItem, newItem)
+
+        override fun getChangePayload(oldItem: Stream, newItem: Stream): Any? =
+            if (streamThumbnailOnlyChanged(oldItem, newItem)) StreamThumbnailChangedPayload else null
     }) {
+
+    private val thumbnailLoadScheduler = StreamThumbnailIdleScheduler()
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        thumbnailLoadScheduler.attachTo(recyclerView)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        thumbnailLoadScheduler.detach()
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PagingViewHolder {
         val binding = FragmentStreamsListItemCompactBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return PagingViewHolder(binding, fragment, showGame)
+        return PagingViewHolder(binding, fragment, showGame, createStreamTagViews(binding.tagsLayout))
     }
 
     override fun onBindViewHolder(holder: PagingViewHolder, position: Int) {
+        holder.beginImageBind(getItem(position))
         holder.bind(getItem(position))
+    }
+
+    override fun onBindViewHolder(holder: PagingViewHolder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty() && payloads.all { it === StreamThumbnailChangedPayload }) {
+            holder.beginImageBind(getItem(position))
+            holder.bindThumbnail(getItem(position))
+        } else {
+            super.onBindViewHolder(holder, position, payloads)
+        }
     }
 
     override fun onViewRecycled(holder: PagingViewHolder) {
         (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
             .detachSurface(holder.previewSurface)
         holder.boundPreviewIdentity = null
+        thumbnailLoadScheduler.clear(holder)
+        holder.cancelImageWork()
         super.onViewRecycled(holder)
     }
 
-    inner class PagingViewHolder(
+    inner class PagingViewHolder internal constructor(
         private val binding: FragmentStreamsListItemCompactBinding,
         private val fragment: Fragment,
         private val showGame: Boolean,
-    ) : RecyclerView.ViewHolder(binding.root) {
+        private val tagViews: StreamTagViews,
+    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
         val previewSurface get() = binding.previewHost
         var boundPreviewIdentity: String? = null
+        private val imageRequests = FeedImageRequestBag()
+        private var boundImageIdentity: String? = null
+        private var boundThumbnailKey: String? = null
+        private var boundStream: Stream? = null
+
+        init {
+            binding.root.setOnClickListener { boundStream?.let(::openStream) }
+            binding.userImage.setOnClickListener { boundStream?.let(::openChannel) }
+            binding.username.setOnClickListener { boundStream?.let(::openChannel) }
+            binding.gameName.setOnClickListener { boundStream?.let(::openGame) }
+            binding.multiview.setOnClickListener { boundStream?.let(::openMultiview) }
+        }
+
+        fun beginImageBind(item: Stream?) {
+            thumbnailLoadScheduler.clear(this)
+            imageRequests.cancel()
+            boundImageIdentity = item?.streamIdentity()
+            boundThumbnailKey = null
+        }
+
+        override fun cancelImageRequests() {
+            imageRequests.cancel()
+        }
+
+        override fun pauseImageRequests() {
+            imageRequests.cancel(preserveRegistrations = true)
+        }
+
+        fun cancelImageWork() {
+            cancelImageRequests()
+            boundImageIdentity = null
+            boundThumbnailKey = null
+        }
+
+        fun bindThumbnail(item: Stream?) {
+            val stream = item ?: return
+            prepareStreamThumbnailImage(binding.thumbnail, stream)
+            restoreWarmStreamThumbnail(stream, binding.thumbnail)
+            val key = "${stream.thumbnailIdentity()}|generation=${stream.thumbnailGeneration}"
+            boundThumbnailKey = key
+            thumbnailLoadScheduler.runOrDefer(this@PagingViewHolder, binding.thumbnail) {
+                if (!binding.root.isAttachedToWindow ||
+                    boundImageIdentity != stream.streamIdentity() ||
+                    boundThumbnailKey != key
+                ) return@runOrDefer
+                loadStreamThumbnail(
+                    context = fragment.requireContext(),
+                    imageView = binding.thumbnail,
+                    stream = stream,
+                    scheduleFreshRequest = { freshRequest ->
+                        thumbnailLoadScheduler.runOrDefer(this@PagingViewHolder, binding.thumbnail, freshRequest)
+                    },
+                )
+                    ?.let { imageRequests.replace(binding.thumbnail, it) }
+            }
+        }
 
         fun bind(item: Stream?) {
+            boundStream = item
             val nextPreviewIdentity = item?.streamIdentity()
             if (boundPreviewIdentity != nextPreviewIdentity) {
                 (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
@@ -71,43 +156,22 @@ class StreamsCompactAdapter(
             with(binding) {
                 if (item != null) {
                     val context = fragment.requireContext()
+                    val uiPreferences = FeedUiPreferencesStore.current(context)
                     val selectionMode = onStreamClick != null
-                    val channelListener: (View) -> Unit = {
-                        if (selectionMode) {
-                            onStreamClick.invoke(item)
-                        } else {
-                            fragment.findNavController().navigate(
-                                ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
-                                    channelId = item.channelId,
-                                    channelLogin = item.channelLogin,
-                                    channelName = item.channelName,
-                                    channelImage = item.channelImage,
-                                    streamId = item.id
-                                )
-                            )
-                        }
-                    }
-                    root.setOnClickListener {
-                        if (selectionMode) {
-                            onStreamClick.invoke(item)
-                        } else {
-                            (fragment.activity as MainActivity).startStream(item)
-                        }
-                    }
                     multiview.visibility = if (selectionMode || item.channelLogin.isNullOrBlank()) View.GONE else View.VISIBLE
-                    multiview.setOnClickListener {
-                        (fragment.activity as? MainActivity)?.let { activity ->
-                            if (activity.playerFragment != null) activity.closePlayer()
-                        }
-                        fragment.findNavController().navigate(R.id.multiviewFragment, MultiviewFragment.arguments(item))
-                    }
                     if (item.channelImage != null) {
                         userImage.visibility = View.VISIBLE
                         userImage.contentDescription = item.channelName?.let {
                             context.getString(R.string.player_open_channel, it)
                         }
-                        loadStreamProfileImage(context, userImage, item)
-                        userImage.setOnClickListener(channelListener)
+                        prepareStreamProfileImage(userImage, item)
+                        thumbnailLoadScheduler.runOrDefer(this@PagingViewHolder, binding.userImage) {
+                            if (binding.root.isAttachedToWindow && boundImageIdentity == item.streamIdentity()) {
+                                loadStreamProfileImage(context, userImage, item)?.let {
+                                    imageRequests.replace(binding.userImage, it)
+                                }
+                            }
+                        }
                     } else {
                         userImage.visibility = View.GONE
                         userImage.contentDescription = null
@@ -117,7 +181,7 @@ class StreamsCompactAdapter(
                     if (item.channelName != null) {
                         username.visibility = View.VISIBLE
                         username.text = if (item.channelLogin != null && !item.channelLogin.equals(item.channelName, true)) {
-                            when (context.prefs().getString(C.UI_NAME_DISPLAY, "0")) {
+                            when (uiPreferences.nameDisplay) {
                                 "0" -> "${item.channelName}(${item.channelLogin})"
                                 "1" -> item.channelName
                                 else -> item.channelLogin
@@ -125,7 +189,6 @@ class StreamsCompactAdapter(
                         } else {
                             item.channelName
                         }
-                        username.setOnClickListener(channelListener)
                     } else {
                         username.visibility = View.GONE
                     }
@@ -137,27 +200,15 @@ class StreamsCompactAdapter(
                         title.visibility = View.GONE
                     }
                     if (showGame && item.gameName != null) {
-                        val gameListener: (View) -> Unit = {
-                            if (selectionMode) {
-                                onStreamClick.invoke(item)
-                            } else {
-                                fragment.findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                                    gameId = item.gameId,
-                                    gameSlug = item.gameSlug,
-                                    gameName = item.gameName
-                                ))
-                            }
-                        }
                         gameName.visibility = View.VISIBLE
                         gameName.text = item.gameName
-                        gameName.setOnClickListener(gameListener)
                     } else {
                         gameName.visibility = View.GONE
                     }
                     if (item.thumbnailURL != null) {
                         thumbnail.visibility = View.VISIBLE
                         liveBadge.visibility = View.VISIBLE
-                        loadStreamThumbnail(context, thumbnail, item)
+                        bindThumbnail(item)
                     } else {
                         thumbnail.visibility = View.GONE
                         liveBadge.visibility = View.GONE
@@ -170,12 +221,12 @@ class StreamsCompactAdapter(
                         viewers.text = context.resources.getQuantityString(
                             R.plurals.viewers,
                             count,
-                            TwitchApiHelper.formatCount(count, context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true)),
+                            TwitchApiHelper.formatCount(count, uiPreferences.truncateViewCount),
                         )
                     } else {
                         viewers.visibility = View.GONE
                     }
-                    if (context.prefs().getBoolean(C.UI_UPTIME, true) && item.createdAt != null) {
+                    if (uiPreferences.showUptime && item.createdAt != null) {
                         val text = item.createdAt?.let {
                             Instant.parseOrNull(it)?.takeIf { time -> time.toEpochMilliseconds() > 0 }?.let { createdAt ->
                                 val uptime = Clock.System.now() - createdAt
@@ -193,8 +244,8 @@ class StreamsCompactAdapter(
                     } else {
                         uptime.visibility = View.GONE
                     }
-                    if (!item.tags.isNullOrEmpty() && context.prefs().getBoolean(C.UI_TAGS, true)) {
-                        bindStreamTags(context, tagsLayout, item.tags) { tag ->
+                    if (!item.tags.isNullOrEmpty() && uiPreferences.showTags) {
+                        bindStreamTags(tagViews, item.tags) { tag ->
                             if (selectionMode) {
                                 onStreamClick.invoke(item)
                             } else {
@@ -205,9 +256,7 @@ class StreamsCompactAdapter(
                         tagsLayout.visibility = View.GONE
                     }
                 } else {
-                    root.setOnClickListener(null)
-                    multiview.setOnClickListener(null)
-                    userImage.setOnClickListener(null)
+                    boundStream = null
                     userImage.setImageDrawable(null)
                     userImage.tag = null
                     thumbnail.setImageDrawable(null)
@@ -217,11 +266,58 @@ class StreamsCompactAdapter(
                     gameName.visibility = View.GONE
                     viewers.visibility = View.GONE
                     uptime.visibility = View.GONE
-                    tagsLayout.removeAllViews()
+                        clearStreamTags(tagViews)
                     tagsLayout.visibility = View.GONE
                     liveBadge.visibility = View.GONE
                 }
             }
+        }
+
+        private fun openStream(stream: Stream) {
+            if (onStreamClick != null) {
+                onStreamClick.invoke(stream)
+            } else {
+                (fragment.activity as? MainActivity)?.startStream(stream)
+            }
+        }
+
+        private fun openChannel(stream: Stream) {
+            if (onStreamClick != null) {
+                onStreamClick.invoke(stream)
+            } else {
+                fragment.findNavController().navigate(
+                    ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                        channelId = stream.channelId,
+                        channelLogin = stream.channelLogin,
+                        channelName = stream.channelName,
+                        channelImage = stream.channelImage,
+                        streamId = stream.id,
+                    ),
+                )
+            }
+        }
+
+        private fun openGame(stream: Stream) {
+            if (showGame && !stream.gameName.isNullOrBlank()) {
+                if (onStreamClick != null) {
+                    onStreamClick.invoke(stream)
+                } else {
+                    fragment.findNavController().navigate(
+                        GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                            gameId = stream.gameId,
+                            gameSlug = stream.gameSlug,
+                            gameName = stream.gameName,
+                        ),
+                    )
+                }
+            }
+        }
+
+        private fun openMultiview(stream: Stream) {
+            (fragment.activity as? MainActivity)?.let { activity ->
+                if (activity.playerFragment != null) activity.closePlayer()
+            }
+            fragment.findNavController().navigate(R.id.multiviewFragment, MultiviewFragment.arguments(stream))
         }
     }
 }

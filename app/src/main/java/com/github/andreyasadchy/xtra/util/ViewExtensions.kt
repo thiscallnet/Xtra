@@ -30,3 +30,14 @@ fun ViewPager2.reduceDragSensitivity() {
     } catch (e: Exception) {
     }
 }
+
+/** Keeps tab paging lightweight and leaves expensive child work to the visible page. */
+fun ViewPager2.configureForSmoothPaging() {
+    offscreenPageLimit = 1
+    (getChildAt(0) as? RecyclerView)?.apply {
+        itemAnimator = null
+        overScrollMode = View.OVER_SCROLL_NEVER
+        setHasFixedSize(true)
+    }
+    reduceDragSensitivity()
+}

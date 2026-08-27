@@ -92,34 +92,17 @@ class CombinedChatViewModel(
     }
 
     private fun observe(session: ChannelSession) {
-        // ChatViewModel.onMessage waits for this collector. Keep the work off Main,
-        // but subscribe before startLive can deliver the first message.
+        // Keep combined-chat mutation handling off Main, but subscribe before startLive
+        // so the channel's ordered mutation stream is consumed from its first event.
         session.jobs += viewModelScope.launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-            session.viewModel.newMessage.collect { result ->
-                if (result.third > 0) {
-                    session.viewModel.trimMessageOverflow()
-                }
-                append(session, result.first)
-            }
-        }
-        session.jobs += viewModelScope.launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-            session.viewModel.addMessages.collect { result ->
-                prependHistory(session, result.first)
-            }
-        }
-        session.jobs += viewModelScope.launch {
-            session.viewModel.removeMessages.collect {
-                synchronized(messages) {
-                    var remaining = it
-                    val iterator = messages.listIterator()
-                    while (iterator.hasNext() && remaining > 0) {
-                        if (iterator.next().identity == session.identity) {
-                            iterator.remove()
-                            remaining--
-                        }
+            session.viewModel.chatMutations.collect { mutation ->
+                when (mutation) {
+                    is ChatViewModel.ChatMutation.Append -> {
+                        append(session, mutation.messages, mutation.trimCount)
                     }
+                    is ChatViewModel.ChatMutation.Prepend -> prependHistory(session, mutation.messages)
+                    is ChatViewModel.ChatMutation.Clear -> removeSessionMessages(session, Int.MAX_VALUE)
                 }
-                _updates.tryEmit(Unit)
             }
         }
         session.jobs += viewModelScope.launch {
@@ -193,10 +176,22 @@ class CombinedChatViewModel(
         session.networkActive = true
     }
 
-    private fun append(session: ChannelSession, message: ChatMessage) {
+    private fun append(session: ChannelSession, incoming: List<ChatMessage>, trimCount: Int) {
+        if (incoming.isEmpty() && trimCount <= 0) return
         synchronized(messages) {
-            if (message.id != null && messages.any { it.identity == session.identity && it.message.id == message.id }) return
-            messages += CombinedChatMessage(session.identity, displayName(session.stream), message, sequence++)
+            var remaining = trimCount
+            val iterator = messages.listIterator()
+            while (iterator.hasNext() && remaining > 0) {
+                if (iterator.next().identity == session.identity) {
+                    iterator.remove()
+                    remaining--
+                }
+            }
+            incoming.forEach { message ->
+                if (message.id == null || messages.none { it.identity == session.identity && it.message.id == message.id }) {
+                    messages += CombinedChatMessage(session.identity, displayName(session.stream), message, sequence++)
+                }
+            }
             while (messages.size > MAX_MESSAGES) messages.removeAt(0)
         }
         _updates.tryEmit(Unit)
@@ -211,6 +206,21 @@ class CombinedChatViewModel(
             }
             messages.sortWith(compareBy<CombinedChatMessage> { it.message.timestamp ?: Long.MAX_VALUE }.thenBy { it.sequence })
             while (messages.size > MAX_MESSAGES) messages.removeAt(0)
+        }
+        _updates.tryEmit(Unit)
+    }
+
+    private fun removeSessionMessages(session: ChannelSession, count: Int) {
+        if (count <= 0) return
+        synchronized(messages) {
+            var remaining = count
+            val iterator = messages.listIterator()
+            while (iterator.hasNext() && remaining > 0) {
+                if (iterator.next().identity == session.identity) {
+                    iterator.remove()
+                    remaining--
+                }
+            }
         }
         _updates.tryEmit(Unit)
     }

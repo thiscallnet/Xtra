@@ -28,6 +28,7 @@ import com.github.andreyasadchy.xtra.model.ui.GameSort
 import com.github.andreyasadchy.xtra.model.ui.SavedFilter
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
+import com.github.andreyasadchy.xtra.ui.common.PagerScrollStateAware
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.StreamsAdapter
 import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
@@ -52,7 +53,7 @@ import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.OnFilter {
+class TopStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStateAware, StreamsSortDialog.OnFilter {
 
     override val initializeWithoutNetwork = true
 
@@ -340,6 +341,12 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, StreamsSortDialog.On
 
     override fun onNetworkRestored() {
         viewModel.refreshCurrent(RefreshReason.NETWORK_RESTORED, force = true)
+    }
+
+    override fun onPagerScrollStateChanged(scrolling: Boolean) {
+        if (::streamPreloadViewportController.isInitialized) {
+            streamPreloadViewportController.onParentScrollStateChanged(scrolling)
+        }
     }
 
     override fun onResume() {

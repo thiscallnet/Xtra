@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.text.format.DateUtils
 import android.util.Log
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -68,6 +69,7 @@ class ExoPlayerFragment : PlayerFragment() {
     private var liveSurfaceRestoreListener: Player.Listener? = null
     private var liveSurfaceRestoreTimeout: Runnable? = null
     private var clipEditorCoverTimeout: Runnable? = null
+    private var videoOutputCover: View? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,6 +81,19 @@ class ExoPlayerFragment : PlayerFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        val outputCover = View(requireContext()).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+            setBackgroundColor(Color.BLACK)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        videoOutputCover = outputCover
+        // Keep the SurfaceView renderer for lower composition overhead. The cover is a normal
+        // view above it and remains visible until the player confirms a new decoded frame.
+        binding.aspectRatioFrameLayout.addView(outputCover)
+        binding.playerSurface.visibility = View.GONE
         childFragmentManager.setFragmentResultListener(
             ClipEditorDialogFragment.RESULT_KEY,
             viewLifecycleOwner,
@@ -235,10 +250,14 @@ class ExoPlayerFragment : PlayerFragment() {
             override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
                 if (isClipEditorVisible()) return
                 if (parameters.disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_VIDEO)) {
-                    binding.playerSurface.visibility = View.GONE
+                    setVideoOutputVisible(false)
                 } else {
-                    binding.playerSurface.visibility = View.VISIBLE
+                    setVideoOutputVisible(true)
                 }
+            }
+
+            override fun onRenderedFirstFrame() {
+                hideVideoOutputCover()
             }
         }
         val serviceListener = object : ExoPlayerService.Listener {
@@ -356,13 +375,20 @@ class ExoPlayerFragment : PlayerFragment() {
                                 if (player == null) {
                                     false
                                 } else {
-                                    binding.playerSurface.visibility = View.VISIBLE
+                                    showVideoOutputCover()
+                                    setVideoOutputVisible(true)
                                     player.setVideoSurfaceView(binding.playerSurface)
                                     true
                                 }
                             }
                             if (!restored) {
-                                connectedService.player?.setVideoSurfaceView(binding.playerSurface)
+                                showVideoOutputCover()
+                                connectedService.player?.let { player ->
+                                    if (!player.trackSelectionParameters.disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_VIDEO)) {
+                                        setVideoOutputVisible(true)
+                                        player.setVideoSurfaceView(binding.playerSurface)
+                                    }
+                                }
                             }
                         } else {
                             pauseLiveClipPlayback()
@@ -564,7 +590,7 @@ class ExoPlayerFragment : PlayerFragment() {
         livePlayer?.playWhenReady = false
         livePlayer?.pause()
         clipDebug("live player paused")
-        binding.playerSurface.visibility = View.GONE
+        setVideoOutputVisible(false)
         clipDebug("live surface hidden parentVisible=${binding.playerSurface.visibility == View.VISIBLE}")
         livePlayer?.clearVideoSurfaceView(binding.playerSurface)
         clipDebug("live surface cleared parentVisible=${binding.playerSurface.visibility == View.VISIBLE}")
@@ -661,7 +687,8 @@ class ExoPlayerFragment : PlayerFragment() {
         liveSurfaceRestoreListener = firstFrameListener
         livePlayer.addListener(firstFrameListener)
         binding.playerLayout.visibility = View.VISIBLE
-        binding.playerSurface.visibility = View.VISIBLE
+        showVideoOutputCover()
+        setVideoOutputVisible(true)
         clipDebug("live surface reattach")
         livePlayer.setVideoSurfaceView(binding.playerSurface)
         if (resumePlayback) {
@@ -847,7 +874,7 @@ class ExoPlayerFragment : PlayerFragment() {
                 if (view != null && !isInPIPMode) {
                     playbackService?.player?.clearVideoSurfaceView(binding.playerSurface)
                     if (videoDetachedForBackground) {
-                        binding.playerSurface.visibility = View.GONE
+                        setVideoOutputVisible(false)
                     }
                 }
             }
@@ -885,6 +912,20 @@ class ExoPlayerFragment : PlayerFragment() {
         super.onDestroyView()
     }
 
+    private fun setVideoOutputVisible(visible: Boolean) {
+        binding.playerSurface.visibility = if (visible) View.VISIBLE else View.GONE
+        if (!visible) {
+            showVideoOutputCover()
+        }
+    }
+
+    private fun showVideoOutputCover() {
+        videoOutputCover?.visibility = View.VISIBLE
+    }
+
+    private fun hideVideoOutputCover() {
+        videoOutputCover?.visibility = View.GONE
+    }
     override fun onDestroy() {
         playbackService?.cancelLiveClipPreparation()
         super.onDestroy()

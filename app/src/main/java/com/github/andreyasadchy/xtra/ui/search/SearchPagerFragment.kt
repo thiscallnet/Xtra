@@ -27,15 +27,17 @@ import com.github.andreyasadchy.xtra.databinding.FragmentSearchBinding
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
+import com.github.andreyasadchy.xtra.ui.common.RecyclerViewLiftTargetConnector
 import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerViewModel.Companion.SearchPagerViewModelFactory
 import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.configureForSmoothPaging
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.util.reduceDragSensitivity
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import kotlinx.coroutines.Job
@@ -50,6 +52,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     private val binding get() = _binding!!
     private val viewModel: SearchPagerViewModel by viewModels { SearchPagerViewModelFactory }
     private var firstLaunch = true
+    private var liftTargetConnector: RecyclerViewLiftTargetConnector? = null
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
@@ -66,6 +69,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        liftTargetConnector = RecyclerViewLiftTargetConnector(binding.appBar)
         with(binding) {
             val tabList = requireContext().prefs().getString(C.UI_SEARCH_TABS, null).let { tabPref ->
                 val defaultTabs = C.DEFAULT_SEARCH_TABS.split(',')
@@ -102,21 +106,16 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             val adapter = SearchPagerAdapter(this@SearchPagerFragment, tabs)
             viewPager.adapter = adapter
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+                override fun onPageScrollStateChanged(state: Int) {
+                    dispatchPagerScrollState(state != ViewPager2.SCROLL_STATE_IDLE)
+                }
+
                 override fun onPageSelected(position: Int) {
                     (currentFragment as? Searchable)?.search(binding.searchView.query.toString())
                     viewPager.doOnLayout {
                         childFragmentManager.findFragmentByTag("f${position}")?.let { fragment ->
                             fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
-                                appBar.setLiftOnScrollTargetView(it)
-                                it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-                                    override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                                        super.onScrolled(recyclerView, dx, dy)
-                                        appBar.isLifted = recyclerView.canScrollVertically(-1)
-                                    }
-                                })
-                                it.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                                    appBar.isLifted = it.canScrollVertically(-1)
-                                }
+                                liftTargetConnector?.connect(it)
                             }
                             if (fragment is Sortable) {
                                 fragment.setupSortBar(sortBar)
@@ -135,8 +134,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                 )
                 firstLaunch = false
             }
-            viewPager.offscreenPageLimit = adapter.itemCount
-            viewPager.reduceDragSensitivity()
+            viewPager.configureForSmoothPaging()
             TabLayoutMediator(tabLayout, viewPager) { tab, position ->
                 tab.text = when (tabs.getOrNull(position)) {
                     "0" -> getString(R.string.videos)
@@ -269,6 +267,9 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     }
 
     override fun onDestroyView() {
+        dispatchPagerScrollState(false)
+        liftTargetConnector?.disconnect()
+        liftTargetConnector = null
         super.onDestroyView()
         _binding = null
     }

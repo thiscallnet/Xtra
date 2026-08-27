@@ -1,12 +1,17 @@
 package com.github.andreyasadchy.xtra.util.chat
 
 import android.content.Context
+import android.content.ContentResolver
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.LayerDrawable
+import android.os.ParcelFileDescriptor
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
 import android.text.SpannableStringBuilder
 import android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
 import android.text.TextPaint
@@ -16,8 +21,10 @@ import android.text.style.StyleSpan
 import android.text.style.URLSpan
 import android.util.Patterns
 import android.view.View
+import android.net.Uri
 import androidx.core.graphics.ColorUtils
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import coil3.asDrawable
 import coil3.imageLoader
 import coil3.network.NetworkHeaders
@@ -46,11 +53,81 @@ import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
 import com.github.andreyasadchy.xtra.ui.view.NamePaintSpan
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import java.text.NumberFormat
+import java.io.File
+import java.io.IOException
+import java.io.RandomAccessFile
+import android.util.Base64
+import coil3.request.Disposable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Random
 import kotlin.math.floor
 import kotlin.math.pow
 
 object ChatAdapterUtils {
+
+    private data class LocalEmoteKey(val source: String, val offset: Long, val length: Int)
+
+    private const val LOCAL_EMOTE_CACHE_MAX_BYTES = 8 * 1024 * 1024
+    private val localEmoteCache = LinkedHashMap<LocalEmoteKey, ByteArray>(32, 0.75f, true)
+    private var localEmoteCacheBytes = 0
+
+    class ChatCatalogIndexes private constructor(
+        val twitchEmotesById: Map<String, TwitchEmote>,
+        val thirdPartyEmotesByName: Map<String, Emote>,
+        val personalEmotesBySet: Map<String, Map<String, Emote>>,
+        val globalBadgesByKey: Map<String, TwitchBadge>,
+        val channelBadgesByKey: Map<String, TwitchBadge>,
+        val stvUsersById: Map<String, STVUser>,
+        val stvBadgesById: Map<String, STVBadge>,
+        val namePaintsById: Map<String, NamePaint>,
+        val cheersByName: Map<String, List<CheerEmote>>,
+    ) {
+        companion object {
+            fun create(
+                localTwitchEmotes: List<TwitchEmote>,
+                thirdPartyEmotes: List<Emote>,
+                globalBadges: List<TwitchBadge>,
+                channelBadges: List<TwitchBadge>,
+                stvUsers: List<STVUser>,
+                stvBadges: List<STVBadge>,
+                namePaints: List<NamePaint>,
+                personalEmoteSets: Map<String, List<Emote>>,
+                cheerEmotes: List<CheerEmote>,
+            ) = ChatCatalogIndexes(
+                twitchEmotesById = localTwitchEmotes.mapNotNull { it.id?.let { id -> id to it } }.toMap(),
+                thirdPartyEmotesByName = thirdPartyEmotes.mapNotNull { it.name?.let { name -> name to it } }.toMap(),
+                personalEmotesBySet = personalEmoteSets.mapValues { (_, emotes) ->
+                    emotes.mapNotNull { it.name?.let { name -> name to it } }.toMap()
+                },
+                globalBadgesByKey = globalBadges.associateBy(::badgeKey),
+                channelBadgesByKey = channelBadges.associateBy(::badgeKey),
+                stvUsersById = stvUsers.associateBy { it.userId },
+                stvBadgesById = stvBadges.associateBy { it.id },
+                namePaintsById = namePaints.mapNotNull { it.id?.let { id -> id to it } }.toMap(),
+                cheersByName = cheerEmotes.groupBy { it.name.lowercase() },
+            )
+
+            private fun badgeKey(badge: TwitchBadge) = "${badge.setId}:${badge.version}"
+        }
+    }
+
+    class ImageRequestBag {
+        private val disposables = mutableListOf<Disposable>()
+        private val jobs = mutableListOf<Job>()
+        private val clearers = mutableListOf<() -> Unit>()
+        fun add(disposable: Disposable) { disposables += disposable }
+        fun add(job: Job) { jobs += job }
+        fun addClearer(clear: () -> Unit) { clearers += clear }
+        fun cancel() {
+            disposables.forEach(Disposable::dispose)
+            jobs.forEach(Job::cancel)
+            clearers.forEach { it() }
+            disposables.clear(); jobs.clear(); clearers.clear()
+        }
+    }
 
     private val twitchColors = intArrayOf(-65536, -16776961, -16744448, -5103070, -32944, -6632142, -47872, -13726889, -2448096, -2987746, -10510688, -14774017, -38476, -7722014, -16711809)
     private const val RED_HUE_DEGREES = 0f
@@ -107,7 +184,8 @@ object ChatAdapterUtils {
         return description
     }
 
-    fun prepareChatMessage(chatMessage: ChatMessage, context: Context, itemView: View, enableTimestamps: Boolean, timestampFormat: String?, firstMsgVisibility: Int, firstChatMsg: String, redeemedChatMsg: String, redeemedNoMsg: String, rewardChatMsg: String, replyMessage: String, imageClick: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?, useRandomColors: Boolean, random: Random, useReadableColors: Boolean, isLightTheme: Boolean, nameDisplay: String?, useBoldNames: Boolean, showNamePaints: Boolean, namePaints: List<NamePaint>, showBadges: Boolean, showSTVBadges: Boolean, stvBadges: List<STVBadge>, showPersonalEmotes: Boolean, personalEmoteSets: Map<String, List<Emote>>, stvUsers: List<STVUser>, enableOverlayEmotes: Boolean, showSystemMessageEmotes: Boolean, loggedInUser: String?, chatUrl: String?, getEmoteBytes: ((String, Pair<Long, Int>) -> ByteArray?)?, userColors: HashMap<String, Int>, savedColors: HashMap<String, Int>, translateAllMessages: Boolean, translateMessage: (ChatMessage, String?) -> Unit, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean, localTwitchEmotes: List<TwitchEmote>, thirdPartyEmotes: List<Emote>, globalBadges: List<TwitchBadge>, channelBadges: List<TwitchBadge>, cheerEmotes: List<CheerEmote>, savedLocalTwitchEmotes: MutableMap<String, ByteArray>, savedLocalBadges: MutableMap<String, ByteArray>, savedLocalCheerEmotes: MutableMap<String, ByteArray>, savedLocalEmotes: MutableMap<String, ByteArray>): MessageResult {
+    fun prepareChatMessage(chatMessage: ChatMessage, context: Context, itemView: View?, enableTimestamps: Boolean, timestampFormat: String?, firstMsgVisibility: Int, firstChatMsg: String, redeemedChatMsg: String, redeemedNoMsg: String, rewardChatMsg: String, replyMessage: String, imageClick: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?, useRandomColors: Boolean, random: Random, useReadableColors: Boolean, isLightTheme: Boolean, nameDisplay: String?, useBoldNames: Boolean, showNamePaints: Boolean, namePaints: List<NamePaint>, showBadges: Boolean, showSTVBadges: Boolean, stvBadges: List<STVBadge>, showPersonalEmotes: Boolean, personalEmoteSets: Map<String, List<Emote>>, stvUsers: List<STVUser>, enableOverlayEmotes: Boolean, showSystemMessageEmotes: Boolean, loggedInUser: String?, chatUrl: String?, userColors: HashMap<String, Int>, savedColors: HashMap<String, Int>, translateAllMessages: Boolean, translateMessage: (ChatMessage, String?) -> Unit, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean, localTwitchEmotes: List<TwitchEmote>, thirdPartyEmotes: List<Emote>, globalBadges: List<TwitchBadge>, channelBadges: List<TwitchBadge>, cheerEmotes: List<CheerEmote>, savedLocalTwitchEmotes: MutableMap<String, ByteArray>, savedLocalBadges: MutableMap<String, ByteArray>, savedLocalCheerEmotes: MutableMap<String, ByteArray>, savedLocalEmotes: MutableMap<String, ByteArray>, catalogIndexes: ChatCatalogIndexes? = null, includeAccessibilityDescription: Boolean = false): MessageResult {
+        val indexes = catalogIndexes ?: ChatCatalogIndexes.create(localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, stvUsers, stvBadges, namePaints, personalEmoteSets, cheerEmotes)
         val builder = SpannableStringBuilder()
         val images = ArrayList<Image>()
         var imagePaint: NamePaint? = null
@@ -115,6 +193,7 @@ object ChatAdapterUtils {
         var userNameStartIndex: Int? = null
         var wasMentioned = false
         var translated = false
+        var backgroundResource = 0
         var builderIndex = 0
         val badgeVisibility = chatBadgeVisibility(showBadges, showSTVBadges, showNamePaints, showPersonalEmotes)
         when {
@@ -136,10 +215,10 @@ object ChatAdapterUtils {
                 if (message != null) {
                     builder.append(message)
                     builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), builderIndex, builderIndex + message.length, SPAN_EXCLUSIVE_EXCLUSIVE)
-                    prepareEmotes(chatMessage, message, builder, builderIndex, images, null, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, getEmoteBytes, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes)
+                    prepareEmotes(chatMessage, message, builder, builderIndex, images, null, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes)
                     builderIndex = builder.length
                 }
-                itemView.setBackgroundResource(0)
+                backgroundResource = 0
             }
             chatMessage.message.isNullOrBlank() && (chatMessage.systemMsg != null || chatMessage.reward?.title != null) -> {
                 if (chatMessage.timestamp != null && enableTimestamps) {
@@ -154,7 +233,7 @@ object ChatAdapterUtils {
                     builder.append(chatMessage.systemMsg)
                     builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), builderIndex, builderIndex + chatMessage.systemMsg.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                     if (showSystemMessageEmotes) {
-                        prepareEmotes(chatMessage, chatMessage.systemMsg, builder, builderIndex, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, getEmoteBytes, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes)
+                        prepareEmotes(chatMessage, chatMessage.systemMsg, builder, builderIndex, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes)
                     }
                     builderIndex = builder.length
                     if (chatMessage.translatedMessage != null) {
@@ -181,7 +260,7 @@ object ChatAdapterUtils {
                         builder.append("$string ")
                         builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), builderIndex, builderIndex + string.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                         if (showSystemMessageEmotes) {
-                            prepareEmotes(chatMessage, string, builder, builderIndex, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, getEmoteBytes, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes)
+                            prepareEmotes(chatMessage, string, builder, builderIndex, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes)
                         }
                         builderIndex = builder.length
                         builder.append(". ")
@@ -203,7 +282,7 @@ object ChatAdapterUtils {
                         }
                     }
                 }
-                itemView.setBackgroundResource(0)
+                backgroundResource = 0
             }
             else -> {
                 if (chatMessage.systemMsg != null) {
@@ -260,10 +339,10 @@ object ChatAdapterUtils {
                 if (badgeVisibility.showTwitchBadges) {
                     chatMessage.badges?.forEach { chatBadge ->
                         val badge = synchronized(channelBadges) {
-                            channelBadges.find { it.setId == chatBadge.setId && it.version == chatBadge.version }
+                            indexes.channelBadgesByKey["${chatBadge.setId}:${chatBadge.version}"]
                         } ?:
                         synchronized(globalBadges) {
-                            globalBadges.find { it.setId == chatBadge.setId && it.version == chatBadge.version }
+                            indexes.globalBadgesByKey["${chatBadge.setId}:${chatBadge.version}"]
                         }
                         if (badge != null) {
                             hasBadge = true
@@ -279,7 +358,9 @@ object ChatAdapterUtils {
                                 }, builderIndex, builderIndex + 1, SPAN_EXCLUSIVE_EXCLUSIVE)
                             }
                             images.add(Image(
-                                localData = badge.localData?.let { getLocalEmoteData(badge.setId + badge.version, it, savedLocalBadges, chatUrl, getEmoteBytes) },
+                                localData = badge.localData?.let { getLocalEmoteData(badge.setId + badge.version, it, savedLocalBadges, chatUrl)?.first },
+                                localDataUrl = badge.localData?.let { getLocalEmoteData(badge.setId + badge.version, it, savedLocalBadges, chatUrl)?.second },
+                                localDataRange = badge.localData?.let { getLocalEmoteData(badge.setId + badge.version, it, savedLocalBadges, chatUrl)?.third },
                                 url1x = badge.url1x,
                                 url2x = badge.url2x,
                                 url3x = badge.url3x,
@@ -293,13 +374,13 @@ object ChatAdapterUtils {
                 }
                 val stvUser = if (badgeVisibility.loadStvUser && !chatMessage.userId.isNullOrBlank()) {
                     synchronized(stvUsers) {
-                        stvUsers.find { it.userId == chatMessage.userId }
+                        indexes.stvUsersById[chatMessage.userId]
                     }
                 } else null
                 if (badgeVisibility.showStvBadges && !chatMessage.userId.isNullOrBlank()) {
                     val badge = stvUser?.badgeId?.let { badgeId ->
                         synchronized(stvBadges) {
-                            stvBadges.find { it.id == badgeId }
+                            indexes.stvBadgesById[badgeId]
                         }
                     }
                     if (badge != null) {
@@ -336,16 +417,18 @@ object ChatAdapterUtils {
                 val color = if (chatMessage.color != null) {
                     getSavedColor(chatMessage.color, savedColors, useReadableColors, isLightTheme)
                 } else {
-                    userColors[chatMessage.userName] ?: if (useRandomColors) {
-                        twitchColors[random.nextInt(twitchColors.size)]
-                    } else {
-                        -10066329
-                    }.let { newColor ->
-                        if (useReadableColors) {
-                            adaptUsernameColor(newColor, isLightTheme)
+                    synchronized(userColors) {
+                        userColors[chatMessage.userName] ?: if (useRandomColors) {
+                            twitchColors[random.nextInt(twitchColors.size)]
                         } else {
-                            newColor
-                        }.also { if (chatMessage.userName != null) userColors[chatMessage.userName] = it }
+                            -10066329
+                        }.let { newColor ->
+                            if (useReadableColors) {
+                                adaptUsernameColor(newColor, isLightTheme)
+                            } else {
+                                newColor
+                            }.also { if (chatMessage.userName != null) userColors[chatMessage.userName] = it }
+                        }
                     }
                 }
                 if (!chatMessage.userName.isNullOrBlank()) {
@@ -366,7 +449,7 @@ object ChatAdapterUtils {
                     if (showNamePaints && !chatMessage.userId.isNullOrBlank()) {
                         stvUser?.paintId?.let { paintId ->
                             synchronized(namePaints) {
-                                namePaints.find { it.id == paintId }
+                                indexes.namePaintsById[paintId]
                             }
                         }?.let { paint ->
                             when (paint.type) {
@@ -411,7 +494,7 @@ object ChatAdapterUtils {
                     if (chatMessage.isAction) {
                         builder.setSpan(ForegroundColorSpan(color), builderIndex, builderIndex + chatMessage.message.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                     }
-                    val result = prepareEmotes(chatMessage, chatMessage.message, builder, builderIndex, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, getEmoteBytes, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, stvUser, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes)
+                    val result = prepareEmotes(chatMessage, chatMessage.message, builder, builderIndex, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, stvUser, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes)
                     wasMentioned = result
                     builderIndex = builder.length
                 }
@@ -424,16 +507,28 @@ object ChatAdapterUtils {
                         translateMessage(chatMessage, null)
                     }
                 }
-                when {
-                    chatMessage.isFirst && firstMsgVisibility < 2 -> itemView.setBackgroundResource(R.color.chatMessageFirst)
-                    chatMessage.reward?.id != null && firstMsgVisibility < 2 -> itemView.setBackgroundResource(R.color.chatMessageReward)
-                    chatMessage.systemMsg != null || chatMessage.msgId != null -> itemView.setBackgroundResource(R.color.chatMessageNotice)
-                    wasMentioned -> itemView.setBackgroundResource(R.color.chatMessageMention)
-                    else -> itemView.setBackgroundResource(0)
+                backgroundResource = when {
+                    chatMessage.isFirst && firstMsgVisibility < 2 -> R.color.chatMessageFirst
+                    chatMessage.reward?.id != null && firstMsgVisibility < 2 -> R.color.chatMessageReward
+                    chatMessage.systemMsg != null || chatMessage.msgId != null -> R.color.chatMessageNotice
+                    wasMentioned -> R.color.chatMessageMention
+                    else -> 0
                 }
             }
         }
-        return MessageResult(builder, images, imagePaint, userName, userNameStartIndex, translated)
+        itemView?.setBackgroundResource(backgroundResource)
+        return MessageResult(
+            builder = builder,
+            images = images,
+            imagePaint = imagePaint,
+            userName = userName,
+            userNameStartIndex = userNameStartIndex,
+            translated = translated,
+            backgroundResource = backgroundResource,
+            accessibilityDescription = if (includeAccessibilityDescription) {
+                accessibilityDescription(context, chatMessage, nameDisplay, builder)
+            } else null,
+        )
     }
 
     class MessageResult(
@@ -443,7 +538,21 @@ object ChatAdapterUtils {
         val userName: String?,
         val userNameStartIndex: Int?,
         val translated: Boolean,
-    )
+        val backgroundResource: Int,
+        val accessibilityDescription: String? = null,
+    ) {
+        /** Keep the parsed spans but give each holder its own mutable builder and image list. */
+        fun copyForBind() = MessageResult(
+            builder = SpannableStringBuilder(builder),
+            images = ArrayList(images),
+            imagePaint = imagePaint,
+            userName = userName,
+            userNameStartIndex = userNameStartIndex,
+            translated = translated,
+            backgroundResource = backgroundResource,
+            accessibilityDescription = accessibilityDescription,
+        )
+    }
 
     fun addTranslation(chatMessage: ChatMessage, builder: SpannableStringBuilder, startIndex: Int, savedColors: HashMap<String, Int>, useReadableColors: Boolean, isLightTheme: Boolean, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean): Int {
         var builderIndex = startIndex
@@ -466,13 +575,23 @@ object ChatAdapterUtils {
         return builderIndex
     }
 
+    fun installImagePlaceholders(builder: SpannableStringBuilder, images: List<Image>, emoteSize: Int, badgeSize: Int, inlineIconSize: Int) {
+        images.forEach { image ->
+            val size = imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize)
+            val placeholder = ColorDrawable(Color.TRANSPARENT).apply { setBounds(0, 0, size, size) }
+            builder.setSpan(CenteredImageSpan(placeholder), image.start, image.end, SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+    }
+
     private fun getSavedColor(color: String, savedColors: HashMap<String, Int>, useReadableColors: Boolean, isLightTheme: Boolean): Int {
-        return savedColors[color] ?: Color.parseColor(color).let { newColor ->
-            if (useReadableColors) {
-                adaptUsernameColor(newColor, isLightTheme)
-            } else {
-                newColor
-            }.also { savedColors[color] = it }
+        return synchronized(savedColors) {
+            savedColors[color] ?: Color.parseColor(color).let { newColor ->
+                if (useReadableColors) {
+                    adaptUsernameColor(newColor, isLightTheme)
+                } else {
+                    newColor
+                }.also { savedColors[color] = it }
+            }
         }
     }
 
@@ -498,7 +617,7 @@ object ChatAdapterUtils {
         return ColorUtils.HSLToColor(colorArray)
     }
 
-    private fun prepareEmotes(chatMessage: ChatMessage, message: String, builder: SpannableStringBuilder, startIndex: Int, images: ArrayList<Image>, imageClick: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?, useReadableColors: Boolean, isLightTheme: Boolean, enableOverlayEmotes: Boolean, useBoldNames: Boolean, loggedInUser: String?, chatUrl: String?, getEmoteBytes: ((String, Pair<Long, Int>) -> ByteArray?)?, savedColors: HashMap<String, Int>, localTwitchEmotes: List<TwitchEmote>, showPersonalEmotes: Boolean, personalEmoteSets: Map<String, List<Emote>>, stvUser: STVUser?, thirdPartyEmotes: List<Emote>, cheerEmotes: List<CheerEmote>, savedLocalTwitchEmotes: MutableMap<String, ByteArray>, savedLocalCheerEmotes: MutableMap<String, ByteArray>, savedLocalEmotes: MutableMap<String, ByteArray>): Boolean {
+    private fun prepareEmotes(chatMessage: ChatMessage, message: String, builder: SpannableStringBuilder, startIndex: Int, images: ArrayList<Image>, imageClick: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?, useReadableColors: Boolean, isLightTheme: Boolean, enableOverlayEmotes: Boolean, useBoldNames: Boolean, loggedInUser: String?, chatUrl: String?, savedColors: HashMap<String, Int>, localTwitchEmotes: List<TwitchEmote>, showPersonalEmotes: Boolean, personalEmoteSets: Map<String, List<Emote>>, stvUser: STVUser?, thirdPartyEmotes: List<Emote>, cheerEmotes: List<CheerEmote>, savedLocalTwitchEmotes: MutableMap<String, ByteArray>, savedLocalCheerEmotes: MutableMap<String, ByteArray>, savedLocalEmotes: MutableMap<String, ByteArray>, catalogIndexes: ChatCatalogIndexes): Boolean {
         var wasMentioned = false
         try {
             var builderIndex = startIndex
@@ -511,7 +630,7 @@ object ChatAdapterUtils {
                 } else {
                     it.end + realBegin - it.begin
                 }
-                localTwitchEmotes.find { emote -> emote.id == it.id }?.let { emote ->
+                catalogIndexes.twitchEmotesById[it.id]?.let { emote ->
                     TwitchEmote(
                         id = emote.id,
                         name = emote.name,
@@ -526,11 +645,7 @@ object ChatAdapterUtils {
                 } ?: TwitchEmote(id = it.id, begin = realBegin, end = realEnd)
             }?.sortedBy { it.begin }?.toMutableList()
             val personalEmotes = if (showPersonalEmotes) {
-                stvUser?.emoteSetId?.let { setId ->
-                    synchronized(personalEmoteSets) {
-                        personalEmoteSets.entries.find { it.key == setId }?.value
-                    }
-                }
+                stvUser?.emoteSetId?.let(catalogIndexes.personalEmotesBySet::get)
             } else null
             for (value in split) {
                 if (chatMessage.bits != null) {
@@ -538,7 +653,7 @@ object ChatAdapterUtils {
                     val bitsName = value.substringBeforeLast(bitsCount)
                     if (bitsCount.isNotEmpty()) {
                         val emote = synchronized(cheerEmotes) {
-                            cheerEmotes.findLast { it.name.equals(bitsName, true) && it.minBits <= bitsCount.toInt() }
+                            catalogIndexes.cheersByName[bitsName.lowercase()]?.lastOrNull { it.minBits <= bitsCount.toInt() }
                         }
                         if (emote != null) {
                             builder.replace(builderIndex, builderIndex + bitsName.length, ".")
@@ -553,7 +668,9 @@ object ChatAdapterUtils {
                                 }, builderIndex, builderIndex + 1, SPAN_EXCLUSIVE_EXCLUSIVE)
                             }
                             images.add(Image(
-                                localData = emote.localData?.let { getLocalEmoteData(emote.name + emote.minBits, it, savedLocalCheerEmotes, chatUrl, getEmoteBytes) },
+                                localData = emote.localData?.let { getLocalEmoteData(emote.name + emote.minBits, it, savedLocalCheerEmotes, chatUrl)?.first },
+                                localDataUrl = emote.localData?.let { getLocalEmoteData(emote.name + emote.minBits, it, savedLocalCheerEmotes, chatUrl)?.second },
+                                localDataRange = emote.localData?.let { getLocalEmoteData(emote.name + emote.minBits, it, savedLocalCheerEmotes, chatUrl)?.third },
                                 url1x = emote.url1x,
                                 url2x = emote.url2x,
                                 url3x = emote.url3x,
@@ -581,16 +698,15 @@ object ChatAdapterUtils {
                         }
                     }
                 }
-                val emote = personalEmotes?.find {
-                    it.name == value
-                } ?: synchronized(thirdPartyEmotes) {
-                    thirdPartyEmotes.find { it.name == value }
-                }
+                val emote = personalEmotes?.get(value)
+                    ?: catalogIndexes.thirdPartyEmotesByName[value]
                 if (emote != null) {
                     if (emote.isOverlayEmote && enableOverlayEmotes && previousImage != null) {
                         builder.replace(builderIndex - 1, builderIndex + value.length, "")
                         val image = Image(
-                            localData = emote.localData?.let { getLocalEmoteData(emote.name!!, it, savedLocalEmotes, chatUrl, getEmoteBytes) },
+                            localData = emote.localData?.let { getLocalEmoteData(emote.name!!, it, savedLocalEmotes, chatUrl)?.first },
+                            localDataUrl = emote.localData?.let { getLocalEmoteData(emote.name!!, it, savedLocalEmotes, chatUrl)?.second },
+                            localDataRange = emote.localData?.let { getLocalEmoteData(emote.name!!, it, savedLocalEmotes, chatUrl)?.third },
                             url1x = emote.url1x,
                             url2x = emote.url2x,
                             url3x = emote.url3x,
@@ -625,7 +741,9 @@ object ChatAdapterUtils {
                             }, builderIndex, builderIndex + 1, SPAN_EXCLUSIVE_EXCLUSIVE)
                         }
                         val image = Image(
-                            localData = emote.localData?.let { getLocalEmoteData(emote.name!!, it, savedLocalEmotes, chatUrl, getEmoteBytes) },
+                            localData = emote.localData?.let { getLocalEmoteData(emote.name!!, it, savedLocalEmotes, chatUrl)?.first },
+                            localDataUrl = emote.localData?.let { getLocalEmoteData(emote.name!!, it, savedLocalEmotes, chatUrl)?.second },
+                            localDataRange = emote.localData?.let { getLocalEmoteData(emote.name!!, it, savedLocalEmotes, chatUrl)?.third },
                             url1x = emote.url1x,
                             url2x = emote.url2x,
                             url3x = emote.url3x,
@@ -665,7 +783,7 @@ object ChatAdapterUtils {
                     twitchEmotes.remove(twitchEmote)
                     builder.replace(builderIndex, builderIndex + value.length, ".")
                     builder.setSpan(ForegroundColorSpan(Color.TRANSPARENT), builderIndex, builderIndex + 1, SPAN_EXCLUSIVE_EXCLUSIVE)
-                    val emote = localTwitchEmotes.find { emote -> emote.id == twitchEmote.id }?.let { emote ->
+                    val emote = catalogIndexes.twitchEmotesById[twitchEmote.id]?.let { emote ->
                         TwitchEmote(
                             id = emote.id,
                             name = emote.name,
@@ -688,7 +806,9 @@ object ChatAdapterUtils {
                         }, builderIndex, builderIndex + 1, SPAN_EXCLUSIVE_EXCLUSIVE)
                     }
                     val image = Image(
-                        localData = emote.localData?.let { getLocalEmoteData(emote.id!!, it, savedLocalTwitchEmotes, chatUrl, getEmoteBytes) },
+                        localData = emote.localData?.let { getLocalEmoteData(emote.id!!, it, savedLocalTwitchEmotes, chatUrl)?.first },
+                        localDataUrl = emote.localData?.let { getLocalEmoteData(emote.id!!, it, savedLocalTwitchEmotes, chatUrl)?.second },
+                        localDataRange = emote.localData?.let { getLocalEmoteData(emote.id!!, it, savedLocalTwitchEmotes, chatUrl)?.third },
                         url1x = emote.url1x,
                         url2x = emote.url2x,
                         url3x = emote.url3x,
@@ -738,30 +858,51 @@ object ChatAdapterUtils {
         return wasMentioned
     }
 
-    private fun getLocalEmoteData(name: String, data: Pair<Long, Int>, savedLocalEmotes: MutableMap<String, ByteArray>, chatUrl: String?, getEmoteBytes: ((String, Pair<Long, Int>) -> ByteArray?)?): ByteArray? {
-        return savedLocalEmotes[name] ?: chatUrl?.let { url ->
-            getEmoteBytes?.let { get ->
-                get(url, data)?.also {
-                    if (savedLocalEmotes.size >= 100) {
-                        savedLocalEmotes.remove(savedLocalEmotes.keys.first())
-                    }
-                    savedLocalEmotes[name] = it
-                }
+    private fun getLocalEmoteData(name: String, data: Pair<Long, Int>, savedLocalEmotes: MutableMap<String, ByteArray>, chatUrl: String?): Triple<ByteArray?, String?, Pair<Long, Int>?>? {
+        synchronized(savedLocalEmotes) {
+            savedLocalEmotes[name]?.let { return Triple(it, null, null) }
+        }
+        return chatUrl?.let { Triple(null, it, data) }
+    }
+
+    private fun getCachedLocalEmote(source: String, range: Pair<Long, Int>): ByteArray? = synchronized(localEmoteCache) {
+        localEmoteCache[LocalEmoteKey(source, range.first, range.second)]
+    }
+
+    private fun cacheLocalEmote(source: String, range: Pair<Long, Int>, bytes: ByteArray) {
+        if (bytes.size > LOCAL_EMOTE_CACHE_MAX_BYTES) return
+        synchronized(localEmoteCache) {
+            val key = LocalEmoteKey(source, range.first, range.second)
+            localEmoteCache.remove(key)?.let { localEmoteCacheBytes -= it.size }
+            localEmoteCache[key] = bytes
+            localEmoteCacheBytes += bytes.size
+            while (localEmoteCacheBytes > LOCAL_EMOTE_CACHE_MAX_BYTES) {
+                val iterator = localEmoteCache.entries.iterator()
+                if (!iterator.hasNext()) break
+                localEmoteCacheBytes -= iterator.next().value.size
+                iterator.remove()
             }
         }
     }
 
-    fun loadImages(fragment: Fragment, itemView: View, bind: (SpannableStringBuilder) -> Unit, images: List<Image>, imagePaint: NamePaint?, userName: String?, userNameStartIndex: Int?, backgroundColor: Int, imageLibrary: String?, builder: SpannableStringBuilder, translated: Boolean, emoteSize: Int, badgeSize: Int, inlineIconSize: Int, emoteQuality: String, animateGifs: Boolean, enableOverlayEmotes: Boolean, chatMessage: ChatMessage, savedColors: HashMap<String, Int>, useReadableColors: Boolean, isLightTheme: Boolean, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean) {
+    fun loadImages(fragment: Fragment, itemView: View, bind: (SpannableStringBuilder) -> Unit, images: List<Image>, imagePaint: NamePaint?, userName: String?, userNameStartIndex: Int?, backgroundColor: Int, imageLibrary: String?, builder: SpannableStringBuilder, translated: Boolean, emoteSize: Int, badgeSize: Int, inlineIconSize: Int, emoteQuality: String, animateGifs: Boolean, enableOverlayEmotes: Boolean, chatMessage: ChatMessage, savedColors: HashMap<String, Int>, useReadableColors: Boolean, isLightTheme: Boolean, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean, isCurrent: () -> Boolean = { true }, shouldAnimate: () -> Boolean = { true }, requestBag: ImageRequestBag? = null, shouldLoad: () -> Boolean = { true }, onLoadDeferred: () -> Unit = {}) {
+        // During a fling the placeholder layout is sufficient. Deferring every request, including
+        // static badges and name paints, prevents decode/cache work from competing with scrolling.
+        if (!shouldLoad()) {
+            if (imagePaint != null || images.isNotEmpty()) onLoadDeferred()
+            return
+        }
         if (imagePaint != null) {
             if (imageLibrary == "0") {
-                fragment.requireContext().imageLoader.enqueue(
+                val disposable = fragment.requireContext().imageLoader.enqueue(
                     ImageRequest.Builder(fragment.requireContext()).apply {
                         data(imagePaint.imageUrl)
                         httpHeaders(NetworkHeaders.Builder().apply {
                             add("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                         }.build())
                         target(
-                            onSuccess = {
+                            onSuccess = imagePaintLoaded@{
+                                if (!isCurrent()) return@imagePaintLoaded
                                 (it.asDrawable(fragment.resources)).let { result ->
                                     if (result is Animatable && animateGifs) {
                                         result.callback = object : Drawable.Callback {
@@ -777,7 +918,7 @@ object ChatAdapterUtils {
                                                 itemView.postDelayed(what, `when`)
                                             }
                                         }
-                                        (result as Animatable).start()
+                                        if (shouldAnimate()) (result as Animatable).start()
                                     }
                                     try {
                                         builder.setSpan(
@@ -803,56 +944,62 @@ object ChatAdapterUtils {
                         )
                     }.build()
                 )
+                requestBag?.add(disposable)
             } else {
-                Glide.with(fragment)
+                val requestManager = Glide.with(fragment)
+                val target = object : CustomTarget<Drawable>() {
+                    override fun onResourceReady(resource: Drawable, transition: Transition<in Drawable>?) {
+                        if (!isCurrent()) return
+                        if (resource is Animatable && animateGifs) {
+                            resource.callback = object : Drawable.Callback {
+                                override fun unscheduleDrawable(who: Drawable, what: Runnable) {
+                                    itemView.removeCallbacks(what)
+                                }
+
+                                override fun invalidateDrawable(who: Drawable) {
+                                    itemView.invalidate()
+                                }
+
+                                override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) {
+                                    itemView.postDelayed(what, `when`)
+                                }
+                            }
+                            if (shouldAnimate()) (resource as Animatable).start()
+                        }
+                        try {
+                            builder.setSpan(
+                                NamePaintImageSpan(
+                                    userName!!,
+                                    imagePaint.shadows,
+                                    (itemView.background as? ColorDrawable)?.color,
+                                    backgroundColor,
+                                    resource
+                                ),
+                                userNameStartIndex!!,
+                                userNameStartIndex + userName.length,
+                                SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                        } catch (e: IndexOutOfBoundsException) {
+                        }
+                        if (!translated && chatMessage.translatedMessage != null) {
+                            addTranslation(chatMessage, builder, builder.length, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
+                        }
+                        bind(builder)
+                    }
+
+                    override fun onLoadCleared(placeholder: Drawable?) {
+                    }
+                }
+                requestManager
                     .load(GlideUrl(imagePaint.imageUrl) { mapOf("User-Agent" to "Xtra/" + BuildConfig.VERSION_NAME) })
                     .diskCacheStrategy(DiskCacheStrategy.DATA)
-                    .into(object : CustomTarget<Drawable>() {
-                        override fun onResourceReady(resource: Drawable, transition: Transition<in Drawable>?) {
-                            if (resource is Animatable && animateGifs) {
-                                resource.callback = object : Drawable.Callback {
-                                    override fun unscheduleDrawable(who: Drawable, what: Runnable) {
-                                        itemView.removeCallbacks(what)
-                                    }
-
-                                    override fun invalidateDrawable(who: Drawable) {
-                                        itemView.invalidate()
-                                    }
-
-                                    override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) {
-                                        itemView.postDelayed(what, `when`)
-                                    }
-                                }
-                                (resource as Animatable).start()
-                            }
-                            try {
-                                builder.setSpan(
-                                    NamePaintImageSpan(
-                                        userName!!,
-                                        imagePaint.shadows,
-                                        (itemView.background as? ColorDrawable)?.color,
-                                        backgroundColor,
-                                        resource
-                                    ),
-                                    userNameStartIndex!!,
-                                    userNameStartIndex + userName.length,
-                                    SPAN_EXCLUSIVE_EXCLUSIVE
-                                )
-                            } catch (e: IndexOutOfBoundsException) {
-                            }
-                            if (!translated && chatMessage.translatedMessage != null) {
-                                addTranslation(chatMessage, builder, builder.length, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
-                            }
-                            bind(builder)
-                        }
-
-                        override fun onLoadCleared(placeholder: Drawable?) {
-                        }
-                    })
+                    .into(target)
+                requestBag?.addClearer { requestManager.clear(target) }
             }
         }
         images.forEach { image ->
-            loadImage(imageLibrary, fragment, image, emoteQuality) { result ->
+            loadImage(imageLibrary, fragment, image, emoteQuality, requestBag) imageLoaded@{ result ->
+                if (!isCurrent()) return@imageLoaded
                 val imageSize = imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize)
                 val widthRatio = result.intrinsicWidth.toFloat() / result.intrinsicHeight.toFloat()
                 val size = if (widthRatio == 1f) {
@@ -875,24 +1022,26 @@ object ChatAdapterUtils {
                             itemView.postDelayed(what, `when`)
                         }
                     }
-                    (result as Animatable).start()
+                    if (shouldAnimate()) (result as Animatable).start()
                 }
                 if (image.overlayEmote != null) {
                     val drawables = arrayOf(result)
-                    nextOverlayEmote(imageLibrary, fragment, drawables, image.overlayEmote!!, image, itemView, bind, builder, translated, emoteSize, emoteQuality, animateGifs, enableOverlayEmotes, chatMessage, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
+                    nextOverlayEmote(imageLibrary, fragment, drawables, image.overlayEmote!!, image, itemView, bind, builder, translated, emoteSize, emoteQuality, animateGifs, enableOverlayEmotes, chatMessage, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors, isCurrent, shouldAnimate, requestBag, shouldLoad, onLoadDeferred)
                 } else {
-                    builder.setSpan(CenteredImageSpan(result), image.start, image.end, SPAN_EXCLUSIVE_EXCLUSIVE)
-                    if (!translated && chatMessage.translatedMessage != null) {
-                        addTranslation(chatMessage, builder, builder.length, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
-                    }
-                    bind(builder)
+                    builder.getSpans(image.start, image.end, CenteredImageSpan::class.java).firstOrNull()?.imageDrawable = result
+                    itemView.invalidate()
                 }
             }
         }
     }
 
-    private fun nextOverlayEmote(imageLibrary: String?, fragment: Fragment, drawables: Array<Drawable>, image: Image, bottomImage: Image, itemView: View, bind: (SpannableStringBuilder) -> Unit, builder: SpannableStringBuilder, translated: Boolean, emoteSize: Int, emoteQuality: String, animateGifs: Boolean, enableOverlayEmotes: Boolean, chatMessage: ChatMessage, savedColors: HashMap<String, Int>, useReadableColors: Boolean, isLightTheme: Boolean, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean) {
-        loadImage(imageLibrary, fragment, image, emoteQuality) { result ->
+    private fun nextOverlayEmote(imageLibrary: String?, fragment: Fragment, drawables: Array<Drawable>, image: Image, bottomImage: Image, itemView: View, bind: (SpannableStringBuilder) -> Unit, builder: SpannableStringBuilder, translated: Boolean, emoteSize: Int, emoteQuality: String, animateGifs: Boolean, enableOverlayEmotes: Boolean, chatMessage: ChatMessage, savedColors: HashMap<String, Int>, useReadableColors: Boolean, isLightTheme: Boolean, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean, isCurrent: () -> Boolean, shouldAnimate: () -> Boolean, requestBag: ImageRequestBag?, shouldLoad: () -> Boolean, onLoadDeferred: () -> Unit) {
+        if (!shouldLoad()) {
+            onLoadDeferred()
+            return
+        }
+        loadImage(imageLibrary, fragment, image, emoteQuality, requestBag) overlayLoaded@{ result ->
+            if (!isCurrent()) return@overlayLoaded
             val widthRatio = result.intrinsicWidth.toFloat() / result.intrinsicHeight.toFloat()
             val size = if (widthRatio == 1f) {
                 emoteSize to emoteSize
@@ -914,35 +1063,98 @@ object ChatAdapterUtils {
                         itemView.postDelayed(what, `when`)
                     }
                 }
-                (result as Animatable).start()
+                if (shouldAnimate()) (result as Animatable).start()
             }
             val array = drawables.plus(result)
             if (image.overlayEmote != null) {
-                nextOverlayEmote(imageLibrary, fragment, array, image.overlayEmote!!, bottomImage, itemView, bind, builder, translated, emoteSize, emoteQuality, animateGifs, enableOverlayEmotes, chatMessage, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
+                nextOverlayEmote(imageLibrary, fragment, array, image.overlayEmote!!, bottomImage, itemView, bind, builder, translated, emoteSize, emoteQuality, animateGifs, enableOverlayEmotes, chatMessage, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors, isCurrent, shouldAnimate, requestBag, shouldLoad, onLoadDeferred)
             } else {
                 val layer = LayerDrawable(array)
                 val width = array.maxOf { it.bounds.right }
                 val height = array.maxOf { it.bounds.bottom }
                 layer.setBounds(0, 0, width, height)
-                builder.setSpan(CenteredImageSpan(layer), bottomImage.start, bottomImage.end, SPAN_EXCLUSIVE_EXCLUSIVE)
-                if (!translated && chatMessage.translatedMessage != null) {
-                    addTranslation(chatMessage, builder, builder.length, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
-                }
-                bind(builder)
+                builder.getSpans(bottomImage.start, bottomImage.end, CenteredImageSpan::class.java).firstOrNull()?.imageDrawable = layer
+                itemView.invalidate()
             }
         }
     }
 
-    private fun loadImage(imageLibrary: String?, fragment: Fragment, image: Image, emoteQuality: String, onLoaded: (Drawable) -> Unit) {
+    private fun loadImage(imageLibrary: String?, fragment: Fragment, image: Image, emoteQuality: String, requestBag: ImageRequestBag?, onLoaded: (Drawable) -> Unit) {
+        if (image.localData == null && image.localDataUrl != null && image.localDataRange != null) {
+            val context = fragment.requireContext()
+            val range = image.localDataRange
+            getCachedLocalEmote(image.localDataUrl, range)?.let { bytes ->
+                loadImage(imageLibrary, fragment, image.withLocalData(bytes), emoteQuality, requestBag, onLoaded)
+                return
+            }
+            val job = fragment.viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                val bytes = readLocalEmote(context, image.localDataUrl, range)
+                cacheLocalEmote(image.localDataUrl, range, bytes)
+                withContext(Dispatchers.Main.immediate) { loadImage(imageLibrary, fragment, image.withLocalData(bytes), emoteQuality, requestBag, onLoaded) }
+            }
+            requestBag?.add(job)
+            return
+        }
         if (imageLibrary == "0" || (imageLibrary == "1" && !image.format.equals("webp", true))) {
-            loadCoil(fragment, image, emoteQuality, onLoaded)
+            loadCoil(fragment, image, emoteQuality, requestBag, onLoaded)
         } else {
-            loadGlide(fragment, image, emoteQuality, onLoaded)
+            loadGlide(fragment, image, emoteQuality, requestBag, onLoaded)
         }
     }
 
-    private fun loadCoil(fragment: Fragment, image: Image, emoteQuality: String, onLoaded: (Drawable) -> Unit) {
-        fragment.requireContext().imageLoader.enqueue(
+    private fun readLocalEmote(context: Context, url: String, range: Pair<Long, Int>): ByteArray {
+        val encoded = ByteArray(range.second)
+        val uri = Uri.parse(url)
+        if (uri.scheme == ContentResolver.SCHEME_CONTENT) {
+            val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
+            if (descriptor != null) {
+                try {
+                    Os.lseek(descriptor.fileDescriptor, range.first, OsConstants.SEEK_SET)
+                    ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
+                        input.readFully(encoded)
+                    }
+                    return Base64.decode(encoded, Base64.NO_WRAP or Base64.NO_PADDING)
+                } catch (_: ErrnoException) {
+                    descriptor.close()
+                } catch (_: IOException) {
+                    descriptor.close()
+                }
+            }
+            val stream = context.contentResolver.openInputStream(uri)
+                ?: error("Unable to open local emote source")
+            stream.use { input ->
+                input.skipFully(range.first)
+                input.readFully(encoded)
+            }
+        } else {
+            RandomAccessFile(File(url), "r").use { file ->
+                file.seek(range.first)
+                file.readFully(encoded)
+            }
+        }
+        return Base64.decode(encoded, Base64.NO_WRAP or Base64.NO_PADDING)
+    }
+
+    private fun java.io.InputStream.skipFully(byteCount: Long) {
+        var skipped = 0L
+        while (skipped < byteCount) {
+            val count = skip(byteCount - skipped)
+            if (count <= 0) error("Unexpected end of local emote data")
+            skipped += count
+        }
+    }
+
+    private fun java.io.InputStream.readFully(buffer: ByteArray) {
+        var read = 0
+        while (read < buffer.size) {
+            val count = read(buffer, read, buffer.size - read)
+            if (count < 0) error("Unexpected end of local emote data")
+            read += count
+        }
+    }
+
+    private fun loadCoil(fragment: Fragment, image: Image, emoteQuality: String, requestBag: ImageRequestBag?, onLoaded: (Drawable) -> Unit) {
+        val disposable = fragment.requireContext().imageLoader.enqueue(
             ImageRequest.Builder(fragment.requireContext()).apply {
                 data(image.localData ?: when (emoteQuality) {
                     "4" -> image.url4x ?: image.url3x ?: image.url2x ?: image.url1x
@@ -950,6 +1162,11 @@ object ChatAdapterUtils {
                     "2" -> image.url2x ?: image.url1x
                     else -> image.url1x
                 })
+                image.localDataUrl?.let { source ->
+                    image.localDataRange?.let { range ->
+                        memoryCacheKey("xtra:chat-local-emote:$source:${range.first}:${range.second}:$emoteQuality")
+                    }
+                }
                 diskCachePolicy(CachePolicy.ENABLED)
                 if (image.thirdParty) {
                     httpHeaders(NetworkHeaders.Builder().apply {
@@ -963,10 +1180,16 @@ object ChatAdapterUtils {
                 )
             }.build()
         )
+        requestBag?.add(disposable)
     }
 
-    private fun loadGlide(fragment: Fragment, image: Image, emoteQuality: String, onLoaded: (Drawable) -> Unit) {
-        Glide.with(fragment)
+    private fun loadGlide(fragment: Fragment, image: Image, emoteQuality: String, requestBag: ImageRequestBag?, onLoaded: (Drawable) -> Unit) {
+        val requestManager = Glide.with(fragment)
+        val target = object : CustomTarget<Drawable>() {
+            override fun onResourceReady(resource: Drawable, transition: Transition<in Drawable>?) { onLoaded(resource) }
+            override fun onLoadCleared(placeholder: Drawable?) {}
+        }
+        requestManager
             .load(image.localData ?: when (emoteQuality) {
                 "4" -> image.url4x ?: image.url3x ?: image.url2x ?: image.url1x
                 "3" -> image.url3x ?: image.url2x ?: image.url1x
@@ -978,13 +1201,7 @@ object ChatAdapterUtils {
                 } else it
             })
             .diskCacheStrategy(DiskCacheStrategy.DATA)
-            .into(object : CustomTarget<Drawable>() {
-                override fun onResourceReady(resource: Drawable, transition: Transition<in Drawable>?) {
-                    onLoaded(resource)
-                }
-
-                override fun onLoadCleared(placeholder: Drawable?) {
-                }
-            })
+            .into(target)
+        requestBag?.addClearer { requestManager.clear(target) }
     }
 }

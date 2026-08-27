@@ -1,14 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.common
 
-import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
-import androidx.constraintlayout.helper.widget.Flow
-import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.core.content.res.use
-import androidx.core.widget.TextViewCompat
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import androidx.paging.PagingDataAdapter
@@ -39,42 +33,109 @@ class GamesAdapter(
             oldItem.viewerCount == newItem.viewerCount
     }) {
 
+    private val imageLoadScheduler = StreamThumbnailIdleScheduler()
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        imageLoadScheduler.attachTo(recyclerView)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        imageLoadScheduler.detach()
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PagingViewHolder {
         val binding = FragmentGamesListItemBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return PagingViewHolder(binding, fragment)
+        return PagingViewHolder(binding, fragment, createGameTagViews(binding.tagsLayout))
     }
 
     override fun onBindViewHolder(holder: PagingViewHolder, position: Int) {
+        holder.beginImageBind(getItem(position))
         holder.bind(getItem(position))
     }
 
-    inner class PagingViewHolder(
+    override fun onViewRecycled(holder: PagingViewHolder) {
+        imageLoadScheduler.clear(holder)
+        holder.cancelImageWork()
+        super.onViewRecycled(holder)
+    }
+
+    inner class PagingViewHolder internal constructor(
         private val binding: FragmentGamesListItemBinding,
         private val fragment: Fragment,
-    ) : RecyclerView.ViewHolder(binding.root) {
+        private val tagViews: GameTagViews,
+    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
+        private val imageRequests = FeedImageRequestBag()
+        private var boundGameId: String? = null
+        private var boundGame: Game? = null
+
+        init {
+            binding.root.setOnClickListener {
+                boundGame?.let { game ->
+                    fragment.findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                        gameId = game.id,
+                        gameSlug = game.slug,
+                        gameName = game.name,
+                        boxArt = game.boxArt,
+                    ))
+                }
+            }
+        }
+
+        fun beginImageBind(item: Game?) {
+            imageLoadScheduler.clear(this)
+            imageRequests.cancel()
+            boundGameId = item?.id
+        }
+
+        override fun cancelImageRequests() {
+            imageRequests.cancel()
+        }
+
+        override fun pauseImageRequests() {
+            imageRequests.cancel(preserveRegistrations = true)
+        }
+
+        fun cancelImageWork() {
+            cancelImageRequests()
+            boundGameId = null
+            boundGame = null
+        }
+
         fun bind(item: Game?) {
+            boundGame = item
             with(binding) {
                 if (item != null) {
                     val context = fragment.requireContext()
-                    root.setOnClickListener {
-                        fragment.findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                            gameId = item.id,
-                            gameSlug = item.slug,
-                            gameName = item.name,
-                            boxArt = item.boxArt
-                        ))
-                    }
+                    val uiPreferences = FeedUiPreferencesStore.current(context)
                     if (item.boxArt != null) {
                         gameImage.visibility = View.VISIBLE
-                        fragment.requireContext().imageLoader.enqueue(
-                            ImageRequest.Builder(fragment.requireContext()).apply {
-                                data(item.boxArt)
-                                crossfade(true)
-                                target(gameImage)
-                            }.build()
-                        )
+                        val gameId = item.id
+                        val imageKey = "xtra:game-boxart:$gameId|${item.boxArt}"
+                        if (gameImage.tag != imageKey) {
+                            gameImage.setImageDrawable(null)
+                            gameImage.tag = imageKey
+                        }
+                        restoreDecodedMemoryImage(imageKey, gameImage)
+                        imageLoadScheduler.runOrDefer(this@PagingViewHolder, binding.gameImage) {
+                            if (!binding.root.isAttachedToWindow || boundGameId != gameId) return@runOrDefer
+                            imageRequests.replace(
+                                binding.gameImage,
+                                context.imageLoader.enqueue(
+                                    ImageRequest.Builder(context).apply {
+                                        data(item.boxArt)
+                                        memoryCacheKey(imageKey)
+                                        crossfade(false)
+                                        target(gameImage)
+                                    }.build(),
+                                ),
+                            )
+                        }
                     } else {
                         gameImage.visibility = View.GONE
+                        gameImage.setImageDrawable(null)
+                        gameImage.tag = null
                     }
                     if (item.name != null) {
                         gameName.visibility = View.VISIBLE
@@ -88,63 +149,38 @@ class GamesAdapter(
                         viewers.text = context.resources.getQuantityString(
                             R.plurals.viewers,
                             count,
-                            TwitchApiHelper.formatCount(count, context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true))
+                            TwitchApiHelper.formatCount(count, uiPreferences.truncateViewCount)
                         )
                     } else {
                         viewers.visibility = View.GONE
                     }
-                    if (item.broadcasterCount != null && context.prefs().getBoolean(C.UI_BROADCASTERS_COUNT, true)) {
+                    if (item.broadcasterCount != null && uiPreferences.showBroadcastersCount) {
                         broadcastersCount.visibility = View.VISIBLE
                         val count = item.broadcasterCount ?: 0
                         broadcastersCount.text = context.resources.getQuantityString(
                             R.plurals.broadcasters,
                             count,
-                            TwitchApiHelper.formatCount(count, context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true))
+                            TwitchApiHelper.formatCount(count, uiPreferences.truncateViewCount)
                         )
                     } else {
                         broadcastersCount.visibility = View.GONE
                     }
-                    if (!item.tags.isNullOrEmpty() && context.prefs().getBoolean(C.UI_TAGS, true)) {
-                        tagsLayout.removeAllViews()
-                        tagsLayout.visibility = View.VISIBLE
-                        val tagsFlowLayout = Flow(context).apply {
-                            layoutParams = ConstraintLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.WRAP_CONTENT
-                            ).apply {
-                                topToTop = tagsLayout.id
-                                bottomToBottom = tagsLayout.id
-                                startToStart = tagsLayout.id
-                                endToEnd = tagsLayout.id
-                            }
-                            setWrapMode(Flow.WRAP_CHAIN)
-                        }
-                        tagsLayout.addView(tagsFlowLayout)
-                        val ids = mutableListOf<Int>()
-                        for (tag in item.tags!!) {
-                            val text = TextView(context)
-                            val id = View.generateViewId()
-                            text.id = id
-                            ids.add(id)
-                            text.text = tag.name
-                            text.setMinHeight(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 48f, context.resources.displayMetrics).toInt())
-                            text.isFocusable = tag.id != null
-                            context.obtainStyledAttributes(intArrayOf(com.google.android.material.R.attr.textAppearanceBodyMedium)).use {
-                                TextViewCompat.setTextAppearance(text, it.getResourceId(0, 0))
-                            }
-                            if (tag.id != null) {
-                                text.setOnClickListener {
-                                    selectTag(tag)
-                                }
-                            }
-                            val padding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 5f, context.resources.displayMetrics).toInt()
-                            text.setPadding(padding, 0, padding, 0)
-                            tagsLayout.addView(text)
-                        }
-                        tagsFlowLayout.referencedIds = ids.toIntArray()
+                    if (!item.tags.isNullOrEmpty() && uiPreferences.showTags) {
+                        bindGameTags(tagViews, item.tags.orEmpty(), selectTag)
                     } else {
-                        tagsLayout.visibility = View.GONE
+                        clearGameTags(tagViews)
                     }
+                } else {
+                    boundGame = null
+                    gameImage.setImageDrawable(null)
+                    gameImage.visibility = View.GONE
+                    gameName.text = null
+                    gameName.visibility = View.GONE
+                    viewers.text = null
+                    viewers.visibility = View.GONE
+                    broadcastersCount.text = null
+                    broadcastersCount.visibility = View.GONE
+                    clearGameTags(tagViews)
                 }
             }
         }

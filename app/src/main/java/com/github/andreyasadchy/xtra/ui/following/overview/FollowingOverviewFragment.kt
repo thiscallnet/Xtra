@@ -38,6 +38,24 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
+private data class RecommendationState(
+    val streams: List<Stream>,
+    val isLoading: Boolean,
+    val hasResolved: Boolean,
+    val source: RecommendationSource,
+)
+
+private data class LoadingState(
+    val isLoading: Boolean,
+    val hasResolved: Boolean,
+)
+
+private data class UpcomingState(
+    val streams: List<com.github.andreyasadchy.xtra.model.ui.UpcomingStream>,
+    val isLoading: Boolean,
+    val hasResolved: Boolean,
+)
+
 class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
 
     override val initializeWithoutNetwork = true
@@ -166,9 +184,10 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                 val recommendationState = combine(
                     viewModel.recommendedStreams,
                     viewModel.recommendationsLoading,
+                    viewModel.recommendationsResolved,
                     viewModel.recommendationSource,
-                ) { recommended, recommendationsLoading, recommendationSource ->
-                    Triple(recommended, recommendationsLoading, recommendationSource)
+                ) { recommended, recommendationsLoading, recommendationsResolved, recommendationSource ->
+                    RecommendationState(recommended, recommendationsLoading, recommendationsResolved, recommendationSource)
                 }
                 val sections = combine(
                     viewModel.liveStreams,
@@ -176,7 +195,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                     viewModel.continueWatching,
                     viewModel.overviewSectionKeys,
                 ) { live, recommendation, continueWatching, sectionKeys ->
-                    val (recommended, recommendationsLoading, recommendationSource) = recommendation
+                    val recommended = recommendation.streams
                     val availableSections = mapOf(
                         FollowingOverviewSections.LIVE to FollowingOverviewSection(
                             key = FollowingOverviewSections.LIVE,
@@ -186,14 +205,15 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                         ),
                         FollowingOverviewSections.RECOMMENDED to FollowingOverviewSection(
                             key = FollowingOverviewSections.RECOMMENDED,
-                            titleRes = if (recommendationSource == RecommendationSource.FALLBACK) {
+                            titleRes = if (recommendation.source == RecommendationSource.FALLBACK) {
                                 R.string.following_popular_live_channels
                             } else {
                                 R.string.following_recommended_channels
                             },
                             emptyRes = R.string.following_no_recommended_channels,
                             streams = recommended,
-                            isLoading = recommendationsLoading && recommended.isEmpty(),
+                            isLoading = recommendation.isLoading && recommended.isEmpty() && !recommendation.hasResolved,
+                            hasResolved = recommendation.hasResolved,
                             showSeeAll = false,
                         ),
                         FollowingOverviewSections.CONTINUE to FollowingOverviewSection(
@@ -213,20 +233,30 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                     )
                     sectionKeys.mapNotNull(availableSections::get)
                 }
-                combine(
-                    sections,
+                val recentVideosState = combine(
                     viewModel.recentVideosLoading,
+                    viewModel.recentVideosResolved,
+                ) { isLoading, hasResolved -> LoadingState(isLoading, hasResolved) }
+                val upcomingStreamsState = combine(
                     viewModel.upcomingStreams,
                     viewModel.upcomingStreamsLoading,
-                ) { currentSections, recentVideosLoading, upcomingStreams, upcomingStreamsLoading ->
+                    viewModel.upcomingStreamsResolved,
+                ) { streams, isLoading, hasResolved -> UpcomingState(streams, isLoading, hasResolved) }
+                combine(
+                    sections,
+                    recentVideosState,
+                    upcomingStreamsState,
+                ) { currentSections, recentVideos, upcoming ->
                     currentSections.map { section ->
                         when (section.key) {
                             FollowingOverviewSections.CONTINUE -> section.copy(
-                                isLoading = recentVideosLoading && section.videos.isEmpty(),
+                                isLoading = recentVideos.isLoading && section.videos.isEmpty() && !recentVideos.hasResolved,
+                                hasResolved = recentVideos.hasResolved,
                             )
                             FollowingOverviewSections.UPCOMING -> section.copy(
-                                scheduledStreams = upcomingStreams,
-                                isLoading = upcomingStreamsLoading && upcomingStreams.isEmpty(),
+                                scheduledStreams = upcoming.streams,
+                                isLoading = upcoming.isLoading && upcoming.streams.isEmpty() && !upcoming.hasResolved,
+                                hasResolved = upcoming.hasResolved,
                             )
                             else -> section
                         }
@@ -241,7 +271,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
 
     override fun onNetworkRestored() {
         viewModel.syncCurrentAccount()
-        viewModel.refreshOverviewSections()
+        viewModel.refreshOverviewSections(force = true)
         viewModel.refreshCurrent(RefreshReason.NETWORK_RESTORED, force = true)
     }
 

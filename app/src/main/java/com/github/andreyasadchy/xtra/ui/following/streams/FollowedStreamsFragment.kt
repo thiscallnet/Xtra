@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
+import com.github.andreyasadchy.xtra.ui.common.PagerScrollStateAware
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
@@ -33,7 +34,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-class FollowedStreamsFragment : PagedListFragment(), Scrollable {
+class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStateAware {
 
     override val initializeWithoutNetwork = true
 
@@ -105,6 +106,12 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable {
     override fun onNetworkRestored() {
         viewModel.syncCurrentAccount()
         viewModel.refreshCurrent(RefreshReason.NETWORK_RESTORED, force = true)
+    }
+
+    override fun onPagerScrollStateChanged(scrolling: Boolean) {
+        if (::streamPreloadViewportController.isInitialized) {
+            streamPreloadViewportController.onParentScrollStateChanged(scrolling)
+        }
     }
 
     override fun onResume() {

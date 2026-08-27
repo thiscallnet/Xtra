@@ -91,8 +91,8 @@ class ChannelSearchFragment : PagedListFragment(), Searchable {
     }
 
     override fun search(query: String) {
-        viewModel.setQuery(query)
-        if (requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
+        val changed = viewModel.setQuery(query)
+        if (changed && query.isNotBlank() && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
             viewModel.saveRecentSearch(query)
         }
     }

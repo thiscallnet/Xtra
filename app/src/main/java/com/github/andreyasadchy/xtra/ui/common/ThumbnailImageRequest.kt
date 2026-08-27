@@ -1,12 +1,19 @@
 package com.github.andreyasadchy.xtra.ui.common
 
 import android.content.Context
+import android.graphics.drawable.Drawable
 import android.util.Log
+import android.util.LruCache
+import android.view.Choreographer
 import android.widget.ImageView
+import androidx.recyclerview.widget.RecyclerView
 import coil3.Image
+import coil3.asDrawable
 import coil3.decode.DataSource
 import coil3.imageLoader
+import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
+import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.error
@@ -20,9 +27,268 @@ import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamThumbnailRefreshSignal
-import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.UiInteractionGovernor
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.IdentityHashMap
+
+internal interface FeedImageRequestOwner {
+    /** Cancel optional work without invalidating an image that is already on screen. */
+    fun cancelImageRequests()
+
+    /** Pause active work while retaining registrations for a same-bind resume. */
+    fun pauseImageRequests()
+}
+
+/** Defers optional image work until idle without retaining work for scrolled-off rows. */
+internal class StreamThumbnailIdleScheduler {
+    private var recyclerView: RecyclerView? = null
+    private class ScheduledWork(
+        var work: () -> Unit,
+        var scheduled: Boolean = false,
+    )
+
+    /** One latest recipe per currently bound owner/slot; never one entry per row crossed. */
+    private val latestWork = IdentityHashMap<Any, IdentityHashMap<Any, ScheduledWork>>()
+    private val attachedOwners = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
+    private var drainPosted = false
+    private var drainFrameCallback: Choreographer.FrameCallback? = null
+    private var resumeAttachedWork = false
+    private var drainFrameTimeNanos: Long? = null
+    private val governorInteractionStartListener: () -> Unit = {
+        recyclerView?.let(::cancelForInteraction)
+    }
+    private val governorIdleListener: () -> Unit = {
+        recyclerView?.let { if (it.scrollState == RecyclerView.SCROLL_STATE_IDLE) scheduleDrain(it) }
+    }
+    private val scrollListener = object : RecyclerView.OnScrollListener() {
+        override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+            UiInteractionGovernor.setInteracting(this@StreamThumbnailIdleScheduler, newState != RecyclerView.SCROLL_STATE_IDLE)
+            if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                if (!UiInteractionGovernor.isInteracting.value) scheduleDrain(recyclerView)
+            } else {
+                cancelForInteraction(recyclerView)
+            }
+        }
+    }
+    private val childAttachListener = object : RecyclerView.OnChildAttachStateChangeListener {
+        override fun onChildViewAttachedToWindow(view: android.view.View) {
+            val owner = recyclerView?.getChildViewHolder(view) as? FeedImageRequestOwner ?: return
+            attachedOwners.add(owner)
+            if (recyclerView?.scrollState == RecyclerView.SCROLL_STATE_IDLE && !UiInteractionGovernor.isInteracting.value) {
+                latestWork[owner]?.values?.forEach { it.scheduled = true }
+                recyclerView?.let(::scheduleDrain)
+            }
+        }
+
+        override fun onChildViewDetachedFromWindow(view: android.view.View) {
+            val owner = recyclerView?.getChildViewHolder(view) as? FeedImageRequestOwner
+            owner?.cancelImageRequests()
+            if (owner != null) {
+                attachedOwners.remove(owner)
+                // A detached holder may stay in RecyclerView's cache. Keep
+                // its latest bind recipe for a future reattach, but never
+                // leave executable work scheduled for it.
+                latestWork[owner]?.values?.forEach { it.scheduled = false }
+            }
+        }
+    }
+
+    fun attachTo(recyclerView: RecyclerView) {
+        if (this.recyclerView === recyclerView) return
+        detach()
+        this.recyclerView = recyclerView
+        recyclerView.addOnScrollListener(scrollListener)
+        recyclerView.addOnChildAttachStateChangeListener(childAttachListener)
+        UiInteractionGovernor.addIdleListener(governorIdleListener)
+        UiInteractionGovernor.addInteractionStartListener(governorInteractionStartListener)
+        UiInteractionGovernor.setInteracting(this, recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE)
+        // The global governor may already be active because another list or
+        // pager is moving. In that case this scheduler does not receive a new
+        // interaction-start callback, so remember to rebuild attached work
+        // when the shared interaction returns to idle.
+        resumeAttachedWork = UiInteractionGovernor.isInteracting.value
+        for (index in 0 until recyclerView.childCount) {
+            (recyclerView.getChildViewHolder(recyclerView.getChildAt(index)) as? FeedImageRequestOwner)
+                ?.let(attachedOwners::add)
+        }
+        if (recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE && !UiInteractionGovernor.isInteracting.value) scheduleDrain(recyclerView)
+    }
+
+    fun detach() {
+        recyclerView?.removeOnScrollListener(scrollListener)
+        recyclerView?.removeOnChildAttachStateChangeListener(childAttachListener)
+        UiInteractionGovernor.removeIdleListener(governorIdleListener)
+        UiInteractionGovernor.removeInteractionStartListener(governorInteractionStartListener)
+        UiInteractionGovernor.setInteracting(this, false)
+        recyclerView = null
+        latestWork.clear()
+        attachedOwners.clear()
+        drainFrameCallback?.let(Choreographer.getInstance()::removeFrameCallback)
+        drainFrameCallback = null
+        drainPosted = false
+        resumeAttachedWork = false
+    }
+
+    /** Drops work registered by an old bind before a holder receives a new item. */
+    fun clear(owner: Any) {
+        latestWork.remove(owner)
+    }
+
+    fun runOrDefer(owner: Any, slot: Any, work: () -> Unit) {
+        val recyclerView = recyclerView
+        val ownerWork = latestWork.getOrPut(owner) { IdentityHashMap() }
+        val scheduledWork = ownerWork[slot]
+            ?.also { it.work = work }
+            ?: ScheduledWork(work).also { ownerWork[slot] = it }
+        if (recyclerView == null ||
+            (owner !in attachedOwners)
+        ) {
+            // Prefetch can bind a holder before it is attached. Retain only
+            // its latest recipe; onChildViewAttachedToWindow will enqueue it
+            // if the holder is still relevant.
+            if (recyclerView == null) work()
+        } else if (
+            recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE && !UiInteractionGovernor.isInteracting.value
+        ) {
+            // Keep every optional image start on the Choreographer-driven path.
+            // This makes the shared budget real at both 60 Hz and 120 Hz and
+            // prevents a callback-triggered request from bypassing it.
+            scheduledWork.scheduled = true
+            recyclerView.let(::scheduleDrain)
+        }
+    }
+
+    private fun scheduleDrain(recyclerView: RecyclerView) {
+        if (drainPosted) return
+        drainPosted = true
+        val frameCallback = object : Choreographer.FrameCallback {
+            override fun doFrame(frameTimeNanos: Long) {
+                if (drainFrameCallback !== this) return
+                drainFrameCallback = null
+                drainPosted = false
+                if (resumeAttachedWork) {
+                    resumeAttachedWork = false
+                    queueAttachedWork(recyclerView)
+                }
+                drain(recyclerView, frameTimeNanos)
+            }
+        }
+        drainFrameCallback = frameCallback
+        Choreographer.getInstance().postFrameCallback(frameCallback)
+    }
+
+    private fun drain(recyclerView: RecyclerView, frameTimeNanos: Long) {
+        val previousFrameTimeNanos = drainFrameTimeNanos
+        drainFrameTimeNanos = frameTimeNanos
+        try {
+            if (this.recyclerView !== recyclerView ||
+                recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE ||
+                UiInteractionGovernor.isInteracting.value
+            ) return
+
+            val ownerIterator = attachedOwners.iterator()
+            while (ownerIterator.hasNext()) {
+                val owner = ownerIterator.next()
+                val slotIterator = latestWork[owner]?.values?.iterator() ?: continue
+                while (slotIterator.hasNext()) {
+                    val scheduledWork = slotIterator.next()
+                    if (!scheduledWork.scheduled) continue
+                    if (!UiInteractionGovernor.tryAcquireVisibleImageStart(drainFrameTimeNanos)) {
+                        scheduleDrain(recyclerView)
+                        return
+                    }
+                    scheduledWork.scheduled = false
+                    scheduledWork.work()
+                }
+            }
+            if (hasScheduledWork()) scheduleDrain(recyclerView)
+        } finally {
+            drainFrameTimeNanos = previousFrameTimeNanos
+        }
+    }
+
+    private fun cancelAttachedImageWork(recyclerView: RecyclerView) {
+        for (index in 0 until recyclerView.childCount) {
+            (recyclerView.getChildViewHolder(recyclerView.getChildAt(index)) as? FeedImageRequestOwner)
+                ?.pauseImageRequests()
+        }
+    }
+
+    private fun cancelForInteraction(recyclerView: RecyclerView) {
+        // Drop frame-eligible work. latestWork remains a single current-bind
+        // recipe per attached holder/slot so it can be resumed after the
+        // gesture without retaining every row crossed during the fling.
+        attachedOwners.forEach { owner ->
+            latestWork[owner]?.values?.forEach { it.scheduled = false }
+        }
+        cancelAttachedImageWork(recyclerView)
+        resumeAttachedWork = true
+    }
+
+    private fun queueAttachedWork(recyclerView: RecyclerView) {
+        for (index in 0 until recyclerView.childCount) {
+            val owner = recyclerView.getChildViewHolder(recyclerView.getChildAt(index)) as? FeedImageRequestOwner
+                ?: continue
+            attachedOwners.add(owner)
+            latestWork[owner]?.values?.forEach { it.scheduled = true }
+        }
+    }
+
+    private fun hasScheduledWork(): Boolean = attachedOwners.any { owner ->
+        latestWork[owner]?.values?.any(ScheduledWork::scheduled) == true
+    }
+}
+
+/** Owns optional image work for one recycled feed holder. */
+internal class FeedImageRequestBag {
+    private val cancellations = IdentityHashMap<Any, () -> Unit>()
+
+    fun replace(slot: Any, disposable: Disposable) {
+        cancellations.put(slot, disposable::dispose)?.invoke()
+    }
+
+    fun replace(slot: Any, handle: StreamThumbnailRequestHandle) {
+        cancellations.put(slot, handle::cancel)?.invoke()
+    }
+
+    fun cancel(preserveRegistrations: Boolean = false) {
+        cancellations.values.forEach { it() }
+        if (!preserveRegistrations) cancellations.clear()
+    }
+}
+
+/**
+ * A thumbnail consists of a cache stage and an optional fresh stage. Keep one
+ * cancellation handle for both so a recycled holder can stop either stage,
+ * including a fresh request scheduled by the cache-stage callback.
+ */
+internal class StreamThumbnailRequestHandle {
+    private var disposable: Disposable? = null
+    private var cancelled = false
+
+    @Synchronized
+    fun set(disposable: Disposable) {
+        if (cancelled) {
+            disposable.dispose()
+        } else {
+            this.disposable?.dispose()
+            this.disposable = disposable
+        }
+    }
+
+    @Synchronized
+    fun cancel() {
+        cancelled = true
+        disposable?.dispose()
+        disposable = null
+    }
+
+    @Synchronized
+    fun rearm() {
+        cancelled = false
+    }
+}
 
 internal fun ImageRequest.Builder.thumbnailState(): ImageRequest.Builder = apply {
     placeholder(R.drawable.bg_thumbnail_placeholder)
@@ -53,7 +319,9 @@ internal fun Stream.thumbnailIdentity(): String {
         ?: "fallback:${streamIdentity()}:thumbnail-hash:${thumbnailURL.orEmpty().hashCode().toString(16)}"
 }
 
-internal fun streamContentsSame(oldItem: Stream, newItem: Stream): Boolean {
+internal object StreamThumbnailChangedPayload
+
+private fun streamMetadataSame(oldItem: Stream, newItem: Stream): Boolean {
     return oldItem.id == newItem.id &&
             oldItem.channelId == newItem.channelId &&
             oldItem.channelLogin == newItem.channelLogin &&
@@ -66,8 +334,16 @@ internal fun streamContentsSame(oldItem: Stream, newItem: Stream): Boolean {
             oldItem.thumbnailURL == newItem.thumbnailURL &&
             oldItem.createdAt == newItem.createdAt &&
             oldItem.viewerCount == newItem.viewerCount &&
-            oldItem.tags == newItem.tags &&
-            oldItem.thumbnailGeneration == newItem.thumbnailGeneration
+            oldItem.tags == newItem.tags
+}
+
+internal fun streamContentsSame(oldItem: Stream, newItem: Stream): Boolean {
+    return streamMetadataSame(oldItem, newItem)
+}
+
+internal fun streamThumbnailOnlyChanged(oldItem: Stream, newItem: Stream): Boolean {
+    return streamMetadataSame(oldItem, newItem) &&
+            oldItem.thumbnailGeneration != newItem.thumbnailGeneration
 }
 
 /**
@@ -79,21 +355,28 @@ private class StreamImageTarget(
     imageView: ImageView,
     private val identity: String,
     private val preserveCurrentImage: Boolean,
+    private val requestKey: Any? = null,
+    private val thumbnailCacheKey: String? = null,
 ) : ImageViewTarget(imageView) {
 
+    private fun isCurrent(): Boolean =
+        view.tag == identity &&
+            (requestKey == null || view.getTag(R.id.stream_profile_request_key) == requestKey)
+
     override fun onStart(placeholder: Image?) {
-        if (preserveCurrentImage && view.tag == identity && view.drawable != null) return
+        if (preserveCurrentImage && isCurrent() && view.drawable != null) return
         super.onStart(placeholder)
     }
 
     override fun onSuccess(result: Image) {
-        if (view.tag == identity) {
+        if (isCurrent()) {
             super.onSuccess(result)
+            thumbnailCacheKey?.let { rememberWarmStreamThumbnail(it, view) }
         }
     }
 
     override fun onError(error: Image?) {
-        if (view.tag != identity) return
+        if (!isCurrent()) return
         if (shouldPreserveThumbnailOnFreshFailure(
                 identityMatches = true,
                 preserveCurrentImage = preserveCurrentImage,
@@ -107,6 +390,7 @@ private class StreamImageTarget(
 private class StreamThumbnailCacheTarget(
     imageView: ImageView,
     private val identity: String,
+    private val cacheKey: String,
 ) : ImageViewTarget(imageView) {
 
     override fun onStart(placeholder: Image?) {
@@ -117,6 +401,7 @@ private class StreamThumbnailCacheTarget(
     override fun onSuccess(result: Image) {
         if (view.tag == identity) {
             super.onSuccess(result)
+            rememberWarmStreamThumbnail(cacheKey, view)
         }
     }
 
@@ -134,6 +419,72 @@ internal data class StreamThumbnailRequestPlan(
     val memoryCacheKey: String,
     val networkUrl: String,
 )
+
+private data class StreamThumbnailViewRequestKey(
+    val identity: String,
+    val sourceUrl: String,
+    val memoryCacheKey: String,
+    val freshnessBucket: Long,
+    val thumbnailGeneration: Long,
+    val forceEpoch: Long,
+)
+
+private val warmStreamThumbnailCache = object : LruCache<String, Drawable.ConstantState>(16) {}
+
+private data class WarmThumbnailRequestKey(val memoryCacheKey: String)
+
+private fun rememberWarmStreamThumbnail(cacheKey: String, imageView: ImageView) {
+    imageView.drawable?.constantState?.let { state ->
+        synchronized(warmStreamThumbnailCache) {
+            warmStreamThumbnailCache.put(cacheKey, state)
+        }
+        if (BuildConfig.DEBUG) Log.d("StreamThumbnail", "warm_store keyHash=${cacheKey.hashCode().toString(16)}")
+    }
+}
+
+private fun restoreWarmStreamThumbnail(cacheKey: String, imageView: ImageView): Boolean {
+    if (imageView.drawable != null) return false
+    val state = synchronized(warmStreamThumbnailCache) {
+        warmStreamThumbnailCache.get(cacheKey)
+    } ?: return false
+    imageView.setImageDrawable(state.newDrawable(imageView.resources))
+    if (BuildConfig.DEBUG) Log.d("StreamThumbnail", "warm_restore keyHash=${cacheKey.hashCode().toString(16)}")
+    return true
+}
+
+/**
+ * Coil's decoded memory cache is the source of truth for images that were
+ * loaded by another holder. Restoring it synchronously avoids showing the
+ * layout's grey placeholder while a cache-only request posts its callback.
+ * The small ConstantState cache above remains a fallback for images Coil has
+ * already evicted from its decoded cache.
+ */
+internal fun restoreDecodedMemoryImage(cacheKey: String, imageView: ImageView): Boolean {
+    if (imageView.drawable != null) return false
+    val cachedImage = imageView.context.imageLoader.memoryCache
+        ?.get(MemoryCache.Key(cacheKey))
+        ?.image
+        ?: return false
+    imageView.setImageDrawable(cachedImage.asDrawable(imageView.resources))
+    if (BuildConfig.DEBUG) Log.d("StreamThumbnail", "memory_restore keyHash=${cacheKey.hashCode().toString(16)}")
+    return true
+}
+
+private fun restoreDecodedStreamThumbnail(cacheKey: String, imageView: ImageView): Boolean =
+    restoreDecodedMemoryImage(cacheKey, imageView)
+
+/**
+ * Restore an already-decoded thumbnail during bind. This is memory-only;
+ * disk/network work remains behind the idle scheduler.
+ */
+internal fun restoreWarmStreamThumbnail(stream: Stream, imageView: ImageView): Boolean {
+    val plan = streamThumbnailRequestPlan(stream, StreamThumbnailPolicy.bucket(System.currentTimeMillis())) ?: return false
+    if (!restoreDecodedStreamThumbnail(plan.memoryCacheKey, imageView) &&
+        !restoreWarmStreamThumbnail(plan.memoryCacheKey, imageView)
+    ) return false
+    imageView.setTag(R.id.stream_thumbnail_request_key, WarmThumbnailRequestKey(plan.memoryCacheKey))
+    return true
+}
 
 internal object StreamThumbnailPolicy {
     const val REFRESH_INTERVAL_MS = 5 * 60_000L
@@ -264,39 +615,87 @@ internal fun streamThumbnailRequestPlan(stream: Stream, bucket: Long): StreamThu
     val separator = if ('?' in thumbnail) '&' else '?'
     return StreamThumbnailRequestPlan(
         diskCacheKey = "xtra:stream-thumbnail:$identity",
-        memoryCacheKey = "xtra:stream-thumbnail-memory:$identity:bucket:$bucket",
+        // Keep one decoded in-process image per stream. The bucket belongs to
+        // freshness/revalidation, not to the identity of the image currently
+        // displayed. This lets a recreated holder render the last image from
+        // memory immediately while the optional fresh request runs later.
+        memoryCacheKey = "xtra:stream-thumbnail-memory:$identity",
         networkUrl = "$thumbnail${separator}xtra_preview_bucket=$bucket",
     )
 }
 
-internal fun loadStreamProfileImage(context: Context, imageView: ImageView, stream: Stream) {
+internal fun prepareStreamProfileImage(imageView: ImageView, stream: Stream) {
+    val identity = stream.streamIdentity()
+    if (imageView.tag != identity) {
+        imageView.setImageDrawable(null)
+        imageView.setTag(R.id.stream_profile_request_key, null)
+    }
+    imageView.tag = identity
+}
+
+internal fun prepareStreamThumbnailImage(imageView: ImageView, stream: Stream) {
+    val identity = stream.thumbnailIdentity()
+    if (imageView.tag != identity) {
+        imageView.setImageDrawable(null)
+        imageView.setTag(R.id.stream_thumbnail_request_key, null)
+    }
+    imageView.tag = identity
+}
+
+internal fun loadStreamProfileImage(
+    context: Context,
+    imageView: ImageView,
+    stream: Stream,
+): Disposable? {
     val identity = stream.streamIdentity()
     val sameIdentity = imageView.tag == identity
     if (!sameIdentity) {
         imageView.setImageDrawable(null)
+        imageView.setTag(R.id.stream_profile_request_key, null)
     }
     imageView.tag = identity
     val url = stream.channelImage
     if (url.isNullOrBlank()) {
         imageView.setImageDrawable(null)
-        return
+        imageView.setTag(R.id.stream_profile_request_key, null)
+        return null
     }
-    ImageRequest.Builder(context).apply {
+    val roundUserImage = FeedUiPreferencesStore.current(context).roundUserImage
+    val requestKey = "$identity|$url|round=$roundUserImage"
+    if (sameIdentity &&
+        imageView.drawable != null &&
+        imageView.getTag(R.id.stream_profile_request_key) == requestKey
+    ) {
+        return null
+    }
+    imageView.setTag(R.id.stream_profile_request_key, requestKey)
+    if (restoreDecodedMemoryImage(requestKey, imageView)) {
+        return null
+    }
+    return context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
         data(url)
+        memoryCacheKey(requestKey)
         diskCachePolicy(CachePolicy.ENABLED)
-        if (context.prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true)) {
+        if (roundUserImage) {
             transformations(CircleCropTransformation())
         }
         // Keep an already displayed image in place while a changed profile URL loads.
         crossfade(false)
-        target(StreamImageTarget(imageView, identity, preserveCurrentImage = sameIdentity))
-    }.build().let(context.imageLoader::enqueue)
+        target(StreamImageTarget(imageView, identity, preserveCurrentImage = sameIdentity, requestKey = requestKey))
+    }.build())
 }
 
-internal fun loadStreamThumbnail(context: Context, imageView: ImageView, stream: Stream) {
+internal fun loadStreamThumbnail(
+    context: Context,
+    imageView: ImageView,
+    stream: Stream,
+    scheduleFreshRequest: ((() -> Unit) -> Unit),
+): StreamThumbnailRequestHandle? {
     val identity = stream.thumbnailIdentity()
-    if (imageView.tag != identity) {
+    val sameIdentity = imageView.tag == identity
+    if (!sameIdentity) {
         imageView.setImageDrawable(null)
+        imageView.setTag(R.id.stream_thumbnail_request_key, null)
     }
     imageView.tag = identity
     val bucket = StreamThumbnailPolicy.bucket(System.currentTimeMillis())
@@ -304,16 +703,40 @@ internal fun loadStreamThumbnail(context: Context, imageView: ImageView, stream:
     val plan = streamThumbnailRequestPlan(stream, bucket)
     if (plan == null) {
         imageView.setImageDrawable(null)
-        return
+        imageView.setTag(R.id.stream_thumbnail_request_key, null)
+        return null
     }
+
+    val requestKey = StreamThumbnailViewRequestKey(
+        identity = identity,
+        sourceUrl = stream.thumbnailURL.orEmpty(),
+        memoryCacheKey = plan.memoryCacheKey,
+        freshnessBucket = bucket,
+        thumbnailGeneration = stream.thumbnailGeneration,
+        forceEpoch = forceEpoch,
+    )
+    val warmImageRestored = imageView.getTag(R.id.stream_thumbnail_request_key) ==
+            WarmThumbnailRequestKey(plan.memoryCacheKey)
+    // Paging can rebind an unchanged row while another part of the screen is
+    // updating. A cache hit still allocates a request and callback chain, so
+    // do not enqueue the same request again when its image is already shown.
+    if (sameIdentity &&
+        imageView.drawable != null &&
+        imageView.getTag(R.id.stream_thumbnail_request_key) == requestKey
+    ) {
+        return null
+    }
+    imageView.setTag(R.id.stream_thumbnail_request_key, requestKey)
+    val requestHandle = StreamThumbnailRequestHandle()
 
     fun enqueueFreshRequest() {
         val nowMs = System.currentTimeMillis()
         if (!streamThumbnailFetchGate.shouldFetch(identity, bucket, forceEpoch, nowMs)) return
         streamThumbnailFetchGate.markAttempt(identity, bucket, forceEpoch, nowMs)
+        requestHandle.rearm()
         val preserveCurrentImage = imageView.tag == identity && imageView.drawable != null
         val policies = thumbnailCachePolicies(fresh = true)
-        ImageRequest.Builder(context).apply {
+        requestHandle.set(context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
             data(plan.networkUrl)
             // The fresh stage must bypass both stale memory and disk reads while
             // retaining the new response in both caches.
@@ -332,15 +755,32 @@ internal fun loadStreamThumbnail(context: Context, imageView: ImageView, stream:
                 bucket = bucket,
                 onSuccess = { streamThumbnailFetchGate.markSuccess(identity, bucket, forceEpoch) },
             )
-            target(StreamImageTarget(imageView, identity, preserveCurrentImage))
-        }.build().let(context.imageLoader::enqueue)
+            target(
+                StreamImageTarget(
+                    imageView = imageView,
+                    identity = identity,
+                    preserveCurrentImage = preserveCurrentImage,
+                    thumbnailCacheKey = plan.memoryCacheKey,
+                ),
+            )
+        }.build()))
+    }
+
+    // A warm ConstantState is already a decoded stale image. Avoid issuing a
+    // second cache-only request that would decode the same bitmap from disk;
+    // only revalidate when the fetch gate says the current bucket is due.
+    if (warmImageRestored || restoreWarmStreamThumbnail(plan.memoryCacheKey, imageView)) {
+        if (streamThumbnailFetchGate.shouldFetch(identity, bucket, forceEpoch, System.currentTimeMillis())) {
+            scheduleFreshRequest(::enqueueFreshRequest)
+        }
+        return requestHandle
     }
 
     // Stage one renders the stable last-known image without touching the
     // network. Stage two then revalidates the preview and atomically replaces
     // the displayed image and the same stable disk entry if successful.
     val policies = thumbnailCachePolicies(fresh = false)
-    ImageRequest.Builder(context).apply {
+    requestHandle.set(context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
         data(plan.networkUrl)
         // READ_ONLY prevents this stale stage from populating the memory entry
         // that the fresh stage deliberately bypasses.
@@ -367,11 +807,12 @@ internal fun loadStreamThumbnail(context: Context, imageView: ImageView, stream:
                         forceRefresh = forceRefresh || retryFreshRequest,
                     )
                 ) {
-                    enqueueFreshRequest()
+                    scheduleFreshRequest(::enqueueFreshRequest)
                 }
             },
-            onError = { enqueueFreshRequest() },
+            onError = { scheduleFreshRequest(::enqueueFreshRequest) },
         )
-        target(StreamThumbnailCacheTarget(imageView, identity))
-    }.build().let(context.imageLoader::enqueue)
+        target(StreamThumbnailCacheTarget(imageView, identity, plan.memoryCacheKey))
+    }.build()))
+    return requestHandle
 }

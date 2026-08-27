@@ -22,8 +22,10 @@ import androidx.viewpager2.widget.ViewPager2
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentMediaPagerBinding
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
+import com.github.andreyasadchy.xtra.ui.common.RecyclerViewLiftTargetConnector
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.saved.SavedPagerViewModel.Companion.SavedPagerViewModelFactory
@@ -32,10 +34,10 @@ import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.configureForSmoothPaging
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.util.reduceDragSensitivity
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
@@ -46,6 +48,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
     private val binding get() = _binding!!
     private val viewModel: SavedPagerViewModel by viewModels { SavedPagerViewModelFactory }
     private var firstLaunch = true
+    private var liftTargetConnector: RecyclerViewLiftTargetConnector? = null
     private var folderResultLauncher: ActivityResultLauncher<Intent>? = null
     private var fileResultLauncher: ActivityResultLauncher<Intent>? = null
 
@@ -90,6 +93,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        liftTargetConnector = RecyclerViewLiftTargetConnector(binding.appBar)
         with(binding) {
             val activity = requireActivity() as MainActivity
             val isLoggedIn = !TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
@@ -171,20 +175,15 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
             val adapter = SavedPagerAdapter(this@SavedPagerFragment, tabs)
             viewPager.adapter = adapter
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+                override fun onPageScrollStateChanged(state: Int) {
+                    dispatchPagerScrollState(state != ViewPager2.SCROLL_STATE_IDLE)
+                }
+
                 override fun onPageSelected(position: Int) {
                     viewPager.doOnLayout {
                         childFragmentManager.findFragmentByTag("f${position}")?.let { fragment ->
                             fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
-                                appBar.setLiftOnScrollTargetView(it)
-                                it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-                                    override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                                        super.onScrolled(recyclerView, dx, dy)
-                                        appBar.isLifted = recyclerView.canScrollVertically(-1)
-                                    }
-                                })
-                                it.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                                    appBar.isLifted = it.canScrollVertically(-1)
-                                }
+                                liftTargetConnector?.connect(it)
                             }
                             if (fragment is Sortable) {
                                 fragment.setupSortBar(sortBar)
@@ -205,8 +204,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
                 )
                 firstLaunch = false
             }
-            viewPager.offscreenPageLimit = adapter.itemCount
-            viewPager.reduceDragSensitivity()
+            viewPager.configureForSmoothPaging()
             TabLayoutMediator(tabLayout, viewPager) { tab, position ->
                 tab.text = when (tabs.getOrNull(position)) {
                     "0" -> getString(R.string.bookmarks)
@@ -233,6 +231,9 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     override fun onDestroyView() {
+        dispatchPagerScrollState(false)
+        liftTargetConnector?.disconnect()
+        liftTargetConnector = null
         super.onDestroyView()
         _binding = null
     }

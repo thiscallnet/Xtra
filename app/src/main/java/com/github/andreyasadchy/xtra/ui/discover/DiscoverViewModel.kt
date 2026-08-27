@@ -23,6 +23,7 @@ import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpec
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpecs
+import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedFreshnessPolicy
 import com.github.andreyasadchy.xtra.repository.streamfeed.toStream
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewLoadingType
@@ -38,6 +39,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -97,6 +99,7 @@ class DiscoverViewModel(
     private val recommendationsMutex = Mutex()
     private var recommendationsLastAttemptAt = 0L
     private var currentTrendingSpec: StreamFeedSpec? = null
+    private var lastVisibleRefreshAt = 0L
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<DiscoverState> = combine(
@@ -167,6 +170,16 @@ class DiscoverViewModel(
     }
 
     fun refresh(reason: RefreshReason = RefreshReason.INITIAL, force: Boolean = false) {
+        if (!force &&
+            reason != RefreshReason.USER_PULL &&
+            reason != RefreshReason.FILTER_CHANGED
+        ) {
+            val now = System.currentTimeMillis()
+            if (now - lastVisibleRefreshAt < StreamFeedFreshnessPolicy.VISIBLE_REVALIDATION_INTERVAL_MS) {
+                return
+            }
+            lastVisibleRefreshAt = now
+        }
         refreshTopStreams(reason, force)
         refreshTopGames(reason, force)
         refreshRecommendations(force)
@@ -174,8 +187,11 @@ class DiscoverViewModel(
     }
 
     private fun refreshTopStreams(reason: RefreshReason, force: Boolean) {
+        if (!force && streamFeedRefreshCoordinator.isFreshInMemory(topStreamsSpec)) return
         viewModelScope.launch {
-            topStreamsSection.update { it.copy(refreshing = true) }
+            topStreamsSection.update { current ->
+                if (current.hasLoadedOnce) current else current.copy(refreshing = true)
+            }
             try {
                 if (force) streamFeedRefreshCoordinator.forceRefresh(topStreamsSpec, reason)
                 else streamFeedRefreshCoordinator.maybeRefresh(topStreamsSpec, reason)
@@ -189,8 +205,11 @@ class DiscoverViewModel(
     }
 
     private fun refreshTopGames(reason: RefreshReason, force: Boolean) {
+        if (!force && gameFeedRefreshCoordinator.isFreshInMemory(topGamesSpec)) return
         viewModelScope.launch {
-            topGamesSection.update { it.copy(refreshing = true) }
+            topGamesSection.update { current ->
+                if (current.hasLoadedOnce) current else current.copy(refreshing = true)
+            }
             try {
                 if (force) gameFeedRefreshCoordinator.forceRefresh(topGamesSpec, reason)
                 else gameFeedRefreshCoordinator.maybeRefresh(topGamesSpec, reason)
@@ -204,11 +223,11 @@ class DiscoverViewModel(
     }
 
     private fun refreshRecommendations(force: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!force && now - recommendationsLastAttemptAt < RECOMMENDATIONS_TTL_MS) return
+        recommendationsLastAttemptAt = now
         viewModelScope.launch {
             recommendationsMutex.withLock {
-                val now = System.currentTimeMillis()
-                if (!force && now - recommendationsLastAttemptAt < RECOMMENDATIONS_TTL_MS) return@withLock
-                recommendationsLastAttemptAt = now
                 recommendationsSection.update { it.copy(refreshing = true) }
                 try {
                     val result = recommendationsRepository.getLiveRecommendations(
@@ -232,16 +251,31 @@ class DiscoverViewModel(
     }
 
     private fun refreshTrending(spec: StreamFeedSpec, reason: RefreshReason, force: Boolean) {
+        if (!force && streamFeedRefreshCoordinator.isFreshInMemory(spec)) return
         viewModelScope.launch {
-            trendingStreamsSection.update { it.copy(refreshing = true) }
-            try {
-                if (force) streamFeedRefreshCoordinator.forceRefresh(spec, reason)
-                else streamFeedRefreshCoordinator.maybeRefresh(spec, reason)
-                trendingStreamsSection.update { current -> current.copy(refreshing = false, hasLoadedOnce = current.hasLoadedOnce || current.data.isNotEmpty(), error = if (current.data.isNotEmpty()) null else current.error) }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                trendingStreamsSection.update { current -> current.copy(refreshing = false, error = if (current.data.isEmpty()) error else null) }
+            refreshTrendingNow(spec, reason, force)
+        }
+    }
+
+    private suspend fun refreshTrendingNow(spec: StreamFeedSpec, reason: RefreshReason, force: Boolean) {
+        trendingStreamsSection.update { current ->
+            if (current.hasLoadedOnce) current else current.copy(refreshing = true)
+        }
+        try {
+            if (force) streamFeedRefreshCoordinator.forceRefresh(spec, reason)
+            else streamFeedRefreshCoordinator.maybeRefresh(spec, reason)
+            trendingStreamsSection.update { current ->
+                current.copy(
+                    refreshing = false,
+                    hasLoadedOnce = current.hasLoadedOnce || current.data.isNotEmpty(),
+                    error = if (current.data.isNotEmpty()) null else current.error,
+                )
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            trendingStreamsSection.update { current ->
+                current.copy(refreshing = false, error = if (current.data.isEmpty()) error else null)
             }
         }
     }
@@ -262,14 +296,19 @@ class DiscoverViewModel(
                 return@collectLatest
             }
             trendingStreamsSection.value = DiscoverSectionState(emptyList(), refreshing = true)
-            refreshTrending(spec, RefreshReason.INITIAL, force = false)
-            streamFeedCache.activeItemsFlow(spec.key, STREAM_LIMIT).collect { items ->
-                trendingStreamsSection.update { current ->
-                    current.copy(
-                        data = items.map { it.toStream() },
-                        hasLoadedOnce = current.hasLoadedOnce || items.isNotEmpty(),
-                        error = if (items.isNotEmpty()) null else current.error,
-                    )
+            coroutineScope {
+                // Both the refresh and the Room bootstrap collector are children
+                // of collectLatest. Switching the trending game cancels both;
+                // no orphaned refresh for the previous game survives.
+                launch { refreshTrendingNow(spec, RefreshReason.INITIAL, force = false) }
+                streamFeedCache.activeItemsFlow(spec.key, STREAM_LIMIT).collect { items ->
+                    trendingStreamsSection.update { current ->
+                        current.copy(
+                            data = items.map { it.toStream() },
+                            hasLoadedOnce = current.hasLoadedOnce || items.isNotEmpty(),
+                            error = if (items.isNotEmpty()) null else current.error,
+                        )
+                    }
                 }
             }
         }

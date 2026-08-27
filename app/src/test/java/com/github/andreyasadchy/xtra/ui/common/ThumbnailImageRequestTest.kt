@@ -13,7 +13,7 @@ import org.junit.Test
 class ThumbnailImageRequestTest {
 
     @Test
-    fun previewBucketsUseOneStableDiskEntryButFreshNetworkUrls() {
+    fun previewBucketsReuseDecodedMemoryAndDiskEntriesButFreshNetworkUrls() {
         val stream = Stream(
             channelId = "channel-42",
             thumbnailURL = "https://static-cdn.jtvnw.net/previews/{width}x{height}.jpg",
@@ -23,7 +23,7 @@ class ThumbnailImageRequestTest {
         val second = streamThumbnailRequestPlan(stream, bucket = 11L)
 
         assertEquals(first!!.diskCacheKey, second!!.diskCacheKey)
-        assertNotEquals(first.memoryCacheKey, second.memoryCacheKey)
+        assertEquals(first.memoryCacheKey, second.memoryCacheKey)
         assertNotEquals(first.networkUrl, second.networkUrl)
         assertFalse(first.diskCacheKey.contains("https://"))
     }
@@ -158,7 +158,7 @@ class ThumbnailImageRequestTest {
     }
 
     @Test
-    fun refreshGenerationMakesIdenticalStreamMetadataChangedForDiffUtil() {
+    fun refreshGenerationDoesNotMakeIdenticalStreamMetadataChangedForDiffUtil() {
         val oldItem = Stream(
             id = "broadcast-1",
             channelId = "channel-42",
@@ -175,7 +175,7 @@ class ThumbnailImageRequestTest {
         )
 
         assertEquals(oldItem.streamIdentity(), newItem.streamIdentity())
-        org.junit.Assert.assertFalse(streamContentsSame(oldItem, newItem))
+        org.junit.Assert.assertTrue(streamContentsSame(oldItem, newItem))
     }
 
     @Test

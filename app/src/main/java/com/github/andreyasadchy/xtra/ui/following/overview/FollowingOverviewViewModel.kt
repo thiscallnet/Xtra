@@ -73,6 +73,9 @@ class FollowingOverviewViewModel(
     private var recommendationsGeneration = 0L
     private var overviewContentJob: Job? = null
     private var overviewContentGeneration = 0L
+    private var lastRecommendationsRefreshAt = 0L
+    private var lastRecentVideosRefreshAt = 0L
+    private var lastUpcomingStreamsRefreshAt = 0L
 
     val liveStreams: Flow<List<Stream>> = combine(accountId, streamSort) { userId, sort -> userId to sort }.flatMapLatest { (userId, sort) ->
         streamFeedCache.activeItemsFlow(
@@ -97,11 +100,17 @@ class FollowingOverviewViewModel(
     private val _recentVideosLoading = MutableStateFlow(false)
     val recentVideosLoading: StateFlow<Boolean> = _recentVideosLoading
 
+    private val _recentVideosResolved = MutableStateFlow(false)
+    val recentVideosResolved: StateFlow<Boolean> = _recentVideosResolved
+
     private val _upcomingStreams = MutableStateFlow<List<UpcomingStream>>(emptyList())
     val upcomingStreams: StateFlow<List<UpcomingStream>> = _upcomingStreams
 
     private val _upcomingStreamsLoading = MutableStateFlow(false)
     val upcomingStreamsLoading: StateFlow<Boolean> = _upcomingStreamsLoading
+
+    private val _upcomingStreamsResolved = MutableStateFlow(false)
+    val upcomingStreamsResolved: StateFlow<Boolean> = _upcomingStreamsResolved
 
     private val _overviewSectionKeys = MutableStateFlow(readOverviewSectionKeys())
     val overviewSectionKeys: StateFlow<List<String>> = _overviewSectionKeys
@@ -114,6 +123,9 @@ class FollowingOverviewViewModel(
     private val _recommendationsLoading = MutableStateFlow(false)
     val recommendationsLoading: StateFlow<Boolean> = _recommendationsLoading
 
+    private val _recommendationsResolved = MutableStateFlow(false)
+    val recommendationsResolved: StateFlow<Boolean> = _recommendationsResolved
+
     private val _recommendationSource = MutableStateFlow(RecommendationSource.UNAVAILABLE)
     val recommendationSource: StateFlow<RecommendationSource> = _recommendationSource
 
@@ -124,44 +136,75 @@ class FollowingOverviewViewModel(
         val newAccountId = readCurrentUserId()
         if (accountId.value != newAccountId) {
             accountId.value = newAccountId
-            cancelRecommendations()
+            cancelRecommendations(clearData = true)
             cancelOverviewContent()
+            lastRecommendationsRefreshAt = 0L
+            lastRecentVideosRefreshAt = 0L
+            lastUpcomingStreamsRefreshAt = 0L
         }
         streamSort.value = readStreamSort()
     }
 
-    fun refreshOverviewSections() {
+    fun refreshOverviewSections(force: Boolean = false) {
         val keys = readOverviewSectionKeys()
+        val now = System.currentTimeMillis()
+        val keysChanged = keys != _overviewSectionKeys.value
+        val recommendationsDue = FollowingOverviewSections.RECOMMENDED in keys &&
+            (force || now - lastRecommendationsRefreshAt >= RECOMMENDATIONS_TTL_MS)
+        val recentVideosDue = FollowingOverviewSections.CONTINUE in keys &&
+            (force || now - lastRecentVideosRefreshAt >= RECENT_VIDEOS_TTL_MS)
+        val upcomingStreamsDue = FollowingOverviewSections.UPCOMING in keys &&
+            (force || now - lastUpcomingStreamsRefreshAt >= UPCOMING_STREAMS_TTL_MS)
+        if (!force && !keysChanged && !recommendationsDue && !recentVideosDue && !upcomingStreamsDue) {
+            return
+        }
         _overviewSectionKeys.value = keys
         if (FollowingOverviewSections.RECOMMENDED !in keys) {
-            cancelRecommendations()
-        } else {
+            cancelRecommendations(clearData = false)
+        } else if (force || recommendationsDue) {
+            lastRecommendationsRefreshAt = now
             refreshRecommendations()
         }
-        refreshOverviewContent()
+        if (recentVideosDue) lastRecentVideosRefreshAt = now
+        if (upcomingStreamsDue) lastUpcomingStreamsRefreshAt = now
+        refreshOverviewContent(
+            reloadRecentVideos = recentVideosDue,
+            reloadUpcomingStreams = upcomingStreamsDue,
+        )
     }
 
-    private fun refreshOverviewContent() {
+    private fun refreshOverviewContent(
+        reloadRecentVideos: Boolean,
+        reloadUpcomingStreams: Boolean,
+    ) {
         val keys = _overviewSectionKeys.value
         val shouldLoadRecentVideos = FollowingOverviewSections.CONTINUE in keys
         val shouldLoadUpcomingStreams = FollowingOverviewSections.UPCOMING in keys
-        val generation = ++overviewContentGeneration
-        overviewContentJob?.cancel()
-        val requestAccountId = accountId.value
+        val loadRecentVideos = shouldLoadRecentVideos && reloadRecentVideos
+        val loadUpcomingStreams = shouldLoadUpcomingStreams && reloadUpcomingStreams
 
         if (!shouldLoadRecentVideos) {
-            recentFollowedVideos.value = emptyList()
             _recentVideosLoading.value = false
-        } else {
+        } else if (loadRecentVideos) {
             _recentVideosLoading.value = true
         }
         if (!shouldLoadUpcomingStreams) {
-            _upcomingStreams.value = emptyList()
             _upcomingStreamsLoading.value = false
-        } else {
+        } else if (loadUpcomingStreams) {
             _upcomingStreamsLoading.value = true
         }
-        if (!shouldLoadRecentVideos && !shouldLoadUpcomingStreams) return
+        if (!loadRecentVideos && !loadUpcomingStreams) {
+            if (!shouldLoadRecentVideos && !shouldLoadUpcomingStreams) {
+                overviewContentGeneration++
+                overviewContentJob?.cancel()
+                overviewContentJob = null
+            }
+            return
+        }
+
+        val generation = ++overviewContentGeneration
+        overviewContentJob?.cancel()
+        val requestAccountId = accountId.value
 
         overviewContentJob = viewModelScope.launch {
             try {
@@ -169,31 +212,41 @@ class FollowingOverviewViewModel(
                     metadataCache.readFollowingOverview(requestAccountId)
                 }
                 if (isCurrentOverviewRequest(generation, requestAccountId)) {
-                    if (shouldLoadRecentVideos) {
-                        recentFollowedVideos.value = cachedOverview?.recentVideos.orEmpty()
-                    }
-                    if (shouldLoadUpcomingStreams) {
-                        _upcomingStreams.value = cachedOverview?.upcomingStreams.orEmpty()
+                    cachedOverview?.let { cache ->
+                        if (loadRecentVideos) {
+                            recentFollowedVideos.value = cache.recentVideos
+                            _recentVideosResolved.value = true
+                        }
+                        if (loadUpcomingStreams) {
+                            _upcomingStreams.value = cache.upcomingStreams
+                            _upcomingStreamsResolved.value = true
+                        }
                     }
                 }
                 coroutineScope {
                     val recentVideos = async {
-                        if (shouldLoadRecentVideos) {
+                        if (loadRecentVideos) {
                             loadRecentFollowedVideos()
                         } else null
                     }
                     val followedChannels = async {
-                        if (shouldLoadUpcomingStreams) {
+                        if (loadUpcomingStreams) {
                             loadFollowedChannels()
                         } else null
                     }
                     val loadedRecentVideos = recentVideos.await()
-                    val loadedUpcomingStreams = if (shouldLoadUpcomingStreams) {
+                    val loadedUpcomingStreams = if (loadUpcomingStreams) {
                         followedChannels.await()?.let { loadUpcomingStreams(it, _upcomingStreams.value) }
                     } else null
                     if (isCurrentOverviewRequest(generation, requestAccountId)) {
-                        loadedRecentVideos?.let { recentFollowedVideos.value = it }
-                        loadedUpcomingStreams?.let { _upcomingStreams.value = it }
+                        loadedRecentVideos?.let {
+                            recentFollowedVideos.value = it
+                            _recentVideosResolved.value = true
+                        }
+                        loadedUpcomingStreams?.let {
+                            _upcomingStreams.value = it
+                            _upcomingStreamsResolved.value = true
+                        }
                         if (loadedRecentVideos != null || loadedUpcomingStreams != null) {
                             tryNetworkRequest {
                                 metadataCache.writeFollowingOverview(
@@ -215,6 +268,8 @@ class FollowingOverviewViewModel(
                 if (isCurrentOverviewRequest(generation, requestAccountId)) {
                     _recentVideosLoading.value = false
                     _upcomingStreamsLoading.value = false
+                    if (loadRecentVideos) _recentVideosResolved.value = true
+                    if (loadUpcomingStreams) _upcomingStreamsResolved.value = true
                 }
             }
         }
@@ -228,6 +283,8 @@ class FollowingOverviewViewModel(
         _upcomingStreams.value = emptyList()
         _recentVideosLoading.value = false
         _upcomingStreamsLoading.value = false
+        _recentVideosResolved.value = false
+        _upcomingStreamsResolved.value = false
     }
 
     private fun isCurrentOverviewRequest(generation: Long, requestAccountId: String?): Boolean {
@@ -601,19 +658,23 @@ class FollowingOverviewViewModel(
             } finally {
                 if (isCurrentRecommendationRequest(generation, requestAccountId)) {
                     _recommendationsLoading.value = false
+                    _recommendationsResolved.value = true
                 }
             }
         }
     }
 
-    private fun cancelRecommendations() {
+    private fun cancelRecommendations(clearData: Boolean) {
         recommendationsGeneration++
         recommendationsJob?.cancel()
         recommendationsJob = null
-        _recommendedStreams.value = emptyList()
-        _recommendationSource.value = RecommendationSource.UNAVAILABLE
-        _recommendationAuthMode.value = RecommendationAuthMode.ANONYMOUS
         _recommendationsLoading.value = false
+        if (clearData) {
+            _recommendedStreams.value = emptyList()
+            _recommendationSource.value = RecommendationSource.UNAVAILABLE
+            _recommendationAuthMode.value = RecommendationAuthMode.ANONYMOUS
+            _recommendationsResolved.value = false
+        }
     }
 
     private fun isCurrentRecommendationRequest(generation: Long, requestAccountId: String?): Boolean {
@@ -672,10 +733,13 @@ class FollowingOverviewViewModel(
         private const val RECENT_VOD_CHANNEL_LIMIT = 30
         private const val RECENT_VODS_PER_CHANNEL = 3
         private const val RECENT_VOD_REQUEST_CONCURRENCY = 6
+        private const val RECOMMENDATIONS_TTL_MS = 5 * 60_000L
+        private const val RECENT_VIDEOS_TTL_MS = 5 * 60_000L
         private const val FOLLOWED_CHANNEL_LIMIT = 100
         private const val UPCOMING_REQUEST_CONCURRENCY = 6
         private const val UPCOMING_SEGMENTS_PER_CHANNEL = 3
         private const val UPCOMING_STREAM_LIMIT = 20
+        private const val UPCOMING_STREAMS_TTL_MS = 15 * 60_000L
 
         val FollowingOverviewViewModelFactory = viewModelFactory {
             initializer {

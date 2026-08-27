@@ -12,7 +12,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.viewModels
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.ui.AppBarConfiguration
@@ -21,6 +20,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentMediaBinding
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
+import com.github.andreyasadchy.xtra.ui.common.FragmentTabSwitcher
+import com.github.andreyasadchy.xtra.ui.common.RecyclerViewLiftTargetConnector
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
@@ -49,6 +50,8 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
     private var fileResultLauncher: ActivityResultLauncher<Intent>? = null
 
     private var previousItem = -1
+    private var tabSwitcher: FragmentTabSwitcher? = null
+    private var liftTargetConnector: RecyclerViewLiftTargetConnector? = null
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentById(R.id.fragmentContainer)
@@ -91,6 +94,13 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        liftTargetConnector = RecyclerViewLiftTargetConnector(binding.appBar)
+        tabSwitcher = FragmentTabSwitcher(childFragmentManager, R.id.fragmentContainer) { fragment ->
+            fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let { liftTargetConnector?.connect(it) }
+            if (fragment is Sortable) fragment.setupSortBar(binding.sortBar) else binding.sortBar.root.visibility = View.GONE
+            binding.toolbar.menu.findItem(R.id.importFolders).isVisible = fragment is DownloadsFragment
+            binding.toolbar.menu.findItem(R.id.importFiles).isVisible = fragment is DownloadsFragment
+        }
         with(binding) {
             val activity = requireActivity() as MainActivity
             val isLoggedIn = !TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
@@ -178,20 +188,19 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
                 }.toTypedArray().ifEmpty { arrayOf(getString(R.string.bookmarks)) })
                 setOnItemClickListener { _, _, position, _ ->
                     if (position != previousItem) {
-                        childFragmentManager.beginTransaction().replace(R.id.fragmentContainer, onSpinnerItemSelected(tabs, position)).commit()
-                        previousItem = position
+                        showTab(tabs, position)
                     }
                 }
                 if (previousItem == -1) {
                     val defaultItem = tabList.find { it.split(':')[1] != "0" }?.split(':')[0] ?: "1"
                     val position = tabs.indexOf(defaultItem).takeIf { it != -1 } ?: tabs.indexOf("1").takeIf { it != -1 } ?: 0
-                    childFragmentManager.beginTransaction().replace(R.id.fragmentContainer, onSpinnerItemSelected(tabs, position)).commit()
-                    previousItem = position
+                    showTab(tabs, position)
                 }
                 if (previousItem <= tabs.lastIndex) {
                     setText(adapter.getItem(previousItem).toString(), false)
                 }
             }
+            /* Legacy per-view listener wiring replaced by FragmentTabSwitcher.
             childFragmentManager.registerFragmentLifecycleCallbacks(object : FragmentManager.FragmentLifecycleCallbacks() {
                 override fun onFragmentViewCreated(fm: FragmentManager, f: Fragment, v: View, savedInstanceState: Bundle?) {
                     f.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
@@ -214,7 +223,7 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
                     toolbar.menu.findItem(R.id.importFolders).isVisible = f is DownloadsFragment
                     toolbar.menu.findItem(R.id.importFiles).isVisible = f is DownloadsFragment
                 }
-            }, false)
+            }, false) */
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
                 toolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
@@ -235,6 +244,12 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
         }
     }
 
+    private fun showTab(tabs: List<String>, position: Int) {
+        if (position !in tabs.indices) return
+        previousItem = position
+        tabSwitcher?.show("media_$position") { onSpinnerItemSelected(tabs, position) }
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("previousItem", previousItem)
         super.onSaveInstanceState(outState)
@@ -246,6 +261,9 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     override fun onDestroyView() {
+        liftTargetConnector?.disconnect()
+        liftTargetConnector = null
+        tabSwitcher = null
         super.onDestroyView()
         _binding = null
     }

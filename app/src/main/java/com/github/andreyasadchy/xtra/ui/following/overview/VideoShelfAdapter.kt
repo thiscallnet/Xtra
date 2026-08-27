@@ -18,11 +18,17 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.ItemVideoShelfBinding
 import com.github.andreyasadchy.xtra.model.VideoHistory
+import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
+import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
+import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
+import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 
 class VideoShelfAdapter(
     private val onVideoClick: (VideoHistory) -> Unit,
 ) : ListAdapter<VideoHistory, VideoShelfAdapter.ViewHolder>(DIFF_CALLBACK) {
+
+    private val imageLoadScheduler = StreamThumbnailIdleScheduler()
 
     init {
         setHasStableIds(true)
@@ -38,11 +44,14 @@ class VideoShelfAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
+        holder.beginImageBind(getItem(position))
         holder.bind(getItem(position))
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
         holder.detachPreview()
+        imageLoadScheduler.clear(holder)
+        holder.cancelImageWork()
         super.onViewRecycled(holder)
     }
 
@@ -55,37 +64,78 @@ class VideoShelfAdapter(
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
+        imageLoadScheduler.attachTo(recyclerView)
         recyclerView.addOnLayoutChangeListener(layoutChangeListener)
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        imageLoadScheduler.detach()
         recyclerView.removeOnLayoutChangeListener(layoutChangeListener)
         super.onDetachedFromRecyclerView(recyclerView)
     }
 
     inner class ViewHolder(
         private val binding: ItemVideoShelfBinding,
-    ) : RecyclerView.ViewHolder(binding.root) {
+    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
         val previewSurface get() = binding.previewHost
         private var boundPreviewIdentity: String? = null
+        private val imageRequests = FeedImageRequestBag()
+        private var boundImageIdentity: String? = null
+        private var boundItem: VideoHistory? = null
+
+        init {
+            binding.root.setOnClickListener { boundItem?.let(onVideoClick) }
+        }
 
         private val streamPreviewCoordinator
             get() = (binding.root.context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
 
+        fun beginImageBind(item: VideoHistory) {
+            imageLoadScheduler.clear(this)
+            imageRequests.cancel()
+            boundImageIdentity = "vod:${item.id}"
+        }
+
+        override fun cancelImageRequests() {
+            imageRequests.cancel()
+        }
+
+        override fun pauseImageRequests() {
+            imageRequests.cancel(preserveRegistrations = true)
+        }
+
+        fun cancelImageWork() {
+            cancelImageRequests()
+            boundImageIdentity = null
+            boundItem = null
+        }
+
         fun bind(item: VideoHistory) {
             val context = binding.root.context
+            boundItem = item
             val nextPreviewIdentity = "vod:${item.id}"
             if (boundPreviewIdentity != nextPreviewIdentity) {
                 streamPreviewCoordinator.detachSurface(previewSurface)
                 boundPreviewIdentity = nextPreviewIdentity
             }
-            binding.root.setOnClickListener { onVideoClick(item) }
-            context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
-                data(item.thumbnailURL?.let(TwitchApiHelper::getVideoThumbnail))
-                diskCachePolicy(CachePolicy.ENABLED)
-                crossfade(true)
-                target(binding.thumbnail)
-            }.build())
+            val identity = "vod:${item.id}"
+            val thumbnailUrl = item.thumbnailURL?.let(TwitchApiHelper::getVideoThumbnail)
+            val thumbnailKey = "xtra:vod-thumbnail:$identity|$thumbnailUrl"
+            if (binding.thumbnail.tag != thumbnailKey) {
+                binding.thumbnail.setImageDrawable(null)
+                binding.thumbnail.tag = thumbnailKey
+            }
+            restoreDecodedMemoryImage(thumbnailKey, binding.thumbnail)
+            imageLoadScheduler.runOrDefer(this@ViewHolder, binding.thumbnail) {
+                if (!binding.root.isAttachedToWindow || boundImageIdentity != identity) return@runOrDefer
+                imageRequests.replace(binding.thumbnail, context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
+                    data(thumbnailUrl)
+                    memoryCacheKey(thumbnailKey)
+                    diskCachePolicy(CachePolicy.ENABLED)
+                    crossfade(false)
+                    target(binding.thumbnail)
+                }.build()))
+            }
             binding.title.text = item.title.orEmpty()
             binding.channel.text = item.channelName.orEmpty()
             binding.category.text = item.gameName.orEmpty()
@@ -97,13 +147,28 @@ class VideoShelfAdapter(
             binding.progress.visibility = if (progress != null) View.VISIBLE else View.GONE
             binding.progress.scaleX = progress?.coerceIn(0f, 1f) ?: 0f
             val avatarUrl = item.channelImageURL?.let(TwitchApiHelper::getProfileImage)
-            context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
-                data(avatarUrl)
-                diskCachePolicy(CachePolicy.ENABLED)
-                transformations(CircleCropTransformation())
-                target(binding.avatar)
-            }.build())
             binding.avatar.visibility = if (avatarUrl.isNullOrBlank()) View.INVISIBLE else View.VISIBLE
+            if (avatarUrl.isNullOrBlank()) {
+                binding.avatar.setImageDrawable(null)
+                binding.avatar.tag = null
+            } else {
+                val avatarKey = "xtra:vod-avatar:$identity|$avatarUrl|round=true"
+                if (binding.avatar.tag != avatarKey) {
+                    binding.avatar.setImageDrawable(null)
+                    binding.avatar.tag = avatarKey
+                }
+                restoreDecodedMemoryImage(avatarKey, binding.avatar)
+                imageLoadScheduler.runOrDefer(this@ViewHolder, binding.avatar) {
+                    if (!binding.root.isAttachedToWindow || boundImageIdentity != identity) return@runOrDefer
+                    imageRequests.replace(binding.avatar, context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
+                        data(avatarUrl)
+                        memoryCacheKey(avatarKey)
+                        diskCachePolicy(CachePolicy.ENABLED)
+                        transformations(CircleCropTransformation())
+                        target(binding.avatar)
+                    }.build()))
+                }
+            }
         }
 
         fun detachPreview() {

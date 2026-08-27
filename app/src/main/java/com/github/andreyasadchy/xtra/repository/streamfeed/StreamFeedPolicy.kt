@@ -92,7 +92,7 @@ enum class RefreshDecision {
     JOIN,
 }
 
-/** Process-local signal for image loaders that must bypass the current preview bucket. */
+/** Process-local signal reserved for explicit thumbnail refreshes, not feed-data refreshes. */
 internal object StreamThumbnailRefreshSignal {
     private val forceEpoch = AtomicLong(0L)
 

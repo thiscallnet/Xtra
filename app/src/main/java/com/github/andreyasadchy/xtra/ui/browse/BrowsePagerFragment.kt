@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.databinding.FragmentMediaPagerBinding
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
 import com.github.andreyasadchy.xtra.ui.games.GamesFragment
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -30,6 +31,7 @@ import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragment
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.util.configureForSmoothPaging
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.tabs.TabLayoutMediator
 
@@ -104,8 +106,12 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
 
             val adapter = BrowsePagerAdapter(this@BrowsePagerFragment)
             viewPager.adapter = adapter
-            viewPager.offscreenPageLimit = adapter.itemCount
+            viewPager.configureForSmoothPaging()
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+                override fun onPageScrollStateChanged(state: Int) {
+                    dispatchPagerScrollState(state != ViewPager2.SCROLL_STATE_IDLE)
+                }
+
                 override fun onPageSelected(position: Int) {
                     viewPager.doOnLayout {
                         configureCurrentPage()
@@ -189,6 +195,7 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     override fun onDestroyView() {
+        dispatchPagerScrollState(false)
         configuredRecyclerViews.clear()
         super.onDestroyView()
         _binding = null

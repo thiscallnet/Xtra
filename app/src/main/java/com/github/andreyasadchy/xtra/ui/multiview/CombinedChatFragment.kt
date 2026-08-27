@@ -391,7 +391,6 @@ private class CombinedChatAdapter(
         channelId: String?,
         private val identity: String,
     ) {
-        private val singleMessage = mutableListOf<ChatMessage>()
         private val adapter: ChatAdapter
 
         init {
@@ -403,7 +402,7 @@ private class CombinedChatAdapter(
                 isLightTheme = getBoolean(0, false)
             }
             adapter = ChatAdapter(
-                messages = singleMessage,
+                initialMessages = emptyList(),
                 localTwitchEmotes = session.localTwitchEmotes,
                 thirdPartyEmotes = session.thirdPartyEmotes,
                 globalBadges = session.globalBadges,
@@ -432,7 +431,6 @@ private class CombinedChatAdapter(
                 showPersonalEmotes = preferences.getBoolean(C.CHAT_SHOW_PERSONAL_EMOTES, true),
                 showSystemMessageEmotes = preferences.getBoolean(C.CHAT_SYSTEM_MESSAGE_EMOTES, true),
                 chatUrl = null,
-                getEmoteBytes = session::getEmoteBytes,
                 fragment = fragment,
                 backgroundColor = MaterialColors.getColor(fragment.requireView(), com.google.android.material.R.attr.colorSurface),
                 dialogBackgroundColor = MaterialColors.getColor(fragment.requireView(), com.google.android.material.R.attr.colorSurfaceContainerLow),
@@ -473,9 +471,7 @@ private class CombinedChatAdapter(
         }
 
         fun bind(textView: TextView, message: ChatMessage) {
-            synchronized(singleMessage) {
-                if (singleMessage.isEmpty()) singleMessage += message else singleMessage[0] = message
-            }
+            adapter.setDirectMessage(message)
             adapter.onBindViewHolder(adapter.ViewHolder(textView), 0)
         }
 

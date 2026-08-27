@@ -2,6 +2,8 @@ package com.github.andreyasadchy.xtra.ui.chat
 
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.LayerDrawable
+import android.os.Handler
+import android.os.Looper
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.SpannableStringBuilder
@@ -27,10 +29,23 @@ import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import java.util.Random
+import java.util.Collections
+import java.util.IdentityHashMap
 
 class ChatAdapter(
-    private val messages: List<ChatMessage>,
+    initialMessages: List<ChatMessage>,
     private val localTwitchEmotes: List<TwitchEmote>,
     private val thirdPartyEmotes: List<Emote>,
     private val globalBadges: List<TwitchBadge>,
@@ -59,7 +74,6 @@ class ChatAdapter(
     private val showPersonalEmotes: Boolean,
     private val showSystemMessageEmotes: Boolean,
     private val chatUrl: String?,
-    private val getEmoteBytes: ((String, Pair<Long, Int>) -> ByteArray?)?,
     private val fragment: Fragment,
     private val backgroundColor: Int,
     private val dialogBackgroundColor: Int,
@@ -80,7 +94,78 @@ class ChatAdapter(
     private val imageClickListener: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?,
 ) : RecyclerView.Adapter<ChatAdapter.ViewHolder>() {
 
+    /** UI-owned snapshot. ChatViewModel may continue receiving messages while a fling is active. */
+    private val messages = ArrayList(initialMessages)
+    private class RenderCacheKey(
+        val message: ChatMessage,
+        val catalogRevision: Int,
+        val translateAllMessages: Boolean,
+        val translatedMessage: String?,
+        val translationFailed: Boolean,
+        val messageLanguage: String?,
+    ) {
+        // ChatMessage translation/moderation fields are mutable. Cache by object identity so a
+        // mutation cannot change the hash of an entry that is already in the LRU map.
+        override fun equals(other: Any?): Boolean = other is RenderCacheKey &&
+            message === other.message &&
+            catalogRevision == other.catalogRevision &&
+            translateAllMessages == other.translateAllMessages &&
+            translatedMessage == other.translatedMessage &&
+            translationFailed == other.translationFailed &&
+            messageLanguage == other.messageLanguage
+
+        override fun hashCode(): Int {
+            var result = System.identityHashCode(message)
+            result = 31 * result + catalogRevision
+            result = 31 * result + translateAllMessages.hashCode()
+            result = 31 * result + (translatedMessage?.hashCode() ?: 0)
+            result = 31 * result + translationFailed.hashCode()
+            result = 31 * result + (messageLanguage?.hashCode() ?: 0)
+            return result
+        }
+    }
+
+    private data class RenderRequest(
+        val message: ChatMessage,
+        val cacheKey: RenderCacheKey,
+        val context: android.content.Context,
+        val indexes: ChatAdapterUtils.ChatCatalogIndexes,
+        val prewarmGeneration: Long?,
+    )
+
+    private val renderCache = object : LinkedHashMap<RenderCacheKey, ChatAdapterUtils.MessageResult>(256, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<RenderCacheKey, ChatAdapterUtils.MessageResult>?): Boolean =
+            size > MAX_RENDER_CACHE_ENTRIES
+    }
+    private var renderScope = newRenderScope()
+    private val renderJobs = HashSet<RenderCacheKey>()
+    private val prewarmRenderJobs = HashSet<RenderCacheKey>()
+    private val visibleRenderJobs = HashSet<RenderCacheKey>()
+    private var visibleRenderQueue = Channel<RenderRequest>(VISIBLE_RENDER_QUEUE_CAPACITY)
+    private var prewarmRenderQueue = Channel<RenderRequest>(PREWARM_QUEUE_CAPACITY)
+    private var renderSignal = Channel<Unit>(Channel.CONFLATED)
+    private var renderWorkers = emptyList<Job>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val pendingRenderedMessages = Collections.newSetFromMap(
+        IdentityHashMap<ChatMessage, Boolean>(),
+    )
+    private var renderUpdatesPaused = false
+    private var prewarmJob: Job? = null
+    @Volatile
+    private var prewarmGeneration = 0L
+    private var prewarmPosted = false
+    private val prewarmRunnable = Runnable {
+        prewarmPosted = false
+        attachedRecyclerView?.let(::scheduleVisiblePrewarm)
+    }
+    private var directBinding = false
     var translateAllMessages = false
+        set(value) {
+            if (field != value) {
+                field = value
+                clearRenderCache()
+            }
+        }
     private var selectedMessage: ChatMessage? = null
     private val random = Random()
     private val userColors = HashMap<String, Int>()
@@ -89,29 +174,157 @@ class ChatAdapter(
     private val savedLocalBadges = mutableMapOf<String, ByteArray>()
     private val savedLocalCheerEmotes = mutableMapOf<String, ByteArray>()
     private val savedLocalEmotes = mutableMapOf<String, ByteArray>()
+    private var catalogIndexes = ChatAdapterUtils.ChatCatalogIndexes.create(
+        localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, stvUsers, stvBadges, namePaints, personalEmoteSets, cheerEmotes,
+    )
+    private var attachedRecyclerView: RecyclerView? = null
+    private var animationsPaused = false
+    private var catalogRevision = 0
+    private var pauseAnimationsPosted = false
+    private val pendingAnimationStops = ArrayDeque<TextView>()
+    private val runningAnimationTextViews = Collections.newSetFromMap(
+        IdentityHashMap<TextView, Boolean>(),
+    )
+    private var resumeAnimationsPosted = false
+    private var resumeAnimationIndex = 0
+    private var renderedFlushPosted = false
+    private val renderedFlushRunnable = Runnable {
+        renderedFlushPosted = false
+        flushRenderedMessages()
+    }
+    private val pauseAnimationsRunnable = object : Runnable {
+        override fun run() {
+            pauseAnimationsPosted = false
+            if (!animationsPaused) {
+                pendingAnimationStops.clear()
+                return
+            }
+            repeat(MAX_ANIMATION_OPERATIONS_PER_FRAME) {
+                pendingAnimationStops.removeFirstOrNull()?.let { textView ->
+                    if (textView.isAttachedToWindow) setAnimations(textView, start = false)
+                } ?: return@repeat
+            }
+            if (pendingAnimationStops.isNotEmpty()) {
+                pauseAnimationsPosted = true
+                attachedRecyclerView?.postOnAnimation(this)
+            }
+        }
+    }
+    private val resumeAnimationsRunnable = object : Runnable {
+        override fun run() {
+            resumeAnimationsPosted = false
+            val recyclerView = attachedRecyclerView ?: return
+            if (animationsPaused || resumeAnimationIndex >= recyclerView.childCount) return
+            (recyclerView.getChildAt(resumeAnimationIndex) as? TextView)?.let {
+                setAnimations(it, start = true)
+            }
+            resumeAnimationIndex++
+            if (!animationsPaused && resumeAnimationIndex < recyclerView.childCount) {
+                resumeAnimationsPosted = true
+                recyclerView.postOnAnimation(this)
+            }
+        }
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         return ViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.chat_list_item, parent, false))
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val chatMessage = synchronized(messages) {
-            messages.getOrNull(position)
-        } ?: return
-        val result = ChatAdapterUtils.prepareChatMessage(
-            chatMessage, fragment.requireContext(), holder.textView, enableTimestamps, timestampFormat, firstMsgVisibility, firstChatMsg,
-            redeemedChatMsg, redeemedNoMsg, rewardChatMsg, replyMessage, null, useRandomColors, random, useReadableColors, isLightTheme,
-            nameDisplay, useBoldNames, showNamePaints, namePaints, showBadges, showSTVBadges, stvBadges, showPersonalEmotes, personalEmoteSets, stvUsers,
-            enableOverlayEmotes, showSystemMessageEmotes, loggedInUser, chatUrl, getEmoteBytes, userColors, savedColors, translateAllMessages,
-            translateMessage, showLanguageDownloadDialog, true, localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes,
-            savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes
+        holder.imageRequests.cancel()
+        val bindGeneration = holder.beginBind(catalogRevision)
+        val chatMessage = messages.getOrNull(position) ?: return
+        val cacheKey = RenderCacheKey(
+            message = chatMessage,
+            catalogRevision = catalogRevision,
+            translateAllMessages = translateAllMessages,
+            translatedMessage = chatMessage.translatedMessage,
+            translationFailed = chatMessage.translationFailed,
+            messageLanguage = chatMessage.messageLanguage,
         )
-        holder.bind(chatMessage, result.builder)
+        val cachedResult = cachedRender(cacheKey)
+        val result = if (cachedResult != null) {
+            cachedResult.copyForBind()
+        } else {
+            val context = fragment.context
+            if (directBinding && context != null) {
+                prepareMessage(chatMessage, context, holder.textView, catalogIndexes, offMain = false).also { prepared ->
+                    synchronized(renderCache) { renderCache[cacheKey] = prepared }
+                }.copyForBind()
+            } else {
+                context?.let { enqueueRender(chatMessage, cacheKey, it, catalogIndexes) }
+                fastFallback(chatMessage).copyForBind()
+            }
+        }
+        ChatAdapterUtils.installImagePlaceholders(result.builder, result.images, emoteSize, badgeSize, inlineIconSize)
+        holder.bind(chatMessage, result)
         ChatAdapterUtils.loadImages(
-            fragment, holder.textView, { holder.bind(chatMessage, it) }, result.images, result.imagePaint, result.userName, result.userNameStartIndex,
+            fragment, holder.textView, { holder.bindWhenReady(bindGeneration, chatMessage, it) }, result.images, result.imagePaint, result.userName, result.userNameStartIndex,
             backgroundColor, imageLibrary, result.builder, result.translated, emoteSize, badgeSize, inlineIconSize, emoteQuality, animateGifs, enableOverlayEmotes,
-            chatMessage, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, true
+            chatMessage, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, true,
+            isCurrent = { holder.isCurrentBind(bindGeneration) },
+            shouldAnimate = { holder.canAnimate(bindGeneration) },
+            requestBag = holder.imageRequests,
+            shouldLoad = { holder.canLoadImages(bindGeneration) },
+            onLoadDeferred = { holder.hasDeferredImageLoad = true },
         )
+    }
+
+    override fun onViewRecycled(holder: ViewHolder) {
+        holder.imageRequests.cancel()
+        holder.cancelPendingBind()
+        super.onViewRecycled(holder)
+    }
+
+    fun appendMessages(incoming: List<ChatMessage>, trimCount: Int) {
+        val removed = trimCount.coerceAtMost(messages.size)
+        if (removed > 0) {
+            repeat(removed) { pendingRenderedMessages.remove(messages[it]) }
+            messages.subList(0, removed).clear()
+            notifyItemRangeRemoved(0, removed)
+        }
+        if (incoming.isNotEmpty()) {
+            val start = messages.size
+            messages.addAll(incoming)
+            notifyItemRangeInserted(start, incoming.size)
+        }
+    }
+
+    fun prependMessages(incoming: List<ChatMessage>) {
+        if (incoming.isEmpty()) return
+        messages.addAll(0, incoming)
+        notifyItemRangeInserted(0, incoming.size)
+    }
+
+    fun removeMessages(count: Int) {
+        val removed = count.coerceAtMost(messages.size)
+        if (removed <= 0) return
+        repeat(removed) { pendingRenderedMessages.remove(messages[it]) }
+        messages.subList(0, removed).clear()
+        notifyItemRangeRemoved(0, removed)
+    }
+
+    fun clearMessages() {
+        if (messages.isEmpty()) return
+        val removed = messages.size
+        messages.clear()
+        pendingRenderedMessages.clear()
+        notifyItemRangeRemoved(0, removed)
+    }
+
+    fun notifyUserMessages(userId: String) {
+        clearRenderCache()
+        messages.forEachIndexed { index, message ->
+            if (message.userId == userId) notifyItemChanged(index)
+        }
+    }
+
+    /** Used by CombinedChatFragment, which renders one message without RecyclerView ownership. */
+    fun setDirectMessage(message: ChatMessage) {
+        directBinding = true
+        messages.clear()
+        pendingRenderedMessages.clear()
+        messages += message
     }
 
     fun updateTranslation(chatMessage: ChatMessage, item: TextView, previousTranslation: String?) {
@@ -138,7 +351,7 @@ class ChatAdapter(
             { chatMessage -> selectedMessage = chatMessage; replyClickListener?.invoke() },
             { url, name, format, isAnimated, source, thirdParty, emoteId -> imageClickListener?.invoke(url, name, format, isAnimated, source, thirdParty, emoteId) },
             useRandomColors, useReadableColors, isLightTheme, nameDisplay, useBoldNames, showNamePaints, showBadges, showSTVBadges, showPersonalEmotes,
-            showSystemMessageEmotes, chatUrl, getEmoteBytes, fragment, dialogBackgroundColor, imageLibrary, messageTextSize, emoteSize, badgeSize, inlineIconSize,
+            showSystemMessageEmotes, chatUrl, fragment, dialogBackgroundColor, imageLibrary, messageTextSize, emoteSize, badgeSize, inlineIconSize,
             emoteQuality, animateGifs, enableOverlayEmotes, translateAllMessages, translateMessage, showLanguageDownloadDialog, random, userColors,
             savedColors, savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes, loggedInUser, selectedMessage
         )
@@ -150,123 +363,632 @@ class ChatAdapter(
             stvUsers, enableTimestamps, timestampFormat, firstMsgVisibility, firstChatMsg, redeemedChatMsg, redeemedNoMsg, rewardChatMsg, replyMessage,
             { url, name, format, isAnimated, source, thirdParty, emoteId -> imageClickListener?.invoke(url, name, format, isAnimated, source, thirdParty, emoteId) },
             useRandomColors, useReadableColors, isLightTheme, nameDisplay, useBoldNames, showNamePaints, showBadges, showSTVBadges, showPersonalEmotes,
-            showSystemMessageEmotes, chatUrl, getEmoteBytes, fragment, dialogBackgroundColor, imageLibrary, messageTextSize, emoteSize, badgeSize, inlineIconSize,
+            showSystemMessageEmotes, chatUrl, fragment, dialogBackgroundColor, imageLibrary, messageTextSize, emoteSize, badgeSize, inlineIconSize,
             emoteQuality, animateGifs, enableOverlayEmotes, translateAllMessages, translateMessage, showLanguageDownloadDialog, random, userColors,
             savedColors, savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes, loggedInUser, selectedMessage
         )
     }
 
-    override fun getItemCount(): Int = synchronized(messages) {
-        messages.size
-    }
+    override fun getItemCount(): Int = messages.size
 
     override fun onViewAttachedToWindow(holder: ViewHolder) {
         super.onViewAttachedToWindow(holder)
-        if (animateGifs) {
-            (holder.textView.text as? Spannable)?.let { view ->
-                view.getSpans<ImageSpan>().forEach {
-                    (it.drawable as? Animatable)?.start() ?:
-                    (it.drawable as? LayerDrawable)?.let {
-                        val lastIndex = it.numberOfLayers - 1
-                        if (lastIndex > -1) {
-                            for (i in 0..lastIndex) {
-                                (it.getDrawable(i) as? Animatable)?.start()
-                            }
-                        }
-                    }
-                }
-                view.getSpans<NamePaintImageSpan>().forEach {
-                    (it.drawable as? Animatable)?.start()
-                }
-            }
+        if (holder.catalogRevision < catalogRevision) {
+            holder.postCatalogRefresh()
+            return
         }
+        if (holder.hasDeferredImageLoad) {
+            holder.postDeferredImageReload()
+            return
+        }
+        if (animateGifs && !animationsPaused) setAnimations(holder.textView, start = true)
     }
 
     override fun onViewDetachedFromWindow(holder: ViewHolder) {
         super.onViewDetachedFromWindow(holder)
+        if (animateGifs) setAnimations(holder.textView, start = false)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        recyclerView.removeOnScrollListener(prewarmScrollListener)
+        recyclerView.removeCallbacks(pauseAnimationsRunnable)
+        recyclerView.removeCallbacks(resumeAnimationsRunnable)
+        pauseAnimationsPosted = false
+        pendingAnimationStops.clear()
+        resumeAnimationsPosted = false
+        val childCount = recyclerView.childCount
         if (animateGifs) {
-            (holder.textView.text as? Spannable)?.let { view ->
-                view.getSpans<ImageSpan>().forEach {
-                    (it.drawable as? Animatable)?.stop() ?:
-                    (it.drawable as? LayerDrawable)?.let {
-                        val lastIndex = it.numberOfLayers - 1
-                        if (lastIndex > -1) {
-                            for (i in 0..lastIndex) {
-                                (it.getDrawable(i) as? Animatable)?.stop()
-                            }
-                        }
-                    }
-                }
-                view.getSpans<NamePaintImageSpan>().forEach {
-                    (it.drawable as? Animatable)?.stop()
-                }
+            for (i in 0 until childCount) {
+                setAnimations(recyclerView.getChildAt(i) as TextView, start = false)
+            }
+        }
+        prewarmJob?.cancel()
+        prewarmJob = null
+        recyclerView.removeCallbacks(prewarmRunnable)
+        prewarmPosted = false
+        recyclerView.removeCallbacks(renderedFlushRunnable)
+        renderedFlushPosted = false
+        visibleRenderQueue.close()
+        prewarmRenderQueue.close()
+        renderSignal.close()
+        renderWorkers.forEach(Job::cancel)
+        renderWorkers = emptyList()
+        renderScope.cancel()
+        synchronized(renderJobs) { renderJobs.clear() }
+        pendingRenderedMessages.clear()
+        attachedRecyclerView = null
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        directBinding = false
+        ensureRenderWorkers()
+        attachedRecyclerView = recyclerView
+        super.onAttachedToRecyclerView(recyclerView)
+        recyclerView.addOnScrollListener(prewarmScrollListener)
+        scheduleVisiblePrewarm(recyclerView)
+    }
+
+    private val prewarmScrollListener = object : RecyclerView.OnScrollListener() {
+        override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+            if (!prewarmPosted) {
+                prewarmPosted = true
+                recyclerView.postDelayed(prewarmRunnable, PREWARM_DEBOUNCE_MS)
+            }
+        }
+
+        override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+            if (newState == RecyclerView.SCROLL_STATE_IDLE && !prewarmPosted) {
+                prewarmPosted = true
+                recyclerView.postOnAnimation(prewarmRunnable)
             }
         }
     }
 
-    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
-        val childCount = recyclerView.childCount
-        if (animateGifs) {
-            for (i in 0 until childCount) {
-                ((recyclerView.getChildAt(i) as TextView).text as? Spannable)?.let { view ->
-                    view.getSpans<ImageSpan>().forEach {
-                        (it.drawable as? Animatable)?.stop() ?:
-                        (it.drawable as? LayerDrawable)?.let {
-                            val lastIndex = it.numberOfLayers - 1
-                            if (lastIndex > -1) {
-                                for (i in 0..lastIndex) {
-                                    (it.getDrawable(i) as? Animatable)?.stop()
-                                }
-                            }
-                        }
-                    }
-                    view.getSpans<NamePaintImageSpan>().forEach {
-                        (it.drawable as? Animatable)?.stop()
+    fun setAnimationsPaused(paused: Boolean) {
+        if (animationsPaused == paused) return
+        animationsPaused = paused
+        val recyclerView = attachedRecyclerView ?: return
+        recyclerView.removeCallbacks(pauseAnimationsRunnable)
+        recyclerView.removeCallbacks(resumeAnimationsRunnable)
+        pauseAnimationsPosted = false
+        pendingAnimationStops.clear()
+        resumeAnimationsPosted = false
+        resumeAnimationIndex = 0
+        if (paused) {
+            for (i in 0 until recyclerView.childCount) {
+                (recyclerView.getChildAt(i) as? TextView)?.let(pendingAnimationStops::addLast)
+            }
+            if (pendingAnimationStops.isNotEmpty()) {
+                pauseAnimationsPosted = true
+                recyclerView.postOnAnimation(pauseAnimationsRunnable)
+            }
+        } else {
+            for (i in 0 until recyclerView.childCount) {
+                (recyclerView.getChildViewHolder(recyclerView.getChildAt(i)) as? ViewHolder)?.let { holder ->
+                    holder.resumePendingBind()
+                    holder.postDeferredImageReload()
+                }
+            }
+            if (!animateGifs) return
+            resumeAnimationsPosted = true
+            recyclerView.postOnAnimation(resumeAnimationsRunnable)
+        }
+    }
+
+    /** Keeps completed background renders from invalidating rows while the list is flinging. */
+    fun setRenderUpdatesPaused(paused: Boolean) {
+        if (renderUpdatesPaused == paused) return
+        renderUpdatesPaused = paused
+        if (!paused) attachedRecyclerView?.postOnAnimation { flushRenderedMessages() }
+    }
+
+    fun notifyCatalogChanged() {
+        catalogIndexes = ChatAdapterUtils.ChatCatalogIndexes.create(
+            localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, stvUsers, stvBadges, namePaints, personalEmoteSets, cheerEmotes,
+        )
+        catalogRevision++
+        clearRenderCache()
+        attachedRecyclerView?.let { recyclerView ->
+            val layoutManager = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@let
+            val firstVisiblePosition = layoutManager.findFirstVisibleItemPosition()
+            val lastVisiblePosition = layoutManager.findLastVisibleItemPosition()
+            if (firstVisiblePosition != RecyclerView.NO_POSITION && lastVisiblePosition >= firstVisiblePosition) {
+                notifyItemRangeChanged(firstVisiblePosition, lastVisiblePosition - firstVisiblePosition + 1)
+            }
+        }
+    }
+
+    private fun setAnimations(textView: TextView, start: Boolean) {
+        if (start) {
+            if (!runningAnimationTextViews.add(textView)) return
+        } else if (!runningAnimationTextViews.remove(textView)) {
+            return
+        }
+        var foundAnimatable = false
+        val action: (Animatable) -> Unit = {
+            foundAnimatable = true
+            if (start) it.start() else it.stop()
+        }
+        (textView.text as? Spannable)?.let { view ->
+            view.getSpans<ImageSpan>().forEach { span ->
+                (span.drawable as? Animatable)?.let(action) ?: (span.drawable as? LayerDrawable)?.let { layers ->
+                    for (i in 0 until layers.numberOfLayers) {
+                        (layers.getDrawable(i) as? Animatable)?.let(action)
                     }
                 }
             }
+            view.getSpans<NamePaintImageSpan>().forEach { span ->
+                (span.drawable as? Animatable)?.let(action)
+            }
         }
-        super.onDetachedFromRecyclerView(recyclerView)
+        if (start && !foundAnimatable) runningAnimationTextViews.remove(textView)
     }
 
     inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
         val textView = itemView as TextView
+        val imageRequests = ChatAdapterUtils.ImageRequestBag()
+        private var boundMessage: ChatMessage? = null
+        private var boundReplyMessage: Boolean? = null
+        var hasDeferredImageLoad = false
+        private var bindGeneration = 0
+        private var pendingBindGeneration = 0
+        private var pendingMessage: ChatMessage? = null
+        private var pendingBuilder: SpannableStringBuilder? = null
+        private var bindPosted = false
+        private var catalogRefreshPosted = false
+        var catalogRevision = 0
+            private set
 
-        fun bind(chatMessage: ChatMessage, formattedMessage: SpannableStringBuilder) {
-            textView.apply {
-                text = formattedMessage
-                contentDescription = ChatAdapterUtils.accessibilityDescription(
-                    textView.context,
-                    chatMessage,
-                    nameDisplay,
-                    formattedMessage,
-                )
-                textSize = messageTextSize
-                if (chatMessage.type == ChatMessage.REPLY_MESSAGE) {
-                    movementMethod = null
-                    maxLines = 2
-                    ellipsize = TextUtils.TruncateAt.END
-                    TooltipCompat.setTooltipText(this, chatMessage.replyParent?.message ?: chatMessage.replyParent?.systemMsg)
-                    setOnClickListener {
-                        if (selectionStart == -1 && selectionEnd == -1) {
-                            selectedMessage = chatMessage.replyParent
-                            messageClickListener?.invoke(channelId)
-                        }
-                    }
-                } else {
-                    movementMethod = LinkMovementMethod.getInstance()
-                    maxLines = Int.MAX_VALUE
-                    ellipsize = null
-                    TooltipCompat.setTooltipText(this, chatMessage.message ?: chatMessage.systemMsg)
-                    setOnClickListener {
-                        if (selectionStart == -1 && selectionEnd == -1) {
-                            selectedMessage = chatMessage
-                            messageClickListener?.invoke(channelId)
-                        }
-                    }
+        init {
+            textView.textSize = messageTextSize
+            textView.setOnClickListener {
+                if (textView.selectionStart == -1 && textView.selectionEnd == -1) {
+                    val message = boundMessage ?: return@setOnClickListener
+                    selectedMessage = if (message.type == ChatMessage.REPLY_MESSAGE) message.replyParent else message
+                    messageClickListener?.invoke(channelId)
                 }
             }
         }
+        private val catalogRefreshRunnable = Runnable {
+            catalogRefreshPosted = false
+            val position = bindingAdapterPosition
+            if (catalogRevision < this@ChatAdapter.catalogRevision && position != RecyclerView.NO_POSITION) {
+                notifyItemChanged(position)
+            }
+        }
+        private val bindRunnable = Runnable {
+            bindPosted = false
+            val message = pendingMessage
+            val builder = pendingBuilder
+            val generation = pendingBindGeneration
+            if (!animationsPaused) {
+                pendingMessage = null
+                pendingBuilder = null
+                if (message != null && builder != null && generation == bindGeneration) {
+                    bindContent(message, builder)
+                }
+            }
+        }
+
+        fun beginBind(catalogRevision: Int): Int {
+            if (animateGifs) setAnimations(textView, start = false)
+            imageRequests.cancel()
+            hasDeferredImageLoad = false
+            itemView.removeCallbacks(catalogRefreshRunnable)
+            catalogRefreshPosted = false
+            this.catalogRevision = catalogRevision
+            itemView.removeCallbacks(bindRunnable)
+            bindPosted = false
+            pendingMessage = null
+            pendingBuilder = null
+            bindGeneration++
+            return bindGeneration
+        }
+
+        fun bindWhenReady(generation: Int, chatMessage: ChatMessage, formattedMessage: SpannableStringBuilder) {
+            if (generation != bindGeneration) return
+            pendingBindGeneration = generation
+            pendingMessage = chatMessage
+            pendingBuilder = formattedMessage
+            if (!animationsPaused) {
+                itemView.removeCallbacks(bindRunnable)
+                bindPosted = true
+                itemView.postDelayed(bindRunnable, IMAGE_UPDATE_DEBOUNCE_MS)
+            }
+        }
+
+        fun isCurrentBind(generation: Int): Boolean = generation == bindGeneration
+
+        fun canAnimate(generation: Int): Boolean = isCurrentBind(generation) && itemView.isAttachedToWindow && !animationsPaused
+
+        fun canLoadImages(generation: Int): Boolean {
+            val recyclerView = attachedRecyclerView
+            return isCurrentBind(generation) &&
+                itemView.isAttachedToWindow &&
+                !animationsPaused &&
+                (recyclerView == null || recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE)
+        }
+
+        fun postDeferredImageReload() {
+            if (!hasDeferredImageLoad) return
+            hasDeferredImageLoad = false
+            itemView.post {
+                if (itemView.isAttachedToWindow) {
+                    bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION }?.let(::notifyItemChanged)
+                }
+            }
+        }
+
+        fun cancelPendingBind() {
+            itemView.removeCallbacks(catalogRefreshRunnable)
+            catalogRefreshPosted = false
+            itemView.removeCallbacks(bindRunnable)
+            bindPosted = false
+            pendingMessage = null
+            pendingBuilder = null
+            bindGeneration++
+        }
+
+        fun resumePendingBind() {
+            if (pendingMessage == null || pendingBuilder == null || bindPosted) return
+            bindPosted = true
+            itemView.postOnAnimation(bindRunnable)
+        }
+
+        fun postCatalogRefresh() {
+            if (catalogRefreshPosted) return
+            catalogRefreshPosted = true
+            itemView.post(catalogRefreshRunnable)
+        }
+
+        fun bind(chatMessage: ChatMessage, result: ChatAdapterUtils.MessageResult) {
+            itemView.setBackgroundResource(result.backgroundResource)
+            bindContent(chatMessage, result.builder, result.accessibilityDescription)
+        }
+
+        private fun bindContent(chatMessage: ChatMessage, formattedMessage: SpannableStringBuilder, preparedAccessibilityDescription: String? = null) {
+            textView.apply {
+                boundMessage = chatMessage
+                text = formattedMessage
+                contentDescription = preparedAccessibilityDescription ?: ChatAdapterUtils.accessibilityDescription(
+                    textView.context, chatMessage, nameDisplay, formattedMessage,
+                )
+                val isReply = chatMessage.type == ChatMessage.REPLY_MESSAGE
+                if (boundReplyMessage != isReply) {
+                    boundReplyMessage = isReply
+                    if (isReply) {
+                        movementMethod = null
+                        maxLines = 2
+                        ellipsize = TextUtils.TruncateAt.END
+                    } else {
+                        movementMethod = LinkMovementMethod.getInstance()
+                        maxLines = Int.MAX_VALUE
+                        ellipsize = null
+                    }
+                }
+                TooltipCompat.setTooltipText(
+                    this,
+                    if (isReply) chatMessage.replyParent?.message ?: chatMessage.replyParent?.systemMsg
+                    else chatMessage.message ?: chatMessage.systemMsg,
+                )
+            }
+        }
+    }
+
+    private companion object {
+        const val MAX_RENDER_CACHE_ENTRIES = 512
+        const val MAX_ANIMATION_OPERATIONS_PER_FRAME = 4
+        const val IMAGE_UPDATE_DEBOUNCE_MS = 48L
+        const val MAX_RENDER_UPDATES_PER_FRAME = 2
+        const val MAX_RENDER_WORKERS = 2
+        const val VISIBLE_RENDER_QUEUE_CAPACITY = 32
+        const val PREWARM_QUEUE_CAPACITY = 64
+        const val PREWARM_BEFORE = 8
+        const val PREWARM_AFTER = 24
+        const val PREWARM_DEBOUNCE_MS = 100L
+    }
+
+    private fun cachedRender(key: RenderCacheKey): ChatAdapterUtils.MessageResult? = synchronized(renderCache) {
+        renderCache[key]
+    }
+
+    private fun clearRenderCache() {
+        synchronized(renderCache) { renderCache.clear() }
+        prewarmJob?.cancel()
+        prewarmJob = null
+        visibleRenderQueue.close()
+        prewarmRenderQueue.close()
+        renderSignal.close()
+        renderWorkers.forEach(Job::cancel)
+        renderWorkers = emptyList()
+        renderScope.cancel()
+        synchronized(renderJobs) {
+            renderJobs.clear()
+            prewarmRenderJobs.clear()
+            visibleRenderJobs.clear()
+        }
+        renderScope = newRenderScope()
+        visibleRenderQueue = Channel(VISIBLE_RENDER_QUEUE_CAPACITY)
+        prewarmRenderQueue = Channel(PREWARM_QUEUE_CAPACITY)
+        renderSignal = Channel(Channel.CONFLATED)
+        if (attachedRecyclerView != null) ensureRenderWorkers()
+    }
+
+    private fun enqueueRender(
+        chatMessage: ChatMessage,
+        cacheKey: RenderCacheKey,
+        context: android.content.Context,
+        indexes: ChatAdapterUtils.ChatCatalogIndexes,
+        prewarmGeneration: Long? = null,
+    ) {
+        ensureRenderWorkers()
+        val isPrewarm = prewarmGeneration != null
+        synchronized(renderJobs) {
+            if (isPrewarm) {
+                if (!renderJobs.add(cacheKey)) return
+                prewarmRenderJobs.add(cacheKey)
+            } else {
+                val promoted = prewarmRenderJobs.remove(cacheKey)
+                if (!promoted && !renderJobs.add(cacheKey)) return
+                visibleRenderJobs.add(cacheKey)
+            }
+        }
+        val queue = if (isPrewarm) prewarmRenderQueue else visibleRenderQueue
+        val result = queue.trySend(RenderRequest(chatMessage, cacheKey, context, indexes, prewarmGeneration))
+        if (result.isFailure) {
+            synchronized(renderJobs) {
+                renderJobs.remove(cacheKey)
+                prewarmRenderJobs.remove(cacheKey)
+                visibleRenderJobs.remove(cacheKey)
+            }
+        } else {
+            renderSignal.trySend(Unit)
+        }
+    }
+
+    private fun startRenderWorkers(): List<Job> = List(MAX_RENDER_WORKERS) {
+        renderScope.launch {
+            for (ignored in renderSignal) {
+                while (true) {
+                    val request = visibleRenderQueue.tryReceive().getOrNull()
+                        ?: prewarmRenderQueue.tryReceive().getOrNull()
+                        ?: break
+                    if (request.prewarmGeneration != null && request.prewarmGeneration != prewarmGeneration) {
+                        synchronized(renderJobs) {
+                            if (request.cacheKey !in visibleRenderJobs) {
+                                renderJobs.remove(request.cacheKey)
+                            }
+                            prewarmRenderJobs.remove(request.cacheKey)
+                        }
+                        continue
+                    }
+                    if (request.prewarmGeneration != null) {
+                        val shouldRender = synchronized(renderJobs) {
+                            val supersededByVisible = request.cacheKey in visibleRenderJobs
+                            val stillQueuedAsPrewarm = prewarmRenderJobs.remove(request.cacheKey)
+                            if (!supersededByVisible && !stillQueuedAsPrewarm) {
+                                renderJobs.remove(request.cacheKey)
+                            }
+                            !supersededByVisible && stillQueuedAsPrewarm
+                        }
+                        if (!shouldRender) continue
+                    }
+                    renderMessage(request)
+                }
+            }
+        }
+    }
+
+    private fun ensureRenderWorkers() {
+        if (renderWorkers.any(Job::isActive)) return
+        if (!renderScope.isActive) {
+            renderScope = newRenderScope()
+            visibleRenderQueue = Channel(VISIBLE_RENDER_QUEUE_CAPACITY)
+            prewarmRenderQueue = Channel(PREWARM_QUEUE_CAPACITY)
+            renderSignal = Channel(Channel.CONFLATED)
+        }
+        renderWorkers = startRenderWorkers()
+    }
+
+    private suspend fun renderMessage(request: RenderRequest) {
+        val chatMessage = request.message
+        val cacheKey = request.cacheKey
+        try {
+            if (cachedRender(cacheKey) != null) return
+            val prepared = prepareMessage(chatMessage, request.context, null, request.indexes, offMain = true)
+            withContext(Dispatchers.Main.immediate) {
+                if (currentRenderKey(chatMessage) == cacheKey) {
+                    synchronized(renderCache) { renderCache[cacheKey] = prepared }
+                    if (addPendingRenderedMessage(chatMessage)) {
+                        scheduleRenderedFlush()
+                    }
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // A malformed chat payload must not take down the render worker. The fast fallback
+            // remains visible and the next bind can retry the message.
+        } finally {
+            synchronized(renderJobs) {
+                renderJobs.remove(cacheKey)
+                prewarmRenderJobs.remove(cacheKey)
+                visibleRenderJobs.remove(cacheKey)
+            }
+        }
+    }
+
+    private fun enqueuePrewarmRender(
+        message: ChatMessage,
+        revision: Int,
+        context: android.content.Context,
+        indexes: ChatAdapterUtils.ChatCatalogIndexes,
+        generation: Long,
+    ) {
+        enqueueRender(message, createRenderKey(message, revision), context, indexes, generation)
+    }
+
+    private fun scheduleVisiblePrewarm(recyclerView: RecyclerView) {
+        recyclerView.post {
+            if (attachedRecyclerView !== recyclerView) return@post
+            val layoutManager = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@post
+            val first = layoutManager.findFirstVisibleItemPosition()
+            val last = layoutManager.findLastVisibleItemPosition()
+            val context = fragment.context ?: return@post
+            if (first == RecyclerView.NO_POSITION || last < first) return@post
+            val start = (first - PREWARM_BEFORE).coerceAtLeast(0)
+            val end = (last + PREWARM_AFTER).coerceAtMost(messages.size - 1)
+            if (end < start) return@post
+            val snapshot = messages.subList(start, end + 1).toList()
+            val revision = catalogRevision
+            val indexes = catalogIndexes
+            val generation = ++prewarmGeneration
+            prewarmJob?.cancel()
+            prewarmJob = renderScope.launch {
+                snapshot.forEach { message ->
+                    enqueuePrewarmRender(message, revision, context, indexes, generation)
+                    yield()
+                }
+            }
+        }
+    }
+
+    private fun currentRenderKey(message: ChatMessage): RenderCacheKey = createRenderKey(message, catalogRevision)
+
+    private fun createRenderKey(message: ChatMessage, revision: Int = catalogRevision) = RenderCacheKey(
+        message = message,
+        catalogRevision = revision,
+        translateAllMessages = translateAllMessages,
+        translatedMessage = message.translatedMessage,
+        translationFailed = message.translationFailed,
+        messageLanguage = message.messageLanguage,
+    )
+
+    private fun addPendingRenderedMessage(message: ChatMessage): Boolean {
+        val recyclerView = attachedRecyclerView ?: return false
+        val layoutManager = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
+            ?: return false
+        val firstVisible = layoutManager.findFirstVisibleItemPosition()
+        val lastVisible = layoutManager.findLastVisibleItemPosition()
+        if (firstVisible == RecyclerView.NO_POSITION || lastVisible < firstVisible) return false
+        val visible = (firstVisible..lastVisible).any { position ->
+            messages.getOrNull(position) === message &&
+                recyclerView.findViewHolderForAdapterPosition(position) != null
+        }
+        if (!visible) return false
+        return pendingRenderedMessages.add(message)
+    }
+
+    private fun scheduleRenderedFlush() {
+        val recyclerView = attachedRecyclerView ?: return
+        if (renderedFlushPosted || renderUpdatesPaused || recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE) return
+        renderedFlushPosted = true
+        recyclerView.postOnAnimation(renderedFlushRunnable)
+    }
+
+    private fun flushRenderedMessages() {
+        val recyclerView = attachedRecyclerView ?: return
+        if (renderUpdatesPaused || recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE) return
+        if (recyclerView.isComputingLayout) {
+            recyclerView.postOnAnimation { flushRenderedMessages() }
+            return
+        }
+        if (pendingRenderedMessages.isEmpty()) return
+        val layoutManager = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
+            ?: return
+        val firstVisible = layoutManager.findFirstVisibleItemPosition()
+        val lastVisible = layoutManager.findLastVisibleItemPosition()
+        if (firstVisible == RecyclerView.NO_POSITION || lastVisible < firstVisible) return
+        var applied = 0
+        var hasMoreVisiblePending = false
+        for (position in firstVisible..lastVisible) {
+            val message = messages.getOrNull(position) ?: continue
+            if (!pendingRenderedMessages.contains(message)) continue
+            if (recyclerView.findViewHolderForAdapterPosition(position) == null) {
+                pendingRenderedMessages.remove(message)
+            } else if (applied < MAX_RENDER_UPDATES_PER_FRAME) {
+                pendingRenderedMessages.remove(message)
+                notifyItemChanged(position)
+                applied++
+            } else {
+                hasMoreVisiblePending = true
+            }
+        }
+        // Off-screen prewarm completions only need to remain in renderCache. Do
+        // not keep posting at display refresh rate for rows that cannot update.
+        if (!hasMoreVisiblePending) pendingRenderedMessages.clear()
+        if (hasMoreVisiblePending) scheduleRenderedFlush()
+    }
+
+    private fun newRenderScope(): CoroutineScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default.limitedParallelism(MAX_RENDER_WORKERS),
+    )
+
+    private fun prepareMessage(
+        chatMessage: ChatMessage,
+        context: android.content.Context,
+        itemView: View?,
+        indexes: ChatAdapterUtils.ChatCatalogIndexes,
+        offMain: Boolean,
+    ): ChatAdapterUtils.MessageResult {
+        val deferredTranslate: (ChatMessage, String?) -> Unit = { message, language ->
+            if (offMain) {
+                mainHandler.post {
+                    if (attachedRecyclerView != null && fragment.isAdded) translateMessage(message, language)
+                }
+            } else {
+                translateMessage(message, language)
+            }
+        }
+        val deferredLanguageDialog: (ChatMessage, String) -> Unit = { message, language ->
+            if (offMain) {
+                mainHandler.post {
+                    if (attachedRecyclerView != null && fragment.isAdded) showLanguageDownloadDialog(message, language)
+                }
+            } else {
+                showLanguageDownloadDialog(message, language)
+            }
+        }
+        return ChatAdapterUtils.prepareChatMessage(
+            chatMessage, context, itemView, enableTimestamps, timestampFormat, firstMsgVisibility, firstChatMsg,
+            redeemedChatMsg, redeemedNoMsg, rewardChatMsg, replyMessage, null, useRandomColors, random, useReadableColors, isLightTheme,
+            nameDisplay, useBoldNames, showNamePaints, namePaints, showBadges, showSTVBadges, stvBadges, showPersonalEmotes, personalEmoteSets, stvUsers,
+            enableOverlayEmotes, showSystemMessageEmotes, loggedInUser, chatUrl, userColors, savedColors, translateAllMessages,
+            deferredTranslate, deferredLanguageDialog, true, localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes,
+            savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes,
+            catalogIndexes = indexes, includeAccessibilityDescription = true,
+        )
+    }
+
+    private fun fastFallback(chatMessage: ChatMessage): ChatAdapterUtils.MessageResult {
+        val displayName = when {
+            chatMessage.userName.isNullOrBlank() -> null
+            chatMessage.userLogin.isNullOrBlank() || chatMessage.userLogin.equals(chatMessage.userName, true) -> chatMessage.userName
+            nameDisplay == "0" -> "${chatMessage.userName}(${chatMessage.userLogin})"
+            nameDisplay == "1" -> chatMessage.userName
+            else -> chatMessage.userLogin
+        }
+        val builder = SpannableStringBuilder()
+        if (chatMessage.type == ChatMessage.REPLY_MESSAGE) {
+            val replyName = chatMessage.reply?.userName ?: chatMessage.reply?.userLogin
+            builder.append(replyMessage.format(replyName, ""))
+            builder.append(chatMessage.reply?.message.orEmpty())
+        } else {
+            chatMessage.systemMsg?.takeIf { it.isNotBlank() }?.let {
+                builder.append(it)
+                builder.append('\n')
+            }
+            displayName?.let { builder.append(it).append(if (chatMessage.isAction) " " else ": ") }
+            builder.append(chatMessage.message ?: chatMessage.reward?.title.orEmpty())
+        }
+        val backgroundResource = when {
+            chatMessage.isFirst && firstMsgVisibility < 2 -> R.color.chatMessageFirst
+            chatMessage.reward?.id != null && firstMsgVisibility < 2 -> R.color.chatMessageReward
+            chatMessage.systemMsg != null || chatMessage.msgId != null -> R.color.chatMessageNotice
+            else -> 0
+        }
+        return ChatAdapterUtils.MessageResult(builder, arrayListOf(), null, displayName, null, false, backgroundResource)
     }
 }
