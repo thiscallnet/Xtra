@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -103,21 +104,159 @@ class UpdateDomainTest {
     }
 
     @Test
-    fun missingAndAmbiguousApkAssetsFailDeliberately() {
-        val noApk = parse("v2.58.5-build.125", assets = listOf("notes.txt"))
-        assertEquals(UpdateError.MissingApk, (UpdatePolicy.selectAsset(noApk).exceptionOrNull() as? UpdateException)?.error)
-
-        val ambiguous = parse(
-            "v2.58.5-build.125",
-            assets = listOf("xtra-arm64-release.apk", "xtra-x86-release.apk"),
+    fun artifactSha256FollowsTheSelectedAbiInsteadOfUniversalSha256() {
+        val universal = "a".repeat(64)
+        val digests = mapOf(
+            "app-arm64-v8a-release.apk" to "b".repeat(64),
+            "app-armeabi-v7a-release.apk" to "c".repeat(64),
+            "app-x86-release.apk" to "d".repeat(64),
+            "app-x86_64-release.apk" to "e".repeat(64),
         )
-        assertEquals(UpdateError.AmbiguousApk, (UpdatePolicy.selectAsset(ambiguous).exceptionOrNull() as? UpdateException)?.error)
+        val release = parseWithMetadata(universal, digests.toList())
 
-        val deterministic = parse(
-            "v2.58.5-build.125",
-            assets = listOf("xtra-arm64-release.apk", "app-release.apk"),
+        digests.forEach { (name, digest) ->
+            val asset = release.assets.single { it.name == name }
+            assertEquals(digest, release.expectedSha256For(asset))
+            assertTrue(release.expectedSha256For(asset) != release.expectedSha256)
+        }
+        assertEquals(universal, release.expectedSha256For(release.assets.single { it.name == "app-release.apk" }))
+    }
+
+    @Test
+    fun legacyUniversalMetadataStillProvidesTheUniversalSha256() {
+        val universal = "a".repeat(64)
+        val response = JsonObject(
+            json.parseToJsonElement(response("v2.58.6")).jsonObject +
+                (RELEASE_METADATA_RESPONSE_KEY to buildJsonObject {
+                    put("versionName", "2.58.6")
+                    put("versionCode", 294L)
+                    put("sha256", universal)
+                }),
         )
-        assertEquals("app-release.apk", UpdatePolicy.selectAsset(deterministic).getOrThrow().name)
+        val release = (ReleaseParser.parse(response, "https://example.test") as ReleaseParseResult.Success).release
+
+        assertEquals(universal, release.expectedSha256For(release.assets.single()))
+    }
+
+    @Test
+    fun unknownAbiFallbackUsesTheUniversalSha256() {
+        val universal = "a".repeat(64)
+        val release = parseWithMetadata(universal, emptyList())
+        val asset = UpdatePolicy.selectAsset(release, listOf("riscv64")).getOrThrow()
+
+        assertEquals("app-release.apk", asset.name)
+        assertEquals(universal, release.expectedSha256For(asset))
+    }
+
+    @Test
+    fun secondaryAbiSelectionUsesThatAbisSha256() {
+        val secondary = "b".repeat(64)
+        val release = parseWithMetadata(
+            "a".repeat(64),
+            listOf("app-armeabi-v7a-release.apk" to secondary),
+        )
+        val asset = UpdatePolicy.selectAsset(release, listOf("arm64-v8a", "armeabi-v7a")).getOrThrow()
+
+        assertEquals(secondary, release.expectedSha256For(asset))
+    }
+
+    @Test
+    fun malformedOrDuplicateArtifactSha256MetadataIsRejected() {
+        val malformed = parseMetadata("a".repeat(64), listOf("app-x86-release.apk" to "a".repeat(63)))
+        val duplicate = parseMetadata(
+            "a".repeat(64),
+            listOf(
+                "app-x86-release.apk" to "b".repeat(64),
+                "app-x86-release.apk" to "c".repeat(64),
+            ),
+        )
+
+        assertEquals(ReleaseParseResult.Failure(UpdateError.InvalidResponse), malformed)
+        assertEquals(ReleaseParseResult.Failure(UpdateError.InvalidResponse), duplicate)
+    }
+
+    @Test
+    fun semanticReleaseAdvancesOldBuildTaggedClients() {
+        assertTrue(UpdatePolicy.isNewer("2.58.5", 999L, parse("v2.58.6")))
+    }
+
+    @Test
+    fun selectsPreferredArm64Asset() {
+        val release = parse("v2.58.5-build.125", assets = listOf("app-armeabi-v7a-release.apk", "app-arm64-v8a-release.apk"))
+
+        assertEquals(
+            "app-arm64-v8a-release.apk",
+            UpdatePolicy.selectAsset(release, listOf("arm64-v8a", "armeabi-v7a")).getOrThrow().name,
+        )
+    }
+
+    @Test
+    fun selectsArm32Asset() {
+        val release = parse("v2.58.5-build.125", assets = listOf("app-armeabi-v7a-release.apk"))
+
+        assertEquals("app-armeabi-v7a-release.apk", UpdatePolicy.selectAsset(release, listOf("armeabi-v7a")).getOrThrow().name)
+    }
+
+    @Test
+    fun x86DoesNotMatchX86_64() {
+        val release = parse("v2.58.5-build.125", assets = listOf("app-x86_64-release.apk", "app-x86-release.apk"))
+
+        assertEquals("app-x86-release.apk", UpdatePolicy.selectAsset(release, listOf("x86")).getOrThrow().name)
+    }
+
+    @Test
+    fun selectsX86_64Asset() {
+        val release = parse("v2.58.5-build.125", assets = listOf("app-x86-release.apk", "app-x86_64-release.apk"))
+
+        assertEquals("app-x86_64-release.apk", UpdatePolicy.selectAsset(release, listOf("x86_64", "x86")).getOrThrow().name)
+    }
+
+    @Test
+    fun usesSecondarySupportedAbiWhenPreferredAssetIsAbsent() {
+        val release = parse("v2.58.5-build.125", assets = listOf("app-armeabi-v7a-release.apk"))
+
+        assertEquals(
+            "app-armeabi-v7a-release.apk",
+            UpdatePolicy.selectAsset(release, listOf("arm64-v8a", "armeabi-v7a")).getOrThrow().name,
+        )
+    }
+
+    @Test
+    fun fallsBackToUniversalWhenNoAbiAssetMatches() {
+        val release = parse("v2.58.5-build.125", assets = listOf("app-x86-release.apk", "app-release.apk"))
+
+        assertEquals("app-release.apk", UpdatePolicy.selectAsset(release, listOf("arm64-v8a")).getOrThrow().name)
+    }
+
+    @Test
+    fun oldUniversalOnlyReleaseRemainsSupported() {
+        val release = parse("v2.58.5-build.125")
+
+        assertEquals("app-release.apk", UpdatePolicy.selectAsset(release, listOf("arm64-v8a")).getOrThrow().name)
+    }
+
+    @Test
+    fun unknownAbiFallsBackToUniversal() {
+        val release = parse("v2.58.5-build.125", assets = listOf("app-release.apk"))
+
+        assertEquals("app-release.apk", UpdatePolicy.selectAsset(release, listOf("riscv64")).getOrThrow().name)
+    }
+
+    @Test
+    fun noRecognizedAbiOrUniversalFailsExplicitly() {
+        val release = parse("v2.58.5-build.125", assets = listOf("notes.txt"))
+
+        assertEquals(
+            UpdateError.MissingApk,
+            (UpdatePolicy.selectAsset(release, listOf("riscv64")).exceptionOrNull() as? UpdateException)?.error,
+        )
+    }
+
+    @Test
+    fun assetArrayOrderDoesNotAffectSelection() {
+        val release = parse("v2.58.5-build.125", assets = listOf("notes.txt", "app-x86_64-release.apk", "app-arm64-v8a-release.apk"))
+
+        assertEquals("app-arm64-v8a-release.apk", UpdatePolicy.selectAsset(release, listOf("arm64-v8a")).getOrThrow().name)
     }
 
     @Test
@@ -130,7 +269,7 @@ class UpdateDomainTest {
         )
         assertEquals(
             UpdateError.MissingApk,
-            (UpdatePolicy.selectAsset(currentWithoutApk).exceptionOrNull() as? UpdateException)?.error,
+            (UpdatePolicy.selectAsset(currentWithoutApk, listOf("arm64-v8a")).exceptionOrNull() as? UpdateException)?.error,
         )
     }
 
@@ -451,7 +590,7 @@ class UpdateDomainTest {
         assertEquals(UpdateError.Server, UpdateErrorMapper.fromHttpCode(503))
         assertEquals(UpdateError.InvalidResponse, UpdateErrorMapper.fromThrowable(IllegalArgumentException()))
         assertEquals(UpdateError.InvalidResponse, UpdateErrorMapper.fromJson("{"))
-        assertEquals(UpdateError.UnexpectedResponse, (UpdatePolicy.selectAsset(null).exceptionOrNull() as? UpdateException)?.error)
+        assertEquals(UpdateError.UnexpectedResponse, (UpdatePolicy.selectAsset(null, emptyList()).exceptionOrNull() as? UpdateException)?.error)
     }
 
     @Test
@@ -499,6 +638,34 @@ class UpdateDomainTest {
         )
         assertTrue(result is ReleaseParseResult.Success)
         return (result as ReleaseParseResult.Success).release
+    }
+
+    private fun parseWithMetadata(universalSha: String, artifacts: List<Pair<String, String>>): UpdateRelease {
+        val result = parseMetadata(universalSha, artifacts)
+        assertTrue(result is ReleaseParseResult.Success)
+        return (result as ReleaseParseResult.Success).release
+    }
+
+    private fun parseMetadata(universalSha: String, artifacts: List<Pair<String, String>>): ReleaseParseResult {
+        val response = JsonObject(
+            json.parseToJsonElement(
+                response("v2.58.6", assets = listOf("app-release.apk") + artifacts.map { it.first }),
+            ).jsonObject +
+                (RELEASE_METADATA_RESPONSE_KEY to buildJsonObject {
+                    put("versionName", "2.58.6")
+                    put("versionCode", 294L)
+                    put("sha256", universalSha)
+                    put("artifacts", buildJsonArray {
+                        artifacts.forEach { (name, digest) ->
+                            add(buildJsonObject {
+                                put("name", name)
+                                put("sha256", digest)
+                            })
+                        }
+                    })
+                }),
+        )
+        return ReleaseParser.parse(response, "https://example.test/releases/1")
     }
 
     private fun response(tag: String, assets: List<String> = listOf("app-release.apk"), body: String = "Fix something"): String {

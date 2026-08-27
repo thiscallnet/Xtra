@@ -26,6 +26,7 @@ data class UpdateRelease(
     val draft: Boolean,
     val expectedVersionCode: Long? = null,
     val expectedSha256: String? = null,
+    val artifactSha256: Map<String, String> = emptyMap(),
 ) {
     val id: String
         get() = tagName
@@ -33,6 +34,9 @@ data class UpdateRelease(
     val displayVersion: String
         get() = buildNumber?.let { "$versionName (build $it)" }
             ?: versionName
+
+    fun expectedSha256For(asset: UpdateAsset): String? = artifactSha256[asset.name]
+        ?: expectedSha256.takeIf { asset.name == "app-release.apk" }
 
 }
 

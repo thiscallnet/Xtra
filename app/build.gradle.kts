@@ -13,7 +13,7 @@ plugins {
 }
 
 val defaultVersionCode = 121
-val applicationVersionName = "2.58.5"
+val applicationVersionName = "2.58.6"
 val applicationVersionCode = providers.gradleProperty("ciVersionCode")
     .orNull
     ?.toInt()
@@ -39,6 +39,14 @@ val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
         requestedTask.equals("bundlePerf", ignoreCase = true) ||
         requestedTask in setOf("assemble", "build", "bundle")
 }
+val releaseAbiSplitsRequested = providers.gradleProperty("xtraReleaseAbiSplits")
+    .map(String::toBoolean)
+    .orElse(
+        gradle.startParameter.taskNames.any { taskName ->
+            taskName.substringAfterLast(':').equals("assembleRelease", ignoreCase = true)
+        },
+    )
+    .get()
 
 if (releaseTaskRequested) {
     require(configuredTwitchPublicClientId != null) {
@@ -129,6 +137,15 @@ android {
     bundle {
         language {
             enableSplit = false
+        }
+    }
+    splits {
+        abi {
+            // Release distribution uses standalone ABI APKs; keep the diagnostic perf APK universal.
+            isEnable = releaseAbiSplitsRequested
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            isUniversalApk = true
         }
     }
     lint {
