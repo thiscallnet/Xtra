@@ -592,6 +592,7 @@ class ChannelPointsDialog : DialogFragment() {
         binding.pollChoices.removeAllViews()
         if (poll == null) return
 
+        val pollId = poll.id
         val status = poll.status.orEmpty().uppercase()
         val isActive = activePoll != null && PollState.isActive(poll)
         binding.pollCardTitle.text = getString(
@@ -620,17 +621,18 @@ class ChannelPointsDialog : DialogFragment() {
             poll.startedAt?.let { add(getString(R.string.channel_points_poll_started, TwitchApiHelper.formatDate(requireContext(), it))) }
             poll.endedAt?.let { add(getString(R.string.channel_points_poll_ended, TwitchApiHelper.formatDate(requireContext(), it))) }
             poll.durationSeconds?.let { add(getString(R.string.channel_points_poll_duration, android.text.format.DateUtils.formatElapsedTime(it.toLong()))) }
-            pollVoteState.error?.takeIf { pollVoteState.pollId == poll.id }?.let {
+            pollVoteState.error?.takeIf { pollId != null && pollVoteState.pollId == pollId }?.let {
                 add(getString(R.string.channel_points_poll_vote_error, it))
             }
         }
         binding.pollCardStatus.text = details.joinToString(" · ")
         val maxVotes = poll.choices.orEmpty().mapNotNull { it.totalVotes }.maxOrNull()
         val winners = poll.choices.orEmpty().filter { maxVotes != null && it.totalVotes == maxVotes }
-        val voteStateMatches = pollVoteState.pollId == poll.id
+        val voteStateMatches = pollId != null && pollVoteState.pollId == pollId
         val canVote = isActive && listener.canVotePoll() && voteStateMatches &&
                 pollVoteState.pendingChoiceId == null && pollVoteState.selectedChoiceId == null
         poll.choices.orEmpty().forEachIndexed { index, choice ->
+            val choiceId = choice.id
             val percent = if (totalVotes > 0) {
                 (((choice.totalVotes ?: 0).toLong() * 100.0) / totalVotes).roundToInt()
             } else 0
@@ -641,9 +643,9 @@ class ChannelPointsDialog : DialogFragment() {
                 choice.bitsVotes?.let { add("${numberFormat.format(it)} bits") }
             }.joinToString(" · ")
             val choiceText = "$prefix$percent% · $voteDetails · ${choice.title}"
-            val selected = voteStateMatches && pollVoteState.selectedChoiceId == choice.id
-            val pending = voteStateMatches && pollVoteState.pendingChoiceId == choice.id
-            val showButton = isActive && choice.id != null &&
+            val selected = voteStateMatches && choiceId != null && pollVoteState.selectedChoiceId == choiceId
+            val pending = voteStateMatches && choiceId != null && pollVoteState.pendingChoiceId == choiceId
+            val showButton = isActive && choiceId != null &&
                     (canVote || selected || pending || (voteStateMatches && pollVoteState.inFlight))
             if (showButton) {
                 binding.pollChoices.addView(
@@ -665,7 +667,9 @@ class ChannelPointsDialog : DialogFragment() {
                             )
                         }
                         setOnClickListener {
-                            listener.votePoll(choice.id)
+                            if (canVote && !selected && !pending) {
+                                choiceId?.let { listener.votePoll(it) }
+                            }
                         }
                         layoutParams = LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT,

@@ -226,32 +226,48 @@ object PubSubUtils {
             effectiveEndsAt ?: observedAt
         } else null
 
-        val choicesList = buildList {
-            poll.optJSONArray("choices")?.let { choices ->
-                for (index in 0 until choices.length()) {
-                    val choice = choices.optJSONObject(index) ?: continue
-                    val title = choice.optionalString("title") ?: continue
-                    val nestedVotes = choice.opt("votes") as? JSONObject
-                    val votes = choice.optionalInt("votes")
-                        ?: nestedVotes?.optionalInt("total")
-                        ?: choice.optionalInt("total_votes")
-                    val channelPointsVotes = choice.optionalInt("channel_points_votes")
-                        ?: nestedVotes?.optionalInt("channel_points_votes")
-                        ?: nestedVotes?.optionalInt("channel_points")
-                    val bitsVotes = choice.optionalInt("bits_votes")
-                        ?: nestedVotes?.optionalInt("bits_votes")
-                        ?: nestedVotes?.optionalInt("bits")
-                    add(
-                        Poll.PollChoice(
-                            id = choice.optionalString("id"),
-                            title = title,
-                            totalVotes = votes,
-                            channelPointsVotes = channelPointsVotes,
-                            bitsVotes = bitsVotes,
-                        ),
-                    )
+        val rawChoices = mutableListOf<Pair<String?, JSONObject>>()
+        poll.optJSONArray("choices")?.let { choices ->
+            for (index in 0 until choices.length()) {
+                val choice = choices.optJSONObject(index) ?: continue
+                rawChoices.add(null to choice)
+            }
+        }
+        if (rawChoices.isEmpty()) {
+            poll.optJSONObject("choices")?.let { choices ->
+                val keys = choices.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val choice = choices.optJSONObject(key) ?: continue
+                    rawChoices.add(key to choice)
                 }
             }
+        }
+
+        val choicesList = rawChoices.mapNotNull { (fallbackId, choice) ->
+            val title = choice.optionalString("title")
+                ?: return@mapNotNull null
+            val nestedVotes = choice.opt("votes") as? JSONObject
+            val votes = choice.optionalInt("votes")
+                ?: nestedVotes?.optionalInt("total")
+                ?: choice.optionalInt("total_votes")
+            val channelPointsVotes = choice.optionalInt("channel_points_votes")
+                ?: choice.optionalInt("channelPointsVotes")
+                ?: nestedVotes?.optionalInt("channel_points_votes")
+                ?: nestedVotes?.optionalInt("channel_points")
+            val bitsVotes = choice.optionalInt("bits_votes")
+                ?: choice.optionalInt("bitsVotes")
+                ?: nestedVotes?.optionalInt("bits_votes")
+                ?: nestedVotes?.optionalInt("bits")
+            Poll.PollChoice(
+                id = listOf("id", "choice_id", "choiceId", "choiceID")
+                    .firstNotNullOfOrNull { choice.optionalString(it) }
+                    ?: fallbackId?.takeIf { it.isNotBlank() },
+                title = title,
+                totalVotes = votes,
+                channelPointsVotes = channelPointsVotes,
+                bitsVotes = bitsVotes,
+            )
         }
 
         val channelPointsVoting = poll.optJSONObject("channel_points_voting")

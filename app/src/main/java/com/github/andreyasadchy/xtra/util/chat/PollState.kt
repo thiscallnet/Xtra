@@ -85,10 +85,38 @@ object PollState {
     private fun mergeChoices(current: List<Poll.PollChoice>?, incoming: List<Poll.PollChoice>?): List<Poll.PollChoice>? {
         if (current.isNullOrEmpty()) return incoming
         if (incoming.isNullOrEmpty()) return current
-        val currentByKey = current.associateBy { it.id ?: it.title }
+
+        val currentById = current.mapNotNull { choice ->
+            choice.id
+                ?.takeIf { it.isNotBlank() }
+                ?.let { it to choice }
+        }.toMap()
+        val currentByUniqueTitle = current
+            .mapNotNull { choice ->
+                choice.title
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { it to choice }
+            }
+            .groupBy(
+                keySelector = { it.first },
+                valueTransform = { it.second },
+            )
+            .mapNotNull { (title, choices) ->
+                choices.singleOrNull()?.let { title to it }
+            }
+            .toMap()
+
         return incoming.map { choice ->
-            val previous = currentByKey[choice.id ?: choice.title]
+            val incomingId = choice.id?.takeIf { it.isNotBlank() }
+            val previous = if (incomingId != null) {
+                currentById[incomingId]
+            } else {
+                choice.title
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let(currentByUniqueTitle::get)
+            }
             if (previous == null) choice else choice.copy(
+                id = incomingId ?: previous.id,
                 totalVotes = max(previous.totalVotes, choice.totalVotes),
                 channelPointsVotes = max(previous.channelPointsVotes, choice.channelPointsVotes),
                 bitsVotes = max(previous.bitsVotes, choice.bitsVotes),
