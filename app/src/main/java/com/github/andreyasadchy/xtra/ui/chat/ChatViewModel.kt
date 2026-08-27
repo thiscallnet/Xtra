@@ -79,6 +79,7 @@ import com.github.andreyasadchy.xtra.util.chat.GqlPredictionSnapshot
 import com.github.andreyasadchy.xtra.util.chat.HermesWebSocket
 import com.github.andreyasadchy.xtra.util.chat.PollCache
 import com.github.andreyasadchy.xtra.util.chat.PollState
+import com.github.andreyasadchy.xtra.util.chat.PredictionBetPolicy
 import com.github.andreyasadchy.xtra.util.chat.PredictionCache
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.chat.PredictionStateStore
@@ -4045,22 +4046,35 @@ class ChatViewModel(
         val userId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
         val balance = channelPoints.value?.balance
         val previous = _predictionBetState.value
-        if ((previous.predictionId == predictionId &&
-                    (previous.inFlight || !previous.outcomeId.isNullOrBlank())) ||
+        val samePrediction = previous.predictionId == predictionId
+        val previousOutcomeId = previous.outcomeId.takeIf {
+            samePrediction && !it.isNullOrBlank()
+        }
+        val previousAmount = previous.amount.takeIf { samePrediction } ?: 0
+        val remainingPredictionPoints = PredictionBetPolicy.remainingPoints(
+            previousAmount = previousAmount,
+            maximumPoints = MAX_PREDICTION_POINTS,
+        )
+        if ((samePrediction && previous.inFlight) ||
+            (previousOutcomeId != null && previousOutcomeId != outcomeId) ||
             !canBetPrediction() ||
             predictionId.isNullOrBlank() ||
             outcomeId.isBlank() ||
             current.outcomes.orEmpty().none { it.id == outcomeId }
         ) return
-        if (points !in MIN_PREDICTION_POINTS..MAX_PREDICTION_POINTS || (balance != null && points > balance)) return
+        if (points < MIN_PREDICTION_POINTS ||
+            points > remainingPredictionPoints ||
+            (balance != null && points > balance)
+        ) return
 
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val headers = TwitchApiHelper.getGQLHeaders(applicationContext, true)
         _predictionBetState.value = PredictionBetState(
             predictionId = predictionId,
             outcomeId = outcomeId,
-            amount = points,
+            amount = previousAmount.takeIf { it > 0 },
             inFlight = true,
+            error = null,
         )
         predictionBetJob = viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -4081,6 +4095,7 @@ class ChatViewModel(
                         response.data.hasError() == false
                 if (activeChannelLogin == channelLogin && _predictionBetState.value.predictionId == predictionId) {
                     _predictionBetState.value = if (success) {
+                        val totalAmount = PredictionBetPolicy.totalAfterAdditionalBet(previousAmount, points)
                         activeChannelId?.let { channelId ->
                             userId?.takeIf { it.isNotBlank() }?.let { currentUserId ->
                                 ViewerParticipationCache.savePredictionBet(
@@ -4088,7 +4103,7 @@ class ChatViewModel(
                                     channelId = channelId,
                                     predictionId = predictionId,
                                     outcomeId = outcomeId,
-                                    amount = points,
+                                    amount = totalAmount,
                                     userId = currentUserId,
                                     broadcastId = streamId,
                                 )
@@ -4097,12 +4112,13 @@ class ChatViewModel(
                         PredictionBetState(
                             predictionId = predictionId,
                             outcomeId = outcomeId,
-                            amount = points,
+                            amount = totalAmount,
                         )
                     } else {
-                        _predictionBetState.value.copy(
-                            outcomeId = null,
-                            amount = null,
+                        PredictionBetState(
+                            predictionId = predictionId,
+                            outcomeId = previousOutcomeId,
+                            amount = previousAmount.takeIf { it > 0 },
                             inFlight = false,
                             error = errorMessage ?: "Twitch rejected the prediction",
                         )
@@ -4134,9 +4150,10 @@ class ChatViewModel(
             } catch (e: Exception) {
                 if (activeChannelLogin == channelLogin && _predictionBetState.value.predictionId == predictionId) {
                     val message = e.message ?: "Prediction request failed"
-                    _predictionBetState.value = _predictionBetState.value.copy(
-                        outcomeId = null,
-                        amount = null,
+                    _predictionBetState.value = PredictionBetState(
+                        predictionId = predictionId,
+                        outcomeId = previousOutcomeId,
+                        amount = previousAmount.takeIf { it > 0 },
                         inFlight = false,
                         error = message,
                     )

@@ -871,6 +871,7 @@
     <string name="channel_points_prediction_bet_login">Log in to place a prediction</string>
     <string name="channel_points_prediction_bet_unavailable">Betting is unavailable for this prediction</string>
     <string name="channel_points_prediction_bet_range">Enter between %1$d and %2$d points</string>
+    <string name="channel_points_prediction_bet_limit">You can add at most %s points</string>
     <string name="channel_points_prediction_bet_balance">You have %s points</string>
     <string name="channel_points_prediction_bet_pending">Submitting prediction…</string>
     <string name="channel_points_prediction_bet_selected">Your prediction: %s points</string>

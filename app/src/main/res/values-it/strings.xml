@@ -1421,4 +1421,5 @@
     <string name="viewer_list_empty">No viewers are currently listed.</string>
     <string name="player_lock_controls">Lock player controls</string>
     <string name="player_unlock_controls">Unlock player controls</string>
+    <string name="channel_points_prediction_bet_limit">Puoi aggiungere al massimo %s punti</string>
 </resources>
