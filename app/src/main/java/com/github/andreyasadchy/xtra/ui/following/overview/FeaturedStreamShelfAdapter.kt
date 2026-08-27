@@ -294,8 +294,8 @@ class FeaturedStreamShelfAdapter(
                 if (stream.channelImage != null) {
                     avatar.visibility = View.VISIBLE
                     prepareStreamProfileImage(avatar, stream)
-                    restoreWarmStreamProfileImage(context, avatar, stream)
-                    thumbnailLoadScheduler.runOrDefer(this@ViewHolder, avatar) {
+                    val profileRestored = restoreWarmStreamProfileImage(context, avatar, stream)
+                    if (!profileRestored) thumbnailLoadScheduler.runOrDefer(this@ViewHolder, avatar) {
                         if (binding.root.isAttachedToWindow && boundImageIdentity == stream.streamIdentity()) {
                             loadStreamProfileImage(context, avatar, stream)?.let {
                                 imageRequests.replace(binding.avatar, it)

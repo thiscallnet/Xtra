@@ -4,9 +4,7 @@ import android.text.format.DateUtils
 import android.util.LruCache
 import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -29,9 +27,7 @@ internal object VideoHistoryCardPresentationCache {
     private const val MAX_ENTRIES = 256
     private const val PREWARM_LIMIT = 32
 
-    private val scope = CoroutineScope(
-        SupervisorJob() + Dispatchers.Default.limitedParallelism(2),
-    )
+    private val scope = FeedPresentationDispatcher.scope
     private val lock = Any()
     private val cache = object : LruCache<VideoHistoryCardPresentationKey, VideoHistoryCardPresentation>(MAX_ENTRIES) {}
     private val pending = HashMap<VideoHistoryCardPresentationKey, MutableList<(VideoHistoryCardPresentation) -> Unit>>()
@@ -47,21 +43,21 @@ internal object VideoHistoryCardPresentationCache {
         synchronized(lock) { cache.get(key(item)) }
 
     fun prewarm(items: List<VideoHistory>) {
-        items.take(PREWARM_LIMIT).forEach { item -> request(item) {} }
+        items.take(PREWARM_LIMIT).forEach { item -> request(item) }
     }
 
     fun request(
         item: VideoHistory,
-        callback: (VideoHistoryCardPresentation) -> Unit,
+        callback: ((VideoHistoryCardPresentation) -> Unit)? = null,
     ): VideoHistoryCardPresentation? {
         val key = key(item)
         synchronized(lock) {
             cache.get(key)?.let { return it }
             pending[key]?.let {
-                it += callback
+                callback?.let(it::add)
                 return null
             }
-            pending[key] = mutableListOf(callback)
+            pending[key] = callback?.let(::mutableListOf) ?: mutableListOf()
         }
         scope.launch {
             val presentation = build(item, key)
@@ -69,8 +65,10 @@ internal object VideoHistoryCardPresentationCache {
                 cache.put(key, presentation)
                 pending.remove(key).orEmpty()
             }
-            withContext(Dispatchers.Main.immediate) {
-                callbacks.forEach { it(presentation) }
+            if (callbacks.isNotEmpty()) {
+                withContext(Dispatchers.Main.immediate) {
+                    callbacks.forEach { it(presentation) }
+                }
             }
         }
         return null

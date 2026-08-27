@@ -65,7 +65,7 @@ class StreamsCompactAdapter(
                     context = context,
                     streams = snapshot().items.filterNotNull(),
                     preferences = preferences,
-                ) {}
+                )
             }
         }
     }
@@ -206,8 +206,8 @@ class StreamsCompactAdapter(
                             context.getString(R.string.player_open_channel, it)
                         }
                         prepareStreamProfileImage(userImage, item)
-                        restoreWarmStreamProfileImage(context, userImage, item)
-                        thumbnailLoadScheduler.runOrDefer(this@PagingViewHolder, binding.userImage) {
+                        val profileRestored = restoreWarmStreamProfileImage(context, userImage, item)
+                        if (!profileRestored) thumbnailLoadScheduler.runOrDefer(this@PagingViewHolder, binding.userImage) {
                             if (binding.root.isAttachedToWindow && boundImageIdentity == item.streamIdentity()) {
                                 loadStreamProfileImage(context, userImage, item)?.let {
                                     imageRequests.replace(binding.userImage, it)

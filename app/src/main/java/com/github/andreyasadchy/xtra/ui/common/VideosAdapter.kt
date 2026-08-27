@@ -179,8 +179,8 @@ class VideosAdapter(
                 binding.thumbnail.setImageDrawable(null)
                 binding.thumbnail.tag = thumbnailKey
             }
-            restoreDecodedMemoryImage(thumbnailKey, binding.thumbnail)
-            imageLoadScheduler.runOrDefer(this@PagingViewHolder, binding.thumbnail) {
+            val thumbnailRestored = restoreDecodedMemoryImage(thumbnailKey, binding.thumbnail)
+            if (!thumbnailRestored) imageLoadScheduler.runOrDefer(this@PagingViewHolder, binding.thumbnail) {
                 if (!binding.root.isAttachedToWindow || boundImageIdentity != identity) return@runOrDefer
                 imageRequests.replace(
                     binding.thumbnail,
@@ -210,8 +210,8 @@ class VideosAdapter(
                 binding.userImage.setImageDrawable(null)
                 binding.userImage.tag = profileKey
             }
-            restoreDecodedMemoryImage(profileKey, binding.userImage)
-            imageLoadScheduler.runOrDefer(this@PagingViewHolder, binding.userImage) {
+            val profileRestored = restoreDecodedMemoryImage(profileKey, binding.userImage)
+            if (!profileRestored) imageLoadScheduler.runOrDefer(this@PagingViewHolder, binding.userImage) {
                 if (!binding.root.isAttachedToWindow || boundImageIdentity != identity) return@runOrDefer
                 imageRequests.replace(
                     binding.userImage,

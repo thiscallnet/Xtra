@@ -154,8 +154,8 @@ class ClipsAdapter(
                         thumbnail.setImageDrawable(null)
                         thumbnail.tag = thumbnailKey
                     }
-                    restoreDecodedMemoryImage(thumbnailKey, thumbnail)
-                    imageLoadScheduler.runOrDefer(this@PagingViewHolder, thumbnail) {
+                    val thumbnailRestored = restoreDecodedMemoryImage(thumbnailKey, thumbnail)
+                    if (!thumbnailRestored) imageLoadScheduler.runOrDefer(this@PagingViewHolder, thumbnail) {
                         if (!root.isAttachedToWindow || boundClipId != clipId) return@runOrDefer
                         imageRequests.replace(
                             thumbnail,
@@ -206,8 +206,8 @@ class ClipsAdapter(
                                 userImage.setImageDrawable(null)
                                 userImage.tag = profileKey
                             }
-                            restoreDecodedMemoryImage(profileKey, userImage)
-                            imageLoadScheduler.runOrDefer(this@PagingViewHolder, userImage) {
+                            val profileRestored = restoreDecodedMemoryImage(profileKey, userImage)
+                            if (!profileRestored) imageLoadScheduler.runOrDefer(this@PagingViewHolder, userImage) {
                                 if (!root.isAttachedToWindow || boundClipId != clipId) return@runOrDefer
                                 imageRequests.replace(
                                     userImage,

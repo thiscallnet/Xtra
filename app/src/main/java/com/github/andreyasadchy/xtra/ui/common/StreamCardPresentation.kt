@@ -114,25 +114,11 @@ internal object StreamCardPresentationCache {
         context: Context,
         streams: List<Stream>,
         preferences: FeedUiPreferences,
-        callback: (() -> Unit)? = null,
     ) {
         val visibleWindow = streams.take(PREWARM_LIMIT)
-        if (visibleWindow.isEmpty()) {
-            callback?.invoke()
-            return
-        }
-        if (callback == null) {
-            visibleWindow.forEach { stream -> request(context, stream, preferences) }
-        } else {
-            val remaining = java.util.concurrent.atomic.AtomicInteger(visibleWindow.size)
-            visibleWindow.forEach { stream ->
-                request(context, stream, preferences) {
-                    if (remaining.decrementAndGet() == 0) callback()
-                } ?: run {
-                    if (remaining.decrementAndGet() == 0) callback()
-                }
-            }
-        }
+        // Prewarming only populates the process-local cache. It must not hop
+        // back to the main thread or cause a second bind for every card.
+        visibleWindow.forEach { stream -> request(context, stream, preferences) }
     }
 
     private fun build(

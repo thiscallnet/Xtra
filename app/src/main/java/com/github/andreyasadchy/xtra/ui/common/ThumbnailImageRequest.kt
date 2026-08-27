@@ -470,14 +470,26 @@ private fun restoreWarmStreamThumbnail(cacheKey: String, imageView: ImageView): 
  * The small ConstantState cache above remains a fallback for images Coil has
  * already evicted from its decoded cache.
  */
-internal fun restoreDecodedMemoryImage(cacheKey: String, imageView: ImageView): Boolean {
-    if (imageView.drawable != null) return false
+internal fun restoreDecodedMemoryImage(
+    cacheKey: String,
+    imageView: ImageView,
+): Boolean {
     val cachedImage = imageView.context.imageLoader.memoryCache
         ?.get(MemoryCache.Key(cacheKey))
         ?.image
         ?: return false
-    imageView.setImageDrawable(cachedImage.asDrawable(imageView.resources))
-    if (BuildConfig.DEBUG) Log.d("StreamThumbnail", "memory_restore keyHash=${cacheKey.hashCode().toString(16)}")
+
+    imageView.setImageDrawable(
+        cachedImage.asDrawable(imageView.resources)
+    )
+
+    if (BuildConfig.DEBUG) {
+        Log.d(
+            "StreamThumbnail",
+            "memory_restore keyHash=${cacheKey.hashCode().toString(16)}",
+        )
+    }
+
     return true
 }
 
@@ -718,8 +730,33 @@ internal fun restoreWarmStreamProfileImage(
 ): Boolean {
     val url = stream.channelImage ?: return false
     val preferences = FeedUiPreferencesStore.current(context)
-    val requestKey = "${stream.streamIdentity()}|$url|round=${preferences.roundUserImage}"
-    return restoreDecodedMemoryImage(requestKey, imageView)
+
+    val identity = stream.streamIdentity()
+    val requestKey =
+        "$identity|$url|round=${preferences.roundUserImage}"
+
+    // Already displaying the exact successfully satisfied profile request.
+    if (
+        imageView.tag == identity &&
+        imageView.getTag(R.id.stream_profile_request_key) == requestKey &&
+        imageView.drawable != null
+    ) {
+        return true
+    }
+
+    if (!restoreDecodedMemoryImage(requestKey, imageView)) {
+        return false
+    }
+
+    // This decoded-memory hit satisfies exactly the same request that
+    // loadStreamProfileImage() would mark before starting Coil.
+    // Record it so subsequent binds become a true zero-work fast path.
+    imageView.setTag(
+        R.id.stream_profile_request_key,
+        requestKey,
+    )
+
+    return true
 }
 
 internal fun loadStreamThumbnail(

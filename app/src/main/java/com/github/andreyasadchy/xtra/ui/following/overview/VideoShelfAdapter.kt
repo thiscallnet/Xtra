@@ -131,8 +131,8 @@ class VideoShelfAdapter(
                 binding.thumbnail.setImageDrawable(null)
                 binding.thumbnail.tag = thumbnailKey
             }
-            restoreDecodedMemoryImage(thumbnailKey, binding.thumbnail)
-            imageLoadScheduler.runOrDefer(this@ViewHolder, binding.thumbnail) {
+            val thumbnailRestored = restoreDecodedMemoryImage(thumbnailKey, binding.thumbnail)
+            if (!thumbnailRestored) imageLoadScheduler.runOrDefer(this@ViewHolder, binding.thumbnail) {
                 if (!binding.root.isAttachedToWindow || boundImageIdentity != identity) return@runOrDefer
                 imageRequests.replace(binding.thumbnail, context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
                     data(thumbnailUrl)
@@ -163,8 +163,8 @@ class VideoShelfAdapter(
                     binding.avatar.setImageDrawable(null)
                     binding.avatar.tag = avatarKey
                 }
-                restoreDecodedMemoryImage(avatarKey, binding.avatar)
-                imageLoadScheduler.runOrDefer(this@ViewHolder, binding.avatar) {
+                val avatarRestored = restoreDecodedMemoryImage(avatarKey, binding.avatar)
+                if (!avatarRestored) imageLoadScheduler.runOrDefer(this@ViewHolder, binding.avatar) {
                     if (!binding.root.isAttachedToWindow || boundImageIdentity != identity) return@runOrDefer
                     imageRequests.replace(binding.avatar, context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
                         data(avatarUrl)

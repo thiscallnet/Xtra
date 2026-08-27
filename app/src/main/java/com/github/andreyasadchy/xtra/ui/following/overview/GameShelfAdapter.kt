@@ -132,8 +132,8 @@ class GameShelfAdapter(
                     binding.gameImage.setImageDrawable(null)
                     binding.gameImage.tag = imageKey
                 }
-                restoreDecodedMemoryImage(imageKey, binding.gameImage)
-                imageLoadScheduler.runOrDefer(this@ViewHolder, binding.gameImage) {
+                val restored = restoreDecodedMemoryImage(imageKey, binding.gameImage)
+                if (!restored) imageLoadScheduler.runOrDefer(this@ViewHolder, binding.gameImage) {
                     if (!binding.root.isAttachedToWindow || boundGameId != game.id) return@runOrDefer
                     imageRequests.replace(
                         binding.gameImage,
