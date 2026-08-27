@@ -22,28 +22,24 @@ internal class StreamTagViews(
         }
     }
 
-    fun bind(
-        tags: List<String>,
-        onTagClick: (String) -> Unit,
-    ) {
-        this.onTagClick = onTagClick
-        val visibleTags = tags.asSequence()
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .take(MAX_TAGS)
-            .toList()
+    fun setOnTagClickListener(listener: ((String) -> Unit)?) {
+        onTagClick = listener
+    }
+
+    fun bind(tags: List<String>) {
         tagViews.forEachIndexed { index, view ->
-            val tag = visibleTags.getOrNull(index)
+            val tag = tags.getOrNull(index)
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
             boundTags[index] = tag
             view.text = tag.orEmpty()
             view.visibility = if (tag == null) View.GONE else View.VISIBLE
         }
-        tagsLayout.visibility = if (visibleTags.isEmpty()) View.GONE else View.VISIBLE
+        tagsLayout.visibility = if (tagViews.any { it.visibility == View.VISIBLE }) View.VISIBLE else View.GONE
     }
 
     fun clear() {
         boundTags.fill(null)
-        onTagClick = null
         tagViews.forEach { view ->
             view.text = null
             view.visibility = View.GONE
@@ -89,9 +85,8 @@ internal fun createStreamTagViews(tagsLayout: ConstraintLayout): StreamTagViews 
 internal fun bindStreamTags(
     views: StreamTagViews,
     tags: List<String>,
-    onTagClick: (String) -> Unit,
 ) {
-    views.bind(tags, onTagClick)
+    views.bind(tags)
 }
 
 internal fun clearStreamTags(views: StreamTagViews) {

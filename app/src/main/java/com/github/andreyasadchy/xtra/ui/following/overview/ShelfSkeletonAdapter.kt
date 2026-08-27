@@ -40,7 +40,6 @@ class ShelfSkeletonAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
         holder.bind(loadingType)
     }
 

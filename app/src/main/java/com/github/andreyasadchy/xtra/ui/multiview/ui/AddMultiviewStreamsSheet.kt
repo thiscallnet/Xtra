@@ -73,7 +73,7 @@ class AddMultiviewStreamsSheet : BottomSheetDialogFragment() {
         updateSelectionUi()
 
         viewLifecycleOwner.lifecycleScope.launch {
-            followedStreamsViewModel.flow.collectLatest { adapter.submitData(it) }
+            followedStreamsViewModel.pagingFlow.collectLatest { adapter.submitData(it) }
         }
         viewLifecycleOwner.lifecycleScope.launch {
             adapter.loadStateFlow.collectLatest { states ->

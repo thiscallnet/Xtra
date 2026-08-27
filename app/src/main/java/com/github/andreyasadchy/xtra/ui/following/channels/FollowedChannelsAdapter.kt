@@ -23,8 +23,7 @@ import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import kotlin.time.Instant
+import com.github.andreyasadchy.xtra.ui.common.ChannelCardPresentationCache
 
 class FollowedChannelsAdapter(
     private val fragment: Fragment,
@@ -121,6 +120,12 @@ class FollowedChannelsAdapter(
                 if (item != null) {
                     val context = fragment.requireContext()
                     val uiPreferences = FeedUiPreferencesStore.current(context)
+                    val presentation = ChannelCardPresentationCache.get(item, uiPreferences)
+                    if (presentation == null) {
+                        ChannelCardPresentationCache.request(context, item, uiPreferences) {
+                            if (boundUser === item && binding.root.isAttachedToWindow) applyPresentation(it)
+                        }
+                    }
                     if (item.profileImage != null) {
                         userImage.visibility = View.VISIBLE
                         userImage.contentDescription = item.name?.let {
@@ -158,27 +163,15 @@ class FollowedChannelsAdapter(
                     }
                     if (item.name != null) {
                         username.visibility = View.VISIBLE
-                        username.text = if (item.login != null && !item.login.equals(item.name, true)) {
-                            when (uiPreferences.nameDisplay) {
-                                "0" -> "${item.name}(${item.login})"
-                                "1" -> item.name
-                                else -> item.login
-                            }
-                        } else {
-                            item.name
-                        }
+                        username.text = presentation?.username ?: item.name
                     } else {
                         username.visibility = View.GONE
                     }
                     if (item.lastBroadcast != null) {
-                        val text = item.lastBroadcast?.let {
-                            Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let { time ->
-                                TwitchApiHelper.formatDate(context, time)
-                            }
-                        }
+                        val text = presentation?.lastBroadcast
                         if (text != null) {
                             userStream.visibility = View.VISIBLE
-                            userStream.text = context.getString(R.string.last_broadcast_date, text)
+                            userStream.text = text
                         } else {
                             userStream.visibility = View.GONE
                         }
@@ -186,14 +179,10 @@ class FollowedChannelsAdapter(
                         userStream.visibility = View.GONE
                     }
                     if (item.followedAt != null) {
-                        val text = item.followedAt?.let {
-                            Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let { time ->
-                                TwitchApiHelper.formatDate(context, time)
-                            }
-                        }
+                        val text = presentation?.followedAt
                         if (text != null) {
                             userFollowed.visibility = View.VISIBLE
-                            userFollowed.text = context.getString(R.string.followed_at, text)
+                            userFollowed.text = text
                         } else {
                             userFollowed.visibility = View.GONE
                         }
@@ -210,6 +199,30 @@ class FollowedChannelsAdapter(
                     } else {
                         localText.visibility = View.GONE
                     }
+                }
+            }
+        }
+
+        private fun applyPresentation(presentation: com.github.andreyasadchy.xtra.ui.common.ChannelCardPresentation) {
+            if (boundUser == null) return
+            with(binding) {
+                if (presentation.username != null) {
+                    username.visibility = View.VISIBLE
+                    username.text = presentation.username
+                } else {
+                    username.visibility = View.GONE
+                }
+                if (presentation.lastBroadcast != null) {
+                    userStream.visibility = View.VISIBLE
+                    userStream.text = presentation.lastBroadcast
+                } else {
+                    userStream.visibility = View.GONE
+                }
+                if (presentation.followedAt != null) {
+                    userFollowed.visibility = View.VISIBLE
+                    userFollowed.text = presentation.followedAt
+                } else {
+                    userFollowed.visibility = View.GONE
                 }
             }
         }

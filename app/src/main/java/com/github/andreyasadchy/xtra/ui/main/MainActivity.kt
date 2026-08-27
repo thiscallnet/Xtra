@@ -34,6 +34,7 @@ import androidx.annotation.OptIn
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.appcompat.view.menu.MenuBuilder
 import androidx.appcompat.widget.Toolbar
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -91,6 +92,7 @@ import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.UiInteractionGovernor
+import com.github.andreyasadchy.xtra.util.PerfFrameMetricsDiagnostics
 import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
 import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckScheduler
@@ -163,6 +165,7 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        PerfFrameMetricsDiagnostics.attach(this)
         fragmentLifecycleCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
             override fun onFragmentViewCreated(
                 fragmentManager: FragmentManager,
@@ -830,6 +833,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        PerfFrameMetricsDiagnostics.detach()
         UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
         keepStateNavigator?.onNavigationTransactionCommitted = null
         keepStateNavigator = null
@@ -1405,8 +1409,11 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-            }
+        }
         binding.navBar.apply {
+            val menuBuilder = menu as? MenuBuilder
+            menuBuilder?.stopDispatchingItemsChanged()
+            try {
             if (tabList.any { it.split(':')[2] != "0" }) {
                 tabList.forEach {
                     val split = it.split(':')
@@ -1431,6 +1438,9 @@ class MainActivity : AppCompatActivity() {
                 }
             } else {
                 binding.navBarContainer.visibility = View.GONE
+            }
+            } finally {
+                menuBuilder?.startDispatchingItemsChanged()
             }
             setupWithNavController(navController)
             post {

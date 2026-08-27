@@ -108,7 +108,7 @@ internal fun bindGameTags(
     tags: List<Tag>,
     onTagClick: (Tag) -> Unit,
 ) {
-    views.bind(tags.take(10), onTagClick)
+    views.bind(tags, onTagClick)
 }
 
 internal fun clearGameTags(views: GameTagViews) {

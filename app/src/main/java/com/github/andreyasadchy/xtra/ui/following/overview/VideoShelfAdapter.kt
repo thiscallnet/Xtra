@@ -1,6 +1,5 @@
 package com.github.andreyasadchy.xtra.ui.following.overview
 
-import android.text.format.DateUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -21,6 +20,7 @@ import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
+import com.github.andreyasadchy.xtra.ui.common.VideoHistoryCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 
@@ -43,7 +43,6 @@ class VideoShelfAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
         holder.beginImageBind(getItem(position))
         holder.bind(getItem(position))
     }
@@ -65,6 +64,7 @@ class VideoShelfAdapter(
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
         imageLoadScheduler.attachTo(recyclerView)
+        VideoHistoryCardPresentationCache.prewarm(currentList)
         recyclerView.addOnLayoutChangeListener(layoutChangeListener)
     }
 
@@ -113,13 +113,19 @@ class VideoShelfAdapter(
         fun bind(item: VideoHistory) {
             val context = binding.root.context
             boundItem = item
+            val presentation = VideoHistoryCardPresentationCache.get(item)
+            if (presentation == null) {
+                VideoHistoryCardPresentationCache.request(item) {
+                    if (boundItem === item && binding.root.isAttachedToWindow) applyPresentation(it)
+                }
+            }
             val nextPreviewIdentity = "vod:${item.id}"
             if (boundPreviewIdentity != nextPreviewIdentity) {
                 streamPreviewCoordinator.detachSurface(previewSurface)
                 boundPreviewIdentity = nextPreviewIdentity
             }
             val identity = "vod:${item.id}"
-            val thumbnailUrl = item.thumbnailURL?.let(TwitchApiHelper::getVideoThumbnail)
+            val thumbnailUrl = presentation?.thumbnailUrl ?: item.thumbnailURL?.let(TwitchApiHelper::getVideoThumbnail)
             val thumbnailKey = "xtra:vod-thumbnail:$identity|$thumbnailUrl"
             if (binding.thumbnail.tag != thumbnailKey) {
                 binding.thumbnail.setImageDrawable(null)
@@ -141,12 +147,12 @@ class VideoShelfAdapter(
             binding.category.text = item.gameName.orEmpty()
             binding.channel.visibility = if (binding.channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
             binding.category.visibility = if (binding.category.text.isNullOrBlank()) View.GONE else View.VISIBLE
-            binding.duration.text = item.durationSeconds?.let { DateUtils.formatElapsedTime(it.toLong()) }.orEmpty()
+            binding.duration.text = presentation?.duration.orEmpty()
             binding.duration.visibility = if (binding.duration.text.isNullOrBlank()) View.GONE else View.VISIBLE
             val progress = item.durationSeconds?.takeIf { it > 0 && item.position > 0 }?.let { item.position.toFloat() / (it * 1000L) }
             binding.progress.visibility = if (progress != null) View.VISIBLE else View.GONE
             binding.progress.scaleX = progress?.coerceIn(0f, 1f) ?: 0f
-            val avatarUrl = item.channelImageURL?.let(TwitchApiHelper::getProfileImage)
+            val avatarUrl = presentation?.avatarUrl ?: item.channelImageURL?.let(TwitchApiHelper::getProfileImage)
             binding.avatar.visibility = if (avatarUrl.isNullOrBlank()) View.INVISIBLE else View.VISIBLE
             if (avatarUrl.isNullOrBlank()) {
                 binding.avatar.setImageDrawable(null)
@@ -169,6 +175,12 @@ class VideoShelfAdapter(
                     }.build()))
                 }
             }
+        }
+
+        private fun applyPresentation(presentation: com.github.andreyasadchy.xtra.ui.common.VideoHistoryCardPresentation) {
+            if (boundItem == null) return
+            binding.duration.text = presentation.duration.orEmpty()
+            binding.duration.visibility = if (binding.duration.text.isNullOrBlank()) View.GONE else View.VISIBLE
         }
 
         fun detachPreview() {

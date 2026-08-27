@@ -123,9 +123,15 @@ jobs:
           echo "Repository variable TWITCH_PUBLIC_CLIENT_ID is required for release builds" >&2
           exit 1
         fi
-        ./gradlew --no-daemon :app:assembleRelease \
-          "-PciVersionCode=${{ steps.version.outputs.code }}" \
+        build_args=(
+          "-PciVersionCode=${{ steps.version.outputs.code }}"
           "-PtwitchPublicClientId=${TWITCH_PUBLIC_CLIENT_ID}"
+        )
+        # Release and perf share almost all sources. Build them in separate
+        # Gradle invocations so Kotlin does not compile both variants at the
+        # same time and exhaust the GitHub runner heap.
+        ./gradlew --no-daemon :app:assembleRelease "${build_args[@]}"
+        ./gradlew --no-daemon :app:assemblePerf "${build_args[@]}"
 
     - name: Inspect release APK
       if: always()
@@ -230,7 +236,9 @@ jobs:
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       with:
         name: apk
-        path: app/build/outputs/apk/release/*.apk
+        path: |
+          app/build/outputs/apk/release/*.apk
+          app/build/outputs/apk/perf/*.apk
         if-no-files-found: warn
         retention-days: 1
 

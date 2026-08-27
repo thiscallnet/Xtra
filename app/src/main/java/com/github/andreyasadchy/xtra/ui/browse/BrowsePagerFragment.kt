@@ -158,18 +158,21 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
         hideNestedToolbar(fragment)
         fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let { recyclerView ->
             binding.appBar.setLiftOnScrollTargetView(recyclerView)
-            binding.appBar.isLifted = recyclerView.canScrollVertically(-1)
+            val lifted = recyclerView.canScrollVertically(-1)
+            if (binding.appBar.isLifted != lifted) binding.appBar.isLifted = lifted
             if (configuredRecyclerViews.add(recyclerView)) {
                 recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
                     override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                         if (fragment === currentFragment) {
-                            binding.appBar.isLifted = recyclerView.canScrollVertically(-1)
+                            val lifted = recyclerView.canScrollVertically(-1)
+                            if (binding.appBar.isLifted != lifted) binding.appBar.isLifted = lifted
                         }
                     }
                 })
                 recyclerView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                     if (fragment === currentFragment) {
-                        binding.appBar.isLifted = recyclerView.canScrollVertically(-1)
+                        val lifted = recyclerView.canScrollVertically(-1)
+                        if (binding.appBar.isLifted != lifted) binding.appBar.isLifted = lifted
                     }
                 }
             }

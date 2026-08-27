@@ -204,6 +204,75 @@ internal fun appendCachedPage(
     return activePrefix + staleTail
 }
 
+private fun Stream.withThumbnailGeneration(generation: Long): Stream = Stream(
+    id = id,
+    channelId = channelId,
+    channelLogin = channelLogin,
+    channelName = channelName,
+    channelImageURL = channelImageURL,
+    gameId = gameId,
+    gameSlug = gameSlug,
+    gameName = gameName,
+    title = title,
+    thumbnailURL = thumbnailURL,
+    createdAt = createdAt,
+    viewerCount = viewerCount,
+    tags = tags,
+    thumbnailGeneration = generation,
+)
+
+private fun normalizedStreams(streams: List<Stream>, generation: Long): List<Stream> =
+    streams.distinctBy { it.cacheItemKey() }
+        .mapNotNull { stream ->
+            stream.cacheItemKey()?.let { stream.withThumbnailGeneration(generation) }
+        }
+
+/** Mirrors [refreshCachedItemsPreservingTail] without round-tripping fresh rows through Room. */
+private fun refreshStreamsPreservingTail(
+    existing: List<Stream>,
+    streams: List<Stream>,
+    generation: Long,
+): List<Stream> {
+    val refreshed = normalizedStreams(streams, generation)
+    val refreshedKeys = refreshed.mapNotNull { it.cacheItemKey() }.toSet()
+    val retainedGenerations = existing.asSequence()
+        .map { it.thumbnailGeneration }
+        .distinct()
+        .sortedDescending()
+        .take(StreamFeedFreshnessPolicy.MAX_RETAINED_STALE_GENERATIONS)
+        .toSet()
+    val staleTail = existing
+        .filter { it.thumbnailGeneration in retainedGenerations }
+        .filterNot { it.cacheItemKey() in refreshedKeys }
+        .map { it.withThumbnailGeneration(it.thumbnailGeneration) }
+    return refreshed + staleTail
+}
+
+/** Mirrors [appendCachedPage] while keeping the live in-memory rows as Stream objects. */
+private fun appendStreams(
+    existing: List<Stream>,
+    streams: List<Stream>,
+    generation: Long,
+): List<Stream> {
+    val activeRows = existing.filter { it.thumbnailGeneration == generation }
+    val staleRows = existing.filter { it.thumbnailGeneration != generation }
+    val pageStreams = streams
+        .mapNotNull { stream -> stream.cacheItemKey()?.let { it to stream } }
+        .distinctBy { it.first }
+    val pageByKey = pageStreams.toMap()
+    val activeKeys = activeRows.mapNotNull { it.cacheItemKey() }.toSet()
+    val updatedActive = activeRows.map { old ->
+        pageByKey[old.cacheItemKey()]?.withThumbnailGeneration(generation) ?: old
+    }
+    val newActive = pageStreams
+        .filterNot { (key, _) -> key in activeKeys }
+        .map { (_, stream) -> stream.withThumbnailGeneration(generation) }
+    val activePrefix = updatedActive + newActive
+    val pageKeys = pageStreams.map { it.first }.toSet()
+    val staleTail = staleRows.filterNot { it.cacheItemKey() in pageKeys }
+    return activePrefix + staleTail
+}
+
 /**
  * Room is the durable bootstrap/offline store for stream-feed data. The
  * process-local active snapshot is the live UI source; replacement and page
@@ -214,22 +283,22 @@ class StreamFeedCache(
     private val dao: StreamFeedDao = database.streamFeedDao(),
 ) : StreamFeedCacheStore {
 
-    private val activeSnapshot = ProcessLocalFeedSnapshot<CachedStreamFeedItem>()
+    private val activeSnapshot = ProcessLocalFeedSnapshot<Stream>()
 
     override fun pagingSource(feedKey: StreamFeedKey) = dao.pagingSource(feedKey.value)
 
-    fun activeItemsFlow(feedKey: StreamFeedKey, limit: Int): Flow<List<CachedStreamFeedItem>> {
+    fun activeItemsFlow(feedKey: StreamFeedKey, limit: Int): Flow<List<Stream>> {
         return activeSnapshot.flow(feedKey.value, limit) {
             withContext(Dispatchers.IO) {
-                dao.allActiveItemsFlow(feedKey.value).first()
+                dao.allActiveItemsFlow(feedKey.value).first().map(CachedStreamFeedItem::toStream)
             }
         }
     }
 
-    fun allActiveItemsFlow(feedKey: StreamFeedKey): Flow<List<CachedStreamFeedItem>> {
+    fun allActiveItemsFlow(feedKey: StreamFeedKey): Flow<List<Stream>> {
         return activeSnapshot.flow(feedKey.value, Int.MAX_VALUE) {
             withContext(Dispatchers.IO) {
-                dao.allActiveItemsFlow(feedKey.value).first()
+                dao.allActiveItemsFlow(feedKey.value).first().map(CachedStreamFeedItem::toStream)
             }
         }
     }
@@ -283,7 +352,7 @@ class StreamFeedCache(
         preserveTail: Boolean,
         pruneStaleOnEnd: Boolean,
     ) = withContext(Dispatchers.IO) {
-        var activeItems: List<CachedStreamFeedItem> = emptyList()
+        var activeItems: List<Stream> = emptyList()
         database.runInTransaction {
             val current = dao.state(feedKey.value)
             val generation = (current?.activeGeneration ?: 0L) + 1L
@@ -294,10 +363,11 @@ class StreamFeedCache(
                 // stale tail even when expiry is crossed during the request.
                 dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
             }
+            val existing = if (preserveTail) dao.itemsForFeed(feedKey.value) else emptyList()
             val items = if (preserveTail) {
                 refreshCachedItemsPreservingTail(
                     feedKey = feedKey.value,
-                    existing = dao.itemsForFeed(feedKey.value),
+                    existing = existing,
                     streams = page.items,
                     generation = generation,
                 )
@@ -313,7 +383,16 @@ class StreamFeedCache(
             if (page.nextCursor == null && pruneStaleOnEnd) {
                 dao.deleteItemsExceptGeneration(feedKey.value, generation)
             }
-            activeItems = items.filter { it.generation == generation }
+            val existingStreams = activeSnapshot.current(feedKey.value)
+                ?: existing.map(CachedStreamFeedItem::toStream)
+            activeItems = if (preserveTail) {
+                refreshStreamsPreservingTail(existingStreams, page.items, generation)
+            } else {
+                normalizedStreams(page.items, generation)
+            }
+            if (page.nextCursor == null && pruneStaleOnEnd) {
+                activeItems = activeItems.filter { it.thumbnailGeneration == generation }
+            }
             val retainsStaleTail = preserveTail &&
                     !(page.nextCursor == null && pruneStaleOnEnd) &&
                     items.any { it.generation != generation }
@@ -346,7 +425,7 @@ class StreamFeedCache(
         nowMs: Long,
         pruneStaleOnEnd: Boolean,
     ) = withContext(Dispatchers.IO) {
-        var activeItems: List<CachedStreamFeedItem> = emptyList()
+        var activeItems: List<Stream> = emptyList()
         database.runInTransaction {
             val current = dao.state(feedKey.value) ?: StreamFeedState(feedKey.value)
             val expiredTail = staleTailExpired(current, nowMs)
@@ -361,7 +440,16 @@ class StreamFeedCache(
             if (page.nextCursor == null && pruneStaleOnEnd) {
                 dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
             }
-            activeItems = items.filter { it.generation == current.activeGeneration }
+            val existingStreams = activeSnapshot.current(feedKey.value)
+                ?: existing.map(CachedStreamFeedItem::toStream)
+            activeItems = appendStreams(
+                existing = existingStreams,
+                streams = page.items,
+                generation = current.activeGeneration,
+            )
+            if (page.nextCursor == null && pruneStaleOnEnd) {
+                activeItems = activeItems.filter { it.thumbnailGeneration == current.activeGeneration }
+            }
             val retainsStaleTail =
                 !(page.nextCursor == null && pruneStaleOnEnd) &&
                         items.any { it.generation != current.activeGeneration }

@@ -13,7 +13,6 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.target
-import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentFollowedGamesListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Tag
@@ -25,9 +24,9 @@ import com.github.andreyasadchy.xtra.ui.common.createGameTagViews
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
+import com.github.andreyasadchy.xtra.ui.common.GameCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 
 class FollowedGamesAdapter(
     private val fragment: Fragment,
@@ -117,6 +116,12 @@ class FollowedGamesAdapter(
                 if (item != null) {
                     val context = fragment.requireContext()
                     val uiPreferences = FeedUiPreferencesStore.current(context)
+                    val presentation = GameCardPresentationCache.get(item, uiPreferences)
+                    if (presentation == null) {
+                        GameCardPresentationCache.request(context, item, uiPreferences) {
+                            if (boundGame === item && binding.root.isAttachedToWindow) applyPresentation(it)
+                        }
+                    }
                     if (item.boxArt != null) {
                         gameImage.visibility = View.VISIBLE
                         val gameId = item.id
@@ -154,23 +159,13 @@ class FollowedGamesAdapter(
                     }
                     if (item.viewerCount != null) {
                         viewers.visibility = View.VISIBLE
-                        val count = item.viewerCount ?: 0
-                        viewers.text = context.resources.getQuantityString(
-                            R.plurals.viewers,
-                            count,
-                            TwitchApiHelper.formatCount(count, uiPreferences.truncateViewCount)
-                        )
+                        viewers.text = presentation?.viewerLabel ?: item.viewerCount.toString()
                     } else {
                         viewers.visibility = View.GONE
                     }
                     if (item.broadcasterCount != null && uiPreferences.showBroadcastersCount) {
                         broadcastersCount.visibility = View.VISIBLE
-                        val count = item.broadcasterCount ?: 0
-                        broadcastersCount.text = context.resources.getQuantityString(
-                            R.plurals.broadcasters,
-                            count,
-                            TwitchApiHelper.formatCount(count, uiPreferences.truncateViewCount)
-                        )
+                        broadcastersCount.text = presentation?.broadcasterLabel ?: item.broadcasterCount.toString()
                     } else {
                         broadcastersCount.visibility = View.GONE
                     }
@@ -202,6 +197,35 @@ class FollowedGamesAdapter(
                     broadcastersCount.visibility = View.GONE
                     accountText.visibility = View.GONE
                     localText.visibility = View.GONE
+                    clearGameTags(tagViews)
+                }
+            }
+        }
+
+        private fun applyPresentation(presentation: com.github.andreyasadchy.xtra.ui.common.GameCardPresentation) {
+            if (boundGame == null) return
+            with(binding) {
+                if (presentation.name != null) {
+                    gameName.visibility = View.VISIBLE
+                    gameName.text = presentation.name
+                } else {
+                    gameName.visibility = View.GONE
+                }
+                if (presentation.viewerLabel != null) {
+                    viewers.visibility = View.VISIBLE
+                    viewers.text = presentation.viewerLabel
+                } else {
+                    viewers.visibility = View.GONE
+                }
+                if (presentation.broadcasterLabel != null) {
+                    broadcastersCount.visibility = View.VISIBLE
+                    broadcastersCount.text = presentation.broadcasterLabel
+                } else {
+                    broadcastersCount.visibility = View.GONE
+                }
+                if (presentation.tags.isNotEmpty()) {
+                    bindGameTags(tagViews, presentation.tags, selectTag)
+                } else {
                     clearGameTags(tagViews)
                 }
             }

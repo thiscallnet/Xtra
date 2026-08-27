@@ -18,9 +18,11 @@ import com.github.andreyasadchy.xtra.ui.common.loadStreamThumbnail
 import com.github.andreyasadchy.xtra.ui.common.prepareStreamProfileImage
 import com.github.andreyasadchy.xtra.ui.common.prepareStreamThumbnailImage
 import com.github.andreyasadchy.xtra.ui.common.restoreWarmStreamThumbnail
+import com.github.andreyasadchy.xtra.ui.common.restoreWarmStreamProfileImage
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
+import com.github.andreyasadchy.xtra.ui.common.StreamCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.thumbnailIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
@@ -28,7 +30,6 @@ import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlin.math.abs
 import kotlin.math.max
@@ -257,7 +258,13 @@ class FeaturedStreamShelfAdapter(
         fun bind(stream: Stream) {
             val context = binding.root.context
             val uiPreferences = FeedUiPreferencesStore.current(context)
+            val presentation = StreamCardPresentationCache.get(stream, uiPreferences)
             boundStream = stream
+            if (presentation == null) {
+                StreamCardPresentationCache.request(context, stream, uiPreferences) {
+                    if (boundStream === stream && binding.root.isAttachedToWindow) applyPresentation(it)
+                }
+            }
             val nextPreviewIdentity = stream.streamIdentity()
             if (boundPreviewIdentity != nextPreviewIdentity) {
                 (context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
@@ -269,32 +276,25 @@ class FeaturedStreamShelfAdapter(
                 thumbnail.contentDescription = stream.title?.takeIf { it.isNotBlank() }
                     ?: context.getString(R.string.live)
                 liveBadge.text = context.getString(R.string.live)
-                viewers.text = stream.viewerCount?.let { count ->
-                    context.resources.getQuantityString(
-                        R.plurals.viewers,
-                        count,
-                        TwitchApiHelper.formatCount(
-                            count,
-                            uiPreferences.truncateViewCount,
-                        ),
-                    )
-                }.orEmpty()
+                viewers.text = presentation?.viewerLabel ?: stream.viewerCount?.toString().orEmpty()
                 viewers.visibility = if (viewers.text.isNullOrBlank()) View.GONE else View.VISIBLE
 
-                title.text = stream.title?.trim().orEmpty()
+                title.text = presentation?.title ?: stream.title.orEmpty()
                 title.visibility = if (title.text.isNullOrBlank()) View.GONE else View.VISIBLE
-                channel.text = stream.channelName?.trim().orEmpty()
+                channel.text = presentation?.username ?: stream.channelName.orEmpty()
                 channel.visibility = if (channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
-                category.text = stream.gameName?.trim().orEmpty()
+                category.text = presentation?.gameName ?: stream.gameName.orEmpty()
                 category.visibility = if (category.text.isNullOrBlank()) View.GONE else View.VISIBLE
 
-                val tags = if (uiPreferences.showTags) stream.tags.orEmpty().take(1) else emptyList()
-                tagOne.text = tags.firstOrNull().orEmpty()
-                tagOne.visibility = if (tags.isNotEmpty()) View.VISIBLE else View.GONE
+                val tags = presentation?.tags ?: if (uiPreferences.showTags) stream.tags.orEmpty() else emptyList()
+                val firstTag = tags.firstOrNull()?.trim()?.takeIf(String::isNotEmpty)
+                tagOne.text = firstTag.orEmpty()
+                tagOne.visibility = if (firstTag != null) View.VISIBLE else View.GONE
 
                 if (stream.channelImage != null) {
                     avatar.visibility = View.VISIBLE
                     prepareStreamProfileImage(avatar, stream)
+                    restoreWarmStreamProfileImage(context, avatar, stream)
                     thumbnailLoadScheduler.runOrDefer(this@ViewHolder, avatar) {
                         if (binding.root.isAttachedToWindow && boundImageIdentity == stream.streamIdentity()) {
                             loadStreamProfileImage(context, avatar, stream)?.let {
@@ -307,6 +307,23 @@ class FeaturedStreamShelfAdapter(
                     avatar.setImageDrawable(null)
                     avatar.tag = null
                 }
+            }
+        }
+
+        private fun applyPresentation(presentation: com.github.andreyasadchy.xtra.ui.common.StreamCardPresentation) {
+            if (boundStream == null) return
+            with(binding) {
+                viewers.text = presentation.viewerLabel.orEmpty()
+                viewers.visibility = if (viewers.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                title.text = presentation.title.orEmpty()
+                title.visibility = if (title.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                channel.text = presentation.username.orEmpty()
+                channel.visibility = if (channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                category.text = presentation.gameName.orEmpty()
+                category.visibility = if (category.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                val firstTag = presentation.tags.firstOrNull()?.trim()?.takeIf(String::isNotEmpty)
+                tagOne.text = firstTag.orEmpty()
+                tagOne.visibility = if (firstTag != null) View.VISIBLE else View.GONE
             }
         }
     }

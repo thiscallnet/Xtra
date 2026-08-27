@@ -5,6 +5,8 @@ import android.text.format.DateUtils
 import android.text.format.Formatter
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.recyclerview.widget.AsyncListDiffer
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentClipsListItemBinding
@@ -21,19 +23,22 @@ class ClipsAdapter(
 
     private val dateFormat = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
     private val context = context
-    private var items: List<LocalClip> = emptyList()
+    private val differ = AsyncListDiffer(this, DIFF_CALLBACK)
     private var selectedUri = ""
 
     fun submitList(clips: List<LocalClip>) {
-        items = clips
-        notifyDataSetChanged()
+        differ.submitList(clips.toList())
     }
 
     fun setSelected(clip: LocalClip?) {
         val previous = selectedUri
         selectedUri = clip?.uri?.toString().orEmpty()
-        items.indexOfFirst { it.uri.toString() == previous }.takeIf { it >= 0 }?.let(::notifyItemChanged)
-        items.indexOfFirst { it.uri.toString() == selectedUri }.takeIf { it >= 0 }?.let(::notifyItemChanged)
+        differ.currentList.indexOfFirst { it.uri.toString() == previous }
+            .takeIf { it >= 0 }
+            ?.let(::notifyItemChanged)
+        differ.currentList.indexOfFirst { it.uri.toString() == selectedUri }
+            .takeIf { it >= 0 }
+            ?.let(::notifyItemChanged)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ClipViewHolder = ClipViewHolder(
@@ -41,10 +46,11 @@ class ClipsAdapter(
     )
 
     override fun onBindViewHolder(holder: ClipViewHolder, position: Int) {
-        holder.bind(items[position], items[position].uri.toString() == selectedUri)
+        val clip = differ.currentList[position]
+        holder.bind(clip, clip.uri.toString() == selectedUri)
     }
 
-    override fun getItemCount(): Int = items.size
+    override fun getItemCount(): Int = differ.currentList.size
 
     inner class ClipViewHolder(
         private val binding: FragmentClipsListItemBinding,
@@ -70,6 +76,16 @@ class ClipsAdapter(
             binding.delete.setOnClickListener { onDelete(clip) }
             binding.share.contentDescription = context.getString(R.string.share)
             binding.delete.contentDescription = context.getString(R.string.delete)
+        }
+    }
+
+    private companion object {
+        val DIFF_CALLBACK = object : DiffUtil.ItemCallback<LocalClip>() {
+            override fun areItemsTheSame(oldItem: LocalClip, newItem: LocalClip): Boolean =
+                oldItem.uri == newItem.uri
+
+            override fun areContentsTheSame(oldItem: LocalClip, newItem: LocalClip): Boolean =
+                oldItem == newItem
         }
     }
 }

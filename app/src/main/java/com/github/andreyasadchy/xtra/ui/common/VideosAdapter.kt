@@ -1,7 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.common
 
 import android.content.Intent
-import android.text.format.DateUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -27,10 +26,12 @@ import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
-import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.prefs
-import kotlin.time.Instant
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 class VideosAdapter(
     private val fragment: Fragment,
@@ -51,13 +52,28 @@ class VideosAdapter(
     }) {
 
     private val imageLoadScheduler = StreamThumbnailIdleScheduler()
+    private val presentationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var presentationPrewarmJob: Job? = null
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
         imageLoadScheduler.attachTo(recyclerView)
+        presentationPrewarmJob?.cancel()
+        presentationPrewarmJob = presentationScope.launch {
+            onPagesUpdatedFlow.collectLatest {
+                val context = fragment.context ?: return@collectLatest
+                VideoCardPresentationCache.prewarm(
+                    context = context,
+                    videos = snapshot().items.filterNotNull(),
+                    preferences = FeedUiPreferencesStore.current(context),
+                )
+            }
+        }
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        presentationPrewarmJob?.cancel()
+        presentationPrewarmJob = null
         imageLoadScheduler.detach()
         super.onDetachedFromRecyclerView(recyclerView)
     }
@@ -228,12 +244,16 @@ class VideosAdapter(
                 if (item != null) {
                     val context = fragment.requireContext()
                     val uiPreferences = FeedUiPreferencesStore.current(context)
+                    val presentation = VideoCardPresentationCache.get(item, uiPreferences)
+                    if (presentation == null) {
+                        VideoCardPresentationCache.request(context, item, uiPreferences) {
+                            if (boundVideo === item && binding.root.isAttachedToWindow) applyPresentation(it)
+                        }
+                    }
                     val position = item.id?.toLongOrNull()?.let { id -> positions[id] }
                     bindThumbnail(item, context)
-                    if (item.createdAt != null) {
-                        val text = Instant.parseOrNull(item.createdAt)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let {
-                            TwitchApiHelper.formatDate(context, it)
-                        }
+                    if (presentation?.date != null || item.createdAt != null) {
+                        val text = presentation?.date
                         if (text != null) {
                             date.visibility = View.VISIBLE
                             date.text = text
@@ -243,25 +263,20 @@ class VideosAdapter(
                     } else {
                         date.visibility = View.GONE
                     }
-                    if (item.viewCount != null) {
+                    if (presentation?.viewsLabel != null || item.viewCount != null) {
                         views.visibility = View.VISIBLE
-                        val count = item.viewCount
-                        views.text = context.resources.getQuantityString(
-                            R.plurals.views,
-                            count,
-                            TwitchApiHelper.formatCount(count, uiPreferences.truncateViewCount)
-                        )
+                        views.text = presentation?.viewsLabel ?: item.viewCount?.toString()
                     } else {
                         views.visibility = View.GONE
                     }
-                    if (item.durationSeconds != null) {
+                    if (presentation?.duration != null || item.durationSeconds != null) {
                         duration.visibility = View.VISIBLE
-                        duration.text = DateUtils.formatElapsedTime(item.durationSeconds.toLong())
+                        duration.text = presentation?.duration ?: item.durationSeconds?.toString()
                     } else {
                         duration.visibility = View.GONE
                     }
-                    if (item.type != null) {
-                        val text = TwitchApiHelper.getType(context, item.type)
+                    if (presentation?.type != null || item.type != null) {
+                        val text = presentation?.type
                         if (text != null) {
                             type.visibility = View.VISIBLE
                             type.text = text
@@ -273,7 +288,7 @@ class VideosAdapter(
                     }
                     bindPosition(item, position)
                     if (showChannel) {
-                        if (item.channelImage != null) {
+                        if (presentation?.channelImage != null || item.channelImage != null) {
                             userImage.visibility = View.VISIBLE
                             userImage.contentDescription = item.channelName?.let {
                                 context.getString(R.string.player_open_channel, it)
@@ -283,17 +298,15 @@ class VideosAdapter(
                         userImage.visibility = View.GONE
                         userImage.contentDescription = null
                     }
-                        if (item.channelName != null) {
+                        if (presentation?.username != null || item.channelName != null) {
                             username.visibility = View.VISIBLE
-                            username.text = if (item.channelLogin != null && !item.channelLogin.equals(item.channelName, true)) {
+                            username.text = presentation?.username ?: if (item.channelLogin != null && !item.channelLogin.equals(item.channelName, true)) {
                                 when (uiPreferences.nameDisplay) {
                                     "0" -> "${item.channelName}(${item.channelLogin})"
                                     "1" -> item.channelName
                                     else -> item.channelLogin
                                 }
-                            } else {
-                                item.channelName
-                            }
+                            } else item.channelName
                         } else {
                             username.visibility = View.GONE
                         }
@@ -301,15 +314,67 @@ class VideosAdapter(
                         userImage.visibility = View.GONE
                         username.visibility = View.GONE
                     }
-                    if (!item.title.isNullOrBlank()) {
+                    if (presentation?.title != null || !item.title.isNullOrBlank()) {
                         title.visibility = View.VISIBLE
-                        title.text = item.title.trim()
+                        title.text = presentation?.title ?: item.title
                     } else {
                         title.visibility = View.GONE
                     }
-                    if (showGame && item.gameName != null) {
+                    if (showGame && (presentation?.gameName != null || item.gameName != null)) {
                         gameName.visibility = View.VISIBLE
-                        gameName.text = item.gameName
+                        gameName.text = presentation?.gameName ?: item.gameName
+                    } else {
+                        gameName.visibility = View.GONE
+                    }
+                }
+            }
+        }
+
+        private fun applyPresentation(presentation: VideoCardPresentation) {
+            if (boundVideo == null) return
+            with(binding) {
+                if (presentation.date != null) {
+                    date.visibility = View.VISIBLE
+                    date.text = presentation.date
+                } else {
+                    date.visibility = View.GONE
+                }
+                if (presentation.viewsLabel != null) {
+                    views.visibility = View.VISIBLE
+                    views.text = presentation.viewsLabel
+                } else {
+                    views.visibility = View.GONE
+                }
+                if (presentation.duration != null) {
+                    duration.visibility = View.VISIBLE
+                    duration.text = presentation.duration
+                } else {
+                    duration.visibility = View.GONE
+                }
+                if (presentation.type != null) {
+                    type.visibility = View.VISIBLE
+                    type.text = presentation.type
+                } else {
+                    type.visibility = View.GONE
+                }
+                if (showChannel) {
+                    if (presentation.username != null) {
+                        username.visibility = View.VISIBLE
+                        username.text = presentation.username
+                    } else {
+                        username.visibility = View.GONE
+                    }
+                }
+                if (presentation.title != null) {
+                    title.visibility = View.VISIBLE
+                    title.text = presentation.title
+                } else {
+                    title.visibility = View.GONE
+                }
+                if (showGame) {
+                    if (presentation.gameName != null) {
+                        gameName.visibility = View.VISIBLE
+                        gameName.text = presentation.gameName
                     } else {
                         gameName.visibility = View.GONE
                     }

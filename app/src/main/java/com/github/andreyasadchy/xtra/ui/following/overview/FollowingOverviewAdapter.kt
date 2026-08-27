@@ -14,6 +14,8 @@ import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
+import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
+import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 
 data class FollowingOverviewSection(
     val key: String,
@@ -140,7 +142,7 @@ class FollowingOverviewAdapter(
                 section.scheduledStreams.isNotEmpty() -> ShelfType.UPCOMING
                 else -> ShelfType.STREAM
             }
-            if (nextShelfType !in setOf(ShelfType.STREAM, ShelfType.FEATURED) || section.streams.isEmpty()) {
+            if ((nextShelfType != ShelfType.STREAM && nextShelfType != ShelfType.FEATURED) || section.streams.isEmpty()) {
                 detachStreamShelf()
             }
             if (nextShelfType != ShelfType.VIDEO || section.videos.isEmpty()) {
@@ -187,7 +189,7 @@ class FollowingOverviewAdapter(
             binding.heroNext.visibility = if (section.isFeatured && section.streams.size > 1) android.view.View.VISIBLE else android.view.View.GONE
             when (nextShelfType) {
                 ShelfType.VIDEO -> {
-                    if (submittedVideos != section.videos) {
+                    if (submittedVideos == null || submittedVideos != section.videos) {
                         videoShelfAdapter.submitList(section.videos)
                         submittedVideos = section.videos
                     }
@@ -201,21 +203,21 @@ class FollowingOverviewAdapter(
                     }
                 }
                 ShelfType.UPCOMING -> {
-                    if (submittedScheduledStreams != section.scheduledStreams) {
+                    if (submittedScheduledStreams == null || submittedScheduledStreams != section.scheduledStreams) {
                         upcomingShelfAdapter.submitList(section.scheduledStreams)
                         submittedScheduledStreams = section.scheduledStreams
                     }
                     restoreShelfState(section.key)
                 }
                 ShelfType.GAME -> {
-                    if (submittedGames != section.games) {
+                    if (submittedGames == null || !gameListsSame(submittedGames!!, section.games)) {
                         gameShelfAdapter.submitList(section.games)
                         submittedGames = section.games
                     }
                     restoreShelfState(section.key)
                 }
                 ShelfType.FEATURED -> {
-                    if (submittedStreams != section.streams) {
+                    if (submittedStreams == null || !streamListsSame(submittedStreams!!, section.streams)) {
                         featuredShelfAdapter.submitList(section.streams)
                         submittedStreams = section.streams
                     }
@@ -233,7 +235,7 @@ class FollowingOverviewAdapter(
                 }
                 ShelfType.SKELETON -> skeletonShelfAdapter.setLoadingType(section.loadingType)
                 ShelfType.STREAM -> {
-                    if (submittedStreams != section.streams) {
+                    if (submittedStreams == null || !streamListsSame(submittedStreams!!, section.streams)) {
                         shelfAdapter.submitList(section.streams)
                         submittedStreams = section.streams
                     }
@@ -305,7 +307,79 @@ class FollowingOverviewAdapter(
                 oldItem.key == newItem.key
 
             override fun areContentsTheSame(oldItem: FollowingOverviewSection, newItem: FollowingOverviewSection): Boolean =
-                oldItem == newItem
+                followingOverviewSectionContentsSame(oldItem, newItem)
         }
+    }
+}
+
+internal fun followingOverviewSectionsSame(
+    old: List<FollowingOverviewSection>,
+    new: List<FollowingOverviewSection>,
+): Boolean {
+    return old.size == new.size && old.indices.all { index ->
+        old[index].key == new[index].key &&
+            followingOverviewSectionContentsSame(old[index], new[index])
+    }
+}
+
+internal fun followingOverviewSectionContentsSame(
+    old: FollowingOverviewSection,
+    new: FollowingOverviewSection,
+): Boolean {
+    if (old.titleRes != new.titleRes ||
+        old.emptyRes != new.emptyRes ||
+        old.title != new.title ||
+        old.isLoading != new.isLoading ||
+        old.hasResolved != new.hasResolved ||
+        old.loadingType != new.loadingType ||
+        old.showSeeAll != new.showSeeAll ||
+        old.isFeatured != new.isFeatured
+    ) return false
+
+    return streamListsSame(old.streams, new.streams) &&
+        gameListsSame(old.games, new.games) &&
+        old.videos == new.videos &&
+        old.scheduledStreams == new.scheduledStreams
+}
+
+private fun streamListsSame(old: List<Stream>, new: List<Stream>): Boolean {
+    if (old === new) return true
+    return old.size == new.size && old.indices.all { index ->
+        val oldStream = old[index]
+        val newStream = new[index]
+        oldStream.streamIdentity() == newStream.streamIdentity() &&
+            streamContentsSame(oldStream, newStream)
+    }
+}
+
+private fun gameListsSame(old: List<Game>, new: List<Game>): Boolean {
+    if (old === new) return true
+    return old.size == new.size && old.indices.all { index ->
+        val oldGame = old[index]
+        val newGame = new[index]
+        oldGame.id == newGame.id &&
+            oldGame.slug == newGame.slug &&
+            oldGame.name == newGame.name &&
+            oldGame.boxArtURL == newGame.boxArtURL &&
+            oldGame.viewerCount == newGame.viewerCount &&
+            oldGame.broadcasterCount == newGame.broadcasterCount &&
+            oldGame.followerCount == newGame.followerCount &&
+            oldGame.vodPosition == newGame.vodPosition &&
+            oldGame.vodDuration == newGame.vodDuration &&
+            oldGame.accountFollow == newGame.accountFollow &&
+            oldGame.localFollow == newGame.localFollow &&
+            tagListsSame(oldGame.tags, newGame.tags)
+    }
+}
+
+private fun tagListsSame(
+    old: List<com.github.andreyasadchy.xtra.model.ui.Tag>?,
+    new: List<com.github.andreyasadchy.xtra.model.ui.Tag>?,
+): Boolean {
+    if (old === new) return true
+    val oldTags = old.orEmpty()
+    val newTags = new.orEmpty()
+    return oldTags.size == newTags.size && oldTags.indices.all { index ->
+        oldTags[index].id == newTags[index].id && oldTags[index].name == newTags[index].name
     }
 }

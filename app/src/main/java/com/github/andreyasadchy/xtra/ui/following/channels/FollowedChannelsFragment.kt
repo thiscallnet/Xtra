@@ -81,7 +81,7 @@ class FollowedChannelsFragment : PagedListFragment(), Scrollable, Sortable, Foll
                     )
                 )
             }
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 viewModel.flow.collectLatest { pagingData ->
                     pagingAdapter.submitData(pagingData)
                 }
@@ -99,7 +99,7 @@ class FollowedChannelsFragment : PagedListFragment(), Scrollable, Sortable, Foll
             ).show(childFragmentManager, null)
         }
         viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 viewModel.sortText.collectLatest {
                     sortBar.sortText.text = it
                 }

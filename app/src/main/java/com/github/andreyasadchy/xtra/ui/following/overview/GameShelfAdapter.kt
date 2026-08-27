@@ -10,15 +10,14 @@ import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.target
-import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ItemGameShelfBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
+import com.github.andreyasadchy.xtra.ui.common.GameCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 
 class GameShelfAdapter(
     private val onGameClick: (Game) -> Unit,
@@ -39,7 +38,6 @@ class GameShelfAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        (holder.itemView.parent as? RecyclerView)?.let { ShelfCardSizing.apply(holder.itemView, it) }
         holder.beginImageBind(getItem(position))
         holder.bind(getItem(position))
     }
@@ -109,20 +107,17 @@ class GameShelfAdapter(
         fun bind(game: Game) {
             val context = binding.root.context
             boundGame = game
-            binding.gameName.text = game.name.orEmpty()
-            binding.gameName.visibility = if (game.name.isNullOrBlank()) View.GONE else View.VISIBLE
             val uiPreferences = FeedUiPreferencesStore.current(context)
+            val presentation = GameCardPresentationCache.get(game, uiPreferences)
+            if (presentation == null) {
+                GameCardPresentationCache.request(context, game, uiPreferences) {
+                    if (boundGame === game && binding.root.isAttachedToWindow) applyPresentation(it)
+                }
+            }
+            binding.gameName.text = presentation?.name ?: game.name.orEmpty()
+            binding.gameName.visibility = if (game.name.isNullOrBlank()) View.GONE else View.VISIBLE
             val viewerCount = game.viewerCount
-            binding.viewers.text = viewerCount?.let {
-                context.resources.getQuantityString(
-                    R.plurals.viewers,
-                    it,
-                    TwitchApiHelper.formatCount(
-                        it,
-                        uiPreferences.truncateViewCount,
-                    ),
-                )
-            }.orEmpty()
+            binding.viewers.text = presentation?.viewerLabel ?: viewerCount?.toString().orEmpty()
             binding.viewers.visibility = if (binding.viewers.text.isNullOrBlank()) View.GONE else View.VISIBLE
             val imageUrl = game.boxArt
             binding.gameImage.contentDescription = game.name
@@ -153,6 +148,14 @@ class GameShelfAdapter(
                     )
                 }
             }
+        }
+
+        private fun applyPresentation(presentation: com.github.andreyasadchy.xtra.ui.common.GameCardPresentation) {
+            if (boundGame == null) return
+            binding.gameName.text = presentation.name.orEmpty()
+            binding.gameName.visibility = if (binding.gameName.text.isNullOrBlank()) View.GONE else View.VISIBLE
+            binding.viewers.text = presentation.viewerLabel.orEmpty()
+            binding.viewers.visibility = if (binding.viewers.text.isNullOrBlank()) View.GONE else View.VISIBLE
         }
     }
 

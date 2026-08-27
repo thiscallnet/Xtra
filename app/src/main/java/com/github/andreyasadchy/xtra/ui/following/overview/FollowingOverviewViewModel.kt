@@ -28,7 +28,6 @@ import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoor
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpec
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpecs
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedKey
-import com.github.andreyasadchy.xtra.repository.streamfeed.toStream
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -81,7 +80,7 @@ class FollowingOverviewViewModel(
         streamFeedCache.activeItemsFlow(
             feedKey = StreamFeedKey.followed(userId, sort),
             limit = LIVE_SHELF_LIMIT,
-        ).map { items -> items.map { it.toStream() } }
+        )
     }
 
     private val allLiveChannelIds: Flow<Set<String>> = combine(accountId, streamSort) { userId, sort -> userId to sort }.flatMapLatest { (userId, sort) ->
