@@ -16,7 +16,9 @@
         android:keepScreenOn="true"
         android:visibility="visible"
         app:resize_mode="fit"
+        app:keep_content_on_player_reset="false"
         app:show_buffering="never"
+        app:surface_type="texture_view"
         app:use_controller="false" />
 
     <View

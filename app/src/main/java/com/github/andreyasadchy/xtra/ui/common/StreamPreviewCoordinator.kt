@@ -93,6 +93,7 @@ class StreamPreviewCoordinator(
     private val activePreviews = linkedMapOf<String, ActivePreview>()
     private var sharedPreviewPlayer: ExoPlayer? = null
     private var sharedPreviewView: PlayerView? = null
+    private val previewTargetGenerations = PreviewTargetGeneration<FrameLayout>()
     private val previewLifecycle = StreamPreviewLifecycle()
     private val pendingStarts = mutableMapOf<String, Job>()
     private val dwellStarts = mutableMapOf<String, Long>()
@@ -172,7 +173,11 @@ class StreamPreviewCoordinator(
     }
 
     fun detachViewport(viewportKey: String) {
-        viewports.remove(viewportKey)
+        val viewport = viewports.remove(viewportKey)
+        viewport?.candidates
+            ?.map { it.surface }
+            ?.distinct()
+            ?.forEach(::detachSurface)
         scheduleSelection()
     }
 
@@ -236,8 +241,8 @@ class StreamPreviewCoordinator(
         // reconciliation while the full-screen player is being added, producing a small stale
         // video over the new player's opaque handoff cover. Releasing every preview also avoids
         // decoding and composing muted browsing video while the user is watching the stream.
-        hideViewportSurfaces()
         stopPreview()
+        hideViewportSurfaces()
     }
 
     fun onFullscreenPlaybackFirstFrame(channelLogin: String?) {
@@ -264,6 +269,13 @@ class StreamPreviewCoordinator(
 
     /** Unbinds only the view. The player remains reusable during the offscreen grace period. */
     fun detachSurface(surface: FrameLayout) {
+        previewTargetGenerations.invalidate(surface)
+        viewports.entries.forEach { (key, viewport) ->
+            val remainingCandidates = viewport.candidates.filterNot { it.surface === surface }
+            if (remainingCandidates.size != viewport.candidates.size) {
+                viewports[key] = viewport.copy(candidates = remainingCandidates)
+            }
+        }
         val active = activePreviews.values.firstOrNull { it.surface === surface }
         active?.let {
             detachPreviewSurface(it)
@@ -454,6 +466,8 @@ class StreamPreviewCoordinator(
         ) return
 
         val candidate = bestCandidatesByIdentity(currentCandidates())[identity] ?: return
+        val target = candidate.surface
+        val targetGeneration = previewTargetGenerations.capture(target)
         if (candidate.visibleFraction < StreamPreviewSelectionPolicy.START_VISIBLE_FRACTION) return
         if (isScrolling(candidate)) {
             dwellStarts.remove(identity)
@@ -464,7 +478,9 @@ class StreamPreviewCoordinator(
         } else {
             urlCoordinator.resolveVodForPreview(candidate.videoId)
         } ?: return
+        if (!previewTargetGenerations.isCurrent(target, targetGeneration)) return
         val latestCandidate = bestCandidatesByIdentity(currentCandidates())[identity] ?: return
+        if (latestCandidate.surface !== target) return
         if (latestCandidate.visibleFraction < StreamPreviewSelectionPolicy.START_VISIBLE_FRACTION) return
         if (isScrolling(latestCandidate)) {
             dwellStarts.remove(identity)
@@ -572,6 +588,7 @@ class StreamPreviewCoordinator(
         if (activePreviews[active.identity]?.player !== active.player) return
         active.firstFrameRendered = true
         revealPreviewSurface(active.playerView, active.surface)
+        logVideoSurfaceBinding("preview_first_frame", active.player, active.playerView, active.playerView.player)
         if (BuildConfig.DEBUG) Log.d("StreamPreview", "first_frame identity=${active.identity}")
     }
 
@@ -608,7 +625,7 @@ class StreamPreviewCoordinator(
         if (active.playerView.parent !== candidate.surface) {
             candidate.surface.addView(active.playerView)
         }
-        active.playerView.player = active.player
+        attachPreviewPlayer(active)
         active.playerView.alpha = if (active.firstFrameRendered) 1f else 0f
         active.playerView.visibility = View.VISIBLE
         candidate.surface.alpha = 1f
@@ -721,40 +738,54 @@ class StreamPreviewCoordinator(
     }
 
     private fun releaseSharedPreviewPlayer() {
+        sharedPreviewView?.let { view ->
+            if (view.player != null) {
+                logVideoSurfaceBinding("preview_detach", sharedPreviewPlayer, view, view.player)
+                view.player = null
+            }
+            (view.parent as? ViewGroup)?.removeView(view)
+        }
         sharedPreviewPlayer?.let { player ->
             runCatching { player.removeListener(sharedPreviewPlayerListener) }
             runCatching { player.stop() }
             runCatching { player.release() }
-        }
-        sharedPreviewView?.let { view ->
-            (view.parent as? ViewGroup)?.removeView(view)
-            view.player = null
         }
         sharedPreviewView = null
         sharedPreviewPlayer = null
     }
 
     private fun detachPreviewSurface(active: ActivePreview) {
+        if (active.playerView.player != null) {
+            logVideoSurfaceBinding("preview_detach", active.player, active.playerView, active.playerView.player)
+            active.playerView.player = null
+        }
         active.surface?.let { surface ->
             surface.removeView(active.playerView)
             surface.alpha = 0f
             surface.visibility = View.GONE
         }
-        active.playerView.player = null
         active.playerView.alpha = 0f
         active.playerView.visibility = View.GONE
         active.surface = null
     }
 
     private fun suspendPreviewSurface(active: ActivePreview) {
-        active.surface?.let { surface ->
-            surface.removeView(active.playerView)
-            surface.alpha = 0f
-            surface.visibility = View.GONE
+        detachPreviewSurface(active)
+    }
+
+    private fun attachPreviewPlayer(active: ActivePreview) {
+        if (active.playerView.player !== active.player) {
+            logVideoSurfaceBinding("preview_attach", active.player, active.playerView, active.playerView.player)
+            active.playerView.player = active.player
         }
-        active.playerView.player = null
-        active.playerView.alpha = 0f
-        active.playerView.visibility = View.GONE
+        if (BuildConfig.DEBUG) {
+            val attachedTargets = activePreviews.values.count {
+                it.player === active.player && it.playerView.player === active.player
+            }
+            check(attachedTargets <= 1) {
+                "Player ${active.player.identityId()} is attached to $attachedTargets preview PlayerViews"
+            }
+        }
     }
 
     private fun normalize(login: String?): String? =
