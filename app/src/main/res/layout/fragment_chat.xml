@@ -188,6 +188,19 @@
             app:layout_constraintBottom_toTopOf="@id/emoteMenu"
             tools:visibility="visible">
 
+            <ImageButton
+                android:id="@+id/chatIdentity"
+                android:layout_width="48dp"
+                android:layout_height="match_parent"
+                android:background="?android:selectableItemBackgroundBorderless"
+                android:contentDescription="@string/chat_identity"
+                android:minWidth="48dp"
+                android:minHeight="48dp"
+                android:padding="12dp"
+                android:src="@drawable/ic_chat_identity"
+                android:visibility="gone"
+                app:tint="?attr/colorControlNormal" />
+
             <MultiAutoCompleteTextView
                 android:id="@+id/editText"
                 android:layout_width="0dp"

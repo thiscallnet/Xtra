@@ -45,6 +45,8 @@ import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentChatBinding
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
+import com.github.andreyasadchy.xtra.model.chat.ChatIdentityState
+import com.github.andreyasadchy.xtra.model.chat.effectiveBadge
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.Poll
 import com.github.andreyasadchy.xtra.model.chat.PollVoteState
@@ -116,12 +118,16 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var channelPointsIconLoaded = false
     private var channelPointsIconForeground: Int? = null
     private var channelPointsAccessibilityLabel: String? = null
+    private var chatIdentityPopup: ChatIdentityPopup? = null
+    private var chatIdentityBadgeRequest: Disposable? = null
+    private var chatIdentityBadgeUrl: String? = null
     private var composerOverlayState: ComposerOverlayState? = null
     private var pendingComposerText: String? = null
     private var composerSubmissionInProgress = false
     private var composerTextBeforeOverlay: String? = null
     private var composerSelectionBeforeOverlay: Int? = null
     private var messageViewWasVisibleBeforeOverlay: Boolean? = null
+    private var backPressedCallbackAdded = false
     private var lastSlowModeUiState = SlowModeState()
     private var chatScrollPosted = false
     private var chatAdapterUpdatePosted = false
@@ -186,6 +192,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
+            if (dismissChatIdentityPopup()) return
             toggleEmoteMenu(false)
         }
     }
@@ -473,6 +480,27 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         }
                     }
                     if (enableMessaging) {
+                        val identityGqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true)
+                        val chatIdentityEnabled = !channelId.isNullOrBlank() &&
+                                !channelLogin.isNullOrBlank() &&
+                                !identityGqlHeaders[C.HEADER_TOKEN].isNullOrBlank()
+                        chatIdentity.isVisible = chatIdentityEnabled
+                        chatIdentity.isEnabled = chatIdentityEnabled
+                        if (chatIdentityEnabled) {
+                            viewLifecycleOwner.lifecycleScope.launch {
+                                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                                    launch {
+                                        viewModel.chatIdentityState.collectLatest(::updateChatIdentityTrigger)
+                                    }
+                                    launch {
+                                        viewModel.chatIdentityError.collectLatest { message ->
+                                            Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                            }
+                            chatIdentity.setOnClickListener { toggleChatIdentityPopup() }
+                        }
                         viewLifecycleOwner.lifecycleScope.launch {
                             repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 viewModel.channelPoints.collectLatest { points ->
@@ -1010,6 +1038,82 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     fun emoteMenuIsVisible() = _binding?.emoteMenu?.isVisible == true
 
+    private fun toggleChatIdentityPopup() {
+        if (chatIdentityPopup?.isShowing == true) {
+            chatIdentityPopup?.dismiss()
+            return
+        }
+        val args = requireArguments()
+        val channelId = args.getString(KEY_CHANNEL_ID) ?: return
+        val channelLogin = args.getString(KEY_CHANNEL_LOGIN) ?: return
+        val channelName = args.getString(KEY_CHANNEL_NAME)?.takeIf { it.isNotBlank() } ?: channelLogin
+        toggleEmoteMenu(false)
+        chatIdentityPopup = ChatIdentityPopup(
+            context = requireContext(),
+            rootView = binding.root,
+            anchor = binding.chatIdentity,
+            lifecycleOwner = viewLifecycleOwner,
+            viewModel = viewModel,
+            channelDisplayName = channelName,
+            channelId = channelId,
+            channelLogin = channelLogin,
+            onDismissed = {
+                chatIdentityPopup = null
+                refreshBackPressedCallback()
+            },
+        ).also { it.show() }
+        refreshBackPressedCallback()
+    }
+
+    private fun dismissChatIdentityPopup(): Boolean {
+        val popup = chatIdentityPopup ?: return false
+        if (!popup.isShowing) return false
+        popup.dismiss()
+        return true
+    }
+
+    private fun updateChatIdentityTrigger(state: ChatIdentityState) {
+        val icon = _binding?.chatIdentity ?: return
+        val badge = state.effectiveBadge()
+        if (badge?.imageUrl.isNullOrBlank()) {
+            chatIdentityBadgeRequest?.dispose()
+            chatIdentityBadgeRequest = null
+            chatIdentityBadgeUrl = null
+            icon.setImageResource(R.drawable.ic_chat_identity)
+            icon.imageTintList = ColorStateList.valueOf(
+                com.google.android.material.color.MaterialColors.getColor(
+                    icon,
+                    androidx.appcompat.R.attr.colorControlNormal,
+                ),
+            )
+            return
+        }
+        val url = badge.imageUrl
+        if (chatIdentityBadgeUrl == url) return
+        chatIdentityBadgeRequest?.dispose()
+        chatIdentityBadgeUrl = url
+        icon.imageTintList = null
+        chatIdentityBadgeRequest = requireContext().imageLoader.enqueue(
+            ImageRequest.Builder(requireContext())
+                .data(url)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .crossfade(false)
+                .target(icon)
+                .build(),
+        )
+    }
+
+    private fun refreshBackPressedCallback() {
+        val enabled = _binding?.emoteMenu?.isVisible == true || chatIdentityPopup?.isShowing == true
+        if (enabled && !backPressedCallbackAdded) {
+            requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backPressedCallback)
+            backPressedCallbackAdded = true
+        } else if (!enabled && backPressedCallbackAdded) {
+            backPressedCallback.remove()
+            backPressedCallbackAdded = false
+        }
+    }
+
     fun toggleEmoteMenu(enable: Boolean) {
         if (enable) {
             binding.emoteMenu.visibility = View.VISIBLE
@@ -1017,14 +1121,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         } else {
             binding.emoteMenu.visibility = View.GONE
         }
-        toggleBackPressedCallback(enable)
+        refreshBackPressedCallback()
     }
 
     fun toggleBackPressedCallback(enable: Boolean) {
-        if (enable) {
-            requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backPressedCallback)
-        } else {
+        if (!enable && chatIdentityPopup?.isShowing != true) {
             backPressedCallback.remove()
+            backPressedCallbackAdded = false
+        } else {
+            refreshBackPressedCallback()
         }
     }
 
@@ -1705,6 +1810,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onStop() {
+        chatIdentityPopup?.dismiss()
         super.onStop()
         if (!requireArguments().getBoolean(KEY_IS_LIVE) || !requireContext().prefs().getBoolean(C.PLAYER_KEEP_CHAT_OPEN, false)) {
             viewModel.stopLiveChat()
@@ -1718,6 +1824,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onDestroyView() {
+        chatIdentityPopup?.dismiss()
+        chatIdentityPopup = null
+        chatIdentityBadgeRequest?.dispose()
+        chatIdentityBadgeRequest = null
+        chatIdentityBadgeUrl = null
+        backPressedCallback.remove()
+        backPressedCallbackAdded = false
         _binding?.recyclerView?.removeCallbacks(chatScrollRunnable)
         _binding?.recyclerView?.removeCallbacks(chatAdapterUpdateRunnable)
         chatScrollPosted = false

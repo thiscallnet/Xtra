@@ -1478,6 +1478,39 @@
     <string name="message_failed_tap_to_retry">Message failed. Tap to retry.</string>
     <string name="message_send_debug">Debug: %s</string>
     <string name="message_unavailable">Message unavailable</string>
+    <string name="chat_identity" translatable="false">Chat Identity</string>
+    <string name="chat_identity_close" translatable="false">Close Chat Identity</string>
+    <string name="chat_identity_preview" translatable="false">Identity Preview</string>
+    <string name="chat_identity_preview_description" translatable="false">How your name will appear in chat on %1$s\'s channel:</string>
+    <string name="chat_identity_active_campaigns" translatable="false">Active Campaigns</string>
+    <string name="chat_identity_global_badge" translatable="false">Global Badge</string>
+    <string name="chat_identity_global_badge_description" translatable="false">This badge appears across channels and whispers.</string>
+    <string name="chat_identity_none_badge" translatable="false">None</string>
+    <string name="chat_identity_badge_selection_unavailable" translatable="false">No owned global badges are available.</string>
+    <string name="chat_identity_channel_badges" translatable="false">Channel Badges</string>
+    <string name="chat_identity_channel_description" translatable="false">These badges appear on %1$s\'s channel.</string>
+    <string name="chat_identity_subscriber_badge" translatable="false">Subscriber Badge</string>
+    <string name="chat_identity_not_subscribed" translatable="false">You are not subscribed to this channel.</string>
+    <string name="chat_identity_custom_badge_switch" translatable="false">Use Custom Badge for This Channel</string>
+    <string name="chat_identity_custom_badge_description" translatable="false">Use a badge that is different from your default global badge for %1$s\'s channel.</string>
+    <string name="chat_identity_channel_badge_unavailable" translatable="false">No channel-specific badges are available for this channel.</string>
+    <string name="chat_identity_global_name_color" translatable="false">Global Name Color</string>
+    <string name="chat_identity_global_name_color_description" translatable="false">Pick a color, any color! It may take several minutes for your color to update in the chat room.</string>
+    <string name="chat_identity_more_colors" translatable="false">More colors</string>
+    <string name="chat_identity_custom_color_unavailable" translatable="false">Custom colors are unavailable for this account.</string>
+    <string name="chat_identity_custom_color_title" translatable="false">Custom name color</string>
+    <string name="chat_identity_custom_color_hint" translatable="false">#RRGGBB</string>
+    <string name="chat_identity_invalid_color" translatable="false">Enter a color in #RRGGBB format.</string>
+    <string name="chat_identity_load_failed" translatable="false">Could not load Chat Identity</string>
+    <string name="chat_identity_update_failed" translatable="false">Could not update Chat Identity</string>
+    <string name="chat_identity_campaign_expand" translatable="false">Expand campaign</string>
+    <string name="chat_identity_campaign_collapse" translatable="false">Collapse campaign</string>
+    <string name="chat_identity_campaign_chevron_collapsed" translatable="false">&#9662;</string>
+    <string name="chat_identity_campaign_chevron_expanded" translatable="false">&#9652;</string>
+    <string name="chat_identity_campaign_progress" translatable="false">%1$d/%2$d</string>
+    <string name="chat_identity_badge_selected" translatable="false">%1$s, selected</string>
+    <string name="chat_identity_badge_title_hex" translatable="false">%1$s (%2$s)</string>
+    <string name="chat_identity_subscriber_badge_unavailable" translatable="false">No subscriber badge is currently available.</string>
     <string name="session_needs_refresh">Your Twitch session needs to be refreshed.</string>
     <string name="mark_notification_as_seen">Mark notification as seen</string>
     <string name="mark_all_as_seen">Mark all as seen</string>
