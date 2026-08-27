@@ -88,6 +88,7 @@ import com.google.android.material.timepicker.TimeFormat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
@@ -127,7 +128,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     private var controllerHideOnTouch = true
     private var isInteractionLocked = false
     private var interactionLockBackCallback: OnBackPressedCallback? = null
-    private val controllerHideAction = Runnable { if (view != null && !isInteractionLocked) hideController() }
+    private val controllerHideAction = Runnable { if (view != null) hideController() }
     private var controllerIsAnimating = false
     private var controllerAnimation: ViewPropertyAnimator? = null
     private var backgroundColor: Int? = null
@@ -255,6 +256,9 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             val moveFreely = requireContext().prefs().getBoolean(C.PLAYER_MOVE_FREELY, false)
             val doubleTap = requireContext().prefs().getBoolean(C.PLAYER_DOUBLE_TAP, true) && requireContext().prefs().isChatEnabled()
             var controlTouchActive = false
+            var lockedTouchActive = false
+            var lockedTouchX = 0f
+            var lockedTouchY = 0f
             val controllerTapDetector = GestureDetector(
                 requireContext(),
                 object : GestureDetector.SimpleOnGestureListener() {
@@ -464,6 +468,33 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
 
             dragView.setOnTouchListener { _, event ->
                 if (!isAnimating) {
+                    if (isInteractionLocked && !playerControls.root.isVisible) {
+                        when (event.actionMasked) {
+                            MotionEvent.ACTION_DOWN -> {
+                                lockedTouchActive = true
+                                lockedTouchX = event.x
+                                lockedTouchY = event.y
+                            }
+                            MotionEvent.ACTION_MOVE -> {
+                                if (abs(event.x - lockedTouchX) > touchSlop ||
+                                    abs(event.y - lockedTouchY) > touchSlop
+                                ) {
+                                    lockedTouchActive = false
+                                }
+                            }
+                            MotionEvent.ACTION_POINTER_DOWN -> lockedTouchActive = false
+                            MotionEvent.ACTION_UP -> {
+                                if (lockedTouchActive) {
+                                    showController()
+                                    updateProgress()
+                                }
+                                lockedTouchActive = false
+                            }
+                            MotionEvent.ACTION_CANCEL -> lockedTouchActive = false
+                        }
+                        return@setOnTouchListener true
+                    }
+
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             activePointerId = event.getPointerId(0)
@@ -654,7 +685,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                             if (!canceled) {
                                 seek(position)
                             } else {
-                                if (controllerAutoHide && controllerHideOnTouch && !isInteractionLocked) {
+                                if (controllerAutoHide && controllerHideOnTouch) {
                                     binding.playerControls.root.postDelayed(controllerHideAction, 3000)
                                 }
                             }
@@ -1798,7 +1829,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     fun changePlayerMode() {
         with(binding) {
             if (canEnterPictureInPicture()) {
-                if (!isInteractionLocked && !controllerHideOnTouch && !controllerIsAnimating && controllerAutoHide && !binding.playerControls.progressBar.isPressed) {
+                if (!controllerHideOnTouch && !controllerIsAnimating && controllerAutoHide && !binding.playerControls.progressBar.isPressed) {
                     playerControls.root.postDelayed(controllerHideAction, 3000)
                 }
                 controllerHideOnTouch = true
@@ -1897,7 +1928,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                     .hideSoftInputFromWindow(chatLayout.windowToken, 0)
                 chatLayout.clearFocus()
                 showController(force = true)
-                playerControls.root.removeCallbacks(controllerHideAction)
             } else if (
                 controllerAutoHide &&
                 controllerHideOnTouch &&
@@ -1950,7 +1980,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                 override fun onAnimationEnd(animation: Animator) {
                                     controllerIsAnimating = false
                                     setListener(null)
-                                    if (view != null && !isInteractionLocked && controllerAutoHide && controllerHideOnTouch && !binding.playerControls.progressBar.isPressed) {
+                                    if (view != null && controllerAutoHide && controllerHideOnTouch && !binding.playerControls.progressBar.isPressed) {
                                         binding.playerControls.root.postDelayed(controllerHideAction, 3000)
                                     }
                                 }
@@ -1961,7 +1991,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 }
             } else {
                 binding.playerControls.root.removeCallbacks(controllerHideAction)
-                if (!isInteractionLocked && controllerAutoHide && controllerHideOnTouch && !binding.playerControls.progressBar.isPressed) {
+                if (controllerAutoHide && controllerHideOnTouch && !binding.playerControls.progressBar.isPressed) {
                     binding.playerControls.root.postDelayed(controllerHideAction, 3000)
                 }
             }
@@ -1971,7 +2001,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 binding.playerControls.root.removeCallbacks(controllerHideAction)
                 binding.playerControls.root.alpha = 1f
                 binding.playerControls.root.visibility = View.VISIBLE
-                if (!isInteractionLocked && controllerAutoHide && controllerHideOnTouch && !binding.playerControls.progressBar.isPressed) {
+                if (controllerAutoHide && controllerHideOnTouch && !binding.playerControls.progressBar.isPressed) {
                     binding.playerControls.root.postDelayed(controllerHideAction, 3000)
                 }
             }
@@ -1979,10 +2009,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     }
 
     private fun hideController(force: Boolean = false) {
-        if (isInteractionLocked && !force) {
-            return
-        }
-
         if (!controllerIsAnimating && binding.playerControls.root.isVisible) {
             controllerAnimation = binding.playerControls.root.animate().apply {
                 alpha(0f)
@@ -2257,7 +2283,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 useController = true
                 if (isInteractionLocked) {
                     showController(force = true)
-                    binding.playerControls.root.removeCallbacks(controllerHideAction)
                     updateInteractionLockBackCallback()
                 }
             }
