@@ -14,6 +14,7 @@ import com.github.andreyasadchy.xtra.db.AppDatabase
 import com.github.andreyasadchy.xtra.db.MetadataCacheMigrations
 import com.github.andreyasadchy.xtra.db.StreamFeedMigrations
 import com.github.andreyasadchy.xtra.db.GameFeedMigrations
+import com.github.andreyasadchy.xtra.db.NotificationMigrations
 import com.github.andreyasadchy.xtra.db.ViewingStatsMigrations
 import com.github.andreyasadchy.xtra.repository.AuthRepository
 import com.github.andreyasadchy.xtra.repository.BookmarksRepository
@@ -522,6 +523,7 @@ class XtraModule(application: Application) {
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_notification_events_queuedAt ON notification_events(queuedAt)")
                 },
                 GameFeedMigrations.FROM_49,
+                NotificationMigrations.FROM_50,
             )
         }.build()
 

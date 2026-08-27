@@ -39,7 +39,7 @@ data class NotificationEvent(
         fun fromStream(stream: Stream, startedAt: Long): NotificationEvent? {
             val channelId = stream.channelId?.takeIf { it.isNotBlank() } ?: return null
             return NotificationEvent(
-                eventId = "$channelId:$startedAt",
+                eventId = "$channelId:${stream.id ?: startedAt}",
                 channelId = channelId,
                 streamId = stream.id,
                 channelLogin = stream.channelLogin,
