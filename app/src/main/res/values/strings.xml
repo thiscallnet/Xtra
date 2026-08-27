@@ -583,6 +583,8 @@
     <string name="player_viewers">%1$s. Open viewer list</string>
     <string name="player_position">Position %1$s</string>
     <string name="player_duration">Duration %1$s</string>
+    <string name="player_lock_controls">Lock player controls</string>
+    <string name="player_unlock_controls">Unlock player controls</string>
     <string name="picture_in_picture">Picture-in-Picture</string>
     <string name="source_vod_start">Start: %s</string>
     <string name="source_vod_end">End: %s</string>

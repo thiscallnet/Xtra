@@ -1,7 +1,10 @@
 package com.github.andreyasadchy.xtra.ui.view
 
 import android.content.Context
+import android.graphics.Rect
 import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.View
 import android.widget.FrameLayout
 
 class PlayerLayout : FrameLayout {
@@ -11,6 +14,54 @@ class PlayerLayout : FrameLayout {
     constructor(context: Context, attrs: AttributeSet, defStyleAttr: Int) : super(context, attrs, defStyleAttr)
 
     var isPortrait = false
+
+    var interactionLocked = false
+
+    /** The only descendant that may receive touch input while interactionLocked. */
+    var interactionUnlockView: View? = null
+
+    private val unlockHitRect = Rect()
+    private var unlockGesture = false
+
+    override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+        if (!interactionLocked) {
+            unlockGesture = false
+            return super.onInterceptTouchEvent(event)
+        }
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                unlockGesture = isInsideUnlockView(event)
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                unlockGesture = false
+            }
+        }
+
+        return !unlockGesture
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        return if (interactionLocked) {
+            true
+        } else {
+            super.onTouchEvent(event)
+        }
+    }
+
+    private fun isInsideUnlockView(event: MotionEvent): Boolean {
+        val unlockView = interactionUnlockView
+            ?.takeIf { it.isShown }
+            ?: return false
+
+        unlockView.getDrawingRect(unlockHitRect)
+        offsetDescendantRectToMyCoords(unlockView, unlockHitRect)
+
+        return unlockHitRect.contains(
+            event.x.toInt(),
+            event.y.toInt(),
+        )
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
