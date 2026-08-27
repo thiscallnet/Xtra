@@ -723,6 +723,10 @@ class ChannelPointsDialog : DialogFragment() {
         val outcomes = prediction.outcomes.orEmpty()
         val betStateMatches = predictionBetState.predictionId == prediction.id
         val selectedOutcomeId = predictionBetState.outcomeId.takeIf { betStateMatches }
+        val confirmedViewerAmount = predictionBetState.amount
+            .takeIf { betStateMatches }
+            ?.takeIf { it > 0 }
+        val confirmedOutcomeId = selectedOutcomeId.takeIf { confirmedViewerAmount != null }
         val betInFlight = betStateMatches && predictionBetState.inFlight
         val predictionBetError = predictionBetState.error.takeIf { betStateMatches }
         val totalPoints = outcomes.mapNotNull { it.totalPoints }.sum().takeIf { it > 0 }
@@ -768,8 +772,8 @@ class ChannelPointsDialog : DialogFragment() {
                 winner = PredictionState.isFinal(prediction) && prediction.winningOutcomeId == outcome.id,
                 tie = status == "RESOLVED" && prediction.winningOutcomeId.isNullOrBlank() &&
                     totalPoints != null && outcome.totalPoints == outcomes.mapNotNull { it.totalPoints }.maxOrNull(),
-                viewerSelected = selectedOutcomeId == outcome.id,
-                viewerAmount = predictionBetState.amount.takeIf { betStateMatches && selectedOutcomeId == outcome.id },
+                viewerSelected = confirmedOutcomeId == outcome.id,
+                viewerAmount = confirmedViewerAmount.takeIf { confirmedOutcomeId == outcome.id },
             )
         }
 
@@ -781,9 +785,9 @@ class ChannelPointsDialog : DialogFragment() {
         val hint = when {
             predictionBetError != null -> predictionBetError
             betInFlight -> getString(R.string.channel_points_prediction_bet_pending)
-            selectedOutcomeId != null -> getString(
+            confirmedOutcomeId != null -> getString(
                 R.string.channel_points_prediction_bet_selected,
-                numberFormat.format(predictionBetState.amount ?: 0),
+                numberFormat.format(confirmedViewerAmount),
             )
             isBettingOpen && !canBetAvailable -> getString(R.string.channel_points_prediction_bet_login)
             isBettingOpen && !wagerablePrediction -> getString(R.string.channel_points_prediction_bet_unavailable)
@@ -807,6 +811,7 @@ class ChannelPointsDialog : DialogFragment() {
             renderPredictionBetChoices(
                 prediction = prediction,
                 enabled = !betInFlight,
+                confirmedAmount = confirmedViewerAmount ?: 0,
             )
             for (i in 0 until binding.predictionBetChoices.childCount) {
                 val button = binding.predictionBetChoices.getChildAt(i) as? MaterialButton ?: continue
@@ -815,6 +820,9 @@ class ChannelPointsDialog : DialogFragment() {
                     selectedOutcomeId = selectedOutcomeId,
                     candidateOutcomeId = candidateOutcomeId,
                     inFlight = betInFlight,
+                    confirmedAmount = confirmedViewerAmount ?: 0,
+                    minimumPoints = MIN_PREDICTION_POINTS,
+                    maximumPoints = MAX_PREDICTION_POINTS,
                 )
             }
         } else {
@@ -822,7 +830,11 @@ class ChannelPointsDialog : DialogFragment() {
         }
     }
 
-    private fun renderPredictionBetChoices(prediction: Prediction, enabled: Boolean) {
+    private fun renderPredictionBetChoices(
+        prediction: Prediction,
+        enabled: Boolean,
+        confirmedAmount: Int,
+    ) {
         val container = binding.predictionBetChoices
         container.removeAllViews()
         val outcomes = prediction.outcomes.orEmpty()
@@ -839,7 +851,11 @@ class ChannelPointsDialog : DialogFragment() {
                 isEnabled = enabled
                 stylePredictionButton(this, buttonColor)
                 setOnClickListener {
-                    placePredictionBet(binding.predictionBetAmount, outcomeId)
+                    placePredictionBet(
+                        input = binding.predictionBetAmount,
+                        outcomeId = outcomeId,
+                        confirmedAmount = confirmedAmount,
+                    )
                 }
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1008,16 +1024,36 @@ class ChannelPointsDialog : DialogFragment() {
         button.ellipsize = android.text.TextUtils.TruncateAt.END
     }
 
-    private fun placePredictionBet(input: EditText, outcomeId: String?) {
+    private fun placePredictionBet(
+        input: EditText,
+        outcomeId: String?,
+        confirmedAmount: Int,
+    ) {
         val points = input.text.toString().toIntOrNull()
         val balance = listener.channelPointsFlow().value?.balance
+        val remaining = PredictionBetPolicy.remainingPoints(
+            previousAmount = confirmedAmount,
+            maximumPoints = MAX_PREDICTION_POINTS,
+        )
         when {
             outcomeId.isNullOrBlank() -> input.error = getString(R.string.channel_points_prediction_bet_unavailable)
-            points == null || points !in MIN_PREDICTION_POINTS..MAX_PREDICTION_POINTS -> input.error = getString(
-                R.string.channel_points_prediction_bet_range,
-                MIN_PREDICTION_POINTS,
-                MAX_PREDICTION_POINTS,
-            )
+            points == null || !PredictionBetPolicy.canAddPoints(
+                previousAmount = confirmedAmount,
+                additionalPoints = points,
+                minimumPoints = MIN_PREDICTION_POINTS,
+                maximumPoints = MAX_PREDICTION_POINTS,
+            ) -> input.error = if (remaining < MIN_PREDICTION_POINTS) {
+                getString(
+                    R.string.channel_points_prediction_bet_limit,
+                    NumberFormat.getInstance().format(remaining),
+                )
+            } else {
+                getString(
+                    R.string.channel_points_prediction_bet_range,
+                    MIN_PREDICTION_POINTS,
+                    remaining,
+                )
+            }
             balance != null && points > balance -> input.error = getString(
                 R.string.channel_points_prediction_bet_balance,
                 NumberFormat.getInstance().format(balance),

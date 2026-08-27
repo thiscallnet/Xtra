@@ -4051,6 +4051,10 @@ class ChatViewModel(
             samePrediction && !it.isNullOrBlank()
         }
         val previousAmount = previous.amount.takeIf { samePrediction } ?: 0
+        val remainingPredictionPoints = PredictionBetPolicy.remainingPoints(
+            previousAmount = previousAmount,
+            maximumPoints = MAX_PREDICTION_POINTS,
+        )
         if ((samePrediction && previous.inFlight) ||
             (previousOutcomeId != null && previousOutcomeId != outcomeId) ||
             !canBetPrediction() ||
@@ -4058,7 +4062,10 @@ class ChatViewModel(
             outcomeId.isBlank() ||
             current.outcomes.orEmpty().none { it.id == outcomeId }
         ) return
-        if (points !in MIN_PREDICTION_POINTS..MAX_PREDICTION_POINTS || (balance != null && points > balance)) return
+        if (points < MIN_PREDICTION_POINTS ||
+            points > remainingPredictionPoints ||
+            (balance != null && points > balance)
+        ) return
 
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val headers = TwitchApiHelper.getGQLHeaders(applicationContext, true)

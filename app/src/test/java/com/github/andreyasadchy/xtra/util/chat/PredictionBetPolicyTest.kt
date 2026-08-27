@@ -37,6 +37,9 @@ class PredictionBetPolicyTest {
                 selectedOutcomeId = "c",
                 candidateOutcomeId = "c",
                 inFlight = false,
+                confirmedAmount = 0,
+                minimumPoints = 10,
+                maximumPoints = 250_000,
             ),
         )
     }
@@ -48,6 +51,9 @@ class PredictionBetPolicyTest {
                 selectedOutcomeId = "c",
                 candidateOutcomeId = "b",
                 inFlight = false,
+                confirmedAmount = 0,
+                minimumPoints = 10,
+                maximumPoints = 250_000,
             ),
         )
     }
@@ -59,6 +65,9 @@ class PredictionBetPolicyTest {
                 selectedOutcomeId = "c",
                 candidateOutcomeId = "c",
                 inFlight = true,
+                confirmedAmount = 0,
+                minimumPoints = 10,
+                maximumPoints = 250_000,
             ),
         )
     }
@@ -70,6 +79,91 @@ class PredictionBetPolicyTest {
             PredictionBetPolicy.totalAfterAdditionalBet(
                 previousAmount = 100,
                 additionalPoints = 250,
+            ),
+        )
+    }
+
+    @Test
+    fun `full maximum may be wagered initially`() {
+        assertTrue(
+            PredictionBetPolicy.canAddPoints(
+                previousAmount = 0,
+                additionalPoints = 250_000,
+                minimumPoints = 10,
+                maximumPoints = 250_000,
+            ),
+        )
+    }
+
+    @Test
+    fun `remaining maximum may be added`() {
+        assertTrue(
+            PredictionBetPolicy.canAddPoints(
+                previousAmount = 100_000,
+                additionalPoints = 150_000,
+                minimumPoints = 10,
+                maximumPoints = 250_000,
+            ),
+        )
+    }
+
+    @Test
+    fun `cumulative amount above maximum is rejected`() {
+        assertFalse(
+            PredictionBetPolicy.canAddPoints(
+                previousAmount = 100_000,
+                additionalPoints = 150_001,
+                minimumPoints = 10,
+                maximumPoints = 250_000,
+            ),
+        )
+    }
+
+    @Test
+    fun `last ten points may be added`() {
+        assertTrue(
+            PredictionBetPolicy.canAddPoints(
+                previousAmount = 249_990,
+                additionalPoints = 10,
+                minimumPoints = 10,
+                maximumPoints = 250_000,
+            ),
+        )
+    }
+
+    @Test
+    fun `less than minimum remaining cannot be added`() {
+        assertFalse(
+            PredictionBetPolicy.canAddPoints(
+                previousAmount = 249_991,
+                additionalPoints = 10,
+                minimumPoints = 10,
+                maximumPoints = 250_000,
+            ),
+        )
+    }
+
+    @Test
+    fun `remaining maximum is zero when previous amount is full`() {
+        assertEquals(
+            0,
+            PredictionBetPolicy.remainingPoints(
+                previousAmount = 250_000,
+                maximumPoints = 250_000,
+            ),
+        )
+    }
+
+    @Test
+    fun `exhausted prediction allowance disables every outcome`() {
+        assertFalse(
+            PredictionBetPolicy.canBetOutcome(
+                selectedOutcomeId = "c",
+                candidateOutcomeId = "c",
+                inFlight = false,
+                confirmedAmount = 250_000,
+                minimumPoints = 10,
+                maximumPoints = 250_000,
             ),
         )
     }
