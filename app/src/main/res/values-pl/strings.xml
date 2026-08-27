@@ -1417,4 +1417,6 @@
     <string name="viewer_list_loading">Loading viewers…</string>
     <string name="viewer_list_error">Couldn’t load the viewer list.</string>
     <string name="viewer_list_empty">No viewers are currently listed.</string>
+    <string name="player_lock_controls">Lock player controls</string>
+    <string name="player_unlock_controls">Unlock player controls</string>
 </resources>
