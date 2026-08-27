@@ -196,8 +196,7 @@
                 android:contentDescription="@string/chat_identity"
                 android:minWidth="48dp"
                 android:minHeight="48dp"
-                android:padding="8dp"
-                android:scaleType="fitCenter"
+                android:padding="12dp"
                 android:src="@drawable/ic_chat_identity"
                 android:visibility="gone"
                 app:tint="?attr/colorControlNormal" />

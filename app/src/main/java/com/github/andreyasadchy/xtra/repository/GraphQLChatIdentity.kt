@@ -33,19 +33,19 @@ internal const val CHAT_IDENTITY_QUERY = """
             setID
             version
             title
-            imageURL(size: NORMAL)
+            imageURL(size: QUADRUPLE)
           }
           availableBadges {
             setID
             version
             title
-            imageURL(size: NORMAL)
+            imageURL(size: QUADRUPLE)
           }
           displayBadges {
             setID
             version
             title
-            imageURL(size: NORMAL)
+            imageURL(size: QUADRUPLE)
           }
         }
       }
@@ -62,13 +62,13 @@ internal const val CHAT_IDENTITY_QUERY = """
           setID
           version
           title
-          imageURL(size: NORMAL)
+          imageURL(size: QUADRUPLE)
         }
         availableBadges {
           setID
           version
           title
-          imageURL(size: NORMAL)
+          imageURL(size: QUADRUPLE)
         }
       }
     }
@@ -82,7 +82,7 @@ internal const val CHAT_EARNED_BADGES_CHANNEL_DATA_QUERY = """
           setID
           version
           title
-          imageURL(size: NORMAL)
+          imageURL(size: QUADRUPLE)
         }
       }
     }
