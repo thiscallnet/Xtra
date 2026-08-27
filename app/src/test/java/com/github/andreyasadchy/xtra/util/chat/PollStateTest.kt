@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.util.chat
 
 import com.github.andreyasadchy.xtra.model.chat.Poll
+import com.github.andreyasadchy.xtra.model.chat.PollVoteState
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,6 +33,102 @@ class PollStateTest {
         assertEquals(2, poll?.choices?.single()?.channelPointsVotes)
         assertTrue(poll?.startedAt != null)
         assertTrue(poll?.endsAt != null)
+    }
+
+    @Test
+    fun preservesChoiceIdAliasesAndMapKeys() {
+        val eventSub = PubSubUtils.onPollUpdate(
+            JSONObject(
+                """{"id":"p1","title":"Pick","choices":[{"id":"choice-a","title":"A","votes":10,"bits_votes":0,"channel_points_votes":0}]}""",
+            ),
+        )
+        val alternate = PubSubUtils.onPollUpdate(
+            JSONObject(
+                """{"id":"p2","title":"Pick","choices":[{"choice_id":"choice-b","title":"B","total_votes":20}]}""",
+            ),
+        )
+        val mapped = PubSubUtils.onPollUpdate(
+            JSONObject(
+                """{"id":"p3","title":"Pick","choices":{"choice-c":{"title":"C","votes":30}}}""",
+            ),
+        )
+
+        assertEquals("choice-a", eventSub?.choices?.single()?.id)
+        assertEquals("choice-b", alternate?.choices?.single()?.id)
+        assertEquals("choice-c", mapped?.choices?.single()?.id)
+    }
+
+    @Test
+    fun skipsChoicesWithoutTitles() {
+        val poll = PubSubUtils.onPollUpdate(
+            JSONObject("""{"id":"p1","title":"Pick","choices":[{"id":"choice-a","votes":10}]}"""),
+        )
+
+        assertEquals(0, poll?.choices?.size)
+    }
+
+    @Test
+    fun missingChoiceIdDoesNotMatchMissingSelectedChoiceId() {
+        val pollId: String? = "p1"
+        val choiceId: String? = null
+        val voteState = PollVoteState(pollId = pollId)
+        val voteStateMatches = pollId != null && voteState.pollId == pollId
+        val selected = voteStateMatches && choiceId != null && voteState.selectedChoiceId == choiceId
+
+        assertFalse(selected)
+    }
+
+    @Test
+    fun progressWithoutChoiceIdsPreservesKnownChoiceIds() {
+        val initial = Poll(
+            id = "p1",
+            title = "Pick",
+            status = "ACTIVE",
+            choices = listOf(
+                Poll.PollChoice("choice-a", "A", 10),
+                Poll.PollChoice("choice-b", "B", 20),
+            ),
+            totalVotes = 30,
+            remainingMilliseconds = null,
+            observedAt = 100L,
+        )
+        val progress = Poll(
+            id = "p1",
+            title = "Pick",
+            status = "ACTIVE",
+            choices = listOf(
+                Poll.PollChoice(null, "A", 11),
+                Poll.PollChoice(null, "B", 22),
+            ),
+            totalVotes = 33,
+            remainingMilliseconds = null,
+            observedAt = 200L,
+        )
+
+        val merged = requireNotNull(PollState.merge(initial, progress))
+
+        assertEquals("choice-a", merged.choices?.get(0)?.id)
+        assertEquals("choice-b", merged.choices?.get(1)?.id)
+        assertEquals(11, merged.choices?.get(0)?.totalVotes)
+        assertEquals(22, merged.choices?.get(1)?.totalVotes)
+        assertEquals(33, merged.totalVotes)
+    }
+
+    @Test
+    fun ambiguousChoiceTitleDoesNotInventAnId() {
+        val initial = poll("p1", "ACTIVE", 100L, 30).copy(
+            choices = listOf(
+                Poll.PollChoice("choice-a", "Same", 10),
+                Poll.PollChoice("choice-b", "Same", 20),
+            ),
+        )
+        val progress = poll("p1", "ACTIVE", 200L, 31).copy(
+            choices = listOf(Poll.PollChoice(null, "Same", 31)),
+        )
+
+        val merged = requireNotNull(PollState.merge(initial, progress))
+
+        assertNull(merged.choices?.single()?.id)
     }
 
     @Test
