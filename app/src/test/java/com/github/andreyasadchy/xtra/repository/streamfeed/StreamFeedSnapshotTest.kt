@@ -10,34 +10,47 @@ class StreamFeedSnapshotTest {
 
     @Test
     fun refreshRemovesEndedStreamsAddsNewStreamsAndUpdatesOrder() {
-        val old = listOf(
-            Stream(id = null, channelId = "a", title = "old-a"),
-            Stream(id = null, channelId = "b", title = "old-b"),
+        val old = refreshCachedItems(
+            "top:test",
+            listOf(
+                Stream(channelId = "a", title = "old-a"),
+                Stream(channelId = "b", title = "old-b"),
+            ),
+            generation = 1L,
         )
         val fresh = listOf(
-            Stream(id = null, channelId = "b", title = "new-b"),
-            Stream(id = null, channelId = "c", title = "new-c"),
+            Stream(channelId = "b", title = "new-b"),
+            Stream(channelId = "c", title = "new-c"),
         )
 
-        val items = refreshCachedItems("top:test", fresh)
+        val items = refreshCachedItems("top:test", fresh, generation = 2L)
 
         assertEquals(listOf("channel:b", "channel:c"), items.map { it.itemKey })
         assertEquals(listOf(0, 1), items.map { it.position })
         assertEquals("new-b", items.first().title)
         assertFalse(items.any { it.itemKey == "channel:a" })
-        assertTrue(old.any { it.channelId == "a" }) // the old snapshot is untouched until a successful commit
+        assertTrue(old.any { it.itemKey == "channel:a" })
     }
 
     @Test
-    fun appendPreservesExistingChannelPosition() {
+    fun successfulEmptyRefreshProducesAnEmptySnapshot() {
+        val items = refreshCachedItems("top:test", emptyList(), generation = 2L)
+
+        assertTrue(items.isEmpty())
+    }
+
+    @Test
+    fun appendPreservesExistingChannelPositionAndUpdatesPageItems() {
         val existing = refreshCachedItems(
             "top:test",
-            listOf(Stream(id = null, channelId = "a"), Stream(id = null, channelId = "b")),
+            listOf(Stream(channelId = "a"), Stream(channelId = "b")),
+            generation = 1L,
         )
         val appended = appendCachedPage(
             "top:test",
             existing,
-            listOf(Stream(id = null, channelId = "b", viewerCount = 4), Stream(id = null, channelId = "c")),
+            listOf(Stream(channelId = "b", viewerCount = 4), Stream(channelId = "c")),
+            generation = 1L,
         )
 
         assertEquals(listOf("channel:a", "channel:b", "channel:c"), appended.map { it.itemKey })
@@ -46,77 +59,32 @@ class StreamFeedSnapshotTest {
     }
 
     @Test
-    fun appendReindexesFreshPrefixAndStaleTailAfterOverlapAndChanges() {
+    fun appendOnlyExtendsTheCurrentRefreshGeneration() {
         val existing = refreshCachedItems(
             "top:test",
-            listOf(
-                Stream(channelId = "a"),
-                Stream(channelId = "b"),
-                Stream(channelId = "c"),
-                Stream(channelId = "d"),
-                Stream(channelId = "e"),
-                Stream(channelId = "f"),
-                Stream(channelId = "g"),
-                Stream(channelId = "h"),
-                Stream(channelId = "i"),
-            ),
+            listOf(Stream(channelId = "a"), Stream(channelId = "b")),
+            generation = 1L,
+        ) + refreshCachedItems(
+            "top:test",
+            listOf(Stream(channelId = "old-tail")),
+            generation = 0L,
+        )
+
+        val appended = appendCachedPage(
+            "top:test",
+            existing,
+            listOf(Stream(channelId = "c")),
             generation = 1L,
         )
-        val afterRefresh = refreshCachedItemsPreservingTail(
-            feedKey = "top:test",
-            existing = existing,
-            streams = listOf(Stream(channelId = "a"), Stream(channelId = "b"), Stream(channelId = "x")),
-            generation = 2L,
-        )
 
-        val afterAppend = appendCachedPage(
-            feedKey = "top:test",
-            existing = afterRefresh,
-            streams = listOf(Stream(channelId = "d"), Stream(channelId = "y"), Stream(channelId = "f")),
-            generation = 2L,
-        )
-
-        assertEquals(
-            listOf(
-                "channel:a", "channel:b", "channel:x",
-                "channel:d", "channel:y", "channel:f",
-                "channel:c", "channel:e", "channel:g", "channel:h", "channel:i",
-            ),
-            afterAppend.map { it.itemKey },
-        )
-        assertEquals(afterAppend.size, afterAppend.map { it.position }.distinct().size)
-        assertEquals(afterAppend.indices.toList(), afterAppend.map { it.position })
-        assertTrue(afterAppend.take(6).all { it.generation == 2L })
-        assertTrue(afterAppend.drop(6).all { it.generation == 1L })
+        assertEquals(listOf("channel:a", "channel:b", "channel:c"), appended.map { it.itemKey })
+        assertTrue(appended.all { it.generation == 1L })
     }
 
     @Test
     fun refreshingAnExistingChannelReplacesEveryCachedStreamField() {
-        val key = "top:v2"
-        val existing = refreshCachedItems(
-            feedKey = key,
-            streams = listOf(
-                Stream(
-                    id = "broadcast-1",
-                    channelId = "channel-42",
-                    channelLogin = "old-login",
-                    channelName = "Old name",
-                    channelImageURL = "old-avatar",
-                    gameId = "game-old",
-                    gameSlug = "old-game",
-                    gameName = "Old game",
-                    title = "Old title",
-                    thumbnailURL = "old-thumbnail",
-                    createdAt = "old-created",
-                    viewerCount = 10,
-                    tags = listOf("old-tag"),
-                ),
-            ),
-            generation = 1L,
-        )
-        val refreshed = refreshCachedItemsPreservingTail(
-            feedKey = key,
-            existing = existing,
+        val refreshed = refreshCachedItems(
+            feedKey = "top:v2",
             streams = listOf(
                 Stream(
                     id = "broadcast-2",
@@ -155,29 +123,20 @@ class StreamFeedSnapshotTest {
     }
 
     @Test
-    fun staleTailIsBoundToOnePreviouslyVerifiedGeneration() {
+    fun aNewRefreshGenerationCannotRetainThePreviousGeneration() {
         val first = refreshCachedItems(
-            "top:bounded-tail",
+            "top:test",
             listOf(Stream(channelId = "old")),
             generation = 1L,
         )
-        val second = refreshCachedItemsPreservingTail(
-            "top:bounded-tail",
-            first,
-            listOf(Stream(channelId = "middle")),
+        val second = refreshCachedItems(
+            "top:test",
+            listOf(Stream(channelId = "new")),
             generation = 2L,
         )
-        val third = refreshCachedItemsPreservingTail(
-            "top:bounded-tail",
-            second,
-            listOf(Stream(channelId = "new")),
-            generation = 3L,
-        )
 
-        assertEquals(
-            listOf("channel:new", "channel:middle"),
-            third.map { it.itemKey },
-        )
-        assertTrue(third.all { it.generation >= 2L })
+        assertEquals(listOf("channel:new"), second.map { it.itemKey })
+        assertTrue(first.any { it.itemKey == "channel:old" })
+        assertTrue(second.all { it.generation == 2L })
     }
 }

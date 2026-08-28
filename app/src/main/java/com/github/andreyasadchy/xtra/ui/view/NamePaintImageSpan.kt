@@ -16,8 +16,15 @@ class NamePaintImageSpan(
     private val shadows: List<NamePaint.Shadow>?,
     var backgroundColor: Int?,
     private val bottomBackgroundColor: Int,
-    val drawable: Drawable,
+    @Volatile
+    var drawable: Drawable,
 ) : ReplacementSpan() {
+
+    // The name-paint mask is independent of the animated drawable pixels. Keep one bounded
+    // mask per span and rebuild it only when the text/paint geometry changes, never per draw.
+    private var maskBitmap: Bitmap? = null
+    private var maskCanvas: Canvas? = null
+    private var cachedMaskSignature = 0
 
     override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         if (fm != null) {
@@ -35,8 +42,8 @@ class NamePaintImageSpan(
         val xOffset = x.toInt()
         val width = paint.measureText(name).toInt()
         val height = bottom - top
-        val drawableWidth = drawable.intrinsicWidth
-        val drawableHeight = drawable.intrinsicHeight
+        val drawableWidth = drawable.intrinsicWidth.takeIf { it > 0 } ?: drawable.bounds.width().coerceAtLeast(1)
+        val drawableHeight = drawable.intrinsicHeight.takeIf { it > 0 } ?: drawable.bounds.height().coerceAtLeast(1)
         val widthRatio = drawableWidth.toFloat() / drawableHeight.toFloat()
         val fullWidth: Int
         val fullHeight: Int
@@ -63,26 +70,68 @@ class NamePaintImageSpan(
         }
         drawable.setBounds(xOffset, top, fullWidth, fullHeight)
         drawable.draw(canvas)
-        val maskBitmap = Bitmap.createBitmap(max(fullWidth - xOffset, 0), max(fullHeight - top, 0), Bitmap.Config.ARGB_8888)
-        val maskCanvas = Canvas(maskBitmap)
-        val maskPaint = Paint(paint)
-        maskPaint.style = Paint.Style.FILL
-        maskPaint.color = bottomBackgroundColor
-        maskCanvas.drawPaint(maskPaint)
-        backgroundColor?.let {
-            maskPaint.color = it
-            maskCanvas.drawPaint(maskPaint)
-        }
-        maskPaint.color = paint.color
+        val maskWidth = max(fullWidth - xOffset, 0)
+        val maskHeight = max(fullHeight - top, 0)
+        if (maskWidth == 0 || maskHeight == 0) return
         val yOffset = y.toFloat() - top
-        shadows?.forEach {
-            maskPaint.setShadowLayer(it.radius, it.xOffset, it.yOffset, it.color)
-            maskCanvas.drawText(name, 0f, yOffset, maskPaint)
+        val signature = maskSignature(paint, maskWidth, maskHeight, yOffset)
+        val cachedMask = maskBitmap
+        if (cachedMask == null || cachedMask.width != maskWidth || cachedMask.height != maskHeight || signature != cachedMaskSignature) {
+            val bitmap = if (cachedMask == null || cachedMask.width != maskWidth || cachedMask.height != maskHeight) {
+                Bitmap.createBitmap(maskWidth, maskHeight, Bitmap.Config.ARGB_8888).also {
+                    maskBitmap = it
+                    maskCanvas = Canvas(it)
+                }
+            } else {
+                cachedMask.also { it.eraseColor(android.graphics.Color.TRANSPARENT) }
+            }
+            val targetCanvas = checkNotNull(maskCanvas)
+            val maskPaint = Paint(paint).apply { style = Paint.Style.FILL }
+            maskPaint.color = bottomBackgroundColor
+            targetCanvas.drawPaint(maskPaint)
+            backgroundColor?.let {
+                maskPaint.color = it
+                targetCanvas.drawPaint(maskPaint)
+            }
+            maskPaint.color = paint.color
+            shadows?.forEach {
+                maskPaint.setShadowLayer(it.radius, it.xOffset, it.yOffset, it.color)
+                targetCanvas.drawText(name, 0f, yOffset, maskPaint)
+            }
+            maskPaint.clearShadowLayer()
+            maskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
+            maskPaint.alpha = 0
+            targetCanvas.drawText(name, 0f, yOffset, maskPaint)
+            cachedMaskSignature = signature
+            canvas.drawBitmap(bitmap, xOffset.toFloat(), top.toFloat(), paint)
+        } else {
+            canvas.drawBitmap(cachedMask, xOffset.toFloat(), top.toFloat(), paint)
         }
-        maskPaint.clearShadowLayer()
-        maskPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)
-        maskPaint.alpha = 0
-        maskCanvas.drawText(name, 0f, yOffset, maskPaint)
-        canvas.drawBitmap(maskBitmap, xOffset.toFloat(), top.toFloat(), paint)
+    }
+
+    private fun maskSignature(paint: Paint, width: Int, height: Int, yOffset: Float): Int {
+        var result = name.hashCode()
+        result = 31 * result + width
+        result = 31 * result + height
+        result = 31 * result + yOffset.toBits()
+        result = 31 * result + paint.color
+        result = 31 * result + paint.alpha
+        result = 31 * result + paint.flags
+        result = 31 * result + paint.style.ordinal
+        result = 31 * result + paint.strokeWidth.toBits()
+        result = 31 * result + paint.textAlign.ordinal
+        result = 31 * result + paint.textSize.toBits()
+        result = 31 * result + paint.textScaleX.toBits()
+        result = 31 * result + paint.textSkewX.toBits()
+        result = 31 * result + (paint.typeface?.hashCode() ?: 0)
+        result = 31 * result + (backgroundColor ?: 0)
+        result = 31 * result + bottomBackgroundColor
+        shadows?.forEach {
+            result = 31 * result + it.radius.toBits()
+            result = 31 * result + it.xOffset.toBits()
+            result = 31 * result + it.yOffset.toBits()
+            result = 31 * result + it.color
+        }
+        return result
     }
 }

@@ -146,8 +146,6 @@ class StreamFeedRemoteMediatorTest {
             feedKey: StreamFeedKey,
             page: StreamFeedPage,
             nowMs: Long,
-            preserveTail: Boolean,
-            pruneStaleOnEnd: Boolean,
         ) {
             rows = refreshCachedItems(feedKey.value, page.items)
             currentState = StreamFeedState(
@@ -164,7 +162,6 @@ class StreamFeedRemoteMediatorTest {
             feedKey: StreamFeedKey,
             page: StreamFeedPage,
             nowMs: Long,
-            pruneStaleOnEnd: Boolean,
         ) = Unit
 
         override suspend fun pruneStaleGeneration(feedKey: StreamFeedKey) {

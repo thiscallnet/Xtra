@@ -35,6 +35,6 @@ data class CachedStreamFeedItem(
     val createdAt: String? = null,
     val viewerCount: Int? = null,
     val tags: String? = null,
-    /** Refresh generation used to retain stale deep-page rows during SWR. */
+    /** Refresh generation used to isolate pages from an earlier live-list refresh. */
     val generation: Long = 0L,
 )

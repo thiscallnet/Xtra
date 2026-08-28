@@ -31,5 +31,7 @@ class STVEmoteSetResponse(
     class File(
         val name: String? = null,
         val format: String? = null,
+        val width: Int? = null,
+        val height: Int? = null,
     )
 }

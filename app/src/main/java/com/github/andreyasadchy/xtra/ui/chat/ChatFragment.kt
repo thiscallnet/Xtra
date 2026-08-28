@@ -129,22 +129,19 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var messageViewWasVisibleBeforeOverlay: Boolean? = null
     private var backPressedCallbackAdded = false
     private var lastSlowModeUiState = SlowModeState()
-    private var chatScrollPosted = false
     private var chatAdapterUpdatePosted = false
+    private var chatAdapterReady = false
     private val pendingChatMutations = ArrayDeque<ChatViewModel.ChatMutation>()
     private var chatMutationRevision = 0L
-    private val chatScrollRunnable = Runnable {
-        chatScrollPosted = false
-        val currentBinding = _binding ?: return@Runnable
-        if (!isChatTouched && currentBinding.btnDown.isGone) {
-            val lastIndex = adapter?.itemCount?.minus(1) ?: RecyclerView.NO_POSITION
-            currentBinding.recyclerView.scrollToPosition(lastIndex)
-        }
-    }
+    private data class ChatViewportAnchor(val stableId: Long, val fallbackPosition: Int, val top: Int)
+
     private val chatAdapterUpdateRunnable = Runnable {
         chatAdapterUpdatePosted = false
         val currentBinding = _binding ?: return@Runnable
         val currentAdapter = adapter ?: return@Runnable
+        val recyclerView = currentBinding.recyclerView
+        val followBottom = !recyclerView.canScrollVertically(1)
+        val anchor = if (followBottom) null else captureChatViewportAnchor(recyclerView, currentAdapter)
         var hasNewMessages = false
         while (pendingChatMutations.isNotEmpty()) {
             when (val firstMutation = pendingChatMutations.removeFirst()) {
@@ -183,8 +180,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 }
             }
         }
-        if (hasNewMessages && !isChatTouched && currentBinding.btnDown.isGone) {
-            scheduleChatScrollToEnd()
+        if (hasNewMessages && followBottom && currentAdapter.itemCount > 0) {
+            recyclerView.scrollToPosition(currentAdapter.itemCount - 1)
+        } else if (!followBottom) {
+            restoreChatViewportAnchor(recyclerView, currentAdapter, anchor)
         }
     }
 
@@ -203,18 +202,42 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private val replyDialog: ReplyClickedDialog?
         get() = childFragmentManager.findFragmentByTag("replyDialog") as? ReplyClickedDialog
 
-    private fun scheduleChatScrollToEnd() {
-        if (chatScrollPosted) return
-        val recyclerView = _binding?.recyclerView ?: return
-        chatScrollPosted = true
-        recyclerView.postOnAnimation(chatScrollRunnable)
-    }
-
     private fun scheduleChatAdapterUpdate() {
         if (chatAdapterUpdatePosted) return
+        if (!chatAdapterReady) return
         val recyclerView = _binding?.recyclerView ?: return
         chatAdapterUpdatePosted = true
-        recyclerView.postDelayed(chatAdapterUpdateRunnable, CHAT_UPDATE_BATCH_MS)
+        recyclerView.postOnAnimation(chatAdapterUpdateRunnable)
+    }
+
+    private fun captureChatViewportAnchor(
+        recyclerView: RecyclerView,
+        chatAdapter: ChatAdapter,
+    ): ChatViewportAnchor? {
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return null
+        val firstPosition = layoutManager.findFirstVisibleItemPosition()
+        if (firstPosition == RecyclerView.NO_POSITION || firstPosition >= chatAdapter.itemCount) return null
+        val firstView = layoutManager.findViewByPosition(firstPosition) ?: return null
+        return ChatViewportAnchor(
+            stableId = chatAdapter.stableIdAt(firstPosition),
+            fallbackPosition = firstPosition,
+            top = firstView.top,
+        )
+    }
+
+    private fun restoreChatViewportAnchor(
+        recyclerView: RecyclerView,
+        chatAdapter: ChatAdapter,
+        anchor: ChatViewportAnchor?,
+    ) {
+        val savedAnchor = anchor ?: return
+        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return
+        val position = chatAdapter.positionOfStableId(savedAnchor.stableId)
+            .takeIf { it >= 0 }
+            ?: savedAnchor.fallbackPosition.coerceAtMost(chatAdapter.itemCount - 1)
+        if (position >= 0) {
+            layoutManager.scrollToPositionWithOffset(position, savedAnchor.top)
+        }
     }
 
     private var languageIdentifier: LanguageIdentifier? = null
@@ -365,8 +388,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 if (isLive || (args.getString(KEY_VIDEO_ID) != null && args.getInt(KEY_START_TIME) != -1) || chatUrl != null) {
                     val enableMessaging = isLive && isLoggedIn
                     val sizeModifier = (requireContext().prefs().getInt(C.CHAT_SIZE_MODIFIER, 100).toFloat() / 100f)
+                    val chatSnapshot = viewModel.chatSnapshot().also { chatMutationRevision = it.revision }
+                    val initialMessages = chatSnapshot.messages
                     adapter = ChatAdapter(
-                        initialMessages = viewModel.chatSnapshot().also { chatMutationRevision = it.revision }.messages,
+                        // The initial snapshot is rendered off-main before the adapter is attached.
+                        // This prevents RecyclerView from ever binding an uncached message.
+                        initialMessages = emptyList(),
                         localTwitchEmotes = viewModel.localTwitchEmotes,
                         thirdPartyEmotes = viewModel.thirdPartyEmotes,
                         globalBadges = viewModel.globalBadges,
@@ -440,7 +467,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         },
                     )
                     recyclerView.let {
-                        it.adapter = adapter
                         it.itemAnimator = null
                         it.layoutManager = LinearLayoutManager(context).apply { stackFromEnd = true }
                         it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
@@ -471,6 +497,18 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 }
                             }
                         })
+                    }
+                    val chatAdapter = adapter
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        chatAdapter?.prepareForDisplay(initialMessages)
+                        if (_binding?.recyclerView === recyclerView && chatAdapter === adapter) {
+                            recyclerView.adapter = chatAdapter
+                            chatAdapterReady = true
+                            chatAdapter?.appendMessages(initialMessages, 0)
+                            if (pendingChatMutations.isNotEmpty() && !isChatTouched) {
+                                scheduleChatAdapterUpdate()
+                            }
+                        }
                     }
                     btnDown.setOnClickListener {
                         view.post {
@@ -834,6 +872,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
                             viewModel.chatMutations.collect { mutation ->
                                 if (mutation.revision <= chatMutationRevision) return@collect
+                                // Complete render plans are prepared by ChatAdapter's bounded
+                                // background workers before this mutation can reach RecyclerView.
+                                val messagesToPrepare = when (mutation) {
+                                    is ChatViewModel.ChatMutation.Append -> mutation.messages
+                                    is ChatViewModel.ChatMutation.Prepend -> mutation.messages
+                                    is ChatViewModel.ChatMutation.Clear -> emptyList()
+                                }
+                                adapter?.prepareForDisplay(messagesToPrepare)
                                 pendingChatMutations.addLast(mutation)
                                 when (mutation) {
                                     is ChatViewModel.ChatMutation.Append -> {
@@ -1655,7 +1701,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             }?.let {
                                 (binding.recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
                                     adapter.updateTranslation(chatMessage, it, previousTranslation)
-                                } ?: adapter.notifyItemChanged(it)
+                                } ?: adapter.rebindMessageAfterContentUpdate(chatMessage, it)
                             }
                         }
                         messageDialog?.updateTranslation(chatMessage, previousTranslation)
@@ -1695,7 +1741,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             }?.let {
                                 (binding.recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
                                     adapter.updateTranslation(chatMessage, it, previousTranslation)
-                                } ?: adapter.notifyItemChanged(it)
+                                } ?: adapter.rebindMessageAfterContentUpdate(chatMessage, it)
                             }
                         }
                         messageDialog?.updateTranslation(chatMessage, previousTranslation)
@@ -1713,7 +1759,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             }?.let {
                                 (binding.recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
                                     adapter.updateTranslation(chatMessage, it, previousTranslation)
-                                } ?: adapter.notifyItemChanged(it)
+                                } ?: adapter.rebindMessageAfterContentUpdate(chatMessage, it)
                             }
                         }
                         messageDialog?.updateTranslation(chatMessage, previousTranslation)
@@ -1731,7 +1777,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 }?.let {
                     (binding.recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
                         adapter.updateTranslation(chatMessage, it, previousTranslation)
-                    } ?: adapter.notifyItemChanged(it)
+                    } ?: adapter.rebindMessageAfterContentUpdate(chatMessage, it)
                 }
             }
             messageDialog?.updateTranslation(chatMessage, previousTranslation)
@@ -1776,7 +1822,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                         }?.let {
                                             (binding.recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
                                                 adapter.updateTranslation(chatMessage, it, previousTranslation)
-                                            } ?: adapter.notifyItemChanged(it)
+                                            } ?: adapter.rebindMessageAfterContentUpdate(chatMessage, it)
                                         }
                                     }
                                     messageDialog?.updateTranslation(chatMessage, previousTranslation)
@@ -1832,10 +1878,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         chatIdentityBadgeUrl = null
         backPressedCallback.remove()
         backPressedCallbackAdded = false
-        _binding?.recyclerView?.removeCallbacks(chatScrollRunnable)
         _binding?.recyclerView?.removeCallbacks(chatAdapterUpdateRunnable)
-        chatScrollPosted = false
         chatAdapterUpdatePosted = false
+        chatAdapterReady = false
         pendingChatMutations.clear()
         disposeChannelPointsIconRequest()
         channelPointsIconRequestGeneration++
@@ -1956,7 +2001,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     companion object {
-        private const val CHAT_UPDATE_BATCH_MS = 32L
         private const val KEY_IS_LIVE = "isLive"
         private const val KEY_CHANNEL_ID = "channel_id"
         private const val KEY_CHANNEL_LOGIN = "channel_login"

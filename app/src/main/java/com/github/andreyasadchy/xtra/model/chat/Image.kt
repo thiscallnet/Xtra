@@ -18,9 +18,28 @@ class Image(
     val isAnimated: Boolean = false,
     val kind: ImageKind = ImageKind.INLINE_ICON,
     val thirdParty: Boolean = false,
+    val sourceWidth: Int? = null,
+    val sourceHeight: Int? = null,
     var overlayEmote: Image? = null,
     var start: Int,
     var end: Int,
 ) {
-    fun withLocalData(bytes: ByteArray) = Image(bytes, localDataUrl, localDataRange, url1x, url2x, url3x, url4x, format, isAnimated, kind, thirdParty, overlayEmote, start, end)
+    fun withLocalData(bytes: ByteArray) = Image(
+        localData = bytes,
+        localDataUrl = localDataUrl,
+        localDataRange = localDataRange,
+        url1x = url1x,
+        url2x = url2x,
+        url3x = url3x,
+        url4x = url4x,
+        format = format,
+        isAnimated = isAnimated,
+        kind = kind,
+        thirdParty = thirdParty,
+        sourceWidth = sourceWidth,
+        sourceHeight = sourceHeight,
+        overlayEmote = overlayEmote,
+        start = start,
+        end = end,
+    )
 }
