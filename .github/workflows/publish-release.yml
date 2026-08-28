@@ -135,7 +135,20 @@ jobs:
           echo "RELEASE_TAG=$tag"
         } >> "$GITHUB_ENV"
 
+    - name: Validate release token
+      env:
+        RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -z "${RELEASE_TOKEN:-}" ]]; then
+          echo "RELEASE_TOKEN repository secret is required for publishing releases" >&2
+          exit 1
+        fi
+
     - name: Create or verify immutable build tag
+      env:
+        GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       shell: bash
       run: |
         set -euo pipefail
@@ -155,6 +168,8 @@ jobs:
         fi
 
     - name: Create or recover draft release
+      env:
+        GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       shell: bash
       run: |
         set -euo pipefail
@@ -189,6 +204,8 @@ jobs:
         fi
 
     - name: Upload and verify release assets
+      env:
+        GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       shell: bash
       run: |
         set -euo pipefail
@@ -239,6 +256,8 @@ jobs:
         done
 
     - name: Publish verified release
+      env:
+        GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       shell: bash
       run: |
         set -euo pipefail
