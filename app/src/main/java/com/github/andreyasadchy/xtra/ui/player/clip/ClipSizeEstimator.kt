@@ -6,6 +6,7 @@ import kotlin.math.roundToLong
 
 internal object ClipSizeEstimator {
     fun estimateBytes(
+        selectedDurationUs: Long,
         segments: List<ClipSegmentRef>,
         startIndex: Int,
         endIndexExclusive: Int,
@@ -14,43 +15,19 @@ internal object ClipSizeEstimator {
         if (startIndex < 0 || endIndexExclusive <= startIndex || endIndexExclusive > segments.size) {
             return null
         }
-        val selected = segments.subList(startIndex, endIndexExclusive)
-        if (selected.isNotEmpty() && selected.all { it.byteRangeLength != C.LENGTH_UNSET.toLong() }) {
-            return selected.sumOf { it.byteRangeLength.coerceAtLeast(0L) }
-        }
-        val bitrate = bitrateBitsPerSecond?.takeIf { it > 0 } ?: return null
-        val durationUs = selected.sumOf { it.durationUs }
-        return (durationUs.toDouble() / 1_000_000.0 * bitrate.toDouble() / 8.0).roundToLong()
-    }
-
-    fun estimateBytes(
-        selectedDurationUs: Long,
-        byteRangeLengths: LongArray,
-        startIndex: Int,
-        endIndexExclusive: Int,
-        bitrateBitsPerSecond: Int?,
-    ): Long? {
-        if (startIndex < 0 ||
-            endIndexExclusive <= startIndex ||
-            endIndexExclusive > byteRangeLengths.size
-        ) {
-            return null
-        }
-
-        var allRangesKnown = true
         var exactBytes = 0L
+        var allRangesKnown = true
         for (index in startIndex until endIndexExclusive) {
-            val length = byteRangeLengths[index]
-            if (length == C.LENGTH_UNSET.toLong()) {
+            val byteRangeLength = segments[index].byteRangeLength
+            if (byteRangeLength == C.LENGTH_UNSET.toLong()) {
                 allRangesKnown = false
                 break
             }
-            exactBytes += length.coerceAtLeast(0L)
+            exactBytes += byteRangeLength.coerceAtLeast(0L)
         }
         if (allRangesKnown) {
             return exactBytes
         }
-
         val bitrate = bitrateBitsPerSecond?.takeIf { it > 0 } ?: return null
         return (selectedDurationUs.toDouble() / 1_000_000.0 * bitrate.toDouble() / 8.0).roundToLong()
     }

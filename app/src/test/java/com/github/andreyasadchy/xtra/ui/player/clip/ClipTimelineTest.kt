@@ -5,6 +5,24 @@ import org.junit.Test
 
 class ClipTimelineTest {
     @Test
+    fun buildsBoundariesFromCompactSegmentDurations() {
+        assertEquals(
+            longArrayOf(0L, 2_000_000L, 5_500_000L, 6_000_000L).toList(),
+            ClipTimeline.boundariesFromDurationsUs(
+                intArrayOf(2_000_000, 3_500_000, 500_000),
+            ).toList(),
+        )
+    }
+
+    @Test
+    fun keepsManyHourTotalDurationAsLong() {
+        val segmentCount = 2_160
+        val boundaries = ClipTimeline.boundariesFromDurationsUs(IntArray(segmentCount) { 10_000_000 })
+
+        assertEquals(21_600_000_000L, boundaries.last())
+    }
+
+    @Test
     fun preservesExactFinalBoundaryForUnevenSegmentDurations() {
         val durationsUs = longArrayOf(1_500_500L, 2_001_250L, 1_998_750L)
         val boundariesUs = LongArray(durationsUs.size + 1).also { boundaries ->

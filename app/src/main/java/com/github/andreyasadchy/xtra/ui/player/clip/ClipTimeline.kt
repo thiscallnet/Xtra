@@ -2,6 +2,21 @@ package com.github.andreyasadchy.xtra.ui.player.clip
 
 /** Keeps the frozen editor timeline exact until values cross the slider's millisecond API. */
 internal object ClipTimeline {
+    fun boundariesFromDurationsUs(durationsUs: IntArray): LongArray {
+        require(durationsUs.isNotEmpty())
+
+        val result = LongArray(durationsUs.size + 1)
+        var totalUs = 0L
+        for (index in durationsUs.indices) {
+            val durationUs = durationsUs[index].toLong()
+            require(durationUs > 0L)
+            require(totalUs <= Long.MAX_VALUE - durationUs)
+            totalUs += durationUs
+            result[index + 1] = totalUs
+        }
+        return result
+    }
+
     fun normalizeBoundaries(boundariesUs: LongArray): LongArray {
         val durationUs = boundariesUs.lastOrNull()?.takeIf { it > 0L } ?: 1_000L
         return boundariesUs

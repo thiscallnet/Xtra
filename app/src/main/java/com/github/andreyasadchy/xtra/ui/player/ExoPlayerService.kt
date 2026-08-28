@@ -58,7 +58,6 @@ import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParserFactory
-import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.ParsingLoadable
@@ -238,8 +237,6 @@ class ExoPlayerService : BasePlaybackService() {
                             liveClipBufferManager.capture(manifest)
                             serviceListener?.updateLiveClipStatus()
                         }
-                    } else if (type == VIDEO) {
-                        serviceListener?.updateLiveClipStatus()
                     }
                     if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && !timeline.isEmpty && qualities?.find { it.name == AUTO_QUALITY } != null) {
                         updateQualities = quality?.name != AUDIO_ONLY_QUALITY
@@ -1524,20 +1521,10 @@ class ExoPlayerService : BasePlaybackService() {
 
     data class VodClipDescriptor(
         val previewUri: String,
-        val boundariesUs: LongArray,
+        val segmentDurationsUs: IntArray,
         val initialPositionUs: Long,
         val bitrateBitsPerSecond: Int?,
-        val byteRangeLengths: LongArray,
     )
-
-    fun canCreateVodClip(): Boolean {
-        if (type != VIDEO || hlsClipDataSourceFactory == null) return false
-        val playlist = (player?.currentManifest as? HlsManifest)?.mediaPlaylist ?: return false
-        if (playlist.protectionSchemes != null) return false
-        if (playlist.segments.any { it.drmInitData != null }) return false
-        if (playlist.segments.none { it.durationUs > 0L }) return false
-        return player?.currentMediaItem?.localConfiguration?.uri != null || quality?.url != null
-    }
 
     fun createVodClipDescriptor(): VodClipDescriptor? {
         if (type != VIDEO) return null
@@ -1547,30 +1534,35 @@ class ExoPlayerService : BasePlaybackService() {
         val previewUri = player?.currentMediaItem?.localConfiguration?.uri?.toString()
             ?: quality?.url
             ?: return null
+        val segmentDurationsUs = IntArray(snapshot.segments.size) { index ->
+            val durationUs = snapshot.segments[index].durationUs
+            require(durationUs in 1L..Int.MAX_VALUE.toLong()) {
+                "Unsupported HLS segment duration: $durationUs"
+            }
+            durationUs.toInt()
+        }
         vodClipSnapshot = snapshot
         return VodClipDescriptor(
             previewUri = previewUri,
-            boundariesUs = snapshot.boundariesUs,
+            segmentDurationsUs = segmentDurationsUs,
             initialPositionUs = (player?.currentPosition ?: 0L) * 1_000L,
             bitrateBitsPerSecond = quality?.bitrate,
-            byteRangeLengths = snapshot.segments.map { it.byteRangeLength }.toLongArray(),
         )
     }
 
-    fun createVodClipPreviewMediaSource(uri: String): MediaSource {
-        check(type == VIDEO)
-        val factory = requireNotNull(hlsClipDataSourceFactory) {
-            "VOD HLS data source is unavailable"
-        }
-        val mediaItem = MediaItem.Builder()
-            .setUri(uri)
-            .setMimeType(MimeTypes.APPLICATION_M3U8)
-            .build()
-        return HlsMediaSource.Factory(factory)
-            .apply {
-                setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
-            }
-            .createMediaSource(mediaItem)
+    fun estimateVodClipBytes(
+        startIndex: Int,
+        endIndexExclusive: Int,
+        selectedDurationUs: Long,
+    ): Long? {
+        val snapshot = vodClipSnapshot ?: return null
+        return ClipSizeEstimator.estimateBytes(
+            selectedDurationUs = selectedDurationUs,
+            segments = snapshot.segments,
+            startIndex = startIndex,
+            endIndexExclusive = endIndexExclusive,
+            bitrateBitsPerSecond = quality?.bitrate,
+        )
     }
 
     fun prepareVodClip(
@@ -1593,6 +1585,7 @@ class ExoPlayerService : BasePlaybackService() {
             val availableBytes = StatFs(cacheDir.absolutePath).availableBytes
             val safetyBytes = VOD_STORAGE_SAFETY_BYTES
             val estimatedBytes = ClipSizeEstimator.estimateBytes(
+                selectedDurationUs = selected.segments.sumOf { it.durationUs },
                 segments = selected.segments,
                 startIndex = 0,
                 endIndexExclusive = selected.segments.size,

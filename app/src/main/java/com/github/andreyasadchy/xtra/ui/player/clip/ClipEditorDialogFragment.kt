@@ -36,7 +36,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
-import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.ui.TimeBar
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.BuildConfig
@@ -65,9 +64,13 @@ class ClipEditorDialogFragment : Fragment() {
 
         fun cancelVodClipPreparation()
 
-        fun releaseVodClip(directoryPath: String)
+        fun estimateVodClipBytes(
+            startIndex: Int,
+            endIndexExclusive: Int,
+            selectedDurationUs: Long,
+        ): Long?
 
-        fun createVodClipPreviewMediaSource(uri: String): MediaSource
+        fun releaseVodClip(directoryPath: String)
     }
 
     private enum class SourceMode {
@@ -82,7 +85,6 @@ class ClipEditorDialogFragment : Fragment() {
     private var playlistFile: File? = null
     private var directory: File? = null
     private var previewUri: String? = null
-    private var byteRangeLengths = LongArray(0)
     private lateinit var boundariesUs: LongArray
     private var durationUs = 0L
     private var channelName: String? = null
@@ -147,11 +149,16 @@ class ClipEditorDialogFragment : Fragment() {
             directory = File(requireArguments().getString(ARG_DIRECTORY)!!)
         } else {
             previewUri = requireArguments().getString(ARG_PREVIEW_URI)
-            byteRangeLengths = requireArguments().getLongArray(ARG_BYTE_RANGE_LENGTHS) ?: LongArray(0)
+            boundariesUs = ClipTimeline.boundariesFromDurationsUs(
+                requireArguments().getIntArray(ARG_SEGMENT_DURATIONS_US)
+                    ?: intArrayOf(),
+            )
         }
-        boundariesUs = ClipTimeline.normalizeBoundaries(
-            requireArguments().getLongArray(ARG_BOUNDARIES) ?: longArrayOf(0L),
-        )
+        if (sourceMode == SourceMode.LIVE_PREPARED) {
+            boundariesUs = ClipTimeline.normalizeBoundaries(
+                requireArguments().getLongArray(ARG_BOUNDARIES) ?: longArrayOf(0L),
+            )
+        }
         durationUs = boundariesUs.last()
         channelName = requireArguments().getString(ARG_CHANNEL_NAME)
         previewSeekMs = requireContext().prefs()
@@ -367,18 +374,17 @@ class ClipEditorDialogFragment : Fragment() {
         binding.previewLoading.isVisible = true
         player = ExoPlayer.Builder(requireContext()).build().also { exoPlayer ->
             binding.preview.player = exoPlayer
-            val mediaSource = if (sourceMode == SourceMode.VOD_REMOTE) {
-                val host = parentFragment as? Host
-                    ?: error("VOD clip editor has no host")
-                host.createVodClipPreviewMediaSource(requireNotNull(previewUri))
+            val preview = if (sourceMode == SourceMode.VOD_REMOTE) {
+                requireNotNull(previewUri).toUri()
             } else {
-                val mediaItem = MediaItem.Builder()
-                    .setUri(requireNotNull(playlistFile).toUri())
-                    .setMimeType(MimeTypes.APPLICATION_M3U8)
-                    .build()
-                HlsMediaSource.Factory(DefaultDataSource.Factory(requireContext()))
-                    .createMediaSource(mediaItem)
+                requireNotNull(playlistFile).toUri()
             }
+            val mediaItem = MediaItem.Builder()
+                .setUri(preview)
+                .setMimeType(MimeTypes.APPLICATION_M3U8)
+                .build()
+            val mediaSource = HlsMediaSource.Factory(DefaultDataSource.Factory(requireContext()))
+                .createMediaSource(mediaItem)
             exoPlayer.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_ENDED) {
@@ -574,12 +580,10 @@ class ClipEditorDialogFragment : Fragment() {
     private fun updateVodDetails() {
         val startIndex = ClipTimeline.boundaryIndexUs(startUs, boundariesUs)
         val endIndex = ClipTimeline.boundaryIndexUs(endUs, boundariesUs)
-        val estimatedBytes = ClipSizeEstimator.estimateBytes(
-            selectedDurationUs = endUs - startUs,
-            byteRangeLengths = byteRangeLengths,
+        val estimatedBytes = (parentFragment as? Host)?.estimateVodClipBytes(
             startIndex = startIndex,
             endIndexExclusive = endIndex,
-            bitrateBitsPerSecond = arguments?.getInt(ARG_BITRATE, 0)?.takeIf { it > 0 },
+            selectedDurationUs = endUs - startUs,
         )
         binding.vodSegmentCount.text = getString(R.string.clip_editor_segment_count, (endIndex - startIndex).coerceAtLeast(0))
         if (estimatedBytes == null) {
@@ -1019,9 +1023,9 @@ class ClipEditorDialogFragment : Fragment() {
         private const val ARG_SOURCE_MODE = "sourceMode"
         private const val ARG_PREVIEW_URI = "previewUri"
         private const val ARG_BOUNDARIES = "boundariesUs"
+        private const val ARG_SEGMENT_DURATIONS_US = "segmentDurationsUs"
         private const val ARG_INITIAL_POSITION_US = "initialPositionUs"
         private const val ARG_BITRATE = "bitrateBitsPerSecond"
-        private const val ARG_BYTE_RANGE_LENGTHS = "byteRangeLengths"
         private const val ARG_CHANNEL_NAME = "channelName"
         private const val STATE_START_US = "startUs"
         private const val STATE_END_US = "endUs"
@@ -1063,19 +1067,17 @@ class ClipEditorDialogFragment : Fragment() {
 
         fun newVodInstance(
             previewUri: String,
-            boundariesUs: LongArray,
+            segmentDurationsUs: IntArray,
             initialPositionUs: Long,
             bitrateBitsPerSecond: Int?,
-            byteRangeLengths: LongArray,
             channelName: String?,
         ) = ClipEditorDialogFragment().apply {
             arguments = Bundle().apply {
                 putString(ARG_SOURCE_MODE, SourceMode.VOD_REMOTE.name)
                 putString(ARG_PREVIEW_URI, previewUri)
-                putLongArray(ARG_BOUNDARIES, boundariesUs)
+                putIntArray(ARG_SEGMENT_DURATIONS_US, segmentDurationsUs)
                 putLong(ARG_INITIAL_POSITION_US, initialPositionUs)
                 putInt(ARG_BITRATE, bitrateBitsPerSecond ?: 0)
-                putLongArray(ARG_BYTE_RANGE_LENGTHS, byteRangeLengths)
                 putString(ARG_CHANNEL_NAME, channelName)
             }
         }
