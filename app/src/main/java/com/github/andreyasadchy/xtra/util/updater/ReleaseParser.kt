@@ -56,6 +56,11 @@ object ReleaseParser {
             digest.lowercase().takeIf { it.matches(Regex("^[0-9a-f]{64}$")) }
                 ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
         }
+        val artifactSha256 = when {
+            metadata == null || !metadata.containsKey("artifacts") -> emptyMap()
+            else -> parseArtifactSha256(metadata)
+                ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
+        }
         val body = response.string("body").orEmpty().trim()
         val commits = response["commits"]?.asArrayOrNull()?.mapNotNull { it.asObjectString("message") } ?: emptyList()
         val release = UpdateRelease(
@@ -72,6 +77,7 @@ object ReleaseParser {
             draft = response.boolean("draft") ?: false,
             expectedVersionCode = expectedVersionCode,
             expectedSha256 = expectedSha256,
+            artifactSha256 = artifactSha256,
         )
         return ReleaseParseResult.Success(release)
     }
@@ -83,6 +89,19 @@ object ReleaseParser {
 
     private fun JsonObject.string(key: String): String? = this[key]?.jsonPrimitive?.contentOrNull
     private fun JsonObject.boolean(key: String): Boolean? = this[key]?.jsonPrimitive?.booleanOrNull
+    private fun parseArtifactSha256(metadata: JsonObject): Map<String, String>? {
+        val artifacts = runCatching { metadata["artifacts"]!!.jsonArray }.getOrNull() ?: return null
+        val entries = artifacts.map { element ->
+            val artifact = runCatching { element.jsonObject }.getOrNull() ?: return null
+            val name = artifact.string("name")?.takeIf { it.isNotBlank() } ?: return null
+            val digest = artifact.string("sha256")?.lowercase()
+                ?.takeIf { it.matches(Regex("^[0-9a-f]{64}$")) }
+                ?: return null
+            name to digest
+        }
+        if (entries.map { it.first }.distinct().size != entries.size) return null
+        return entries.toMap()
+    }
     private fun JsonElement.asArrayOrNull() = runCatching { jsonArray }.getOrNull()
     private fun JsonElement.asObjectString(key: String): String? = runCatching { jsonObject[key]?.jsonPrimitive?.contentOrNull }.getOrNull()
 }

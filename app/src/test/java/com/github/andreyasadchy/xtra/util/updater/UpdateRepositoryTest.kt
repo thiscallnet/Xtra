@@ -10,7 +10,10 @@ import com.github.andreyasadchy.xtra.util.C
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -42,13 +45,13 @@ class UpdateRepositoryTest {
     fun completeHistoryPaginatesStopsAtInstalledBuildAndSurvivesRecovery() {
         val preferences = MemoryPreferences()
         val source = HistoryReleaseSource(
-            latest = response("v2.58.5-build.300"),
+            latest = response("v2.58.6-build.300"),
             pages = listOf(
                 Result.success(historyPage(*(300 downTo 201).map(::buildTag).toTypedArray())),
                 Result.success(
                     historyPage(
                         *((200 downTo 122).map(::buildTag) +
-                            listOf("v2.58.5") +
+                            listOf("v2.58.6") +
                             (20 downTo 1).map { "v2.58.4-build.$it" }).toTypedArray(),
                     ),
                 ),
@@ -76,15 +79,15 @@ class UpdateRepositoryTest {
             "No notes",
         )
         assertEquals(179, recovered.releasesSinceInstalled().size)
-        assertTrue(recoveredNotes.contains("2.58.5 (build 300)"))
-        assertTrue(recoveredNotes.contains("2.58.5 (build 122)"))
-        assertFalse(recoveredNotes.contains("2.58.5 (build 121)"))
+        assertTrue(recoveredNotes.contains("2.58.6 (build 300)"))
+        assertTrue(recoveredNotes.contains("2.58.6 (build 122)"))
+        assertFalse(recoveredNotes.contains("2.58.6 (build 121)"))
     }
 
     @Test
     fun partialHistoryDoesNotPresentAFalseCumulativeChangelog() {
         val source = HistoryReleaseSource(
-            latest = response("v2.58.5-build.300"),
+            latest = response("v2.58.6-build.300"),
             pages = listOf(
                 Result.success(historyPage(*(300 downTo 201).map(::buildTag).toTypedArray())),
                 Result.failure(IOException("history page failed")),
@@ -98,13 +101,13 @@ class UpdateRepositoryTest {
         assertEquals(2, source.historyCalls)
         assertFalse(repository.releaseHistoryComplete.value)
         assertTrue(repository.releasesSinceInstalled(available.release).isEmpty())
-        assertEquals(listOf("v2.58.5-build.300"), repository.recentReleases(available.release).map { it.id })
+        assertEquals(listOf("v2.58.6-build.300"), repository.recentReleases(available.release).map { it.id })
     }
 
     @Test
     fun failedCheckRetryChecksInsteadOfDownloadingThePersistedRelease() {
-        val preferences = MemoryPreferences().apply { persistRelease("v2.58.5-build.124") }
-        val remoteRelease = response("v2.58.5-build.132")
+        val preferences = MemoryPreferences().apply { persistRelease("v2.58.6-build.124") }
+        val remoteRelease = response("v2.58.6-build.132")
         val source = QueueReleaseSource(
             listOf(Result.failure(UnknownHostException()), Result.success(remoteRelease)),
         )
@@ -114,13 +117,13 @@ class UpdateRepositoryTest {
         val error = awaitState(repository) { it is UpdateState.Error }
         assertEquals(UpdateStage.CHECK, (error as UpdateState.Error).stage)
         assertEquals(UpdatePrimaryAction.DOWNLOAD, error.primaryAction())
-        assertEquals("v2.58.5-build.124", error.downloadableRelease()?.id)
+        assertEquals("v2.58.6-build.124", error.downloadableRelease()?.id)
 
         repository.retry()
         val available = awaitState(repository) { it is UpdateState.Available }
-        assertEquals("v2.58.5-build.132", (available as UpdateState.Available).release.id)
+        assertEquals("v2.58.6-build.132", (available as UpdateState.Available).release.id)
         assertEquals(2, source.calls)
-        assertEquals("v2.58.5-build.132", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+        assertEquals("v2.58.6-build.132", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
     }
 
     @Test
@@ -128,7 +131,7 @@ class UpdateRepositoryTest {
         val preferences = MemoryPreferences()
         val repository = UpdateRepository(
             TestContext(preferences),
-            QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.173", expectedVersionCode = 294L)))),
+            QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.173", expectedVersionCode = 294L)))),
             null,
         )
 
@@ -142,9 +145,79 @@ class UpdateRepositoryTest {
     }
 
     @Test
+    fun selectedAbiSha256SurvivesPersistedReleaseRecovery() {
+        val preferences = MemoryPreferences()
+        val universalSha = "a".repeat(64)
+        val arm64Sha = "b".repeat(64)
+        val arm64Asset = UpdateAsset(
+            name = "app-arm64-v8a-release.apk",
+            contentType = UpdateRepository.APK_MIME_TYPE,
+            downloadUrl = "https://example.test/app-arm64-v8a-release.apk",
+            size = 10L,
+        )
+        val release = UpdateRelease(
+            tagName = "v2.58.6",
+            versionName = "2.58.6",
+            buildNumber = null,
+            title = "Xtra 2.58.6",
+            releaseNotes = emptyList(),
+            rawBody = "",
+            releaseUrl = "https://example.test/releases/1",
+            publishedAt = null,
+            assets = listOf(
+                UpdateAsset("app-release.apk", UpdateRepository.APK_MIME_TYPE, "https://example.test/app-release.apk", 10L),
+                arm64Asset,
+            ),
+            prerelease = false,
+            draft = false,
+            expectedVersionCode = 294L,
+            expectedSha256 = universalSha,
+            artifactSha256 = mapOf(arm64Asset.name to arm64Sha),
+        )
+        val repository = UpdateRepository(TestContext(preferences), QueueReleaseSource(emptyList()), null)
+        val replace = UpdateRepository::class.java.getDeclaredMethod(
+            "replacePersistedRelease",
+            UpdateRelease::class.java,
+            UpdateAsset::class.java,
+        ).apply { isAccessible = true }
+        replace.invoke(repository, release, arm64Asset)
+
+        assertEquals(arm64Sha, preferences.getString(C.UPDATE_AVAILABLE_EXPECTED_SHA256, null))
+
+        val recovered = UpdateRepository(TestContext(preferences), QueueReleaseSource(emptyList()), null)
+        val load = UpdateRepository::class.java.getDeclaredMethod("loadPersistedRelease").apply { isAccessible = true }
+        val recoveredRelease = load.invoke(recovered) as UpdateRelease
+        assertEquals(arm64Sha, recoveredRelease.expectedSha256)
+        assertEquals(arm64Sha, recoveredRelease.expectedSha256For(recoveredRelease.assets.single()))
+    }
+
+    @Test
+    fun checkAndDownloadUseTheSelectedAbiSha256() {
+        val universalSha = "a".repeat(64)
+        val arm64Sha = "b".repeat(64)
+        val downloads = MemoryDownloadStore()
+        val repository = UpdateRepository(
+            TestContext(MemoryPreferences()),
+            QueueReleaseSource(listOf(Result.success(responseWithArtifact("v2.58.7", arm64Sha)))),
+            downloads,
+            supportedAbis = { listOf("arm64-v8a") },
+        )
+
+        repository.check(null)
+        val available = awaitState(repository) { it is UpdateState.Available } as UpdateState.Available
+        assertEquals(arm64Sha, available.release.expectedSha256)
+        assertTrue(available.release.expectedSha256 != universalSha)
+
+        repository.download(available.release)
+        val downloading = awaitState(repository) { it is UpdateState.Downloading } as UpdateState.Downloading
+        assertEquals(arm64Sha, downloading.release.expectedSha256)
+        assertEquals(arm64Sha, downloads.enqueuedRelease?.expectedSha256)
+    }
+
+    @Test
     fun assetSelectionFailurePreservesAnOlderDownloadAction() {
-        val preferences = MemoryPreferences().apply { persistRelease("v2.58.5-build.124") }
-        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.132", includeApk = false))))
+        val preferences = MemoryPreferences().apply { persistRelease("v2.58.6-build.124") }
+        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.132", includeApk = false))))
         val repository = UpdateRepository(TestContext(preferences), source, null)
 
         repository.check(null)
@@ -153,16 +226,16 @@ class UpdateRepositoryTest {
         assertEquals(UpdateStage.ASSET_SELECTION, error.stage)
         assertEquals(UpdateError.MissingApk, error.cause)
         assertEquals(UpdatePrimaryAction.DOWNLOAD, error.primaryAction())
-        assertEquals("v2.58.5-build.124", error.downloadableRelease()?.id)
+        assertEquals("v2.58.6-build.124", error.downloadableRelease()?.id)
         assertTrue(error.hasActionableUpdate())
-        assertEquals("v2.58.5-build.124", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+        assertEquals("v2.58.6-build.124", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
     }
 
     @Test
     fun downloadedReleaseSurvivesFailedRefresh() {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
         val source = QueueReleaseSource(listOf(Result.failure(UnknownHostException())))
@@ -173,11 +246,11 @@ class UpdateRepositoryTest {
         val error = awaitState(repository) { it is UpdateState.Error } as UpdateState.Error
 
         assertEquals(UpdateStage.CHECK, error.stage)
-        assertEquals("v2.58.5-build.125", error.release?.id)
+        assertEquals("v2.58.6-build.125", error.release?.id)
         assertEquals(UpdatePrimaryAction.INSTALL, error.primaryAction())
         assertTrue(error.hasActionableUpdate())
         assertNotNull(error.artifact)
-        assertEquals("v2.58.5-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+        assertEquals("v2.58.6-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
         assertTrue(downloads.records.containsKey(125L))
     }
 
@@ -185,10 +258,10 @@ class UpdateRepositoryTest {
     fun downloadedReleaseSurvivesNewerReleaseWithMissingApk() {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
-        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.126", includeApk = false))))
+        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.126", includeApk = false))))
         val repository = UpdateRepository(TestContext(preferences), source, downloadStore = downloads)
 
         awaitState(repository) { it is UpdateState.Downloaded }
@@ -197,38 +270,38 @@ class UpdateRepositoryTest {
 
         assertEquals(UpdateStage.ASSET_SELECTION, error.stage)
         assertEquals(UpdateError.MissingApk, error.cause)
-        assertEquals("v2.58.5-build.125", error.release?.id)
+        assertEquals("v2.58.6-build.125", error.release?.id)
         assertEquals(UpdatePrimaryAction.INSTALL, error.primaryAction())
         assertTrue(downloads.records.containsKey(125L))
-        assertEquals("v2.58.5-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+        assertEquals("v2.58.6-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
     }
 
     @Test
     fun validNewerReleaseReplacesDownloadedOlderReleaseAfterAssetValidation() {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
-        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.126"))))
+        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.126"))))
         val repository = UpdateRepository(TestContext(preferences), source, downloadStore = downloads)
 
         awaitState(repository) { it is UpdateState.Downloaded }
         repository.check(null)
         val available = awaitState(repository) { it is UpdateState.Available } as UpdateState.Available
 
-        assertEquals("v2.58.5-build.126", available.release.id)
+        assertEquals("v2.58.6-build.126", available.release.id)
         assertFalse(downloads.records.containsKey(125L))
         assertEquals(listOf(125L), downloads.removed)
-        assertEquals("v2.58.5-build.126", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+        assertEquals("v2.58.6-build.126", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
         assertNull(preferences.getString(C.UPDATE_DOWNLOAD_FILE, null))
     }
 
     @Test
     fun staleReleaseDownloadActionIsRejectedAfterARefresh() {
-        val preferences = MemoryPreferences().apply { persistRelease("v2.58.5-build.125") }
+        val preferences = MemoryPreferences().apply { persistRelease("v2.58.6-build.125") }
         val downloads = MemoryDownloadStore()
-        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.126"))))
+        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.126"))))
         val repository = UpdateRepository(
             TestContext(preferences),
             source,
@@ -237,25 +310,25 @@ class UpdateRepositoryTest {
 
         val oldRelease = (awaitState(repository) { it is UpdateState.Available } as UpdateState.Available).release
         repository.check(null)
-        awaitState(repository) { it is UpdateState.Available && it.release.id == "v2.58.5-build.126" }
+        awaitState(repository) { it is UpdateState.Available && it.release.id == "v2.58.6-build.126" }
 
         repository.download(oldRelease)
         Thread.sleep(100)
 
-        assertEquals("v2.58.5-build.126", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+        assertEquals("v2.58.6-build.126", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
         assertTrue(downloads.records.isEmpty())
         assertTrue(downloads.removed.isEmpty())
     }
 
     @Test
     fun staleSkipAndDeferActionsCannotChangeTheRefreshedCandidate() {
-        val preferences = MemoryPreferences().apply { persistRelease("v2.58.5-build.125") }
-        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.126"))))
+        val preferences = MemoryPreferences().apply { persistRelease("v2.58.6-build.125") }
+        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.126"))))
         val repository = UpdateRepository(TestContext(preferences), source, null)
 
         val oldRelease = (awaitState(repository) { it is UpdateState.Available } as UpdateState.Available).release
         repository.check(null)
-        awaitState(repository) { it is UpdateState.Available && it.release.id == "v2.58.5-build.126" }
+        awaitState(repository) { it is UpdateState.Available && it.release.id == "v2.58.6-build.126" }
 
         repository.skip(oldRelease)
         repository.defer(oldRelease)
@@ -263,13 +336,13 @@ class UpdateRepositoryTest {
 
         assertNull(preferences.getString(C.UPDATE_IGNORED_VERSION, null))
         assertNull(preferences.getString(C.UPDATE_NOT_NOW_VERSION, null))
-        assertEquals("v2.58.5-build.126", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+        assertEquals("v2.58.6-build.126", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
         assertTrue(repository.state.value is UpdateState.Available)
     }
 
     @Test
     fun availableReleaseSurvivesFailedRefreshAndRemainsDownloadable() {
-        val preferences = MemoryPreferences().apply { persistRelease("v2.58.5-build.125") }
+        val preferences = MemoryPreferences().apply { persistRelease("v2.58.6-build.125") }
         val source = QueueReleaseSource(listOf(Result.failure(UnknownHostException())))
         val repository = UpdateRepository(TestContext(preferences), source)
 
@@ -279,9 +352,9 @@ class UpdateRepositoryTest {
 
         assertEquals(UpdateStage.CHECK, error.stage)
         assertEquals(UpdatePrimaryAction.DOWNLOAD, error.primaryAction())
-        assertEquals("v2.58.5-build.125", error.downloadableRelease()?.id)
+        assertEquals("v2.58.6-build.125", error.downloadableRelease()?.id)
         assertTrue(error.hasActionableUpdate())
-        assertEquals("v2.58.5-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+        assertEquals("v2.58.6-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
     }
 
     @Test
@@ -302,7 +375,7 @@ class UpdateRepositoryTest {
     fun currentReleaseWithMissingApkReportsUpToDate() {
         val repository = UpdateRepository(
             TestContext(MemoryPreferences()),
-            QueueReleaseSource(listOf(Result.success(response("v2.58.5", includeApk = false)))),
+            QueueReleaseSource(listOf(Result.success(response("v2.58.6", includeApk = false)))),
             null,
         )
 
@@ -314,7 +387,7 @@ class UpdateRepositoryTest {
 
     @Test
     fun manualCheckOfSkippedReleaseIsDirectlyDownloadable() {
-        val releaseId = "v2.58.5-build.132"
+        val releaseId = "v2.58.6-build.132"
         val preferences = MemoryPreferences().apply {
             edit { putString(C.UPDATE_IGNORED_VERSION, releaseId) }
         }
@@ -334,7 +407,7 @@ class UpdateRepositoryTest {
 
     @Test
     fun notNowIsDeferredAutomaticallyButDirectlyDownloadableAfterManualCheck() {
-        val releaseId = "v2.58.5-build.132"
+        val releaseId = "v2.58.6-build.132"
         val preferences = MemoryPreferences()
         val repository = UpdateRepository(
             TestContext(preferences),
@@ -360,7 +433,7 @@ class UpdateRepositoryTest {
 
     @Test
     fun automaticCheckFailureWhileDeferredStaysQuiet() {
-        val releaseId = "v2.58.5-build.132"
+        val releaseId = "v2.58.6-build.132"
         val preferences = MemoryPreferences().apply {
             persistRelease(releaseId)
             edit {
@@ -385,7 +458,7 @@ class UpdateRepositoryTest {
     fun manualCheckDoesNotEmitAnAutomaticPromptEvent() = runBlocking {
         val repository = UpdateRepository(
             TestContext(MemoryPreferences()),
-            QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.132")))),
+            QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.132")))),
             null,
         )
         val events = mutableListOf<String>()
@@ -407,7 +480,7 @@ class UpdateRepositoryTest {
         val preferences = MemoryPreferences()
         val repository = UpdateRepository(
             TestContext(preferences),
-            QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.132")))),
+            QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.132")))),
             null,
         )
 
@@ -419,7 +492,7 @@ class UpdateRepositoryTest {
 
     @Test
     fun automaticCheckPersistsAnAutomaticPrompt() {
-        val releaseId = "v2.58.5-build.132"
+        val releaseId = "v2.58.6-build.132"
         val preferences = MemoryPreferences()
         val repository = UpdateRepository(
             TestContext(preferences),
@@ -438,20 +511,20 @@ class UpdateRepositoryTest {
         val now = System.currentTimeMillis()
         val preferences = MemoryPreferences().apply {
             edit {
-                putString(C.UPDATE_NOTIFIED_VERSION, "v2.58.5-build.132")
+                putString(C.UPDATE_NOTIFIED_VERSION, "v2.58.6-build.132")
                 putLong(C.UPDATE_NOTIFICATION_SUPPRESSED_UNTIL, now + 24L * 60L * 60L * 1_000L)
             }
         }
 
-        assertTrue(isUpdateNotificationSuppressed(preferences, "v2.58.5-build.132", now))
-        assertFalse(isUpdateNotificationSuppressed(preferences, "v2.58.5-build.132", now + 24L * 60L * 60L * 1_000L + 1L))
+        assertTrue(isUpdateNotificationSuppressed(preferences, "v2.58.6-build.132", now))
+        assertFalse(isUpdateNotificationSuppressed(preferences, "v2.58.6-build.132", now + 24L * 60L * 60L * 1_000L + 1L))
     }
 
     @Test
     fun automaticCheckEmitsOnlyTheOneShotPromptEventForANewCandidate() = runBlocking {
         val repository = UpdateRepository(
             TestContext(MemoryPreferences()),
-            QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.132")))),
+            QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.132")))),
             null,
         )
         val events = mutableListOf<String>()
@@ -465,12 +538,12 @@ class UpdateRepositoryTest {
         delay(100)
         collector.cancel()
 
-        assertEquals(listOf("v2.58.5-build.132"), events)
+        assertEquals(listOf("v2.58.6-build.132"), events)
     }
 
     @Test
     fun automaticCheckPromptsAgainAfterDeferredReleaseExpires() = runBlocking {
-        val releaseId = "v2.58.5-build.132"
+        val releaseId = "v2.58.6-build.132"
         val preferences = MemoryPreferences()
         val repository = UpdateRepository(
             TestContext(preferences),
@@ -508,12 +581,12 @@ class UpdateRepositoryTest {
     fun automaticCheckWithDownloadedCurrentReleaseDoesNotEmitPrompt() = runBlocking {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
         val repository = UpdateRepository(
             TestContext(preferences),
-            QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.125")))),
+            QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.125")))),
             downloadStore = downloads,
         )
         awaitState(repository) { it is UpdateState.Downloaded }
@@ -535,12 +608,12 @@ class UpdateRepositoryTest {
     fun automaticCheckWithDownloadedReleaseDiscoversNewerReleaseAndEmitsOnePrompt() = runBlocking {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
         val repository = UpdateRepository(
             TestContext(preferences),
-            QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.126")))),
+            QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.126")))),
             downloadStore = downloads,
         )
         awaitState(repository) { it is UpdateState.Downloaded }
@@ -551,17 +624,17 @@ class UpdateRepositoryTest {
         delay(50)
 
         repository.check(null, automatic = true)
-        awaitState(repository) { it is UpdateState.Available && it.release.id == "v2.58.5-build.126" }
+        awaitState(repository) { it is UpdateState.Available && it.release.id == "v2.58.6-build.126" }
         delay(100)
         collector.cancel()
 
-        assertEquals(listOf("v2.58.5-build.126"), events)
+        assertEquals(listOf("v2.58.6-build.126"), events)
         assertTrue(downloads.removed.contains(125L))
     }
 
     @Test
     fun explicitDownloadClearsSuppressionAndSurvivesSubsequentAutomaticChecks() = runBlocking {
-        val releaseId = "v2.58.5-build.125"
+        val releaseId = "v2.58.6-build.125"
         val preferences = MemoryPreferences().apply {
             persistRelease(releaseId)
             edit {
@@ -607,11 +680,11 @@ class UpdateRepositoryTest {
     @Test
     fun automaticCheckWithFailedPersistedDownloadDoesNotEmitDiscoveryPromptForErrorState() = runBlocking {
         val preferences = MemoryPreferences().apply {
-            persistDownloadedRelease("v2.58.5-build.125", 125L)
+            persistDownloadedRelease("v2.58.6-build.125", 125L)
         }
         val repository = UpdateRepository(
             TestContext(preferences),
-            QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.125")))),
+            QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.125")))),
             downloadStore = ThrowingDownloadStore(),
         )
         awaitState(repository) { it is UpdateState.Error }
@@ -634,7 +707,7 @@ class UpdateRepositoryTest {
     fun downloadCompletionEntryPointReturnsAfterStateIsDurable() = runBlocking {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = UpdateDownloadRecord(
                 status = DownloadManager.STATUS_RUNNING,
                 downloadedBytes = 5L,
@@ -659,10 +732,10 @@ class UpdateRepositoryTest {
     fun checkWinsAndAnInstallCannotStartAfterItClaimsTheCheckOperation() = runBlocking {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
-        val source = BlockingReleaseSource(response("v2.58.5-build.126"))
+        val source = BlockingReleaseSource(response("v2.58.6-build.126"))
         val preparer = RecordingInstallPreparer(preferences)
         val repository = UpdateRepository(
             TestContext(preferences),
@@ -679,21 +752,21 @@ class UpdateRepositoryTest {
         repository.install()
         source.release.complete(Unit)
         awaitCheck(repository)
-        awaitState(repository) { it is UpdateState.Available && it.release.id == "v2.58.5-build.126" }
+        awaitState(repository) { it is UpdateState.Available && it.release.id == "v2.58.6-build.126" }
         delay(100)
 
         assertEquals(0, preparer.prepareCalls)
-        assertEquals("v2.58.5-build.126", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+        assertEquals("v2.58.6-build.126", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
     }
 
     @Test
     fun installWinsAndCheckLeavesItsReleaseAuthoritativeUntilInstallTerminates() = runBlocking {
         val preferences = MemoryPreferences().apply {
-            persistDownloadedRelease("v2.58.5-build.125", 125L)
+            persistDownloadedRelease("v2.58.6-build.125", 125L)
         }
         val downloads = MemoryDownloadStore().apply { records[125L] = successfulRecord() }
         val preparer = BlockingCommitInstallPreparer()
-        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.126"))))
+        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.126"))))
         val repository = UpdateRepository(
             TestContext(preferences),
             source,
@@ -711,7 +784,7 @@ class UpdateRepositoryTest {
             delay(100)
 
             assertTrue(repository.state.value is UpdateState.Installing)
-            assertEquals("v2.58.5-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+            assertEquals("v2.58.6-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
             assertEquals(0, source.calls)
         } finally {
             preparer.releaseCommit.countDown()
@@ -720,7 +793,7 @@ class UpdateRepositoryTest {
         awaitCondition { preparer.commitReturned }
         delay(100)
         assertTrue(repository.state.value is UpdateState.Installing)
-        assertEquals("v2.58.5-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+        assertEquals("v2.58.6-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
         assertEquals(0, source.calls)
     }
 
@@ -728,10 +801,10 @@ class UpdateRepositoryTest {
     fun failedInFlightCheckCannotOverwriteInstallingState() = runBlocking {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
-        val source = BlockingReleaseSource(response("v2.58.5-build.126", includeApk = false))
+        val source = BlockingReleaseSource(response("v2.58.6-build.126", includeApk = false))
         val preparer = BlockingCommitInstallPreparer()
         val repository = UpdateRepository(
             TestContext(preferences),
@@ -756,21 +829,21 @@ class UpdateRepositoryTest {
             delay(100)
 
             assertTrue(repository.state.value is UpdateState.Installing)
-            assertEquals("v2.58.5-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+            assertEquals("v2.58.6-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
         } finally {
             preparer.releaseCommit.countDown()
         }
 
         awaitCheck(repository)
         assertTrue(repository.state.value is UpdateState.Installing)
-        assertEquals("v2.58.5-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
+        assertEquals("v2.58.6-build.125", preferences.getString(C.UPDATE_AVAILABLE_VERSION, null))
     }
 
     @Test
     fun cancellationWinsOverAnInFlightDownloadReconciliation() = runBlocking {
         val preferences = MemoryPreferences()
         val downloads = BlockingQueryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
         val repository = UpdateRepository(
@@ -805,7 +878,7 @@ class UpdateRepositoryTest {
     fun staleInstallCallbackDoesNotConsumeTheCurrentUpdate() = runBlocking {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
         val repository = UpdateRepository(
@@ -816,7 +889,7 @@ class UpdateRepositoryTest {
         awaitState(repository) { it is UpdateState.Downloaded }
 
         setPrivateField(repository, "activeInstallSessionId", 42)
-        setPrivateField(repository, "activeInstallReleaseId", "v2.58.5-build.125")
+        setPrivateField(repository, "activeInstallReleaseId", "v2.58.6-build.125")
         repository.handleInstallResult(
             android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED,
             callbackReleaseId = "v2.58.4-build.124",
@@ -831,7 +904,7 @@ class UpdateRepositoryTest {
     fun installSessionOwnershipIsPersistedBeforeCommit() {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
         val preparer = RecordingInstallPreparer(preferences)
@@ -847,17 +920,17 @@ class UpdateRepositoryTest {
         awaitState(repository) { preparer.commitSawSessionId != null }
 
         assertEquals(42, preparer.commitSawSessionId)
-        assertEquals("v2.58.5-build.125", preparer.commitSawReleaseId)
+        assertEquals("v2.58.6-build.125", preparer.commitSawReleaseId)
         assertTrue(preparer.commitSawCommitStarted)
         assertEquals(42, preferences.getInt(C.UPDATE_INSTALL_SESSION_ID, -1))
-        assertEquals("v2.58.5-build.125", preferences.getString(C.UPDATE_INSTALL_RELEASE_ID, null))
+        assertEquals("v2.58.6-build.125", preferences.getString(C.UPDATE_INSTALL_RELEASE_ID, null))
     }
 
     @Test
     fun commitFailureRestoresTheDownloadedStateAndClearsSessionOwnership() {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
         val preparer = RecordingInstallPreparer(preferences, failCommit = true)
@@ -880,7 +953,7 @@ class UpdateRepositoryTest {
     fun prepareFailureDoesNotLeaveInstallOwnershipBehind() {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
         val preparer = RecordingInstallPreparer(preferences, failPrepare = true)
@@ -905,7 +978,7 @@ class UpdateRepositoryTest {
     @Test
     fun missingDownloadedArtifactBecomesRetryableDownloadAndRetryQueuesFreshDownload() = runBlocking {
         val preferences = MemoryPreferences().apply {
-            persistDownloadedRelease("v2.58.5-build.125", 125L)
+            persistDownloadedRelease("v2.58.6-build.125", 125L)
         }
         val downloads = MemoryDownloadStore().apply { records[125L] = successfulRecord() }
         val repository = UpdateRepository(
@@ -923,7 +996,7 @@ class UpdateRepositoryTest {
 
         assertEquals(UpdateStage.DOWNLOAD, error.stage)
         assertTrue(error.retryable)
-        assertEquals("v2.58.5-build.125", error.release?.id)
+        assertEquals("v2.58.6-build.125", error.release?.id)
         assertNull(error.artifact)
         assertEquals(UpdateRetryAction.DOWNLOAD, error.retryAction())
         assertTrue(downloads.removed.contains(125L))
@@ -939,7 +1012,7 @@ class UpdateRepositoryTest {
     fun repeatedInstallTapsPrepareOnlyOneSession() {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
         val preparer = RecordingInstallPreparer(preferences)
@@ -963,7 +1036,7 @@ class UpdateRepositoryTest {
     fun processDeathAfterCommitKeepsTheOwnedSessionUntilItsCallback() = runBlocking {
         val preferences = MemoryPreferences()
         val downloads = MemoryDownloadStore().apply {
-            preferences.persistDownloadedRelease("v2.58.5-build.125", 125L)
+            preferences.persistDownloadedRelease("v2.58.6-build.125", 125L)
             records[125L] = successfulRecord()
         }
         val preparer = RecordingInstallPreparer(preferences)
@@ -1000,7 +1073,7 @@ class UpdateRepositoryTest {
 
         recovered.handleInstallResult(
             android.content.pm.PackageInstaller.STATUS_SUCCESS,
-            callbackReleaseId = "v2.58.5-build.125",
+            callbackReleaseId = "v2.58.6-build.125",
             callbackSessionId = 42,
         )
 
@@ -1011,10 +1084,10 @@ class UpdateRepositoryTest {
     @Test
     fun legacyPlatformRecoveryRecommitsWhenCommitWasPersistedBeforeSessionCommit() {
         val preferences = MemoryPreferences().apply {
-            persistRelease("v2.58.5-build.125")
+            persistRelease("v2.58.6-build.125")
             edit {
                 putInt(C.UPDATE_INSTALL_SESSION_ID, 42)
-                putString(C.UPDATE_INSTALL_RELEASE_ID, "v2.58.5-build.125")
+                putString(C.UPDATE_INSTALL_RELEASE_ID, "v2.58.6-build.125")
                 putBoolean(C.UPDATE_INSTALL_COMMIT_STARTED, true)
             }
         }
@@ -1043,8 +1116,8 @@ class UpdateRepositoryTest {
     @Test
     fun legacyPlatformRecoveryFallsBackToTheDownloadedApkWhenRecommitFails() {
         val preferences = MemoryPreferences().apply {
-            persistDownloadedRelease("v2.58.5-build.125", 125L)
-            putInstallOwnership(sessionId = 42, releaseId = "v2.58.5-build.125", commitStarted = true)
+            persistDownloadedRelease("v2.58.6-build.125", 125L)
+            putInstallOwnership(sessionId = 42, releaseId = "v2.58.6-build.125", commitStarted = true)
         }
         val downloads = MemoryDownloadStore().apply { records[125L] = successfulRecord() }
         val sessions = RecordingInstallSessionStore(
@@ -1074,10 +1147,10 @@ class UpdateRepositoryTest {
     @Test
     fun resetAbandonsAnActiveInstallSessionBeforeClearingOwnership() {
         val preferences = MemoryPreferences().apply {
-            persistRelease("v2.58.5-build.125")
+            persistRelease("v2.58.6-build.125")
             edit {
                 putInt(C.UPDATE_INSTALL_SESSION_ID, 42)
-                putString(C.UPDATE_INSTALL_RELEASE_ID, "v2.58.5-build.125")
+                putString(C.UPDATE_INSTALL_RELEASE_ID, "v2.58.6-build.125")
             }
         }
         val sessions = RecordingInstallSessionStore(
@@ -1102,8 +1175,8 @@ class UpdateRepositoryTest {
     @Test
     fun resetSerializesAnInstallFailureCallbackAndEndsIdle() = runBlocking {
         val preferences = MemoryPreferences().apply {
-            persistDownloadedRelease("v2.58.5-build.125", 125L)
-            putInstallOwnership(sessionId = 42, releaseId = "v2.58.5-build.125", commitStarted = true)
+            persistDownloadedRelease("v2.58.6-build.125", 125L)
+            putInstallOwnership(sessionId = 42, releaseId = "v2.58.6-build.125", commitStarted = true)
         }
         val downloads = BlockingQueryDownloadStore().apply {
             records[125L] = successfulRecord()
@@ -1123,7 +1196,7 @@ class UpdateRepositoryTest {
         val callback = launch(Dispatchers.Default) {
             repository.handleInstallResult(
                 android.content.pm.PackageInstaller.STATUS_FAILURE_ABORTED,
-                callbackReleaseId = "v2.58.5-build.125",
+                callbackReleaseId = "v2.58.6-build.125",
                 callbackSessionId = 42,
             )
         }
@@ -1141,7 +1214,7 @@ class UpdateRepositoryTest {
 
     @Test
     fun pendingInstallCanBeExplicitlyContinuedAfterAutomaticResume() = runBlocking {
-        val releaseId = "v2.58.5-build.125"
+        val releaseId = "v2.58.6-build.125"
         val preferences = MemoryPreferences().apply {
             persistRelease(releaseId)
             putInstallOwnership(sessionId = 42, releaseId = releaseId, commitStarted = true)
@@ -1191,7 +1264,7 @@ class UpdateRepositoryTest {
         val settingsPreferences = MemoryPreferences().apply {
             edit { putBoolean(C.UPDATE_CHECK_ENABLED, false) }
         }
-        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.132"))))
+        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.132"))))
         val repository = UpdateRepository(TestContext(tokenPreferences, settingsPreferences), source, null)
 
         repository.checkIfDue(null)
@@ -1216,7 +1289,7 @@ class UpdateRepositoryTest {
                 putString(C.UPDATE_CHECK_FREQUENCY, UpdateCheckFrequency.EVERY_6_HOURS.preferenceValue)
             }
         }
-        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.132"))))
+        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.132"))))
         val repository = UpdateRepository(TestContext(tokenPreferences, settingsPreferences), source, null)
 
         repository.checkIfDue(null)
@@ -1228,7 +1301,7 @@ class UpdateRepositoryTest {
     @Test
     fun workerOwnedCheckIsCancelledWithTheCallingCoroutine() = runBlocking {
         val preferences = MemoryPreferences()
-        val source = CancellableBlockingReleaseSource(response("v2.58.5-build.132"))
+        val source = CancellableBlockingReleaseSource(response("v2.58.6-build.132"))
         val repository = UpdateRepository(TestContext(preferences), source, null)
 
         val workerCheck = launch {
@@ -1254,7 +1327,7 @@ class UpdateRepositoryTest {
     @Test
     fun resetCancelsWorkerOwnedCheck() = runBlocking {
         val preferences = MemoryPreferences()
-        val source = CancellableBlockingReleaseSource(response("v2.58.5-build.132"))
+        val source = CancellableBlockingReleaseSource(response("v2.58.6-build.132"))
         val repository = UpdateRepository(TestContext(preferences), source, null)
 
         launch {
@@ -1276,7 +1349,7 @@ class UpdateRepositoryTest {
     @Test
     fun resetCancelsInFlightCheckAndLeavesNoPreResetStateOrPrompt() = runBlocking {
         val preferences = MemoryPreferences()
-        val source = BlockingReleaseSource(response("v2.58.5-build.132"))
+        val source = BlockingReleaseSource(response("v2.58.6-build.132"))
         val repository = UpdateRepository(TestContext(preferences), source, null)
         val events = mutableListOf<String>()
         val collector = launch(Dispatchers.Default) {
@@ -1303,7 +1376,7 @@ class UpdateRepositoryTest {
     @Test
     fun resetCancelsAQueuedCheckWithoutLeakingTheCheckLock() {
         val dispatcher = QueuedDispatcher()
-        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.5-build.132"))))
+        val source = QueueReleaseSource(listOf(Result.success(response("v2.58.6-build.132"))))
         val repository = UpdateRepository(
             TestContext(MemoryPreferences()),
             source,
@@ -1373,7 +1446,45 @@ class UpdateRepositoryTest {
         ).jsonObject
     }
 
-    private fun buildTag(build: Int): String = "v2.58.5-build.$build"
+    private fun responseWithArtifact(tag: String, artifactSha: String): JsonObject {
+        return JsonObject(
+            response(tag).toMutableMap().apply {
+                    put(
+                    "xtra_release_metadata",
+                    kotlinx.serialization.json.buildJsonObject {
+                        put("versionName", "2.58.7")
+                        put("versionCode", 294L)
+                        put("sha256", "a".repeat(64))
+                        put("artifacts", kotlinx.serialization.json.buildJsonArray {
+                            add(kotlinx.serialization.json.buildJsonObject {
+                                put("name", "app-arm64-v8a-release.apk")
+                                put("sha256", artifactSha)
+                            })
+                        })
+                    },
+                )
+                put(
+                    "assets",
+                    kotlinx.serialization.json.buildJsonArray {
+                        add(kotlinx.serialization.json.buildJsonObject {
+                            put("name", "app-release.apk")
+                            put("content_type", UpdateRepository.APK_MIME_TYPE)
+                            put("browser_download_url", "https://example.test/app-release.apk")
+                            put("size", 10L)
+                        })
+                        add(kotlinx.serialization.json.buildJsonObject {
+                            put("name", "app-arm64-v8a-release.apk")
+                            put("content_type", UpdateRepository.APK_MIME_TYPE)
+                            put("browser_download_url", "https://example.test/app-arm64-v8a-release.apk")
+                            put("size", 10L)
+                        })
+                    },
+                )
+            },
+        )
+    }
+
+    private fun buildTag(build: Int): String = "v2.58.6-build.$build"
 
     private fun historyPage(vararg tags: String): JsonArray = JsonArray(tags.map(::response))
 
@@ -1488,9 +1599,11 @@ class UpdateRepositoryTest {
         val records = mutableMapOf<Long, UpdateDownloadRecord>()
         val removed = mutableListOf<Long>()
         val enqueued = mutableListOf<Long>()
+        var enqueuedRelease: UpdateRelease? = null
         private var nextId = 1000L
 
         override fun enqueue(release: UpdateRelease, asset: UpdateAsset, fileName: String): Long {
+            enqueuedRelease = release
             val id = nextId++
             enqueued += id
             records[id] = UpdateDownloadRecord(DownloadManager.STATUS_PENDING, 0L, asset.size, null)

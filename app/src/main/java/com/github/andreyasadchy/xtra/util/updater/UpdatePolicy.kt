@@ -170,24 +170,33 @@ object UpdatePolicy {
     private fun versionParts(value: String): List<Int> = semanticVersion.find(value)?.groupValues?.get(1)
         ?.split('.')?.mapNotNull { it.toIntOrNull() }.orEmpty()
 
-    fun selectAsset(release: UpdateRelease?): Result<UpdateAsset> {
+    fun selectAsset(release: UpdateRelease?, supportedAbis: List<String>): Result<UpdateAsset> {
         if (release == null) return Result.failure(UpdateException(UpdateError.UnexpectedResponse, stage = UpdateStage.ASSET_SELECTION))
-        val candidates = release.assets.filter(::isCandidate)
-        if (candidates.isEmpty()) return Result.failure(UpdateException(UpdateError.MissingApk, stage = UpdateStage.ASSET_SELECTION))
-        val preferred = candidates.filter { it.name.equals("app-release.apk", ignoreCase = true) }
-        if (preferred.size == 1) return Result.success(preferred.single())
-        if (candidates.size != 1) return Result.failure(UpdateException(UpdateError.AmbiguousApk, stage = UpdateStage.ASSET_SELECTION))
-        return Result.success(candidates.single())
+        supportedAbis.forEach { abi ->
+            val expectedName = abiAssetNames[abi] ?: return@forEach
+            release.assets.firstOrNull { it.name == expectedName && isDownloadableApk(it) }?.let {
+                return Result.success(it)
+            }
+        }
+        release.assets.firstOrNull { it.name == UNIVERSAL_APK_NAME && isDownloadableApk(it) }?.let {
+            return Result.success(it)
+        }
+        return Result.failure(UpdateException(UpdateError.MissingApk, stage = UpdateStage.ASSET_SELECTION))
     }
 
-    private fun isCandidate(asset: UpdateAsset): Boolean {
-        val name = asset.name.lowercase()
-        if (!name.endsWith(".apk")) return false
-        if (listOf("debug", "source", "mapping", "unsigned", "unaligned").any(name::contains)) return false
+    private fun isDownloadableApk(asset: UpdateAsset): Boolean {
         if (asset.downloadUrl.isBlank()) return false
         return asset.contentType.isNullOrBlank() || asset.contentType.equals("application/vnd.android.package-archive", true) ||
             asset.contentType.equals("application/octet-stream", true)
     }
+
+    private const val UNIVERSAL_APK_NAME = "app-release.apk"
+    private val abiAssetNames = mapOf(
+        "arm64-v8a" to "app-arm64-v8a-release.apk",
+        "armeabi-v7a" to "app-armeabi-v7a-release.apk",
+        "x86" to "app-x86-release.apk",
+        "x86_64" to "app-x86_64-release.apk",
+    )
 }
 
 object UpdateErrorMapper {

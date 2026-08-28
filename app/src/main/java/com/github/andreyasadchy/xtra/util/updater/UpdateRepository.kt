@@ -74,6 +74,7 @@ class UpdateRepository(
     private val pendingInstallStarter: (Intent) -> Unit = { intent ->
         context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     },
+    private val supportedAbis: () -> List<String> = { Build.SUPPORTED_ABIS?.toList().orEmpty() },
 ) {
 
     private val preferences = context.tokenPrefs()
@@ -198,25 +199,27 @@ class UpdateRepository(
                         )) {
                             UpdateDecision.Available -> {
                                 stage = UpdateStage.ASSET_SELECTION
-                                val asset = UpdatePolicy.selectAsset(release).getOrElse { throw it }
+                                val asset = UpdatePolicy.selectAsset(release, supportedAbis()).getOrElse { throw it }
+                                val selectedRelease = release.copy(expectedSha256 = release.expectedSha256For(asset))
                                 publishCheckResult(generation, checkStart.installSessionId) {
                                     // Serialize candidate replacement with UI-triggered downloads.
                                     // Whichever operation gets this lock first owns the old
                                     // candidate; the other operation revalidates persisted state.
                                     replacePersistedRelease(release, asset)
-                                    restoreDownloadOrShow(release)
+                                    restoreDownloadOrShow(selectedRelease)
                                     val finalState = when (val current = _state.value) {
                                         is UpdateState.Available -> current.copy(
-                                            previouslySkipped = isSkipped(release),
+                                            release = selectedRelease,
+                                            previouslySkipped = isSkipped(selectedRelease),
                                             previouslyDeferred = !automatic && deferred,
                                         )
-                                        is UpdateState.Skipped -> if (!automatic && isSkipped(release)) {
-                                            UpdateState.Available(release, previouslySkipped = true, previouslyDeferred = false)
+                                        is UpdateState.Skipped -> if (!automatic && isSkipped(selectedRelease)) {
+                                            UpdateState.Available(selectedRelease, previouslySkipped = true, previouslyDeferred = false)
                                         } else {
                                             current
                                         }
                                         is UpdateState.Deferred -> if (!automatic && deferred) {
-                                            UpdateState.Available(release, previouslyDeferred = true)
+                                            UpdateState.Available(selectedRelease, previouslyDeferred = true)
                                         } else {
                                             current
                                         }
@@ -224,15 +227,15 @@ class UpdateRepository(
                                     }
                                     _state.value = finalState
                                     if (automatic && finalState is UpdateState.Available &&
-                                        finalState.release.id == release.id
+                                        finalState.release.id == selectedRelease.id
                                     ) {
                                         ensureCurrentCheck(generation)
                                         preferences.edit()
-                                            .putString(C.UPDATE_AUTOMATIC_PROMPT_VERSION, release.id)
+                                            .putString(C.UPDATE_AUTOMATIC_PROMPT_VERSION, selectedRelease.id)
                                             .commit()
-                                        _automaticPromptEvents.tryEmit(release)
+                                        _automaticPromptEvents.tryEmit(selectedRelease)
                                         if (!foregroundChecker()) {
-                                            postUpdateAvailableNotification(release)
+                                            postUpdateAvailableNotification(selectedRelease)
                                         }
                                     }
                                 }
@@ -491,7 +494,8 @@ class UpdateRepository(
             _state.value is UpdateState.AwaitingUserAction
         ) return
         try {
-            val asset = UpdatePolicy.selectAsset(release).getOrElse { throw it }
+            val asset = UpdatePolicy.selectAsset(release, supportedAbis()).getOrElse { throw it }
+            val selectedRelease = release.copy(expectedSha256 = release.expectedSha256For(asset))
             if (activeDownloadId != null) {
                 if (loadPersistedRelease()?.id == release.id) {
                     clearSuppressionForExplicitDownload(release)
@@ -503,7 +507,7 @@ class UpdateRepository(
             }
             clearSuppressionForExplicitDownload(release)
             val fileName = fileNameFor(release, asset)
-            val id = downloadStore?.enqueue(release, asset, fileName)
+            val id = downloadStore?.enqueue(selectedRelease, asset, fileName)
                 ?: throw UpdateException(UpdateError.DownloadFailed)
             activeDownloadId = id
             if (!preferences.edit()
@@ -515,8 +519,8 @@ class UpdateRepository(
                 clearDownloadReference()
                 throw UpdateException(UpdateError.DownloadFailed)
             }
-            _state.value = UpdateState.Downloading(release, DownloadProgress(0L, asset.size))
-            monitorDownload(release)
+            _state.value = UpdateState.Downloading(selectedRelease, DownloadProgress(0L, asset.size))
+            monitorDownload(selectedRelease)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: Throwable) {
@@ -1138,7 +1142,7 @@ class UpdateRepository(
             .putLong(C.UPDATE_AVAILABLE_SIZE, asset.size ?: -1L)
         release.expectedVersionCode?.let { editor.putLong(C.UPDATE_AVAILABLE_EXPECTED_VERSION_CODE, it) }
             ?: editor.remove(C.UPDATE_AVAILABLE_EXPECTED_VERSION_CODE)
-        release.expectedSha256?.let { editor.putString(C.UPDATE_AVAILABLE_EXPECTED_SHA256, it) }
+        release.expectedSha256For(asset)?.let { editor.putString(C.UPDATE_AVAILABLE_EXPECTED_SHA256, it) }
             ?: editor.remove(C.UPDATE_AVAILABLE_EXPECTED_SHA256)
         release.publishedAt?.let { editor.putString(C.UPDATE_AVAILABLE_PUBLISHED_AT, it) }
             ?: editor.remove(C.UPDATE_AVAILABLE_PUBLISHED_AT)
@@ -1178,7 +1182,17 @@ class UpdateRepository(
             if (expectedVersionCode != null) {
                     put(RELEASE_METADATA_RESPONSE_KEY, buildJsonObject {
                         put("versionCode", expectedVersionCode)
-                        expectedSha256?.let { put("sha256", it) }
+                        if (assetName == "app-release.apk") {
+                            expectedSha256?.let { put("sha256", it) }
+                        }
+                        expectedSha256?.let { digest ->
+                            put("artifacts", kotlinx.serialization.json.buildJsonArray {
+                                add(buildJsonObject {
+                                    put("name", assetName)
+                                    put("sha256", digest)
+                                })
+                            })
+                        }
                     })
             }
             put("draft", false)
@@ -1192,7 +1206,11 @@ class UpdateRepository(
                 })
             })
         }
-        return (ReleaseParser.parse(response, C.DEFAULT_UPDATE_URL) as? ReleaseParseResult.Success)?.release
+        val parsed = (ReleaseParser.parse(response, C.DEFAULT_UPDATE_URL) as? ReleaseParseResult.Success)?.release
+            ?: return null
+        return parsed.copy(
+            expectedSha256 = parsed.assets.singleOrNull()?.let(parsed::expectedSha256For),
+        )
     }
 
     private fun currentArtifact(): DownloadedArtifact? {
