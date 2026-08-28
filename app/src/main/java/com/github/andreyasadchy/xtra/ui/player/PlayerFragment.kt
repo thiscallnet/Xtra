@@ -1713,6 +1713,13 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 .data(normalized)
                 .crossfade(true)
                 .transformations(CircleCropTransformation())
+                .listener(
+                    onError = { _, _ ->
+                        if (loadedChannelAvatarUrl == normalized) {
+                            loadedChannelAvatarUrl = null
+                        }
+                    }
+                )
                 .target(binding.playerControls.channelAvatar)
                 .build()
         )
