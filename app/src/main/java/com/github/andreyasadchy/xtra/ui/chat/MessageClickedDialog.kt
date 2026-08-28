@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -18,6 +17,7 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil3.imageLoader
@@ -36,8 +36,10 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.google.android.material.snackbar.Snackbar
 import com.google.mlkit.nl.translate.TranslateLanguage
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -52,19 +54,27 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         fun onCopyMessageClicked(message: String)
         fun onViewProfileClicked(id: String?, login: String?, name: String?, channelImage: String?)
         fun onTranslateMessageClicked(chatMessage: ChatMessage, languageTag: String?)
+        fun onWhisperClicked(userLogin: String)
     }
 
     companion object {
         private const val KEY_MESSAGING = "messaging"
         private const val KEY_CHANNEL_ID = "channelId"
-        private val savedUsers = mutableListOf<Pair<User, String?>>()
+        private const val KEY_CHANNEL_LOGIN = "channelLogin"
+        private data class SavedUserCard(
+            val user: User,
+            val targetId: String?,
+            val viewerId: String?,
+        )
+        private val savedUsers = mutableListOf<SavedUserCard>()
         private var selectedLanguage: String? = null
 
-        fun newInstance(messagingEnabled: Boolean, channelId: String?): MessageClickedDialog {
+        fun newInstance(messagingEnabled: Boolean, channelId: String?, channelLogin: String?): MessageClickedDialog {
             return MessageClickedDialog().apply {
                 arguments = Bundle().apply {
                     putBoolean(KEY_MESSAGING, messagingEnabled)
                     putString(KEY_CHANNEL_ID, channelId)
+                    putString(KEY_CHANNEL_LOGIN, channelLogin)
                 }
             }
         }
@@ -78,6 +88,9 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
     var adapter: MessageClickedChatAdapter? = null
     private var isChatTouched = false
     private var messageLimit: Int? = null
+    private val badgeAdapter = UserCardBadgeAdapter()
+    private var userCardUser: User? = null
+    private var followRequestInFlight = false
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -96,6 +109,12 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         behavior.skipCollapsed = true
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
         with(binding) {
+            badgesRecyclerView.apply {
+                layoutManager = GridLayoutManager(requireContext(), 6)
+                adapter = badgeAdapter
+                itemAnimator = null
+                isNestedScrollingEnabled = false
+            }
             adapter = listener.onCreateMessageClickedChatAdapter()
             recyclerView.let {
                 it.adapter = adapter
@@ -139,10 +158,20 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                     }
                     if (selectedMessage.userId != null || selectedMessage.userLogin != null) {
                         val targetId = requireArguments().getString(KEY_CHANNEL_ID)
-                        val item = selectedMessage.userId?.let { savedUsers.find { it.first.id == selectedMessage.userId && it.second == targetId } }
+                        val viewerId = currentViewerId()
+                        val item = selectedMessage.userId?.let {
+                            synchronized(savedUsers) {
+                                savedUsers.find {
+                                    it.user.id == selectedMessage.userId &&
+                                        it.targetId == targetId &&
+                                        it.viewerId == viewerId
+                                }
+                            }
+                        }
                         if (item != null) {
-                            updateUserLayout(item.first)
-                            item.first.name?.let { channelName ->
+                            userCardUser = item.user
+                            updateUserLayout(item.user)
+                            item.user.name?.let { channelName ->
                                 if (requireArguments().getBoolean(KEY_MESSAGING) &&
                                     !selectedMessage.id.isNullOrBlank() &&
                                     selectedMessage.userName.isNullOrBlank() &&
@@ -164,9 +193,10 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                             viewModel.loadUser(
                                 channelId = selectedMessage.userId,
                                 channelLogin = selectedMessage.userLogin,
-                                targetId = if (selectedMessage.userId != targetId) targetId else null,
+                                targetId = targetId,
+                                targetLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
                                 networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
+                                gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true),
                                 helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
                             )
                             viewLifecycleOwner.lifecycleScope.launch {
@@ -176,7 +206,8 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                                             val user = pair.first
                                             val error = pair.second
                                             if (user != null) {
-                                                savedUsers.add(Pair(user, targetId))
+                                                userCardUser = user
+                                                replaceSavedUser(user, targetId, currentViewerId())
                                                 updateUserLayout(user)
                                                 adapter.selectedMessage?.let { selectedMessage ->
                                                     if (requireArguments().getBoolean(KEY_MESSAGING) &&
@@ -216,6 +247,13 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
             }
             if (requireContext().prefs().getBoolean(C.DEBUG_CHAT_FULL_MSG, false)) {
                 copyFullMsg.visibility = View.VISIBLE
+            }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.followResult.collectLatest { result ->
+                    result?.let(::handleFollowResult)
+                }
             }
         }
     }
@@ -283,99 +321,210 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
 
     private fun updateUserLayout(user: User) {
         with(binding) {
-            if (user.bannerImageURL != null) {
-                userLayout.visibility = View.VISIBLE
-                bannerImage.visibility = View.VISIBLE
-                requireContext().imageLoader.enqueue(
-                    ImageRequest.Builder(requireContext()).apply {
-                        data(user.bannerImageURL)
-                        crossfade(true)
-                        target(bannerImage)
-                    }.build()
-                )
-            } else {
-                bannerImage.visibility = View.GONE
-            }
-            if (user.profileImage != null) {
-                userLayout.visibility = View.VISIBLE
-                userImage.visibility = View.VISIBLE
+            userLayout.isVisible = true
+            viewProfile.isVisible = false
+
+            user.profileImage?.let { imageUrl ->
+                userImage.isVisible = true
                 userImage.contentDescription = user.name?.let {
                     requireContext().getString(R.string.player_open_channel, it)
                 }
                 requireContext().imageLoader.enqueue(
-                    ImageRequest.Builder(requireContext()).apply {
-                        data(user.profileImage)
-                        if (requireContext().prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true)) {
-                            transformations(CircleCropTransformation())
+                    ImageRequest.Builder(requireContext())
+                        .data(imageUrl)
+                        .apply {
+                            if (requireContext().prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true)) {
+                                transformations(CircleCropTransformation())
+                            }
                         }
-                        crossfade(true)
-                        target(userImage)
-                    }.build()
+                        .crossfade(true)
+                        .target(userImage)
+                        .build(),
                 )
                 userImage.setOnClickListener {
-                    listener.onViewProfileClicked(user.id, user.login, user.name, user.profileImage)
+                    listener.onViewProfileClicked(user.id, user.login, user.name, imageUrl)
                     dismiss()
                 }
-            } else {
-                userImage.visibility = View.GONE
+            } ?: run {
+                userImage.isVisible = false
                 userImage.contentDescription = null
+                userImage.setOnClickListener(null)
             }
-            if (user.name != null) {
-                userLayout.visibility = View.VISIBLE
-                userName.visibility = View.VISIBLE
-                userName.text = if (user.login != null && !user.login.equals(user.name, true)) {
-                    when (requireContext().prefs().getString(C.UI_NAME_DISPLAY, "0")) {
-                        "0" -> "${user.name}(${user.login})"
-                        "1" -> user.name
-                        else -> user.login
-                    }
-                } else {
-                    user.name
-                }
-                userName.setOnClickListener {
-                    listener.onViewProfileClicked(user.id, user.login, user.name, user.profileImage)
-                    dismiss()
-                }
-                if (user.bannerImageURL != null) {
-                    userName.setTextColor(Color.WHITE)
-                    userName.setShadowLayer(4f, 0f, 0f, Color.BLACK)
-                }
-            } else {
-                userName.visibility = View.GONE
+
+            val displayName = when (requireContext().prefs().getString(C.UI_NAME_DISPLAY, "0")) {
+                "2" -> user.login ?: user.name
+                else -> user.name ?: user.login
             }
-            if (user.createdAt != null) {
-                val text = Instant.parseOrNull(user.createdAt)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let {
-                    TwitchApiHelper.formatDate(requireContext(), it)
-                }
-                userLayout.visibility = View.VISIBLE
-                userCreated.visibility = View.VISIBLE
-                userCreated.text = getString(R.string.created_at, text)
-                if (user.bannerImageURL != null) {
-                    userCreated.setTextColor(Color.LTGRAY)
-                    userCreated.setShadowLayer(4f, 0f, 0f, Color.BLACK)
-                }
-            } else {
-                userCreated.visibility = View.GONE
+            userName.isVisible = !displayName.isNullOrBlank()
+            userName.text = displayName
+            userName.setOnClickListener {
+                listener.onViewProfileClicked(user.id, user.login, user.name, user.profileImage)
+                dismiss()
             }
-            if (user.followedAt != null) {
-                val text = user.followedAt?.let {
-                    Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let { time ->
-                        TwitchApiHelper.formatDate(requireContext(), time)
-                    }
-                }
-                userLayout.visibility = View.VISIBLE
-                userFollowed.visibility = View.VISIBLE
-                userFollowed.text = getString(R.string.followed_at, text)
-                if (user.bannerImageURL != null) {
-                    userFollowed.setTextColor(Color.LTGRAY)
-                    userFollowed.setShadowLayer(4f, 0f, 0f, Color.BLACK)
-                }
-            } else {
-                userFollowed.visibility = View.GONE
+
+            val login = user.login?.takeIf { !it.equals(displayName, true) }
+            userLogin.isVisible = !login.isNullOrBlank()
+            userLogin.text = login?.let { "@$it" }
+
+            formatTwitchDate(user.createdAt)?.let { date ->
+                userCreated.isVisible = true
+                userCreated.text = getString(R.string.user_card_created, date)
+            } ?: run {
+                userCreated.isVisible = false
             }
-            if (!userImage.isVisible && !userName.isVisible) {
-                viewProfile.visibility = View.VISIBLE
+
+            formatTwitchDate(user.followedAt)?.let { date ->
+                userFollowed.isVisible = true
+                userFollowed.text = getString(R.string.user_card_following_since, date)
+            } ?: run {
+                userFollowed.isVisible = false
             }
+
+            val months = user.subscriptionMonths ?: 0
+            userSubscription.isVisible = months > 0
+            if (months > 0) {
+                userSubscription.text = resources.getQuantityString(
+                    if (user.isSubscribed) {
+                        R.plurals.user_card_subscribed_months
+                    } else {
+                        R.plurals.user_card_previously_subbed_months
+                    },
+                    months,
+                    months,
+                )
+            }
+
+            val badges = user.displayBadges
+            badgesTitle.isVisible = badges.isNotEmpty()
+            badgesRecyclerView.isVisible = badges.isNotEmpty()
+            badgesHeader.isVisible = badges.isNotEmpty()
+            viewAllBadges.isVisible = badges.size > UserCardBadgeAdapter.COLLAPSED_COUNT
+            badgeAdapter.submitBadges(badges)
+            updateBadgeToggleText(badges.size)
+            viewAllBadges.setOnClickListener {
+                badgeAdapter.toggleExpanded()
+                updateBadgeToggleText(badges.size)
+            }
+
+            renderUserActions(user)
+        }
+    }
+
+    private fun formatTwitchDate(value: String?): String? {
+        return value
+            ?.let(Instant::parseOrNull)
+            ?.toEpochMilliseconds()
+            ?.takeIf { it > 0L }
+            ?.let { TwitchApiHelper.formatDate(requireContext(), it) }
+    }
+
+    private fun updateBadgeToggleText(total: Int) {
+        binding.viewAllBadges.text = if (badgeAdapter.expanded) {
+            getString(R.string.user_card_show_less)
+        } else {
+            getString(R.string.user_card_view_all, total)
+        }
+    }
+
+    private fun renderUserActions(user: User) = with(binding) {
+        userActionRow.isVisible = true
+        giftSubButton.setOnClickListener {
+            Snackbar.make(binding.root, "TBD", Snackbar.LENGTH_SHORT).show()
+        }
+
+        val viewerId = requireContext().tokenPrefs().getString(C.USER_ID, null)
+        val isOwnAccount = !viewerId.isNullOrBlank() && viewerId == user.id
+        followButton.isVisible = !isOwnAccount
+        followButton.text = if (user.viewerFollowsUser) {
+            getString(R.string.user_card_unfollow)
+        } else {
+            getString(R.string.user_card_follow)
+        }
+        followButton.isEnabled = !followRequestInFlight &&
+            (user.viewerFollowsUser || user.viewerCanFollowUser)
+        followButton.setOnClickListener {
+            if (!followRequestInFlight && !user.id.isNullOrBlank()) {
+                followRequestInFlight = true
+                followButton.isEnabled = false
+                viewModel.toggleFollowUser(
+                    user = user,
+                    networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                )
+            }
+        }
+
+        val canWhisper = requireArguments().getBoolean(KEY_MESSAGING) &&
+            !user.login.isNullOrBlank() &&
+            !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank()
+        whisperButton.isEnabled = canWhisper
+        whisperButton.setOnClickListener {
+            user.login?.takeIf { canWhisper }?.let {
+                listener.onWhisperClicked(it)
+                dismiss()
+            }
+        }
+    }
+
+    private fun handleFollowResult(result: MessageClickedViewModel.FollowResult) {
+        if (result.userId.isBlank() || result.userId != userCardUser?.id) {
+            viewModel.followResult.value = null
+            return
+        }
+        followRequestInFlight = false
+        val errorMessage = result.errorMessage
+        if (result.failed) {
+            Snackbar.make(
+                binding.root,
+                errorMessage ?: getString(R.string.user_card_follow_failed),
+                Snackbar.LENGTH_LONG,
+            ).show()
+            userCardUser?.let(::renderUserActions)
+        } else {
+            userCardUser?.let { currentUser ->
+                val updatedUser = currentUser.withViewerFollowState(result.isFollowing)
+                userCardUser = updatedUser
+                replaceSavedUser(updatedUser, requireArguments().getString(KEY_CHANNEL_ID), currentViewerId())
+                renderUserActions(updatedUser)
+            }
+        }
+        viewModel.followResult.value = null
+    }
+
+    private fun User.withViewerFollowState(isFollowing: Boolean): User {
+        return User(
+            id = id,
+            login = login,
+            name = name,
+            profileImageURL = profileImageURL,
+            type = type,
+            broadcasterType = broadcasterType,
+            createdAt = createdAt,
+            followerCount = followerCount,
+            bannerImageURL = bannerImageURL,
+            lastBroadcast = lastBroadcast,
+            isLive = isLive,
+            followedAt = followedAt,
+            accountFollow = accountFollow,
+            localFollow = localFollow,
+            displayBadges = displayBadges,
+            subscriptionMonths = subscriptionMonths,
+            isSubscribed = isSubscribed,
+            viewerFollowsUser = isFollowing,
+            viewerCanFollowUser = viewerCanFollowUser,
+        )
+    }
+
+    private fun currentViewerId(): String? {
+        return requireContext().tokenPrefs().getString(C.USER_ID, null)
+    }
+
+    private fun replaceSavedUser(user: User, targetId: String?, viewerId: String?) {
+        synchronized(savedUsers) {
+            savedUsers.removeAll {
+                it.user.id == user.id && it.targetId == targetId && it.viewerId == viewerId
+            }
+            savedUsers.add(SavedUserCard(user, targetId, viewerId))
         }
     }
 

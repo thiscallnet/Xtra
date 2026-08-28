@@ -10,23 +10,6 @@
         android:layout_height="wrap_content"
         android:paddingBottom="?attr/dialogPadding">
 
-        <com.google.android.material.imageview.ShapeableImageView
-            android:id="@+id/bannerImage"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:scaleType="centerCrop"
-            android:visibility="gone"
-            app:layout_constraintBottom_toBottomOf="@id/userLayout"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:shapeAppearance="?attr/shapeAppearanceCornerExtraLarge"
-            app:shapeAppearanceOverlay="@style/ChatMessageBannerOverlay"
-            app:tint="#8C000000"
-            app:tintMode="src_atop"
-            tools:src="@tools:sample/backgrounds/scenic"
-            tools:visibility="visible" />
-
         <androidx.constraintlayout.widget.ConstraintLayout
             android:id="@+id/userLayout"
             android:layout_width="match_parent"
@@ -35,6 +18,8 @@
             android:paddingLeft="?attr/dialogPadding"
             android:paddingEnd="?attr/dialogPadding"
             android:paddingRight="?attr/dialogPadding"
+            android:paddingTop="16dp"
+            android:paddingBottom="12dp"
             android:visibility="gone"
             app:layout_constraintBottom_toTopOf="@id/messageLayout"
             app:layout_constraintEnd_toEndOf="parent"
@@ -42,30 +27,27 @@
             app:layout_constraintTop_toTopOf="parent"
             tools:visibility="visible">
 
-                <ImageView
-                    android:id="@+id/userImage"
-                    style="@style/UserPicture"
-                    android:contentDescription="@string/open_channel"
-                    android:layout_marginStart="10dp"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="12dp"
+            <com.google.android.material.imageview.ShapeableImageView
+                android:id="@+id/userImage"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:contentDescription="@string/open_channel"
+                android:scaleType="centerCrop"
                 android:visibility="gone"
-                app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintVertical_bias="0.0"
+                app:shapeAppearance="@style/ShapeAppearance.Material3.Corner.Full"
                 tools:src="@tools:sample/backgrounds/scenic"
                 tools:visibility="visible" />
 
             <LinearLayout
+                android:id="@+id/userIdentity"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:layout_marginEnd="10dp"
-                android:layout_marginTop="7dp"
-                android:layout_marginBottom="7dp"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="8dp"
+                android:minHeight="56dp"
                 android:orientation="vertical"
-                app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toEndOf="@id/userImage"
                 app:layout_constraintTop_toTopOf="parent">
@@ -75,6 +57,16 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:visibility="gone"
+                    tools:text="@sample/games.json/top/game/name"
+                    tools:visibility="visible" />
+
+                <TextView
+                    android:id="@+id/userLogin"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?android:attr/textColorSecondary"
                     android:visibility="gone"
                     tools:text="@sample/games.json/top/game/name"
                     tools:visibility="visible" />
@@ -98,6 +90,134 @@
                     android:visibility="gone"
                     tools:text="Followed at 123456"
                     tools:visibility="visible" />
+
+                <TextView
+                    android:id="@+id/userSubscription"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:visibility="gone"
+                    tools:text="Subscribed for 2 months"
+                    tools:visibility="visible" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/badgesHeader"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:visibility="gone"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/userIdentity"
+                tools:visibility="visible">
+
+                <TextView
+                    android:id="@+id/badgesTitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/user_card_badges"
+                    android:textAppearance="?attr/textAppearanceTitleSmall"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/viewAllBadges"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:minHeight="48dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:textAppearance="?attr/textAppearanceLabelLarge"
+                    android:textColor="?attr/colorPrimary"
+                    android:textAllCaps="false"
+                    android:visibility="gone"
+                    tools:text="View all (24)"
+                    tools:visibility="visible" />
+            </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/badgesRecyclerView"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:clipToPadding="false"
+                android:nestedScrollingEnabled="false"
+                android:overScrollMode="never"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:visibility="gone"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/badgesHeader"
+                tools:itemCount="8"
+                tools:listitem="@layout/item_user_card_badge"
+                tools:visibility="visible" />
+
+            <LinearLayout
+                android:id="@+id/userActionRow"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/badgesRecyclerView">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/giftSubButton"
+                    style="?attr/bottomSheetButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="4dp"
+                    android:layout_weight="1"
+                    android:maxLines="1"
+                    android:minWidth="0dp"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp"
+                    android:text="@string/user_card_gift_sub"
+                    android:textAllCaps="false"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/followButton"
+                    style="?attr/bottomSheetButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginEnd="4dp"
+                    android:layout_weight="1"
+                    android:maxLines="1"
+                    android:minWidth="0dp"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp"
+                    android:text="@string/user_card_follow"
+                    android:textAllCaps="false"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/whisperButton"
+                    style="?attr/bottomSheetButtonStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_weight="1"
+                    android:maxLines="1"
+                    android:minWidth="0dp"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp"
+                    android:text="@string/user_card_whisper"
+                    android:textAllCaps="false"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp" />
             </LinearLayout>
 
         </androidx.constraintlayout.widget.ConstraintLayout>

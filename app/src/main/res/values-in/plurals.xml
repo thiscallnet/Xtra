@@ -30,4 +30,10 @@
     <plurals name="statistics_active_day_streak">
         <item quantity="other">Hari aktif berturut-turut %d</item>
     </plurals>
+    <plurals name="user_card_subscribed_months">
+        <item quantity="other">Subscribed for %d months</item>
+    </plurals>
+    <plurals name="user_card_previously_subbed_months">
+        <item quantity="other">Previously subbed for %d months</item>
+    </plurals>
 </resources>

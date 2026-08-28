@@ -232,7 +232,14 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
         interactionIdentity = currentStreams.firstOrNull { it.channelId == channelId }
             ?.let { stableIdentity(it) }
         if (childFragmentManager.findFragmentByTag(COMBINED_MESSAGE_DIALOG_TAG) == null) {
-            MessageClickedDialog.newInstance(false, channelId)
+            val channelLogin = channelId?.let { id ->
+                currentStreams.firstOrNull { it.channelId == id }?.channelLogin
+            }
+            MessageClickedDialog.newInstance(
+                messagingEnabled = false,
+                channelId = channelId,
+                channelLogin = channelLogin,
+            )
                 .show(childFragmentManager, COMBINED_MESSAGE_DIALOG_TAG)
         }
     }
@@ -280,6 +287,10 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
     override fun onCopyMessageClicked(message: String) {
         val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.multiview_chat), message))
+    }
+
+    override fun onWhisperClicked(userLogin: String) {
+        // Combined chat is intentionally read-only and has no message composer.
     }
 
     override fun onViewProfileClicked(id: String?, login: String?, name: String?, channelImage: String?) {

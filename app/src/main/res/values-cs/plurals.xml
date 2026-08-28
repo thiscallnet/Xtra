@@ -60,4 +60,16 @@
         <item quantity="many">%d dní aktivní série</item>
         <item quantity="other">%d dní aktivní série</item>
     </plurals>
+    <plurals name="user_card_subscribed_months">
+        <item quantity="one">Subscribed for %d month</item>
+        <item quantity="few">Subscribed for %d months</item>
+        <item quantity="many">Subscribed for %d months</item>
+        <item quantity="other">Subscribed for %d months</item>
+    </plurals>
+    <plurals name="user_card_previously_subbed_months">
+        <item quantity="one">Previously subbed for %d month</item>
+        <item quantity="few">Previously subbed for %d months</item>
+        <item quantity="many">Previously subbed for %d months</item>
+        <item quantity="other">Previously subbed for %d months</item>
+    </plurals>
 </resources>

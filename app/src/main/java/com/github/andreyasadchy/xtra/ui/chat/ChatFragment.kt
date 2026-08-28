@@ -453,7 +453,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         messageClickListener = { channelId ->
                             (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
                             editText.clearFocus()
-                            MessageClickedDialog.newInstance(enableMessaging, channelId).show(this@ChatFragment.childFragmentManager, "messageDialog")
+                            MessageClickedDialog.newInstance(
+                                messagingEnabled = enableMessaging,
+                                channelId = channelId,
+                                channelLogin = channelLogin,
+                            ).show(this@ChatFragment.childFragmentManager, "messageDialog")
                         },
                         replyClickListener = {
                             (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
@@ -1665,6 +1669,16 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onCopyMessageClicked(message: String) {
         binding.editText.setText(message)
+    }
+
+    override fun onWhisperClicked(userLogin: String) {
+        messageDialog?.dismiss()
+        resetMessageComposerAction()
+        binding.editText.setText("/w $userLogin ")
+        binding.editText.setSelection(binding.editText.length())
+        binding.editText.requestFocus()
+        WindowCompat.getInsetsController(this@ChatFragment.requireActivity().window, binding.editText)
+            .show(WindowInsetsCompat.Type.ime())
     }
 
     override fun onViewProfileClicked(id: String?, login: String?, name: String?, channelImage: String?) {
