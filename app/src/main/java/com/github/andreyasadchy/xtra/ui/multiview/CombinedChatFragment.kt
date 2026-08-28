@@ -52,6 +52,9 @@ import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -70,6 +73,8 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
     private val translators = mutableMapOf<String, Translator>()
     private var renderPosted = false
     private var submitJob: Job? = null
+    private data class PendingSubmission(val items: List<CombinedChatMessage>, val forceScroll: Boolean)
+    private var pendingSubmission: PendingSubmission? = null
     private val renderRunnable = Runnable {
         renderPosted = false
         val layoutManager = _binding?.combinedChatRecyclerView?.layoutManager as? LinearLayoutManager
@@ -184,18 +189,29 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
         _binding?.combinedChatRecyclerView?.removeCallbacks(renderRunnable)
         renderPosted = false
         if (!::adapter.isInitialized || _binding == null) return
-        val items = viewModel.snapshot(filterIdentity)
-        submitJob?.cancel()
+        val submission = PendingSubmission(viewModel.snapshot(filterIdentity), forceScroll)
+        pendingSubmission = pendingSubmission?.let {
+            submission.copy(forceScroll = it.forceScroll || submission.forceScroll)
+        } ?: submission
+        if (submitJob?.isActive == true) return
         submitJob = viewLifecycleOwner.lifecycleScope.launch {
-            adapter.prepareForDisplay(items)
-            if (_binding == null) return@launch
-            adapter.submitList(items) {
-                binding.combinedChatEmpty.isVisible = items.isEmpty()
-                if (forceScroll && items.isNotEmpty()) {
-                    binding.combinedChatRecyclerView.scrollToPosition(items.lastIndex)
+            while (true) {
+                val nextSubmission = pendingSubmission ?: break
+                pendingSubmission = null
+                val previousBySequence = adapter.currentList.associateBy(CombinedChatMessage::sequence)
+                val changedItems = nextSubmission.items.filter { previousBySequence[it.sequence] != it }
+                adapter.prepareForDisplay(changedItems)
+                if (pendingSubmission != null) continue
+                if (_binding == null) return@launch
+                adapter.submitList(nextSubmission.items) {
+                    binding.combinedChatEmpty.isVisible = nextSubmission.items.isEmpty()
+                    if (nextSubmission.forceScroll && nextSubmission.items.isNotEmpty()) {
+                        binding.combinedChatRecyclerView.scrollToPosition(nextSubmission.items.lastIndex)
+                    }
                 }
+                binding.combinedChatEmpty.isVisible = nextSubmission.items.isEmpty()
             }
-            binding.combinedChatEmpty.isVisible = items.isEmpty()
+            submitJob = null
         }
     }
 
@@ -344,6 +360,7 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
         languageIdentifier = null
         translators.values.forEach(Translator::close)
         translators.clear()
+        pendingSubmission = null
         submitJob?.cancel()
         submitJob = null
         _binding = null
@@ -399,6 +416,7 @@ private class CombinedChatAdapter(
     }
 
     suspend fun prepareForDisplay(items: List<CombinedChatMessage>) {
+        val batches = linkedMapOf<SessionRenderer, MutableList<ChatMessage>>()
         items.forEach { item ->
             viewModel.session(item.identity)?.let { session ->
                 val renderer = renderers[item.identity]
@@ -406,8 +424,13 @@ private class CombinedChatAdapter(
                     ?: SessionRenderer(fragment, session, viewModel.channelId(item.identity), item.identity).also {
                         renderers[item.identity] = it
                     }
-                renderer.prepareForDisplay(item.message)
+                batches.getOrPut(renderer) { ArrayList() }.add(item.message)
             }
+        }
+        coroutineScope {
+            batches.map { (renderer, messages) ->
+                async { renderer.prepareForDisplay(messages) }
+            }.awaitAll()
         }
     }
 
@@ -529,8 +552,8 @@ private class CombinedChatAdapter(
             return holder
         }
 
-        suspend fun prepareForDisplay(message: ChatMessage) {
-            adapter.prepareForDisplay(listOf(message))
+        suspend fun prepareForDisplay(messages: List<ChatMessage>) {
+            adapter.prepareForDisplay(messages)
         }
 
         fun release(holder: ChatAdapter.ViewHolder) {

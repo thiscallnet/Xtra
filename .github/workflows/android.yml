@@ -53,6 +53,8 @@ jobs:
           ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.repository.MetadataCacheTest
           ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.db.AppDatabaseMigrationTest
           ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.util.DatabaseRestoreRecoveryTest
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCacheTest
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.view.CenteredImageSpanTest
 
   build:
     runs-on: ubuntu-latest

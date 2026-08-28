@@ -113,6 +113,28 @@ class StreamFeedCacheTest {
     }
 
     @Test
+    fun processLocalSnapshotPublishesSuccessfulEmptyRefresh() = runBlocking {
+        val cache = StreamFeedCache(database)
+        val feedKey = StreamFeedKey("top:process-local-empty")
+        cache.replaceAfterRefresh(feedKey, StreamFeedPage(streams("ended"), null), 1L)
+        val emissions = mutableListOf<List<String>>()
+        val initialEmission = CompletableDeferred<Unit>()
+        val collector = launch {
+            cache.activeItemsFlow(feedKey, Int.MAX_VALUE).take(2).collect { snapshot ->
+                emissions += snapshot.mapNotNull(Stream::channelId)
+                if (emissions.size == 1) initialEmission.complete(Unit)
+            }
+        }
+
+        initialEmission.await()
+        cache.replaceAfterRefresh(feedKey, StreamFeedPage(emptyList(), null), 2L)
+        collector.join()
+
+        assertEquals(listOf("ended"), emissions[0])
+        assertEquals(emptyList<String>(), emissions[1])
+    }
+
+    @Test
     fun processLocalSnapshotRetainsDataAfterFailure() = runBlocking {
         val cache = StreamFeedCache(database)
         val feedKey = StreamFeedKey("top:process-local-failure")
