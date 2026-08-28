@@ -5,6 +5,7 @@ import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.annotation.WorkerThread
 import com.github.andreyasadchy.xtra.BuildConfig
 import java.security.KeyStore
 import java.util.concurrent.ConcurrentHashMap
@@ -194,6 +195,7 @@ internal class KeystorePreferences(
         }
     }
 
+    @WorkerThread
     private fun decryptOrNull(key: String, value: String): String? {
         if (!keystoreAvailable && failClosed) return null
         if (!value.startsWith(PREFIX)) return value

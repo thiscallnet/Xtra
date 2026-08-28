@@ -143,6 +143,8 @@
     <string name="settings">Settings</string>
     <string name="general_settings">General</string>
     <string name="settings_search_prompt">Search settings</string>
+    <string name="settings_search_empty" translatable="false">Enter a setting name to search.</string>
+    <string name="settings_search_no_results" translatable="false">No matching settings.</string>
     <string name="settings_home_browsing">Browsing &amp; tabs</string>
     <string name="settings_home_controls">Player controls</string>
     <string name="settings_home_account_network">Account &amp; network</string>
@@ -545,6 +547,7 @@
     <string name="player_fast_forward">Fast-forward</string>
     <string name="player_fast_forward_seconds">Fast-forward %1$d seconds</string>
     <string name="player_minimize">Minimize player</string>
+    <string name="player_close" translatable="false">Close player</string>
     <string name="player_download">Download</string>
     <string name="player_follow">Follow channel</string>
     <string name="player_unfollow">Unfollow channel</string>

@@ -27,6 +27,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -54,7 +55,6 @@ import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.lifecycle.withResumed
 import androidx.navigation.NavDirections
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.fragment.findNavController
@@ -121,14 +121,11 @@ import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.common.model.RemoteModelManager
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.TranslateRemoteModel
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.chromium.net.CronetProvider
 import java.util.Collections
 import java.util.Locale
-import kotlin.time.Duration.Companion.milliseconds
 
 internal fun serializeSpeedOptions(items: List<SettingsDragListItem>): String =
     items.joinToString(",") { "${it.key}:${if (it.enabled) "1" else "0"}" }
@@ -215,25 +212,13 @@ class SettingsActivity : AppCompatActivity() {
             navController.navigate(R.id.browsingTabsFragment)
         }
         binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            private var job: Job? = null
-
             override fun onQueryTextSubmit(query: String): Boolean {
                 (supportFragmentManager.findFragmentById(R.id.navHostFragment)?.childFragmentManager?.fragments?.getOrNull(0) as? SettingsSearchFragment)?.search(query)
                 return false
             }
 
             override fun onQueryTextChange(newText: String): Boolean {
-                job?.cancel()
-                if (newText.isNotEmpty()) {
-                    job = lifecycleScope.launch {
-                        delay(750.milliseconds)
-                        withResumed {
-                            (supportFragmentManager.findFragmentById(R.id.navHostFragment)?.childFragmentManager?.fragments?.getOrNull(0) as? SettingsSearchFragment)?.search(newText)
-                        }
-                    }
-                } else {
-                    (supportFragmentManager.findFragmentById(R.id.navHostFragment)?.childFragmentManager?.fragments?.getOrNull(0) as? SettingsSearchFragment)?.search(newText)
-                }
+                (supportFragmentManager.findFragmentById(R.id.navHostFragment)?.childFragmentManager?.fragments?.getOrNull(0) as? SettingsSearchFragment)?.search(newText)
                 return false
             }
         })
@@ -2563,11 +2548,29 @@ class SettingsActivity : AppCompatActivity() {
         private var preferences: List<SettingsSearchItem>? = null
         private var adapter: SettingsSearchAdapter? = null
         private var savedQuery: String? = null
+        private var searchList: RecyclerView? = null
+        private var emptyState: TextView? = null
 
-        override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
-            return RecyclerView(requireContext()).apply {
+        override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+            val context = requireContext()
+            val list = RecyclerView(context).apply {
                 clipToPadding = false
-                layoutManager = LinearLayoutManager(requireContext())
+                layoutManager = LinearLayoutManager(context)
+            }
+            val empty = TextView(context).apply {
+                gravity = android.view.Gravity.CENTER
+                val horizontalPadding = (32 * resources.displayMetrics.density).toInt()
+                val verticalPadding = (16 * resources.displayMetrics.density).toInt()
+                setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
+                textSize = 16f
+                setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant))
+            }
+            searchList = list
+            emptyState = empty
+            return FrameLayout(context).apply {
+                setBackgroundColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface))
+                addView(list, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                addView(empty, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             }
         }
 
@@ -2589,7 +2592,7 @@ class SettingsActivity : AppCompatActivity() {
                             override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
                                 try {
                                     if (positionStart == 0) {
-                                        (view as RecyclerView).scrollToPosition(0)
+                                        searchList?.scrollToPosition(0)
                                     }
                                 } catch (e: Exception) {
 
@@ -2599,7 +2602,7 @@ class SettingsActivity : AppCompatActivity() {
                     }
                 })
             }
-            (view as RecyclerView).adapter = adapter
+            searchList?.adapter = adapter
             if (preferences == null) {
                 val list = mutableListOf<SettingsSearchItem>()
                 val preferenceManager = PreferenceManager(requireContext())
@@ -2681,6 +2684,7 @@ class SettingsActivity : AppCompatActivity() {
                 }
                 preferences = list
             }
+            search(savedQuery.orEmpty())
             requireActivity().findViewById<SearchView>(R.id.searchView)?.let {
                 savedQuery?.let { query -> it.setQuery(query, true) }
                 it.requestFocus()
@@ -2690,23 +2694,32 @@ class SettingsActivity : AppCompatActivity() {
 
         fun search(query: String) {
             savedQuery = query
-            if (query.isNotBlank()) {
-                preferences?.filter {
+            val matches = if (query.isNotBlank()) {
+                preferences.orEmpty().filter {
                     it.location?.contains(query, true) == true ||
                         it.key?.contains(query, true) == true ||
                         it.title?.contains(query, true) == true ||
                         it.summary?.contains(query, true) == true ||
                         it.value?.contains(query, true) == true
-                }?.let { list ->
-                    adapter?.submitList(list)
                 }
             } else {
-                adapter?.submitList(emptyList())
+                emptyList()
+            }
+            adapter?.submitList(matches)
+            emptyState?.apply {
+                text = if (query.isBlank()) {
+                    getString(R.string.settings_search_empty)
+                } else {
+                    getString(R.string.settings_search_no_results)
+                }
+                visibility = if (matches.isEmpty()) View.VISIBLE else View.GONE
             }
         }
 
         override fun onDestroyView() {
             super.onDestroyView()
+            searchList = null
+            emptyState = null
             (requireActivity() as? SettingsActivity)?.showSearchView(false)
         }
     }

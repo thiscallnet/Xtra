@@ -40,10 +40,11 @@ internal class VisibleStreamUptimeTicker(
                         (holder as? StreamUptimeViewHolder)?.updateUptime(nowMs)
                     }
 
-                    // Keep updates aligned to wall-clock second boundaries.
+                    // Uptime is informational; avoid invalidating every live card every
+                    // second while retaining a predictable, wall-clock-aligned refresh.
                     val afterUpdateMs = System.currentTimeMillis()
-                    val delayMs = 1000L - (afterUpdateMs % 1000L)
-                    delay(delayMs.coerceIn(1L, 1000L))
+                    val delayMs = UPTIME_UPDATE_INTERVAL_MS - (afterUpdateMs % UPTIME_UPDATE_INTERVAL_MS)
+                    delay(delayMs.coerceIn(1L, UPTIME_UPDATE_INTERVAL_MS))
                 }
             }
         }
@@ -52,6 +53,10 @@ internal class VisibleStreamUptimeTicker(
     fun detach() {
         job?.cancel()
         job = null
+    }
+
+    private companion object {
+        const val UPTIME_UPDATE_INTERVAL_MS = 30_000L
     }
 }
 
