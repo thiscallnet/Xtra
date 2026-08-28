@@ -99,6 +99,8 @@ class ChatAdapter(
 
     /** UI-owned snapshot. ChatViewModel may continue receiving messages while a fling is active. */
     private val messages = ArrayList(initialMessages)
+    private val generatedStableIds = IdentityHashMap<ChatMessage, Long>()
+    private var nextGeneratedStableId = Long.MIN_VALUE
     private class RenderCacheKey(
         val message: ChatMessage,
         val catalogRevision: Int,
@@ -231,6 +233,11 @@ class ChatAdapter(
         }
     }
 
+    init {
+        setHasStableIds(true)
+        messages.forEach(::stableIdFor)
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         return ViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.chat_list_item, parent, false))
     }
@@ -252,16 +259,27 @@ class ChatAdapter(
             cachedResult.copyForBind()
         } else {
             val context = fragment.context
-            if (directBinding && context != null) {
-                prepareMessage(chatMessage, context, holder.textView, catalogIndexes, offMain = false).also { prepared ->
+            // The visible row must receive its complete render plan in this bind. Rendering a
+            // plain fallback first and replacing it with emote spans later changes wrapping and
+            // row height before the images have even started loading. Parsing is synchronous;
+            // only image decoding remains asynchronous.
+            context?.let {
+                prepareMessage(chatMessage, it, holder.textView, catalogIndexes, offMain = false).also { prepared ->
                     synchronized(renderCache) { renderCache[cacheKey] = prepared }
                 }.copyForBind()
-            } else {
-                context?.let { enqueueRender(chatMessage, cacheKey, it, catalogIndexes) }
-                fastFallback(chatMessage).copyForBind()
-            }
+            } ?: fastFallback(chatMessage).copyForBind()
         }
-        ChatAdapterUtils.installImagePlaceholders(result.builder, result.images, emoteSize, badgeSize, inlineIconSize)
+        ChatAdapterUtils.installImagePlaceholders(
+            result.builder,
+            result.images,
+            emoteSize,
+            badgeSize,
+            inlineIconSize,
+            result.imagePaint,
+            result.userName,
+            result.userNameStartIndex,
+            backgroundColor,
+        )
         holder.bind(chatMessage, result)
         ChatAdapterUtils.loadImages(
             fragment, holder.textView, { holder.bindWhenReady(bindGeneration, chatMessage, it) }, result.images, result.imagePaint, result.userName, result.userNameStartIndex,
@@ -274,6 +292,8 @@ class ChatAdapter(
             onLoadDeferred = { holder.hasDeferredImageLoad = true },
         )
     }
+
+    override fun getItemId(position: Int): Long = stableIdFor(messages[position])
 
     override fun onViewRecycled(holder: ViewHolder) {
         holder.imageRequests.cancel()
@@ -291,6 +311,7 @@ class ChatAdapter(
         if (incoming.isNotEmpty()) {
             val start = messages.size
             messages.addAll(incoming)
+            incoming.forEach(::stableIdFor)
             notifyItemRangeInserted(start, incoming.size)
         }
     }
@@ -298,6 +319,7 @@ class ChatAdapter(
     fun prependMessages(incoming: List<ChatMessage>) {
         if (incoming.isEmpty()) return
         messages.addAll(0, incoming)
+        incoming.forEach(::stableIdFor)
         notifyItemRangeInserted(0, incoming.size)
     }
 
@@ -330,6 +352,13 @@ class ChatAdapter(
         messages.clear()
         pendingRenderedMessages.clear()
         messages += message
+    }
+
+    /** Cancel image work when this adapter is used to render into a non-RecyclerView TextView. */
+    fun releaseDirectViewHolder(holder: ViewHolder) {
+        holder.imageRequests.cancel()
+        holder.cancelPendingBind()
+        if (animateGifs) setAnimations(holder.textView, start = false)
     }
 
     fun updateTranslation(chatMessage: ChatMessage, item: TextView, previousTranslation: String?) {
@@ -375,6 +404,10 @@ class ChatAdapter(
     }
 
     override fun getItemCount(): Int = messages.size
+
+    fun stableIdAt(position: Int): Long = getItemId(position)
+
+    fun positionOfStableId(stableId: Long): Int = messages.indexOfFirst { stableIdFor(it) == stableId }
 
     override fun onViewAttachedToWindow(holder: ViewHolder) {
         super.onViewAttachedToWindow(holder)
@@ -700,6 +733,18 @@ class ChatAdapter(
 
     private fun cachedRender(key: RenderCacheKey): ChatAdapterUtils.MessageResult? = synchronized(renderCache) {
         renderCache[key]
+    }
+
+    private fun stableIdFor(message: ChatMessage): Long {
+        val explicitId = message.id?.trim()?.takeIf { it.isNotEmpty() }
+        if (explicitId != null) {
+            var hash = -0x340d631b8c467dL
+            explicitId.forEach { character ->
+                hash = (hash xor character.code.toLong()) * 0x100000001b3L
+            }
+            return if (hash == RecyclerView.NO_ID) 0L else hash
+        }
+        return generatedStableIds[message] ?: nextGeneratedStableId++.also { generatedStableIds[message] = it }
     }
 
     private fun clearRenderCache() {

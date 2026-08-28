@@ -575,11 +575,30 @@ object ChatAdapterUtils {
         return builderIndex
     }
 
-    fun installImagePlaceholders(builder: SpannableStringBuilder, images: List<Image>, emoteSize: Int, badgeSize: Int, inlineIconSize: Int) {
+    fun installImagePlaceholders(
+        builder: SpannableStringBuilder,
+        images: List<Image>,
+        emoteSize: Int,
+        badgeSize: Int,
+        inlineIconSize: Int,
+        imagePaint: NamePaint? = null,
+        userName: String? = null,
+        userNameStartIndex: Int? = null,
+        backgroundColor: Int = Color.TRANSPARENT,
+    ) {
         images.forEach { image ->
             val size = imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize)
             val placeholder = ColorDrawable(Color.TRANSPARENT).apply { setBounds(0, 0, size, size) }
             builder.setSpan(CenteredImageSpan(placeholder), image.start, image.end, SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        if (imagePaint != null && !userName.isNullOrEmpty() && userNameStartIndex != null) {
+            val placeholder = ColorDrawable(Color.TRANSPARENT).apply { setBounds(0, 0, 1, 1) }
+            builder.setSpan(
+                NamePaintImageSpan(userName, imagePaint.shadows, null, backgroundColor, placeholder),
+                userNameStartIndex,
+                userNameStartIndex + userName.length,
+                SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
         }
     }
 
@@ -921,24 +940,22 @@ object ChatAdapterUtils {
                                         if (shouldAnimate()) (result as Animatable).start()
                                     }
                                     try {
-                                        builder.setSpan(
-                                            NamePaintImageSpan(
-                                                userName!!,
-                                                imagePaint.shadows,
-                                                (itemView.background as? ColorDrawable)?.color,
-                                                backgroundColor,
-                                                result
-                                            ),
+                                        builder.getSpans(
                                             userNameStartIndex!!,
-                                            userNameStartIndex + userName.length,
-                                            SPAN_EXCLUSIVE_EXCLUSIVE
-                                        )
+                                            userNameStartIndex + userName!!.length,
+                                            NamePaintImageSpan::class.java,
+                                        ).firstOrNull()?.let { span ->
+                                            span.backgroundColor = (itemView.background as? ColorDrawable)?.color
+                                            span.drawable = result
+                                        }
                                     } catch (e: IndexOutOfBoundsException) {
                                     }
+                                    var appendedTranslation = false
                                     if (!translated && chatMessage.translatedMessage != null) {
                                         addTranslation(chatMessage, builder, builder.length, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
+                                        appendedTranslation = true
                                     }
-                                    bind(builder)
+                                    if (appendedTranslation) bind(builder) else itemView.invalidate()
                                 }
                             },
                         )
@@ -967,24 +984,22 @@ object ChatAdapterUtils {
                             if (shouldAnimate()) (resource as Animatable).start()
                         }
                         try {
-                            builder.setSpan(
-                                NamePaintImageSpan(
-                                    userName!!,
-                                    imagePaint.shadows,
-                                    (itemView.background as? ColorDrawable)?.color,
-                                    backgroundColor,
-                                    resource
-                                ),
+                            builder.getSpans(
                                 userNameStartIndex!!,
-                                userNameStartIndex + userName.length,
-                                SPAN_EXCLUSIVE_EXCLUSIVE
-                            )
+                                userNameStartIndex + userName!!.length,
+                                NamePaintImageSpan::class.java,
+                            ).firstOrNull()?.let { span ->
+                                span.backgroundColor = (itemView.background as? ColorDrawable)?.color
+                                span.drawable = resource
+                            }
                         } catch (e: IndexOutOfBoundsException) {
                         }
+                        var appendedTranslation = false
                         if (!translated && chatMessage.translatedMessage != null) {
                             addTranslation(chatMessage, builder, builder.length, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
+                            appendedTranslation = true
                         }
-                        bind(builder)
+                        if (appendedTranslation) bind(builder) else itemView.invalidate()
                     }
 
                     override fun onLoadCleared(placeholder: Drawable?) {
@@ -1000,14 +1015,6 @@ object ChatAdapterUtils {
         images.forEach { image ->
             loadImage(imageLibrary, fragment, image, emoteQuality, requestBag) imageLoaded@{ result ->
                 if (!isCurrent()) return@imageLoaded
-                val imageSize = imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize)
-                val widthRatio = result.intrinsicWidth.toFloat() / result.intrinsicHeight.toFloat()
-                val size = if (widthRatio == 1f) {
-                    imageSize to imageSize
-                } else {
-                    (imageSize * widthRatio).toInt() to imageSize
-                }
-                result.setBounds(0, 0, size.first, size.second)
                 if (result is Animatable && image.isAnimated && animateGifs) {
                     result.callback = object : Drawable.Callback {
                         override fun unscheduleDrawable(who: Drawable, what: Runnable) {
@@ -1042,13 +1049,6 @@ object ChatAdapterUtils {
         }
         loadImage(imageLibrary, fragment, image, emoteQuality, requestBag) overlayLoaded@{ result ->
             if (!isCurrent()) return@overlayLoaded
-            val widthRatio = result.intrinsicWidth.toFloat() / result.intrinsicHeight.toFloat()
-            val size = if (widthRatio == 1f) {
-                emoteSize to emoteSize
-            } else {
-                (emoteSize * widthRatio).toInt() to emoteSize
-            }
-            result.setBounds(0, 0, size.first, size.second)
             if (result is Animatable && image.isAnimated && animateGifs) {
                 result.callback = object : Drawable.Callback {
                     override fun unscheduleDrawable(who: Drawable, what: Runnable) {
@@ -1070,9 +1070,6 @@ object ChatAdapterUtils {
                 nextOverlayEmote(imageLibrary, fragment, array, image.overlayEmote!!, bottomImage, itemView, bind, builder, translated, emoteSize, emoteQuality, animateGifs, enableOverlayEmotes, chatMessage, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors, isCurrent, shouldAnimate, requestBag, shouldLoad, onLoadDeferred)
             } else {
                 val layer = LayerDrawable(array)
-                val width = array.maxOf { it.bounds.right }
-                val height = array.maxOf { it.bounds.bottom }
-                layer.setBounds(0, 0, width, height)
                 builder.getSpans(bottomImage.start, bottomImage.end, CenteredImageSpan::class.java).firstOrNull()?.imageDrawable = layer
                 itemView.invalidate()
             }

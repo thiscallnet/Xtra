@@ -26,14 +26,11 @@ interface StreamFeedCacheStore {
         feedKey: StreamFeedKey,
         page: StreamFeedPage,
         nowMs: Long,
-        preserveTail: Boolean,
-        pruneStaleOnEnd: Boolean,
     )
     suspend fun appendPage(
         feedKey: StreamFeedKey,
         page: StreamFeedPage,
         nowMs: Long,
-        pruneStaleOnEnd: Boolean,
     )
     suspend fun pruneStaleGeneration(feedKey: StreamFeedKey)
     suspend fun recordFailure(feedKey: StreamFeedKey, nowMs: Long, failureBackoffUntil: Long?, rateLimitUntil: Long?)
@@ -117,53 +114,7 @@ internal fun refreshCachedItems(
         }
 }
 
-/**
- * Apply a fresh first page without dropping the rows loaded by an older
- * generation. The returned layout is already normalized so Room can upsert
- * it in one transaction without duplicate positions.
- */
-internal fun refreshCachedItemsPreservingTail(
-    feedKey: String,
-    existing: List<CachedStreamFeedItem>,
-    streams: List<Stream>,
-    generation: Long,
-): List<CachedStreamFeedItem> {
-    val refreshed = refreshCachedItems(feedKey, streams, generation)
-    val refreshedKeys = refreshed.map { it.itemKey }.toSet()
-    // Keep at most one previously verified generation as a useful stale tail.
-    // Without this bound, every successful first-page refresh could retain rows
-    // from an arbitrarily old feed snapshot until the feed's long retention
-    // cleanup ran.
-    val retainedGenerations = existing.asSequence()
-        .map { it.generation }
-        .distinct()
-        .sortedDescending()
-        .take(StreamFeedFreshnessPolicy.MAX_RETAINED_STALE_GENERATIONS)
-        .toSet()
-    val staleTail = existing
-        .filter { it.generation in retainedGenerations }
-        .filterNot { it.itemKey in refreshedKeys }
-        .sortedBy { it.position }
-        .mapIndexed { index, item ->
-            item.copy(position = refreshed.size + index)
-        }
-    return refreshed + staleTail
-}
-
-internal fun staleTailExpired(state: StreamFeedState?, nowMs: Long): Boolean {
-    return state != null &&
-            state.activeGeneration != 0L &&
-            state.staleTailRetainedAt?.let {
-                nowMs - it >= StreamFeedFreshnessPolicy.MAX_RETAINED_STALE_TAIL_AGE_MS
-            } == true
-}
-
-/**
- * Apply one newly downloaded page while retaining an older generation as a
- * stale tail. Active rows form a contiguous prefix; every remaining stale
- * row is reindexed after it. This makes position ordering deterministic even
- * when the remote page adds, removes, or overlaps different channels.
- */
+/** Apply one newly downloaded page to the current refresh generation. */
 internal fun appendCachedPage(
     feedKey: String,
     existing: List<CachedStreamFeedItem>,
@@ -172,9 +123,6 @@ internal fun appendCachedPage(
 ): List<CachedStreamFeedItem> {
     val activeRows = existing
         .filter { it.generation == generation }
-        .sortedBy { it.position }
-    val staleRows = existing
-        .filter { it.generation != generation }
         .sortedBy { it.position }
     val pageStreams = streams
         .mapNotNull { stream -> stream.cacheItemKey()?.let { it to stream } }
@@ -195,13 +143,7 @@ internal fun appendCachedPage(
     val activePrefix = (updatedActive + newActive).mapIndexed { index, item ->
         item.copy(position = index, generation = generation)
     }
-    val pageKeys = pageStreams.map { it.first }.toSet()
-    val staleTail = staleRows
-        .filterNot { it.itemKey in pageKeys }
-        .mapIndexed { index, item ->
-            item.copy(position = activePrefix.size + index)
-        }
-    return activePrefix + staleTail
+    return activePrefix
 }
 
 private fun Stream.withThumbnailGeneration(generation: Long): Stream = Stream(
@@ -227,27 +169,6 @@ private fun normalizedStreams(streams: List<Stream>, generation: Long): List<Str
             stream.cacheItemKey()?.let { stream.withThumbnailGeneration(generation) }
         }
 
-/** Mirrors [refreshCachedItemsPreservingTail] without round-tripping fresh rows through Room. */
-private fun refreshStreamsPreservingTail(
-    existing: List<Stream>,
-    streams: List<Stream>,
-    generation: Long,
-): List<Stream> {
-    val refreshed = normalizedStreams(streams, generation)
-    val refreshedKeys = refreshed.mapNotNull { it.cacheItemKey() }.toSet()
-    val retainedGenerations = existing.asSequence()
-        .map { it.thumbnailGeneration }
-        .distinct()
-        .sortedDescending()
-        .take(StreamFeedFreshnessPolicy.MAX_RETAINED_STALE_GENERATIONS)
-        .toSet()
-    val staleTail = existing
-        .filter { it.thumbnailGeneration in retainedGenerations }
-        .filterNot { it.cacheItemKey() in refreshedKeys }
-        .map { it.withThumbnailGeneration(it.thumbnailGeneration) }
-    return refreshed + staleTail
-}
-
 /** Mirrors [appendCachedPage] while keeping the live in-memory rows as Stream objects. */
 private fun appendStreams(
     existing: List<Stream>,
@@ -255,7 +176,6 @@ private fun appendStreams(
     generation: Long,
 ): List<Stream> {
     val activeRows = existing.filter { it.thumbnailGeneration == generation }
-    val staleRows = existing.filter { it.thumbnailGeneration != generation }
     val pageStreams = streams
         .mapNotNull { stream -> stream.cacheItemKey()?.let { it to stream } }
         .distinctBy { it.first }
@@ -268,9 +188,7 @@ private fun appendStreams(
         .filterNot { (key, _) -> key in activeKeys }
         .map { (_, stream) -> stream.withThumbnailGeneration(generation) }
     val activePrefix = updatedActive + newActive
-    val pageKeys = pageStreams.map { it.first }.toSet()
-    val staleTail = staleRows.filterNot { it.cacheItemKey() in pageKeys }
-    return activePrefix + staleTail
+    return activePrefix
 }
 
 /**
@@ -314,14 +232,13 @@ class StreamFeedCache(
     override suspend fun touchAccess(feedKey: StreamFeedKey, nowMs: Long) = withContext(Dispatchers.IO) {
         database.runInTransaction {
             val current = dao.state(feedKey.value)
-            val expiredTail = staleTailExpired(current, nowMs)
-            if (expiredTail) {
-                dao.deleteItemsExceptGeneration(feedKey.value, current!!.activeGeneration)
+            if (current != null) {
+                dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
             }
             dao.insertState(
                 (current ?: StreamFeedState(feedKey.value)).copy(
                     lastAccessAt = nowMs,
-                    staleTailRetainedAt = if (expiredTail) null else current?.staleTailRetainedAt,
+                    staleTailRetainedAt = null,
                 )
             )
         }
@@ -330,72 +247,35 @@ class StreamFeedCache(
     override suspend fun markAttempt(feedKey: StreamFeedKey, nowMs: Long) = withContext(Dispatchers.IO) {
         database.runInTransaction {
             val current = dao.state(feedKey.value)
-            val expiredTail = staleTailExpired(current, nowMs)
-            if (expiredTail) {
-                dao.deleteItemsExceptGeneration(feedKey.value, current!!.activeGeneration)
+            if (current != null) {
+                dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
             }
             dao.insertState(
                 (current ?: StreamFeedState(feedKey.value)).copy(
                     lastAttemptAt = nowMs,
                     lastAccessAt = nowMs,
-                    staleTailRetainedAt = if (expiredTail) null else current?.staleTailRetainedAt,
+                    staleTailRetainedAt = null,
                 )
             )
         }
     }
 
-    /** Replace the cached refresh page only after its network request succeeded. */
+    /** Replace the complete cached snapshot only after its network request succeeded. */
     override suspend fun replaceAfterRefresh(
         feedKey: StreamFeedKey,
         page: StreamFeedPage,
         nowMs: Long,
-        preserveTail: Boolean,
-        pruneStaleOnEnd: Boolean,
     ) = withContext(Dispatchers.IO) {
         var activeItems: List<Stream> = emptyList()
         database.runInTransaction {
             val current = dao.state(feedKey.value)
             val generation = (current?.activeGeneration ?: 0L) + 1L
-            val expiredTail = staleTailExpired(current, nowMs)
-            if (expiredTail && current != null) {
-                // The expired rows are the generations behind the active one.
-                // Keep the active generation available to become the next
-                // stale tail even when expiry is crossed during the request.
-                dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
-            }
-            val existing = if (preserveTail) dao.itemsForFeed(feedKey.value) else emptyList()
-            val items = if (preserveTail) {
-                refreshCachedItemsPreservingTail(
-                    feedKey = feedKey.value,
-                    existing = existing,
-                    streams = page.items,
-                    generation = generation,
-                )
-            } else {
-                refreshCachedItems(feedKey.value, page.items, generation)
-            }
-            if (!preserveTail) {
-                dao.deleteItems(feedKey.value)
-            }
+            val items = refreshCachedItems(feedKey.value, page.items, generation)
+            dao.deleteItems(feedKey.value)
             if (items.isNotEmpty()) {
                 dao.insertItems(items)
             }
-            if (page.nextCursor == null && pruneStaleOnEnd) {
-                dao.deleteItemsExceptGeneration(feedKey.value, generation)
-            }
-            val existingStreams = activeSnapshot.current(feedKey.value)
-                ?: existing.map(CachedStreamFeedItem::toStream)
-            activeItems = if (preserveTail) {
-                refreshStreamsPreservingTail(existingStreams, page.items, generation)
-            } else {
-                normalizedStreams(page.items, generation)
-            }
-            if (page.nextCursor == null && pruneStaleOnEnd) {
-                activeItems = activeItems.filter { it.thumbnailGeneration == generation }
-            }
-            val retainsStaleTail = preserveTail &&
-                    !(page.nextCursor == null && pruneStaleOnEnd) &&
-                    items.any { it.generation != generation }
+            activeItems = normalizedStreams(page.items, generation)
             dao.insertState(
                 StreamFeedState(
                     feedKey = feedKey.value,
@@ -407,11 +287,7 @@ class StreamFeedCache(
                     rateLimitUntil = null,
                     nextCursorApi = page.nextCursor?.api,
                     activeGeneration = generation,
-                    staleTailRetainedAt = if (retainsStaleTail) {
-                        current?.staleTailRetainedAt?.takeUnless { expiredTail } ?: nowMs
-                    } else {
-                        null
-                    },
+                    staleTailRetainedAt = null,
                 )
             )
         }
@@ -423,36 +299,24 @@ class StreamFeedCache(
         feedKey: StreamFeedKey,
         page: StreamFeedPage,
         nowMs: Long,
-        pruneStaleOnEnd: Boolean,
     ) = withContext(Dispatchers.IO) {
         var activeItems: List<Stream> = emptyList()
         database.runInTransaction {
             val current = dao.state(feedKey.value) ?: StreamFeedState(feedKey.value)
-            val expiredTail = staleTailExpired(current, nowMs)
-            if (expiredTail) {
-                dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
-            }
             val existing = dao.itemsForFeed(feedKey.value)
             val items = appendCachedPage(feedKey.value, existing, page.items, current.activeGeneration)
+            dao.deleteItems(feedKey.value)
             if (items.isNotEmpty()) {
                 dao.insertItems(items)
             }
-            if (page.nextCursor == null && pruneStaleOnEnd) {
-                dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
-            }
-            val existingStreams = activeSnapshot.current(feedKey.value)
-                ?: existing.map(CachedStreamFeedItem::toStream)
+            val existingStreams = (activeSnapshot.current(feedKey.value)
+                ?: existing.map(CachedStreamFeedItem::toStream))
+                .filter { it.thumbnailGeneration == current.activeGeneration }
             activeItems = appendStreams(
                 existing = existingStreams,
                 streams = page.items,
                 generation = current.activeGeneration,
             )
-            if (page.nextCursor == null && pruneStaleOnEnd) {
-                activeItems = activeItems.filter { it.thumbnailGeneration == current.activeGeneration }
-            }
-            val retainsStaleTail =
-                !(page.nextCursor == null && pruneStaleOnEnd) &&
-                        items.any { it.generation != current.activeGeneration }
             dao.insertState(
                 current.copy(
                     nextCursor = page.nextCursor?.value,
@@ -462,11 +326,7 @@ class StreamFeedCache(
                     failureBackoffUntil = null,
                     rateLimitUntil = null,
                     nextCursorApi = page.nextCursor?.api,
-                    staleTailRetainedAt = if (retainsStaleTail) {
-                        current.staleTailRetainedAt?.takeUnless { expiredTail } ?: nowMs
-                    } else {
-                        null
-                    },
+                    staleTailRetainedAt = null,
                 )
             )
         }
@@ -491,17 +351,13 @@ class StreamFeedCache(
     ) = withContext(Dispatchers.IO) {
         database.runInTransaction {
             val current = dao.state(feedKey.value) ?: StreamFeedState(feedKey.value)
-            val expiredTail = staleTailExpired(current, nowMs)
-            if (expiredTail) {
-                dao.deleteItemsExceptGeneration(feedKey.value, current.activeGeneration)
-            }
             dao.insertState(
                 current.copy(
                     lastAttemptAt = nowMs,
                     lastAccessAt = nowMs,
                     failureBackoffUntil = failureBackoffUntil,
                     rateLimitUntil = rateLimitUntil,
-                    staleTailRetainedAt = if (expiredTail) null else current.staleTailRetainedAt,
+                    staleTailRetainedAt = null,
                 )
             )
         }
@@ -527,7 +383,7 @@ class StreamFeedCache(
         database.runInTransaction {
             val cutoff = nowMs - FEED_RETENTION_MS
             val states = dao.allStates()
-            states.filter { staleTailExpired(it, nowMs) }
+            states.filter { it.staleTailRetainedAt != null }
                 .forEach { state ->
                     dao.deleteItemsExceptGeneration(state.feedKey, state.activeGeneration)
                     dao.insertState(state.copy(staleTailRetainedAt = null))

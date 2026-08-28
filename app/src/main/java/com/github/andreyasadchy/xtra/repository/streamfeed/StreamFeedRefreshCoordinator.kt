@@ -166,10 +166,7 @@ class StreamFeedRefreshCoordinator(
                 RefreshDecision.JOIN -> error("JOIN is handled before the feed lock")
             }
 
-            val preserveTail = reason != RefreshReason.USER_PULL &&
-                    reason != RefreshReason.FILTER_CHANGED &&
-                    reason != RefreshReason.FOLLOW_STATE_CHANGED
-            val cachedItemCount = if (preserveTail) cache.itemCount(spec.key) else 0
+            val cachedItemCount = cache.itemCount(spec.key)
             val started = elapsedRealtimeMs()
             cache.markAttempt(spec.key, now)
             try {
@@ -179,13 +176,10 @@ class StreamFeedRefreshCoordinator(
                     spec.key,
                     page,
                     completedAt,
-                    preserveTail = preserveTail,
-                    pruneStaleOnEnd = !preserveTail,
                 )
                 successfulAtByFeed[spec.key.value] = completedAt
                 if (shouldPrefetchTail(
                         reason = reason,
-                        preserveTail = preserveTail,
                         cachedItemCount = cachedItemCount,
                         firstPageItemCount = page.items.size,
                         nextCursorPresent = page.nextCursor != null,
@@ -278,7 +272,6 @@ class StreamFeedRefreshCoordinator(
                     spec.key,
                     page,
                     completedAt,
-                    pruneStaleOnEnd = !speculative,
                 )
                 scheduleCacheCleanup()
                 debug(spec, RefreshReason.SCREEN_VISIBLE, RefreshDecision.REFRESH, null, "append items=${page.items.size} duration=${elapsedRealtimeMs() - started}")
@@ -305,14 +298,12 @@ class StreamFeedRefreshCoordinator(
 
     private fun shouldPrefetchTail(
         reason: RefreshReason,
-        preserveTail: Boolean,
         cachedItemCount: Int,
         firstPageItemCount: Int,
         nextCursorPresent: Boolean,
     ): Boolean {
         return StreamFeedFreshnessPolicy.MAX_AUTOMATIC_TAIL_PREFETCH_PAGES > 0 &&
                 reason != RefreshReason.BACKGROUND_PREWARM &&
-                preserveTail &&
                 cachedItemCount > firstPageItemCount &&
                 nextCursorPresent
     }

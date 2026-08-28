@@ -296,7 +296,7 @@ class StreamFeedRefreshCoordinatorTest {
     }
 
     @Test
-    fun automaticRefreshKeepsDeepRowsUntilPaginationCompletes() = runBlocking {
+    fun automaticRefreshReplacesDeepRowsBeforePaginationContinues() = runBlocking {
         val key = StreamFeedKey("top:deep-scroll-automatic")
         val oldRows = refreshCachedItems(
             key.value,
@@ -340,7 +340,7 @@ class StreamFeedRefreshCoordinatorTest {
         coordinator.maybeRefresh(spec, RefreshReason.APP_FOREGROUND)
         withTimeout(1_000L) { appendCommitted.await() }
 
-        assertTrue(cache.rows.any { it.itemKey == "channel:deep-80" })
+        assertFalse(cache.rows.any { it.itemKey == "channel:deep-80" })
         assertTrue(cache.rows.size > 1)
         coordinator.append(spec)
         assertFalse(cache.rows.any { it.itemKey == "channel:deep-80" })
@@ -352,7 +352,7 @@ class StreamFeedRefreshCoordinatorTest {
     }
 
     @Test
-    fun automaticRefreshPrefetchesOneFreshPageWhenRetainingADeepTail() = runBlocking {
+    fun automaticRefreshPrefetchesOneFreshPageWithoutRetainingADeepTail() = runBlocking {
         val key = StreamFeedKey("top:bounded-tail-prefetch")
         val cache = FakeCache(
             key = key,
@@ -394,7 +394,7 @@ class StreamFeedRefreshCoordinatorTest {
 
         assertEquals(2, loads)
         assertTrue(cache.rows.any { it.itemKey == "channel:fresh-1" })
-        assertTrue(cache.rows.any { it.itemKey == "channel:old-80" })
+        assertFalse(cache.rows.any { it.itemKey == "channel:old-80" })
         scope.cancel()
     }
 
@@ -541,7 +541,7 @@ class StreamFeedRefreshCoordinatorTest {
     }
 
     @Test
-    fun automaticRefreshEofRetainsStaleRowsUntilRealAppendFinalizesGeneration() = runBlocking {
+    fun automaticRefreshEofReplacesTheSnapshotImmediately() = runBlocking {
         val key = StreamFeedKey("top:automatic-eof")
         val cache = FakeCache(
             key = key,
@@ -567,16 +567,15 @@ class StreamFeedRefreshCoordinatorTest {
 
         coordinator.maybeRefresh(spec, RefreshReason.APP_FOREGROUND)
 
-        assertTrue(cache.rows.any { it.itemKey == "channel:old-80" })
+        assertFalse(cache.rows.any { it.itemKey == "channel:old-80" })
         assertEquals(null, cache.currentState?.nextCursor)
         assertTrue(coordinator.append(spec).endOfPaginationReached)
-        assertFalse(cache.rows.any { it.itemKey == "channel:old-80" })
         assertEquals(20, cache.rows.size)
         scope.cancel()
     }
 
     @Test
-    fun speculativeEofRetainsStaleRowsUntilRealAppendFinalizesGeneration() = runBlocking {
+    fun speculativeEofReplacesTheSnapshotImmediately() = runBlocking {
         val key = StreamFeedKey("top:speculative-eof")
         val cache = FakeCache(
             key = key,
@@ -615,10 +614,9 @@ class StreamFeedRefreshCoordinatorTest {
         withTimeout(1_000L) { appendCommitted.await() }
 
         assertEquals(2, loads)
-        assertTrue(cache.rows.any { it.itemKey == "channel:old-80" })
+        assertFalse(cache.rows.any { it.itemKey == "channel:old-80" })
         assertEquals(null, cache.currentState?.nextCursor)
         assertTrue(coordinator.append(spec).endOfPaginationReached)
-        assertFalse(cache.rows.any { it.itemKey == "channel:old-80" })
         assertEquals(50, cache.rows.size)
         scope.cancel()
     }
@@ -714,18 +712,9 @@ class StreamFeedRefreshCoordinatorTest {
             feedKey: StreamFeedKey,
             page: StreamFeedPage,
             nowMs: Long,
-            preserveTail: Boolean,
-            pruneStaleOnEnd: Boolean,
         ) {
             val generation = (currentState?.activeGeneration ?: 0L) + 1L
-            rows = if (preserveTail) {
-                refreshCachedItemsPreservingTail(feedKey.value, rows, page.items, generation)
-            } else {
-                refreshCachedItems(feedKey.value, page.items, generation)
-            }
-            if (page.nextCursor == null && pruneStaleOnEnd) {
-                rows = rows.filter { it.generation == generation }
-            }
+            rows = refreshCachedItems(feedKey.value, page.items, generation)
             currentState = StreamFeedState(
                 feedKey = feedKey.value,
                 nextCursor = page.nextCursor?.value,
@@ -742,13 +731,9 @@ class StreamFeedRefreshCoordinatorTest {
             feedKey: StreamFeedKey,
             page: StreamFeedPage,
             nowMs: Long,
-            pruneStaleOnEnd: Boolean,
         ) {
             val current = currentState ?: StreamFeedState(feedKey.value)
             rows = appendCachedPage(feedKey.value, rows, page.items, current.activeGeneration)
-            if (page.nextCursor == null && pruneStaleOnEnd) {
-                rows = rows.filter { it.generation == current.activeGeneration }
-            }
             currentState = current.copy(
                 nextCursor = page.nextCursor?.value,
                 nextCursorApi = page.nextCursor?.api,

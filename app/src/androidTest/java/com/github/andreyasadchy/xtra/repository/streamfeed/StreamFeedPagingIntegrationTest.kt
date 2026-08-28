@@ -57,8 +57,6 @@ class StreamFeedPagingIntegrationTest {
                 StreamFeedCursor(C.GQL, "old-page-4"),
             ),
             nowMs = 1L,
-            preserveTail = false,
-            pruneStaleOnEnd = true,
         )
 
         val cursors = mutableListOf<StreamFeedCursor?>()

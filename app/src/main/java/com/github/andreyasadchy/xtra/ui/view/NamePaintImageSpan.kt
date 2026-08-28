@@ -16,7 +16,8 @@ class NamePaintImageSpan(
     private val shadows: List<NamePaint.Shadow>?,
     var backgroundColor: Int?,
     private val bottomBackgroundColor: Int,
-    val drawable: Drawable,
+    @Volatile
+    var drawable: Drawable,
 ) : ReplacementSpan() {
 
     override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
@@ -35,8 +36,8 @@ class NamePaintImageSpan(
         val xOffset = x.toInt()
         val width = paint.measureText(name).toInt()
         val height = bottom - top
-        val drawableWidth = drawable.intrinsicWidth
-        val drawableHeight = drawable.intrinsicHeight
+        val drawableWidth = drawable.intrinsicWidth.takeIf { it > 0 } ?: drawable.bounds.width().coerceAtLeast(1)
+        val drawableHeight = drawable.intrinsicHeight.takeIf { it > 0 } ?: drawable.bounds.height().coerceAtLeast(1)
         val widthRatio = drawableWidth.toFloat() / drawableHeight.toFloat()
         val fullWidth: Int
         val fullHeight: Int

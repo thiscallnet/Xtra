@@ -116,7 +116,17 @@ class ReplyClickedChatAdapter(
         if (chatMessage == selectedMessage) {
             holder.textView.setBackgroundResource(R.color.chatMessageSelected)
         }
-        ChatAdapterUtils.installImagePlaceholders(result.builder, result.images, emoteSize, badgeSize, inlineIconSize)
+        ChatAdapterUtils.installImagePlaceholders(
+            result.builder,
+            result.images,
+            emoteSize,
+            badgeSize,
+            inlineIconSize,
+            result.imagePaint,
+            result.userName,
+            result.userNameStartIndex,
+            backgroundColor,
+        )
         holder.bind(chatMessage, result.builder)
         ChatAdapterUtils.loadImages(
             fragment, holder.textView, { holder.bind(chatMessage, it) }, result.images, result.imagePaint, result.userName, result.userNameStartIndex,
