@@ -551,7 +551,7 @@ class ChatAdapter(
         clearRenderCache()
         visibleRange?.let { range ->
             prepareAndNotify(
-                range.mapNotNull { messages.getOrNull(it) },
+                messages.toList(),
                 range.toList(),
             )
         }
