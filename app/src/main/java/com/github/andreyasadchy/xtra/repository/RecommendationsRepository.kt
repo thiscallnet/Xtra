@@ -172,7 +172,9 @@ class RecommendationsRepository(
         val officialSession = authSessionStore.read()
         val auth = recommendationAuthFor(
             officialUserId = officialSession?.userId,
-            credential = authSessionStore.readPrivateGqlCredential(),
+            credential = officialSession?.let {
+                authSessionStore.readPrivateGqlCredential(it.accessToken)
+            },
         )
         RecommendationAccountKey(
             userId = officialSession?.userId ?: context.tokenPrefs().getString(C.USER_ID, null),
@@ -186,7 +188,9 @@ class RecommendationsRepository(
         val officialSession = authSessionStore.read()
         val auth = recommendationAuthFor(
             officialUserId = officialSession?.userId,
-            credential = authSessionStore.readPrivateGqlCredential(),
+            credential = officialSession?.let {
+                authSessionStore.readPrivateGqlCredential(it.accessToken)
+            },
         )
         RecommendationRequestContext(
             auth = auth,

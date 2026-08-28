@@ -22,6 +22,7 @@ import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.VideoHistoryCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
+import com.github.andreyasadchy.xtra.ui.common.thumbnailState
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 
 class VideoShelfAdapter(
@@ -140,6 +141,7 @@ class VideoShelfAdapter(
                     diskCachePolicy(CachePolicy.ENABLED)
                     crossfade(false)
                     target(binding.thumbnail)
+                    thumbnailState()
                 }.build()))
             }
             binding.title.text = item.title.orEmpty()

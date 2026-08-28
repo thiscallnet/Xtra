@@ -106,8 +106,9 @@ class AuthSessionStore(
     /**
      * Returns the private-GQL credential whose Twitch identity is tied to the current web session.
      */
-    fun readPrivateGqlCredential(): PrivateGqlCredential? {
-        val webToken = tokenPreferences.getString(C.GQL_TOKEN_WEB, null)?.takeIf { it.isNotBlank() }
+    fun readPrivateGqlCredential(webTokenOverride: String? = null): PrivateGqlCredential? {
+        val webToken = (webTokenOverride ?: tokenPreferences.getString(C.GQL_TOKEN_WEB, null))
+            ?.takeIf { it.isNotBlank() }
         val webUserId = tokenPreferences.getString(C.GQL_TOKEN_WEB_USER_ID, null)
             ?.takeIf { it.isNotBlank() }
             ?: tokenPreferences.getString(C.USER_ID, null)?.takeIf { it.isNotBlank() }

@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
+import com.github.andreyasadchy.xtra.ui.common.thumbnailState
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 
 class UpcomingStreamShelfAdapter(
@@ -145,6 +146,7 @@ class UpcomingStreamShelfAdapter(
                         diskCachePolicy(CachePolicy.ENABLED)
                         crossfade(false)
                         target(binding.previewImage)
+                        thumbnailState()
                     }.build()))
                 }
             } else if (binding.previewImage.tag != null) {
