@@ -3,7 +3,6 @@ name: Build
 on:
   push:
     branches: [ master ]
-    tags: [ 'v*' ]
   pull_request:
     branches: [ master ]
   workflow_dispatch:
@@ -101,51 +100,27 @@ jobs:
         {
           echo "name=$version"
           echo "code=$version_code"
+          echo "build=$GITHUB_RUN_NUMBER"
         } >> "$GITHUB_OUTPUT"
     - name: Write release metadata
       env:
         VERSION_NAME: ${{ steps.version.outputs.name }}
         VERSION_CODE: ${{ steps.version.outputs.code }}
+        BUILD_NUMBER: ${{ steps.version.outputs.build }}
       shell: bash
       run: |
         set -euo pipefail
-        printf '{"versionName":"%s","versionCode":%s}\n' "$VERSION_NAME" "$VERSION_CODE" > xtra-release-metadata.json
+        jq -n \
+          --arg version_name "$VERSION_NAME" \
+          --argjson version_code "$VERSION_CODE" \
+          --argjson build_number "$BUILD_NUMBER" \
+          '{versionName: $version_name, versionCode: $version_code, buildNumber: $build_number}' \
+          > xtra-release-metadata.json
     - name: Run JVM tests
       run: ./gradlew testDebugUnitTest
 
     - name: Check resource localization hygiene
       run: python3 .github/scripts/check-resources.py
-
-    - name: Validate release tag
-      if: github.event_name == 'push' && github.ref_type == 'tag'
-      env:
-        VERSION_NAME: ${{ steps.version.outputs.name }}
-      shell: bash
-      run: |
-        set -euo pipefail
-        tag="$GITHUB_REF_NAME"
-        if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-          echo "Invalid release tag '$tag'. Expected vX.Y.Z, for example v2.58.6." >&2
-          exit 1
-        fi
-
-        tag_version="${tag#v}"
-        if [[ "$tag_version" != "$VERSION_NAME" ]]; then
-          echo "Release tag $tag does not match Gradle applicationVersionName $VERSION_NAME" >&2
-          exit 1
-        fi
-
-        tag_commit="$(git rev-parse --verify "refs/tags/${tag}^{commit}" 2>/dev/null || true)"
-        if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
-          echo "Release tag $tag resolves to ${tag_commit:-<missing>}, expected $GITHUB_SHA" >&2
-          exit 1
-        fi
-
-        git fetch --no-tags origin refs/heads/master:refs/remotes/origin/master
-        if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
-          echo "Release tag $tag points to a commit that is not reachable from origin/master" >&2
-          exit 1
-        fi
 
     - name: Build with Gradle
       id: build
@@ -387,194 +362,15 @@ jobs:
         retention-days: 7
 
     - name: Upload release package
-      if: success() && github.event_name == 'push' && github.ref_type == 'tag'
+      if: >-
+        success() &&
+        steps.build.outcome == 'success' &&
+        steps.verify-release-apk.outcome == 'success' &&
+        ((github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+         (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'))
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       with:
-        name: xtra-release-package
+        name: xtra-master-release-package
         path: release-package
         if-no-files-found: error
-        retention-days: 7
-
-  publish-release:
-    if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: [ build, clip-instrumentation ]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-    - name: Download release package
-      uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
-      with:
-        name: xtra-release-package
-        path: release-package
-    - name: Publish GitHub Release
-      env:
-        GH_TOKEN: ${{ github.token }}
-        GH_REPO: ${{ github.repository }}
-        VERSION_NAME: ${{ needs.build.outputs.version_name }}
-        VERSION_CODE: ${{ needs.build.outputs.version_code }}
-      shell: bash
-      run: |
-        set -euo pipefail
-        tag="$GITHUB_REF_NAME"
-        tag_version="${tag#v}"
-        declare -A local_assets=(
-          [app-release.apk]=release-package/app-release.apk
-          [app-arm64-v8a-release.apk]=release-package/app-arm64-v8a-release.apk
-          [app-armeabi-v7a-release.apk]=release-package/app-armeabi-v7a-release.apk
-          [app-x86-release.apk]=release-package/app-x86-release.apk
-          [app-x86_64-release.apk]=release-package/app-x86_64-release.apk
-          [xtra-release-metadata.json]=release-package/xtra-release-metadata.json
-        )
-        required_asset_names=(
-          app-release.apk
-          app-arm64-v8a-release.apk
-          app-armeabi-v7a-release.apk
-          app-x86-release.apk
-          app-x86_64-release.apk
-          xtra-release-metadata.json
-        )
-        expected_asset_names_json="$(printf '%s\n' "${required_asset_names[@]}" | jq -Rsc 'split("\n")[:-1]')"
-        for asset_name in "${required_asset_names[@]}"; do
-          if [[ ! -f "${local_assets[$asset_name]}" ]]; then
-            echo "Release package is missing $asset_name" >&2
-            exit 1
-          fi
-        done
-        metadata_asset="${local_assets[xtra-release-metadata.json]}"
-        if [[ "$tag_version" != "$VERSION_NAME" ]]; then
-          echo "Release tag $tag does not match build versionName $VERSION_NAME" >&2
-          exit 1
-        fi
-        metadata_version_name="$(jq -er '.versionName | strings' "$metadata_asset")"
-        metadata_version_code="$(jq -er '.versionCode | numbers | tostring' "$metadata_asset")"
-        if [[ "$metadata_version_name" != "$tag_version" || "$metadata_version_code" != "$VERSION_CODE" ]]; then
-          echo "Release metadata does not match the pushed tag and build outputs" >&2
-          exit 1
-        fi
-
-        title="Xtra ${tag_version}"
-        release_api="repos/${GITHUB_REPOSITORY}/releases/tags/${tag}"
-        if gh release view "$tag" --json tagName >/dev/null 2>&1; then
-          echo "Release $tag already exists; verifying and recovering it"
-        else
-          gh release create "$tag" \
-            --draft \
-            --latest=false \
-            --verify-tag \
-            --title "$title" \
-            --generate-notes
-        fi
-
-        release_json="$(gh api "$release_api")"
-        if ! jq -e \
-          --arg tag "$tag" \
-          --arg title "$title" \
-          '(.tag_name == $tag) and (.name == $title) and (.draft | type == "boolean") and (.prerelease == false)' \
-          <<< "$release_json" >/dev/null; then
-          echo "Release $tag does not match the expected tag/title or is prerelease" >&2
-          exit 1
-        fi
-
-        asset_count() {
-          jq -r --arg name "$1" '[.assets[] | select(.name == $name)] | length' <<< "$release_json"
-        }
-
-        refresh_release() {
-          release_json="$(gh api "$release_api")"
-        }
-
-        download_asset() {
-          local name="$1"
-          local output_path="$2"
-          local asset_id
-          asset_id="$(jq -er --arg name "$name" '[.assets[] | select(.name == $name)][0].id' <<< "$release_json")"
-          gh api \
-            -H "Accept: application/octet-stream" \
-            "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" \
-            > "$output_path"
-        }
-
-        verify_asset() {
-          local name="$1"
-          local local_asset="${local_assets[$name]}"
-          local count
-          local verification_dir
-          count="$(asset_count "$name")"
-          if [[ "$count" != 1 ]]; then
-            echo "Release $tag does not contain exactly one $name asset" >&2
-            exit 1
-          fi
-          verification_dir="$(mktemp -d)"
-          if [[ "$name" == *.apk ]]; then
-            local local_digest
-            local remote_digest
-            local_digest="$(sha256sum "$local_asset" | awk '{print $1}')"
-            remote_digest="$(jq -r --arg name "$name" '[.assets[] | select(.name == $name)][0].digest // ""' <<< "$release_json")"
-            if [[ "$remote_digest" != "sha256:${local_digest}" ]]; then
-              if ! download_asset "$name" "$verification_dir/$name" ||
-                [[ "$(sha256sum "$verification_dir/$name" | awk '{print $1}')" != "$local_digest" ]]; then
-                echo "Release $tag APK $name does not match the build artifact" >&2
-                rm -rf "$verification_dir"
-                exit 1
-              fi
-            fi
-          elif ! download_asset "$name" "$verification_dir/$name" ||
-            ! cmp -s "$local_asset" "$verification_dir/$name"; then
-            echo "Release $tag metadata does not match the build artifact" >&2
-            rm -rf "$verification_dir"
-            exit 1
-          fi
-          rm -rf "$verification_dir"
-        }
-
-        declare -A missing_assets=()
-        for asset_name in "${required_asset_names[@]}"; do
-          count="$(asset_count "$asset_name")"
-          if [[ "$count" == 0 ]]; then
-            missing_assets["$asset_name"]="1"
-          elif [[ "$count" != 1 ]]; then
-            echo "Release $tag contains multiple assets named $asset_name" >&2
-            exit 1
-          else
-            verify_asset "$asset_name"
-          fi
-        done
-        for asset_name in "${required_asset_names[@]}"; do
-          if [[ "${missing_assets[$asset_name]:-}" == 1 ]]; then
-            echo "Uploading missing release asset $asset_name"
-            gh release upload "$tag" "${local_assets[$asset_name]}"
-          fi
-        done
-        refresh_release
-        if ! jq -e \
-          --arg tag "$tag" \
-          --arg title "$title" \
-          --argjson expected_asset_names "$expected_asset_names_json" \
-          '(.tag_name == $tag) and (.name == $title) and (.draft | type == "boolean") and (.prerelease == false) and
-           (([.assets[].name] | sort) == ($expected_asset_names | sort))' \
-          <<< "$release_json" >/dev/null; then
-          echo "Release $tag failed pre-publication asset verification" >&2
-          exit 1
-        fi
-        for asset_name in "${required_asset_names[@]}"; do
-          verify_asset "$asset_name"
-        done
-
-        echo "Publishing verified draft release $tag"
-        gh release edit "$tag" --draft=false --latest
-        refresh_release
-        if ! jq -e \
-          --arg tag "$tag" \
-          --arg title "$title" \
-          --argjson expected_asset_names "$expected_asset_names_json" \
-          '(.tag_name == $tag) and (.name == $title) and (.draft == false) and (.prerelease == false) and
-           (([.assets[].name] | sort) == ($expected_asset_names | sort))' \
-          <<< "$release_json" >/dev/null; then
-          echo "Release $tag failed final asset/state verification" >&2
-          exit 1
-        fi
-        for asset_name in "${required_asset_names[@]}"; do
-          verify_asset "$asset_name"
-        done
-        echo "Verified stable release $tag with matching APKs and metadata"
+        retention-days: 14

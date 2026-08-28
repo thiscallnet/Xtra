@@ -1,0 +1,281 @@
+name: Publish build release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Build workflow run ID from master
+        required: true
+        type: string
+      channel:
+        description: Publish as a prerelease for direct downloads or stable for in-app updates
+        required: true
+        default: prerelease
+        type: choice
+        options:
+          - prerelease
+          - stable
+
+concurrency:
+  group: publish-build-release
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: ${{ inputs.run_id }}
+      CHANNEL: ${{ inputs.channel }}
+    steps:
+    - name: Validate source build
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ ! "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+          echo "run_id must be a positive GitHub Actions run ID" >&2
+          exit 1
+        fi
+
+        run_json="$(gh api "repos/${GH_REPO}/actions/runs/${SOURCE_RUN_ID}")"
+        workflow_path="$(jq -er '.path' <<< "$run_json")"
+        event="$(jq -er '.event' <<< "$run_json")"
+        branch="$(jq -er '.head_branch' <<< "$run_json")"
+        status="$(jq -er '.status' <<< "$run_json")"
+        conclusion="$(jq -er '.conclusion' <<< "$run_json")"
+        source_sha="$(jq -er '.head_sha' <<< "$run_json")"
+        build_run_number="$(jq -er '.run_number' <<< "$run_json")"
+
+        if [[ "$workflow_path" != ".github/workflows/android.yml" ||
+              "$event" != "push" ||
+              "$branch" != "master" ||
+              "$status" != "completed" ||
+              "$conclusion" != "success" ]]; then
+          echo "The selected run must be a successful Build workflow run from a master push" >&2
+          exit 1
+        fi
+
+        current_master_sha="$(gh api "repos/${GH_REPO}/git/ref/heads/master" --jq '.object.sha')"
+        ancestry_status="$(gh api "repos/${GH_REPO}/compare/${current_master_sha}...${source_sha}" --jq '.status')"
+        if [[ "$ancestry_status" != "behind" && "$ancestry_status" != "identical" ]]; then
+          echo "The selected build commit is no longer reachable from current master" >&2
+          exit 1
+        fi
+
+        {
+          echo "SOURCE_SHA=$source_sha"
+          echo "BUILD_RUN_NUMBER=$build_run_number"
+        } >> "$GITHUB_ENV"
+
+    - name: Download master build package
+      uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+      with:
+        name: xtra-master-release-package
+        path: release-package
+        github-token: ${{ github.token }}
+        repository: ${{ github.repository }}
+        run-id: ${{ inputs.run_id }}
+
+    - name: Validate build package
+      shell: bash
+      run: |
+        set -euo pipefail
+        required_assets=(
+          app-release.apk
+          app-arm64-v8a-release.apk
+          app-armeabi-v7a-release.apk
+          app-x86-release.apk
+          app-x86_64-release.apk
+          xtra-release-metadata.json
+        )
+        for asset_name in "${required_assets[@]}"; do
+          if [[ ! -f "release-package/$asset_name" ]]; then
+            echo "Build package is missing $asset_name" >&2
+            exit 1
+          fi
+        done
+
+        metadata="release-package/xtra-release-metadata.json"
+        version_name="$(jq -er '.versionName | strings' "$metadata")"
+        version_code="$(jq -er '.versionCode | numbers | tostring' "$metadata")"
+        metadata_build_number="$(jq -er '.buildNumber | numbers | tostring' "$metadata")"
+        if [[ ! "$version_name" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+          echo "Build metadata contains an invalid versionName: $version_name" >&2
+          exit 1
+        fi
+        if [[ "$metadata_build_number" != "$BUILD_RUN_NUMBER" ]]; then
+          echo "Build metadata run number does not match the selected Actions run" >&2
+          exit 1
+        fi
+        if [[ ! "$version_code" =~ ^[1-9][0-9]*$ ]]; then
+          echo "Build metadata contains an invalid versionCode: $version_code" >&2
+          exit 1
+        fi
+
+        tag="v${version_name}-build.${BUILD_RUN_NUMBER}"
+        {
+          echo "VERSION_NAME=$version_name"
+          echo "VERSION_CODE=$version_code"
+          echo "RELEASE_TAG=$tag"
+        } >> "$GITHUB_ENV"
+
+    - name: Create or verify immutable build tag
+      shell: bash
+      run: |
+        set -euo pipefail
+        tag_ref="repos/${GH_REPO}/git/ref/tags/${RELEASE_TAG}"
+        if tag_json="$(gh api "$tag_ref" 2>/dev/null)"; then
+          tag_sha="$(jq -er '.object.sha' <<< "$tag_json")"
+          if [[ "$tag_sha" != "$SOURCE_SHA" ]]; then
+            echo "Existing tag $RELEASE_TAG points to $tag_sha, expected $SOURCE_SHA" >&2
+            exit 1
+          fi
+          echo "Tag $RELEASE_TAG already points to the selected source commit"
+        else
+          gh api --method POST "repos/${GH_REPO}/git/refs" \
+            -f "ref=refs/tags/${RELEASE_TAG}" \
+            -f "sha=${SOURCE_SHA}" >/dev/null
+          echo "Created tag $RELEASE_TAG at $SOURCE_SHA"
+        fi
+
+    - name: Create or recover draft release
+      shell: bash
+      run: |
+        set -euo pipefail
+        title="Xtra ${VERSION_NAME} (build ${BUILD_RUN_NUMBER})"
+        release_api="repos/${GH_REPO}/releases/tags/${RELEASE_TAG}"
+        if gh api "$release_api" >/dev/null 2>&1; then
+          echo "Release $RELEASE_TAG already exists; continuing its publication"
+        else
+          gh release create "$RELEASE_TAG" \
+            --draft \
+            --latest=false \
+            --verify-tag \
+            --title "$title" \
+            --generate-notes
+        fi
+
+        release_json="$(gh api "$release_api")"
+        release_tag="$(jq -er '.tag_name' <<< "$release_json")"
+        release_title="$(jq -er '.name' <<< "$release_json")"
+        release_draft="$(jq -er '.draft' <<< "$release_json")"
+        release_prerelease="$(jq -er '.prerelease' <<< "$release_json")"
+        expected_prerelease=false
+        [[ "$CHANNEL" == "prerelease" ]] && expected_prerelease=true
+        if [[ "$release_tag" != "$RELEASE_TAG" || "$release_title" != "$title" ]]; then
+          echo "Existing release identity does not match the selected build" >&2
+          exit 1
+        fi
+        if [[ "$release_draft" == false &&
+              "$release_prerelease" != "$expected_prerelease" ]]; then
+          echo "Existing published release has a different channel: $RELEASE_TAG" >&2
+          exit 1
+        fi
+
+    - name: Upload and verify release assets
+      shell: bash
+      run: |
+        set -euo pipefail
+        required_assets=(
+          app-release.apk
+          app-arm64-v8a-release.apk
+          app-armeabi-v7a-release.apk
+          app-x86-release.apk
+          app-x86_64-release.apk
+          xtra-release-metadata.json
+        )
+        release_api="repos/${GH_REPO}/releases/tags/${RELEASE_TAG}"
+        release_json="$(gh api "$release_api")"
+        asset_count() {
+          jq -r --arg name "$1" '[.assets[] | select(.name == $name)] | length' <<< "$release_json"
+        }
+
+        for asset_name in "${required_assets[@]}"; do
+          count="$(asset_count "$asset_name")"
+          if [[ "$count" == 0 ]]; then
+            echo "Uploading $asset_name"
+            gh release upload "$RELEASE_TAG" "release-package/$asset_name"
+          elif [[ "$count" != 1 ]]; then
+            echo "Release contains multiple assets named $asset_name" >&2
+            exit 1
+          fi
+        done
+
+        release_json="$(gh api "$release_api")"
+        expected_assets_json="$(printf '%s\n' "${required_assets[@]}" | jq -Rsc 'split("\n")[:-1] | sort')"
+        if ! jq -e \
+          --argjson expected "$expected_assets_json" \
+          '([.assets[].name] | sort) == $expected' \
+          <<< "$release_json" >/dev/null; then
+          echo "Release contains assets outside the selected build package" >&2
+          exit 1
+        fi
+        verification_dir="$(mktemp -d)"
+        trap 'rm -rf -- "$verification_dir"' EXIT
+        for asset_name in "${required_assets[@]}"; do
+          asset_id="$(jq -er --arg name "$asset_name" '[.assets[] | select(.name == $name)][0].id' <<< "$release_json")"
+          gh api -H "Accept: application/octet-stream" \
+            "repos/${GH_REPO}/releases/assets/${asset_id}" > "$verification_dir/$asset_name"
+          if ! cmp -s "release-package/$asset_name" "$verification_dir/$asset_name"; then
+            echo "Published asset does not match the selected build: $asset_name" >&2
+            exit 1
+          fi
+        done
+
+    - name: Publish verified release
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ "$CHANNEL" == "stable" ]]; then
+          latest_release="$(gh api "repos/${GH_REPO}/releases/latest" 2>/dev/null || true)"
+          if [[ -n "$latest_release" ]]; then
+            latest_tag="$(jq -er '.tag_name' <<< "$latest_release")"
+            latest_metadata_id="$(jq -er '[.assets[] | select(.name == "xtra-release-metadata.json")][0].id' <<< "$latest_release")"
+            latest_metadata="$(mktemp)"
+            trap 'rm -f -- "$latest_metadata"' EXIT
+            gh api -H "Accept: application/octet-stream" \
+              "repos/${GH_REPO}/releases/assets/${latest_metadata_id}" > "$latest_metadata"
+            latest_version_code="$(jq -er '.versionCode | numbers' "$latest_metadata")"
+            if (( latest_version_code > VERSION_CODE )); then
+              echo "Refusing to publish an older build as latest: $VERSION_CODE < $latest_version_code" >&2
+              exit 1
+            fi
+            if (( latest_version_code == VERSION_CODE )) && [[ "$latest_tag" != "$RELEASE_TAG" ]]; then
+              echo "A different stable release already has versionCode $VERSION_CODE" >&2
+              exit 1
+            fi
+          fi
+        fi
+        if [[ "$CHANNEL" == "prerelease" ]]; then
+          release_json="$(gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}")"
+          release_id="$(jq -er '.id' <<< "$release_json")"
+          gh api --method PATCH "repos/${GH_REPO}/releases/${release_id}" \
+            -F draft=false \
+            -F prerelease=true \
+            -f make_latest=false >/dev/null
+        else
+          release_json="$(gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}")"
+          release_id="$(jq -er '.id' <<< "$release_json")"
+          gh api --method PATCH "repos/${GH_REPO}/releases/${release_id}" \
+            -F draft=false \
+            -F prerelease=false \
+            -f make_latest=true >/dev/null
+        fi
+
+        release_json="$(gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}")"
+        expected_prerelease=false
+        [[ "$CHANNEL" == "prerelease" ]] && expected_prerelease=true
+        if ! jq -e \
+          --arg tag "$RELEASE_TAG" \
+          --argjson prerelease "$expected_prerelease" \
+          '(.tag_name == $tag) and (.draft == false) and (.prerelease == $prerelease)' \
+          <<< "$release_json" >/dev/null; then
+          echo "Release did not reach the requested published state" >&2
+          exit 1
+        fi
+        echo "Published $RELEASE_TAG as $CHANNEL"
