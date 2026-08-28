@@ -36,6 +36,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.ui.TimeBar
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.BuildConfig
@@ -71,6 +72,8 @@ class ClipEditorDialogFragment : Fragment() {
         ): Long?
 
         fun releaseVodClip(directoryPath: String)
+
+        fun createVodClipPreviewMediaSource(uri: String): MediaSource
     }
 
     private enum class SourceMode {
@@ -374,17 +377,18 @@ class ClipEditorDialogFragment : Fragment() {
         binding.previewLoading.isVisible = true
         player = ExoPlayer.Builder(requireContext()).build().also { exoPlayer ->
             binding.preview.player = exoPlayer
-            val preview = if (sourceMode == SourceMode.VOD_REMOTE) {
-                requireNotNull(previewUri).toUri()
+            val mediaSource = if (sourceMode == SourceMode.VOD_REMOTE) {
+                val host = parentFragment as? Host
+                    ?: error("VOD clip editor has no host")
+                host.createVodClipPreviewMediaSource(requireNotNull(previewUri))
             } else {
-                requireNotNull(playlistFile).toUri()
+                val mediaItem = MediaItem.Builder()
+                    .setUri(requireNotNull(playlistFile).toUri())
+                    .setMimeType(MimeTypes.APPLICATION_M3U8)
+                    .build()
+                HlsMediaSource.Factory(DefaultDataSource.Factory(requireContext()))
+                    .createMediaSource(mediaItem)
             }
-            val mediaItem = MediaItem.Builder()
-                .setUri(preview)
-                .setMimeType(MimeTypes.APPLICATION_M3U8)
-                .build()
-            val mediaSource = HlsMediaSource.Factory(DefaultDataSource.Factory(requireContext()))
-                .createMediaSource(mediaItem)
             exoPlayer.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_ENDED) {

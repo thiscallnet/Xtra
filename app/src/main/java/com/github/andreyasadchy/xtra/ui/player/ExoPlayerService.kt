@@ -58,6 +58,7 @@ import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParserFactory
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.ParsingLoadable
@@ -237,6 +238,8 @@ class ExoPlayerService : BasePlaybackService() {
                             liveClipBufferManager.capture(manifest)
                             serviceListener?.updateLiveClipStatus()
                         }
+                    } else if (type == VIDEO) {
+                        serviceListener?.updateLiveClipStatus()
                     }
                     if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && !timeline.isEmpty && qualities?.find { it.name == AUTO_QUALITY } != null) {
                         updateQualities = quality?.name != AUDIO_ONLY_QUALITY
@@ -1526,6 +1529,15 @@ class ExoPlayerService : BasePlaybackService() {
         val bitrateBitsPerSecond: Int?,
     )
 
+    fun canCreateVodClip(): Boolean {
+        if (type != VIDEO || hlsClipDataSourceFactory == null) return false
+        val playlist = (player?.currentManifest as? HlsManifest)?.mediaPlaylist ?: return false
+        if (playlist.protectionSchemes != null) return false
+        if (playlist.segments.any { it.drmInitData != null }) return false
+        if (playlist.segments.none { it.durationUs > 0L }) return false
+        return player?.currentMediaItem?.localConfiguration?.uri != null || quality?.url != null
+    }
+
     fun createVodClipDescriptor(): VodClipDescriptor? {
         if (type != VIDEO) return null
         val manifest = player?.currentManifest as? HlsManifest ?: return null
@@ -1548,6 +1560,22 @@ class ExoPlayerService : BasePlaybackService() {
             initialPositionUs = (player?.currentPosition ?: 0L) * 1_000L,
             bitrateBitsPerSecond = quality?.bitrate,
         )
+    }
+
+    fun createVodClipPreviewMediaSource(uri: String): MediaSource {
+        check(type == VIDEO)
+        val factory = requireNotNull(hlsClipDataSourceFactory) {
+            "VOD HLS data source is unavailable"
+        }
+        val mediaItem = MediaItem.Builder()
+            .setUri(uri)
+            .setMimeType(MimeTypes.APPLICATION_M3U8)
+            .build()
+        return HlsMediaSource.Factory(factory)
+            .apply {
+                setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+            }
+            .createMediaSource(mediaItem)
     }
 
     fun estimateVodClipBytes(

@@ -35,6 +35,7 @@ import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.hls.HlsManifest
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.navigation.fragment.findNavController
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
@@ -156,6 +157,9 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                 if (useController) {
                     showController(show = playbackService?.type != BasePlaybackService.STREAM && playbackState == Player.STATE_ENDED)
                 }
+                if (playbackState == Player.STATE_READY && playbackService?.type == BasePlaybackService.VIDEO) {
+                    refreshClipAvailability()
+                }
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -261,6 +265,9 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                     binding.playerControls.duration.text,
                 )
                 updateProgress()
+                if (playbackService?.type == BasePlaybackService.VIDEO) {
+                    refreshClipAvailability()
+                }
             }
 
             override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
@@ -323,7 +330,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
             override fun updateLiveClipStatus() {
                 if (view != null) {
-                    setLiveClipAvailability(playbackService?.liveClipStatus()?.available == true)
+                    refreshClipAvailability()
                 }
             }
 
@@ -386,6 +393,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
                         val editorRestored = restoreClipEditorIfNeeded()
                         connectedService.serviceListener = serviceListener
+                        refreshClipAvailability()
                         if (!editorRestored) {
                             val restored = connectedService.restoreVideoOutputIfNeeded {
                                 val player = connectedService.player
@@ -473,6 +481,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                 serviceSetupJob?.cancel()
                 serviceSetupJob = null
                 playbackService = null
+                refreshClipAvailability()
             }
         }
         val intent = Intent(requireContext(), ExoPlayerService::class.java).apply {
@@ -512,11 +521,21 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
     }
 
     override fun requestLiveClipStatus() {
+        refreshClipAvailability()
+    }
+
+    override fun createVodClipPreviewMediaSource(uri: String): MediaSource =
+        playbackService?.createVodClipPreviewMediaSource(uri)
+            ?: error("VOD clip preview is unavailable")
+
+    private fun refreshClipAvailability() {
+        if (view == null) return
+        val service = playbackService
         setLiveClipAvailability(
-            if (playbackService?.type == BasePlaybackService.VIDEO) {
-                playbackService?.createVodClipDescriptor() != null
-            } else {
-                playbackService?.liveClipStatus()?.available == true
+            when (service?.type) {
+                BasePlaybackService.STREAM -> service.liveClipStatus()?.available == true
+                BasePlaybackService.VIDEO -> service.canCreateVodClip()
+                else -> false
             },
         )
     }
