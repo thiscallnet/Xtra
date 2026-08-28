@@ -936,9 +936,10 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                         showController(force = true)
                         seekToLivePosition()
                     }
-                    if (requireContext().prefs().getBoolean(C.PLAYER_VIEWER_LIST, false)) {
-                        viewersLayout.isFocusable = true
-                        viewersLayout.setOnClickListener {
+                    viewersLayout.apply {
+                        isClickable = true
+                        isFocusable = true
+                        setOnClickListener {
                             showController(force = true)
                             openViewerList()
                         }
