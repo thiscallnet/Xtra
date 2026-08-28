@@ -1,0 +1,50 @@
+package com.github.andreyasadchy.xtra.ui.chat
+
+import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ChatRenderConfigurationTest {
+
+    private val catalogA = ChatAdapterUtils.ChatCatalogIndexes.create(
+        emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList(),
+    )
+    private val catalogB = ChatAdapterUtils.ChatCatalogIndexes.create(
+        emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), emptyList(),
+    )
+
+    @Test
+    fun pendingCatalogIsPreservedWhenTranslationChanges() {
+        val active = ChatRenderConfiguration(0, catalogA, false)
+        val pendingCatalog = composeChatRenderConfiguration(active, null, 1, indexes = catalogB)
+
+        val pendingBoth = composeChatRenderConfiguration(active, pendingCatalog, 2, translateAllMessages = true)
+
+        assertSame(catalogB, pendingBoth.indexes)
+        assertTrue(pendingBoth.translateAllMessages)
+    }
+
+    @Test
+    fun pendingTranslationIsPreservedWhenCatalogChanges() {
+        val active = ChatRenderConfiguration(0, catalogA, false)
+        val pendingTranslation = composeChatRenderConfiguration(active, null, 1, translateAllMessages = true)
+
+        val pendingBoth = composeChatRenderConfiguration(active, pendingTranslation, 2, indexes = catalogB)
+
+        assertSame(catalogB, pendingBoth.indexes)
+        assertTrue(pendingBoth.translateAllMessages)
+    }
+
+    @Test
+    fun revertingPendingTranslationUsesTheDesiredStateAsTheBase() {
+        val active = ChatRenderConfiguration(0, catalogA, false)
+        val pendingTranslation = composeChatRenderConfiguration(active, null, 1, translateAllMessages = true)
+
+        val reverted = composeChatRenderConfiguration(active, pendingTranslation, 2, translateAllMessages = false)
+
+        assertSame(catalogA, reverted.indexes)
+        assertFalse(reverted.translateAllMessages)
+    }
+}

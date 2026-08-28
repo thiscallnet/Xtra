@@ -49,6 +49,27 @@ import java.util.Random
 import java.util.Collections
 import java.util.IdentityHashMap
 
+internal data class ChatRenderConfiguration(
+    val revision: Int,
+    val indexes: ChatAdapterUtils.ChatCatalogIndexes,
+    val translateAllMessages: Boolean,
+)
+
+internal fun composeChatRenderConfiguration(
+    active: ChatRenderConfiguration,
+    pending: ChatRenderConfiguration?,
+    revision: Int,
+    indexes: ChatAdapterUtils.ChatCatalogIndexes? = null,
+    translateAllMessages: Boolean? = null,
+): ChatRenderConfiguration {
+    val base = pending ?: active
+    return base.copy(
+        revision = revision,
+        indexes = indexes ?: base.indexes,
+        translateAllMessages = translateAllMessages ?: base.translateAllMessages,
+    )
+}
+
 class ChatAdapter(
     initialMessages: List<ChatMessage>,
     private val localTwitchEmotes: List<TwitchEmote>,
@@ -132,17 +153,11 @@ class ChatAdapter(
         }
     }
 
-    private data class RenderConfiguration(
-        val revision: Int,
-        val indexes: ChatAdapterUtils.ChatCatalogIndexes,
-        val translateAllMessages: Boolean,
-    )
-
     private data class RenderRequest(
         val message: ChatMessage,
         val cacheKey: RenderCacheKey,
         val context: android.content.Context,
-        val configuration: RenderConfiguration,
+        val configuration: ChatRenderConfiguration,
         val prewarmGeneration: Long?,
     )
 
@@ -187,9 +202,9 @@ class ChatAdapter(
         localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, stvUsers, stvBadges, namePaints, personalEmoteSets, cheerEmotes,
     )
     @Volatile
-    private var activeConfiguration = RenderConfiguration(0, initialCatalogIndexes, false)
+    private var activeConfiguration = ChatRenderConfiguration(0, initialCatalogIndexes, false)
     @Volatile
-    private var pendingConfiguration: RenderConfiguration? = null
+    private var pendingConfiguration: ChatRenderConfiguration? = null
     private var configurationRevisionCounter = 0
     private var configurationJob: Job? = null
     private val catalogRevision: Int
@@ -199,11 +214,13 @@ class ChatAdapter(
     var translateAllMessages: Boolean
         get() = activeConfiguration.translateAllMessages
         set(value) {
-            if (value == activeConfiguration.translateAllMessages || pendingConfiguration?.translateAllMessages == value) return
+            val base = pendingConfiguration ?: activeConfiguration
+            if (value == base.translateAllMessages) return
             scheduleConfigurationSwitch(
-                RenderConfiguration(
+                composeChatRenderConfiguration(
+                    active = activeConfiguration,
+                    pending = pendingConfiguration,
                     revision = nextConfigurationRevision(),
-                    indexes = activeConfiguration.indexes,
                     translateAllMessages = value,
                 ),
             )
@@ -349,10 +366,10 @@ class ChatAdapter(
             index.takeIf { message.userId == userId }
         }
         scheduleConfigurationSwitch(
-            RenderConfiguration(
+            composeChatRenderConfiguration(
+                active = activeConfiguration,
+                pending = pendingConfiguration,
                 revision = nextConfigurationRevision(),
-                indexes = activeConfiguration.indexes,
-                translateAllMessages = activeConfiguration.translateAllMessages,
             ),
             affectedPositions,
         )
@@ -558,18 +575,19 @@ class ChatAdapter(
 
     fun notifyCatalogChanged() {
         scheduleConfigurationSwitch(
-            RenderConfiguration(
+            composeChatRenderConfiguration(
+                active = activeConfiguration,
+                pending = pendingConfiguration,
                 revision = nextConfigurationRevision(),
                 indexes = ChatAdapterUtils.ChatCatalogIndexes.create(
                     localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, stvUsers, stvBadges, namePaints, personalEmoteSets, cheerEmotes,
                 ),
-                translateAllMessages = activeConfiguration.translateAllMessages,
             ),
         )
     }
 
     private fun scheduleConfigurationSwitch(
-        configuration: RenderConfiguration,
+        configuration: ChatRenderConfiguration,
         affectedPositions: List<Int> = emptyList(),
     ) {
         configurationJob?.cancel()
@@ -785,7 +803,7 @@ class ChatAdapter(
         chatMessage: ChatMessage,
         cacheKey: RenderCacheKey,
         context: android.content.Context,
-        configuration: RenderConfiguration,
+        configuration: ChatRenderConfiguration,
         prewarmGeneration: Long? = null,
     ) {
         ensureRenderWorkers()
@@ -876,6 +894,7 @@ class ChatAdapter(
         val chatMessage = request.message
         val cacheKey = request.cacheKey
         try {
+            if (!isKnownConfiguration(request.configuration)) return
             if (cachedRender(cacheKey) != null) return
             val prepared = prepareMessage(
                 chatMessage,
@@ -935,7 +954,7 @@ class ChatAdapter(
         }
     }
 
-    private suspend fun prepareForDisplay(messages: List<ChatMessage>, configuration: RenderConfiguration) {
+    private suspend fun prepareForDisplay(messages: List<ChatMessage>, configuration: ChatRenderConfiguration) {
         if (messages.isEmpty()) return
         val context = fragment.context ?: throw CancellationException("Chat renderer is no longer attached")
         val requests = LinkedHashMap<RenderCacheKey, Pair<ChatMessage, CompletableDeferred<Unit>>>()
@@ -981,7 +1000,7 @@ class ChatAdapter(
 
     private suspend fun enqueuePrewarmRender(
         message: ChatMessage,
-        configuration: RenderConfiguration,
+        configuration: ChatRenderConfiguration,
         context: android.content.Context,
         generation: Long,
     ) {
@@ -1012,10 +1031,10 @@ class ChatAdapter(
         }
     }
 
-    private fun currentRenderKey(message: ChatMessage, configuration: RenderConfiguration = activeConfiguration): RenderCacheKey =
+    private fun currentRenderKey(message: ChatMessage, configuration: ChatRenderConfiguration = activeConfiguration): RenderCacheKey =
         createRenderKey(message, configuration)
 
-    private fun createRenderKey(message: ChatMessage, configuration: RenderConfiguration) = RenderCacheKey(
+    private fun createRenderKey(message: ChatMessage, configuration: ChatRenderConfiguration) = RenderCacheKey(
         message = message,
         catalogRevision = configuration.revision,
         translateAllMessages = configuration.translateAllMessages,
@@ -1024,12 +1043,12 @@ class ChatAdapter(
         messageLanguage = message.messageLanguage,
     )
 
-    private fun isActiveConfiguration(configuration: RenderConfiguration): Boolean =
+    private fun isActiveConfiguration(configuration: ChatRenderConfiguration): Boolean =
         configuration.revision == activeConfiguration.revision &&
             configuration.indexes === activeConfiguration.indexes &&
             configuration.translateAllMessages == activeConfiguration.translateAllMessages
 
-    private fun isKnownConfiguration(configuration: RenderConfiguration): Boolean =
+    private fun isKnownConfiguration(configuration: ChatRenderConfiguration): Boolean =
         isActiveConfiguration(configuration) ||
             pendingConfiguration?.let {
                 configuration.revision == it.revision &&
