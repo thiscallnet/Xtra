@@ -41,12 +41,14 @@ class StreamsAdapter(
     }) {
 
     private val thumbnailLoadScheduler = StreamThumbnailIdleScheduler()
+    private val uptimeTicker = VisibleStreamUptimeTicker(fragment)
     private val presentationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var presentationPrewarmJob: Job? = null
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
         thumbnailLoadScheduler.attachTo(recyclerView)
+        uptimeTicker.attach(recyclerView)
         presentationPrewarmJob?.cancel()
         presentationPrewarmJob = presentationScope.launch {
             onPagesUpdatedFlow.collectLatest {
@@ -65,6 +67,7 @@ class StreamsAdapter(
         presentationPrewarmJob?.cancel()
         presentationPrewarmJob = null
         thumbnailLoadScheduler.detach()
+        uptimeTicker.detach()
         super.onDetachedFromRecyclerView(recyclerView)
     }
 
@@ -101,13 +104,16 @@ class StreamsAdapter(
         private val fragment: Fragment,
         private val showGame: Boolean,
         private val tagViews: StreamTagViews,
-    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
+    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner, StreamUptimeViewHolder {
         val previewSurface get() = binding.previewHost
         var boundPreviewIdentity: String? = null
         private val imageRequests = FeedImageRequestBag()
         private var boundImageIdentity: String? = null
         private var boundThumbnailKey: String? = null
         private var boundStream: Stream? = null
+        private var uptimeStartedAtMs: Long? = null
+        private var uptimeEnabled = false
+        private var lastRenderedUptimeSecond = Long.MIN_VALUE
 
         init {
             binding.root.setOnClickListener { boundStream?.let(::openStream) }
@@ -141,6 +147,7 @@ class StreamsAdapter(
             cancelImageRequests()
             boundImageIdentity = null
             boundThumbnailKey = null
+            clearUptime()
         }
 
         fun bindThumbnail(item: Stream?) {
@@ -178,6 +185,10 @@ class StreamsAdapter(
                 if (item != null) {
                     val context = fragment.requireContext()
                     val uiPreferences = FeedUiPreferencesStore.current(context)
+                    uptimeEnabled = uiPreferences.showUptime
+                    uptimeStartedAtMs = if (uptimeEnabled) parseStreamStartedAtMs(item.createdAt) else null
+                    lastRenderedUptimeSecond = Long.MIN_VALUE
+                    updateUptime(System.currentTimeMillis())
                     val presentation = StreamCardPresentationCache.get(item, uiPreferences)
                     if (presentation == null) {
                         StreamCardPresentationCache.request(context, item, uiPreferences) {
@@ -243,17 +254,6 @@ class StreamsAdapter(
                     } else {
                         viewers.visibility = View.GONE
                     }
-                    if (presentation?.uptime != null || (uiPreferences.showUptime && item.createdAt != null)) {
-                        val text = presentation?.uptime
-                        if (text != null) {
-                            uptime.visibility = View.VISIBLE
-                            uptime.text = text
-                        } else {
-                            uptime.visibility = View.GONE
-                        }
-                    } else {
-                        uptime.visibility = View.GONE
-                    }
                     val tags = presentation?.tags ?: if (uiPreferences.showTags) item.tags.orEmpty() else emptyList()
                     if (tags.isNotEmpty()) {
                         bindStreamTags(tagViews, tags)
@@ -262,6 +262,7 @@ class StreamsAdapter(
                     }
                 } else {
                     boundStream = null
+                    clearUptime()
                     userImage.setImageDrawable(null)
                     userImage.tag = null
                     thumbnail.setImageDrawable(null)
@@ -270,8 +271,7 @@ class StreamsAdapter(
                     title.visibility = View.GONE
                     gameName.visibility = View.GONE
                     viewers.visibility = View.GONE
-                    uptime.visibility = View.GONE
-                        clearStreamTags(tagViews)
+                    clearStreamTags(tagViews)
                     tagsLayout.visibility = View.GONE
                     liveBadge.visibility = View.GONE
                 }
@@ -299,18 +299,36 @@ class StreamsAdapter(
                 } else {
                     viewers.visibility = View.GONE
                 }
-                if (presentation.uptime != null) {
-                    uptime.visibility = View.VISIBLE
-                    uptime.text = presentation.uptime
-                } else {
-                    uptime.visibility = View.GONE
-                }
                 if (presentation.tags.isNotEmpty()) {
                     bindStreamTags(tagViews, presentation.tags)
                 } else {
                     clearStreamTags(tagViews)
                 }
             }
+        }
+
+        override fun updateUptime(nowMs: Long) {
+            val startedAtMs = uptimeStartedAtMs
+            if (!uptimeEnabled || startedAtMs == null || nowMs <= startedAtMs) {
+                lastRenderedUptimeSecond = Long.MIN_VALUE
+                if (binding.uptime.visibility != View.GONE) binding.uptime.visibility = View.GONE
+                return
+            }
+
+            val elapsedSeconds = (nowMs - startedAtMs) / 1000L
+            if (elapsedSeconds == lastRenderedUptimeSecond) return
+
+            lastRenderedUptimeSecond = elapsedSeconds
+            val text = formatStreamUptime(startedAtMs, nowMs) ?: return
+            if (binding.uptime.text.toString() != text) binding.uptime.text = text
+            if (binding.uptime.visibility != View.VISIBLE) binding.uptime.visibility = View.VISIBLE
+        }
+
+        private fun clearUptime() {
+            uptimeEnabled = false
+            uptimeStartedAtMs = null
+            lastRenderedUptimeSecond = Long.MIN_VALUE
+            binding.uptime.visibility = View.GONE
         }
 
         private fun openStream(stream: Stream) {

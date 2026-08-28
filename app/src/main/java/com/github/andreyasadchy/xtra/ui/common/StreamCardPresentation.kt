@@ -10,8 +10,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.time.Clock
-import kotlin.time.Instant
 
 /** Immutable, bind-ready values for a stream card. No Android views or drawables are retained. */
 internal data class StreamCardPresentation(
@@ -21,7 +19,6 @@ internal data class StreamCardPresentation(
     val title: String?,
     val gameName: String?,
     val viewerLabel: String?,
-    val uptime: String?,
     val tags: List<String>,
 )
 
@@ -33,10 +30,8 @@ internal data class StreamCardPresentationKey(
     val title: String?,
     val gameName: String?,
     val viewerCount: Int?,
-    val createdAt: String?,
     val tags: List<String>?,
     val preferences: FeedUiPreferences,
-    val uptimeMinute: Long,
 )
 
 internal object FeedPresentationDispatcher {
@@ -48,7 +43,7 @@ internal object FeedPresentationDispatcher {
 /**
  * Prepares stream-card text away from the UI thread and shares the result
  * between all stream feed adapters. The key includes every mutable display
- * input, so viewer and uptime changes cannot reuse stale text.
+ * input used by the cached presentation.
  */
 internal object StreamCardPresentationCache {
     private const val MAX_ENTRIES = 512
@@ -58,7 +53,7 @@ internal object StreamCardPresentationCache {
     private val cache = object : LruCache<StreamCardPresentationKey, StreamCardPresentation>(MAX_ENTRIES) {}
     private val pending = HashMap<StreamCardPresentationKey, MutableList<(StreamCardPresentation) -> Unit>>()
 
-    fun key(stream: Stream, preferences: FeedUiPreferences, nowMs: Long = System.currentTimeMillis()): StreamCardPresentationKey =
+    fun key(stream: Stream, preferences: FeedUiPreferences): StreamCardPresentationKey =
         StreamCardPresentationKey(
             streamIdentity = stream.streamIdentity(),
             channelId = stream.channelId,
@@ -67,10 +62,8 @@ internal object StreamCardPresentationCache {
             title = stream.title,
             gameName = stream.gameName?.trim(),
             viewerCount = stream.viewerCount,
-            createdAt = stream.createdAt,
             tags = stream.tags,
             preferences = preferences,
-            uptimeMinute = nowMs / 60_000L,
         )
 
     fun get(stream: Stream, preferences: FeedUiPreferences): StreamCardPresentation? =
@@ -133,20 +126,6 @@ internal object StreamCardPresentationCache {
                 TwitchApiHelper.formatCount(count, key.preferences.truncateViewCount),
             )
         }
-        val uptime = if (key.preferences.showUptime) {
-            stream.createdAt?.let { value ->
-                Instant.parseOrNull(value)?.takeIf { it.toEpochMilliseconds() > 0 }?.let { createdAt ->
-                    val elapsed = Clock.System.now() - createdAt
-                    if (elapsed.isPositive()) {
-                        android.text.format.DateUtils.formatElapsedTime(elapsed.inWholeSeconds)
-                    } else {
-                        null
-                    }
-                }
-            }
-        } else {
-            null
-        }
         val username = stream.channelName?.let { channelName ->
             if (stream.channelLogin != null && !stream.channelLogin.equals(channelName, true)) {
                 when (key.preferences.nameDisplay) {
@@ -175,7 +154,6 @@ internal object StreamCardPresentationCache {
             title = stream.title?.takeIf { it.isNotBlank() }?.trim(),
             gameName = stream.gameName,
             viewerLabel = viewerLabel,
-            uptime = uptime,
             tags = tags,
         )
     }

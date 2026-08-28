@@ -109,6 +109,7 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
             }
         }
         adapter = FollowingOverviewAdapter(
+            fragment = this,
             onStreamClick = { stream -> activity.startStream(stream) },
             onVideoClick = {},
             onUpcomingClick = { upcoming ->

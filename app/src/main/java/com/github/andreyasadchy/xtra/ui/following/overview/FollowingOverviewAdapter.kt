@@ -34,6 +34,7 @@ data class FollowingOverviewSection(
 )
 
 class FollowingOverviewAdapter(
+    private val fragment: androidx.fragment.app.Fragment,
     private val onStreamClick: (Stream) -> Unit,
     private val onVideoClick: (VideoHistory) -> Unit,
     private val onUpcomingClick: (UpcomingStream) -> Unit,
@@ -83,7 +84,7 @@ class FollowingOverviewAdapter(
         inner class ViewHolder(
         private val binding: ItemFollowingSectionBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
-        private val shelfAdapter = StreamShelfAdapter(onStreamClick)
+        private val shelfAdapter = StreamShelfAdapter(fragment, onStreamClick)
         private val videoShelfAdapter = VideoShelfAdapter(onVideoClick)
         private val upcomingShelfAdapter = UpcomingStreamShelfAdapter(onUpcomingClick)
         private val gameShelfAdapter = GameShelfAdapter(onGameClick)
