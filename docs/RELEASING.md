@@ -1,6 +1,6 @@
 # Releasing Xtra
 
-Every push to `master`, including a merge, runs the Build workflow. The workflow keeps the product version from `applicationVersionName` and assigns a unique Android build number from the GitHub Actions run number. It uploads the verified release APK package as the `xtra-master-release-package` Actions artifact for 14 days.
+Every push to `master`, including a merge, runs the Build workflow. After a successful build, GitHub automatically publishes that exact build as the latest stable release. The workflow keeps the product version from `applicationVersionName` and assigns a unique Android build number from the GitHub Actions run number.
 
 The generated package contains:
 
@@ -13,14 +13,16 @@ app-x86_64-release.apk           x86 64-bit
 xtra-release-metadata.json
 ```
 
-To publish one of those builds for users:
+The automatic publication creates a matching immutable tag such as `v2.58.6-build.770`, uploads the verified APK package to a public GitHub Release, and makes it available through the in-app updater. It never rebuilds the selected source. The package is also retained as the `xtra-master-release-package` Actions artifact for 14 days.
+
+To manually publish or recover one of those builds:
 
 1. Open the `Publish build release` workflow in GitHub Actions.
 2. Enter the successful `Build` workflow run ID from a push to `master`.
 3. Select `prerelease` for a direct-download build or `stable` for a build that the in-app updater may offer.
 4. Start the workflow.
 
-The publish workflow downloads the exact package from that run. It creates the matching immutable tag `v<version>-build.<run-number>` at the original `master` commit, validates every APK and metadata file, and publishes the GitHub Release. It never rebuilds the selected source.
+The publish workflow downloads the exact package from that run, validates every APK and metadata file, and publishes the GitHub Release. It never rebuilds the selected source.
 
 Prereleases remain available on GitHub for manual downloads but are ignored by the app updater. Stable build releases are available through the normal update flow. The updater understands build tags and compares their build numbers, so several builds can share the same product version while still upgrading in order.
 
