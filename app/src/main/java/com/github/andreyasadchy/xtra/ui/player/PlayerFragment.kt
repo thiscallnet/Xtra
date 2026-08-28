@@ -158,7 +158,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     open fun setSubtitlesButton() {}
     open fun toggleSubtitles(enabled: Boolean) {}
     open fun showPlaylistTags(mediaPlaylist: Boolean) {}
-    open fun changeQuality(selectedQuality: VideoQuality?) {}
+    open fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean = true) {}
     open fun startAudioOnly() {}
     open val supportsLiveClipping: Boolean = false
     open fun prepareLiveClip() {}
@@ -1639,6 +1639,33 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.let { dialog ->
             dialog.setQuality(label)
         }
+    }
+
+    fun reapplyNetworkDefaultQuality(cellular: Boolean) {
+        val service = playbackService ?: return
+
+        // This feature is specifically for a live stream handoff.
+        // Do not unexpectedly change VOD/clip/offline playback.
+        if (service.type != BasePlaybackService.STREAM) {
+            return
+        }
+
+        if (service.qualities.isNullOrEmpty()) {
+            // If qualities are not loaded yet, the normal startup path will call
+            // setDefaultQuality() once they become available.
+            return
+        }
+
+        val target = service.resolveDefaultQualityForNetwork(cellular) ?: return
+
+        if (service.quality?.name == target.name &&
+            service.quality?.url == target.url
+        ) {
+            return
+        }
+
+        changeQuality(target, persistSavedQuality = false)
+        setQualityText()
     }
 
     fun updateViewerCount(viewerCount: Int?) {

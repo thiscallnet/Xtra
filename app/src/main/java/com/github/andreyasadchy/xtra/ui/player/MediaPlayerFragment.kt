@@ -392,8 +392,11 @@ class MediaPlayerFragment : PlayerFragment() {
         }
     }
 
-    override fun changeQuality(selectedQuality: VideoQuality?) {
-        playbackService?.changeQuality(selectedQuality)
+    override fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean) {
+        playbackService?.changeQuality(
+            selectedQuality,
+            persistSavedQuality = persistSavedQuality,
+        )
     }
 
     override fun startAudioOnly() {

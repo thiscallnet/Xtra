@@ -254,12 +254,16 @@ abstract class BasePlaybackService : LifecycleService() {
         val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
         val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+        quality = resolveDefaultQualityForNetwork(cellular)
+    }
+
+    fun resolveDefaultQualityForNetwork(cellular: Boolean): VideoQuality? {
         val defaultQuality = if (cellular) {
             prefs().getString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, "saved")
         } else {
             prefs().getString(C.PLAYER_DEFAULT_QUALITY, "saved")
         }?.substringBefore(" ")
-        quality = when (defaultQuality) {
+        return when (defaultQuality) {
             "saved" -> {
                 val savedQuality = prefs().getString(C.PLAYER_QUALITY, "720p60")?.substringBefore(" ")
                 when (savedQuality) {
