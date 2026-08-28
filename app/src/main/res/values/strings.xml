@@ -567,6 +567,15 @@
     <string name="clip_editor_done">Done</string>
     <string name="clip_editor_exporting">Creating clip…</string>
     <string name="clip_editor_selected_duration">Selected: %s</string>
+    <string name="clip_editor_start">Start</string>
+    <string name="clip_editor_end">End</string>
+    <string name="clip_editor_segment_count">%d segments</string>
+    <string name="clip_editor_estimated_size">Estimated file size: ~%s</string>
+    <string name="clip_editor_estimated_size_unknown">Estimated file size: unavailable</string>
+    <string name="clip_editor_temporary_space">Temporary space needed: ~%s</string>
+    <string name="clip_editor_temporary_space_unknown">Temporary space needed: unavailable</string>
+    <string name="clip_editor_insufficient_storage">Not enough free space</string>
+    <string name="clip_editor_actual_size">File size: %s</string>
     <string name="clip_editor_now">Now</string>
     <string name="clip_editor_seconds_ago">-%1$d s</string>
     <string name="clip_saved">Clip saved</string>

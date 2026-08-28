@@ -1,11 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.player.clip
 
 import androidx.annotation.OptIn
-import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.common.util.UriUtil
 import androidx.media3.exoplayer.hls.HlsManifest
-import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 
 /**
  * Keeps a small rolling journal of complete HLS segment metadata.
@@ -67,17 +64,15 @@ class LiveClipBufferManager(
                 .filter { it.generation == generation && it.renditionId == currentRenditionId }
                 .map { it.mediaSequence }
                 .toHashSet()
+            val mappedSegments = HlsClipSnapshotMapper.fromManifest(manifest, generation)
+                .segments
+                .associateBy { it.mediaSequence }
             playlist.segments.forEachIndexed { index, segment ->
                 val mediaSequence = playlist.mediaSequence + index
                 if (mediaSequence in existingSequences || segment.durationUs <= 0L) {
                     return@forEachIndexed
                 }
-                history += segment.toRef(
-                    playlist = playlist,
-                    generation = generation,
-                    renditionId = currentRenditionId,
-                    mediaSequence = mediaSequence,
-                )
+                mappedSegments[mediaSequence]?.let(history::add)
             }
             history.sortBy { it.mediaSequence }
             trimHistory()
@@ -138,43 +133,6 @@ class LiveClipBufferManager(
         val drmProtected: Boolean,
         val available: Boolean,
     )
-
-    private fun HlsMediaPlaylist.Segment.toRef(
-        playlist: HlsMediaPlaylist,
-        generation: Long,
-        renditionId: String,
-        mediaSequence: Long,
-    ): ClipSegmentRef {
-        val absoluteStartUs = if (playlist.startTimeUs != C.TIME_UNSET) {
-            playlist.startTimeUs + relativeStartTimeUs
-        } else {
-            relativeStartTimeUs
-        }
-        val init = initializationSegment?.let {
-            ClipResourceRef(
-                uri = UriUtil.resolve(playlist.baseUri, it.url),
-                byteRangeOffset = it.byteRangeOffset,
-                byteRangeLength = it.byteRangeLength,
-            )
-        }
-        return ClipSegmentRef(
-            generation = generation,
-            renditionId = renditionId,
-            mediaSequence = mediaSequence,
-            absoluteUri = UriUtil.resolve(playlist.baseUri, url),
-            durationUs = durationUs,
-            absoluteStartUs = absoluteStartUs,
-            relativeStartUs = relativeStartTimeUs,
-            discontinuitySequence = playlist.discontinuitySequence + relativeDiscontinuitySequence,
-            byteRangeOffset = byteRangeOffset,
-            byteRangeLength = byteRangeLength,
-            initSegment = init,
-            encryptionKeyUri = fullSegmentEncryptionKeyUri?.let { UriUtil.resolve(playlist.baseUri, it) },
-            encryptionIv = encryptionIV,
-            drmInitDataPresent = drmInitData != null || playlist.protectionSchemes != null,
-            hasGap = hasGapTag,
-        )
-    }
 
     companion object {
         const val MIN_CLIP_DURATION_SECONDS = 10

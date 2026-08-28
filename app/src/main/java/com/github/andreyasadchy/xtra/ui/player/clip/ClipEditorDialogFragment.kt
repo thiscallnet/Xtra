@@ -13,6 +13,8 @@ import android.os.Looper
 import android.os.Environment
 import android.util.Log
 import android.provider.MediaStore
+import android.text.Editable
+import android.text.TextWatcher
 import android.text.format.DateUtils
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -34,6 +36,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.ui.TimeBar
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.BuildConfig
@@ -49,15 +52,37 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.os.StatFs
 
-/** Full-screen segment-aligned editor for a prepared local live snapshot. */
+/** Full-screen segment-aligned editor for a prepared live snapshot or remote VOD. */
 @OptIn(UnstableApi::class)
 class ClipEditorDialogFragment : Fragment() {
+    interface Host {
+        suspend fun prepareVodClip(
+            startIndex: Int,
+            endIndexExclusive: Int,
+        ): ClipPreparationRepository.PreparedLiveClip
+
+        fun cancelVodClipPreparation()
+
+        fun releaseVodClip(directoryPath: String)
+
+        fun createVodClipPreviewMediaSource(uri: String): MediaSource
+    }
+
+    private enum class SourceMode {
+        LIVE_PREPARED,
+        VOD_REMOTE,
+    }
+
     private var _binding: FragmentClipEditorBinding? = null
     private val binding get() = _binding!!
 
-    private lateinit var playlistFile: File
-    private lateinit var directory: File
+    private lateinit var sourceMode: SourceMode
+    private var playlistFile: File? = null
+    private var directory: File? = null
+    private var previewUri: String? = null
+    private var byteRangeLengths = LongArray(0)
     private lateinit var boundariesUs: LongArray
     private var durationUs = 0L
     private var channelName: String? = null
@@ -70,9 +95,11 @@ class ClipEditorDialogFragment : Fragment() {
     private var savedUri: Uri? = null
     private var savedDisplayName: String? = null
     private var shareFile: File? = null
+    private var preparedVodClip: ClipPreparationRepository.PreparedLiveClip? = null
     private var defaultFileBaseName = ""
     private var restoredFileBaseName: String? = null
     private var updatingSlider = false
+    private var updatingTimeFields = false
     private var previewStartUs = 0L
     private var previewEndUs = 0L
     private var lastPreviewSeekStartUs = 0L
@@ -112,8 +139,16 @@ class ClipEditorDialogFragment : Fragment() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        playlistFile = File(requireArguments().getString(ARG_PLAYLIST)!!)
-        directory = File(requireArguments().getString(ARG_DIRECTORY)!!)
+        sourceMode = SourceMode.valueOf(
+            requireArguments().getString(ARG_SOURCE_MODE, SourceMode.LIVE_PREPARED.name),
+        )
+        if (sourceMode == SourceMode.LIVE_PREPARED) {
+            playlistFile = File(requireArguments().getString(ARG_PLAYLIST)!!)
+            directory = File(requireArguments().getString(ARG_DIRECTORY)!!)
+        } else {
+            previewUri = requireArguments().getString(ARG_PREVIEW_URI)
+            byteRangeLengths = requireArguments().getLongArray(ARG_BYTE_RANGE_LENGTHS) ?: LongArray(0)
+        }
         boundariesUs = ClipTimeline.normalizeBoundaries(
             requireArguments().getLongArray(ARG_BOUNDARIES) ?: longArrayOf(0L),
         )
@@ -126,14 +161,23 @@ class ClipEditorDialogFragment : Fragment() {
             ?.times(1_000L)
             ?: 5_000L
         defaultFileBaseName = "${sanitize(channelName)}_${SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())}"
-        startUs = savedInstanceState
+        val savedStartUs = savedInstanceState
             ?.takeIf { it.containsKey(STATE_START_US) }
             ?.getLong(STATE_START_US)
-            ?: 0L
-        endUs = savedInstanceState
+        val savedEndUs = savedInstanceState
             ?.takeIf { it.containsKey(STATE_END_US) }
             ?.getLong(STATE_END_US)
-            ?: durationUs
+        if (sourceMode == SourceMode.VOD_REMOTE && savedStartUs == null && savedEndUs == null) {
+            val initial = defaultVodSelection(
+                playheadUs = requireArguments().getLong(ARG_INITIAL_POSITION_US).coerceIn(0L, durationUs),
+                wantedDurationUs = configuredClipDurationUs(),
+            )
+            startUs = initial.startUs
+            endUs = initial.endUs
+        } else {
+            startUs = savedStartUs ?: 0L
+            endUs = savedEndUs ?: durationUs
+        }
         restoredFileBaseName = savedInstanceState?.getString(STATE_FILE_NAME)
         savedDisplayName = savedInstanceState?.getString(STATE_SAVED_DISPLAY_NAME)
         shareFile = savedInstanceState?.getString(STATE_SHARE_FILE)?.let(::File)
@@ -154,6 +198,8 @@ class ClipEditorDialogFragment : Fragment() {
         binding.channel.text = channelName.orEmpty()
         binding.fileNameLayout.hint = defaultFileBaseName
         binding.fileName.setText(restoredFileBaseName.orEmpty())
+        binding.vodRangeControls.isVisible = sourceMode == SourceMode.VOD_REMOTE
+        if (sourceMode == SourceMode.VOD_REMOTE) setupVodRangeControls()
         binding.close.setOnClickListener { closeEditor() }
         binding.done.setOnClickListener { closeEditor() }
         requireActivity().onBackPressedDispatcher.addCallback(
@@ -321,12 +367,18 @@ class ClipEditorDialogFragment : Fragment() {
         binding.previewLoading.isVisible = true
         player = ExoPlayer.Builder(requireContext()).build().also { exoPlayer ->
             binding.preview.player = exoPlayer
-            val mediaItem = MediaItem.Builder()
-                .setUri(playlistFile.toUri())
-                .setMimeType(MimeTypes.APPLICATION_M3U8)
-                .build()
-            val mediaSource = HlsMediaSource.Factory(DefaultDataSource.Factory(requireContext()))
-                .createMediaSource(mediaItem)
+            val mediaSource = if (sourceMode == SourceMode.VOD_REMOTE) {
+                val host = parentFragment as? Host
+                    ?: error("VOD clip editor has no host")
+                host.createVodClipPreviewMediaSource(requireNotNull(previewUri))
+            } else {
+                val mediaItem = MediaItem.Builder()
+                    .setUri(requireNotNull(playlistFile).toUri())
+                    .setMimeType(MimeTypes.APPLICATION_M3U8)
+                    .build()
+                HlsMediaSource.Factory(DefaultDataSource.Factory(requireContext()))
+                    .createMediaSource(mediaItem)
+            }
             exoPlayer.addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_ENDED) {
@@ -392,7 +444,11 @@ class ClipEditorDialogFragment : Fragment() {
         applySelection(selectionForSlider(binding.rangeSlider.values), seekPreview = false)
     }
 
-    private fun applySelection(selection: Selection, seekPreview: Boolean) {
+    private fun applySelection(
+        selection: Selection,
+        seekPreview: Boolean,
+        syncTimeFields: Boolean = true,
+    ) {
         val startChangedSinceLastSeek = selection.startUs != lastPreviewSeekStartUs
         startUs = selection.startUs
         endUs = selection.endUs
@@ -400,10 +456,18 @@ class ClipEditorDialogFragment : Fragment() {
         previewEndUs = endUs
         binding.selectionDuration.text = getString(
             R.string.clip_editor_selected_duration,
-            formatDuration((endUs - startUs) / 1_000L),
+            if (sourceMode == SourceMode.VOD_REMOTE) {
+                ClipTime.formatMs((endUs - startUs) / 1_000L)
+            } else {
+                formatDuration((endUs - startUs) / 1_000L)
+            },
         )
         binding.startLabel.text = formatRelativePosition(startUs)
         binding.endLabel.text = formatRelativePosition(endUs)
+        if (sourceMode == SourceMode.VOD_REMOTE) {
+            if (syncTimeFields) syncVodTimeFields()
+            updateVodDetails()
+        }
         if (seekPreview && startChangedSinceLastSeek) {
             val previewPlayer = player
             if (previewPlayer != null) {
@@ -418,6 +482,143 @@ class ClipEditorDialogFragment : Fragment() {
         }
         updatePreviewProgressDuration()
     }
+
+    private fun setupVodRangeControls() {
+        val watcher = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable) {
+                if (updatingTimeFields) return
+                val milliseconds = ClipTime.parseMs(s) ?: return
+                val valueUs = milliseconds.coerceIn(0L, durationUs / 1_000L) * 1_000L
+                val selection = if (binding.startTime.hasFocus()) {
+                    selectionForUs(valueUs, endUs)
+                } else if (binding.endTime.hasFocus()) {
+                    selectionForUs(startUs, valueUs)
+                } else {
+                    return
+                }
+                applySelection(selection, seekPreview = binding.startTime.hasFocus(), syncTimeFields = false)
+                updateSlider(selection)
+            }
+        }
+        binding.startTime.addTextChangedListener(watcher)
+        binding.endTime.addTextChangedListener(watcher)
+        binding.startTime.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) commitTimeField(binding.startTime, isStart = true)
+        }
+        binding.endTime.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) commitTimeField(binding.endTime, isStart = false)
+        }
+        binding.preset15.setOnClickListener { setPresetSelection(15_000_000L) }
+        binding.preset30.setOnClickListener { setPresetSelection(30_000_000L) }
+        binding.preset1m.setOnClickListener { setPresetSelection(60_000_000L) }
+        binding.preset5m.setOnClickListener { setPresetSelection(5 * 60_000_000L) }
+        binding.preset10m.setOnClickListener { setPresetSelection(10 * 60_000_000L) }
+        binding.setStartPlayhead.setOnClickListener { setStartToPreviewPosition() }
+        binding.setEndPlayhead.setOnClickListener { setEndToPreviewPosition() }
+    }
+
+    private fun commitTimeField(field: android.widget.EditText, isStart: Boolean) {
+        val milliseconds = ClipTime.parseMs(field.text)
+        if (milliseconds == null) {
+            field.error = getString(R.string.invalid_time)
+            syncVodTimeFields()
+            return
+        }
+        field.error = null
+        val valueUs = milliseconds.coerceIn(0L, durationUs / 1_000L) * 1_000L
+        val selection = if (isStart) selectionForUs(valueUs, endUs) else selectionForUs(startUs, valueUs)
+        applySelection(selection, seekPreview = isStart)
+        updateSlider(selection)
+    }
+
+    private fun syncVodTimeFields() {
+        if (sourceMode != SourceMode.VOD_REMOTE || updatingTimeFields || _binding == null) return
+        updatingTimeFields = true
+        binding.startTime.setText(ClipTime.formatMs(startUs / 1_000L))
+        binding.endTime.setText(ClipTime.formatMs(endUs / 1_000L))
+        updatingTimeFields = false
+    }
+
+    private fun updateSlider(selection: Selection) {
+        updatingSlider = true
+        binding.rangeSlider.setValues(selection.startUs / 1_000f, selection.endUs / 1_000f)
+        updatingSlider = false
+    }
+
+    private fun setPresetSelection(wantedDurationUs: Long) {
+        val playheadUs = (player?.currentPosition ?: return) * 1_000L
+        val start = (playheadUs - wantedDurationUs / 2L).coerceAtLeast(0L)
+        val end = (start + wantedDurationUs).coerceAtMost(durationUs)
+        val adjustedStart = (end - wantedDurationUs).coerceAtLeast(0L)
+        val selection = selectionForUs(adjustedStart, end)
+        updateSlider(selection)
+        applySelection(selection, seekPreview = true)
+    }
+
+    private fun setStartToPreviewPosition() {
+        val positionUs = (player?.currentPosition ?: return) * 1_000L
+        val selection = selectionForUs(positionUs, endUs)
+        updateSlider(selection)
+        applySelection(selection, seekPreview = true)
+    }
+
+    private fun setEndToPreviewPosition() {
+        val positionUs = (player?.currentPosition ?: return) * 1_000L
+        val selection = selectionForUs(startUs, positionUs)
+        updateSlider(selection)
+        applySelection(selection, seekPreview = false)
+    }
+
+    private fun updateVodDetails() {
+        val startIndex = ClipTimeline.boundaryIndexUs(startUs, boundariesUs)
+        val endIndex = ClipTimeline.boundaryIndexUs(endUs, boundariesUs)
+        val estimatedBytes = ClipSizeEstimator.estimateBytes(
+            selectedDurationUs = endUs - startUs,
+            byteRangeLengths = byteRangeLengths,
+            startIndex = startIndex,
+            endIndexExclusive = endIndex,
+            bitrateBitsPerSecond = arguments?.getInt(ARG_BITRATE, 0)?.takeIf { it > 0 },
+        )
+        binding.vodSegmentCount.text = getString(R.string.clip_editor_segment_count, (endIndex - startIndex).coerceAtLeast(0))
+        if (estimatedBytes == null) {
+            binding.estimatedSize.text = getString(R.string.clip_editor_estimated_size_unknown)
+            binding.temporarySpace.text = getString(R.string.clip_editor_temporary_space_unknown)
+            binding.save.isEnabled = true
+        } else {
+            val requiredBytes = estimatedBytes.coerceAtMost((Long.MAX_VALUE - STORAGE_SAFETY_BYTES) / 2L) * 2L + STORAGE_SAFETY_BYTES
+            binding.estimatedSize.text = getString(R.string.clip_editor_estimated_size, ClipSizeEstimator.formatBytes(estimatedBytes))
+            binding.temporarySpace.text = getString(R.string.clip_editor_temporary_space, ClipSizeEstimator.formatBytes(requiredBytes))
+            val enoughSpace = requiredBytes <= StatFs(requireContext().cacheDir.absolutePath).availableBytes
+            binding.save.isEnabled = enoughSpace
+            if (!enoughSpace) {
+                binding.temporarySpace.append(" ${getString(R.string.clip_editor_insufficient_storage)}")
+            }
+        }
+    }
+
+    private fun defaultVodSelection(playheadUs: Long, wantedDurationUs: Long): Selection {
+        var start = playheadUs - wantedDurationUs / 2L
+        var end = start + wantedDurationUs
+        if (start < 0L) {
+            end -= start
+            start = 0L
+        }
+        if (end > durationUs) {
+            val overflow = end - durationUs
+            start = (start - overflow).coerceAtLeast(0L)
+            end = durationUs
+        }
+        return selectionForUs(start, end)
+    }
+
+    private fun configuredClipDurationUs(): Long = requireContext().prefs()
+        .getString(C.CLIP_MAX_DURATION_SECONDS, LiveClipBufferManager.DEFAULT_CLIP_DURATION_SECONDS.toString())
+        ?.toLongOrNull()
+        ?.coerceIn(1L, 10 * 60L)
+        ?.times(1_000_000L)
+        ?: LiveClipBufferManager.DEFAULT_CLIP_DURATION_US
 
     private fun selectionForSlider(values: List<Float>): Selection {
         if (values.size < 2) return Selection(startUs, endUs)
@@ -529,6 +730,7 @@ class ClipEditorDialogFragment : Fragment() {
     }
 
     private fun formatRelativePosition(positionUs: Long): String {
+        if (sourceMode == SourceMode.VOD_REMOTE) return ClipTime.formatMs(positionUs / 1_000L)
         val remainingUs = (durationUs - positionUs).coerceAtLeast(0L)
         return if (remainingUs <= 500_000L) {
             getString(R.string.clip_editor_now)
@@ -556,30 +758,56 @@ class ClipEditorDialogFragment : Fragment() {
         binding.rangeSlider.isEnabled = false
         exportJob = viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val selectedPlaylist = ClipSelectionPlaylistWriter.write(
-                    prepared = ClipPreparationRepository.PreparedLiveClip.read(directory),
-                    output = File(directory, "selected.m3u8"),
-                    startIndex = startIndex,
-                    endIndexExclusive = endIndex,
-                )
-                val outputFile = File(directory, "clip.mp4")
+                val preparedForExport = if (sourceMode == SourceMode.VOD_REMOTE) {
+                    val host = parentFragment as? Host ?: error("VOD clip editor has no host")
+                    host.prepareVodClip(startIndex, endIndex).also { preparedVodClip = it }
+                } else {
+                    null
+                }
+                val selectedPlaylist = if (sourceMode == SourceMode.VOD_REMOTE) {
+                    requireNotNull(preparedForExport).playlist
+                } else {
+                    val liveDirectory = requireNotNull(directory)
+                    ClipSelectionPlaylistWriter.write(
+                        prepared = ClipPreparationRepository.PreparedLiveClip.read(liveDirectory),
+                        output = File(liveDirectory, "selected.m3u8"),
+                        startIndex = startIndex,
+                        endIndexExclusive = endIndex,
+                    )
+                }
+                val outputDirectory = preparedForExport?.directory ?: requireNotNull(directory)
+                val outputFile = File(outputDirectory, "clip.mp4")
                 val exported = ClipExporter(requireContext()).export(selectedPlaylist, outputFile)
+                if (sourceMode == SourceMode.VOD_REMOTE) {
+                    withContext(Dispatchers.IO) {
+                        outputDirectory.listFiles()?.forEach { file ->
+                            if (file != exported.file) file.deleteRecursively()
+                        }
+                    }
+                }
                 val published = publishToMediaStore(exported.file, displayName)
                     ?: throw IllegalStateException("MediaStore insert failed")
-                shareFile = withContext(Dispatchers.IO) {
-                    val namedFile = File(directory, displayName)
-                    if (exported.file != namedFile && !exported.file.renameTo(namedFile)) {
-                        exported.file.copyTo(namedFile, overwrite = true)
-                        exported.file.delete()
+                val actualBytes = exported.file.length()
+                if (sourceMode == SourceMode.VOD_REMOTE) {
+                    cleanupPreparedVodClip()
+                    shareFile = null
+                } else {
+                    shareFile = withContext(Dispatchers.IO) {
+                        val liveDirectory = requireNotNull(directory)
+                        val namedFile = File(liveDirectory, displayName)
+                        if (exported.file != namedFile && !exported.file.renameTo(namedFile)) {
+                            exported.file.copyTo(namedFile, overwrite = true)
+                            exported.file.delete()
+                        }
+                        namedFile
                     }
-                    namedFile
                 }
                 savedUri = published.uri
                 savedDisplayName = published.displayName
                 restoredFileBaseName = published.displayName.removeMp4Extension()
                 binding.fileName.setText(restoredFileBaseName)
                 binding.fileNameLayout.isEnabled = false
-                showSavedInfo(published.displayName, published.location)
+                showSavedInfo(published.displayName, published.location, actualBytes)
                 binding.progress.isVisible = false
                 binding.save.isVisible = false
                 binding.share.isVisible = true
@@ -591,9 +819,11 @@ class ClipEditorDialogFragment : Fragment() {
                 ).show()
             } catch (_: kotlinx.coroutines.CancellationException) {
                 // Dismissal or rotation can cancel an in-flight export.
+                if (sourceMode == SourceMode.VOD_REMOTE) cleanupPreparedVodClip()
             } catch (_: Throwable) {
+                if (sourceMode == SourceMode.VOD_REMOTE) cleanupPreparedVodClip()
                 binding.progress.isVisible = false
-                binding.save.isEnabled = true
+                if (sourceMode == SourceMode.VOD_REMOTE) updateVodDetails() else binding.save.isEnabled = true
                 binding.rangeSlider.isEnabled = true
                 Toast.makeText(requireContext(), R.string.clip_export_failed, Toast.LENGTH_LONG).show()
             }
@@ -674,9 +904,24 @@ class ClipEditorDialogFragment : Fragment() {
         return "${sanitize(baseName)}.mp4"
     }
 
-    private fun showSavedInfo(displayName: String, location: String) {
-        binding.savedInfo.text = "$displayName\n$location"
+    private fun showSavedInfo(displayName: String, location: String, actualBytes: Long? = null) {
+        binding.savedInfo.text = buildString {
+            append(displayName)
+            append('\n')
+            append(location)
+            actualBytes?.let {
+                append('\n')
+                append(getString(R.string.clip_editor_actual_size, ClipSizeEstimator.formatBytes(it)))
+            }
+        }
         binding.savedInfo.isVisible = true
+    }
+
+    private fun cleanupPreparedVodClip() {
+        preparedVodClip?.directory?.absolutePath?.let { path ->
+            (parentFragment as? Host)?.releaseVodClip(path)
+        }
+        preparedVodClip = null
     }
 
     private fun sanitize(value: String?): String = value.orEmpty()
@@ -728,6 +973,10 @@ class ClipEditorDialogFragment : Fragment() {
 
     override fun onDestroy() {
         exportJob?.cancel()
+        if (sourceMode == SourceMode.VOD_REMOTE) {
+            (parentFragment as? Host)?.cancelVodClipPreparation()
+            cleanupPreparedVodClip()
+        }
         clipDebug("preview player release")
         player?.release()
         player = null
@@ -737,12 +986,18 @@ class ClipEditorDialogFragment : Fragment() {
     internal val preparedDirectoryPath: String?
         get() = arguments?.getString(ARG_DIRECTORY)
 
+    internal val isVodSource: Boolean
+        get() = ::sourceMode.isInitialized && sourceMode == SourceMode.VOD_REMOTE
+
     private fun sendResult() {
         if (!resultSent && isAdded) {
             resultSent = true
             parentFragmentManager.setFragmentResult(
                 RESULT_KEY,
-                Bundle().apply { putString(RESULT_DIRECTORY, directory.absolutePath) },
+                Bundle().apply {
+                    directory?.absolutePath?.let { putString(RESULT_DIRECTORY, it) }
+                    putString(RESULT_SOURCE_MODE, sourceMode.name)
+                },
             )
         }
     }
@@ -761,7 +1016,12 @@ class ClipEditorDialogFragment : Fragment() {
     companion object {
         private const val ARG_PLAYLIST = "playlist"
         private const val ARG_DIRECTORY = "directory"
+        private const val ARG_SOURCE_MODE = "sourceMode"
+        private const val ARG_PREVIEW_URI = "previewUri"
         private const val ARG_BOUNDARIES = "boundariesUs"
+        private const val ARG_INITIAL_POSITION_US = "initialPositionUs"
+        private const val ARG_BITRATE = "bitrateBitsPerSecond"
+        private const val ARG_BYTE_RANGE_LENGTHS = "byteRangeLengths"
         private const val ARG_CHANNEL_NAME = "channelName"
         private const val STATE_START_US = "startUs"
         private const val STATE_END_US = "endUs"
@@ -771,12 +1031,14 @@ class ClipEditorDialogFragment : Fragment() {
         private const val STATE_SAVED_URI = "savedUri"
         const val RESULT_KEY = "liveClipEditorResult"
         const val RESULT_DIRECTORY = "directoryPath"
+        const val RESULT_SOURCE_MODE = "sourceMode"
         const val PREVIEW_READY_KEY = "liveClipEditorPreviewReady"
         private const val STORAGE_PERMISSION_REQUEST = 1001
         private const val PREVIEW_POLL_MS = 100L
         private const val PREVIEW_CONTROLS_HIDE_MS = 3_000L
         private const val CLIP_LOCATION = "Movies/Xtra/Clips"
         private const val CLIP_LOG_TAG = "XtraClipEditor"
+        private const val STORAGE_SAFETY_BYTES = 128L * 1024L * 1024L
 
         private data class PublishedClip(
             val uri: Uri,
@@ -791,9 +1053,29 @@ class ClipEditorDialogFragment : Fragment() {
             channelName: String?,
         ) = ClipEditorDialogFragment().apply {
             arguments = Bundle().apply {
+                putString(ARG_SOURCE_MODE, SourceMode.LIVE_PREPARED.name)
                 putString(ARG_PLAYLIST, playlistPath)
                 putString(ARG_DIRECTORY, directoryPath)
                 putLongArray(ARG_BOUNDARIES, boundariesUs)
+                putString(ARG_CHANNEL_NAME, channelName)
+            }
+        }
+
+        fun newVodInstance(
+            previewUri: String,
+            boundariesUs: LongArray,
+            initialPositionUs: Long,
+            bitrateBitsPerSecond: Int?,
+            byteRangeLengths: LongArray,
+            channelName: String?,
+        ) = ClipEditorDialogFragment().apply {
+            arguments = Bundle().apply {
+                putString(ARG_SOURCE_MODE, SourceMode.VOD_REMOTE.name)
+                putString(ARG_PREVIEW_URI, previewUri)
+                putLongArray(ARG_BOUNDARIES, boundariesUs)
+                putLong(ARG_INITIAL_POSITION_US, initialPositionUs)
+                putInt(ARG_BITRATE, bitrateBitsPerSecond ?: 0)
+                putLongArray(ARG_BYTE_RANGE_LENGTHS, byteRangeLengths)
                 putString(ARG_CHANNEL_NAME, channelName)
             }
         }

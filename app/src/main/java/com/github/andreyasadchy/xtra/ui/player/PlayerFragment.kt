@@ -861,7 +861,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                     isClickable = false
                     isFocusable = false
                 }
-                if (playbackService?.type == BasePlaybackService.STREAM) {
+                if (playbackService?.type == BasePlaybackService.STREAM || playbackService?.type == BasePlaybackService.VIDEO) {
                     if (supportsLiveClipping) {
                         clip.visibility = View.VISIBLE
                         clip.isEnabled = false
@@ -871,6 +871,8 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                         }
                         requestLiveClipStatus()
                     }
+                }
+                if (playbackService?.type == BasePlaybackService.STREAM) {
                     if (!requireContext().tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
                         (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
                                 !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank())
