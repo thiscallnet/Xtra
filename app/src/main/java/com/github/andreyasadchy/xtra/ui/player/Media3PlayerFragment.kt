@@ -93,6 +93,12 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.timepicker.MaterialTimePicker
 import com.google.android.material.timepicker.TimeFormat
+import coil3.imageLoader
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import coil3.request.target
+import coil3.request.transformations
+import coil3.transform.CircleCropTransformation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -137,6 +143,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var backgroundColor: Int? = null
     private var backgroundVisible = false
     private var pipPlaying = false
+    private var loadedChannelAvatarUrl: String? = null
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
@@ -660,20 +667,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     channelName
                 }
                 if (requireContext().prefs().getBoolean(C.PLAYER_CHANNEL, true)) {
+                    updateChannelAvatar(requireArguments().getString(KEY_CHANNEL_IMAGE))
                     channel.visibility = View.VISIBLE
                     channel.text = displayName
                     channel.isFocusable = true
                     channel.contentDescription = getString(R.string.player_open_channel, displayName.orEmpty())
-                    channel.setOnClickListener {
-                        findNavController().navigate(
-                            ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
-                                channelId = requireArguments().getString(KEY_CHANNEL_ID),
-                                channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
-                                channelName = requireArguments().getString(KEY_CHANNEL_NAME),
-                            )
-                        )
-                        minimize()
-                    }
+                    channel.setOnClickListener { openChannel() }
+                    channelAvatar.setOnClickListener { openChannel() }
+                } else {
+                    updateChannelAvatar(null)
                 }
                 val titleText = requireArguments().getString(KEY_TITLE)
                 if (!titleText.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_TITLE, true)) {
@@ -743,6 +745,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         vodGames = !viewModel.gamesList.value.isNullOrEmpty()
                     ).show(childFragmentManager, "closeOnPip")
                 }
+                viewersLayout.apply {
+                    setOnClickListener(null)
+                    isClickable = false
+                    isFocusable = false
+                }
                 if (videoType == STREAM) {
                     viewLifecycleOwner.lifecycleScope.launch {
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -792,6 +799,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
                             viewModel.stream.collectLatest { stream ->
                                 if (stream != null) {
+                                    if (requireContext().prefs().getBoolean(C.PLAYER_CHANNEL, true)) {
+                                        stream.channelImage?.takeIf { it.isNotBlank() }?.let(::updateChannelAvatar)
+                                    }
                                     stream.id?.let { chatFragment?.updateStreamId(it) }
                                     if (!requireContext().prefs().isChatEnabled() ||
                                         false ||
@@ -1616,6 +1626,29 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
+    private fun updateChannelAvatar(url: String?) {
+        val normalized = url?.takeIf { it.isNotBlank() }
+        if (normalized == null) {
+            loadedChannelAvatarUrl = null
+            binding.playerControls.channelAvatar.setImageDrawable(null)
+            binding.playerControls.channelAvatar.visibility = View.GONE
+            return
+        }
+
+        binding.playerControls.channelAvatar.visibility = View.VISIBLE
+        if (loadedChannelAvatarUrl == normalized) return
+
+        loadedChannelAvatarUrl = normalized
+        requireContext().imageLoader.enqueue(
+            ImageRequest.Builder(requireContext())
+                .data(normalized)
+                .crossfade(true)
+                .transformations(CircleCropTransformation())
+                .target(binding.playerControls.channelAvatar)
+                .build()
+        )
+    }
+
     fun updateLiveStatus(live: Boolean, serverTime: Long?, channelLogin: String?) {
         if (channelLogin == requireArguments().getString(KEY_CHANNEL_LOGIN)) {
             if (live) {
@@ -1689,6 +1722,17 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         requireArguments().getString(KEY_CHANNEL_LOGIN)?.let { login ->
             PlayerViewerListDialog.newInstance(login).show(childFragmentManager, "closeOnPip")
         }
+    }
+
+    private fun openChannel() {
+        findNavController().navigate(
+            ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                channelId = requireArguments().getString(KEY_CHANNEL_ID),
+                channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+                channelName = requireArguments().getString(KEY_CHANNEL_NAME),
+            )
+        )
+        minimize()
     }
 
     fun showVodGames() {
@@ -2700,6 +2744,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     override fun onDestroyView() {
+        loadedChannelAvatarUrl = null
         super.onDestroyView()
         _binding = null
     }
