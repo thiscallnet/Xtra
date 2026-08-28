@@ -78,6 +78,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         overviewAdapter = FollowingOverviewAdapter(
+            fragment = this,
             onStreamClick = { stream -> (activity as? MainActivity)?.startStream(stream) },
             onVideoClick = { item ->
                 item.toVideo().let { video -> (activity as? MainActivity)?.startVideo(video, item.position, ignoreSavedPosition = true) }

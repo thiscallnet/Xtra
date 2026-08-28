@@ -21,6 +21,10 @@ import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
 import com.github.andreyasadchy.xtra.ui.common.StreamCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
+import com.github.andreyasadchy.xtra.ui.common.StreamUptimeViewHolder
+import com.github.andreyasadchy.xtra.ui.common.VisibleStreamUptimeTicker
+import com.github.andreyasadchy.xtra.ui.common.formatStreamUptime
+import com.github.andreyasadchy.xtra.ui.common.parseStreamStartedAtMs
 import com.github.andreyasadchy.xtra.ui.common.thumbnailIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
@@ -28,10 +32,12 @@ import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
 
 class StreamShelfAdapter(
+    private val fragment: androidx.fragment.app.Fragment,
     private val onStreamClick: (Stream) -> Unit,
 ) : ListAdapter<Stream, StreamShelfAdapter.ViewHolder>(DIFF_CALLBACK) {
 
     private val thumbnailLoadScheduler = StreamThumbnailIdleScheduler()
+    private val uptimeTicker = VisibleStreamUptimeTicker(fragment)
 
     init {
         setHasStableIds(true)
@@ -82,25 +88,30 @@ class StreamShelfAdapter(
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
         thumbnailLoadScheduler.attachTo(recyclerView)
+        uptimeTicker.attach(recyclerView)
         recyclerView.addOnLayoutChangeListener(layoutChangeListener)
         recyclerView.post { applyCardSizing(recyclerView) }
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
         thumbnailLoadScheduler.detach()
+        uptimeTicker.detach()
         recyclerView.removeOnLayoutChangeListener(layoutChangeListener)
         super.onDetachedFromRecyclerView(recyclerView)
     }
 
     inner class ViewHolder(
         private val binding: ItemStreamShelfBinding,
-    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
+    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner, StreamUptimeViewHolder {
         val previewSurface get() = binding.previewHost
         var boundPreviewIdentity: String? = null
         private val imageRequests = FeedImageRequestBag()
         private var boundImageIdentity: String? = null
         private var boundThumbnailKey: String? = null
         private var boundStream: Stream? = null
+        private var uptimeStartedAtMs: Long? = null
+        private var uptimeEnabled = false
+        private var lastRenderedUptimeSecond = Long.MIN_VALUE
 
         init {
             binding.root.setOnClickListener { boundStream?.let(onStreamClick) }
@@ -126,6 +137,7 @@ class StreamShelfAdapter(
             boundImageIdentity = null
             boundThumbnailKey = null
             boundStream = null
+            clearUptime()
         }
 
         fun bindThumbnail(stream: Stream?) {
@@ -156,6 +168,10 @@ class StreamShelfAdapter(
             val uiPreferences = FeedUiPreferencesStore.current(context)
             val presentation = StreamCardPresentationCache.get(stream, uiPreferences)
             boundStream = stream
+            uptimeEnabled = uiPreferences.showUptime
+            uptimeStartedAtMs = if (uptimeEnabled) parseStreamStartedAtMs(stream.createdAt) else null
+            lastRenderedUptimeSecond = Long.MIN_VALUE
+            updateUptime(System.currentTimeMillis())
             if (presentation == null) {
                 StreamCardPresentationCache.request(context, stream, uiPreferences) {
                     if (boundStream === stream && binding.root.isAttachedToWindow) applyPresentation(it)
@@ -175,10 +191,6 @@ class StreamShelfAdapter(
                 liveBadge.text = context.getString(R.string.live)
                 viewers.text = presentation?.viewerLabel ?: stream.viewerCount?.toString().orEmpty()
                 viewers.visibility = if (viewers.text.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
-
-                val uptimeText = presentation?.uptime
-                uptime.text = uptimeText.orEmpty()
-                uptime.visibility = if (uptimeText.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
 
                 title.text = presentation?.title ?: stream.title.orEmpty()
                 title.visibility = if (title.text.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
@@ -219,8 +231,6 @@ class StreamShelfAdapter(
             with(binding) {
                 viewers.text = presentation.viewerLabel.orEmpty()
                 viewers.visibility = if (viewers.text.isNullOrBlank()) View.GONE else View.VISIBLE
-                uptime.text = presentation.uptime.orEmpty()
-                uptime.visibility = if (uptime.text.isNullOrBlank()) View.GONE else View.VISIBLE
                 title.text = presentation.title.orEmpty()
                 title.visibility = if (title.text.isNullOrBlank()) View.GONE else View.VISIBLE
                 channel.text = presentation.username.orEmpty()
@@ -233,6 +243,30 @@ class StreamShelfAdapter(
                 tagTwo.text = tags.getOrNull(1)?.trim().orEmpty()
                 tagTwo.visibility = if (tagTwo.text.isNullOrBlank()) View.GONE else View.VISIBLE
             }
+        }
+
+        override fun updateUptime(nowMs: Long) {
+            val startedAtMs = uptimeStartedAtMs
+            if (!uptimeEnabled || startedAtMs == null || nowMs <= startedAtMs) {
+                lastRenderedUptimeSecond = Long.MIN_VALUE
+                if (binding.uptime.visibility != View.GONE) binding.uptime.visibility = View.GONE
+                return
+            }
+
+            val elapsedSeconds = (nowMs - startedAtMs) / 1000L
+            if (elapsedSeconds == lastRenderedUptimeSecond) return
+
+            lastRenderedUptimeSecond = elapsedSeconds
+            val text = formatStreamUptime(startedAtMs, nowMs) ?: return
+            if (binding.uptime.text.toString() != text) binding.uptime.text = text
+            if (binding.uptime.visibility != View.VISIBLE) binding.uptime.visibility = View.VISIBLE
+        }
+
+        private fun clearUptime() {
+            uptimeEnabled = false
+            uptimeStartedAtMs = null
+            lastRenderedUptimeSecond = Long.MIN_VALUE
+            binding.uptime.visibility = View.GONE
         }
     }
     private companion object {
