@@ -362,16 +362,13 @@ class ChatAdapter(
     }
 
     fun notifyUserMessages(userId: String) {
-        val affectedPositions = messages.mapIndexedNotNull { index, message ->
-            index.takeIf { message.userId == userId }
-        }
+        if (messages.none { it.userId == userId }) return
         scheduleConfigurationSwitch(
             composeChatRenderConfiguration(
                 active = activeConfiguration,
                 pending = pendingConfiguration,
                 revision = nextConfigurationRevision(),
             ),
-            affectedPositions,
         )
     }
 
@@ -588,7 +585,6 @@ class ChatAdapter(
 
     private fun scheduleConfigurationSwitch(
         configuration: ChatRenderConfiguration,
-        affectedPositions: List<Int> = emptyList(),
     ) {
         configurationJob?.cancel()
         prewarmGeneration++
@@ -614,8 +610,7 @@ class ChatAdapter(
                             key.translateAllMessages != configuration.translateAllMessages
                     }
                 }
-                val positions = if (affectedPositions.isEmpty()) visiblePositions() else affectedPositions
-                positions.forEach { position ->
+                visiblePositions().forEach { position ->
                     if (messages.getOrNull(position) != null) notifyItemChanged(position)
                 }
             }

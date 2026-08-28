@@ -27,6 +27,17 @@ class ChatRenderConfigurationTest {
     }
 
     @Test
+    fun pendingBroadCatalogChangeSurvivesTargetedUserInvalidation() {
+        val active = ChatRenderConfiguration(0, catalogA, false)
+        val pendingCatalog = composeChatRenderConfiguration(active, null, 1, indexes = catalogB)
+
+        val afterUserInvalidation = composeChatRenderConfiguration(active, pendingCatalog, 2)
+
+        assertSame(catalogB, afterUserInvalidation.indexes)
+        assertFalse(afterUserInvalidation.translateAllMessages)
+    }
+
+    @Test
     fun pendingTranslationIsPreservedWhenCatalogChanges() {
         val active = ChatRenderConfiguration(0, catalogA, false)
         val pendingTranslation = composeChatRenderConfiguration(active, null, 1, translateAllMessages = true)
