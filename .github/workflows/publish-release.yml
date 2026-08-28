@@ -174,23 +174,28 @@ jobs:
       run: |
         set -euo pipefail
         title="Xtra ${VERSION_NAME} (build ${BUILD_RUN_NUMBER})"
-        release_api="repos/${GH_REPO}/releases/tags/${RELEASE_TAG}"
-        if gh api "$release_api" >/dev/null 2>&1; then
+        if release_json="$(gh release view "$RELEASE_TAG" \
+          --repo "$GH_REPO" \
+          --json databaseId,tagName,name,isDraft,isPrerelease 2>/dev/null)"; then
           echo "Release $RELEASE_TAG already exists; continuing its publication"
         else
           gh release create "$RELEASE_TAG" \
+            --repo "$GH_REPO" \
             --draft \
             --latest=false \
             --verify-tag \
             --title "$title" \
             --generate-notes
+          release_json="$(gh release view "$RELEASE_TAG" \
+            --repo "$GH_REPO" \
+            --json databaseId,tagName,name,isDraft,isPrerelease)"
         fi
 
-        release_json="$(gh api "$release_api")"
-        release_tag="$(jq -er '.tag_name' <<< "$release_json")"
+        release_id="$(jq -er '.databaseId | numbers | tostring' <<< "$release_json")"
+        release_tag="$(jq -er '.tagName' <<< "$release_json")"
         release_title="$(jq -er '.name' <<< "$release_json")"
-        release_draft="$(jq -er '.draft' <<< "$release_json")"
-        release_prerelease="$(jq -er '.prerelease' <<< "$release_json")"
+        release_draft="$(jq -er '.isDraft' <<< "$release_json")"
+        release_prerelease="$(jq -er '.isPrerelease' <<< "$release_json")"
         expected_prerelease=false
         [[ "$CHANNEL" == "prerelease" ]] && expected_prerelease=true
         if [[ "$release_tag" != "$RELEASE_TAG" || "$release_title" != "$title" ]]; then
@@ -202,6 +207,7 @@ jobs:
           echo "Existing published release has a different channel: $RELEASE_TAG" >&2
           exit 1
         fi
+        echo "RELEASE_ID=$release_id" >> "$GITHUB_ENV"
 
     - name: Upload and verify release assets
       env:
@@ -217,7 +223,7 @@ jobs:
           app-x86_64-release.apk
           xtra-release-metadata.json
         )
-        release_api="repos/${GH_REPO}/releases/tags/${RELEASE_TAG}"
+        release_api="repos/${GH_REPO}/releases/${RELEASE_ID}"
         release_json="$(gh api "$release_api")"
         asset_count() {
           jq -r --arg name "$1" '[.assets[] | select(.name == $name)] | length' <<< "$release_json"
@@ -227,7 +233,9 @@ jobs:
           count="$(asset_count "$asset_name")"
           if [[ "$count" == 0 ]]; then
             echo "Uploading $asset_name"
-            gh release upload "$RELEASE_TAG" "release-package/$asset_name"
+            gh release upload "$RELEASE_TAG" \
+              --repo "$GH_REPO" \
+              "release-package/$asset_name"
           elif [[ "$count" != 1 ]]; then
             echo "Release contains multiple assets named $asset_name" >&2
             exit 1
@@ -282,22 +290,18 @@ jobs:
           fi
         fi
         if [[ "$CHANNEL" == "prerelease" ]]; then
-          release_json="$(gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}")"
-          release_id="$(jq -er '.id' <<< "$release_json")"
-          gh api --method PATCH "repos/${GH_REPO}/releases/${release_id}" \
+          gh api --method PATCH "repos/${GH_REPO}/releases/${RELEASE_ID}" \
             -F draft=false \
             -F prerelease=true \
             -f make_latest=false >/dev/null
         else
-          release_json="$(gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}")"
-          release_id="$(jq -er '.id' <<< "$release_json")"
-          gh api --method PATCH "repos/${GH_REPO}/releases/${release_id}" \
+          gh api --method PATCH "repos/${GH_REPO}/releases/${RELEASE_ID}" \
             -F draft=false \
             -F prerelease=false \
             -f make_latest=true >/dev/null
         fi
 
-        release_json="$(gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}")"
+        release_json="$(gh api "repos/${GH_REPO}/releases/${RELEASE_ID}")"
         expected_prerelease=false
         [[ "$CHANNEL" == "prerelease" ]] && expected_prerelease=true
         if ! jq -e \
