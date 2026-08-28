@@ -174,11 +174,17 @@ jobs:
       run: |
         set -euo pipefail
         title="Xtra ${VERSION_NAME} (build ${BUILD_RUN_NUMBER})"
-        if release_json="$(gh release view "$RELEASE_TAG" \
-          --repo "$GH_REPO" \
-          --json databaseId,tagName,name,isDraft,isPrerelease 2>/dev/null)"; then
-          echo "Release $RELEASE_TAG already exists; continuing its publication"
-        else
+        find_release_candidates() {
+          gh api --paginate --slurp "repos/${GH_REPO}/releases?per_page=100" |
+            jq -c --arg tag "$RELEASE_TAG" 'add | map(select(.tag_name == $tag))'
+        }
+
+        release_candidates="$(find_release_candidates)"
+        release_count="$(jq -er 'length' <<< "$release_candidates")"
+        if (( release_count > 1 )); then
+          echo "Multiple releases exist for tag $RELEASE_TAG" >&2
+          exit 1
+        elif (( release_count == 0 )); then
           gh release create "$RELEASE_TAG" \
             --repo "$GH_REPO" \
             --draft \
@@ -186,16 +192,27 @@ jobs:
             --verify-tag \
             --title "$title" \
             --generate-notes
-          release_json="$(gh release view "$RELEASE_TAG" \
-            --repo "$GH_REPO" \
-            --json databaseId,tagName,name,isDraft,isPrerelease)"
+          for attempt in {1..10}; do
+            release_candidates="$(find_release_candidates)"
+            release_count="$(jq -er 'length' <<< "$release_candidates")"
+            if (( release_count == 1 )); then
+              break
+            fi
+            (( attempt == 10 )) && break
+            sleep 2
+          done
         fi
 
-        release_id="$(jq -er '.databaseId | numbers | tostring' <<< "$release_json")"
-        release_tag="$(jq -er '.tagName' <<< "$release_json")"
+        if (( release_count != 1 )); then
+          echo "Could not find release $RELEASE_TAG after creating it" >&2
+          exit 1
+        fi
+        release_json="$(jq -c '.[0]' <<< "$release_candidates")"
+        release_id="$(jq -er '.id | numbers | tostring' <<< "$release_json")"
+        release_tag="$(jq -er '.tag_name' <<< "$release_json")"
         release_title="$(jq -er '.name' <<< "$release_json")"
-        release_draft="$(jq -er '.isDraft' <<< "$release_json")"
-        release_prerelease="$(jq -er '.isPrerelease' <<< "$release_json")"
+        release_draft="$(jq -er '.draft' <<< "$release_json")"
+        release_prerelease="$(jq -er '.prerelease' <<< "$release_json")"
         expected_prerelease=false
         [[ "$CHANNEL" == "prerelease" ]] && expected_prerelease=true
         if [[ "$release_tag" != "$RELEASE_TAG" || "$release_title" != "$title" ]]; then
@@ -233,9 +250,11 @@ jobs:
           count="$(asset_count "$asset_name")"
           if [[ "$count" == 0 ]]; then
             echo "Uploading $asset_name"
-            gh release upload "$RELEASE_TAG" \
-              --repo "$GH_REPO" \
-              "release-package/$asset_name"
+            gh api --method POST \
+              -H "Content-Type: application/octet-stream" \
+              --input "release-package/$asset_name" \
+              "https://uploads.github.com/repos/${GH_REPO}/releases/${RELEASE_ID}/assets?name=${asset_name}" \
+              >/dev/null
           elif [[ "$count" != 1 ]]; then
             echo "Release contains multiple assets named $asset_name" >&2
             exit 1
