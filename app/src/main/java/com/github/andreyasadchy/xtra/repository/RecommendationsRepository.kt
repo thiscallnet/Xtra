@@ -19,8 +19,10 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
 
 /** Provides a real Twitch recommendation source with a documented-data fallback. */
@@ -166,13 +168,15 @@ class RecommendationsRepository(
         }
     }
 
-    private fun currentAccountKey(): RecommendationAccountKey {
+    private suspend fun currentAccountKey(): RecommendationAccountKey = withContext(Dispatchers.IO) {
         val officialSession = authSessionStore.read()
         val auth = recommendationAuthFor(
             officialUserId = officialSession?.userId,
-            credential = authSessionStore.readPrivateGqlCredential(),
+            credential = officialSession?.let {
+                authSessionStore.readPrivateGqlCredential(it.accessToken)
+            },
         )
-        return RecommendationAccountKey(
+        RecommendationAccountKey(
             userId = officialSession?.userId ?: context.tokenPrefs().getString(C.USER_ID, null),
             username = officialSession?.login ?: context.tokenPrefs().getString(C.USERNAME, null),
             authMode = auth.mode,
@@ -180,13 +184,15 @@ class RecommendationsRepository(
         )
     }
 
-    private fun recommendationRequestContext(nowMillis: Long): RecommendationRequestContext {
+    private suspend fun recommendationRequestContext(nowMillis: Long): RecommendationRequestContext = withContext(Dispatchers.IO) {
         val officialSession = authSessionStore.read()
         val auth = recommendationAuthFor(
             officialUserId = officialSession?.userId,
-            credential = authSessionStore.readPrivateGqlCredential(),
+            credential = officialSession?.let {
+                authSessionStore.readPrivateGqlCredential(it.accessToken)
+            },
         )
-        return RecommendationRequestContext(
+        RecommendationRequestContext(
             auth = auth,
             accountKey = RecommendationAccountKey(
                 userId = officialSession?.userId ?: context.tokenPrefs().getString(C.USER_ID, null),

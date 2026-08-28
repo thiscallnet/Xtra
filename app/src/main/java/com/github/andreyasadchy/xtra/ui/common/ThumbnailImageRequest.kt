@@ -291,6 +291,12 @@ internal fun ImageRequest.Builder.thumbnailState(): ImageRequest.Builder = apply
     fallback(R.drawable.ic_thumbnail_error)
 }
 
+private enum class StreamThumbnailDisplayState {
+    PLACEHOLDER,
+    IMAGE,
+    ERROR,
+}
+
 internal fun Stream.streamIdentity(): String {
     return channelId?.takeIf { it.isNotBlank() }?.let { "channel:$it" }
         ?: id?.takeIf { it.isNotBlank() }?.let { "stream:$it" }
@@ -372,6 +378,9 @@ private class StreamImageTarget(
     override fun onSuccess(result: Image) {
         if (isCurrent()) {
             super.onSuccess(result)
+            if (thumbnailRequestKey != null) {
+                view.setTag(R.id.stream_thumbnail_display_state, StreamThumbnailDisplayState.IMAGE)
+            }
             thumbnailCacheKey?.let { rememberWarmStreamThumbnail(it, view) }
             onSuccessApplied?.invoke()
         }
@@ -385,6 +394,11 @@ private class StreamImageTarget(
                 hasDisplayedImage = view.drawable != null,
             )
         ) return
+        if (thumbnailRequestKey != null) {
+            view.setImageResource(R.drawable.ic_thumbnail_error)
+            view.setTag(R.id.stream_thumbnail_display_state, StreamThumbnailDisplayState.ERROR)
+            return
+        }
         super.onError(error)
     }
 }
@@ -403,6 +417,7 @@ private class StreamThumbnailCacheTarget(
     override fun onSuccess(result: Image) {
         if (view.tag == identity) {
             super.onSuccess(result)
+            view.setTag(R.id.stream_thumbnail_display_state, StreamThumbnailDisplayState.IMAGE)
             rememberWarmStreamThumbnail(cacheKey, view)
         }
     }
@@ -496,6 +511,7 @@ internal fun restoreWarmStreamThumbnail(stream: Stream, imageView: ImageView): B
     if (!restoreDecodedStreamThumbnail(plan.memoryCacheKey, imageView) &&
         !restoreWarmStreamThumbnail(plan.memoryCacheKey, imageView)
     ) return false
+    imageView.setTag(R.id.stream_thumbnail_display_state, StreamThumbnailDisplayState.IMAGE)
     imageView.setTag(R.id.stream_thumbnail_request_key, WarmThumbnailRequestKey(plan.memoryCacheKey))
     return true
 }
@@ -663,6 +679,7 @@ internal fun prepareStreamThumbnailImage(imageView: ImageView, stream: Stream) {
         imageView.setImageDrawable(null)
         imageView.setTag(R.id.stream_thumbnail_request_key, null)
         imageView.setTag(R.id.stream_thumbnail_successful_fresh_key, null)
+        imageView.setTag(R.id.stream_thumbnail_display_state, null)
     }
     imageView.tag = identity
 }
@@ -771,6 +788,7 @@ internal fun loadStreamThumbnail(
         imageView.setImageDrawable(null)
         imageView.setTag(R.id.stream_thumbnail_request_key, null)
         imageView.setTag(R.id.stream_thumbnail_successful_fresh_key, null)
+        imageView.setTag(R.id.stream_thumbnail_display_state, null)
         return null
     }
 
@@ -803,7 +821,8 @@ internal fun loadStreamThumbnail(
         if (!streamThumbnailFetchGate.shouldFetch(identity, bucket, forceEpoch, nowMs)) return
         streamThumbnailFetchGate.markAttempt(identity, bucket, forceEpoch, nowMs)
         requestHandle.rearm()
-        val preserveCurrentImage = imageView.tag == identity && imageView.drawable != null
+        val preserveCurrentImage = imageView.tag == identity &&
+                imageView.getTag(R.id.stream_thumbnail_display_state) == StreamThumbnailDisplayState.IMAGE
         val policies = thumbnailCachePolicies(fresh = true)
         requestHandle.set(context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
             data(plan.networkUrl)
@@ -858,6 +877,10 @@ internal fun loadStreamThumbnail(
     // Stage one renders the stable last-known image without touching the
     // network. Stage two then revalidates the preview and atomically replaces
     // the displayed image and the same stable disk entry if successful.
+    if (imageView.getTag(R.id.stream_thumbnail_display_state) != StreamThumbnailDisplayState.IMAGE) {
+        imageView.setImageResource(R.drawable.bg_thumbnail_placeholder)
+        imageView.setTag(R.id.stream_thumbnail_display_state, StreamThumbnailDisplayState.PLACEHOLDER)
+    }
     val policies = thumbnailCachePolicies(fresh = false)
     requestHandle.set(context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
         data(plan.networkUrl)

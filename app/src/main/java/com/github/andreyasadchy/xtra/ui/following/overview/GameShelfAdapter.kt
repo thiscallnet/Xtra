@@ -18,6 +18,7 @@ import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
 import com.github.andreyasadchy.xtra.ui.common.GameCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
+import com.github.andreyasadchy.xtra.ui.common.thumbnailState
 
 class GameShelfAdapter(
     private val onGameClick: (Game) -> Unit,
@@ -143,6 +144,7 @@ class GameShelfAdapter(
                                 .memoryCacheKey(imageKey)
                                 .crossfade(false)
                                 .target(binding.gameImage)
+                                .thumbnailState()
                                 .build(),
                         ),
                     )

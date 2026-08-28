@@ -1167,6 +1167,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             }
             refreshPlayerControls()
             PlayerControlLayout.applyToPlayer(requireContext(), binding)
+            dismissPlayer.setOnClickListener {
+                close()
+                (activity as? MainActivity)?.closePlayer()
+            }
         }
     }
 
@@ -2446,6 +2450,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         with(binding) {
             val wasMaximized = isMaximized
             isMaximized = false
+            dismissPlayer.visibility = View.VISIBLE
             if (wasMaximized) {
                 (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)?.onPlayerReturnedToBrowsing(playerStillOpen = true)
             }
@@ -2457,6 +2462,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             hideController(true)
             fun animate() {
                 val (minimizedScaleX, minimizedScaleY) = getScaleValues()
+                dismissPlayer.scaleX = 1f / minimizedScaleX
+                dismissPlayer.scaleY = 1f / minimizedScaleY
                 val windowInsets = ViewCompat.getRootWindowInsets(requireView())
                 val insets = windowInsets?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
                 val keyboardInsets = windowInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom?.let { if (it > 0) it - (insets?.bottom ?: 0) else it } ?: 0
@@ -2518,6 +2525,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun maximize() {
         with(binding) {
             isMaximized = true
+            dismissPlayer.visibility = View.GONE
+            dismissPlayer.scaleX = 1f
+            dismissPlayer.scaleY = 1f
             (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
             requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backPressedCallback)
             if (videoType == STREAM && chatFragment?.emoteMenuIsVisible() == true) {
