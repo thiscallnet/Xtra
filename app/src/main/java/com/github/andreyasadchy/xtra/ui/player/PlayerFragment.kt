@@ -85,6 +85,12 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.timepicker.MaterialTimePicker
 import com.google.android.material.timepicker.TimeFormat
+import coil3.imageLoader
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import coil3.request.target
+import coil3.request.transformations
+import coil3.transform.CircleCropTransformation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -134,6 +140,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     private var backgroundColor: Int? = null
     private var backgroundVisible = false
     private var pipPlaying = false
+    private var loadedChannelAvatarUrl: String? = null
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
@@ -767,20 +774,15 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                     channelName
                 }
                 if (requireContext().prefs().getBoolean(C.PLAYER_CHANNEL, true)) {
+                    updateChannelAvatar(playbackService?.channelImage)
                     channel.visibility = View.VISIBLE
                     channel.text = displayName
                     channel.isFocusable = true
                     channel.contentDescription = getString(R.string.player_open_channel, displayName.orEmpty())
-                    channel.setOnClickListener {
-                        findNavController().navigate(
-                            ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
-                                channelId = playbackService?.channelId,
-                                channelLogin = playbackService?.channelLogin,
-                                channelName = playbackService?.channelName,
-                            )
-                        )
-                        minimize()
-                    }
+                    channel.setOnClickListener { openChannel() }
+                    channelAvatar.setOnClickListener { openChannel() }
+                } else {
+                    updateChannelAvatar(null)
                 }
                 val titleText = playbackService?.title
                 if (!titleText.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_TITLE, true)) {
@@ -850,6 +852,11 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                         vodGames = !viewModel.gamesList.value.isNullOrEmpty()
                     ).show(childFragmentManager, "closeOnPip")
                 }
+                viewersLayout.apply {
+                    setOnClickListener(null)
+                    isClickable = false
+                    isFocusable = false
+                }
                 if (playbackService?.type == BasePlaybackService.STREAM) {
                     if (supportsLiveClipping) {
                         clip.visibility = View.VISIBLE
@@ -898,6 +905,9 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                         viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                             viewModel.stream.collectLatest { stream ->
                                 if (stream != null) {
+                                    if (requireContext().prefs().getBoolean(C.PLAYER_CHANNEL, true)) {
+                                        stream.channelImage?.takeIf { it.isNotBlank() }?.let(::updateChannelAvatar)
+                                    }
                                     stream.id?.let {
                                         playbackService?.streamId = it
                                         chatFragment?.updateStreamId(it)
@@ -936,9 +946,10 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                         showController(force = true)
                         seekToLivePosition()
                     }
-                    if (requireContext().prefs().getBoolean(C.PLAYER_VIEWER_LIST, false)) {
-                        viewersLayout.isFocusable = true
-                        viewersLayout.setOnClickListener {
+                    viewersLayout.apply {
+                        isClickable = true
+                        isFocusable = true
+                        setOnClickListener {
                             showController(force = true)
                             openViewerList()
                         }
@@ -1684,6 +1695,36 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         }
     }
 
+    private fun updateChannelAvatar(url: String?) {
+        val normalized = url?.takeIf { it.isNotBlank() }
+        if (normalized == null) {
+            loadedChannelAvatarUrl = null
+            binding.playerControls.channelAvatar.setImageDrawable(null)
+            binding.playerControls.channelAvatar.visibility = View.GONE
+            return
+        }
+
+        binding.playerControls.channelAvatar.visibility = View.VISIBLE
+        if (loadedChannelAvatarUrl == normalized) return
+
+        loadedChannelAvatarUrl = normalized
+        requireContext().imageLoader.enqueue(
+            ImageRequest.Builder(requireContext())
+                .data(normalized)
+                .crossfade(true)
+                .transformations(CircleCropTransformation())
+                .listener(
+                    onError = { _, _ ->
+                        if (loadedChannelAvatarUrl == normalized) {
+                            loadedChannelAvatarUrl = null
+                        }
+                    }
+                )
+                .target(binding.playerControls.channelAvatar)
+                .build()
+        )
+    }
+
     fun updateLiveStatus(live: Boolean, serverTime: Long?, channelLogin: String?) {
         if (channelLogin == playbackService?.channelLogin) {
             if (live) {
@@ -1750,6 +1791,17 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         playbackService?.channelLogin?.let { login ->
             PlayerViewerListDialog.newInstance(login).show(childFragmentManager, "closeOnPip")
         }
+    }
+
+    private fun openChannel() {
+        findNavController().navigate(
+            ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                channelId = playbackService?.channelId,
+                channelLogin = playbackService?.channelLogin,
+                channelName = playbackService?.channelName,
+            )
+        )
+        minimize()
     }
 
     fun showVodGames() {
@@ -2585,6 +2637,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
 
     override fun onDestroyView() {
         started = false
+        loadedChannelAvatarUrl = null
         interactionLockBackCallback?.remove()
         interactionLockBackCallback = null
         super.onDestroyView()
