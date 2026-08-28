@@ -80,4 +80,20 @@
         <item quantity="many">سلسلة نشاط لمدة %d يومًا</item>
         <item quantity="other">سلسلة نشاط لمدة %d يوم</item>
     </plurals>
+    <plurals name="user_card_subscribed_months">
+        <item quantity="zero">Subscribed for %d months</item>
+        <item quantity="one">Subscribed for %d month</item>
+        <item quantity="two">Subscribed for %d months</item>
+        <item quantity="few">Subscribed for %d months</item>
+        <item quantity="many">Subscribed for %d months</item>
+        <item quantity="other">Subscribed for %d months</item>
+    </plurals>
+    <plurals name="user_card_previously_subbed_months">
+        <item quantity="zero">Previously subbed for %d months</item>
+        <item quantity="one">Previously subbed for %d month</item>
+        <item quantity="two">Previously subbed for %d months</item>
+        <item quantity="few">Previously subbed for %d months</item>
+        <item quantity="many">Previously subbed for %d months</item>
+        <item quantity="other">Previously subbed for %d months</item>
+    </plurals>
 </resources>

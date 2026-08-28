@@ -1,5 +1,6 @@
 type Query {
     badges: [Badge]
+    channelViewer(userLogin: String!, channelLogin: String!): ChannelViewer
     cheerConfig: GlobalCheerConfig
     clip(slug: ID!): Clip
     contentTag(id: ID!): Tag
@@ -24,6 +25,8 @@ type Query {
 }
 
 type Badge {
+    description: String
+    id: ID
     imageURL(size: BadgeImageSize): String
     setID: ID
     title: String
@@ -386,6 +389,7 @@ type User {
     createdAt: Time
     description: String
     displayName: String
+    displayBadges(channelID: ID, channelLogin: String): [Badge]
     emoteSets: [EmoteSet!]
     follow(targetID: ID, targetLogin: String): Follow
     followedGames(first: Int, type: FollowedGamesType): FollowedGameConnection
@@ -399,6 +403,7 @@ type User {
     panels(hideExtensions: Boolean): [Panel]
     primaryTeam: Team
     profileImageURL(width: Int): String
+    relationship(targetUserID: ID): UserRelationship
     roles: UserRoles
     self: UserSelfConnection
     stream: Stream
@@ -433,7 +438,26 @@ type UserRoles {
 }
 
 type UserSelfConnection {
+    canFollow: Boolean
     follower: FollowerEdge
+}
+
+type ChannelViewer {
+    id: ID!
+    earnedBadges: [Badge!]!
+}
+
+type UserRelationship {
+    subscriptionBenefit: SubscriptionBenefit
+    subscriptionTenure(tenureMethod: SubscriptionTenureMethod!): SubscriptionTenure
+}
+
+type SubscriptionBenefit {
+    id: ID
+}
+
+type SubscriptionTenure {
+    months: Int
 }
 
 type Video {
@@ -667,6 +691,11 @@ enum SubscriptionSummaryTier {
     TIER_1
     TIER_2
     TIER_3
+}
+
+enum SubscriptionTenureMethod {
+    CUMULATIVE
+    STREAK
 }
 
 enum TagScope {

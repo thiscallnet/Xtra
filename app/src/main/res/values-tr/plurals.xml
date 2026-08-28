@@ -40,4 +40,12 @@
         <item quantity="one">%d günlük aktif gün serisi</item>
         <item quantity="other">%d günlük aktif gün serisi</item>
     </plurals>
+    <plurals name="user_card_subscribed_months">
+        <item quantity="one">Subscribed for %d month</item>
+        <item quantity="other">Subscribed for %d months</item>
+    </plurals>
+    <plurals name="user_card_previously_subbed_months">
+        <item quantity="one">Previously subbed for %d month</item>
+        <item quantity="other">Previously subbed for %d months</item>
+    </plurals>
 </resources>

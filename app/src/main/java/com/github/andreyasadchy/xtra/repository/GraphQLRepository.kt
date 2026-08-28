@@ -46,6 +46,7 @@ import com.github.andreyasadchy.xtra.graphql.UserFollowedStreamsQuery
 import com.github.andreyasadchy.xtra.graphql.UserFollowedUsersQuery
 import com.github.andreyasadchy.xtra.graphql.UserFollowedVideosQuery
 import com.github.andreyasadchy.xtra.graphql.UserMessageClickedQuery
+import com.github.andreyasadchy.xtra.graphql.UserMessageClickedBasicQuery
 import com.github.andreyasadchy.xtra.graphql.UserQuery
 import com.github.andreyasadchy.xtra.graphql.UserResultIDQuery
 import com.github.andreyasadchy.xtra.graphql.UserResultLoginQuery
@@ -670,8 +671,19 @@ class GraphQLRepository(
         sendQuery(networkLibrary, headers, query)
     }
 
-    suspend fun loadQueryUserMessageClicked(networkLibrary: String?, headers: Map<String, String>, id: String? = null, login: String? = null, targetId: String?): ApolloResponse<UserMessageClickedQuery.Data> = withContext(Dispatchers.IO) {
+    suspend fun loadQueryUserMessageClicked(networkLibrary: String?, headers: Map<String, String>, id: String? = null, login: String, targetId: String?, targetLogin: String): ApolloResponse<UserMessageClickedQuery.Data> = withContext(Dispatchers.IO) {
         val query = UserMessageClickedQuery(
+            id = if (!id.isNullOrBlank()) Optional.Present(id) else Optional.Absent,
+            login = Optional.Present(login),
+            targetId = Optional.Present(targetId),
+            userLogin = login,
+            targetLogin = targetLogin,
+        )
+        sendQuery(networkLibrary, headers, query)
+    }
+
+    suspend fun loadBasicQueryUserMessageClicked(networkLibrary: String?, headers: Map<String, String>, id: String? = null, login: String? = null, targetId: String?): ApolloResponse<UserMessageClickedBasicQuery.Data> = withContext(Dispatchers.IO) {
+        val query = UserMessageClickedBasicQuery(
             id = if (!id.isNullOrBlank()) Optional.Present(id) else Optional.Absent,
             login = if (!login.isNullOrBlank()) Optional.Present(login) else Optional.Absent,
             targetId = Optional.Present(targetId),

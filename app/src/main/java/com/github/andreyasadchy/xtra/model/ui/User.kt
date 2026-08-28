@@ -20,6 +20,11 @@ class User(
     var followedAt: String? = null,
     var accountFollow: Boolean = false,
     val localFollow: Boolean = false,
+    val displayBadges: List<UserCardBadge> = emptyList(),
+    val subscriptionMonths: Int? = null,
+    val isSubscribed: Boolean = false,
+    val viewerFollowsUser: Boolean = false,
+    val viewerCanFollowUser: Boolean = false,
 ) : Parcelable {
 
     val profileImage: String?

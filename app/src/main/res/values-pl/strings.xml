@@ -1420,4 +1420,14 @@
     <string name="player_lock_controls">Lock player controls</string>
     <string name="player_unlock_controls">Unlock player controls</string>
     <string name="channel_points_prediction_bet_limit">Możesz dodać maksymalnie %s punktów</string>
+    <string name="user_card_created">Account created %1$s</string>
+    <string name="user_card_following_since">Following since %1$s</string>
+    <string name="user_card_badges">Badges</string>
+    <string name="user_card_view_all">View all (%1$d)</string>
+    <string name="user_card_show_less">Show less</string>
+    <string name="user_card_gift_sub">Gift a Sub</string>
+    <string name="user_card_follow">Follow</string>
+    <string name="user_card_unfollow">Unfollow</string>
+    <string name="user_card_whisper">Whisper</string>
+    <string name="user_card_follow_failed">Couldn’t update follow status</string>
 </resources>

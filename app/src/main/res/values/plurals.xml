@@ -36,4 +36,12 @@
         <item quantity="one">%s member</item>
         <item quantity="other">%s members</item>
     </plurals>
+    <plurals name="user_card_subscribed_months">
+        <item quantity="one">Subscribed for %d month</item>
+        <item quantity="other">Subscribed for %d months</item>
+    </plurals>
+    <plurals name="user_card_previously_subbed_months">
+        <item quantity="one">Previously subbed for %d month</item>
+        <item quantity="other">Previously subbed for %d months</item>
+    </plurals>
 </resources>

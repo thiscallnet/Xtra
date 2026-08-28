@@ -1,13 +1,56 @@
-query UserMessageClicked($id: ID, $login: String, $targetId: ID) {
-    user(id: $id, login: $login, lookupType: ALL) {
-        bannerImageURL
-        createdAt
-        displayName
-        follow(targetID: $targetId) {
+fragment UserMessageClickedUser on User {
+    bannerImageURL
+    createdAt
+    displayName
+    follow(targetID: $targetId) {
+        followedAt
+    }
+    displayBadges(channelID: $targetId) {
+        id
+        setID
+        version
+        title
+        description
+        imageURL(size: NORMAL)
+    }
+    relationship(targetUserID: $targetId) {
+        subscriptionBenefit {
+            id
+        }
+        subscriptionTenure(tenureMethod: CUMULATIVE) {
+            months
+        }
+    }
+    self {
+        canFollow
+        follower {
             followedAt
         }
+    }
+    id
+    login
+    profileImageURL(width: 300)
+}
+
+query UserMessageClicked($id: ID, $login: String, $targetId: ID, $userLogin: String!, $targetLogin: String!) {
+    user(id: $id, login: $login, lookupType: ALL) {
+        ...UserMessageClickedUser
+    }
+    channelViewer(userLogin: $userLogin, channelLogin: $targetLogin) {
         id
-        login
-        profileImageURL(width: 300)
+        earnedBadges {
+            id
+            setID
+            version
+            title
+            description
+            imageURL(size: NORMAL)
+        }
+    }
+}
+
+query UserMessageClickedBasic($id: ID, $login: String, $targetId: ID) {
+    user(id: $id, login: $login, lookupType: ALL) {
+        ...UserMessageClickedUser
     }
 }
