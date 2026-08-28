@@ -1,6 +1,13 @@
 name: Publish build release
 
 on:
+  workflow_run:
+    workflows:
+      - Build
+    types:
+      - completed
+    branches:
+      - master
   workflow_dispatch:
     inputs:
       run_id:
@@ -26,12 +33,16 @@ permissions:
 
 jobs:
   publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN_ID: ${{ inputs.run_id }}
-      CHANNEL: ${{ inputs.channel }}
+      SOURCE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.run_id }}
+      CHANNEL: ${{ github.event_name == 'workflow_run' && 'stable' || inputs.channel }}
     steps:
     - name: Validate source build
       shell: bash
@@ -79,7 +90,7 @@ jobs:
         path: release-package
         github-token: ${{ github.token }}
         repository: ${{ github.repository }}
-        run-id: ${{ inputs.run_id }}
+        run-id: ${{ env.SOURCE_RUN_ID }}
 
     - name: Validate build package
       shell: bash
