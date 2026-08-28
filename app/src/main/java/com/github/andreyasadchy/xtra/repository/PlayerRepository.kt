@@ -1246,14 +1246,16 @@ class PlayerRepository(
                 emote.data?.let { data ->
                     data.host?.let { host ->
                         host.url?.takeIf { it.isNotBlank() }?.let { template ->
-                            val urls = host.files?.mapNotNull { file ->
-                                file.name?.takeIf { it.isNotBlank() &&
-                                        if (useWebp) {
-                                            file.format == "WEBP"
-                                        } else {
-                                            file.format == "GIF" || file.format == "PNG"
-                                        }
-                                }?.let { name ->
+                            val selectedFiles = host.files?.filter { file ->
+                                file.name?.isNotBlank() == true &&
+                                    if (useWebp) {
+                                        file.format == "WEBP"
+                                    } else {
+                                        file.format == "GIF" || file.format == "PNG"
+                                    }
+                            }
+                            val urls = selectedFiles?.mapNotNull { file ->
+                                file.name?.takeIf(String::isNotBlank)?.let { name ->
                                     "https:${template}/${name}"
                                 }
                             }
@@ -1268,6 +1270,8 @@ class PlayerRepository(
                                 isAnimated = data.animated != false,
                                 isOverlayEmote = emote.flags == 1,
                                 source = source,
+                                width = selectedFiles?.firstOrNull()?.width,
+                                height = selectedFiles?.firstOrNull()?.height,
                             )
                         }
                     }

@@ -51,6 +51,7 @@ import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -68,6 +69,7 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
     private var languageIdentifier: LanguageIdentifier? = null
     private val translators = mutableMapOf<String, Translator>()
     private var renderPosted = false
+    private var submitJob: Job? = null
     private val renderRunnable = Runnable {
         renderPosted = false
         val layoutManager = _binding?.combinedChatRecyclerView?.layoutManager as? LinearLayoutManager
@@ -183,13 +185,18 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
         renderPosted = false
         if (!::adapter.isInitialized || _binding == null) return
         val items = viewModel.snapshot(filterIdentity)
-        adapter.submitList(items) {
-            binding.combinedChatEmpty.isVisible = items.isEmpty()
-            if (forceScroll && items.isNotEmpty()) {
-                binding.combinedChatRecyclerView.scrollToPosition(items.lastIndex)
+        submitJob?.cancel()
+        submitJob = viewLifecycleOwner.lifecycleScope.launch {
+            adapter.prepareForDisplay(items)
+            if (_binding == null) return@launch
+            adapter.submitList(items) {
+                binding.combinedChatEmpty.isVisible = items.isEmpty()
+                if (forceScroll && items.isNotEmpty()) {
+                    binding.combinedChatRecyclerView.scrollToPosition(items.lastIndex)
+                }
             }
+            binding.combinedChatEmpty.isVisible = items.isEmpty()
         }
-        binding.combinedChatEmpty.isVisible = items.isEmpty()
     }
 
     private fun scheduleMessagesRender() {
@@ -337,6 +344,8 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
         languageIdentifier = null
         translators.values.forEach(Translator::close)
         translators.clear()
+        submitJob?.cancel()
+        submitJob = null
         _binding = null
         super.onDestroyView()
     }
@@ -387,6 +396,19 @@ private class CombinedChatAdapter(
     override fun onViewRecycled(holder: ViewHolder) {
         holder.release()
         super.onViewRecycled(holder)
+    }
+
+    suspend fun prepareForDisplay(items: List<CombinedChatMessage>) {
+        items.forEach { item ->
+            viewModel.session(item.identity)?.let { session ->
+                val renderer = renderers[item.identity]
+                    ?.takeIf { it.isFor(session) }
+                    ?: SessionRenderer(fragment, session, viewModel.channelId(item.identity), item.identity).also {
+                        renderers[item.identity] = it
+                    }
+                renderer.prepareForDisplay(item.message)
+            }
+        }
     }
 
     class ViewHolder(val binding: CombinedChatListItemBinding) : RecyclerView.ViewHolder(binding.root) {
@@ -505,6 +527,10 @@ private class CombinedChatAdapter(
             adapter.setDirectMessage(message)
             adapter.onBindViewHolder(holder, 0)
             return holder
+        }
+
+        suspend fun prepareForDisplay(message: ChatMessage) {
+            adapter.prepareForDisplay(listOf(message))
         }
 
         fun release(holder: ChatAdapter.ViewHolder) {

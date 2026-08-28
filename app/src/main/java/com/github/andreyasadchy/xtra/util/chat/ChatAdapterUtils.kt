@@ -587,9 +587,19 @@ object ChatAdapterUtils {
         backgroundColor: Int = Color.TRANSPARENT,
     ) {
         images.forEach { image ->
-            val size = imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize)
-            val placeholder = ColorDrawable(Color.TRANSPARENT).apply { setBounds(0, 0, size, size) }
-            builder.setSpan(CenteredImageSpan(placeholder), image.start, image.end, SPAN_EXCLUSIVE_EXCLUSIVE)
+            val geometry = imageGeometry(
+                image,
+                imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize),
+            )
+            val placeholder = ColorDrawable(Color.TRANSPARENT).apply {
+                setBounds(0, 0, geometry.widthPx, geometry.heightPx)
+            }
+            builder.setSpan(
+                CenteredImageSpan(placeholder, geometry.widthPx, geometry.heightPx),
+                image.start,
+                image.end,
+                SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
         }
         if (imagePaint != null && !userName.isNullOrEmpty() && userNameStartIndex != null) {
             val placeholder = ColorDrawable(Color.TRANSPARENT).apply { setBounds(0, 0, 1, 1) }
@@ -732,6 +742,8 @@ object ChatAdapterUtils {
                             url4x = emote.url4x,
                             format = emote.format,
                             isAnimated = emote.isAnimated,
+                            sourceWidth = emote.width,
+                            sourceHeight = emote.height,
                             kind = ImageKind.EMOTE,
                             thirdParty = emote.thirdParty,
                             start = previousImage.start,
@@ -769,6 +781,8 @@ object ChatAdapterUtils {
                             url4x = emote.url4x,
                             format = emote.format,
                             isAnimated = emote.isAnimated,
+                            sourceWidth = emote.width,
+                            sourceHeight = emote.height,
                             kind = ImageKind.EMOTE,
                             thirdParty = emote.thirdParty,
                             start = builderIndex,
@@ -904,7 +918,7 @@ object ChatAdapterUtils {
         }
     }
 
-    fun loadImages(fragment: Fragment, itemView: View, bind: (SpannableStringBuilder) -> Unit, images: List<Image>, imagePaint: NamePaint?, userName: String?, userNameStartIndex: Int?, backgroundColor: Int, imageLibrary: String?, builder: SpannableStringBuilder, translated: Boolean, emoteSize: Int, badgeSize: Int, inlineIconSize: Int, emoteQuality: String, animateGifs: Boolean, enableOverlayEmotes: Boolean, chatMessage: ChatMessage, savedColors: HashMap<String, Int>, useReadableColors: Boolean, isLightTheme: Boolean, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean, isCurrent: () -> Boolean = { true }, shouldAnimate: () -> Boolean = { true }, requestBag: ImageRequestBag? = null, shouldLoad: () -> Boolean = { true }, onLoadDeferred: () -> Unit = {}) {
+    fun loadImages(fragment: Fragment, itemView: View, images: List<Image>, imagePaint: NamePaint?, userName: String?, userNameStartIndex: Int?, backgroundColor: Int, imageLibrary: String?, builder: SpannableStringBuilder, emoteQuality: String, animateGifs: Boolean, isCurrent: () -> Boolean = { true }, shouldAnimate: () -> Boolean = { true }, requestBag: ImageRequestBag? = null, shouldLoad: () -> Boolean = { true }, onLoadDeferred: () -> Unit = {}) {
         // During a fling the placeholder layout is sufficient. Deferring every request, including
         // static badges and name paints, prevents decode/cache work from competing with scrolling.
         if (!shouldLoad()) {
@@ -950,12 +964,7 @@ object ChatAdapterUtils {
                                         }
                                     } catch (e: IndexOutOfBoundsException) {
                                     }
-                                    var appendedTranslation = false
-                                    if (!translated && chatMessage.translatedMessage != null) {
-                                        addTranslation(chatMessage, builder, builder.length, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
-                                        appendedTranslation = true
-                                    }
-                                    if (appendedTranslation) bind(builder) else itemView.invalidate()
+                                    itemView.invalidate()
                                 }
                             },
                         )
@@ -994,12 +1003,7 @@ object ChatAdapterUtils {
                             }
                         } catch (e: IndexOutOfBoundsException) {
                         }
-                        var appendedTranslation = false
-                        if (!translated && chatMessage.translatedMessage != null) {
-                            addTranslation(chatMessage, builder, builder.length, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
-                            appendedTranslation = true
-                        }
-                        if (appendedTranslation) bind(builder) else itemView.invalidate()
+                        itemView.invalidate()
                     }
 
                     override fun onLoadCleared(placeholder: Drawable?) {
@@ -1033,7 +1037,7 @@ object ChatAdapterUtils {
                 }
                 if (image.overlayEmote != null) {
                     val drawables = arrayOf(result)
-                    nextOverlayEmote(imageLibrary, fragment, drawables, image.overlayEmote!!, image, itemView, bind, builder, translated, emoteSize, emoteQuality, animateGifs, enableOverlayEmotes, chatMessage, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors, isCurrent, shouldAnimate, requestBag, shouldLoad, onLoadDeferred)
+                    nextOverlayEmote(imageLibrary, fragment, drawables, image.overlayEmote!!, image, itemView, builder, emoteQuality, animateGifs, isCurrent, shouldAnimate, requestBag, shouldLoad, onLoadDeferred)
                 } else {
                     builder.getSpans(image.start, image.end, CenteredImageSpan::class.java).firstOrNull()?.imageDrawable = result
                     itemView.invalidate()
@@ -1042,7 +1046,7 @@ object ChatAdapterUtils {
         }
     }
 
-    private fun nextOverlayEmote(imageLibrary: String?, fragment: Fragment, drawables: Array<Drawable>, image: Image, bottomImage: Image, itemView: View, bind: (SpannableStringBuilder) -> Unit, builder: SpannableStringBuilder, translated: Boolean, emoteSize: Int, emoteQuality: String, animateGifs: Boolean, enableOverlayEmotes: Boolean, chatMessage: ChatMessage, savedColors: HashMap<String, Int>, useReadableColors: Boolean, isLightTheme: Boolean, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean, isCurrent: () -> Boolean, shouldAnimate: () -> Boolean, requestBag: ImageRequestBag?, shouldLoad: () -> Boolean, onLoadDeferred: () -> Unit) {
+    private fun nextOverlayEmote(imageLibrary: String?, fragment: Fragment, drawables: Array<Drawable>, image: Image, bottomImage: Image, itemView: View, builder: SpannableStringBuilder, emoteQuality: String, animateGifs: Boolean, isCurrent: () -> Boolean, shouldAnimate: () -> Boolean, requestBag: ImageRequestBag?, shouldLoad: () -> Boolean, onLoadDeferred: () -> Unit) {
         if (!shouldLoad()) {
             onLoadDeferred()
             return
@@ -1067,7 +1071,7 @@ object ChatAdapterUtils {
             }
             val array = drawables.plus(result)
             if (image.overlayEmote != null) {
-                nextOverlayEmote(imageLibrary, fragment, array, image.overlayEmote!!, bottomImage, itemView, bind, builder, translated, emoteSize, emoteQuality, animateGifs, enableOverlayEmotes, chatMessage, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors, isCurrent, shouldAnimate, requestBag, shouldLoad, onLoadDeferred)
+                nextOverlayEmote(imageLibrary, fragment, array, image.overlayEmote!!, bottomImage, itemView, builder, emoteQuality, animateGifs, isCurrent, shouldAnimate, requestBag, shouldLoad, onLoadDeferred)
             } else {
                 val layer = LayerDrawable(array)
                 builder.getSpans(bottomImage.start, bottomImage.end, CenteredImageSpan::class.java).firstOrNull()?.imageDrawable = layer

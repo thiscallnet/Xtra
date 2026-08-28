@@ -156,9 +156,11 @@ class UpdateRepositoryTest {
             size = 10L,
         )
         val release = UpdateRelease(
-            tagName = "v2.58.6",
+            tagName = "v2.58.6-build.999",
             versionName = "2.58.6",
-            buildNumber = null,
+            // Recovery clears candidates that are not newer than the installed build. Keep this
+            // fixture newer on both local and CI version-code configurations.
+            buildNumber = 999L,
             title = "Xtra 2.58.6",
             releaseNotes = emptyList(),
             rawBody = "",
@@ -175,6 +177,7 @@ class UpdateRepositoryTest {
             artifactSha256 = mapOf(arm64Asset.name to arm64Sha),
         )
         val repository = UpdateRepository(TestContext(preferences), QueueReleaseSource(emptyList()), null)
+        runBlocking { repository.awaitReady() }
         val replace = UpdateRepository::class.java.getDeclaredMethod(
             "replacePersistedRelease",
             UpdateRelease::class.java,
@@ -185,6 +188,7 @@ class UpdateRepositoryTest {
         assertEquals(arm64Sha, preferences.getString(C.UPDATE_AVAILABLE_EXPECTED_SHA256, null))
 
         val recovered = UpdateRepository(TestContext(preferences), QueueReleaseSource(emptyList()), null)
+        runBlocking { recovered.awaitReady() }
         val load = UpdateRepository::class.java.getDeclaredMethod("loadPersistedRelease").apply { isAccessible = true }
         val recoveredRelease = load.invoke(recovered) as UpdateRelease
         assertEquals(arm64Sha, recoveredRelease.expectedSha256)

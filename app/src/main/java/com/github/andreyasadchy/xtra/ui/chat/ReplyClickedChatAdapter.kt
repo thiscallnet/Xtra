@@ -129,9 +129,8 @@ class ReplyClickedChatAdapter(
         )
         holder.bind(chatMessage, result.builder)
         ChatAdapterUtils.loadImages(
-            fragment, holder.textView, { holder.bind(chatMessage, it) }, result.images, result.imagePaint, result.userName, result.userNameStartIndex,
-            backgroundColor, imageLibrary, result.builder, result.translated, emoteSize, badgeSize, inlineIconSize, emoteQuality, animateGifs, enableOverlayEmotes,
-            chatMessage, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, false
+            fragment, holder.textView, result.images, result.imagePaint, result.userName, result.userNameStartIndex,
+            backgroundColor, imageLibrary, result.builder, emoteQuality, animateGifs,
         )
     }
 

@@ -30,6 +30,7 @@ import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -146,6 +147,7 @@ class ChatAdapter(
     private val renderJobs = HashSet<RenderCacheKey>()
     private val prewarmRenderJobs = HashSet<RenderCacheKey>()
     private val visibleRenderJobs = HashSet<RenderCacheKey>()
+    private val renderWaiters = HashMap<RenderCacheKey, MutableList<CompletableDeferred<Unit>>>()
     private var visibleRenderQueue = Channel<RenderRequest>(VISIBLE_RENDER_QUEUE_CAPACITY)
     private var prewarmRenderQueue = Channel<RenderRequest>(PREWARM_QUEUE_CAPACITY)
     /** One signal represents one queued request; this keeps both workers fed during bursts. */
@@ -170,7 +172,9 @@ class ChatAdapter(
         set(value) {
             if (field != value) {
                 field = value
+                val messagesSnapshot = messages.toList()
                 clearRenderCache()
+                prepareAndNotify(messagesSnapshot, visiblePositions())
             }
         }
     private var selectedMessage: ChatMessage? = null
@@ -255,20 +259,9 @@ class ChatAdapter(
             messageLanguage = chatMessage.messageLanguage,
         )
         val cachedResult = cachedRender(cacheKey)
-        val result = if (cachedResult != null) {
-            cachedResult.copyForBind()
-        } else {
-            val context = fragment.context
-            // The visible row must receive its complete render plan in this bind. Rendering a
-            // plain fallback first and replacing it with emote spans later changes wrapping and
-            // row height before the images have even started loading. Parsing is synchronous;
-            // only image decoding remains asynchronous.
-            context?.let {
-                prepareMessage(chatMessage, it, holder.textView, catalogIndexes, offMain = false).also { prepared ->
-                    synchronized(renderCache) { renderCache[cacheKey] = prepared }
-                }.copyForBind()
-            } ?: fastFallback(chatMessage).copyForBind()
-        }
+        val result = checkNotNull(cachedResult) {
+            "Chat message was displayed before its render plan was prepared"
+        }.copyForBind()
         ChatAdapterUtils.installImagePlaceholders(
             result.builder,
             result.images,
@@ -282,9 +275,8 @@ class ChatAdapter(
         )
         holder.bind(chatMessage, result)
         ChatAdapterUtils.loadImages(
-            fragment, holder.textView, { holder.bindWhenReady(bindGeneration, chatMessage, it) }, result.images, result.imagePaint, result.userName, result.userNameStartIndex,
-            backgroundColor, imageLibrary, result.builder, result.translated, emoteSize, badgeSize, inlineIconSize, emoteQuality, animateGifs, enableOverlayEmotes,
-            chatMessage, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, true,
+            fragment, holder.textView, result.images, result.imagePaint, result.userName, result.userNameStartIndex,
+            backgroundColor, imageLibrary, result.builder, emoteQuality, animateGifs,
             isCurrent = { holder.isCurrentBind(bindGeneration) },
             shouldAnimate = { holder.canAnimate(bindGeneration) },
             requestBag = holder.imageRequests,
@@ -297,7 +289,7 @@ class ChatAdapter(
 
     override fun onViewRecycled(holder: ViewHolder) {
         holder.imageRequests.cancel()
-        holder.cancelPendingBind()
+        holder.cancelBind()
         super.onViewRecycled(holder)
     }
 
@@ -340,10 +332,12 @@ class ChatAdapter(
     }
 
     fun notifyUserMessages(userId: String) {
-        clearRenderCache()
-        messages.forEachIndexed { index, message ->
-            if (message.userId == userId) notifyItemChanged(index)
+        val affectedPositions = messages.mapIndexedNotNull { index, message ->
+            index.takeIf { message.userId == userId }
         }
+        val messagesSnapshot = messages.toList()
+        clearRenderCache()
+        prepareAndNotify(messagesSnapshot, affectedPositions)
     }
 
     /** Used by CombinedChatFragment, which renders one message without RecyclerView ownership. */
@@ -357,7 +351,7 @@ class ChatAdapter(
     /** Cancel image work when this adapter is used to render into a non-RecyclerView TextView. */
     fun releaseDirectViewHolder(holder: ViewHolder) {
         holder.imageRequests.cancel()
-        holder.cancelPendingBind()
+        holder.cancelBind()
         if (animateGifs) setAnimations(holder.textView, start = false)
     }
 
@@ -375,6 +369,18 @@ class ChatAdapter(
                 ChatAdapterUtils.addTranslation(chatMessage, builder, builder.length, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, true)
             }
             item.text = builder
+        }
+        // Translation is an explicit content update. Prepare the new cache entry off-main so a
+        // later holder recycle never falls back to parsing inside onBindViewHolder.
+        renderScope.launch { prepareForDisplay(listOf(chatMessage)) }
+    }
+
+    fun rebindMessageAfterContentUpdate(chatMessage: ChatMessage, position: Int) {
+        renderScope.launch {
+            prepareForDisplay(listOf(chatMessage))
+            withContext(Dispatchers.Main.immediate) {
+                if (messages.getOrNull(position) === chatMessage) notifyItemChanged(position)
+            }
         }
     }
 
@@ -452,7 +458,13 @@ class ChatAdapter(
         renderWorkers.forEach(Job::cancel)
         renderWorkers = emptyList()
         renderScope.cancel()
-        synchronized(renderJobs) { renderJobs.clear() }
+        synchronized(renderJobs) {
+            renderWaiters.values.flatten().forEach(CompletableDeferred<Unit>::cancel)
+            renderWaiters.clear()
+            renderJobs.clear()
+            prewarmRenderJobs.clear()
+            visibleRenderJobs.clear()
+        }
         pendingRenderedMessages.clear()
         attachedRecyclerView = null
         super.onDetachedFromRecyclerView(recyclerView)
@@ -504,7 +516,6 @@ class ChatAdapter(
         } else {
             for (i in 0 until recyclerView.childCount) {
                 (recyclerView.getChildViewHolder(recyclerView.getChildAt(i)) as? ViewHolder)?.let { holder ->
-                    holder.resumePendingBind()
                     holder.postDeferredImageReload()
                 }
             }
@@ -529,15 +540,44 @@ class ChatAdapter(
             localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, stvUsers, stvBadges, namePaints, personalEmoteSets, cheerEmotes,
         )
         catalogRevision++
-        clearRenderCache()
-        attachedRecyclerView?.let { recyclerView ->
-            val layoutManager = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@let
+        val visibleRange: IntRange? = attachedRecyclerView?.let { recyclerView ->
+            val layoutManager = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return@let null
             val firstVisiblePosition = layoutManager.findFirstVisibleItemPosition()
             val lastVisiblePosition = layoutManager.findLastVisibleItemPosition()
             if (firstVisiblePosition != RecyclerView.NO_POSITION && lastVisiblePosition >= firstVisiblePosition) {
-                notifyItemRangeChanged(firstVisiblePosition, lastVisiblePosition - firstVisiblePosition + 1)
+                firstVisiblePosition..lastVisiblePosition
+            } else null
+        }
+        clearRenderCache()
+        visibleRange?.let { range ->
+            prepareAndNotify(
+                range.mapNotNull { messages.getOrNull(it) },
+                range.toList(),
+            )
+        }
+    }
+
+    private fun prepareAndNotify(preparedMessages: List<ChatMessage>, positions: List<Int>) {
+        if (preparedMessages.isEmpty()) return
+        val expectedRevision = catalogRevision
+        renderScope.launch {
+            prepareForDisplay(preparedMessages)
+            withContext(Dispatchers.Main.immediate) {
+                if (catalogRevision != expectedRevision) return@withContext
+                positions.forEach { position ->
+                    if (messages.getOrNull(position) != null) notifyItemChanged(position)
+                }
             }
         }
+    }
+
+    private fun visiblePositions(): List<Int> {
+        val recyclerView = attachedRecyclerView ?: return emptyList()
+        val layoutManager = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
+            ?: return emptyList()
+        val first = layoutManager.findFirstVisibleItemPosition()
+        val last = layoutManager.findLastVisibleItemPosition()
+        return if (first == RecyclerView.NO_POSITION || last < first) emptyList() else (first..last).toList()
     }
 
     private fun setAnimations(textView: TextView, start: Boolean) {
@@ -574,10 +614,6 @@ class ChatAdapter(
         private var boundReplyMessage: Boolean? = null
         var hasDeferredImageLoad = false
         private var bindGeneration = 0
-        private var pendingBindGeneration = 0
-        private var pendingMessage: ChatMessage? = null
-        private var pendingBuilder: SpannableStringBuilder? = null
-        private var bindPosted = false
         private var catalogRefreshPosted = false
         var catalogRevision = 0
             private set
@@ -599,20 +635,6 @@ class ChatAdapter(
                 notifyItemChanged(position)
             }
         }
-        private val bindRunnable = Runnable {
-            bindPosted = false
-            val message = pendingMessage
-            val builder = pendingBuilder
-            val generation = pendingBindGeneration
-            if (!animationsPaused) {
-                pendingMessage = null
-                pendingBuilder = null
-                if (message != null && builder != null && generation == bindGeneration) {
-                    bindContent(message, builder)
-                }
-            }
-        }
-
         fun beginBind(catalogRevision: Int): Int {
             if (animateGifs) setAnimations(textView, start = false)
             imageRequests.cancel()
@@ -620,24 +642,8 @@ class ChatAdapter(
             itemView.removeCallbacks(catalogRefreshRunnable)
             catalogRefreshPosted = false
             this.catalogRevision = catalogRevision
-            itemView.removeCallbacks(bindRunnable)
-            bindPosted = false
-            pendingMessage = null
-            pendingBuilder = null
             bindGeneration++
             return bindGeneration
-        }
-
-        fun bindWhenReady(generation: Int, chatMessage: ChatMessage, formattedMessage: SpannableStringBuilder) {
-            if (generation != bindGeneration) return
-            pendingBindGeneration = generation
-            pendingMessage = chatMessage
-            pendingBuilder = formattedMessage
-            if (!animationsPaused) {
-                itemView.removeCallbacks(bindRunnable)
-                bindPosted = true
-                itemView.postDelayed(bindRunnable, IMAGE_UPDATE_DEBOUNCE_MS)
-            }
         }
 
         fun isCurrentBind(generation: Int): Boolean = generation == bindGeneration
@@ -662,20 +668,10 @@ class ChatAdapter(
             }
         }
 
-        fun cancelPendingBind() {
+        fun cancelBind() {
             itemView.removeCallbacks(catalogRefreshRunnable)
             catalogRefreshPosted = false
-            itemView.removeCallbacks(bindRunnable)
-            bindPosted = false
-            pendingMessage = null
-            pendingBuilder = null
             bindGeneration++
-        }
-
-        fun resumePendingBind() {
-            if (pendingMessage == null || pendingBuilder == null || bindPosted) return
-            bindPosted = true
-            itemView.postOnAnimation(bindRunnable)
         }
 
         fun postCatalogRefresh() {
@@ -719,9 +715,10 @@ class ChatAdapter(
     }
 
     private companion object {
-        const val MAX_RENDER_CACHE_ENTRIES = 512
+        // Chat history is capped at 600 messages. Keep one complete history plus a small
+        // prewarm window so scrolling to the beginning cannot re-enter an uncached bind.
+        const val MAX_RENDER_CACHE_ENTRIES = 768
         const val MAX_ANIMATION_OPERATIONS_PER_FRAME = 4
-        const val IMAGE_UPDATE_DEBOUNCE_MS = 48L
         const val MAX_RENDER_UPDATES_PER_FRAME = 2
         const val MAX_RENDER_WORKERS = 2
         const val VISIBLE_RENDER_QUEUE_CAPACITY = 32
@@ -758,6 +755,8 @@ class ChatAdapter(
         renderWorkers = emptyList()
         renderScope.cancel()
         synchronized(renderJobs) {
+            renderWaiters.values.flatten().forEach(CompletableDeferred<Unit>::cancel)
+            renderWaiters.clear()
             renderJobs.clear()
             prewarmRenderJobs.clear()
             visibleRenderJobs.clear()
@@ -778,16 +777,23 @@ class ChatAdapter(
     ) {
         ensureRenderWorkers()
         val isPrewarm = prewarmGeneration != null
+        var shouldEnqueue = false
         synchronized(renderJobs) {
             if (isPrewarm) {
-                if (!renderJobs.add(cacheKey)) return
-                prewarmRenderJobs.add(cacheKey)
+                if (renderJobs.add(cacheKey)) {
+                    prewarmRenderJobs.add(cacheKey)
+                    shouldEnqueue = true
+                }
             } else {
-                val promoted = prewarmRenderJobs.remove(cacheKey)
-                if (!promoted && !renderJobs.add(cacheKey)) return
+                // A visible request must have its own queue entry. Removing a prewarm marker here
+                // promotes the key without leaving the visible waiter dependent on an old,
+                // cancellable prewarm generation.
+                if (prewarmRenderJobs.remove(cacheKey)) renderJobs.remove(cacheKey)
+                if (renderJobs.add(cacheKey)) shouldEnqueue = true
                 visibleRenderJobs.add(cacheKey)
             }
         }
+        if (!shouldEnqueue) return
         val queue = if (isPrewarm) prewarmRenderQueue else visibleRenderQueue
         val result = queue.trySend(RenderRequest(chatMessage, cacheKey, context, indexes, prewarmGeneration))
         if (result.isFailure) {
@@ -796,6 +802,7 @@ class ChatAdapter(
                 prewarmRenderJobs.remove(cacheKey)
                 visibleRenderJobs.remove(cacheKey)
             }
+            completeRenderWaiters(cacheKey)
         } else {
             renderSignal.trySend(Unit)
         }
@@ -864,15 +871,63 @@ class ChatAdapter(
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            // A malformed chat payload must not take down the render worker. The fast fallback
-            // remains visible and the next bind can retry the message.
+            // Keep malformed payloads out of the UI thread as well. This fallback is only an
+            // exceptional parse failure; ordinary rows are always committed from renderCache.
+            withContext(Dispatchers.Main.immediate) {
+                if (currentRenderKey(chatMessage) == cacheKey) {
+                    synchronized(renderCache) { renderCache[cacheKey] = fastFallback(chatMessage) }
+                }
+            }
         } finally {
             synchronized(renderJobs) {
                 renderJobs.remove(cacheKey)
                 prewarmRenderJobs.remove(cacheKey)
                 visibleRenderJobs.remove(cacheKey)
             }
+            completeRenderWaiters(cacheKey)
         }
+    }
+
+    /**
+     * Prepares complete immutable render plans before messages are inserted into RecyclerView.
+     * The existing bounded render workers do the expensive parsing; this method only coordinates
+     * their completion and never touches a child View.
+     */
+    suspend fun prepareForDisplay(messages: List<ChatMessage>) {
+        if (messages.isEmpty()) return
+        val context = fragment.context ?: return
+        messages.forEach { message ->
+            while (true) {
+                val revision = catalogRevision
+                val indexes = catalogIndexes
+                val cacheKey = createRenderKey(message, revision)
+                if (cachedRender(cacheKey) != null) break
+
+                val waiter = CompletableDeferred<Unit>()
+                synchronized(renderJobs) {
+                    if (cachedRender(cacheKey) != null) {
+                        waiter.complete(Unit)
+                    } else {
+                        renderWaiters.getOrPut(cacheKey) { ArrayList() }.add(waiter)
+                    }
+                }
+                enqueueRender(message, cacheKey, context, indexes)
+                try {
+                    waiter.await()
+                } catch (cancellation: CancellationException) {
+                    synchronized(renderJobs) {
+                        renderWaiters[cacheKey]?.remove(waiter)
+                        if (renderWaiters[cacheKey].isNullOrEmpty()) renderWaiters.remove(cacheKey)
+                    }
+                    throw cancellation
+                }
+            }
+        }
+    }
+
+    private fun completeRenderWaiters(cacheKey: RenderCacheKey) {
+        val waiters = synchronized(renderJobs) { renderWaiters.remove(cacheKey).orEmpty() }
+        waiters.forEach { it.complete(Unit) }
     }
 
     private fun enqueuePrewarmRender(

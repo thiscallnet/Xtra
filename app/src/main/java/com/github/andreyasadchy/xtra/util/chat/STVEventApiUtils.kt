@@ -74,6 +74,8 @@ object STVEventApiUtils {
                 val template = if (!host.isNull("url")) host.optString("url").takeIf { it.isNotBlank() } else null
                 if (template != null) {
                     val urls = mutableListOf<String>()
+                    var sourceWidth: Int? = null
+                    var sourceHeight: Int? = null
                     val files = host.optJSONArray("files")
                     if (files != null) {
                         for (i in 0 until files.length()) {
@@ -88,6 +90,8 @@ object STVEventApiUtils {
                                 }
                             ) {
                                 urls.add("https:${template}/${fileName}")
+                                if (sourceWidth == null) sourceWidth = fileObject?.optInt("width")?.takeIf { it > 0 }
+                                if (sourceHeight == null) sourceHeight = fileObject?.optInt("height")?.takeIf { it > 0 }
                             }
                         }
                     }
@@ -102,6 +106,8 @@ object STVEventApiUtils {
                         isAnimated = if (!objectData.isNull("animated")) objectData.optBoolean("animated") else true,
                         isOverlayEmote = objectData.optInt("flags") == 1,
                         source = if (channelSet) Emote.CHANNEL_STV else Emote.PERSONAL_STV,
+                        width = sourceWidth,
+                        height = sourceHeight,
                     )
                 } else null
             } else null
