@@ -493,7 +493,9 @@
         android:layout_height="wrap_content"
         android:layout_above="@id/bottomLayout"
         android:layout_centerHorizontal="true"
-        android:layout_marginBottom="8dp">
+        android:layout_marginBottom="8dp"
+        android:baselineAligned="false"
+        android:gravity="center_vertical">
 
         <LinearLayout
             android:id="@+id/uptimeLayout"
