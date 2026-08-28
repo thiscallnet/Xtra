@@ -132,6 +132,8 @@ class MainActivity : AppCompatActivity() {
     var playerFragment: Fragment? = null
         private set
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var qualityNetworkCallback: ConnectivityManager.NetworkCallback? = null
+    private var lastPlaybackNetworkCellular: Boolean? = null
     private var pipActionReceiver: BroadcastReceiver? = null
     private lateinit var prefs: SharedPreferences
     var settingsResultLauncher: ActivityResultLauncher<Intent>? = null
@@ -414,6 +416,40 @@ class MainActivity : AppCompatActivity() {
             callback
         )
         networkCallback = callback
+        val qualityCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(
+                network: Network,
+                networkCapabilities: NetworkCapabilities,
+            ) {
+                if (!networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+                    !networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                ) {
+                    return
+                }
+
+                val cellular =
+                    networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+
+                lifecycleScope.launch {
+                    val previous = lastPlaybackNetworkCellular
+                    lastPlaybackNetworkCellular = cellular
+
+                    // First callback only establishes the baseline.
+                    // Only a real Wi-Fi/non-cellular <-> cellular transition
+                    // should reapply a playing stream's default.
+                    if (previous == null || previous == cellular) {
+                        return@launch
+                    }
+
+                    (playerFragment as? Media3PlayerFragment)
+                        ?.reapplyNetworkDefaultQuality(cellular)
+                        ?: (playerFragment as? PlayerFragment)
+                            ?.reapplyNetworkDefaultQuality(cellular)
+                }
+            }
+        }
+        connectivityManager.registerDefaultNetworkCallback(qualityCallback)
+        qualityNetworkCallback = qualityCallback
         val pipReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
@@ -845,6 +881,11 @@ class MainActivity : AppCompatActivity() {
             val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
             connectivityManager.unregisterNetworkCallback(it)
         }
+        qualityNetworkCallback?.let {
+            val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+            connectivityManager.unregisterNetworkCallback(it)
+        }
+        qualityNetworkCallback = null
         pipActionReceiver?.let { unregisterReceiver(it) }
         fragmentLifecycleCallbacks?.let {
             supportFragmentManager.unregisterFragmentLifecycleCallbacks(it)

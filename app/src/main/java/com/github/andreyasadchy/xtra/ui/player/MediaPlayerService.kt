@@ -1258,7 +1258,10 @@ class MediaPlayerService : BasePlaybackService() {
         }
     }
 
-    fun changeQuality(selectedQuality: VideoQuality?) {
+    fun changeQuality(
+        selectedQuality: VideoQuality?,
+        persistSavedQuality: Boolean = true,
+    ) {
         previousQuality = quality
         quality = selectedQuality
         quality?.let { quality ->
@@ -1298,11 +1301,13 @@ class MediaPlayerService : BasePlaybackService() {
                         serviceListener?.changeSurfaceVisibility(true)
                     }
                 }
-                val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-                val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-                val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
-                if ((!cellular && prefs().getString(C.PLAYER_DEFAULT_QUALITY, "saved") == "saved") || (cellular && prefs().getString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, "saved") == "saved")) {
-                    prefs().edit { putString(C.PLAYER_QUALITY, quality.name) }
+                if (persistSavedQuality) {
+                    val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                    val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+                    val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+                    if ((!cellular && prefs().getString(C.PLAYER_DEFAULT_QUALITY, "saved") == "saved") || (cellular && prefs().getString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, "saved") == "saved")) {
+                        prefs().edit { putString(C.PLAYER_QUALITY, quality.name) }
+                    }
                 }
             }
         }

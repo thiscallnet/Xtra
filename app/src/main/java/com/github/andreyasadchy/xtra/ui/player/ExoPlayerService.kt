@@ -211,7 +211,11 @@ class ExoPlayerService : BasePlaybackService() {
                             toggleSubtitles(prefs().getBoolean(C.PLAYER_SUBTITLES_ENABLED, false))
                         }
                         if (qualities?.find { it.name == AUTO_QUALITY } != null && quality?.name != AUDIO_ONLY_QUALITY && !hidden) {
-                            changeQuality(quality, resetLiveClipGeneration = false)
+                            changeQuality(
+                                quality,
+                                resetLiveClipGeneration = false,
+                                persistSavedQuality = false,
+                            )
                         }
                     }
                 }
@@ -263,7 +267,7 @@ class ExoPlayerService : BasePlaybackService() {
                             setDefaultQuality()
                             serviceListener?.changePlayerMode()
                             if (quality?.name == AUDIO_ONLY_QUALITY) {
-                                changeQuality(quality)
+                                changeQuality(quality, persistSavedQuality = false)
                             }
                         }
                         if (reason == Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE) {
@@ -1604,7 +1608,11 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
-    fun changeQuality(selectedQuality: VideoQuality?, resetLiveClipGeneration: Boolean = true) {
+    fun changeQuality(
+        selectedQuality: VideoQuality?,
+        resetLiveClipGeneration: Boolean = true,
+        persistSavedQuality: Boolean = true,
+    ) {
         val qualityChanged = quality?.name != selectedQuality?.name || quality?.url != selectedQuality?.url
         if (type == STREAM && qualityChanged && resetLiveClipGeneration) {
             advanceLiveClipGeneration()
@@ -1717,11 +1725,13 @@ class ExoPlayerService : BasePlaybackService() {
                             }
                         }
                     }
-                    val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-                    val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-                    val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
-                    if ((!cellular && prefs().getString(C.PLAYER_DEFAULT_QUALITY, "saved") == "saved") || (cellular && prefs().getString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, "saved") == "saved")) {
-                        prefs().edit { putString(C.PLAYER_QUALITY, quality.name) }
+                    if (persistSavedQuality) {
+                        val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                        val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+                        val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+                        if ((!cellular && prefs().getString(C.PLAYER_DEFAULT_QUALITY, "saved") == "saved") || (cellular && prefs().getString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, "saved") == "saved")) {
+                            prefs().edit { putString(C.PLAYER_QUALITY, quality.name) }
+                        }
                     }
                 }
             }

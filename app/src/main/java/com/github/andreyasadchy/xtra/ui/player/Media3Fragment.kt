@@ -250,7 +250,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null
                             && viewModel.quality?.name != AUDIO_ONLY_QUALITY
                             && !viewModel.hidden) {
-                            changeQuality(viewModel.quality)
+                            changeQuality(viewModel.quality, persistSavedQuality = false)
                         }
                         chatFragment?.startReplayChatLoad()
                     }
@@ -312,7 +312,7 @@ class Media3Fragment : Media3PlayerFragment() {
                                         setDefaultQuality()
                                         changePlayerMode()
                                         if (viewModel.quality?.name == AUDIO_ONLY_QUALITY) {
-                                            changeQuality(viewModel.quality)
+                                            changeQuality(viewModel.quality, persistSavedQuality = false)
                                         }
                                     }
                                     if (reason == Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE) {
@@ -1041,7 +1041,7 @@ class Media3Fragment : Media3PlayerFragment() {
         }
     }
 
-    override fun changeQuality(selectedQuality: VideoQuality?) {
+    override fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean) {
         viewModel.previousQuality = viewModel.quality
         viewModel.quality = selectedQuality
         viewModel.quality?.let { quality ->
@@ -1164,11 +1164,13 @@ class Media3Fragment : Media3PlayerFragment() {
                             }
                         }
                     }
-                    val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-                    val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-                    val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
-                    if ((!cellular && requireContext().prefs().getString(C.PLAYER_DEFAULT_QUALITY, "saved") == "saved") || (cellular && requireContext().prefs().getString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, "saved") == "saved")) {
-                        requireContext().prefs().edit { putString(C.PLAYER_QUALITY, quality.name) }
+                    if (persistSavedQuality) {
+                        val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                        val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+                        val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+                        if ((!cellular && requireContext().prefs().getString(C.PLAYER_DEFAULT_QUALITY, "saved") == "saved") || (cellular && requireContext().prefs().getString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, "saved") == "saved")) {
+                            requireContext().prefs().edit { putString(C.PLAYER_QUALITY, quality.name) }
+                        }
                     }
                 }
             }

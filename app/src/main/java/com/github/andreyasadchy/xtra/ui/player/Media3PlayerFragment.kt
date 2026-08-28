@@ -163,7 +163,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     open fun setSubtitlesButton() {}
     open fun toggleSubtitles(enabled: Boolean) {}
     open fun showPlaylistTags(mediaPlaylist: Boolean) {}
-    open fun changeQuality(selectedQuality: VideoQuality?) {}
+    open fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean = true) {}
     open fun startAudioOnly() {}
     open fun downloadVideo() {}
     open fun close() {}
@@ -1795,12 +1795,16 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
         val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+        viewModel.quality = resolveDefaultQualityForNetwork(cellular)
+    }
+
+    private fun resolveDefaultQualityForNetwork(cellular: Boolean): VideoQuality? {
         val defaultQuality = if (cellular) {
             requireContext().prefs().getString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, "saved")
         } else {
             requireContext().prefs().getString(C.PLAYER_DEFAULT_QUALITY, "saved")
         }?.substringBefore(" ")
-        viewModel.quality = when (defaultQuality) {
+        return when (defaultQuality) {
             "saved" -> {
                 val savedQuality = requireContext().prefs().getString(C.PLAYER_QUALITY, "720p60")?.substringBefore(" ")
                 when (savedQuality) {
@@ -1816,6 +1820,29 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             CHAT_ONLY_QUALITY -> viewModel.qualities?.find { it.name == CHAT_ONLY_QUALITY }
             else -> findQuality(defaultQuality)
         } ?: viewModel.qualities?.firstOrNull()
+    }
+
+    fun reapplyNetworkDefaultQuality(cellular: Boolean) {
+        if (videoType != STREAM) {
+            return
+        }
+
+        if (viewModel.qualities.isNullOrEmpty()) {
+            // Startup/playlist discovery will select the current network's
+            // default itself.
+            return
+        }
+
+        val target = resolveDefaultQualityForNetwork(cellular) ?: return
+
+        if (viewModel.quality?.name == target.name &&
+            viewModel.quality?.url == target.url
+        ) {
+            return
+        }
+
+        changeQuality(target, persistSavedQuality = false)
+        setQualityText()
     }
 
     private fun findQuality(targetQualityString: String?): VideoQuality? {
