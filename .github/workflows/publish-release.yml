@@ -211,10 +211,13 @@ jobs:
         release_id="$(jq -er '.id | numbers | tostring' <<< "$release_json")"
         release_tag="$(jq -er '.tag_name' <<< "$release_json")"
         release_title="$(jq -er '.name' <<< "$release_json")"
-        release_draft="$(jq -er '.draft' <<< "$release_json")"
-        release_prerelease="$(jq -er '.prerelease' <<< "$release_json")"
-        expected_prerelease=false
-        [[ "$CHANNEL" == "prerelease" ]] && expected_prerelease=true
+        release_draft="$(jq -er '.draft | booleans | tostring' <<< "$release_json")"
+        release_prerelease="$(jq -er '.prerelease | booleans | tostring' <<< "$release_json")"
+        if [[ "$CHANNEL" == "prerelease" ]]; then
+          expected_prerelease=true
+        else
+          expected_prerelease=false
+        fi
         if [[ "$release_tag" != "$RELEASE_TAG" || "$release_title" != "$title" ]]; then
           echo "Existing release identity does not match the selected build" >&2
           exit 1
@@ -321,8 +324,11 @@ jobs:
         fi
 
         release_json="$(gh api "repos/${GH_REPO}/releases/${RELEASE_ID}")"
-        expected_prerelease=false
-        [[ "$CHANNEL" == "prerelease" ]] && expected_prerelease=true
+        if [[ "$CHANNEL" == "prerelease" ]]; then
+          expected_prerelease=true
+        else
+          expected_prerelease=false
+        fi
         if ! jq -e \
           --arg tag "$RELEASE_TAG" \
           --argjson prerelease "$expected_prerelease" \
