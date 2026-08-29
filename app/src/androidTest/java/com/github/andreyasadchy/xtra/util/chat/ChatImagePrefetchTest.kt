@@ -5,6 +5,7 @@ import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.model.chat.Image
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -42,5 +43,14 @@ class ChatImagePrefetchTest {
         assertNull(tracker.tryStart("same-request"))
         tracker.markFailed("same-request", firstToken!!)
         assertNotNull(tracker.tryStart("same-request"))
+    }
+
+    @Test
+    fun rawByteArraySourceKeyUsesSha256() {
+        val first = ChatAdapterUtils.byteArraySourceKey(byteArrayOf(0, 31))
+        val second = ChatAdapterUtils.byteArraySourceKey(byteArrayOf(1, 0))
+
+        assertNotEquals(first, second)
+        assertTrue(first.matches(Regex("bytes:2:[0-9a-f]{64}")))
     }
 }

@@ -67,6 +67,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 import java.util.Random
 import kotlin.math.floor
 import kotlin.math.pow
@@ -1314,6 +1315,21 @@ object ChatAdapterUtils {
         data
     }
 
+    internal fun byteArraySourceKey(data: ByteArray): String =
+        "bytes:${data.size}:${sha256Hex(data)}"
+
+    private fun sha256Hex(data: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(data)
+        val hex = CharArray(digest.size * 2)
+        val digits = "0123456789abcdef"
+        digest.forEachIndexed { index, byte ->
+            val value = byte.toInt() and 0xff
+            hex[index * 2] = digits[value ushr 4]
+            hex[index * 2 + 1] = digits[value and 0x0f]
+        }
+        return String(hex)
+    }
+
     private fun stableImageSourceKey(image: Image, emoteQuality: String): String {
         val localSource = image.localDataUrl?.let { url ->
             image.localDataRange?.let { range -> "local:$url:${range.first}:${range.second}" }
@@ -1322,7 +1338,7 @@ object ChatAdapterUtils {
 
         return when (val data = imageData(image, emoteQuality)) {
             is String -> "url:$data"
-            is ByteArray -> "bytes:${data.size}:${data.contentHashCode()}"
+            is ByteArray -> byteArraySourceKey(data)
             null -> "missing"
             else -> "data:${data::class.java.name}:${data.hashCode()}"
         }
