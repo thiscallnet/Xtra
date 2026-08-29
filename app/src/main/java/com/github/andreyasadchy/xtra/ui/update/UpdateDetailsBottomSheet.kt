@@ -209,7 +209,12 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
 
     private fun copyDiagnostics() {
         val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Xtra updater diagnostics", UpdateDiagnostics.format(requireContext(), repository.diagnostics())))
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText(
+                getString(R.string.update_diagnostics),
+                UpdateDiagnostics.format(requireContext(), repository.diagnostics()),
+            ),
+        )
         Toast.makeText(requireContext(), R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
     }
 

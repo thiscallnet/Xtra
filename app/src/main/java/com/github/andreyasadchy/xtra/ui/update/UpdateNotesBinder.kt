@@ -42,19 +42,19 @@ object UpdateNotesBinder {
         }
         container.addView(title)
         items.forEach { item ->
-            addText(container, context.getString(R.string.update_release_note_item, item.text), topMargin = 5)
+            addText(container, context.getString(R.string.update_release_note_item, item.text), topMarginDp = 5)
         }
     }
 
-    private fun addText(container: LinearLayout, value: String, topMargin: Int = 0) {
+    private fun addText(container: LinearLayout, value: String, topMarginDp: Int = 0) {
         container.addView(TextView(container.context).apply {
             text = value
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-            if (topMargin > 0) {
+            if (topMarginDp > 0) {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT,
-                ).apply { this.topMargin = container.context.dp(topMargin) }
+                ).apply { topMargin = container.context.dp(topMarginDp) }
             }
         })
     }
