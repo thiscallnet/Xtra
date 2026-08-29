@@ -35,6 +35,7 @@
     <color name="watchStreakOrange">#FFB31A</color>
     <color name="watchStreakProgress">#00D395</color>
     <color name="channel_points_reward_default">#9146FF</color>
+    <color name="channel_points_default">#B996F8</color>
     <color name="modernPrimary">#D0BCFF</color>
     <color name="modernOnPrimary">#381E72</color>
     <color name="modernPrimaryContainer">#4F378B</color>
