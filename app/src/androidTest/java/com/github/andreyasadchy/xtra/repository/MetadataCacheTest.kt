@@ -14,10 +14,18 @@ import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
 import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.model.ui.Video
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotification
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotificationAction
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchUserSummary
+import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperThread
+import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperThreadPage
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotificationPage
+import java.time.Instant
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -129,6 +137,84 @@ class MetadataCacheTest {
         assertNotNull(anonymousCached)
         assertEquals(snapshot.recentVideos.single().id, anonymousCached?.recentVideos?.single()?.id)
         assertEquals(snapshot.upcomingStreams, anonymousCached?.upcomingStreams)
+    }
+
+    @Test
+    fun inboxPagesRoundTripAndStayIsolatedByAccount() = runBlocking {
+        val notification = TwitchNotification(
+            id = "notification-1",
+            type = "SUBSCRIPTION",
+            title = "A sub",
+            body = "Someone subscribed",
+            createdAt = Instant.parse("2026-08-29T10:00:00Z"),
+            imageUrl = "image",
+            isUnread = true,
+            canDismiss = false,
+            action = TwitchNotificationAction.Channel("channel-1", "channel", "Channel", "avatar"),
+        )
+        val whisper = WhisperThread(
+            id = "thread-1",
+            peer = TwitchUserSummary("peer-1", "peer", "Peer", "avatar"),
+            lastMessage = null,
+            unreadCount = 1,
+            isUnread = true,
+            updatedAt = Instant.parse("2026-08-29T10:00:00Z"),
+        )
+
+        cache.writeNotifications(
+            userId = "account-1",
+            page = TwitchNotificationPage(
+                notifications = listOf(notification),
+                nextCursor = "notifications-next",
+                hasNextPage = true,
+                unreadCount = 1,
+            ),
+        )
+        cache.writeWhisperThreads(
+            userId = "account-1",
+            page = WhisperThreadPage(
+                threads = listOf(whisper),
+                nextCursor = "whispers-next",
+                hasNextPage = true,
+                unreadThreadCount = 1,
+            ),
+        )
+
+        assertEquals(notification, cache.readNotifications("account-1")?.notifications?.single())
+        assertEquals(whisper, cache.readWhisperThreads("account-1")?.threads?.single())
+        assertEquals("notifications-next", cache.readNotifications("account-1")?.nextCursor)
+        assertEquals("whispers-next", cache.readWhisperThreads("account-1")?.nextCursor)
+
+        cache.writeNotifications(
+            userId = "account-1",
+            page = TwitchNotificationPage(
+                notifications = listOf(notification.copy(id = "notification-2")),
+                nextCursor = null,
+                hasNextPage = false,
+                unreadCount = 2,
+            ),
+            replace = false,
+        )
+        cache.writeWhisperThreads(
+            userId = "account-1",
+            page = WhisperThreadPage(
+                threads = listOf(whisper.copy(id = "thread-2")),
+                nextCursor = null,
+                hasNextPage = false,
+                unreadThreadCount = 2,
+            ),
+            replace = false,
+        )
+        cache.markNotificationsRead("account-1", listOf("notification-1"))
+        cache.removeNotification("account-1", "notification-2")
+        cache.markWhisperThreadRead("account-1", "thread-1")
+
+        assertEquals(listOf("notification-1"), cache.readNotifications("account-1")?.notifications?.map { it.id })
+        assertFalse(cache.readNotifications("account-1")?.notifications?.single()?.isUnread == true)
+        assertEquals(listOf("thread-1", "thread-2"), cache.readWhisperThreads("account-1")?.threads?.map { it.id })
+        assertFalse(cache.readWhisperThreads("account-1")?.threads?.first()?.isUnread == true)
+        assertNull(cache.readNotifications("account-2"))
+        assertNull(cache.readWhisperThreads("account-2"))
     }
 
     @Test

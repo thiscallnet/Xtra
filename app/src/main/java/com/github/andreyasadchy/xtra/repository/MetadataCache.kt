@@ -13,21 +13,34 @@ import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
 import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.model.ui.Video
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotification
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotificationAction
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotificationPage
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchUserSummary
+import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperMessagePreview
+import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperThread
+import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperThreadPage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.time.Instant
 import java.util.Locale
 
 private const val ACCOUNT_KIND = "account"
 private const val CHANNEL_KIND = "channel"
 private const val GAME_KIND = "game"
 private const val FOLLOWING_OVERVIEW_KIND = "following_overview"
+private const val WHISPER_THREADS_KIND = "whisper_threads"
+private const val TWITCH_NOTIFICATIONS_KIND = "twitch_notifications"
 private const val LOCAL_FOLLOWING_OVERVIEW_KEY = "local"
 private const val MAX_CACHE_ENTRIES = 240
 private const val METADATA_CACHE_FRESHNESS_VERSION = 1
+
+private fun accountIdentityKeys(userId: String?): List<String> =
+    MetadataCache.identityKeys("id", "login", userId, null)
 
 /**
  * Freshness is deliberately separate from durable retention. A cached object
@@ -388,6 +401,126 @@ class MetadataCache(
         )
     }
 
+    suspend fun readWhisperThreads(userId: String?): WhisperThreadPage? = withContext(Dispatchers.IO) {
+        readPayload<CachedWhisperThreadsPayload>(
+            kind = WHISPER_THREADS_KIND,
+            keys = accountIdentityKeys(userId),
+            expectedStableId = userId,
+            identity = { it.userId },
+        )?.payload?.toWhisperThreadPage()
+    }
+
+    suspend fun writeWhisperThreads(
+        userId: String?,
+        page: WhisperThreadPage,
+        replace: Boolean = true,
+        nowMs: Long = clockMs(),
+    ) = withContext(Dispatchers.IO) {
+        val previous = if (replace) null else readPayload<CachedWhisperThreadsPayload>(
+            kind = WHISPER_THREADS_KIND,
+            keys = accountIdentityKeys(userId),
+            expectedStableId = userId,
+            identity = { it.userId },
+        )?.payload
+        val mergedThreads = if (previous == null) {
+            page.threads
+        } else {
+            (previous.threads.map(CachedWhisperThread::toWhisperThread) + page.threads)
+                .distinctBy(WhisperThread::id)
+        }
+        val payload = CachedWhisperThreadsPayload(
+            userId = userId,
+            threads = mergedThreads.map(WhisperThread::toCachedWhisperThread),
+            nextCursor = page.nextCursor,
+            hasNextPage = page.hasNextPage,
+            unreadThreadCount = page.unreadThreadCount,
+        )
+        writePayload(
+            kind = WHISPER_THREADS_KIND,
+            keys = accountIdentityKeys(userId),
+            payload = payload,
+            stableId = userId,
+            identity = { it.userId },
+            nowMs = nowMs,
+            mergePayload = { _, _ -> payload },
+        )
+    }
+
+    suspend fun markWhisperThreadRead(userId: String?, threadId: String) = withContext(Dispatchers.IO) {
+        val cached = readWhisperThreads(userId) ?: return@withContext
+        val updated = cached.threads.map { thread ->
+            if (thread.id == threadId) thread.copy(isUnread = false, unreadCount = 0) else thread
+        }
+        if (updated != cached.threads) {
+            writeWhisperThreads(userId, cached.copy(threads = updated), nowMs = clockMs())
+        }
+    }
+
+    suspend fun readNotifications(userId: String?): TwitchNotificationPage? = withContext(Dispatchers.IO) {
+        readPayload<CachedNotificationsPayload>(
+            kind = TWITCH_NOTIFICATIONS_KIND,
+            keys = accountIdentityKeys(userId),
+            expectedStableId = userId,
+            identity = { it.userId },
+        )?.payload?.toNotificationPage()
+    }
+
+    suspend fun writeNotifications(
+        userId: String?,
+        page: TwitchNotificationPage,
+        replace: Boolean = true,
+        nowMs: Long = clockMs(),
+    ) = withContext(Dispatchers.IO) {
+        val previous = if (replace) null else readPayload<CachedNotificationsPayload>(
+            kind = TWITCH_NOTIFICATIONS_KIND,
+            keys = accountIdentityKeys(userId),
+            expectedStableId = userId,
+            identity = { it.userId },
+        )?.payload
+        val mergedNotifications = if (previous == null) {
+            page.notifications
+        } else {
+            (previous.notifications.map(CachedTwitchNotification::toTwitchNotification) + page.notifications)
+                .distinctBy(TwitchNotification::id)
+        }
+        val payload = CachedNotificationsPayload(
+            userId = userId,
+            notifications = mergedNotifications.map(TwitchNotification::toCachedTwitchNotification),
+            nextCursor = page.nextCursor,
+            hasNextPage = page.hasNextPage,
+            unreadCount = page.unreadCount,
+        )
+        writePayload(
+            kind = TWITCH_NOTIFICATIONS_KIND,
+            keys = accountIdentityKeys(userId),
+            payload = payload,
+            stableId = userId,
+            identity = { it.userId },
+            nowMs = nowMs,
+            mergePayload = { _, _ -> payload },
+        )
+    }
+
+    suspend fun markNotificationsRead(userId: String?, ids: Collection<String>) = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext
+        val cached = readNotifications(userId) ?: return@withContext
+        val idSet = ids.toSet()
+        val updated = cached.notifications.map { item ->
+            if (item.id in idSet) item.copy(isUnread = false) else item
+        }
+        if (updated != cached.notifications) {
+            writeNotifications(userId, cached.copy(notifications = updated), nowMs = clockMs())
+        }
+    }
+
+    suspend fun removeNotification(userId: String?, id: String) = withContext(Dispatchers.IO) {
+        val cached = readNotifications(userId) ?: return@withContext
+        val updated = cached.notifications.filterNot { it.id == id }
+        if (updated != cached.notifications) {
+            writeNotifications(userId, cached.copy(notifications = updated), nowMs = clockMs())
+        }
+    }
+
     private inline fun <reified T> readPayload(
         kind: String,
         keys: List<String>,
@@ -551,6 +684,160 @@ class MetadataCache(
         private fun normalize(value: String): String = value.lowercase(Locale.ROOT)
     }
 }
+
+@Serializable
+private data class CachedWhisperThreadsPayload(
+    val freshnessVersion: Int = 0,
+    val userId: String? = null,
+    val threads: List<CachedWhisperThread> = emptyList(),
+    val nextCursor: String? = null,
+    val hasNextPage: Boolean = false,
+    val unreadThreadCount: Int? = null,
+)
+
+@Serializable
+private data class CachedWhisperThread(
+    val id: String,
+    val peer: CachedTwitchUserSummary,
+    val lastMessage: CachedWhisperMessagePreview? = null,
+    val unreadCount: Int? = null,
+    val isUnread: Boolean = false,
+    val updatedAt: String? = null,
+)
+
+@Serializable
+private data class CachedWhisperMessagePreview(
+    val text: String? = null,
+    val senderId: String? = null,
+    val sentAt: String? = null,
+)
+
+@Serializable
+private data class CachedTwitchUserSummary(
+    val id: String,
+    val login: String,
+    val displayName: String,
+    val profileImageUrl: String? = null,
+)
+
+@Serializable
+private data class CachedNotificationsPayload(
+    val freshnessVersion: Int = 0,
+    val userId: String? = null,
+    val notifications: List<CachedTwitchNotification> = emptyList(),
+    val nextCursor: String? = null,
+    val hasNextPage: Boolean = false,
+    val unreadCount: Int? = null,
+)
+
+@Serializable
+private data class CachedTwitchNotification(
+    val id: String,
+    val type: String? = null,
+    val title: String? = null,
+    val body: String,
+    val createdAt: String? = null,
+    val imageUrl: String? = null,
+    val isUnread: Boolean = false,
+    val canDismiss: Boolean = false,
+    val action: CachedTwitchNotificationAction? = null,
+)
+
+@Serializable
+private data class CachedTwitchNotificationAction(
+    val type: String,
+    val id: String? = null,
+    val login: String? = null,
+    val displayName: String? = null,
+    val imageUrl: String? = null,
+    val name: String? = null,
+    val url: String? = null,
+)
+
+private fun WhisperThread.toCachedWhisperThread() = CachedWhisperThread(
+    id = id,
+    peer = peer.toCachedTwitchUserSummary(),
+    lastMessage = lastMessage?.toCachedWhisperMessagePreview(),
+    unreadCount = unreadCount,
+    isUnread = isUnread,
+    updatedAt = updatedAt?.toString(),
+)
+
+private fun CachedWhisperThread.toWhisperThread() = WhisperThread(
+    id = id,
+    peer = peer.toTwitchUserSummary(),
+    lastMessage = lastMessage?.toWhisperMessagePreview(),
+    unreadCount = unreadCount,
+    isUnread = isUnread,
+    updatedAt = updatedAt.toInstantOrNull(),
+)
+
+private fun TwitchUserSummary.toCachedTwitchUserSummary() = CachedTwitchUserSummary(id, login, displayName, profileImageUrl)
+
+private fun CachedTwitchUserSummary.toTwitchUserSummary() = TwitchUserSummary(id, login, displayName, profileImageUrl)
+
+private fun WhisperMessagePreview.toCachedWhisperMessagePreview() = CachedWhisperMessagePreview(text, senderId, sentAt?.toString())
+
+private fun CachedWhisperMessagePreview.toWhisperMessagePreview() = WhisperMessagePreview(text, senderId, sentAt.toInstantOrNull())
+
+private fun TwitchNotification.toCachedTwitchNotification() = CachedTwitchNotification(
+    id = id,
+    type = type,
+    title = title,
+    body = body,
+    createdAt = createdAt?.toString(),
+    imageUrl = imageUrl,
+    isUnread = isUnread,
+    canDismiss = canDismiss,
+    action = action?.toCachedTwitchNotificationAction(),
+)
+
+private fun CachedTwitchNotification.toTwitchNotification() = TwitchNotification(
+    id = id,
+    type = type,
+    title = title,
+    body = body,
+    createdAt = createdAt.toInstantOrNull(),
+    imageUrl = imageUrl,
+    isUnread = isUnread,
+    canDismiss = canDismiss,
+    action = action?.toTwitchNotificationAction(),
+)
+
+private fun TwitchNotificationAction.toCachedTwitchNotificationAction(): CachedTwitchNotificationAction = when (this) {
+    is TwitchNotificationAction.Channel -> CachedTwitchNotificationAction("channel", id, login, displayName, imageUrl)
+    is TwitchNotificationAction.Video -> CachedTwitchNotificationAction("video", id = id)
+    is TwitchNotificationAction.Clip -> CachedTwitchNotificationAction("clip", id = slug)
+    is TwitchNotificationAction.Game -> CachedTwitchNotificationAction("game", id = id, name = name)
+    is TwitchNotificationAction.TwitchWebUrl -> CachedTwitchNotificationAction("web_url", url = url)
+    TwitchNotificationAction.None -> CachedTwitchNotificationAction("none")
+}
+
+private fun CachedTwitchNotificationAction.toTwitchNotificationAction(): TwitchNotificationAction? = when (type) {
+    "channel" -> TwitchNotificationAction.Channel(id, login, displayName, imageUrl)
+    "video" -> id?.let(TwitchNotificationAction::Video)
+    "clip" -> id?.let(TwitchNotificationAction::Clip)
+    "game" -> TwitchNotificationAction.Game(id, name)
+    "web_url" -> url?.let(TwitchNotificationAction::TwitchWebUrl)
+    "none" -> TwitchNotificationAction.None
+    else -> null
+}
+
+private fun String?.toInstantOrNull(): Instant? = this?.let { runCatching { Instant.parse(it) }.getOrNull() }
+
+private fun CachedWhisperThreadsPayload.toWhisperThreadPage() = WhisperThreadPage(
+    threads = threads.map(CachedWhisperThread::toWhisperThread),
+    nextCursor = nextCursor,
+    hasNextPage = hasNextPage,
+    unreadThreadCount = unreadThreadCount,
+)
+
+private fun CachedNotificationsPayload.toNotificationPage() = TwitchNotificationPage(
+    notifications = notifications.map(CachedTwitchNotification::toTwitchNotification),
+    nextCursor = nextCursor,
+    hasNextPage = hasNextPage,
+    unreadCount = unreadCount,
+)
 
 @Serializable
 private data class AccountCachePayload(

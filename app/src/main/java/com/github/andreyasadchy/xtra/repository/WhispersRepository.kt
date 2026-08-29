@@ -19,11 +19,16 @@ class WhispersRepository(
     private val context: Context,
     private val privateGqlClient: TwitchPrivateGqlClient,
     private val graphQLRepository: GraphQLRepository,
+    private val metadataCache: MetadataCache? = null,
 ) {
     private val secureRandom = SecureRandom()
+    private val cacheCommitGate = MetadataCacheCommitGate()
 
-    suspend fun getThreads(cursor: String? = null): WhisperThreadPage {
+    suspend fun getThreads(cursor: String? = null): WhisperThreadPage = fetchThreads(cursor, cacheResult = true)
+
+    private suspend fun fetchThreads(cursor: String?, cacheResult: Boolean): WhisperThreadPage {
         val key = requireAccount()
+        val generationAtStart = if (cacheResult) cacheCommitGate.generationAtStart() else null
         val variables = buildJsonObject { cursor?.let { put("cursor", it) } }
         val result = if (cursor == null) {
             try {
@@ -39,11 +44,20 @@ class WhispersRepository(
             privateGqlClient.executeDocument(networkLibrary(), webHeaders(), TwitchPrivateGqlOperations.whisperThreads.operationName, TwitchPrivateGqlDocuments.whisperThreads, variables)
         }
         checkAccount(key)
-        return parseWhisperThreadPage(result, key)
+        val page = parseWhisperThreadPage(result, key)
+        if (generationAtStart != null) {
+            cacheCommitGate.commitFetch(generationAtStart) {
+                runCatching { metadataCache?.writeWhisperThreads(key, page, replace = cursor == null) }
+            }
+        }
+        return page
     }
 
+    suspend fun getCachedThreads(): WhisperThreadPage? =
+        metadataCache?.readWhisperThreads(currentUserId())
+
     suspend fun getUnreadSummary(): WhisperUnreadSummary {
-        return scanWhisperUnreadPages(MAX_SUMMARY_THREAD_PAGES) { cursor -> getThreads(cursor) }
+        return scanWhisperUnreadPages(MAX_SUMMARY_THREAD_PAGES) { cursor -> fetchThreads(cursor, cacheResult = false) }
     }
 
     suspend fun getThread(threadId: String, cursor: String? = null): WhisperThreadDetails {
@@ -65,6 +79,9 @@ class WhispersRepository(
             }
         })
         checkAccount(key)
+        cacheCommitGate.commitMutation {
+            runCatching { metadataCache?.markWhisperThreadRead(key, threadId) }
+        }
     }
 
     fun createWhisperNonce(): String = generateWhisperNonce(secureRandom)
@@ -101,7 +118,7 @@ class WhispersRepository(
     suspend fun findThreadByPeer(peerId: String): String? {
         var cursor: String? = null
         repeat(20) {
-            val page = getThreads(cursor)
+            val page = fetchThreads(cursor, cacheResult = false)
             page.threads.firstOrNull { it.peer.id == peerId }?.let { return it.id }
             if (!page.hasNextPage || page.nextCursor == null || page.nextCursor == cursor) return null
             cursor = page.nextCursor
@@ -110,7 +127,7 @@ class WhispersRepository(
     }
 
     suspend fun findRecentThreadByPeer(peerId: String): String? =
-        getThreads().threads.firstOrNull { it.peer.id == peerId }?.id
+        fetchThreads(cursor = null, cacheResult = false).threads.firstOrNull { it.peer.id == peerId }?.id
 
     fun clearAccountState() = Unit
 
