@@ -250,6 +250,14 @@ class LiveRewindTest {
     }
 
     @Test
+    fun liveClipIsUnavailableDuringRewindOrSourceTransition() {
+        assertFalse(canUseLiveClipSource(BasePlaybackService.STREAM, false, true))
+        assertFalse(canUseLiveClipSource(BasePlaybackService.STREAM, true, false))
+        assertTrue(canUseLiveClipSource(BasePlaybackService.STREAM, false, false))
+        assertFalse(canUseLiveClipSource(BasePlaybackService.VIDEO, false, false))
+    }
+
+    @Test
     fun changedStreamIdOrCreatedAtStartsANewSession() {
         assertTrue(hasLiveStreamSessionChanged("old", "created", "new", "created"))
         assertTrue(hasLiveStreamSessionChanged("same", "old", "same", "new"))

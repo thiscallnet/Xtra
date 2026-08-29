@@ -143,6 +143,9 @@ internal fun shouldResumeLiveChat(
             autoReconnect
 }
 
+internal fun resolveCurrentLiveStreamId(currentStreamId: String?, initialStreamId: String?): String? =
+    currentStreamId ?: initialStreamId
+
 class ChatViewModel(
     private val applicationContext: Context,
     private val graphQLRepository: GraphQLRepository,

@@ -557,6 +557,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
     override fun prepareLiveClip() {
         val service = playbackService ?: return
+        if (service.liveRewindActive || service.liveRewindTransitioning) return
         if (clipPreparationJob?.isActive == true || childFragmentManager.findFragmentByTag(CLIP_EDITOR_TAG) != null) {
             return
         }

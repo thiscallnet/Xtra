@@ -51,6 +51,7 @@ import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import java.util.Timer
 import kotlinx.coroutines.launch
 import kotlin.concurrent.schedule
@@ -88,6 +89,7 @@ class PlaybackService : MediaSessionService() {
     private var streamStartupTrace: StreamStartupTrace? = null
     private var liveRewindActive = false
     private var liveRewindVodId: String? = null
+    private var liveRewindTransitioning = false
 
     override fun onCreate() {
         super.onCreate()
@@ -242,28 +244,51 @@ class PlaybackService : MediaSessionService() {
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                             }
                             START_STREAM -> {
-                                liveRewindActive = false
-                                liveRewindVodId = null
-                                return startLiveStream(player, customCommand.customExtras)
+                                liveRewindTransitioning = true
+                                val result = try {
+                                    startLiveStream(player, customCommand.customExtras)
+                                } catch (_: Exception) {
+                                    liveRewindTransitioning = false
+                                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
+                                }
+                                result.addListener({
+                                    val succeeded = runCatching {
+                                        result.get().resultCode == SessionResult.RESULT_SUCCESS
+                                    }.getOrDefault(false)
+                                    if (succeeded) {
+                                        liveRewindActive = false
+                                        liveRewindVodId = null
+                                    }
+                                    liveRewindTransitioning = false
+                                }, MoreExecutors.directExecutor())
+                                return result
                             }
                             START_LIVE_REWIND -> {
                                 val uri = customCommand.customExtras.getString(URI)?.toUri()
                                     ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                                 val vodId = customCommand.customExtras.getString(REWIND_VIDEO_ID)
                                     ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
-                                player.setMediaSource(createVodMediaSource(uri))
-                                player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
-                                player.setPlaybackSpeed(prefs().getFloat(C.PLAYER_SPEED, 1f))
-                                player.prepare()
-                                player.playWhenReady = customCommand.customExtras.getBoolean(PLAY_WHEN_READY, true)
-                                player.seekTo(customCommand.customExtras.getLong(PLAYBACK_POSITION))
-                                liveRewindVodId = vodId
-                                liveRewindActive = true
-                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                                liveRewindTransitioning = true
+                                try {
+                                    player.setMediaSource(createVodMediaSource(uri))
+                                    player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+                                    player.setPlaybackSpeed(prefs().getFloat(C.PLAYER_SPEED, 1f))
+                                    player.prepare()
+                                    player.playWhenReady = customCommand.customExtras.getBoolean(PLAY_WHEN_READY, true)
+                                    player.seekTo(customCommand.customExtras.getLong(PLAYBACK_POSITION))
+                                    liveRewindVodId = vodId
+                                    liveRewindActive = true
+                                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                                } catch (_: Exception) {
+                                    Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
+                                } finally {
+                                    liveRewindTransitioning = false
+                                }
                             }
                             GET_LIVE_REWIND_STATE -> {
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
                                     putBoolean(LIVE_REWIND_ACTIVE, liveRewindActive)
+                                    putBoolean(LIVE_REWIND_TRANSITIONING, liveRewindTransitioning)
                                     putString(REWIND_VIDEO_ID, liveRewindVodId)
                                 }))
                             }
@@ -918,6 +943,7 @@ class PlaybackService : MediaSessionService() {
         const val PLAY_WHEN_READY = "playWhenReady"
         const val REWIND_VIDEO_ID = "rewindVideoId"
         const val LIVE_REWIND_ACTIVE = "liveRewindActive"
+        const val LIVE_REWIND_TRANSITIONING = "liveRewindTransitioning"
         const val BACKGROUND_PLAYBACK = "backgroundPlayback"
         const val DURATION = "duration"
         const val NAMES = "names"

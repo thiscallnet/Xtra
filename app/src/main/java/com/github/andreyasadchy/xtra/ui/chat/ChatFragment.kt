@@ -975,6 +975,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         return false
     }
 
+    private fun currentLiveStreamId(): String? =
+        resolveCurrentLiveStreamId(viewModel.streamId, requireArguments().getString(KEY_STREAM_ID))
+
     override fun initialize() {
         if (requireContext().prefs().isChatEnabled()) {
             val args = requireArguments()
@@ -988,7 +991,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         channelId,
                         channelLogin,
                         args.getString(KEY_CHANNEL_NAME),
-                        args.getString(KEY_STREAM_ID),
+                        currentLiveStreamId(),
                     )
                 }
                 is ChatViewModel.ActiveChatMode.VideoReplay -> {
@@ -1100,7 +1103,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 channelId = requireArguments().getString(KEY_CHANNEL_ID),
                 channelLogin = channelLogin,
                 channelName = requireArguments().getString(KEY_CHANNEL_NAME),
-                streamId = requireArguments().getString(KEY_STREAM_ID),
+                streamId = currentLiveStreamId(),
             )
         }
         viewModel.autoReconnect = true
@@ -1157,7 +1160,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             channelId = args.getString(KEY_CHANNEL_ID),
             channelLogin = args.getString(KEY_CHANNEL_LOGIN),
             channelName = args.getString(KEY_CHANNEL_NAME),
-            streamId = args.getString(KEY_STREAM_ID),
+            streamId = currentLiveStreamId(),
         )
         _binding?.let {
             messagingEnabled = messagingEnabledBeforeReplay

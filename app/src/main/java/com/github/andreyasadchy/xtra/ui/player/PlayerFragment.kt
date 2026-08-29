@@ -235,7 +235,10 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         val playbackType = playbackService?.type
         val clipAvailable = supportsLiveClipping &&
             (playbackType == BasePlaybackService.STREAM || playbackType == BasePlaybackService.VIDEO) &&
-            !(playbackType == BasePlaybackService.STREAM && playbackService?.liveRewindActive == true)
+            !(playbackType == BasePlaybackService.STREAM &&
+                (playbackService?.liveRewindActive == true ||
+                    playbackService?.liveRewindTransitioning == true ||
+                    liveRewindSwitching))
         with(binding.playerControls.clip) {
             if (clipAvailable) {
                 visibility = View.VISIBLE
@@ -263,7 +266,10 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         if (_binding == null || !supportsLiveClipping || playbackService?.type != BasePlaybackService.STREAM) {
             return
         }
-        if (playbackService?.liveRewindActive == true) {
+        if (playbackService?.liveRewindActive == true ||
+            playbackService?.liveRewindTransitioning == true ||
+            liveRewindSwitching
+        ) {
             binding.playerControls.clip.visibility = View.GONE
             binding.playerControls.clip.isEnabled = false
             binding.playerControls.clip.setOnClickListener(null)
@@ -1146,10 +1152,12 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         liveRewindSwitchJob?.cancel()
         liveRewindReturningLive = false
         liveRewindSwitching = true
+        updateLiveClipSourceAvailability()
         liveRewindSwitchJob = viewLifecycleOwner.lifecycleScope.launch {
             val success = startLiveRewind(vod.id, targetMs)
             if (generation != liveRewindSwitchGeneration) return@launch
             liveRewindSwitching = false
+            updateLiveClipSourceAvailability()
             if (!success) {
                 livePlaybackMode = previousPlaybackMode
                 updateLiveRewindUi()
@@ -1191,11 +1199,13 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         liveRewindPendingTargetMs = null
         liveRewindReturningLive = true
         liveRewindSwitching = true
+        updateLiveClipSourceAvailability()
         liveRewindSwitchJob = viewLifecycleOwner.lifecycleScope.launch {
             val success = returnToLivePlayback()
             if (generation != liveRewindSwitchGeneration) return@launch
             liveRewindSwitching = false
             liveRewindReturningLive = false
+            updateLiveClipSourceAvailability()
             if (success) {
                 livePlaybackMode = LivePlaybackMode.Live
                 chatFragment?.returnToLiveChat()

@@ -62,6 +62,17 @@ abstract class BasePlaybackService : LifecycleService() {
         protected set
     var liveRewindVodId: String? = null
         protected set
+    /** True while the physical player is being moved between live and rewind sources. */
+    var liveRewindTransitioning = false
+        protected set
+
+    protected fun beginLiveRewindTransition() {
+        liveRewindTransitioning = true
+    }
+
+    protected fun finishLiveRewindTransition() {
+        liveRewindTransitioning = false
+    }
 
     protected fun markLiveRewindActive(vodId: String) {
         liveRewindVodId = vodId

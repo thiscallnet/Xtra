@@ -923,6 +923,11 @@ class Media3Fragment : Media3PlayerFragment() {
 
     override suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean {
         val controller = player ?: return false
+        val url = try {
+            viewModel.loadRewindVideoPlaylistUrl(vodId)
+        } catch (_: Exception) {
+            null
+        } ?: return false
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
         primaryStreamRestoreJob?.cancel()
@@ -930,11 +935,6 @@ class Media3Fragment : Media3PlayerFragment() {
         viewModel.usingAlternateStream = false
         viewModel.resetAdController()
         viewModel.playingAds = false
-        val url = try {
-            viewModel.loadRewindVideoPlaylistUrl(vodId)
-        } catch (_: Exception) {
-            null
-        } ?: return false
         viewModel.qualities = null
         viewModel.quality = null
         viewModel.updateQualities = true

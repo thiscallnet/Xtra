@@ -845,44 +845,49 @@ class MediaPlayerService : BasePlaybackService() {
         val oldLiveRewindPositionOverride = liveRewindPositionOverride
         val oldPaused = paused
         val wasPlaying = runCatching { player.isPlaying }.getOrDefault(false)
-        clearLiveRewindState()
-        videoId = vodId
-        playlistUrl = null
-        qualities = null
-        quality = null
-        savedPosition = positionMs
-        liveRewindPositionOverride = positionMs
-        paused = !wasPlaying
+        beginLiveRewindTransition()
         return try {
-            loadVideo(restorePauseState = true)
-            val loaded = !playlistUrl.isNullOrBlank()
-            videoId = oldVideoId
-            if (!loaded) {
+            clearLiveRewindState()
+            videoId = vodId
+            playlistUrl = null
+            qualities = null
+            quality = null
+            savedPosition = positionMs
+            liveRewindPositionOverride = positionMs
+            paused = !wasPlaying
+            try {
+                loadVideo(restorePauseState = true)
+                val loaded = !playlistUrl.isNullOrBlank()
+                videoId = oldVideoId
+                if (!loaded) {
+                    playlistUrl = oldPlaylistUrl
+                    qualities = oldQualities
+                    quality = oldQuality
+                    backupQualities = oldBackupQualities
+                }
+                savedPosition = oldSavedPosition
+                liveRewindPositionOverride = oldLiveRewindPositionOverride
+                paused = oldPaused
+                if (loaded) {
+                    markLiveRewindActive(vodId)
+                } else {
+                    clearLiveRewindState()
+                }
+                loaded
+            } catch (_: Exception) {
+                videoId = oldVideoId
                 playlistUrl = oldPlaylistUrl
                 qualities = oldQualities
                 quality = oldQuality
                 backupQualities = oldBackupQualities
-            }
-            savedPosition = oldSavedPosition
-            liveRewindPositionOverride = oldLiveRewindPositionOverride
-            paused = oldPaused
-            if (loaded) {
-                markLiveRewindActive(vodId)
-            } else {
+                savedPosition = oldSavedPosition
+                liveRewindPositionOverride = oldLiveRewindPositionOverride
+                paused = oldPaused
                 clearLiveRewindState()
+                false
             }
-            loaded
-        } catch (_: Exception) {
-            videoId = oldVideoId
-            playlistUrl = oldPlaylistUrl
-            qualities = oldQualities
-            quality = oldQuality
-            backupQualities = oldBackupQualities
-            savedPosition = oldSavedPosition
-            liveRewindPositionOverride = oldLiveRewindPositionOverride
-            paused = oldPaused
-            clearLiveRewindState()
-            false
+        } finally {
+            finishLiveRewindTransition()
         }
     }
 
@@ -895,18 +900,20 @@ class MediaPlayerService : BasePlaybackService() {
         val oldQuality = quality
         val oldBackupQualities = backupQualities
         val oldPaused = paused
+        beginLiveRewindTransition()
         playlistUrl = null
         qualities = null
         quality = null
         backupQualities = null
         return try {
-            paused = !wasPlaying
-            loadStream(restorePauseState = true, restart = true)
-            !playlistUrl.isNullOrBlank()
-        } catch (_: Exception) {
-            false
-        }.also {
-            if (it) {
+            val success = try {
+                paused = !wasPlaying
+                loadStream(restorePauseState = true, restart = true)
+                !playlistUrl.isNullOrBlank()
+            } catch (_: Exception) {
+                false
+            }
+            if (success) {
                 clearLiveRewindState()
             } else {
                 playlistUrl = oldPlaylistUrl
@@ -916,6 +923,9 @@ class MediaPlayerService : BasePlaybackService() {
                 paused = oldPaused
                 (rewindVodId ?: videoId)?.let(::markLiveRewindActive)
             }
+            success
+        } finally {
+            finishLiveRewindTransition()
         }
     }
 
@@ -1404,7 +1414,7 @@ class MediaPlayerService : BasePlaybackService() {
     }
 
     fun restartPlayer() {
-        if (type == STREAM && liveRewindActive) return
+        if (type == STREAM && (liveRewindActive || liveRewindTransitioning)) return
         if (quality?.name != CHAT_ONLY_QUALITY) {
             lifecycleScope.launch {
                 loadStream(restart = true)
@@ -1416,6 +1426,7 @@ class MediaPlayerService : BasePlaybackService() {
         if (!prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
             || type != STREAM
             || liveRewindActive
+            || liveRewindTransitioning
             || !streamPlaybackRequested
             || player == null
         ) {
@@ -1429,6 +1440,7 @@ class MediaPlayerService : BasePlaybackService() {
             if (prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
                 && type == STREAM
                 && !liveRewindActive
+                && !liveRewindTransitioning
                 && streamPlaybackRequested
                 && player != null
             ) {

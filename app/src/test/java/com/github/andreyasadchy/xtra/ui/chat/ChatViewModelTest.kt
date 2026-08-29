@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -28,5 +29,11 @@ class ChatViewModelTest {
                 autoReconnect = true,
             ),
         )
+    }
+
+    @Test
+    fun currentStreamIdWinsOverInitialLaunchArgument() {
+        assertEquals("stream-b", resolveCurrentLiveStreamId("stream-b", "stream-a"))
+        assertEquals("stream-a", resolveCurrentLiveStreamId(null, "stream-a"))
     }
 }
