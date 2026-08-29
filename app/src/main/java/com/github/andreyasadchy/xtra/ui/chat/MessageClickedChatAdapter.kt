@@ -142,6 +142,9 @@ class MessageClickedChatAdapter(
         ChatAdapterUtils.loadImages(
             fragment, holder.textView, result.images, result.imagePaint, result.userName, result.userNameStartIndex,
             backgroundColor, imageLibrary, result.builder, emoteQuality, animateGifs,
+            emoteSize = emoteSize,
+            badgeSize = badgeSize,
+            inlineIconSize = inlineIconSize,
         )
     }
 

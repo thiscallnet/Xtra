@@ -22,6 +22,8 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
+import com.github.andreyasadchy.xtra.model.chat.Image
+import com.github.andreyasadchy.xtra.model.chat.ImageKind
 import com.github.andreyasadchy.xtra.model.chat.NamePaint
 import com.github.andreyasadchy.xtra.model.chat.STVBadge
 import com.github.andreyasadchy.xtra.model.chat.STVUser
@@ -38,9 +40,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -124,7 +123,7 @@ class ChatAdapter(
     private val messages = ArrayList(initialMessages)
     private val generatedStableIds = IdentityHashMap<ChatMessage, Long>()
     private var nextGeneratedStableId = Long.MIN_VALUE
-    private class RenderCacheKey(
+    internal class RenderCacheKey(
         val message: ChatMessage,
         val catalogRevision: Int,
         val translateAllMessages: Boolean,
@@ -175,12 +174,11 @@ class ChatAdapter(
     /** One signal represents one queued request; this keeps both workers fed during bursts. */
     private var renderSignal = Channel<Unit>(Channel.UNLIMITED)
     private var renderWorkers = emptyList<Job>()
-    private val renderWorkerLimit = MutableStateFlow(MAX_RENDER_WORKERS)
+    private val imagePrefetchTracker = ChatAdapterUtils.ChatImagePrefetchTracker()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingRenderedMessages = Collections.newSetFromMap(
         IdentityHashMap<ChatMessage, Boolean>(),
     )
-    private var renderUpdatesPaused = false
     private var prewarmJob: Job? = null
     @Volatile
     private var prewarmGeneration = 0L
@@ -283,11 +281,11 @@ class ChatAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.imageRequests.cancel()
         val configuration = activeConfiguration
-        val bindGeneration = holder.beginBind(configuration.revision)
         val chatMessage = messages.getOrNull(position) ?: return
         val cacheKey = createRenderKey(chatMessage, configuration)
+        if (holder.isAlreadyBoundTo(chatMessage, cacheKey)) return
+        val bindGeneration = holder.beginBind(configuration.revision)
         val cachedResult = cachedRender(cacheKey)
         val result = checkNotNull(cachedResult) {
             "Chat message was displayed before its render plan was prepared"
@@ -303,15 +301,16 @@ class ChatAdapter(
             result.userNameStartIndex,
             backgroundColor,
         )
-        holder.bind(chatMessage, result)
+        holder.bind(chatMessage, cacheKey, result)
         ChatAdapterUtils.loadImages(
             fragment, holder.textView, result.images, result.imagePaint, result.userName, result.userNameStartIndex,
             backgroundColor, imageLibrary, result.builder, emoteQuality, animateGifs,
             isCurrent = { holder.isCurrentBind(bindGeneration) },
             shouldAnimate = { holder.canAnimate(bindGeneration) },
             requestBag = holder.imageRequests,
-            shouldLoad = { holder.canLoadImages(bindGeneration) },
-            onLoadDeferred = { holder.hasDeferredImageLoad = true },
+            emoteSize = emoteSize,
+            badgeSize = badgeSize,
+            inlineIconSize = inlineIconSize,
         )
     }
 
@@ -453,10 +452,6 @@ class ChatAdapter(
             holder.postCatalogRefresh()
             return
         }
-        if (holder.hasDeferredImageLoad) {
-            holder.postDeferredImageReload()
-            return
-        }
         if (animateGifs && !animationsPaused) setAnimations(holder.textView, start = true)
     }
 
@@ -523,7 +518,7 @@ class ChatAdapter(
         }
 
         override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
-            if (newState == RecyclerView.SCROLL_STATE_IDLE && !prewarmPosted) {
+            if (!prewarmPosted) {
                 prewarmPosted = true
                 recyclerView.postOnAnimation(prewarmRunnable)
             }
@@ -549,25 +544,10 @@ class ChatAdapter(
                 recyclerView.postOnAnimation(pauseAnimationsRunnable)
             }
         } else {
-            for (i in 0 until recyclerView.childCount) {
-                (recyclerView.getChildViewHolder(recyclerView.getChildAt(i)) as? ViewHolder)?.let { holder ->
-                    holder.postDeferredImageReload()
-                }
-            }
             if (!animateGifs) return
             resumeAnimationsPosted = true
             recyclerView.postOnAnimation(resumeAnimationsRunnable)
         }
-    }
-
-    /** Keeps completed background renders from invalidating rows while the list is flinging. */
-    fun setRenderUpdatesPaused(paused: Boolean) {
-        if (renderUpdatesPaused == paused) return
-        renderUpdatesPaused = paused
-        // Keep visible work responsive while the list is moving. Release the
-        // second CPU-heavy renderer only after scrolling has settled.
-        renderWorkerLimit.value = if (paused) 1 else MAX_RENDER_WORKERS
-        if (!paused) attachedRecyclerView?.postOnAnimation { flushRenderedMessages() }
     }
 
     fun notifyCatalogChanged() {
@@ -601,6 +581,9 @@ class ChatAdapter(
             prepareForDisplay(currentSnapshot, configuration)
             withContext(Dispatchers.Main.immediate) {
                 if (pendingConfiguration !== configuration) return@withContext
+                // Actual message assets have already been discovered and queued above. Start the
+                // small reusable badge warm-up only after that higher-priority work is in flight.
+                prefetchCatalogAssets()
                 activeConfiguration = configuration
                 pendingConfiguration = null
                 configurationJob = null
@@ -659,8 +642,8 @@ class ChatAdapter(
         val textView = itemView as TextView
         val imageRequests = ChatAdapterUtils.ImageRequestBag()
         private var boundMessage: ChatMessage? = null
+        private var boundRenderKey: RenderCacheKey? = null
         private var boundReplyMessage: Boolean? = null
-        var hasDeferredImageLoad = false
         private var bindGeneration = 0
         private var catalogRefreshPosted = false
         var catalogRevision = 0
@@ -686,7 +669,6 @@ class ChatAdapter(
         fun beginBind(catalogRevision: Int): Int {
             if (animateGifs) setAnimations(textView, start = false)
             imageRequests.cancel()
-            hasDeferredImageLoad = false
             itemView.removeCallbacks(catalogRefreshRunnable)
             catalogRefreshPosted = false
             this.catalogRevision = catalogRevision
@@ -696,30 +678,17 @@ class ChatAdapter(
 
         fun isCurrentBind(generation: Int): Boolean = generation == bindGeneration
 
+        internal fun isAlreadyBoundTo(message: ChatMessage, key: RenderCacheKey): Boolean =
+            boundMessage === message && boundRenderKey == key && itemView.isAttachedToWindow
+
         fun canAnimate(generation: Int): Boolean = isCurrentBind(generation) && itemView.isAttachedToWindow && !animationsPaused
-
-        fun canLoadImages(generation: Int): Boolean {
-            val recyclerView = attachedRecyclerView
-            return isCurrentBind(generation) &&
-                itemView.isAttachedToWindow &&
-                !animationsPaused &&
-                (recyclerView == null || recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE)
-        }
-
-        fun postDeferredImageReload() {
-            if (!hasDeferredImageLoad) return
-            hasDeferredImageLoad = false
-            itemView.post {
-                if (itemView.isAttachedToWindow) {
-                    bindingAdapterPosition.takeIf { it != RecyclerView.NO_POSITION }?.let(::notifyItemChanged)
-                }
-            }
-        }
 
         fun cancelBind() {
             itemView.removeCallbacks(catalogRefreshRunnable)
             catalogRefreshPosted = false
             bindGeneration++
+            boundMessage = null
+            boundRenderKey = null
         }
 
         fun postCatalogRefresh() {
@@ -728,8 +697,9 @@ class ChatAdapter(
             itemView.post(catalogRefreshRunnable)
         }
 
-        fun bind(chatMessage: ChatMessage, result: ChatAdapterUtils.MessageResult) {
+        internal fun bind(chatMessage: ChatMessage, cacheKey: RenderCacheKey, result: ChatAdapterUtils.MessageResult) {
             itemView.setBackgroundResource(result.backgroundResource)
+            boundRenderKey = cacheKey
             bindContent(chatMessage, result.builder, result.accessibilityDescription)
         }
 
@@ -776,6 +746,7 @@ class ChatAdapter(
         const val PREWARM_BEFORE = 8
         const val PREWARM_AFTER = 24
         const val PREWARM_DEBOUNCE_MS = 100L
+        const val MAX_CATALOG_BADGES_PER_SOURCE = 32
     }
 
     private fun cachedRender(key: RenderCacheKey): ChatAdapterUtils.MessageResult? = synchronized(renderCache) {
@@ -839,12 +810,9 @@ class ChatAdapter(
         }
     }
 
-    private fun startRenderWorkers(): List<Job> = List(MAX_RENDER_WORKERS) { workerIndex ->
+    private fun startRenderWorkers(): List<Job> = List(MAX_RENDER_WORKERS) {
         renderScope.launch {
             while (isActive) {
-                if (workerIndex >= renderWorkerLimit.value) {
-                    renderWorkerLimit.filter { it > workerIndex }.first()
-                }
                 if (renderSignal.receiveCatching().getOrNull() == null) break
                 val request = visibleRenderQueue.tryReceive().getOrNull()
                     ?: prewarmRenderQueue.tryReceive().getOrNull()
@@ -899,6 +867,19 @@ class ChatAdapter(
                 request.cacheKey.translateAllMessages,
                 offMain = true,
             )
+            // Enqueue only. Coil and Glide do the actual network/decode work asynchronously.
+            withContext(Dispatchers.Main.immediate) {
+                ChatAdapterUtils.prefetchImages(
+                    request.context,
+                    prepared.images,
+                    imageLibrary,
+                    emoteQuality,
+                    emoteSize,
+                    badgeSize,
+                    inlineIconSize,
+                    imagePrefetchTracker,
+                )
+            }
             withContext(Dispatchers.Main.immediate) {
                 if (isKnownConfiguration(request.configuration) && currentRenderKey(chatMessage, request.configuration) == cacheKey) {
                     synchronized(renderCache) { renderCache[cacheKey] = prepared }
@@ -1026,6 +1007,59 @@ class ChatAdapter(
         }
     }
 
+    private fun prefetchCatalogAssets() {
+        val images = ArrayList<Image>(MAX_CATALOG_BADGES_PER_SOURCE * 3)
+
+        fun addBadge(badge: TwitchBadge) {
+            images += Image(
+                url1x = badge.url1x,
+                url2x = badge.url2x,
+                url3x = badge.url3x,
+                url4x = badge.url4x,
+                kind = ImageKind.BADGE,
+                start = 0,
+                end = 1,
+            )
+        }
+
+        fun addStvBadge(badge: STVBadge) {
+            images += Image(
+                url1x = badge.url1x,
+                url2x = badge.url2x,
+                url3x = badge.url3x,
+                url4x = badge.url4x,
+                format = badge.format,
+                isAnimated = true,
+                kind = ImageKind.BADGE,
+                thirdParty = true,
+                start = 0,
+                end = 1,
+            )
+        }
+
+        synchronized(globalBadges) {
+            globalBadges.take(MAX_CATALOG_BADGES_PER_SOURCE).forEach(::addBadge)
+        }
+        synchronized(channelBadges) {
+            channelBadges.take(MAX_CATALOG_BADGES_PER_SOURCE).forEach(::addBadge)
+        }
+        synchronized(stvBadges) {
+            stvBadges.take(MAX_CATALOG_BADGES_PER_SOURCE).forEach(::addStvBadge)
+        }
+
+        val context = fragment.context ?: return
+        ChatAdapterUtils.prefetchImages(
+            context,
+            images.distinctBy { it.url4x ?: it.url3x ?: it.url2x ?: it.url1x },
+            imageLibrary,
+            emoteQuality,
+            emoteSize,
+            badgeSize,
+            inlineIconSize,
+            imagePrefetchTracker,
+        )
+    }
+
     private fun currentRenderKey(message: ChatMessage, configuration: ChatRenderConfiguration = activeConfiguration): RenderCacheKey =
         createRenderKey(message, configuration)
 
@@ -1068,14 +1102,13 @@ class ChatAdapter(
 
     private fun scheduleRenderedFlush() {
         val recyclerView = attachedRecyclerView ?: return
-        if (renderedFlushPosted || renderUpdatesPaused || recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE) return
+        if (renderedFlushPosted) return
         renderedFlushPosted = true
         recyclerView.postOnAnimation(renderedFlushRunnable)
     }
 
     private fun flushRenderedMessages() {
         val recyclerView = attachedRecyclerView ?: return
-        if (renderUpdatesPaused || recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE) return
         if (recyclerView.isComputingLayout) {
             recyclerView.postOnAnimation { flushRenderedMessages() }
             return

@@ -31,6 +31,7 @@ import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.model.GlideUrl
@@ -58,15 +59,47 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import android.util.Base64
 import coil3.request.Disposable
+import com.bumptech.glide.load.DataSource
+import com.bumptech.glide.load.engine.GlideException
+import com.bumptech.glide.request.RequestListener
+import com.bumptech.glide.request.target.Target
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 import java.util.Random
 import kotlin.math.floor
 import kotlin.math.pow
 
 object ChatAdapterUtils {
+
+    class ChatImagePrefetchTracker(private val maxEntries: Int = 512) {
+        private val keys = LinkedHashMap<String, Long>(maxEntries, 0.75f, true)
+        private var nextToken = 0L
+
+        init {
+            require(maxEntries > 0)
+        }
+
+        fun tryStart(key: String): Long? = synchronized(keys) {
+            if (keys.containsKey(key)) {
+                null
+            }
+            else {
+                val token = ++nextToken
+                keys[key] = token
+                while (keys.size > maxEntries) {
+                    keys.entries.iterator().next().let { keys.remove(it.key) }
+                }
+                token
+            }
+        }
+
+        fun markFailed(key: String, token: Long) = synchronized(keys) {
+            if (keys[key] == token) keys.remove(key)
+        }
+    }
 
     private data class LocalEmoteKey(val source: String, val offset: Long, val length: Int)
 
@@ -612,6 +645,87 @@ object ChatAdapterUtils {
         }
     }
 
+    /** Starts bounded chat image work without attaching it to a transient ViewHolder. */
+    fun prefetchImages(
+        context: Context,
+        images: List<Image>,
+        imageLibrary: String?,
+        emoteQuality: String,
+        emoteSize: Int,
+        badgeSize: Int,
+        inlineIconSize: Int,
+        prefetchTracker: ChatImagePrefetchTracker,
+    ) {
+        val queued = HashSet<String>()
+
+        fun prefetch(image: Image) {
+            val targetSize = imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize)
+            val geometry = imageGeometry(image, targetSize)
+            val data = imageData(image, emoteQuality) ?: return
+            val sourceKey = stableImageSourceKey(image, emoteQuality)
+            val usesCoil = imageLibrary == "0" || (imageLibrary == "1" && !image.format.equals("webp", true))
+            val requestKey = prefetchRequestKey(usesCoil, sourceKey, geometry.widthPx, geometry.heightPx)
+            if (!queued.add(requestKey)) {
+                image.overlayEmote?.let(::prefetch)
+                return
+            }
+            val prefetchToken = prefetchTracker.tryStart(requestKey)
+            if (prefetchToken == null) {
+                image.overlayEmote?.let(::prefetch)
+                return
+            }
+            if (usesCoil) {
+                context.imageLoader.enqueue(
+                    chatImageRequest(
+                        context,
+                        image,
+                        data,
+                        geometry.widthPx,
+                        geometry.heightPx,
+                        imageMemoryCacheKey(sourceKey, geometry.widthPx, geometry.heightPx),
+                        sourceKey,
+                    ).listener(object : ImageRequest.Listener {
+                        override fun onError(request: ImageRequest, result: coil3.request.ErrorResult) {
+                            prefetchTracker.markFailed(requestKey, prefetchToken)
+                        }
+
+                        override fun onSuccess(request: ImageRequest, result: coil3.request.SuccessResult) = Unit
+                    }).build(),
+                )
+            } else {
+                val model = glideImageModel(image, data)
+                Glide.with(context)
+                    .load(model)
+                    .override(geometry.widthPx, geometry.heightPx)
+                    .diskCacheStrategy(DiskCacheStrategy.DATA)
+                    .dontAnimate()
+                    .listener(object : RequestListener<Drawable> {
+                        override fun onLoadFailed(
+                            e: GlideException?,
+                            model: Any?,
+                            target: Target<Drawable>,
+                            isFirstResource: Boolean,
+                        ): Boolean {
+                            prefetchTracker.markFailed(requestKey, prefetchToken)
+                            return false
+                        }
+
+                        override fun onResourceReady(
+                            resource: Drawable,
+                            model: Any,
+                            target: Target<Drawable>,
+                            dataSource: DataSource,
+                            isFirstResource: Boolean,
+                        ): Boolean = false
+                    })
+                    .preload()
+            }
+            image.overlayEmote?.let(::prefetch)
+        }
+
+        images.forEach(::prefetch)
+    }
+
     private fun getSavedColor(color: String, savedColors: HashMap<String, Int>, useReadableColors: Boolean, isLightTheme: Boolean): Int {
         return synchronized(savedColors) {
             savedColors[color] ?: Color.parseColor(color).let { newColor ->
@@ -918,18 +1032,13 @@ object ChatAdapterUtils {
         }
     }
 
-    fun loadImages(fragment: Fragment, itemView: View, images: List<Image>, imagePaint: NamePaint?, userName: String?, userNameStartIndex: Int?, backgroundColor: Int, imageLibrary: String?, builder: SpannableStringBuilder, emoteQuality: String, animateGifs: Boolean, isCurrent: () -> Boolean = { true }, shouldAnimate: () -> Boolean = { true }, requestBag: ImageRequestBag? = null, shouldLoad: () -> Boolean = { true }, onLoadDeferred: () -> Unit = {}) {
-        // During a fling the placeholder layout is sufficient. Deferring every request, including
-        // static badges and name paints, prevents decode/cache work from competing with scrolling.
-        if (!shouldLoad()) {
-            if (imagePaint != null || images.isNotEmpty()) onLoadDeferred()
-            return
-        }
+    fun loadImages(fragment: Fragment, itemView: View, images: List<Image>, imagePaint: NamePaint?, userName: String?, userNameStartIndex: Int?, backgroundColor: Int, imageLibrary: String?, builder: SpannableStringBuilder, emoteQuality: String, animateGifs: Boolean, isCurrent: () -> Boolean = { true }, shouldAnimate: () -> Boolean = { true }, requestBag: ImageRequestBag? = null, emoteSize: Int = 1, badgeSize: Int = 1, inlineIconSize: Int = 1) {
         if (imagePaint != null) {
             if (imageLibrary == "0") {
                 val disposable = fragment.requireContext().imageLoader.enqueue(
                     ImageRequest.Builder(fragment.requireContext()).apply {
                         data(imagePaint.imageUrl)
+                        crossfade(false)
                         httpHeaders(NetworkHeaders.Builder().apply {
                             add("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                         }.build())
@@ -1012,12 +1121,14 @@ object ChatAdapterUtils {
                 requestManager
                     .load(GlideUrl(imagePaint.imageUrl) { mapOf("User-Agent" to "Xtra/" + BuildConfig.VERSION_NAME) })
                     .diskCacheStrategy(DiskCacheStrategy.DATA)
+                    .dontAnimate()
                     .into(target)
                 requestBag?.addClearer { requestManager.clear(target) }
             }
         }
         images.forEach { image ->
-            loadImage(imageLibrary, fragment, image, emoteQuality, requestBag) imageLoaded@{ result ->
+            val geometry = imageGeometry(image, imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize))
+            loadImage(imageLibrary, fragment, image, emoteQuality, requestBag, imageLoaded@{ result ->
                 if (!isCurrent()) return@imageLoaded
                 if (result is Animatable && image.isAnimated && animateGifs) {
                     result.callback = object : Drawable.Callback {
@@ -1037,21 +1148,18 @@ object ChatAdapterUtils {
                 }
                 if (image.overlayEmote != null) {
                     val drawables = arrayOf(result)
-                    nextOverlayEmote(imageLibrary, fragment, drawables, image.overlayEmote!!, image, itemView, builder, emoteQuality, animateGifs, isCurrent, shouldAnimate, requestBag, shouldLoad, onLoadDeferred)
+                    nextOverlayEmote(imageLibrary, fragment, drawables, image.overlayEmote!!, image, itemView, builder, emoteQuality, animateGifs, isCurrent, shouldAnimate, requestBag, emoteSize, badgeSize, inlineIconSize)
                 } else {
                     builder.getSpans(image.start, image.end, CenteredImageSpan::class.java).firstOrNull()?.imageDrawable = result
                     itemView.invalidate()
                 }
-            }
+            }, geometry.widthPx, geometry.heightPx)
         }
     }
 
-    private fun nextOverlayEmote(imageLibrary: String?, fragment: Fragment, drawables: Array<Drawable>, image: Image, bottomImage: Image, itemView: View, builder: SpannableStringBuilder, emoteQuality: String, animateGifs: Boolean, isCurrent: () -> Boolean, shouldAnimate: () -> Boolean, requestBag: ImageRequestBag?, shouldLoad: () -> Boolean, onLoadDeferred: () -> Unit) {
-        if (!shouldLoad()) {
-            onLoadDeferred()
-            return
-        }
-        loadImage(imageLibrary, fragment, image, emoteQuality, requestBag) overlayLoaded@{ result ->
+    private fun nextOverlayEmote(imageLibrary: String?, fragment: Fragment, drawables: Array<Drawable>, image: Image, bottomImage: Image, itemView: View, builder: SpannableStringBuilder, emoteQuality: String, animateGifs: Boolean, isCurrent: () -> Boolean, shouldAnimate: () -> Boolean, requestBag: ImageRequestBag?, emoteSize: Int, badgeSize: Int, inlineIconSize: Int) {
+        val geometry = imageGeometry(image, imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize))
+        loadImage(imageLibrary, fragment, image, emoteQuality, requestBag, overlayLoaded@{ result ->
             if (!isCurrent()) return@overlayLoaded
             if (result is Animatable && image.isAnimated && animateGifs) {
                 result.callback = object : Drawable.Callback {
@@ -1071,35 +1179,35 @@ object ChatAdapterUtils {
             }
             val array = drawables.plus(result)
             if (image.overlayEmote != null) {
-                nextOverlayEmote(imageLibrary, fragment, array, image.overlayEmote!!, bottomImage, itemView, builder, emoteQuality, animateGifs, isCurrent, shouldAnimate, requestBag, shouldLoad, onLoadDeferred)
+                nextOverlayEmote(imageLibrary, fragment, array, image.overlayEmote!!, bottomImage, itemView, builder, emoteQuality, animateGifs, isCurrent, shouldAnimate, requestBag, emoteSize, badgeSize, inlineIconSize)
             } else {
                 val layer = LayerDrawable(array)
                 builder.getSpans(bottomImage.start, bottomImage.end, CenteredImageSpan::class.java).firstOrNull()?.imageDrawable = layer
                 itemView.invalidate()
             }
-        }
+        }, geometry.widthPx, geometry.heightPx)
     }
 
-    private fun loadImage(imageLibrary: String?, fragment: Fragment, image: Image, emoteQuality: String, requestBag: ImageRequestBag?, onLoaded: (Drawable) -> Unit) {
+    private fun loadImage(imageLibrary: String?, fragment: Fragment, image: Image, emoteQuality: String, requestBag: ImageRequestBag?, onLoaded: (Drawable) -> Unit, widthPx: Int? = null, heightPx: Int? = null) {
         if (image.localData == null && image.localDataUrl != null && image.localDataRange != null) {
             val context = fragment.requireContext()
             val range = image.localDataRange
             getCachedLocalEmote(image.localDataUrl, range)?.let { bytes ->
-                loadImage(imageLibrary, fragment, image.withLocalData(bytes), emoteQuality, requestBag, onLoaded)
+                loadImage(imageLibrary, fragment, image.withLocalData(bytes), emoteQuality, requestBag, onLoaded, widthPx, heightPx)
                 return
             }
             val job = fragment.viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                 val bytes = readLocalEmote(context, image.localDataUrl, range)
                 cacheLocalEmote(image.localDataUrl, range, bytes)
-                withContext(Dispatchers.Main.immediate) { loadImage(imageLibrary, fragment, image.withLocalData(bytes), emoteQuality, requestBag, onLoaded) }
+                withContext(Dispatchers.Main.immediate) { loadImage(imageLibrary, fragment, image.withLocalData(bytes), emoteQuality, requestBag, onLoaded, widthPx, heightPx) }
             }
             requestBag?.add(job)
             return
         }
         if (imageLibrary == "0" || (imageLibrary == "1" && !image.format.equals("webp", true))) {
-            loadCoil(fragment, image, emoteQuality, requestBag, onLoaded)
+            loadCoil(fragment, image, emoteQuality, requestBag, widthPx, heightPx, onLoaded)
         } else {
-            loadGlide(fragment, image, emoteQuality, requestBag, onLoaded)
+            loadGlide(fragment, image, emoteQuality, requestBag, widthPx, heightPx, onLoaded)
         }
     }
 
@@ -1154,55 +1262,115 @@ object ChatAdapterUtils {
         }
     }
 
-    private fun loadCoil(fragment: Fragment, image: Image, emoteQuality: String, requestBag: ImageRequestBag?, onLoaded: (Drawable) -> Unit) {
-        val disposable = fragment.requireContext().imageLoader.enqueue(
-            ImageRequest.Builder(fragment.requireContext()).apply {
-                data(image.localData ?: when (emoteQuality) {
-                    "4" -> image.url4x ?: image.url3x ?: image.url2x ?: image.url1x
-                    "3" -> image.url3x ?: image.url2x ?: image.url1x
-                    "2" -> image.url2x ?: image.url1x
-                    else -> image.url1x
-                })
-                image.localDataUrl?.let { source ->
-                    image.localDataRange?.let { range ->
-                        memoryCacheKey("xtra:chat-local-emote:$source:${range.first}:${range.second}:$emoteQuality")
-                    }
-                }
-                diskCachePolicy(CachePolicy.ENABLED)
-                if (image.thirdParty) {
-                    httpHeaders(NetworkHeaders.Builder().apply {
-                        add("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                    }.build())
-                }
+    private fun loadCoil(fragment: Fragment, image: Image, emoteQuality: String, requestBag: ImageRequestBag?, widthPx: Int?, heightPx: Int?, onLoaded: (Drawable) -> Unit) {
+        val context = fragment.requireContext()
+        val data = imageData(image, emoteQuality) ?: return
+        val sourceKey = stableImageSourceKey(image, emoteQuality)
+        val disposable = context.imageLoader.enqueue(
+            chatImageRequest(
+                context,
+                image,
+                data,
+                widthPx,
+                heightPx,
+                imageMemoryCacheKey(sourceKey, widthPx ?: 0, heightPx ?: 0),
+                sourceKey,
+            ).apply {
                 target(
                     onSuccess = {
                         onLoaded((it.asDrawable(fragment.resources)))
                     },
                 )
-            }.build()
+            }.build(),
         )
         requestBag?.add(disposable)
     }
 
-    private fun loadGlide(fragment: Fragment, image: Image, emoteQuality: String, requestBag: ImageRequestBag?, onLoaded: (Drawable) -> Unit) {
+    private fun loadGlide(fragment: Fragment, image: Image, emoteQuality: String, requestBag: ImageRequestBag?, widthPx: Int?, heightPx: Int?, onLoaded: (Drawable) -> Unit) {
+        val data = imageData(image, emoteQuality) ?: return
         val requestManager = Glide.with(fragment)
         val target = object : CustomTarget<Drawable>() {
             override fun onResourceReady(resource: Drawable, transition: Transition<in Drawable>?) { onLoaded(resource) }
             override fun onLoadCleared(placeholder: Drawable?) {}
         }
         requestManager
-            .load(image.localData ?: when (emoteQuality) {
-                "4" -> image.url4x ?: image.url3x ?: image.url2x ?: image.url1x
-                "3" -> image.url3x ?: image.url2x ?: image.url1x
-                "2" -> image.url2x ?: image.url1x
-                else -> image.url1x
-            }.let {
-                if (image.thirdParty) {
-                    GlideUrl(it) { mapOf("User-Agent" to "Xtra/" + BuildConfig.VERSION_NAME) }
-                } else it
-            })
+            .load(glideImageModel(image, data))
             .diskCacheStrategy(DiskCacheStrategy.DATA)
+            .dontAnimate()
+            .override(widthPx ?: com.bumptech.glide.request.target.Target.SIZE_ORIGINAL, heightPx ?: com.bumptech.glide.request.target.Target.SIZE_ORIGINAL)
             .into(target)
         requestBag?.addClearer { requestManager.clear(target) }
+    }
+
+    private fun imageData(image: Image, emoteQuality: String): Any? = image.localData ?: when (emoteQuality) {
+        "4" -> image.url4x ?: image.url3x ?: image.url2x ?: image.url1x
+        "3" -> image.url3x ?: image.url2x ?: image.url1x
+        "2" -> image.url2x ?: image.url1x
+        else -> image.url1x
+    }
+
+    internal fun glideImageModel(image: Image, data: Any): Any = if (image.thirdParty && data is String) {
+        GlideUrl(data) { mapOf("User-Agent" to "Xtra/" + BuildConfig.VERSION_NAME) }
+    } else {
+        data
+    }
+
+    internal fun byteArraySourceKey(data: ByteArray): String =
+        "bytes:${data.size}:${sha256Hex(data)}"
+
+    private fun sha256Hex(data: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(data)
+        val hex = CharArray(digest.size * 2)
+        val digits = "0123456789abcdef"
+        digest.forEachIndexed { index, byte ->
+            val value = byte.toInt() and 0xff
+            hex[index * 2] = digits[value ushr 4]
+            hex[index * 2 + 1] = digits[value and 0x0f]
+        }
+        return String(hex)
+    }
+
+    private fun stableImageSourceKey(image: Image, emoteQuality: String): String {
+        val localSource = image.localDataUrl?.let { url ->
+            image.localDataRange?.let { range -> "local:$url:${range.first}:${range.second}" }
+        }
+        if (localSource != null) return localSource
+
+        return when (val data = imageData(image, emoteQuality)) {
+            is String -> "url:$data"
+            is ByteArray -> byteArraySourceKey(data)
+            null -> "missing"
+            else -> "data:${data::class.java.name}:${data.hashCode()}"
+        }
+    }
+
+    private fun imageMemoryCacheKey(sourceKey: String, widthPx: Int, heightPx: Int): String =
+        "xtra:chat-image:$sourceKey:${widthPx}x$heightPx"
+
+    private fun prefetchRequestKey(usesCoil: Boolean, sourceKey: String, widthPx: Int, heightPx: Int): String =
+        "${if (usesCoil) "coil" else "glide"}:$sourceKey:${widthPx}x$heightPx"
+
+    private fun chatImageRequest(
+        context: Context,
+        image: Image,
+        data: Any,
+        widthPx: Int?,
+        heightPx: Int?,
+        memoryKey: String,
+        sourceKey: String,
+    ): ImageRequest.Builder = ImageRequest.Builder(context).apply {
+        data(data)
+        if (widthPx != null && heightPx != null) size(widthPx, heightPx)
+        memoryCacheKey(memoryKey)
+        diskCacheKey(sourceKey)
+        memoryCachePolicy(CachePolicy.ENABLED)
+        diskCachePolicy(CachePolicy.ENABLED)
+        networkCachePolicy(CachePolicy.ENABLED)
+        crossfade(false)
+        if (image.thirdParty) {
+            httpHeaders(NetworkHeaders.Builder().apply {
+                add("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
+            }.build())
+        }
     }
 }
