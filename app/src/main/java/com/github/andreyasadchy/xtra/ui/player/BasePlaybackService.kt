@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.player
 
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.github.andreyasadchy.xtra.XtraModule
@@ -12,13 +13,12 @@ import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.model.stats.mergeViewingCategoryPatch
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 
 abstract class BasePlaybackService : LifecycleService() {
@@ -93,8 +93,31 @@ abstract class BasePlaybackService : LifecycleService() {
     var loaded = false
 
     protected suspend fun restorePlaybackState() {
-        val savedState = xtraModule.playbackPersistence.takePlaybackState()
+        val savedState = try {
+            xtraModule.playbackPersistence.takePlaybackState()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(
+                "PlaybackRestore",
+                "Unable to consume persisted playback state; starting without restore",
+                e,
+            )
+            return
+        }
+
         if (savedState != null) {
+            val restoredQualities = decodeRestoredQualities(savedState.qualities)
+            val decodedQuality = decodeRestoredQuality(savedState.quality, "quality")
+            val decodedPreviousQuality =
+                decodeRestoredQuality(savedState.previousQuality, "previous quality")
+            // A quality without the list it belongs to can point at a stale VOD
+            // or stream URL. Let the normal manifest/default-quality path choose
+            // instead of combining fields from different playback sessions.
+            val restoredQuality = selectRestoredQuality(restoredQualities, decodedQuality)
+            val restoredPreviousQuality =
+                selectRestoredQuality(restoredQualities, decodedPreviousQuality)
+
             type = savedState.type
             streamId = savedState.streamId
             videoId = savedState.videoId
@@ -119,20 +142,34 @@ abstract class BasePlaybackService : LifecycleService() {
             videoUrl = savedState.videoUrl
             savedPosition = savedState.position
             paused = savedState.paused
-            qualities = savedState.qualities?.let { qualities ->
-                xtraModule.json.decodeFromString<JsonArray>(qualities).map {
-                    xtraModule.json.decodeFromJsonElement<VideoQuality>(it)
-                }
-            }
-            quality = savedState.quality?.let { xtraModule.json.decodeFromString(it) }
-            previousQuality = savedState.previousQuality?.let { xtraModule.json.decodeFromString(it) }
-            restoreQuality = savedState.restoreQuality
+            qualities = restoredQualities
+            quality = restoredQuality
+            previousQuality = restoredPreviousQuality
+            restoreQuality = savedState.restoreQuality && restoredPreviousQuality != null
             playlistUrl = savedState.playlistUrl
             restorePlaylist = savedState.restorePlaylist
             useCustomProxy = savedState.useCustomProxy
             skipAccessToken = savedState.skipAccessToken
         }
     }
+
+    private fun decodeRestoredQualities(encoded: String?): List<VideoQuality>? =
+        decodePlaybackQualities(xtraModule.json, encoded) { error ->
+            Log.w(
+                "PlaybackRestore",
+                "Ignoring invalid persisted playback qualities",
+                error,
+            )
+        }
+
+    private fun decodeRestoredQuality(encoded: String?, fieldName: String): VideoQuality? =
+        decodePlaybackQuality(xtraModule.json, encoded) { error ->
+            Log.w(
+                "PlaybackRestore",
+                "Ignoring invalid persisted playback $fieldName",
+                error,
+            )
+        }
 
     protected fun savePlaybackState(position: Long?, paused: Boolean) {
         val item = PlaybackState(

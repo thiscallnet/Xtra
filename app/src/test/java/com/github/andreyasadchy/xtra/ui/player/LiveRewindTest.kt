@@ -268,6 +268,39 @@ class LiveRewindTest {
     }
 
     @Test
+    fun failedTransitionRestoresThePhysicalSourceThatExistedBeforeTheAttempt() {
+        val previousSource = "live-playlist"
+        var physicalSource = previousSource
+        physicalSource = "rewind-playlist"
+
+        val restored = try {
+            error("prepare failed after installing the rewind source")
+        } catch (_: Exception) {
+            restorePreviousLiveRewindSource(previousSource, { source ->
+                physicalSource = source
+                true
+            }, onRestoreFailure = { error("unexpected restore failure") })
+        }
+
+        assertTrue(restored)
+        assertEquals(previousSource, physicalSource)
+    }
+
+    @Test
+    fun failedSourceRestoreStopsTheTransitionSafely() {
+        var stopped = false
+
+        val restored = restorePreviousLiveRewindSource(
+            previousSource = "live-playlist",
+            restore = { false },
+            onRestoreFailure = { stopped = true },
+        )
+
+        assertFalse(restored)
+        assertTrue(stopped)
+    }
+
+    @Test
     fun rewindTimelineUsesLiveEdgeLiveAndCurrentPositionWhenRewound() {
         assertEquals(600_000L, liveRewindTimelinePositionMs(LivePlaybackMode.Live, 600_000L, 120_000L, null))
         assertEquals(120_000L, liveRewindTimelinePositionMs(LivePlaybackMode.Rewound("vod"), 600_000L, 120_000L, null))

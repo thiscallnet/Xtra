@@ -98,6 +98,7 @@ class Media3Fragment : Media3PlayerFragment() {
                 SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT,
             )
         }
+        logVideoSurfaceBinding("on_view_created", player, binding.playerSurface)
     }
 
     override fun onViewingMetadataChanged(title: String?, gameId: String?, gameName: String?) {
@@ -122,6 +123,7 @@ class Media3Fragment : Media3PlayerFragment() {
 
     override fun onStart() {
         super.onStart()
+        logVideoSurfaceBinding("on_start", player, binding.playerSurface)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         val future = MediaController.Builder(
             requireContext(),
@@ -141,6 +143,7 @@ class Media3Fragment : Media3PlayerFragment() {
                 MediaController.releaseFuture(future)
                 return@addListener
             }
+            logVideoSurfaceBinding("controller_connected", controller, binding.playerSurface)
             val listener = object : Player.Listener {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
@@ -1391,6 +1394,7 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     override fun onStop() {
+        logVideoSurfaceBinding("on_stop", player, view?.findViewById(R.id.playerSurface))
         super.onStop()
         val isInPIPMode = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> requireActivity().isInPictureInPictureMode
@@ -1461,6 +1465,7 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     override fun onDestroyView() {
+        logVideoSurfaceBinding("on_destroy_view", player, view?.findViewById(R.id.playerSurface))
         detachVideoOutput()
         super.onDestroyView()
     }

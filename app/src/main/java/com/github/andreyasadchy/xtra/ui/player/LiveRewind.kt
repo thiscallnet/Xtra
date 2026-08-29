@@ -82,6 +82,16 @@ fun canUseLiveClipSource(
 fun isCurrentLiveClipSource(expectedMediaId: String?, actualMediaId: String?): Boolean =
     expectedMediaId != null && expectedMediaId == actualMediaId
 
+internal fun <T> restorePreviousLiveRewindSource(
+    previousSource: T,
+    restore: (T) -> Boolean,
+    onRestoreFailure: () -> Unit,
+): Boolean {
+    val restored = restore(previousSource)
+    if (!restored) onRestoreFailure()
+    return restored
+}
+
 fun shouldMarkLiveStreamOffline(
     statusKnown: Boolean,
     streamWasLive: Boolean,

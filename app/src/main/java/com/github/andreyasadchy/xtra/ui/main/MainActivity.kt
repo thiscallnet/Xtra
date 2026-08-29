@@ -1282,10 +1282,12 @@ class MainActivity : AppCompatActivity() {
 
     fun closePlayer() {
         onPlayerReturnedToBrowsing(playerStillOpen = false)
-        supportFragmentManager.beginTransaction()
-            .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
-            .remove(supportFragmentManager.findFragmentById(R.id.playerContainer)!!)
-            .commit()
+        supportFragmentManager.findFragmentById(R.id.playerContainer)?.let { player ->
+            supportFragmentManager.beginTransaction()
+                .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
+                .remove(player)
+                .commit()
+        }
         playerFragment = null
         viewModel.isPlayerOpened = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {

@@ -1133,9 +1133,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     fun enterVideoReplay(videoId: String, createdAt: String?, positionMs: Long) {
         val args = requireArguments()
+        val alreadyInReplay = !shouldCaptureReplayComposerState(viewModel.activeChatMode)
         _binding?.let {
-            messageViewWasVisibleBeforeReplay = it.messageView.isVisible
-            messagingEnabledBeforeReplay = messagingEnabled
+            if (!alreadyInReplay) {
+                messageViewWasVisibleBeforeReplay = it.messageView.isVisible
+                messagingEnabledBeforeReplay = messagingEnabled
+            }
             it.messageView.isVisible = false
             it.editText.clearFocus()
             toggleEmoteMenu(false)
@@ -2166,5 +2169,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
     }
 }
+
+internal fun shouldCaptureReplayComposerState(mode: ChatViewModel.ActiveChatMode): Boolean =
+    mode !is ChatViewModel.ActiveChatMode.VideoReplay
 
 

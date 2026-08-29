@@ -10,6 +10,7 @@ import android.text.SpannableStringBuilder
 import android.text.TextUtils
 import android.text.method.LinkMovementMethod
 import android.text.style.ImageSpan
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -287,9 +288,18 @@ class ChatAdapter(
         if (holder.isAlreadyBoundTo(chatMessage, cacheKey)) return
         val bindGeneration = holder.beginBind(configuration.revision)
         val cachedResult = cachedRender(cacheKey)
-        val result = checkNotNull(cachedResult) {
-            "Chat message was displayed before its render plan was prepared"
-        }.copyForBind()
+        val result = selectRenderResultForBind(cachedResult) {
+            Log.w(
+                "ChatAdapter",
+                "Render cache miss during bind: position=$position revision=${configuration.revision}",
+            )
+            ensureRenderScheduled(
+                chatMessage = chatMessage,
+                cacheKey = cacheKey,
+                configuration = configuration,
+            )
+            fastFallback(chatMessage)
+        }
         ChatAdapterUtils.installImagePlaceholders(
             result.builder,
             result.images,
@@ -753,6 +763,30 @@ class ChatAdapter(
         renderCache[key]
     }
 
+    private fun ensureRenderScheduled(
+        chatMessage: ChatMessage,
+        cacheKey: RenderCacheKey,
+        configuration: ChatRenderConfiguration,
+    ) {
+        val context = fragment.context ?: return
+
+        renderScope.launch {
+            try {
+                enqueueRender(
+                    chatMessage = chatMessage,
+                    cacheKey = cacheKey,
+                    context = context,
+                    configuration = configuration,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // The row is already displaying fastFallback(). A render failure
+                // must not turn a cache miss into a process crash.
+            }
+        }
+    }
+
     private fun stableIdFor(message: ChatMessage): Long {
         val explicitId = message.id?.trim()?.takeIf { it.isNotEmpty() }
         if (explicitId != null) {
@@ -856,6 +890,7 @@ class ChatAdapter(
     private suspend fun renderMessage(request: RenderRequest) {
         val chatMessage = request.message
         val cacheKey = request.cacheKey
+        var waitersCompleted = false
         try {
             if (!isKnownConfiguration(request.configuration)) return
             if (cachedRender(cacheKey) != null) return
@@ -867,25 +902,33 @@ class ChatAdapter(
                 request.cacheKey.translateAllMessages,
                 offMain = true,
             )
-            // Enqueue only. Coil and Glide do the actual network/decode work asynchronously.
-            withContext(Dispatchers.Main.immediate) {
-                ChatAdapterUtils.prefetchImages(
-                    request.context,
-                    prepared.images,
-                    imageLibrary,
-                    emoteQuality,
-                    emoteSize,
-                    badgeSize,
-                    inlineIconSize,
-                    imagePrefetchTracker,
-                )
-            }
             withContext(Dispatchers.Main.immediate) {
                 if (isKnownConfiguration(request.configuration) && currentRenderKey(chatMessage, request.configuration) == cacheKey) {
                     synchronized(renderCache) { renderCache[cacheKey] = prepared }
                     if (isActiveConfiguration(request.configuration) && addPendingRenderedMessage(chatMessage)) {
                         scheduleRenderedFlush()
                     }
+                    completeRenderWaiters(cacheKey)
+                    waitersCompleted = true
+                }
+            }
+            // Enqueue only. Coil and Glide do the actual network/decode work asynchronously.
+            withContext(Dispatchers.Main.immediate) {
+                try {
+                    ChatAdapterUtils.prefetchImages(
+                        request.context,
+                        prepared.images,
+                        imageLibrary,
+                        emoteQuality,
+                        emoteSize,
+                        badgeSize,
+                        inlineIconSize,
+                        imagePrefetchTracker,
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // A valid text/render plan is already available in renderCache.
                 }
             }
         } catch (e: CancellationException) {
@@ -904,7 +947,7 @@ class ChatAdapter(
                 prewarmRenderJobs.remove(cacheKey)
                 visibleRenderJobs.remove(cacheKey)
             }
-            completeRenderWaiters(cacheKey)
+            if (!waitersCompleted) completeRenderWaiters(cacheKey)
         }
     }
 
@@ -1211,3 +1254,8 @@ class ChatAdapter(
         return ChatAdapterUtils.MessageResult(builder, arrayListOf(), null, displayName, null, false, backgroundResource)
     }
 }
+
+internal fun selectRenderResultForBind(
+    cachedResult: ChatAdapterUtils.MessageResult?,
+    fallback: () -> ChatAdapterUtils.MessageResult,
+): ChatAdapterUtils.MessageResult = (cachedResult ?: fallback()).copyForBind()

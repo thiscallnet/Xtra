@@ -44,6 +44,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
@@ -162,6 +163,18 @@ class ExoPlayerService : BasePlaybackService() {
     private var liveClipPreparation: Deferred<ClipPreparationRepository.PreparedLiveClip>? = null
     private var vodClipSnapshot: ClipSnapshot? = null
     private var vodClipPreparation: Deferred<ClipPreparationRepository.PreparedLiveClip>? = null
+
+    private data class PlaybackSourceSnapshot(
+        val sourceUrl: String,
+        val dataSourceFactory: DataSource.Factory,
+        val mediaItem: MediaItem?,
+        val liveClipSourceMediaId: String?,
+        val positionMs: Long,
+        val playWhenReady: Boolean,
+        val volume: Float,
+        val playbackSpeed: Float,
+        val trackSelectionParameters: TrackSelectionParameters,
+    )
 
     override fun isViewingPlaybackPlaying(): Boolean = player?.isPlaying == true
 
@@ -1003,6 +1016,8 @@ class ExoPlayerService : BasePlaybackService() {
                             proxyUser = prefs().getString(C.PROXY_USER, null),
                             proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
                         )
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         null
                     }
@@ -1297,15 +1312,25 @@ class ExoPlayerService : BasePlaybackService() {
 
     suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean = liveRewindTransitionMutex.withLock {
         val player = player ?: return@withLock false
+        val oldSource = snapshotPlaybackSource(player, playlistUrl, hlsClipDataSourceFactory)
+            ?: return@withLock false
         val oldVideoId = videoId
         val oldPlaylistUrl = playlistUrl
         val oldHlsClipDataSourceFactory = hlsClipDataSourceFactory
         val oldQualities = qualities
         val oldQuality = quality
         val oldBackupQualities = backupQualities
+        val oldUseCustomProxy = useCustomProxy
         val oldSavedPosition = savedPosition
         val oldLiveRewindPositionOverride = liveRewindPositionOverride
         val oldPaused = paused
+        val oldUsingAlternateStream = usingAlternateStream
+        val oldPlayingAds = playingAds
+        val oldProxyMediaPlaylist = proxyMediaPlaylist
+        val oldStopProxy = stopProxy
+        val oldHidden = hidden
+        val oldUpdateQualities = updateQualities
+        val oldLiveClipSourceMediaId = liveClipSourceMediaId
         val wasPlaying = player.playWhenReady
         beginLiveRewindTransition()
         cancelLiveClipPreparation()
@@ -1336,6 +1361,16 @@ class ExoPlayerService : BasePlaybackService() {
                     qualities = oldQualities
                     quality = oldQuality
                     backupQualities = oldBackupQualities
+                    useCustomProxy = oldUseCustomProxy
+                    usingAlternateStream = oldUsingAlternateStream
+                    playingAds = oldPlayingAds
+                    proxyMediaPlaylist = oldProxyMediaPlaylist
+                    stopProxy = oldStopProxy
+                    hidden = oldHidden
+                    updateQualities = oldUpdateQualities
+                    liveClipSourceMediaId = oldLiveClipSourceMediaId
+                    clearLiveRewindState()
+                    restorePreviousLiveRewindSource(oldSource, ::restorePlaybackSource, player::stop)
                 } else {
                     liveClipBufferManager.reset()
                 }
@@ -1348,17 +1383,28 @@ class ExoPlayerService : BasePlaybackService() {
                     clearLiveRewindState()
                 }
                 loaded
-            } catch (_: Exception) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
                 videoId = oldVideoId
                 playlistUrl = oldPlaylistUrl
                 hlsClipDataSourceFactory = oldHlsClipDataSourceFactory
                 qualities = oldQualities
                 quality = oldQuality
                 backupQualities = oldBackupQualities
+                useCustomProxy = oldUseCustomProxy
                 savedPosition = oldSavedPosition
                 liveRewindPositionOverride = oldLiveRewindPositionOverride
                 paused = oldPaused
+                usingAlternateStream = oldUsingAlternateStream
+                playingAds = oldPlayingAds
+                proxyMediaPlaylist = oldProxyMediaPlaylist
+                stopProxy = oldStopProxy
+                hidden = oldHidden
+                updateQualities = oldUpdateQualities
+                liveClipSourceMediaId = oldLiveClipSourceMediaId
                 clearLiveRewindState()
+                restorePreviousLiveRewindSource(oldSource, ::restorePlaybackSource, player::stop)
                 false
             }
         } finally {
@@ -1368,6 +1414,8 @@ class ExoPlayerService : BasePlaybackService() {
 
     suspend fun returnToLivePlayback(): Boolean = liveRewindTransitionMutex.withLock {
         val player = player ?: return@withLock false
+        val oldSource = snapshotPlaybackSource(player, playlistUrl, hlsClipDataSourceFactory)
+            ?: return@withLock false
         val wasPlaying = player.playWhenReady
         val rewindVodId = liveRewindVodId
         val oldPlaylistUrl = playlistUrl
@@ -1375,6 +1423,14 @@ class ExoPlayerService : BasePlaybackService() {
         val oldQualities = qualities
         val oldQuality = quality
         val oldBackupQualities = backupQualities
+        val oldUseCustomProxy = useCustomProxy
+        val oldUsingAlternateStream = usingAlternateStream
+        val oldPlayingAds = playingAds
+        val oldProxyMediaPlaylist = proxyMediaPlaylist
+        val oldStopProxy = stopProxy
+        val oldHidden = hidden
+        val oldUpdateQualities = updateQualities
+        val oldLiveClipSourceMediaId = liveClipSourceMediaId
         beginLiveRewindTransition()
         cancelLiveClipPreparation()
         playlistUrl = null
@@ -1385,6 +1441,8 @@ class ExoPlayerService : BasePlaybackService() {
             val success = try {
                 loadStream(restorePauseState = false, restart = true)
                 !playlistUrl.isNullOrBlank() && player.currentMediaItem != null
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
                 false
             }
@@ -1396,12 +1454,70 @@ class ExoPlayerService : BasePlaybackService() {
                 qualities = oldQualities
                 quality = oldQuality
                 backupQualities = oldBackupQualities
+                useCustomProxy = oldUseCustomProxy
+                usingAlternateStream = oldUsingAlternateStream
+                playingAds = oldPlayingAds
+                proxyMediaPlaylist = oldProxyMediaPlaylist
+                stopProxy = oldStopProxy
+                hidden = oldHidden
+                updateQualities = oldUpdateQualities
+                liveClipSourceMediaId = oldLiveClipSourceMediaId
                 (rewindVodId ?: videoId)?.let(::markLiveRewindActive)
+                restorePreviousLiveRewindSource(oldSource, ::restorePlaybackSource, player::stop)
             }
-            player.playWhenReady = wasPlaying
+            if (success) player.playWhenReady = wasPlaying
             success
         } finally {
             finishLiveRewindTransition()
+        }
+    }
+
+    private fun snapshotPlaybackSource(
+        player: ExoPlayer,
+        playlistUrl: String?,
+        dataSourceFactory: DataSource.Factory?,
+    ): PlaybackSourceSnapshot? {
+        val factory = dataSourceFactory ?: return null
+        val mediaItem = player.currentMediaItem
+        val sourceUrl = mediaItem?.localConfiguration?.uri?.toString() ?: playlistUrl ?: return null
+        return PlaybackSourceSnapshot(
+            sourceUrl = sourceUrl,
+            dataSourceFactory = factory,
+            mediaItem = mediaItem,
+            liveClipSourceMediaId = liveClipSourceMediaId,
+            positionMs = player.currentPosition,
+            playWhenReady = player.playWhenReady,
+            volume = player.volume,
+            playbackSpeed = player.playbackParameters.speed,
+            trackSelectionParameters = player.trackSelectionParameters,
+        )
+    }
+
+    private fun restorePlaybackSource(snapshot: PlaybackSourceSnapshot?): Boolean {
+        val player = player ?: return false
+        val sourceUrl = snapshot?.sourceUrl ?: return false
+        return try {
+            val mediaItem = (snapshot.mediaItem ?: MediaItem.Builder().setUri(sourceUrl.toUri()).build())
+                .buildUpon()
+                .setUri(sourceUrl.toUri())
+                .build()
+            player.setMediaSource(
+                HlsMediaSource.Factory(snapshot.dataSourceFactory)
+                    .apply { setPlaylistParserFactory(CustomHlsPlaylistParserFactory()) }
+                    .createMediaSource(mediaItem),
+            )
+            player.trackSelectionParameters = snapshot.trackSelectionParameters
+            player.volume = snapshot.volume
+            player.setPlaybackSpeed(snapshot.playbackSpeed)
+            player.prepare()
+            player.seekTo(snapshot.positionMs)
+            player.playWhenReady = snapshot.playWhenReady
+            hlsClipDataSourceFactory = snapshot.dataSourceFactory
+            liveClipSourceMediaId = snapshot.liveClipSourceMediaId
+            true
+        } catch (e: Exception) {
+            Log.e("LiveRewind", "Unable to restore the previous playback source", e)
+            false
         }
     }
 
@@ -1422,6 +1538,8 @@ class ExoPlayerService : BasePlaybackService() {
                         playerType = prefs().getString(C.TOKEN_PLAYER_TYPE_VIDEO, "channel_home_live"),
                         supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
                     )
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     null
                 }

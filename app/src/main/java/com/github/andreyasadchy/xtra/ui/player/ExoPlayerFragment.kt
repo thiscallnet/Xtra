@@ -116,6 +116,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                 SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT,
             )
         }
+        logVideoSurfaceBinding("on_view_created", playbackService?.player, binding.playerSurface)
         childFragmentManager.setFragmentResultListener(
             ClipEditorDialogFragment.RESULT_KEY,
             viewLifecycleOwner,
@@ -138,6 +139,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
     override fun onStart() {
         super.onStart()
+        logVideoSurfaceBinding("on_start", playbackService?.player, binding.playerSurface)
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
@@ -392,6 +394,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                 if (view != null) {
                     val binder = service as ExoPlayerService.ServiceBinder
                     val connectedService = binder.getService()
+                    logVideoSurfaceBinding("service_connected", connectedService.player, binding.playerSurface)
                     val connectedServiceConnection = this
                     playbackService = connectedService
                     serviceSetupJob?.cancel()
@@ -1027,6 +1030,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
     }
 
     override fun onStop() {
+        logVideoSurfaceBinding("on_stop", playbackService?.player, view?.findViewById(R.id.playerSurface))
         serviceSetupJob?.cancel()
         serviceSetupJob = null
         super.onStop()
@@ -1069,6 +1073,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
     }
 
     override fun onDestroyView() {
+        logVideoSurfaceBinding("on_destroy_view", playbackService?.player, view?.findViewById(R.id.playerSurface))
         detachVideoOutput()
         clipDebug("parent editor view destroyed")
         serviceSetupJob?.cancel()
