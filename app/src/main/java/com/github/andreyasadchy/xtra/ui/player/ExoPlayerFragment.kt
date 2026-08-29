@@ -530,6 +530,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
     private fun refreshClipAvailability() {
         if (view == null) return
+        refreshClipControl()
         val service = playbackService
         setLiveClipAvailability(
             when (service?.type) {
