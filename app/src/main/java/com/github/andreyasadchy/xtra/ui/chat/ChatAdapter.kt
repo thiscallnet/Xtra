@@ -350,6 +350,14 @@ class ChatAdapter(
         }
     }
 
+    fun replaceMessages(replacement: List<ChatMessage>) {
+        pendingRenderedMessages.clear()
+        messages.clear()
+        messages.addAll(replacement)
+        replacement.forEach(::stableIdFor)
+        notifyDataSetChanged()
+    }
+
     fun prependMessages(incoming: List<ChatMessage>) {
         if (incoming.isEmpty()) return
         messages.addAll(0, incoming)

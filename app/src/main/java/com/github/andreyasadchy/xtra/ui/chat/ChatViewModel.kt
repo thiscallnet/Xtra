@@ -98,6 +98,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -376,7 +377,10 @@ class ChatViewModel(
     val reloadMessages = MutableStateFlow(false)
     val hideRaid = MutableStateFlow(false)
 
-    private val chatMutationEvents = Channel<ChatMutation>(Channel.UNLIMITED)
+    private val chatMutationEvents = Channel<ChatMutation>(
+        capacity = 128,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     val chatMutations: Flow<ChatMutation> = chatMutationEvents.receiveAsFlow()
     val updateUserMessages = MutableSharedFlow<String>()
     val userEmotesUpdated = MutableSharedFlow<Unit>()
