@@ -90,6 +90,7 @@ class EmotesFragment : Fragment() {
                         super.onSelectedChanged(viewHolder, actionState)
                         if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
                             favoriteDragActive = true
+                            viewHolder?.let { adapter.setDragging(it, true) }
                         }
                     }
 
@@ -108,6 +109,7 @@ class EmotesFragment : Fragment() {
 
                     override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
                         super.clearView(recyclerView, viewHolder)
+                        adapter.setDragging(viewHolder, false)
                         val orderChanged = viewModel.reorderFavorites(adapter.currentItems())
                         favoriteDragActive = false
                         pendingFavoriteItemsToApply(pendingFavoriteItems, orderChanged)?.let { pendingItems ->
@@ -118,6 +120,8 @@ class EmotesFragment : Fragment() {
                     }
 
                     override fun isLongPressDragEnabled(): Boolean = false
+
+                    override fun getMoveThreshold(viewHolder: RecyclerView.ViewHolder): Float = MOVE_THRESHOLD
                 },
             )
         } else {
@@ -289,6 +293,7 @@ class EmotesFragment : Fragment() {
     }
 
     companion object {
+        private const val MOVE_THRESHOLD = 0.60f
         private const val KEY_SECTION = "section"
 
         fun newInstance(section: EmotePickerSection): EmotesFragment {

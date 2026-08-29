@@ -117,6 +117,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.color.MaterialColors
+import com.google.android.material.snackbar.Snackbar
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.common.model.RemoteModelManager
 import com.google.mlkit.nl.translate.TranslateLanguage
@@ -2485,6 +2486,20 @@ class SettingsActivity : AppCompatActivity() {
                     true
                 }
             })
+            if (BuildConfig.DEBUG) {
+                preferenceScreen.addPreference(Preference(requireContext()).apply {
+                    key = "debug_gql"
+                    title = getString(R.string.settings_debug_gql)
+                    setOnPreferenceClickListener {
+                        Snackbar.make(
+                            requireView(),
+                            R.string.settings_debug_only,
+                            Snackbar.LENGTH_SHORT,
+                        ).show()
+                        true
+                    }
+                })
+            }
             findPreference<ListPreference>(C.NETWORK_LIBRARY)?.apply {
                 val supported = buildList {
                     add(C.AUTOMATIC)
