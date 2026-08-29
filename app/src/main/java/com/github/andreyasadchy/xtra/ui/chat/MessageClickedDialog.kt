@@ -190,6 +190,10 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                                 }
                             }
                         } else {
+                            previewUserFromMessage(selectedMessage)?.let { previewUser ->
+                                userCardUser = previewUser
+                                updateUserLayout(previewUser)
+                            }
                             viewModel.loadUser(
                                 channelId = selectedMessage.userId,
                                 channelLogin = selectedMessage.userLogin,
@@ -256,6 +260,17 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                 }
             }
         }
+    }
+
+    private fun previewUserFromMessage(message: ChatMessage): User? {
+        if (message.userId.isNullOrBlank() && message.userLogin.isNullOrBlank() && message.userName.isNullOrBlank()) {
+            return null
+        }
+        return User(
+            id = message.userId,
+            login = message.userLogin,
+            name = message.userName,
+        )
     }
 
     private fun updateButtons(chatMessage: ChatMessage) {

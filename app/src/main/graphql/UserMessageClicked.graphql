@@ -11,7 +11,7 @@ fragment UserMessageClickedUser on User {
         version
         title
         description
-        imageURL(size: NORMAL)
+        imageURL(size: QUADRUPLE)
     }
     relationship(targetUserID: $targetId) {
         subscriptionBenefit {
@@ -44,7 +44,7 @@ query UserMessageClicked($id: ID, $login: String, $targetId: ID, $userLogin: Str
             version
             title
             description
-            imageURL(size: NORMAL)
+            imageURL(size: QUADRUPLE)
         }
     }
 }

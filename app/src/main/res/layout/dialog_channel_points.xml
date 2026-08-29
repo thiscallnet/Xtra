@@ -57,7 +57,7 @@
                 android:layout_width="18dp"
                 android:layout_height="18dp"
                 android:importantForAccessibility="no"
-                android:src="@drawable/ic_channel_points"
+                android:src="@drawable/ic_channel_points_default"
                 app:tint="?attr/colorControlNormal" />
 
             <TextView
