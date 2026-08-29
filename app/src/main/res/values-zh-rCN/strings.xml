@@ -1443,4 +1443,8 @@
     <string name="clip_editor_temporary_space_unknown">Temporary space needed: unavailable</string>
     <string name="clip_editor_insufficient_storage">Not enough free space</string>
     <string name="clip_editor_actual_size">File size: %s</string>
+    <string name="chat_highlight_redeemed">已兑换 %s</string>
+    <string name="chat_highlight_title">突出显示我的消息</string>
+    <string name="chat_watch_streak_reached">达成观看连胜</string>
+    <string name="chat_watch_streak_status">%1$s 当前已连续观看 %2$s 场直播！</string>
 </resources>

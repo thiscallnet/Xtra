@@ -1441,4 +1441,8 @@
     <string name="clip_editor_temporary_space_unknown">Temporary space needed: unavailable</string>
     <string name="clip_editor_insufficient_storage">Not enough free space</string>
     <string name="clip_editor_actual_size">File size: %s</string>
+    <string name="chat_highlight_redeemed">Wykorzystano: %s</string>
+    <string name="chat_highlight_title">Wyróżnij moją wiadomość</string>
+    <string name="chat_watch_streak_reached">Osiągnięto serię oglądania</string>
+    <string name="chat_watch_streak_status">%1$s jest obecnie na serii %2$s transmisji!</string>
 </resources>

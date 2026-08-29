@@ -15,6 +15,7 @@ import android.system.OsConstants
 import android.text.SpannableStringBuilder
 import android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
 import android.text.TextPaint
+import android.text.style.LeadingMarginSpan
 import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
@@ -22,6 +23,7 @@ import android.text.style.URLSpan
 import android.util.Patterns
 import android.view.View
 import android.net.Uri
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -71,6 +73,7 @@ import java.security.MessageDigest
 import java.util.Random
 import kotlin.math.floor
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 object ChatAdapterUtils {
 
@@ -253,7 +256,62 @@ object ChatAdapterUtils {
                 }
                 backgroundResource = 0
             }
-            chatMessage.message.isNullOrBlank() && (chatMessage.systemMsg != null || chatMessage.reward?.title != null) -> {
+            chatMessage.isWatchStreakNotice() -> {
+                val headingColor = getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme)
+                val mutedColor = getSavedColor("#C4BEC9", savedColors, useReadableColors, isLightTheme)
+                val userColor = chatMessage.color?.let { getSavedColor(it, savedColors, useReadableColors, isLightTheme) }
+                    ?: headingColor
+                userName = chatMessage.displayName(nameDisplay)
+                appendSpecialIcon(builder, context, R.drawable.ic_watch_streak, headingColor)
+                builder.append(' ')
+                appendSpecialText(builder, context.getString(R.string.chat_watch_streak_reached), headingColor, bold = true)
+                chatMessage.watchStreakPoints?.let { points ->
+                    builder.append("  ")
+                    appendSpecialIcon(builder, context, R.drawable.ic_chat_channel_points, headingColor)
+                    builder.append(' ')
+                    appendSpecialText(builder, "+${NumberFormat.getInstance().format(points)}", headingColor, bold = true)
+                }
+                builder.append('\n')
+                val streakUser = userName ?: chatMessage.userLogin.orEmpty()
+                val userMarker = "\uE000"
+                val status = context.getString(
+                    R.string.chat_watch_streak_status,
+                    userMarker,
+                    NumberFormat.getInstance().format(chatMessage.watchStreakCount ?: 0),
+                )
+                val markerStart = status.indexOf(userMarker)
+                if (markerStart >= 0) {
+                    appendSpecialText(builder, status.substring(0, markerStart), mutedColor)
+                    appendSpecialText(builder, streakUser, userColor, bold = true)
+                    appendSpecialText(builder, status.substring(markerStart + userMarker.length), mutedColor)
+                } else {
+                    appendSpecialText(builder, streakUser, userColor, bold = true)
+                    appendSpecialText(builder, status, mutedColor)
+                }
+                if (!chatMessage.message.isNullOrBlank()) {
+                    builder.append('\n')
+                    val messageStart = builder.length
+                    builder.append(chatMessage.message)
+                    wasMentioned = prepareEmotes(chatMessage, chatMessage.message, builder, messageStart, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes)
+                    builderIndex = builder.length
+                }
+                if (chatMessage.translatedMessage != null) {
+                    translated = true
+                    builderIndex = addTranslation(chatMessage, builder, builderIndex, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
+                } else if (translateAllMessages) {
+                    translateMessage(chatMessage, null)
+                }
+                builder.setSpan(
+                    LeadingMarginSpan.Standard(dp(context, 30), dp(context, 10)),
+                    0,
+                    builder.length,
+                    SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                backgroundResource = R.drawable.bg_chat_watch_streak
+            }
+            chatMessage.message.isNullOrBlank() &&
+                (chatMessage.systemMsg != null || chatMessage.reward?.title != null) &&
+                !chatMessage.isHighlightedMessage() -> {
                 if (chatMessage.timestamp != null && enableTimestamps) {
                     val timestamp = TwitchApiHelper.getTimestamp(chatMessage.timestamp, timestampFormat)
                     if (timestamp != null) {
@@ -263,8 +321,23 @@ object ChatAdapterUtils {
                     }
                 }
                 if (chatMessage.systemMsg != null) {
-                    builder.append(chatMessage.systemMsg)
-                    builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), builderIndex, builderIndex + chatMessage.systemMsg.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+                    if (chatMessage.isSubscriptionNotice()) {
+                        appendSpecialIcon(builder, context, R.drawable.ic_chat_subscription, getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme))
+                        builder.append(' ')
+                        builderIndex = builder.length
+                    }
+                    val systemStart = builder.length
+                    if (chatMessage.isSubscriptionNotice()) {
+                        appendSubscriptionSystemMessage(
+                            builder,
+                            chatMessage.systemMsg,
+                            getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme),
+                            getSavedColor("#C4BEC9", savedColors, useReadableColors, isLightTheme),
+                        )
+                    } else {
+                        builder.append(chatMessage.systemMsg)
+                        builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), systemStart, builder.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
                     if (showSystemMessageEmotes) {
                         prepareEmotes(chatMessage, chatMessage.systemMsg, builder, builderIndex, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes)
                     }
@@ -279,7 +352,8 @@ object ChatAdapterUtils {
                         }
                     }
                 } else {
-                    if (chatMessage.reward?.title != null) {
+                    val reward = chatMessage.reward
+                    if (reward?.title != null) {
                         val userName = if (chatMessage.userLogin != null && !chatMessage.userLogin.equals(chatMessage.userName, true)) {
                             when (nameDisplay) {
                                 "0" -> "${chatMessage.userName}(${chatMessage.userLogin})"
@@ -289,7 +363,7 @@ object ChatAdapterUtils {
                         } else {
                             chatMessage.userName
                         }
-                        val string = redeemedNoMsg.format(userName, chatMessage.reward.title)
+                        val string = redeemedNoMsg.format(userName, reward.title)
                         builder.append("$string ")
                         builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), builderIndex, builderIndex + string.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                         if (showSystemMessageEmotes) {
@@ -299,16 +373,16 @@ object ChatAdapterUtils {
                         builder.append(". ")
                         builder.setSpan(ForegroundColorSpan(Color.TRANSPARENT), builderIndex, builderIndex + 1, SPAN_EXCLUSIVE_EXCLUSIVE)
                         images.add(Image(
-                            url1x = chatMessage.reward.url1x,
-                            url2x = chatMessage.reward.url2x,
-                            url3x = chatMessage.reward.url4x,
-                            url4x = chatMessage.reward.url4x,
+                            url1x = reward.url1x,
+                            url2x = reward.url2x,
+                            url3x = reward.url4x,
+                            url4x = reward.url4x,
                             kind = ImageKind.INLINE_ICON,
                             start = builderIndex++,
                             end = builderIndex++
                         ))
-                        if (chatMessage.reward.cost != null) {
-                            val cost = NumberFormat.getInstance().format(chatMessage.reward.cost)
+                        if (reward.cost != null) {
+                            val cost = NumberFormat.getInstance().format(reward.cost)
                             builder.append(cost)
                             builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), builderIndex, builderIndex + cost.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                             builderIndex += cost.length
@@ -318,8 +392,42 @@ object ChatAdapterUtils {
                 backgroundResource = 0
             }
             else -> {
-                if (chatMessage.systemMsg != null) {
-                    builder.append("${chatMessage.systemMsg}\n")
+                val reward = chatMessage.reward
+                if (chatMessage.isHighlightedMessage()) {
+                    val headingColor = getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme)
+                    val headingTitle = reward?.title?.takeIf { it.isNotBlank() }
+                        ?: context.getString(R.string.chat_highlight_title)
+                    val heading = context.getString(R.string.chat_highlight_redeemed, headingTitle)
+                    val titleStart = heading.indexOf(headingTitle).coerceAtLeast(0)
+                    appendSpecialText(builder, heading.substring(0, titleStart), headingColor)
+                    appendSpecialText(builder, heading.substring(titleStart), headingColor, bold = true)
+                    builder.append('\n')
+                    reward?.cost?.let { cost ->
+                        appendSpecialIcon(builder, context, R.drawable.ic_chat_channel_points, headingColor)
+                        builder.append(' ')
+                        appendSpecialText(builder, NumberFormat.getInstance().format(cost), headingColor, bold = true)
+                        builder.append('\n')
+                    }
+                    builderIndex = builder.length
+                } else if (chatMessage.systemMsg != null) {
+                    if (chatMessage.isSubscriptionNotice()) {
+                        appendSpecialIcon(builder, context, R.drawable.ic_chat_subscription, getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme))
+                        builder.append(' ')
+                        builderIndex = builder.length
+                    }
+                    val systemStart = builder.length
+                    if (chatMessage.isSubscriptionNotice()) {
+                        appendSubscriptionSystemMessage(
+                            builder,
+                            chatMessage.systemMsg,
+                            getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme),
+                            getSavedColor("#C4BEC9", savedColors, useReadableColors, isLightTheme),
+                        )
+                    } else {
+                        builder.append(chatMessage.systemMsg)
+                        builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), systemStart, builder.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                    builder.append('\n')
                     builderIndex += chatMessage.systemMsg.length + 1
                 } else {
                     if (chatMessage.msgId != null) {
@@ -332,30 +440,30 @@ object ChatAdapterUtils {
                     builder.append("$firstChatMsg\n")
                     builderIndex += firstChatMsg.length + 1
                 }
-                if (chatMessage.reward?.title != null) {
-                    val string = redeemedChatMsg.format(chatMessage.reward.title)
+                if (reward?.title != null && !chatMessage.isHighlightedMessage()) {
+                    val string = redeemedChatMsg.format(reward.title)
                     builder.append("$string ")
                     builderIndex += string.length + 1
                     builder.append(". ")
                     builder.setSpan(ForegroundColorSpan(Color.TRANSPARENT), builderIndex, builderIndex + 1, SPAN_EXCLUSIVE_EXCLUSIVE)
                     images.add(Image(
-                        url1x = chatMessage.reward.url1x,
-                        url2x = chatMessage.reward.url2x,
-                        url3x = chatMessage.reward.url4x,
-                        url4x = chatMessage.reward.url4x,
+                        url1x = reward.url1x,
+                        url2x = reward.url2x,
+                        url3x = reward.url4x,
+                        url4x = reward.url4x,
                         kind = ImageKind.INLINE_ICON,
                         start = builderIndex++,
                         end = builderIndex++
                     ))
-                    if (chatMessage.reward.cost != null) {
-                        val cost = NumberFormat.getInstance().format(chatMessage.reward.cost)
+                    if (reward.cost != null) {
+                        val cost = NumberFormat.getInstance().format(reward.cost)
                         builder.append(cost)
                         builderIndex += cost.length
                     }
                     builder.append("\n")
                     builderIndex += 1
                 } else {
-                    if (chatMessage.reward?.id != null && firstMsgVisibility == 0) {
+                    if (reward?.id != null && firstMsgVisibility == 0) {
                         builder.append("$rewardChatMsg\n")
                         builderIndex += rewardChatMsg.length + 1
                     }
@@ -541,6 +649,7 @@ object ChatAdapterUtils {
                     }
                 }
                 backgroundResource = when {
+                    chatMessage.isHighlightedMessage() -> R.drawable.bg_chat_highlight
                     chatMessage.isFirst && firstMsgVisibility < 2 -> R.color.chatMessageFirst
                     chatMessage.reward?.id != null && firstMsgVisibility < 2 -> R.color.chatMessageReward
                     chatMessage.systemMsg != null || chatMessage.msgId != null -> R.color.chatMessageNotice
@@ -548,6 +657,15 @@ object ChatAdapterUtils {
                     else -> 0
                 }
             }
+        }
+        if (chatMessage.isHighlightedMessage()) {
+            builder.setSpan(
+                LeadingMarginSpan.Standard(dp(context, 28), dp(context, 28)),
+                0,
+                builder.length,
+                SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            backgroundResource = R.drawable.bg_chat_highlight
         }
         itemView?.setBackgroundResource(backgroundResource)
         return MessageResult(
@@ -1373,4 +1491,91 @@ object ChatAdapterUtils {
             }.build())
         }
     }
+}
+
+internal fun ChatMessage.isHighlightedMessage(): Boolean =
+    msgId.equals("highlighted-message", ignoreCase = true) ||
+        msgId.equals("channel_points_highlighted", ignoreCase = true) ||
+        reward?.title.equals("Highlight My Message", ignoreCase = true) ||
+        reward?.title.equals("Send Highlighted Message", ignoreCase = true)
+
+internal fun ChatMessage.effectiveNoticeId(): String? = sourceMsgId ?: msgId
+
+internal fun ChatMessage.isWatchStreakNotice(): Boolean =
+    watchStreakCount != null && (
+        effectiveNoticeId().equals("viewermilestone", ignoreCase = true) ||
+            effectiveNoticeId().equals("watch_streak", ignoreCase = true) ||
+            effectiveNoticeId().equals("watch-streak", ignoreCase = true)
+        )
+
+internal fun ChatMessage.isSubscriptionNotice(): Boolean = effectiveNoticeId()?.lowercase() in setOf(
+    "sub",
+    "resub",
+    "subgift",
+    "submysterygift",
+    "giftpaidupgrade",
+    "anongiftpaidupgrade",
+    "prime_paid_upgrade",
+    "gift_paid_upgrade",
+    "sub_gift",
+    "community_sub_gift",
+    "shared_chat_sub",
+    "shared_chat_resub",
+    "shared_chat_sub_gift",
+    "shared_chat_community_sub_gift",
+)
+
+internal fun ChatMessage.displayName(nameDisplay: String?): String? = when {
+    userName.isNullOrBlank() -> userLogin
+    userLogin.isNullOrBlank() || userLogin.equals(userName, ignoreCase = true) -> userName
+    nameDisplay == "0" -> "$userName($userLogin)"
+    nameDisplay == "1" -> userName
+    else -> userLogin
+}
+
+private fun dp(context: Context, value: Int): Int =
+    (value * context.resources.displayMetrics.density).roundToInt()
+
+private fun appendSpecialText(
+    builder: SpannableStringBuilder,
+    text: String,
+    color: Int,
+    bold: Boolean = false,
+) {
+    if (text.isEmpty()) return
+    val start = builder.length
+    builder.append(text)
+    builder.setSpan(ForegroundColorSpan(color), start, builder.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+    if (bold) {
+        builder.setSpan(StyleSpan(Typeface.BOLD), start, builder.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+}
+
+private fun appendSubscriptionSystemMessage(
+    builder: SpannableStringBuilder,
+    message: String,
+    headingColor: Int,
+    mutedColor: Int,
+) {
+    val nameEnd = message.indexOf(' ').takeIf { it > 0 } ?: message.length
+    appendSpecialText(builder, message.substring(0, nameEnd), headingColor, bold = true)
+    if (nameEnd < message.length) {
+        appendSpecialText(builder, message.substring(nameEnd), mutedColor)
+    }
+}
+
+private fun appendSpecialIcon(
+    builder: SpannableStringBuilder,
+    context: Context,
+    drawableId: Int,
+    tint: Int,
+) {
+    val start = builder.length
+    builder.append('.')
+    val size = dp(context, 22)
+    val drawable = ContextCompat.getDrawable(context, drawableId)?.mutate() ?: return
+    drawable.setTint(tint)
+    drawable.setBounds(0, 0, size, size)
+    builder.setSpan(ForegroundColorSpan(Color.TRANSPARENT), start, start + 1, SPAN_EXCLUSIVE_EXCLUSIVE)
+    builder.setSpan(CenteredImageSpan(drawable, size, size), start, start + 1, SPAN_EXCLUSIVE_EXCLUSIVE)
 }

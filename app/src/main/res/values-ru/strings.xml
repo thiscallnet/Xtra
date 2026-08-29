@@ -1443,4 +1443,8 @@
     <string name="clip_editor_temporary_space_unknown">Temporary space needed: unavailable</string>
     <string name="clip_editor_insufficient_storage">Not enough free space</string>
     <string name="clip_editor_actual_size">File size: %s</string>
+    <string name="chat_highlight_redeemed">Активировано: %s</string>
+    <string name="chat_highlight_title">Выделить моё сообщение</string>
+    <string name="chat_watch_streak_reached">Достигнута серия просмотров</string>
+    <string name="chat_watch_streak_status">У %1$s сейчас серия из %2$s стримов!</string>
 </resources>
