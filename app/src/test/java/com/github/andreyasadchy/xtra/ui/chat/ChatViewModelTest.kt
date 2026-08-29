@@ -36,4 +36,14 @@ class ChatViewModelTest {
         assertEquals("stream-b", resolveCurrentLiveStreamId("stream-b", "stream-a"))
         assertEquals("stream-a", resolveCurrentLiveStreamId(null, "stream-a"))
     }
+
+    @Test
+    fun replayEntryDoesNotOverwriteTheSavedComposerState() {
+        assertTrue(shouldCaptureReplayComposerState(ChatViewModel.ActiveChatMode.Live))
+        assertFalse(
+            shouldCaptureReplayComposerState(
+                ChatViewModel.ActiveChatMode.VideoReplay("video", null),
+            ),
+        )
+    }
 }
