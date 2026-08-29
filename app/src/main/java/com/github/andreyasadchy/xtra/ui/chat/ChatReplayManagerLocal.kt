@@ -14,8 +14,8 @@ import kotlin.time.Instant
 
 class ChatReplayManagerLocal(
     private val createdAt: Long?,
-    private val getCurrentPosition: () -> Long?,
-    private val getCurrentSpeed: () -> Float?,
+    private var getCurrentPosition: () -> Long?,
+    private var getCurrentSpeed: () -> Float?,
     private val coroutineScope: CoroutineScope,
     private val listener: ChatReplayManager.Listener,
 ) {
@@ -214,6 +214,18 @@ class ChatReplayManagerLocal(
     fun updateSpeed(speed: Float) {
         if (started && (!liveMessages.isNullOrEmpty() || !messages.isNullOrEmpty()) && playbackSpeed != speed) {
             playbackSpeed = speed
+            messageJob?.cancel()
+            startJob()
+        }
+    }
+
+    fun rebindPositionProviders(
+        getCurrentPosition: () -> Long?,
+        getCurrentSpeed: () -> Float?,
+    ) {
+        this.getCurrentPosition = getCurrentPosition
+        this.getCurrentSpeed = getCurrentSpeed
+        if (started && isActive) {
             messageJob?.cancel()
             startJob()
         }

@@ -689,6 +689,8 @@
     <string name="settings_player_quality">Kalite ve gecikme</string>
     <string name="settings_low_latency">Düşük gecikmeli canlı yayın oynatma</string>
     <string name="settings_low_latency_summary">Yayıncıya olan gecikmeyi azaltır. Kararsız bağlantılarda daha sık ara belleğe alma yaşanabilir.</string>
+    <string name="settings_live_rewind">Canlı yayın geri sarma</string>
+    <string name="settings_live_rewind_summary">Canlı yayınları kayıtlarını kullanarak geri sar</string>
     <string name="settings_player_behavior">Oyuncu davranışı</string>
     <string name="settings_buffer_limits">Arabellek sınırları</string>
     <string name="settings_buffer_live">Canlı gecikme</string>

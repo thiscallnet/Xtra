@@ -3,6 +3,7 @@
     <ListPreference android:defaultValue="saved" android:entries="@array/playerQualityEntries" android:entryValues="@array/playerQualityValues" android:key="player_defaultquality" android:summary="%s" android:title="@string/player_defaultquality" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="saved" android:entries="@array/playerQualityEntries" android:entryValues="@array/playerQualityValues" android:key="player_default_cellular_quality" android:summary="%s" android:title="@string/settings_mobile_data_quality" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="player_low_latency" android:summary="@string/settings_low_latency_summary" android:title="@string/settings_low_latency" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="player_live_rewind" android:summary="@string/settings_live_rewind_summary" android:title="@string/settings_live_rewind" app:iconSpaceReserved="false" />
 
     <PreferenceCategory android:title="@string/settings_background_playback" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="player_picture_in_picture" android:summary="@string/picture_in_picture_summary" android:title="@string/picture_in_picture" app:iconSpaceReserved="false" />

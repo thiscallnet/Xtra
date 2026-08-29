@@ -32,7 +32,12 @@ class MediaPlayerFragment : PlayerFragment() {
     private var serviceConnection: ServiceConnection? = null
     private var surfaceHolderCallback: SurfaceHolder.Callback? = null
     private var surfaceCreated = false
+    private var pendingLiveRewindChatPositionMs: Long? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
+
+    override fun startLiveRewindChat(positionMs: Long) {
+        pendingLiveRewindChatPositionMs = positionMs
+    }
 
     override fun onStart() {
         super.onStart()
@@ -50,6 +55,12 @@ class MediaPlayerFragment : PlayerFragment() {
                 )
                 updatePlayingState()
                 chatFragment?.startReplayChatLoad()
+                pendingLiveRewindChatPositionMs?.let { positionMs ->
+                    pendingLiveRewindChatPositionMs = null
+                    if (playbackService?.liveRewindActive == true) {
+                        enterLiveRewindChat(positionMs)
+                    }
+                }
             }
 
             override fun onSeekComplete(player: MediaPlayer) {
@@ -59,6 +70,7 @@ class MediaPlayerFragment : PlayerFragment() {
 
             override fun onCompletion(player: MediaPlayer) {
                 updatePlayingState(true)
+                onLiveRewindPlaybackError()
             }
 
             override fun onInfo(player: MediaPlayer, what: Int, extra: Int) {
@@ -77,6 +89,10 @@ class MediaPlayerFragment : PlayerFragment() {
 
             override fun onError(player: MediaPlayer, what: Int, extra: Int) {
                 playbackService?.updatePlayingState(updatePlaybackIntent = false)
+            }
+
+            override fun onPlayerError(player: MediaPlayer, what: Int, extra: Int) {
+                if (onLiveRewindPlaybackError()) return
             }
 
             override fun onIsPlayingChanged() {
@@ -345,6 +361,12 @@ class MediaPlayerFragment : PlayerFragment() {
         }
     }
 
+    override suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean =
+        playbackService?.startLiveRewind(vodId, positionMs) == true
+
+    override suspend fun returnToLivePlayback(): Boolean =
+        playbackService?.returnToLivePlayback() == true
+
     override fun setPlaybackSpeed(speed: Float) {
         val params = PlaybackParams()
         params.speed = speed
@@ -357,6 +379,10 @@ class MediaPlayerFragment : PlayerFragment() {
     }
 
     override fun updateProgress() {
+        if (isLiveRewindAvailable()) {
+            updateLiveRewindProgress()
+            return
+        }
         with(binding.playerControls) {
             if (root.isVisible && !progressBar.isPressed) {
                 val currentPosition = playbackService?.player?.currentPosition?.toLong() ?: 0

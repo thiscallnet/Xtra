@@ -60,6 +60,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ExecutorService
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 @OptIn(UnstableApi::class)
@@ -85,6 +86,7 @@ class Media3PlayerViewModel(
     val streamUrlWarm = MutableStateFlow(false)
     var streamUrlAvailableElapsedMs: Long? = null
     val stream = MutableStateFlow<Stream?>(null)
+    val streamStatusKnown = MutableStateFlow(false)
     private var streamJob: Job? = null
     var useCustomProxy = false
     var playingAds = false
@@ -231,14 +233,14 @@ class Media3PlayerViewModel(
         }
     }
 
-    fun loadStreamInfo(channelId: String?, channelLogin: String?, viewerCount: Int?, loop: Boolean, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>) {
-        if (loop) {
+    fun loadStreamInfo(channelId: String?, channelLogin: String?, viewerCount: Int?, loop: Boolean, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, refreshForLiveRewind: Boolean = false) {
+        if (loop || refreshForLiveRewind) {
             streamJob?.cancel()
             streamJob = viewModelScope.launch {
                 while (isActive) {
                     try {
-                        updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
-                        delay(5.minutes)
+                        updateStreamInfoAndMarkKnown(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
+                        delay(if (refreshForLiveRewind) 45.seconds else 5.minutes)
                     } catch (e: Exception) {
                         delay(1.minutes)
                     }
@@ -248,12 +250,23 @@ class Media3PlayerViewModel(
             if (viewerCount == null) {
                 viewModelScope.launch {
                     try {
-                        updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
+                    updateStreamInfoAndMarkKnown(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
                     } catch (e: Exception) {
                     }
                 }
             }
         }
+    }
+
+    private suspend fun updateStreamInfoAndMarkKnown(
+        channelId: String?,
+        channelLogin: String?,
+        networkLibrary: String?,
+        helixHeaders: Map<String, String>,
+        gqlHeaders: Map<String, String>,
+    ) {
+        updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
+        streamStatusKnown.value = true
     }
 
     private suspend fun updateStreamInfo(channelId: String?, channelLogin: String?, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>) {
@@ -264,7 +277,7 @@ class Media3PlayerViewModel(
                 ids = channelId?.let { listOf(it) },
                 logins = if (channelId.isNullOrBlank()) channelLogin?.let { listOf(it) } else null,
             )
-            response.data!!.users?.firstOrNull()?.let {
+            response.data!!.users?.firstOrNull()?.takeIf { it.stream != null }?.let {
                 Stream(
                     id = it.stream?.id,
                     channelId = it.id,
@@ -315,6 +328,52 @@ class Media3PlayerViewModel(
             }
         }
     }
+
+    suspend fun findCurrentRecordingVod(
+        channelId: String?,
+        channelLogin: String?,
+        streamCreatedAt: String?,
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+    ): LiveRewindVod? = graphQLRepository.findCurrentRecordingVod(
+        networkLibrary = networkLibrary,
+        headers = gqlHeaders,
+        channelId = channelId,
+        channelLogin = channelLogin,
+        streamCreatedAt = streamCreatedAt,
+    )
+
+    suspend fun loadFreshStreamPlaylistUrl(channelLogin: String): String? =
+        playerRepository.loadStreamPlaylistUrl(
+            context = applicationContext,
+            networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+            gqlHeaders = TwitchApiHelper.getGQLHeaders(
+                applicationContext,
+                applicationContext.prefs().getBoolean(C.TOKEN_INCLUDE_TOKEN_STREAM, true),
+            ),
+            channelLogin = channelLogin,
+            randomDeviceId = applicationContext.prefs().getBoolean(C.TOKEN_RANDOM_DEVICE_ID, true),
+            xDeviceId = applicationContext.prefs().getString(C.TOKEN_X_DEVICE_ID, "twitch-web-wall-mason"),
+            playerType = applicationContext.prefs().getString(C.TOKEN_PLAYER_TYPE, "site"),
+            supportedCodecs = applicationContext.prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
+            proxyPlaybackAccessToken = applicationContext.prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
+            proxyHost = applicationContext.prefs().httpProxyHost(),
+            proxyPort = applicationContext.prefs().httpProxyPort(),
+            proxyUser = applicationContext.prefs().getString(C.PROXY_USER, null),
+            proxyPassword = applicationContext.prefs().getString(C.PROXY_PASSWORD, null),
+        )
+
+    suspend fun loadRewindVideoPlaylistUrl(videoId: String): String? =
+        playerRepository.loadVideoPlaylistUrl(
+            networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+            gqlHeaders = TwitchApiHelper.getGQLHeaders(
+                applicationContext,
+                applicationContext.prefs().getBoolean(C.TOKEN_INCLUDE_TOKEN_VIDEO, true),
+            ),
+            videoId = videoId,
+            playerType = applicationContext.prefs().getString(C.TOKEN_PLAYER_TYPE_VIDEO, "channel_home_live"),
+            supportedCodecs = applicationContext.prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
+        ).first
 
     fun loadVideo(networkLibrary: String?, gqlHeaders: Map<String, String>, videoId: String?, playerType: String?, supportedCodecs: String?) {
         if (videoResult.value == null) {

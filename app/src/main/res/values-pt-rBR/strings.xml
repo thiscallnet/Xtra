@@ -688,6 +688,8 @@
     <string name="settings_player_quality">Qualidade e latência</string>
     <string name="settings_low_latency">Reprodução ao vivo com baixa latência</string>
     <string name="settings_low_latency_summary">Reduz o atraso em relação ao streamer. Pode haver mais buffer em conexões instáveis.</string>
+    <string name="settings_live_rewind">Retroceder transmissões ao vivo</string>
+    <string name="settings_live_rewind_summary">Retroceda transmissões ao vivo usando a gravação</string>
     <string name="settings_player_behavior">Comportamento do jogador</string>
     <string name="settings_buffer_limits">Limites de buffer</string>
     <string name="settings_buffer_live">Latência ao vivo</string>

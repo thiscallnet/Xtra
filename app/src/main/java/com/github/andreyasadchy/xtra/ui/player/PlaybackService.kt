@@ -29,6 +29,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
@@ -50,6 +51,7 @@ import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import java.util.Timer
 import kotlinx.coroutines.launch
 import kotlin.concurrent.schedule
@@ -85,6 +87,9 @@ class PlaybackService : MediaSessionService() {
     private var viewingContentType: String? = null
     private var viewingContentId: String? = null
     private var streamStartupTrace: StreamStartupTrace? = null
+    private var liveRewindActive = false
+    private var liveRewindVodId: String? = null
+    private var liveRewindTransitioning = false
 
     override fun onCreate() {
         super.onCreate()
@@ -209,6 +214,8 @@ class PlaybackService : MediaSessionService() {
                         if (!isTrustedController(controller)) return connectionResult
                         val sessionCommands = connectionResult.availableSessionCommands.buildUpon().apply {
                             add(SessionCommand(START_STREAM, Bundle.EMPTY))
+                            add(SessionCommand(START_LIVE_REWIND, Bundle.EMPTY))
+                            add(SessionCommand(GET_LIVE_REWIND_STATE, Bundle.EMPTY))
                             add(SessionCommand(UPDATE_VIEWING_METADATA, Bundle.EMPTY))
                             add(SessionCommand(START_VIDEO, Bundle.EMPTY))
                             add(SessionCommand(START_CLIP, Bundle.EMPTY))
@@ -237,7 +244,53 @@ class PlaybackService : MediaSessionService() {
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                             }
                             START_STREAM -> {
-                                return startLiveStream(player, customCommand.customExtras)
+                                liveRewindTransitioning = true
+                                val result = try {
+                                    startLiveStream(player, customCommand.customExtras)
+                                } catch (_: Exception) {
+                                    liveRewindTransitioning = false
+                                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
+                                }
+                                result.addListener({
+                                    val succeeded = runCatching {
+                                        result.get().resultCode == SessionResult.RESULT_SUCCESS
+                                    }.getOrDefault(false)
+                                    if (succeeded) {
+                                        liveRewindActive = false
+                                        liveRewindVodId = null
+                                    }
+                                    liveRewindTransitioning = false
+                                }, MoreExecutors.directExecutor())
+                                return result
+                            }
+                            START_LIVE_REWIND -> {
+                                val uri = customCommand.customExtras.getString(URI)?.toUri()
+                                    ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                                val vodId = customCommand.customExtras.getString(REWIND_VIDEO_ID)
+                                    ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                                liveRewindTransitioning = true
+                                try {
+                                    player.setMediaSource(createVodMediaSource(uri))
+                                    player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+                                    player.setPlaybackSpeed(prefs().getFloat(C.PLAYER_SPEED, 1f))
+                                    player.prepare()
+                                    player.playWhenReady = customCommand.customExtras.getBoolean(PLAY_WHEN_READY, true)
+                                    player.seekTo(customCommand.customExtras.getLong(PLAYBACK_POSITION))
+                                    liveRewindVodId = vodId
+                                    liveRewindActive = true
+                                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                                } catch (_: Exception) {
+                                    Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
+                                } finally {
+                                    liveRewindTransitioning = false
+                                }
+                            }
+                            GET_LIVE_REWIND_STATE -> {
+                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
+                                    putBoolean(LIVE_REWIND_ACTIVE, liveRewindActive)
+                                    putBoolean(LIVE_REWIND_TRANSITIONING, liveRewindTransitioning)
+                                    putString(REWIND_VIDEO_ID, liveRewindVodId)
+                                }))
                             }
                             START_VIDEO -> {
                                 backgroundPlayback = false
@@ -634,6 +687,26 @@ class PlaybackService : MediaSessionService() {
     private fun isTrustedController(controller: MediaSession.ControllerInfo): Boolean =
         controller.uid == Process.myUid() && controller.packageName == packageName
 
+    private fun createVodMediaSource(uri: android.net.Uri): MediaSource =
+        HlsMediaSource.Factory(
+            DefaultDataSource.Factory(
+                this@PlaybackService,
+                when {
+                    prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP) == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
+                        HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
+                    }
+                    prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP) == C.CRONET && xtraModule.cronetEngine.value != null -> {
+                        CronetDataSource.Factory(xtraModule.cronetEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
+                    }
+                    else -> {
+                        OkHttpDataSource.Factory(xtraModule.okHttpClient.value, null) { false }
+                    }
+                },
+            ),
+        ).apply {
+            setPlaylistParserFactory(ExoPlayerService.CustomHlsPlaylistParserFactory())
+        }.createMediaSource(MediaItem.Builder().setUri(uri).build())
+
     private fun savePosition() {
         mediaSession?.player?.let { player ->
             if (!player.currentTracks.isEmpty && prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
@@ -832,6 +905,8 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val START_STREAM = "startStream"
+        const val START_LIVE_REWIND = "startLiveRewind"
+        const val GET_LIVE_REWIND_STATE = "getLiveRewindState"
         const val UPDATE_VIEWING_METADATA = "updateViewingMetadata"
         const val START_VIDEO = "startVideo"
         const val START_CLIP = "startClip"
@@ -866,6 +941,9 @@ class PlaybackService : MediaSessionService() {
         const val GAME_IMAGE = "gameImage"
         const val USING_PROXY = "usingProxy"
         const val PLAY_WHEN_READY = "playWhenReady"
+        const val REWIND_VIDEO_ID = "rewindVideoId"
+        const val LIVE_REWIND_ACTIVE = "liveRewindActive"
+        const val LIVE_REWIND_TRANSITIONING = "liveRewindTransitioning"
         const val BACKGROUND_PLAYBACK = "backgroundPlayback"
         const val DURATION = "duration"
         const val NAMES = "names"

@@ -95,6 +95,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -147,6 +148,7 @@ class ExoPlayerService : BasePlaybackService() {
     private var primaryStreamRestoreJob: Job? = null
     private var usingAlternateStream = false
     private var backupQualities: List<String>? = null
+    private var liveRewindPositionOverride: Long? = null
     private var updateQualities = false
     private var created = false
     private var resumeWhenForeground = false
@@ -156,6 +158,7 @@ class ExoPlayerService : BasePlaybackService() {
     private val initialRestore = CompletableDeferred<Unit>()
     private val liveClipBufferManager = LiveClipBufferManager()
     private var hlsClipDataSourceFactory: DataSource.Factory? = null
+    private var liveClipSourceMediaId: String? = null
     private var liveClipPreparation: Deferred<ClipPreparationRepository.PreparedLiveClip>? = null
     private var vodClipSnapshot: ClipSnapshot? = null
     private var vodClipPreparation: Deferred<ClipPreparationRepository.PreparedLiveClip>? = null
@@ -237,7 +240,12 @@ class ExoPlayerService : BasePlaybackService() {
                     updatePlaybackState()
                     updateMetadata()
                     updateNotification()
-                    if (type == STREAM) {
+                    if (canUseLiveClipSource(type, liveRewindActive, liveRewindTransitioning) &&
+                        isCurrentLiveClipSource(
+                            expectedMediaId = liveClipSourceMediaId,
+                            actualMediaId = player?.currentMediaItem?.mediaId,
+                        )
+                    ) {
                         (player?.currentManifest as? HlsManifest)?.let { manifest ->
                             configureLiveClipBuffer()
                             liveClipBufferManager.capture(manifest)
@@ -289,7 +297,7 @@ class ExoPlayerService : BasePlaybackService() {
                             updateQualities = false
                         }
                     }
-                    if (type == STREAM) {
+                    if (canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)) {
                         val avoidAds = prefs().shouldAvoidTwitchAds()
                         val suppressAds = avoidAds
                         val useProxy = prefs().httpProxyHost() != null
@@ -655,6 +663,7 @@ class ExoPlayerService : BasePlaybackService() {
             }
             when (type) {
                 STREAM -> {
+                    clearLiveRewindState()
                     started = true
                     serviceListener?.started()
                     if (qualities.isNullOrEmpty()) {
@@ -819,6 +828,7 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     private fun fallbackFromAd(useProxy: Boolean, suppressAds: Boolean) {
+        if (!canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)) return
         logAd("fallback channel=${channelLogin ?: "null"} usingProxy=$proxyMediaPlaylist useProxy=$useProxy suppress=$suppressAds")
         if (proxyMediaPlaylist) {
             if (!stopProxy) {
@@ -833,6 +843,7 @@ class ExoPlayerService : BasePlaybackService() {
             lifecycleScope.launch {
                 for (i in 0 until 10) {
                     delay(10.seconds)
+                    if (!canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)) return@launch
                     if (!checkPlaylist(prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP), playlist)) {
                         break
                     }
@@ -845,6 +856,7 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     private fun tryAlternateStream(playerTypes: List<String>, useProxy: Boolean) {
+        if (!canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)) return
         val channelLogin = channelLogin ?: run {
             fallbackFromAd(useProxy, suppressAds = true)
             return
@@ -874,7 +886,7 @@ class ExoPlayerService : BasePlaybackService() {
                 null
             }
             logAd("alternate probe result channel=$channelLogin candidate=${candidate?.playerType ?: "none"}")
-            if (candidate != null && type == STREAM) {
+            if (candidate != null && canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)) {
                 try {
                     primaryStreamRestoreJob?.cancel()
                     primaryStreamRestoreJob = null
@@ -889,21 +901,23 @@ class ExoPlayerService : BasePlaybackService() {
                     serviceListener?.updateQualityStatus()
                     fallbackFromAd(useProxy, suppressAds = true)
                 }
-            } else {
+            } else if (canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)) {
                 fallbackFromAd(useProxy, suppressAds = true)
             }
         }
     }
 
     private fun schedulePrimaryStreamRestore() {
-        if (!usingAlternateStream || primaryStreamRestoreJob?.isActive == true || type != STREAM) {
+        if (!usingAlternateStream || primaryStreamRestoreJob?.isActive == true ||
+            !canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)
+        ) {
             return
         }
         val channelLogin = channelLogin ?: return
         val primaryPlayerType = prefs().getString(C.TOKEN_PLAYER_TYPE, "site") ?: "site"
         logAd("primary restore probe started channel=$channelLogin playerType=$primaryPlayerType")
         primaryStreamRestoreJob = lifecycleScope.launch {
-            while (usingAlternateStream && type == STREAM) {
+            while (usingAlternateStream && canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)) {
                 val candidate = try {
                     xtraModule.playerRepository.loadCleanStreamPlaylistUrl(
                         context = this@ExoPlayerService,
@@ -927,7 +941,7 @@ class ExoPlayerService : BasePlaybackService() {
                     logAd("primary restore probe failed channel=$channelLogin error=${e.javaClass.simpleName}")
                     null
                 }
-                if (candidate?.verifiedClean == true && type == STREAM) {
+                if (candidate?.verifiedClean == true && canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)) {
                     try {
                         loadStream(restorePauseState = true, playlistUrlOverride = candidate.url)
                         usingAlternateStream = false
@@ -953,6 +967,7 @@ class ExoPlayerService : BasePlaybackService() {
         restart: Boolean = false,
         playlistUrlOverride: String? = null,
     ) {
+        if (playlistUrlOverride != null && !canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)) return
         channelLogin?.let { channelLogin ->
             logAd("load stream channel=$channelLogin override=${!playlistUrlOverride.isNullOrBlank()} restart=$restart")
             if (!playlistUrlOverride.isNullOrBlank()) {
@@ -1247,6 +1262,7 @@ class ExoPlayerService : BasePlaybackService() {
                                 }
                             )
                     hlsClipDataSourceFactory = dataSourceFactory
+                    liveClipSourceMediaId = "live-clip-${liveClipBufferManager.currentGeneration()}"
                     player.setMediaSource(
                         HlsMediaSource.Factory(dataSourceFactory).apply {
                             setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
@@ -1254,6 +1270,7 @@ class ExoPlayerService : BasePlaybackService() {
                         }.createMediaSource(
                             MediaItem.Builder().apply {
                                 setUri(url.toUri())
+                                setMediaId(liveClipSourceMediaId!!)
                                 setMimeType(MimeTypes.APPLICATION_M3U8)
                                 setLiveConfiguration(MediaItem.LiveConfiguration.Builder().apply {
                                     setTargetOffsetMs(
@@ -1278,10 +1295,120 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
+    suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean = liveRewindTransitionMutex.withLock {
+        val player = player ?: return@withLock false
+        val oldVideoId = videoId
+        val oldPlaylistUrl = playlistUrl
+        val oldHlsClipDataSourceFactory = hlsClipDataSourceFactory
+        val oldQualities = qualities
+        val oldQuality = quality
+        val oldBackupQualities = backupQualities
+        val oldSavedPosition = savedPosition
+        val oldLiveRewindPositionOverride = liveRewindPositionOverride
+        val oldPaused = paused
+        val wasPlaying = player.playWhenReady
+        beginLiveRewindTransition()
+        cancelLiveClipPreparation()
+        adAvoidanceJob?.cancel()
+        adAvoidanceJob = null
+        primaryStreamRestoreJob?.cancel()
+        primaryStreamRestoreJob = null
+        usingAlternateStream = false
+        adController.reset()
+        restoreAdPlayback()
+        serviceListener?.updateQualityStatus()
+        try {
+            clearLiveRewindState()
+            videoId = vodId
+            playlistUrl = null
+            qualities = null
+            quality = null
+            savedPosition = positionMs
+            liveRewindPositionOverride = positionMs
+            paused = !wasPlaying
+            try {
+                loadVideo(restorePauseState = true)
+                val loaded = !playlistUrl.isNullOrBlank()
+                videoId = oldVideoId
+                if (!loaded) {
+                    playlistUrl = oldPlaylistUrl
+                    hlsClipDataSourceFactory = oldHlsClipDataSourceFactory
+                    qualities = oldQualities
+                    quality = oldQuality
+                    backupQualities = oldBackupQualities
+                } else {
+                    liveClipBufferManager.reset()
+                }
+                savedPosition = oldSavedPosition
+                liveRewindPositionOverride = oldLiveRewindPositionOverride
+                paused = oldPaused
+                if (loaded) {
+                    markLiveRewindActive(vodId)
+                } else {
+                    clearLiveRewindState()
+                }
+                loaded
+            } catch (_: Exception) {
+                videoId = oldVideoId
+                playlistUrl = oldPlaylistUrl
+                hlsClipDataSourceFactory = oldHlsClipDataSourceFactory
+                qualities = oldQualities
+                quality = oldQuality
+                backupQualities = oldBackupQualities
+                savedPosition = oldSavedPosition
+                liveRewindPositionOverride = oldLiveRewindPositionOverride
+                paused = oldPaused
+                clearLiveRewindState()
+                false
+            }
+        } finally {
+            finishLiveRewindTransition()
+        }
+    }
+
+    suspend fun returnToLivePlayback(): Boolean = liveRewindTransitionMutex.withLock {
+        val player = player ?: return@withLock false
+        val wasPlaying = player.playWhenReady
+        val rewindVodId = liveRewindVodId
+        val oldPlaylistUrl = playlistUrl
+        val oldHlsClipDataSourceFactory = hlsClipDataSourceFactory
+        val oldQualities = qualities
+        val oldQuality = quality
+        val oldBackupQualities = backupQualities
+        beginLiveRewindTransition()
+        cancelLiveClipPreparation()
+        playlistUrl = null
+        qualities = null
+        quality = null
+        backupQualities = null
+        return try {
+            val success = try {
+                loadStream(restorePauseState = false, restart = true)
+                !playlistUrl.isNullOrBlank() && player.currentMediaItem != null
+            } catch (_: Exception) {
+                false
+            }
+            if (success) {
+                clearLiveRewindState()
+            } else {
+                playlistUrl = oldPlaylistUrl
+                hlsClipDataSourceFactory = oldHlsClipDataSourceFactory
+                qualities = oldQualities
+                quality = oldQuality
+                backupQualities = oldBackupQualities
+                (rewindVodId ?: videoId)?.let(::markLiveRewindActive)
+            }
+            player.playWhenReady = wasPlaying
+            success
+        } finally {
+            finishLiveRewindTransition()
+        }
+    }
+
     private suspend fun loadVideo(restorePauseState: Boolean = false) {
         clearVodClipSource()
         videoId?.let { videoId ->
-            val playbackPosition = if (prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
+            val playbackPosition = liveRewindPositionOverride ?: if (prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
                 videoId.toLongOrNull()?.let { xtraModule.playerRepository.getVideoPosition(it)?.position }
             } else {
                 null
@@ -1487,7 +1614,10 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
-    fun liveClipStatus(): LiveClipBufferManager.Status? = if (type == STREAM && hlsClipDataSourceFactory != null) {
+    fun liveClipStatus(): LiveClipBufferManager.Status? = if (
+        canUseLiveClipSource(type, liveRewindActive, liveRewindTransitioning) &&
+        hlsClipDataSourceFactory != null
+    ) {
         val maxDurationUs = configureLiveClipBuffer()
         liveClipBufferManager.status(maxDurationUs)
     } else {
@@ -1499,12 +1629,17 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     fun prepareLiveClip(): Deferred<ClipPreparationRepository.PreparedLiveClip> {
+        if (!canUseLiveClipSource(type, liveRewindActive, liveRewindTransitioning)) {
+            return lifecycleScope.async(Dispatchers.IO) {
+                error("Live clipping is unavailable during rewind source transition")
+            }
+        }
         liveClipPreparation?.takeUnless { it.isCompleted }?.let { return it }
         val maxDurationUs = configureLiveClipBuffer()
         val snapshot = liveClipBufferManager.snapshot(maxDurationUs)
         val dataSourceFactory = hlsClipDataSourceFactory
         val preparation = lifecycleScope.async(Dispatchers.IO) {
-            check(type == STREAM && dataSourceFactory != null && snapshot != null) {
+            check(canUseLiveClipSource(type, liveRewindActive, liveRewindTransitioning) && dataSourceFactory != null && snapshot != null) {
                 "There is not enough live video available for a clip"
             }
             check(snapshot.durationUs >= LiveClipBufferManager.MIN_CLIP_BUFFER_US) {
@@ -1726,6 +1861,7 @@ class ExoPlayerService : BasePlaybackService() {
         cancelLiveClipPreparation()
         clearVodClipSource()
         hlsClipDataSourceFactory = null
+        liveClipSourceMediaId = null
         liveClipBufferManager.reset()
     }
 
@@ -1969,6 +2105,7 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     fun restartPlayer() {
+        if (type == STREAM && (liveRewindActive || liveRewindTransitioning)) return
         if (quality?.name != CHAT_ONLY_QUALITY) {
             lifecycleScope.launch {
                 loadStream(restart = true)
@@ -1979,6 +2116,8 @@ class ExoPlayerService : BasePlaybackService() {
     private fun scheduleStreamRecovery() {
         if (!prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
             || type != STREAM
+            || liveRewindActive
+            || liveRewindTransitioning
             || player?.playWhenReady != true
         ) {
             return
@@ -1991,6 +2130,8 @@ class ExoPlayerService : BasePlaybackService() {
             if (prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
                 && player?.playWhenReady == true
                 && type == STREAM
+                && !liveRewindActive
+                && !liveRewindTransitioning
             ) {
                 loadStream(restart = true)
             }

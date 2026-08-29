@@ -689,6 +689,8 @@
     <string name="settings_player_quality">Kualitas &amp; latensi</string>
     <string name="settings_low_latency">Pemutaran live dengan latensi rendah</string>
     <string name="settings_low_latency_summary">Kurangi jeda dengan penyiar. Buffering mungkin lebih sering terjadi pada koneksi yang tidak stabil.</string>
+    <string name="settings_live_rewind">Putar ulang siaran langsung</string>
+    <string name="settings_live_rewind_summary">Putar ulang siaran langsung menggunakan rekamannya</string>
     <string name="settings_player_behavior">Perilaku pemain</string>
     <string name="settings_buffer_limits">Batas buffer</string>
     <string name="settings_buffer_live">Latensi langsung</string>

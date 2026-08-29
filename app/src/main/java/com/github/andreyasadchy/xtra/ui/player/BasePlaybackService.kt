@@ -14,6 +14,8 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -55,6 +57,34 @@ abstract class BasePlaybackService : LifecycleService() {
     var restorePlaylist = false
     var useCustomProxy = false
     var skipAccessToken = false
+    /** True while the logical stream is temporarily backed by its recording VOD. */
+    var liveRewindActive = false
+        protected set
+    var liveRewindVodId: String? = null
+        protected set
+    /** True while the physical player is being moved between live and rewind sources. */
+    var liveRewindTransitioning = false
+        protected set
+
+    protected fun beginLiveRewindTransition() {
+        liveRewindTransitioning = true
+    }
+
+    protected fun finishLiveRewindTransition() {
+        liveRewindTransitioning = false
+    }
+
+    protected fun markLiveRewindActive(vodId: String) {
+        liveRewindVodId = vodId
+        liveRewindActive = true
+    }
+
+    protected fun clearLiveRewindState() {
+        liveRewindActive = false
+        liveRewindVodId = null
+    }
+
+    protected val liveRewindTransitionMutex = Mutex()
 
     private val viewingStatsSourceId = "playback-service:primary"
 

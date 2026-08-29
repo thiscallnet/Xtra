@@ -688,6 +688,8 @@
     <string name="settings_player_quality">الجودة وزمن الاستجابة</string>
     <string name="settings_low_latency">تشغيل البث المباشر بزمن استجابة منخفض</string>
     <string name="settings_low_latency_summary">يقلّل التأخير بينك وبين المذيع. قد يحدث التخزين المؤقت بشكل متكرر على الاتصالات غير المستقرة.</string>
+    <string name="settings_live_rewind">إرجاع البث المباشر</string>
+    <string name="settings_live_rewind_summary">إرجاع البثوث المباشرة باستخدام التسجيل الخاص بها</string>
     <string name="settings_player_behavior">سلوك اللاعب</string>
     <string name="settings_buffer_limits">حدود المخزن المؤقت</string>
     <string name="settings_buffer_live">زمن الوصول المباشر</string>
