@@ -28,6 +28,8 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
     val uiState: StateFlow<NotificationsUiState> = _uiState.asStateFlow()
     private var loadJob: Job? = null
     private var nextCursor: String? = null
+    private val locallyReadIds = mutableSetOf<String>()
+    private val locallyDismissedIds = mutableSetOf<String>()
 
     init { loadInitial() }
 
@@ -35,9 +37,13 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
         if (loadJob?.isActive == true || _uiState.value.markingAllAsSeen) return
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(initialLoading = true, error = null)
+            runCatching { repository.getCachedNotifications() }.getOrNull()?.let { page ->
+                nextCursor = page.nextCursor
+                _uiState.value = _uiState.value.copy(items = applyLocalChanges(page.notifications), canLoadMore = page.hasNextPage)
+            }
             runCatching { repository.getNotifications() }.onSuccess { page ->
                 nextCursor = page.nextCursor
-                _uiState.value = NotificationsUiState(page.notifications, canLoadMore = page.hasNextPage)
+                _uiState.value = NotificationsUiState(applyLocalChanges(page.notifications), canLoadMore = page.hasNextPage)
                 runCatching { repository.markNotificationsViewed() }
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(initialLoading = false, error = error.toInboxError())
@@ -51,7 +57,7 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
             _uiState.value = _uiState.value.copy(refreshing = true, error = null)
             runCatching { repository.getNotifications() }.onSuccess { page ->
                 nextCursor = page.nextCursor
-                _uiState.value = NotificationsUiState(page.notifications, canLoadMore = page.hasNextPage)
+                _uiState.value = NotificationsUiState(applyLocalChanges(page.notifications), canLoadMore = page.hasNextPage)
                 runCatching { repository.markNotificationsViewed() }
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(refreshing = false, error = error.toInboxError())
@@ -72,7 +78,7 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
                     return@onSuccess
                 }
                 nextCursor = page.nextCursor
-                val merged = (_uiState.value.items + page.notifications).distinctBy { it.id }
+                val merged = applyLocalChanges((_uiState.value.items + page.notifications).distinctBy { it.id })
                 _uiState.value = _uiState.value.copy(items = merged, canLoadMore = page.hasNextPage, error = null)
             }.onFailure { error -> _uiState.value = _uiState.value.copy(error = error.toInboxError()) }
             _uiState.value = _uiState.value.copy(loadingNextPage = false)
@@ -81,10 +87,23 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
 
     fun markRead(item: TwitchNotification, onSuccess: () -> Unit = {}) {
         if (!item.isUnread) return
-        _uiState.value = _uiState.value.copy(items = _uiState.value.items.map { if (it.id == item.id) it.copy(isUnread = false) else it })
+        locallyReadIds.add(item.id)
+        _uiState.value = _uiState.value.copy(items = applyLocalChanges(_uiState.value.items))
         viewModelScope.launch {
             runCatching { repository.markNotificationsRead(listOf(item.id)) }
-                .onSuccess { onSuccess() }
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(items = applyLocalChanges(_uiState.value.items))
+                    onSuccess()
+                }
+                .onFailure { error ->
+                    locallyReadIds.remove(item.id)
+                    _uiState.value = _uiState.value.copy(
+                        items = _uiState.value.items.map { current ->
+                            if (current.id == item.id) current.copy(isUnread = true) else current
+                        },
+                        error = error.toInboxError(),
+                    )
+                }
         }
     }
 
@@ -92,8 +111,10 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
         val previous = _uiState.value
         if (previous.markingAllAsSeen || previous.initialLoading || previous.refreshing || previous.loadingNextPage || previous.items.isEmpty()) return
         val previousUnreadById = previous.items.associate { it.id to it.isUnread }
+        val locallyReadByThisOperation = previous.items.filter { it.isUnread }.mapTo(mutableSetOf(), TwitchNotification::id)
+        locallyReadIds.addAll(locallyReadByThisOperation)
         _uiState.value = previous.copy(
-            items = previous.items.map { it.copy(isUnread = false) },
+            items = applyLocalChanges(previous.items),
             markingAllAsSeen = true,
             error = null,
         )
@@ -101,12 +122,13 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
             runCatching { repository.markAllNotificationsRead() }
                 .onSuccess {
                     _uiState.value = _uiState.value.copy(
-                        items = _uiState.value.items.map { it.copy(isUnread = false) },
+                        items = applyLocalChanges(_uiState.value.items),
                         markingAllAsSeen = false,
                     )
                     onSuccess()
                 }
                 .onFailure { error ->
+                    locallyReadIds.removeAll(locallyReadByThisOperation)
                     val current = _uiState.value
                     _uiState.value = current.copy(
                         items = current.items.map { item ->
@@ -121,13 +143,26 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
 
     fun dismiss(item: TwitchNotification) {
         val previous = _uiState.value.items
-        _uiState.value = _uiState.value.copy(items = previous.filterNot { it.id == item.id })
+        locallyDismissedIds.add(item.id)
+        _uiState.value = _uiState.value.copy(items = applyLocalChanges(previous))
         viewModelScope.launch {
-            runCatching { repository.dismissNotification(item.id) }.onFailure { error ->
-                _uiState.value = _uiState.value.copy(items = previous, error = error.toInboxError())
-            }
+            runCatching { repository.dismissNotification(item.id) }
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(items = applyLocalChanges(_uiState.value.items))
+                }
+                .onFailure { error ->
+                    locallyDismissedIds.remove(item.id)
+                    val current = _uiState.value.items
+                    _uiState.value = _uiState.value.copy(
+                        items = if (current.any { it.id == item.id }) current else current + item,
+                        error = error.toInboxError(),
+                    )
+                }
         }
     }
+
+    private fun applyLocalChanges(items: List<TwitchNotification>): List<TwitchNotification> =
+        applyLocalNotificationChanges(items, locallyReadIds, locallyDismissedIds)
 
     companion object {
         fun factory(repository: TwitchNotificationsRepository) = object : ViewModelProvider.Factory {
@@ -138,3 +173,12 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
 }
 
 private fun Throwable.toInboxError(): TwitchInboxError = (this as? TwitchInboxException)?.error ?: TwitchInboxError.Network
+
+internal fun applyLocalNotificationChanges(
+    items: List<TwitchNotification>,
+    locallyReadIds: Set<String>,
+    locallyDismissedIds: Set<String>,
+): List<TwitchNotification> = items.asSequence()
+    .filterNot { it.id in locallyDismissedIds }
+    .map { item -> if (item.id in locallyReadIds) item.copy(isUnread = false) else item }
+    .toList()

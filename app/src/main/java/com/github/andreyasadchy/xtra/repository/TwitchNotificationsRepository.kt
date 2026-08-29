@@ -18,11 +18,14 @@ import java.util.Locale
 class TwitchNotificationsRepository(
     private val context: Context,
     private val privateGqlClient: TwitchPrivateGqlClient,
+    private val metadataCache: MetadataCache? = null,
 ) {
     private var accountKey: String? = null
+    private val cacheCommitGate = MetadataCacheCommitGate()
 
     suspend fun getNotifications(cursor: String? = null, limit: Int = 20): TwitchNotificationPage {
         val key = requireAccount()
+        val generationAtStart = cacheCommitGate.generationAtStart()
         val result = privateGqlClient.executeDocument(
             networkLibrary(),
             webHeaders(),
@@ -31,8 +34,15 @@ class TwitchNotificationsRepository(
             buildNotificationVariables(cursor, limit, notificationLanguage()),
         )
         checkAccount(key)
-        return parseNotificationPage(result)
+        val page = parseNotificationPage(result)
+        cacheCommitGate.commitFetch(generationAtStart) {
+            runCatching { metadataCache?.writeNotifications(key, page, replace = cursor == null) }
+        }
+        return page
     }
+
+    suspend fun getCachedNotifications(): TwitchNotificationPage? =
+        metadataCache?.readNotifications(currentUserId())
 
     suspend fun markNotificationsViewed() {
         val key = requireAccount()
@@ -66,6 +76,9 @@ class TwitchNotificationsRepository(
             putJsonObject("input") { putJsonArray("ids") { ids.forEach { add( kotlinx.serialization.json.JsonPrimitive(it)) } } }
         })
         checkAccount(key)
+        cacheCommitGate.commitMutation {
+            runCatching { metadataCache?.markNotificationsRead(key, ids) }
+        }
     }
 
     suspend fun dismissNotification(id: String) {
@@ -74,6 +87,9 @@ class TwitchNotificationsRepository(
             putJsonObject("input") { put("id", id) }
         })
         checkAccount(key)
+        cacheCommitGate.commitMutation {
+            runCatching { metadataCache?.removeNotification(key, id) }
+        }
     }
 
     suspend fun getUnreadSummary(): NotificationUnreadSummary {
@@ -86,6 +102,8 @@ class TwitchNotificationsRepository(
     fun clearAccountState() {
         accountKey = null
     }
+
+    fun currentUserId(): String? = context.tokenPrefs().getString(C.USER_ID, null)
 
     private fun webHeaders() = TwitchApiHelper.getWebGQLHeaders(context, includeToken = true)
     private fun networkLibrary() = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)

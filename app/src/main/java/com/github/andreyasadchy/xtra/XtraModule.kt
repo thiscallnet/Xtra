@@ -574,11 +574,11 @@ class XtraModule(application: Application) {
     }
 
     val twitchNotificationsRepository by lazy {
-        TwitchNotificationsRepository(application, twitchPrivateGqlClient)
+        TwitchNotificationsRepository(application, twitchPrivateGqlClient, metadataCache)
     }
 
     val whispersRepository by lazy {
-        WhispersRepository(application, twitchPrivateGqlClient, graphQLRepository)
+        WhispersRepository(application, twitchPrivateGqlClient, graphQLRepository, metadataCache)
     }
 
     val helixRepository by lazy {

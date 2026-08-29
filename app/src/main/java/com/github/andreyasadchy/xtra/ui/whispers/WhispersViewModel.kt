@@ -42,6 +42,10 @@ class WhispersViewModel(private val repository: WhispersRepository) : ViewModel(
         if (loadJob?.isActive == true) return
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loading = true, error = null)
+            runCatching { repository.getCachedThreads() }.getOrNull()?.let { page ->
+                nextCursor = page.nextCursor
+                updateConversations(page.threads, page.hasNextPage)
+            }
             runCatching { repository.getThreads() }.onSuccess { page ->
                 nextCursor = page.nextCursor
                 updateConversations(page.threads, page.hasNextPage)
