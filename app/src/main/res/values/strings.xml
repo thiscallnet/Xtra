@@ -502,6 +502,8 @@
     <string name="settings_debug_corrupt_gecko_identity_summary" translatable="false">Inject an invalid Client-Integrity for recovery testing</string>
     <string name="settings_debug_gecko_identity_corrupted" translatable="false">Invalid integrity installed</string>
     <string name="settings_debug_gecko_identity_unavailable" translatable="false">No complete Gecko GQL identity is available</string>
+    <string name="settings_debug_gql" translatable="false">GQL</string>
+    <string name="settings_debug_only" translatable="false">debug only</string>
     <string name="settings_networking">Networking</string>
     <string name="settings_network_engine">Network engine</string>
     <string name="settings_stream_preloading">Smart stream preloading</string>

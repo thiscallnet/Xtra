@@ -1,11 +1,14 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
 import android.annotation.SuppressLint
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.LinearInterpolator
 import androidx.fragment.app.Fragment
 import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityViewCommand
@@ -85,6 +88,10 @@ class EmotesAdapter(
         return true
     }
 
+    fun setDragging(viewHolder: RecyclerView.ViewHolder, dragging: Boolean) {
+        (viewHolder as? ViewHolder)?.setDragging(dragging)
+    }
+
     fun currentItems(): List<Emote> = if (reorderable) items.toList() else differ.currentList
 
     fun setFavoriteKeys(keys: Set<FavoriteEmoteKey>) {
@@ -106,14 +113,44 @@ class EmotesAdapter(
         holder.bind(currentItems.getOrNull(position))
     }
 
+    override fun onViewRecycled(holder: ViewHolder) {
+        holder.resetReorderVisuals()
+        super.onViewRecycled(holder)
+    }
+
+    override fun onViewAttachedToWindow(holder: ViewHolder) {
+        super.onViewAttachedToWindow(holder)
+        holder.restoreReorderVisuals()
+    }
+
+    override fun onViewDetachedFromWindow(holder: ViewHolder) {
+        holder.resetReorderVisuals()
+        super.onViewDetachedFromWindow(holder)
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        for (index in 0 until recyclerView.childCount) {
+            (recyclerView.getChildViewHolder(recyclerView.getChildAt(index)) as? ViewHolder)
+                ?.resetReorderVisuals()
+        }
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
+
     inner class ViewHolder(
         private val binding: FragmentEmotesListItemBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
         private var favoriteAccessibilityActionId: Int? = null
         private val reorderAccessibilityActionIds = mutableListOf<Int>()
+        private var reorderAnimator: ObjectAnimator? = null
+        private var isDragging = false
 
         @SuppressLint("ClickableViewAccessibility")
         fun bind(item: Emote?) {
+            resetReorderVisuals()
+            setReorderMode(
+                enabled = reorderable && reorderMode && item != null,
+                seed = item?.let(::reorderSeed) ?: 0,
+            )
             with(binding) {
                 favoriteAccessibilityActionId?.let {
                     ViewCompat.removeAccessibilityAction(emote, it)
@@ -225,9 +262,99 @@ class EmotesAdapter(
                 }
             }
         }
+
+        fun resetReorderVisuals() {
+            isDragging = false
+            reorderAnimator?.cancel()
+            reorderAnimator = null
+            itemView.animate().cancel()
+            itemView.rotation = 0f
+            itemView.scaleX = 1f
+            itemView.scaleY = 1f
+        }
+
+        fun restoreReorderVisuals() {
+            if (reorderable && reorderMode) {
+                setReorderMode(true, reorderSeedForBoundItem())
+            } else {
+                resetReorderVisuals()
+            }
+        }
+
+        fun setDragging(dragging: Boolean) {
+            isDragging = dragging
+            reorderAnimator?.cancel()
+            reorderAnimator = null
+            itemView.animate().cancel()
+            itemView.rotation = 0f
+            itemView.animate()
+                .scaleX(if (dragging) DRAG_SCALE else 1f)
+                .scaleY(if (dragging) DRAG_SCALE else 1f)
+                .setDuration(DRAG_SCALE_DURATION_MS)
+                .start()
+            if (!dragging && reorderable && reorderMode) {
+                startReorderAnimation(reorderSeedForBoundItem())
+            }
+        }
+
+        private fun setReorderMode(enabled: Boolean, seed: Int) {
+            reorderAnimator?.cancel()
+            reorderAnimator = null
+            itemView.animate().cancel()
+            itemView.rotation = 0f
+
+            if (!enabled || isDragging) {
+                itemView.scaleX = if (isDragging) DRAG_SCALE else 1f
+                itemView.scaleY = if (isDragging) DRAG_SCALE else 1f
+                return
+            }
+
+            itemView.scaleX = 1f
+            itemView.scaleY = 1f
+            startReorderAnimation(seed)
+        }
+
+        private fun startReorderAnimation(seed: Int) {
+            if (!itemView.isAttachedToWindow) return
+
+            val phase = if (seed and 1 == 0) 1f else -1f
+            val durationOffset = kotlin.math.abs(seed.toLong()) % REORDER_DURATION_VARIATION_MS
+            reorderAnimator = ObjectAnimator.ofFloat(
+                itemView,
+                View.ROTATION,
+                -REORDER_ROTATION_DEGREES * phase,
+                REORDER_ROTATION_DEGREES * phase,
+            ).apply {
+                duration = REORDER_ANIMATION_DURATION_MS + durationOffset
+                repeatMode = ValueAnimator.REVERSE
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                start()
+            }
+        }
+
+        private fun reorderSeedForBoundItem(): Int {
+            val position = bindingAdapterPosition
+            val item = if (position != RecyclerView.NO_POSITION) {
+                (if (reorderable) items else differ.currentList).getOrNull(position)
+            } else {
+                null
+            }
+            return item?.let(::reorderSeed) ?: 0
+        }
     }
 
     private companion object {
+        const val DRAG_SCALE = 1.05f
+        const val DRAG_SCALE_DURATION_MS = 100L
+        const val REORDER_ANIMATION_DURATION_MS = 130L
+        const val REORDER_DURATION_VARIATION_MS = 30L
+        const val REORDER_ROTATION_DEGREES = 1.2f
+
+        fun reorderSeed(item: Emote): Int {
+            return item.favoriteKey()?.hashCode() ?: item.name.hashCode()
+        }
+
         val EMOTE_DIFF_CALLBACK = object : DiffUtil.ItemCallback<Emote>() {
             override fun areItemsTheSame(oldItem: Emote, newItem: Emote): Boolean {
                 val oldKey = oldItem.favoriteKey()
