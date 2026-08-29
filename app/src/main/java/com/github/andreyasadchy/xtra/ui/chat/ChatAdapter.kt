@@ -32,6 +32,8 @@ import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
+import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
+import com.github.andreyasadchy.xtra.util.chat.isWatchStreakNotice
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +50,7 @@ import kotlinx.coroutines.yield
 import java.util.Random
 import java.util.Collections
 import java.util.IdentityHashMap
+import kotlin.math.roundToInt
 
 internal data class ChatRenderConfiguration(
     val revision: Int,
@@ -709,6 +712,10 @@ class ChatAdapter(
 
         internal fun bind(chatMessage: ChatMessage, cacheKey: RenderCacheKey, result: ChatAdapterUtils.MessageResult) {
             itemView.setBackgroundResource(result.backgroundResource)
+            val specialPadding = if (chatMessage.isHighlightedMessage() || chatMessage.isWatchStreakNotice()) {
+                (6f * textView.resources.displayMetrics.density).roundToInt()
+            } else 0
+            textView.setPadding(0, specialPadding, 0, specialPadding)
             boundRenderKey = cacheKey
             bindContent(chatMessage, result.builder, result.accessibilityDescription)
         }
@@ -1246,6 +1253,8 @@ class ChatAdapter(
             builder.append(chatMessage.message ?: chatMessage.reward?.title.orEmpty())
         }
         val backgroundResource = when {
+            chatMessage.isHighlightedMessage() -> R.drawable.bg_chat_highlight
+            chatMessage.isWatchStreakNotice() -> R.drawable.bg_chat_watch_streak
             chatMessage.isFirst && firstMsgVisibility < 2 -> R.color.chatMessageFirst
             chatMessage.reward?.id != null && firstMsgVisibility < 2 -> R.color.chatMessageReward
             chatMessage.systemMsg != null || chatMessage.msgId != null -> R.color.chatMessageNotice

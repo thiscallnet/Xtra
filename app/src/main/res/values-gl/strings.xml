@@ -1443,4 +1443,8 @@
     <string name="clip_editor_temporary_space_unknown">Temporary space needed: unavailable</string>
     <string name="clip_editor_insufficient_storage">Not enough free space</string>
     <string name="clip_editor_actual_size">File size: %s</string>
+    <string name="chat_highlight_redeemed">Canxeado: %s</string>
+    <string name="chat_highlight_title">Destacar a miña mensaxe</string>
+    <string name="chat_watch_streak_reached">Racha de visualización acadada</string>
+    <string name="chat_watch_streak_status">%1$s leva unha racha de %2$s directos!</string>
 </resources>

@@ -1444,4 +1444,8 @@
     <string name="clip_editor_temporary_space_unknown">Temporary space needed: unavailable</string>
     <string name="clip_editor_insufficient_storage">Not enough free space</string>
     <string name="clip_editor_actual_size">File size: %s</string>
+    <string name="chat_highlight_redeemed">%s kullanıldı</string>
+    <string name="chat_highlight_title">Mesajımı öne çıkar</string>
+    <string name="chat_watch_streak_reached">İzleme serisine ulaşıldı</string>
+    <string name="chat_watch_streak_status">%1$s şu anda %2$s yayınlık bir seride!</string>
 </resources>

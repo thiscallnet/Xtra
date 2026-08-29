@@ -77,6 +77,14 @@ object EventSubUtils {
         val messageObj = json.optJSONObject("message")
         val messageText = if (messageObj?.isNull("text") == false) messageObj.optString("text").takeIf { it.isNotBlank() } else null
         val systemMsg = if (!json.isNull("system_message")) json.optString("system_message").takeIf { it.isNotBlank() } else null
+        val noticeType = json.optString("notice_type")
+        val watchStreak = json.optJSONObject("watch_streak")
+        val watchStreakCount = if (noticeType == "watch_streak") {
+            watchStreak?.optInt("streak_count")?.takeIf { it > 0 }
+        } else null
+        val watchStreakPoints = if (noticeType == "watch_streak") {
+            watchStreak?.optInt("channel_points_awarded")?.takeIf { it > 0 }
+        } else null
         return if (messageText != null) {
             val emotesList = mutableListOf<TwitchEmote>()
             val fragments = messageObj?.optJSONArray("fragments")
@@ -127,8 +135,10 @@ object EventSubUtils {
                 badges = badgesList,
                 isAction = messageText.startsWith(ChatUtils.ACTION),
                 systemMsg = systemMsg,
-                msgId = if (!json.isNull("notice_type")) json.optString("notice_type").takeIf { it.isNotBlank() } else null,
+                msgId = noticeType.takeIf { it.isNotBlank() },
                 timestamp = timestamp?.let { Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } },
+                watchStreakCount = watchStreakCount,
+                watchStreakPoints = watchStreakPoints,
                 fullMsg = json.toString()
             )
         } else {
@@ -139,6 +149,9 @@ object EventSubUtils {
                 userName = if (!json.isNull("chatter_user_name")) json.optString("chatter_user_name").takeIf { it.isNotBlank() } else null,
                 systemMsg = systemMsg,
                 timestamp = timestamp?.let { Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } },
+                msgId = noticeType.takeIf { it.isNotBlank() },
+                watchStreakCount = watchStreakCount,
+                watchStreakPoints = watchStreakPoints,
                 fullMsg = json.toString()
             )
         }

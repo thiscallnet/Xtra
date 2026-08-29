@@ -92,6 +92,8 @@ object ChatUtils {
     }
 
     fun parseChatMessage(message: IRCMessage): ChatMessage {
+        val noticeId = message.tags["msg-id"]
+        val effectiveNoticeId = message.tags["source-msg-id"] ?: noticeId
         val userLogin = message.tags["login"] ?: message.prefix?.substringBefore('!', "")
         val emotes = message.tags["emotes"]?.let { value ->
             buildList {
@@ -143,7 +145,8 @@ object ChatUtils {
             isFirst = message.tags["first-msg"] == "1",
             bits = message.tags["bits"]?.toIntOrNull(),
             systemMsg = message.tags["system-msg"],
-            msgId = message.tags["msg-id"],
+            msgId = noticeId,
+            sourceMsgId = message.tags["source-msg-id"],
             reward = message.tags["custom-reward-id"]?.let {
                 ChannelPointReward(id = it)
             },
@@ -156,6 +159,12 @@ object ChatUtils {
                 )
             },
             timestamp = message.tags["tmi-sent-ts"]?.toLongOrNull(),
+            watchStreakCount = if (effectiveNoticeId.equals("viewermilestone", true) && message.tags["msg-param-category"] == "watch-streak") {
+                message.tags["msg-param-value"]?.toIntOrNull()?.takeIf { it > 0 }
+            } else null,
+            watchStreakPoints = if (effectiveNoticeId.equals("viewermilestone", true) && message.tags["msg-param-category"] == "watch-streak") {
+                message.tags["msg-param-copoReward"]?.toIntOrNull()?.takeIf { it > 0 }
+            } else null,
             fullMsg = message.fullMessage
         )
     }

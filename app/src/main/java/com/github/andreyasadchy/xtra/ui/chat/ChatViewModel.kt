@@ -78,6 +78,7 @@ import com.github.andreyasadchy.xtra.util.chat.GqlPredictionParser
 import com.github.andreyasadchy.xtra.util.chat.GqlPredictionSnapshot
 import com.github.andreyasadchy.xtra.util.chat.HermesWebSocket
 import com.github.andreyasadchy.xtra.util.chat.PollCache
+import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
 import com.github.andreyasadchy.xtra.util.chat.PollState
 import com.github.andreyasadchy.xtra.util.chat.PredictionBetPolicy
 import com.github.andreyasadchy.xtra.util.chat.PredictionCache
@@ -361,6 +362,7 @@ class ChatViewModel(
     )
     val translateAllMessages = MutableStateFlow<Boolean?>(null)
     val channelPoints = MutableStateFlow<ChannelPoints?>(null)
+    private var highlightedMessageReward: ChannelPointRewardInfo? = null
     val watchStreak = MutableStateFlow<WatchStreak?>(null)
     private val channelPointRedemptionEvents = Channel<ChannelPointRedemptionResult>(Channel.BUFFERED)
     val channelPointRedemption: Flow<ChannelPointRedemptionResult> = channelPointRedemptionEvents.receiveAsFlow()
@@ -1604,7 +1606,6 @@ class ChatViewModel(
         requestRevision: Long? = null,
     ) {
         val channel = response.data?.community?.channel ?: return
-        val snapshotBalance = channel.self.communityPoints?.balance ?: return
         val settings = channel.communityPointsSettings
         updateChannelPointModifiedEmotes(settings)
         val hasModifiedEmotes = synchronized(channelPointModifiedEmotes) {
@@ -1674,6 +1675,12 @@ class ChatViewModel(
                     )
                 } else null
             }
+            .toList()
+        highlightedMessageReward = automaticRewards.firstOrNull {
+            it.redemptionType == ChannelPointRewardRedemption.HIGHLIGHTED_MESSAGE
+        }
+        backfillHighlightedMessageRewards()
+        val snapshotBalance = channel.self.communityPoints?.balance ?: return
         val rewards = (customRewards + automaticRewards)
             .sortedWith(compareBy<ChannelPointRewardInfo> { it.cost }.thenBy { it.title })
             .toList()
@@ -1705,6 +1712,33 @@ class ChatViewModel(
             }
         }
     }
+
+    private fun backfillHighlightedMessageRewards() {
+        val reward = highlightedMessageReward ?: return
+        var changed = false
+        synchronized(chatMessages) {
+            chatMessages.forEach { message ->
+                if (
+                    (message.msgId.equals("highlighted-message", true) ||
+                        message.msgId.equals("channel_points_highlighted", true)) &&
+                    message.reward?.cost == null
+                ) {
+                    message.reward = reward.toChatReward()
+                    changed = true
+                }
+            }
+        }
+        if (changed) {
+            reloadMessages.value = true
+        }
+    }
+
+    private fun ChannelPointRewardInfo.toChatReward() = ChannelPointReward(
+        id = id,
+        title = title,
+        cost = cost,
+        url1x = imageUrl,
+    )
 
     private fun ChannelPointContextResponse.CustomReward.rewardImageUrl(): String? {
         return image?.url4x ?: image?.url2x ?: image?.url1x ?: image?.url
@@ -2047,7 +2081,7 @@ class ChatViewModel(
         channelLogin: String?,
         delayMillis: Long = 0L,
     ) {
-        if (channelLogin.isNullOrBlank() || gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+        if (channelLogin.isNullOrBlank()) {
             return
         }
         val expectedChannelId = activeChannelId
@@ -2453,8 +2487,12 @@ class ChatViewModel(
         if (showPredictions) {
             loadCurrentPredictionSnapshot(networkLibrary, channelLogin, channelId, sessionToken)
         }
+        loadChannelPoints(
+            networkLibrary,
+            if (isLoggedIn) gqlHeaders else TwitchApiHelper.getGQLHeaders(applicationContext, includeToken = false),
+            channelLogin,
+        )
         if (isLoggedIn) {
-            loadChannelPoints(networkLibrary, gqlHeaders, channelLogin)
             loadWatchStreak(networkLibrary, gqlHeaders, channelId)
             startWatchStreakRefresh(networkLibrary, gqlHeaders, channelId)
         }
@@ -2558,6 +2596,7 @@ class ChatViewModel(
         channelPointsJob = null
         channelPointsReconciliationJob?.cancel()
         channelPointsReconciliationJob = null
+        highlightedMessageReward = null
         claimJob?.cancel()
         claimJob = null
         watchStreakRefreshJob?.cancel()
@@ -2668,7 +2707,8 @@ class ChatViewModel(
         }
 
         override suspend fun onChatMessage(message: ChatUtils.IRCMessage, userNotice: Boolean) {
-            if (userNotice && message.tags["msg-id"] == "viewermilestone" &&
+            val effectiveNoticeId = message.tags["source-msg-id"] ?: message.tags["msg-id"]
+            if (userNotice && effectiveNoticeId.equals("viewermilestone", true) &&
                 message.tags["msg-param-category"] == "watch-streak" &&
                 message.tags["user-id"] == accountId
             ) {
@@ -2697,7 +2737,8 @@ class ChatViewModel(
                         replyParent = chatMessage,
                     ))
                 }
-                if (usePubSub && chatMessage.reward != null && !chatMessage.reward.id.isNullOrBlank()) {
+                val reward = chatMessage.reward
+                if (usePubSub && reward != null && !reward.id.isNullOrBlank()) {
                     onRewardMessage(chatMessage, networkLibrary, isLoggedIn, accountId, channelId)
                 } else {
                     onChatMessage(chatMessage, networkLibrary, isLoggedIn, accountId, channelId)
@@ -3157,7 +3198,8 @@ class ChatViewModel(
 
         override suspend fun onChatMessage(event: JSONObject, timestamp: String?) {
             val chatMessage = EventSubUtils.parseChatMessage(event, timestamp)
-            if (usePubSub && chatMessage.reward != null && !chatMessage.reward.id.isNullOrBlank()) {
+            val reward = chatMessage.reward
+            if (usePubSub && reward != null && !reward.id.isNullOrBlank()) {
                 onRewardMessage(chatMessage, networkLibrary, isLoggedIn, accountId, channelId)
             } else {
                 onChatMessage(chatMessage, networkLibrary, isLoggedIn, accountId, channelId)
@@ -3836,6 +3878,15 @@ class ChatViewModel(
     }
 
     private suspend fun onChatMessage(message: ChatMessage, networkLibrary: String?, isLoggedIn: Boolean, accountId: String?, channelId: String?) {
+        if (
+            (message.msgId.equals("highlighted-message", true) ||
+                message.msgId.equals("channel_points_highlighted", true)) &&
+            message.reward?.cost == null
+        ) {
+            highlightedMessageReward?.let { reward ->
+                message.reward = reward.toChatReward()
+            }
+        }
         onMessage(message)
         addChatter(message.userName)
         if (isLoggedIn && !accountId.isNullOrBlank() && message.userId == accountId) {
@@ -3870,9 +3921,10 @@ class ChatViewModel(
     }
 
     private suspend fun onRewardMessage(message: ChatMessage, networkLibrary: String?, isLoggedIn: Boolean, accountId: String?, channelId: String?) {
-        if (message.reward?.id != null) {
+        val messageReward = message.reward
+        if (messageReward?.id != null) {
             synchronized(rewardList) {
-                val item = rewardList.find { it.reward?.id == message.reward.id && it.userId == message.userId }
+                val item = rewardList.find { it.reward?.id == messageReward.id && it.userId == message.userId }
                 if (item != null) {
                     rewardList.remove(item)
                     item
@@ -3882,6 +3934,7 @@ class ChatViewModel(
                 }
             }.let { item ->
                 if (item != null) {
+                    val itemReward = item.reward
                     onChatMessage(ChatMessage(
                         type = ChatMessage.USER_MESSAGE,
                         id = message.id ?: item.id,
@@ -3897,15 +3950,18 @@ class ChatViewModel(
                         bits = message.bits ?: item.bits,
                         systemMsg = message.systemMsg ?: item.systemMsg,
                         msgId = message.msgId ?: item.msgId,
+                        sourceMsgId = message.sourceMsgId ?: item.sourceMsgId,
                         reward = ChannelPointReward(
-                            id = message.reward.id,
-                            title = message.reward.title ?: item.reward?.title,
-                            cost = message.reward.cost ?: item.reward?.cost,
-                            url1x = message.reward.url1x ?: item.reward?.url1x,
-                            url2x = message.reward.url2x ?: item.reward?.url2x,
-                            url4x = message.reward.url4x ?: item.reward?.url4x,
+                            id = messageReward.id,
+                            title = messageReward.title ?: itemReward?.title,
+                            cost = messageReward.cost ?: itemReward?.cost,
+                            url1x = messageReward.url1x ?: itemReward?.url1x,
+                            url2x = messageReward.url2x ?: itemReward?.url2x,
+                            url4x = messageReward.url4x ?: itemReward?.url4x,
                         ),
                         timestamp = message.timestamp ?: item.timestamp,
+                        watchStreakCount = message.watchStreakCount ?: item.watchStreakCount,
+                        watchStreakPoints = message.watchStreakPoints ?: item.watchStreakPoints,
                         fullMsg = message.fullMsg ?: item.fullMsg,
                     ), networkLibrary, isLoggedIn, accountId, channelId)
                 }

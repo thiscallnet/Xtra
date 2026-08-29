@@ -1443,4 +1443,8 @@
     <string name="clip_editor_temporary_space_unknown">Temporary space needed: unavailable</string>
     <string name="clip_editor_insufficient_storage">Not enough free space</string>
     <string name="clip_editor_actual_size">File size: %s</string>
+    <string name="chat_highlight_redeemed">引き換え: %s</string>
+    <string name="chat_highlight_title">メッセージをハイライト</string>
+    <string name="chat_watch_streak_reached">視聴ストリーク達成</string>
+    <string name="chat_watch_streak_status">%1$s は現在 %2$s 配信連続視聴中です！</string>
 </resources>

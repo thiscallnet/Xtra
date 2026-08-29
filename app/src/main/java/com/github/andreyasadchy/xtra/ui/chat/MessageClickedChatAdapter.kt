@@ -30,7 +30,10 @@ import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
+import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
+import com.github.andreyasadchy.xtra.util.chat.isWatchStreakNotice
 import java.util.Random
+import kotlin.math.roundToInt
 
 class MessageClickedChatAdapter(
     messages: List<ChatMessage>,
@@ -149,7 +152,11 @@ class MessageClickedChatAdapter(
     }
 
     fun updateBackground(chatMessage: ChatMessage, item: TextView) {
-        if (chatMessage.message.isNullOrBlank()) {
+        if (chatMessage.isHighlightedMessage()) {
+            item.setBackgroundResource(R.drawable.bg_chat_highlight)
+        } else if (chatMessage.isWatchStreakNotice()) {
+            item.setBackgroundResource(R.drawable.bg_chat_watch_streak)
+        } else if (chatMessage.message.isNullOrBlank()) {
             item.setBackgroundResource(0)
         } else {
             when {
@@ -269,6 +276,10 @@ class MessageClickedChatAdapter(
         fun bind(chatMessage: ChatMessage, formattedMessage: SpannableStringBuilder) {
             textView.apply {
                 text = formattedMessage
+                val specialPadding = if (chatMessage.isHighlightedMessage() || chatMessage.isWatchStreakNotice()) {
+                    (6f * resources.displayMetrics.density).roundToInt()
+                } else 0
+                setPadding(0, specialPadding, 0, specialPadding)
                 contentDescription = ChatAdapterUtils.accessibilityDescription(
                     textView.context,
                     chatMessage,

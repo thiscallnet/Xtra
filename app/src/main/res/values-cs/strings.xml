@@ -1466,4 +1466,8 @@
     <string name="clip_editor_temporary_space_unknown">Temporary space needed: unavailable</string>
     <string name="clip_editor_insufficient_storage">Not enough free space</string>
     <string name="clip_editor_actual_size">File size: %s</string>
+    <string name="chat_highlight_redeemed">Uplatněno: %s</string>
+    <string name="chat_highlight_title">Zvýraznit moji zprávu</string>
+    <string name="chat_watch_streak_reached">Dosažena série sledování</string>
+    <string name="chat_watch_streak_status">%1$s je právě na sérii %2$s streamů!</string>
 </resources>

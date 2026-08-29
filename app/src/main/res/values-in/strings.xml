@@ -1444,4 +1444,8 @@
     <string name="clip_editor_temporary_space_unknown">Temporary space needed: unavailable</string>
     <string name="clip_editor_insufficient_storage">Not enough free space</string>
     <string name="clip_editor_actual_size">File size: %s</string>
+    <string name="chat_highlight_redeemed">Ditukarkan: %s</string>
+    <string name="chat_highlight_title">Sorot Pesan Saya</string>
+    <string name="chat_watch_streak_reached">Streak Menonton Tercapai</string>
+    <string name="chat_watch_streak_status">%1$s sedang menjalani streak selama %2$s stream!</string>
 </resources>
