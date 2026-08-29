@@ -64,6 +64,23 @@
                 android:textSize="11sp"
                 android:textStyle="bold" />
 
+            <com.github.andreyasadchy.xtra.ui.view.TextWithShadow
+                android:id="@+id/uptime"
+                style="@style/ThumbnailItem"
+                android:layout_gravity="top|end"
+                android:layout_margin="12dp"
+                android:background="@drawable/bg_stream_overlay"
+                android:drawableStart="@drawable/ic_stream_uptime"
+                android:drawableTint="@android:color/white"
+                android:drawablePadding="3dp"
+                android:paddingStart="6dp"
+                android:paddingTop="3dp"
+                android:paddingEnd="6dp"
+                android:paddingBottom="3dp"
+                android:visibility="gone"
+                tools:text="1:23:45"
+                tools:visibility="visible" />
+
             <TextView
                 android:id="@+id/viewers"
                 android:layout_width="wrap_content"

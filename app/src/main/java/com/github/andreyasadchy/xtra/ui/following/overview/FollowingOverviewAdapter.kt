@@ -88,7 +88,7 @@ class FollowingOverviewAdapter(
         private val videoShelfAdapter = VideoShelfAdapter(onVideoClick)
         private val upcomingShelfAdapter = UpcomingStreamShelfAdapter(onUpcomingClick)
         private val gameShelfAdapter = GameShelfAdapter(onGameClick)
-        private val featuredShelfAdapter = FeaturedStreamShelfAdapter(onStreamClick)
+        private val featuredShelfAdapter = FeaturedStreamShelfAdapter(fragment, onStreamClick)
         private val skeletonShelfAdapter = ShelfSkeletonAdapter()
         private var shelfType: ShelfType? = null
         private var boundStreamShelfKey: String? = null
