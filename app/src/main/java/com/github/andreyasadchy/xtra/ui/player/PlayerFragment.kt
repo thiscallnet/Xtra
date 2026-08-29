@@ -1084,8 +1084,19 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         val positionParams = position.layoutParams as? RelativeLayout.LayoutParams ?: return
         val duration = binding.playerControls.duration
         val durationParams = duration.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val progress = binding.playerControls.progressBar
+        val progressParams = progress.layoutParams as? LinearLayout.LayoutParams ?: return
+        val density = resources.displayMetrics.density
+        val timelineRowHeight = (48 * density).toInt()
+        val normalTimeLabelBottomMargin = (10 * density).toInt()
+        val normalProgressBottomMargin = (5 * density).toInt()
         if (enabled) {
-            bottomParams.height = (48 * resources.displayMetrics.density).toInt()
+            bottomParams.height = timelineRowHeight
+            progressParams.bottomMargin = 0
+            positionParams.height = timelineRowHeight
+            positionParams.bottomMargin = 0
+            durationParams.height = timelineRowHeight
+            durationParams.bottomMargin = 0
             bottomParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             bottomParams.addRule(RelativeLayout.ABOVE, R.id.bottomLeftLayout)
             bottomLeftParams.removeRule(RelativeLayout.ABOVE)
@@ -1098,6 +1109,11 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             durationParams.addRule(RelativeLayout.ABOVE, R.id.bottomLeftLayout)
         } else {
             bottomParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            progressParams.bottomMargin = normalProgressBottomMargin
+            positionParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            positionParams.bottomMargin = normalTimeLabelBottomMargin
+            durationParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            durationParams.bottomMargin = normalTimeLabelBottomMargin
             bottomParams.removeRule(RelativeLayout.ABOVE)
             bottomParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             bottomLeftParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
@@ -1112,6 +1128,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         bottom.layoutParams = bottomParams
         bottomLeft.layoutParams = bottomLeftParams
         bottomRight.layoutParams = bottomRightParams
+        progress.layoutParams = progressParams
         position.layoutParams = positionParams
         duration.layoutParams = durationParams
     }
