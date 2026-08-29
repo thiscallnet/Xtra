@@ -132,7 +132,7 @@ class ClipPreparationRepository(
     }
 
     private fun ByteCounter.add(amount: Long) {
-        check(value <= maxBytes - amount) { "Live clip exceeds the temporary storage limit" }
+        check(value <= maxBytes - amount) { "Clip exceeds the temporary storage limit" }
         value += amount
     }
 

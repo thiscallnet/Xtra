@@ -25,6 +25,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.StatFs
 import android.util.Base64
 import android.util.Log
 import android.view.KeyEvent
@@ -57,6 +58,7 @@ import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParserFactory
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.ParsingLoadable
@@ -71,6 +73,9 @@ import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipPreparationRepository
+import com.github.andreyasadchy.xtra.ui.player.clip.ClipSizeEstimator
+import com.github.andreyasadchy.xtra.ui.player.clip.ClipSnapshot
+import com.github.andreyasadchy.xtra.ui.player.clip.HlsClipSnapshotMapper
 import com.github.andreyasadchy.xtra.ui.player.clip.LiveClipBufferManager
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.MediaButtonReceiver
@@ -149,8 +154,10 @@ class ExoPlayerService : BasePlaybackService() {
     private var streamRecoveryAttempt = 0
     private val initialRestore = CompletableDeferred<Unit>()
     private val liveClipBufferManager = LiveClipBufferManager()
-    private var liveClipDataSourceFactory: DataSource.Factory? = null
+    private var hlsClipDataSourceFactory: DataSource.Factory? = null
     private var liveClipPreparation: Deferred<ClipPreparationRepository.PreparedLiveClip>? = null
+    private var vodClipSnapshot: ClipSnapshot? = null
+    private var vodClipPreparation: Deferred<ClipPreparationRepository.PreparedLiveClip>? = null
 
     override fun isViewingPlaybackPlaying(): Boolean = player?.isPlaying == true
 
@@ -176,6 +183,7 @@ class ExoPlayerService : BasePlaybackService() {
         xtraModule = (application as XtraApp).xtraModule
         lifecycleScope.launch(Dispatchers.IO) {
             ClipPreparationRepository.cleanupStale(File(cacheDir, LIVE_CLIP_DIRECTORY))
+            ClipPreparationRepository.cleanupStale(File(cacheDir, VOD_CLIP_DIRECTORY))
         }
     }
 
@@ -230,6 +238,8 @@ class ExoPlayerService : BasePlaybackService() {
                             liveClipBufferManager.capture(manifest)
                             serviceListener?.updateLiveClipStatus()
                         }
+                    } else if (type == VIDEO) {
+                        serviceListener?.updateLiveClipStatus()
                     }
                     if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && !timeline.isEmpty && qualities?.find { it.name == AUTO_QUALITY } != null) {
                         updateQualities = quality?.name != AUDIO_ONLY_QUALITY
@@ -392,23 +402,23 @@ class ExoPlayerService : BasePlaybackService() {
                                                         setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                                                     }.build()
                                                     val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                                                    val dataSourceFactory = DefaultDataSource.Factory(
+                                                        this@ExoPlayerService,
+                                                        when {
+                                                            networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
+                                                                HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
+                                                            }
+                                                            networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
+                                                                CronetDataSource.Factory(xtraModule.cronetEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
+                                                            }
+                                                            else -> {
+                                                                OkHttpDataSource.Factory(xtraModule.okHttpClient.value, null) { false }
+                                                            }
+                                                        }
+                                                    )
+                                                    hlsClipDataSourceFactory = dataSourceFactory
                                                     player.setMediaSource(
-                                                        HlsMediaSource.Factory(
-                                                            DefaultDataSource.Factory(
-                                                                this@ExoPlayerService,
-                                                                when {
-                                                                    networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
-                                                                        HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
-                                                                    }
-                                                                    networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
-                                                                        CronetDataSource.Factory(xtraModule.cronetEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
-                                                                    }
-                                                                    else -> {
-                                                                        OkHttpDataSource.Factory(xtraModule.okHttpClient.value, null) { false }
-                                                                    }
-                                                                }
-                                                            )
-                                                        ).apply {
+                                                        HlsMediaSource.Factory(dataSourceFactory).apply {
                                                             setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
                                                         }.createMediaSource(
                                                             MediaItem.fromUri(url)
@@ -692,23 +702,23 @@ class ExoPlayerService : BasePlaybackService() {
                             if (url != null) {
                                 player?.let { player ->
                                     val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                                    val dataSourceFactory = DefaultDataSource.Factory(
+                                        this@ExoPlayerService,
+                                        when {
+                                            networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
+                                                HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
+                                            }
+                                            networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
+                                                CronetDataSource.Factory(xtraModule.cronetEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
+                                            }
+                                            else -> {
+                                                OkHttpDataSource.Factory(xtraModule.okHttpClient.value, null) { false }
+                                            }
+                                        }
+                                    )
+                                    hlsClipDataSourceFactory = dataSourceFactory
                                     player.setMediaSource(
-                                        HlsMediaSource.Factory(
-                                            DefaultDataSource.Factory(
-                                                this@ExoPlayerService,
-                                                when {
-                                                    networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
-                                                        HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
-                                                    }
-                                                    networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
-                                                        CronetDataSource.Factory(xtraModule.cronetEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
-                                                    }
-                                                    else -> {
-                                                        OkHttpDataSource.Factory(xtraModule.okHttpClient.value, null) { false }
-                                                    }
-                                                }
-                                            )
-                                        ).apply {
+                                        HlsMediaSource.Factory(dataSourceFactory).apply {
                                             setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
                                         }.createMediaSource(
                                             MediaItem.fromUri(url)
@@ -1231,7 +1241,7 @@ class ExoPlayerService : BasePlaybackService() {
                                     }
                                 }
                             )
-                    liveClipDataSourceFactory = dataSourceFactory
+                    hlsClipDataSourceFactory = dataSourceFactory
                     player.setMediaSource(
                         HlsMediaSource.Factory(dataSourceFactory).apply {
                             setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
@@ -1264,6 +1274,7 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     private suspend fun loadVideo(restorePauseState: Boolean = false) {
+        clearVodClipSource()
         videoId?.let { videoId ->
             val playbackPosition = if (prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
                 videoId.toLongOrNull()?.let { xtraModule.playerRepository.getVideoPosition(it)?.position }
@@ -1291,23 +1302,23 @@ class ExoPlayerService : BasePlaybackService() {
             if (url != null) {
                 player?.let { player ->
                     val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                    val dataSourceFactory = DefaultDataSource.Factory(
+                        this@ExoPlayerService,
+                        when {
+                            networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
+                                HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
+                            }
+                            networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
+                                CronetDataSource.Factory(xtraModule.cronetEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
+                            }
+                            else -> {
+                                OkHttpDataSource.Factory(xtraModule.okHttpClient.value, null) { false }
+                            }
+                        }
+                    )
+                    hlsClipDataSourceFactory = dataSourceFactory
                     player.setMediaSource(
-                        HlsMediaSource.Factory(
-                            DefaultDataSource.Factory(
-                                this@ExoPlayerService,
-                                when {
-                                    networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
-                                        HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
-                                    }
-                                    networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
-                                        CronetDataSource.Factory(xtraModule.cronetEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
-                                    }
-                                    else -> {
-                                        OkHttpDataSource.Factory(xtraModule.okHttpClient.value, null) { false }
-                                    }
-                                }
-                            )
-                        ).apply {
+                        HlsMediaSource.Factory(dataSourceFactory).apply {
                             setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
                         }.createMediaSource(
                             MediaItem.fromUri(url)
@@ -1471,7 +1482,7 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
-    fun liveClipStatus(): LiveClipBufferManager.Status? = if (type == STREAM && liveClipDataSourceFactory != null) {
+    fun liveClipStatus(): LiveClipBufferManager.Status? = if (type == STREAM && hlsClipDataSourceFactory != null) {
         val maxDurationUs = configureLiveClipBuffer()
         liveClipBufferManager.status(maxDurationUs)
     } else {
@@ -1486,7 +1497,7 @@ class ExoPlayerService : BasePlaybackService() {
         liveClipPreparation?.takeUnless { it.isCompleted }?.let { return it }
         val maxDurationUs = configureLiveClipBuffer()
         val snapshot = liveClipBufferManager.snapshot(maxDurationUs)
-        val dataSourceFactory = liveClipDataSourceFactory
+        val dataSourceFactory = hlsClipDataSourceFactory
         val preparation = lifecycleScope.async(Dispatchers.IO) {
             check(type == STREAM && dataSourceFactory != null && snapshot != null) {
                 "There is not enough live video available for a clip"
@@ -1509,6 +1520,145 @@ class ExoPlayerService : BasePlaybackService() {
             }
         }
         return preparation
+    }
+
+    data class VodClipDescriptor(
+        val previewUri: String,
+        val segmentDurationsUs: IntArray,
+        val initialPositionUs: Long,
+        val bitrateBitsPerSecond: Int?,
+    )
+
+    fun canCreateVodClip(): Boolean {
+        if (type != VIDEO || hlsClipDataSourceFactory == null) return false
+        val playlist = (player?.currentManifest as? HlsManifest)?.mediaPlaylist ?: return false
+        if (playlist.protectionSchemes != null) return false
+        if (playlist.segments.any { it.drmInitData != null }) return false
+        if (playlist.segments.none { it.durationUs > 0L }) return false
+        return player?.currentMediaItem?.localConfiguration?.uri != null || quality?.url != null
+    }
+
+    fun createVodClipDescriptor(): VodClipDescriptor? {
+        if (type != VIDEO) return null
+        val manifest = player?.currentManifest as? HlsManifest ?: return null
+        val snapshot = HlsClipSnapshotMapper.fromManifest(manifest, generation = 0L)
+        if (snapshot.segments.isEmpty() || snapshot.drmInitDataPresent) return null
+        val previewUri = player?.currentMediaItem?.localConfiguration?.uri?.toString()
+            ?: quality?.url
+            ?: return null
+        val segmentDurationsUs = IntArray(snapshot.segments.size) { index ->
+            val durationUs = snapshot.segments[index].durationUs
+            require(durationUs in 1L..Int.MAX_VALUE.toLong()) {
+                "Unsupported HLS segment duration: $durationUs"
+            }
+            durationUs.toInt()
+        }
+        vodClipSnapshot = snapshot
+        return VodClipDescriptor(
+            previewUri = previewUri,
+            segmentDurationsUs = segmentDurationsUs,
+            initialPositionUs = (player?.currentPosition ?: 0L) * 1_000L,
+            bitrateBitsPerSecond = quality?.bitrate,
+        )
+    }
+
+    fun createVodClipPreviewMediaSource(uri: String): MediaSource {
+        check(type == VIDEO)
+        val factory = requireNotNull(hlsClipDataSourceFactory) {
+            "VOD HLS data source is unavailable"
+        }
+        val mediaItem = MediaItem.Builder()
+            .setUri(uri)
+            .setMimeType(MimeTypes.APPLICATION_M3U8)
+            .build()
+        return HlsMediaSource.Factory(factory)
+            .apply {
+                setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+            }
+            .createMediaSource(mediaItem)
+    }
+
+    fun estimateVodClipBytes(
+        startIndex: Int,
+        endIndexExclusive: Int,
+        selectedDurationUs: Long,
+    ): Long? {
+        val snapshot = vodClipSnapshot ?: return null
+        return ClipSizeEstimator.estimateBytes(
+            selectedDurationUs = selectedDurationUs,
+            segments = snapshot.segments,
+            startIndex = startIndex,
+            endIndexExclusive = endIndexExclusive,
+            bitrateBitsPerSecond = quality?.bitrate,
+        )
+    }
+
+    fun prepareVodClip(
+        startIndex: Int,
+        endIndexExclusive: Int,
+    ): Deferred<ClipPreparationRepository.PreparedLiveClip> {
+        vodClipPreparation?.takeUnless { it.isCompleted }?.let { return it }
+        val source = requireNotNull(vodClipSnapshot) { "VOD clip source is no longer available" }
+        val factory = requireNotNull(hlsClipDataSourceFactory) { "VOD HLS data source is unavailable" }
+        require(startIndex in source.segments.indices)
+        require(endIndexExclusive in (startIndex + 1)..source.segments.size)
+        val selectedSegments = source.segments.subList(startIndex, endIndexExclusive)
+        check(selectedSegments.none { it.hasGap }) {
+            "The selected VOD range contains an unavailable HLS segment"
+        }
+        val selected = ClipSnapshot(source.generation, source.renditionId, selectedSegments.toList())
+        check(!selected.drmInitDataPresent) { "DRM-protected VOD clipping is not supported" }
+        val root = File(cacheDir, VOD_CLIP_DIRECTORY)
+        val preparation = lifecycleScope.async(Dispatchers.IO) {
+            val availableBytes = StatFs(cacheDir.absolutePath).availableBytes
+            val safetyBytes = VOD_STORAGE_SAFETY_BYTES
+            val estimatedBytes = ClipSizeEstimator.estimateBytes(
+                selectedDurationUs = selected.segments.sumOf { it.durationUs },
+                segments = selected.segments,
+                startIndex = 0,
+                endIndexExclusive = selected.segments.size,
+                bitrateBitsPerSecond = quality?.bitrate,
+            )
+            val requiredBytes = estimatedBytes?.let { estimate ->
+                estimate.coerceAtMost((Long.MAX_VALUE - safetyBytes) / 2L) * 2L + safetyBytes
+            }
+            check(requiredBytes == null || requiredBytes <= availableBytes) {
+                "Not enough temporary storage to create this clip"
+            }
+            val maxPreparedBytes = ((availableBytes - safetyBytes).coerceAtLeast(0L) / 2L)
+            check(maxPreparedBytes > 0L) { "Not enough temporary storage to create this clip" }
+            ClipPreparationRepository(
+                dataSourceFactory = factory,
+                rootDirectory = root,
+                maxBytes = maxPreparedBytes,
+            ).prepare(selected)
+        }
+        vodClipPreparation = preparation
+        preparation.invokeOnCompletion {
+            if (vodClipPreparation === preparation) vodClipPreparation = null
+        }
+        return preparation
+    }
+
+    fun cancelVodClipPreparation() {
+        vodClipPreparation?.cancel()
+        vodClipPreparation = null
+    }
+
+    fun releaseVodClip(directoryPath: String?) {
+        if (directoryPath.isNullOrBlank()) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                val root = File(cacheDir, VOD_CLIP_DIRECTORY).canonicalFile
+                val target = File(directoryPath).canonicalFile
+                if (target.parentFile == root) target.deleteRecursively()
+            }
+        }
+    }
+
+    fun clearVodClipSource() {
+        cancelVodClipPreparation()
+        vodClipSnapshot = null
     }
 
     private fun configureLiveClipBuffer(): Long {
@@ -1552,7 +1702,7 @@ class ExoPlayerService : BasePlaybackService() {
     ) {
         cancelLiveClipPreparation()
         if (clearDataSourceFactory) {
-            liveClipDataSourceFactory = null
+            hlsClipDataSourceFactory = null
         }
         proxyMediaPlaylist?.let { this.proxyMediaPlaylist = it }
         liveClipBufferManager.startNewGeneration()
@@ -1569,7 +1719,8 @@ class ExoPlayerService : BasePlaybackService() {
 
     private fun clearLiveClipState() {
         cancelLiveClipPreparation()
-        liveClipDataSourceFactory = null
+        clearVodClipSource()
+        hlsClipDataSourceFactory = null
         liveClipBufferManager.reset()
     }
 
@@ -1595,8 +1746,8 @@ class ExoPlayerService : BasePlaybackService() {
 
     private fun setQualityMediaItem(player: ExoPlayer, mediaItem: MediaItem, uri: String) {
         val updatedMediaItem = mediaItem.buildUpon().setUri(uri).build()
-        val dataSourceFactory = liveClipDataSourceFactory
-        if (type == STREAM && dataSourceFactory != null) {
+        val dataSourceFactory = hlsClipDataSourceFactory
+        if ((type == STREAM || type == VIDEO) && dataSourceFactory != null) {
             player.setMediaSource(
                 HlsMediaSource.Factory(dataSourceFactory).apply {
                     setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
@@ -1617,6 +1768,7 @@ class ExoPlayerService : BasePlaybackService() {
         if (type == STREAM && qualityChanged && resetLiveClipGeneration) {
             advanceLiveClipGeneration()
         }
+        if (type == VIDEO && qualityChanged) clearVodClipSource()
         previousQuality = quality
         quality = selectedQuality
         quality?.let { quality ->
@@ -2439,6 +2591,8 @@ class ExoPlayerService : BasePlaybackService() {
 
     companion object {
         private const val LIVE_CLIP_DIRECTORY = "live-clips"
+        private const val VOD_CLIP_DIRECTORY = "vod-clips"
+        private const val VOD_STORAGE_SAFETY_BYTES = 128L * 1024L * 1024L
         private const val AD_TAG = "XtraAd"
 
         const val MULTIVARIANT_PLAYLIST_REGEX = "^usher\\.ttvnw\\.net$"

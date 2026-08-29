@@ -1433,4 +1433,13 @@
     <string name="user_card_unfollow">Unfollow</string>
     <string name="user_card_whisper">Whisper</string>
     <string name="user_card_follow_failed">Couldn’t update follow status</string>
+    <string name="clip_editor_start">Start</string>
+    <string name="clip_editor_end">End</string>
+    <string name="clip_editor_segment_count">%d segments</string>
+    <string name="clip_editor_estimated_size">Estimated file size: ~%s</string>
+    <string name="clip_editor_estimated_size_unknown">Estimated file size: unavailable</string>
+    <string name="clip_editor_temporary_space">Temporary space needed: ~%s</string>
+    <string name="clip_editor_temporary_space_unknown">Temporary space needed: unavailable</string>
+    <string name="clip_editor_insufficient_storage">Not enough free space</string>
+    <string name="clip_editor_actual_size">File size: %s</string>
 </resources>

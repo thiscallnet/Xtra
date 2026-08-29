@@ -178,6 +178,34 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         binding.playerControls.clip.isEnabled = available
     }
 
+    protected fun configureClipControl() {
+        if (_binding == null) return
+        val playbackType = playbackService?.type
+        val clipAvailable = supportsLiveClipping &&
+            (playbackType == BasePlaybackService.STREAM || playbackType == BasePlaybackService.VIDEO)
+        with(binding.playerControls.clip) {
+            if (clipAvailable) {
+                visibility = View.VISIBLE
+                isEnabled = false
+                setOnClickListener {
+                    showController(force = true)
+                    prepareLiveClip()
+                }
+            } else {
+                visibility = View.GONE
+                isEnabled = false
+                setOnClickListener(null)
+            }
+        }
+    }
+
+    protected fun refreshClipControl() {
+        if (_binding == null) return
+        configureClipControl()
+        refreshPlayerControls()
+        applyControlLayout()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         if (arguments?.getBoolean(KEY_OFFLINE) == true) {
             enableNetworkCheck = false
@@ -763,9 +791,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 changeQuality(playbackService?.previousQuality)
             }
             with(playerControls) {
-                clip.visibility = View.GONE
-                clip.isEnabled = false
-                clip.setOnClickListener(null)
+                configureClipControl()
                 val channelLogin = playbackService?.channelLogin
                 val channelName = playbackService?.channelName
                 val displayName = if (channelLogin != null && !channelLogin.equals(channelName, true)) {
@@ -861,16 +887,13 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                     isClickable = false
                     isFocusable = false
                 }
+                if (supportsLiveClipping &&
+                    (playbackService?.type == BasePlaybackService.STREAM ||
+                        playbackService?.type == BasePlaybackService.VIDEO)
+                ) {
+                    requestLiveClipStatus()
+                }
                 if (playbackService?.type == BasePlaybackService.STREAM) {
-                    if (supportsLiveClipping) {
-                        clip.visibility = View.VISIBLE
-                        clip.isEnabled = false
-                        clip.setOnClickListener {
-                            showController(force = true)
-                            prepareLiveClip()
-                        }
-                        requestLiveClipStatus()
-                    }
                     if (!requireContext().tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
                         (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
                                 !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank())

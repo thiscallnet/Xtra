@@ -35,6 +35,7 @@ import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.hls.HlsManifest
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.navigation.fragment.findNavController
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
@@ -56,7 +57,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 @OptIn(UnstableApi::class)
-class ExoPlayerFragment : PlayerFragment() {
+class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
     override val supportsLiveClipping = true
     override var playbackService: ExoPlayerService? = null
@@ -67,6 +68,9 @@ class ExoPlayerFragment : PlayerFragment() {
     private var clipPreparationJob: Job? = null
     private var clipPreparationSnackbar: Snackbar? = null
     private var livePlaybackBeforeClipEditor: Boolean? = null
+    private var playbackPositionBeforeClipEditor: Long? = null
+    private var playbackBeforeClipEditor: Boolean? = null
+    private var vodClipEditorOpen = false
     private var liveClipDirectoryPath: String? = null
     private var liveSurfaceRestoreListener: Player.Listener? = null
     private var liveSurfaceRestoreTimeout: Runnable? = null
@@ -83,6 +87,11 @@ class ExoPlayerFragment : PlayerFragment() {
         livePlaybackBeforeClipEditor = savedInstanceState
             ?.takeIf { it.containsKey(STATE_CLIP_PLAYING) }
             ?.getBoolean(STATE_CLIP_PLAYING)
+        playbackPositionBeforeClipEditor = savedInstanceState?.getLong(STATE_CLIP_POSITION)
+            ?.takeIf { savedInstanceState.containsKey(STATE_CLIP_POSITION) }
+        playbackBeforeClipEditor = savedInstanceState?.getBoolean(STATE_CLIP_VOD_PLAYING)
+            ?.takeIf { savedInstanceState.containsKey(STATE_CLIP_VOD_PLAYING) }
+        vodClipEditorOpen = savedInstanceState?.getBoolean(STATE_CLIP_VOD_OPEN, false) == true
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -113,7 +122,8 @@ class ExoPlayerFragment : PlayerFragment() {
         ) { _, _ ->
             hideClipEditorTransitionCover()
         }
-        if (childFragmentManager.findFragmentByTag(CLIP_EDITOR_TAG) is ClipEditorDialogFragment) {
+        (childFragmentManager.findFragmentByTag(CLIP_EDITOR_TAG) as? ClipEditorDialogFragment)?.let { editor ->
+            vodClipEditorOpen = editor.isVodSource
             binding.clipEditorContainer.visibility = View.VISIBLE
             binding.clipEditorTransitionCover.visibility = View.VISIBLE
             scheduleClipEditorCoverFallback()
@@ -146,6 +156,9 @@ class ExoPlayerFragment : PlayerFragment() {
                 controllerAutoHide = !showPlayButton
                 if (useController) {
                     showController(show = playbackService?.type != BasePlaybackService.STREAM && playbackState == Player.STATE_ENDED)
+                }
+                if (playbackState == Player.STATE_READY && playbackService?.type == BasePlaybackService.VIDEO) {
+                    refreshClipAvailability()
                 }
             }
 
@@ -252,6 +265,9 @@ class ExoPlayerFragment : PlayerFragment() {
                     binding.playerControls.duration.text,
                 )
                 updateProgress()
+                if (playbackService?.type == BasePlaybackService.VIDEO) {
+                    refreshClipAvailability()
+                }
             }
 
             override fun onTrackSelectionParametersChanged(parameters: TrackSelectionParameters) {
@@ -314,7 +330,7 @@ class ExoPlayerFragment : PlayerFragment() {
 
             override fun updateLiveClipStatus() {
                 if (view != null) {
-                    setLiveClipAvailability(playbackService?.liveClipStatus()?.available == true)
+                    refreshClipAvailability()
                 }
             }
 
@@ -377,6 +393,7 @@ class ExoPlayerFragment : PlayerFragment() {
 
                         val editorRestored = restoreClipEditorIfNeeded()
                         connectedService.serviceListener = serviceListener
+                        refreshClipAvailability()
                         if (!editorRestored) {
                             val restored = connectedService.restoreVideoOutputIfNeeded {
                                 val player = connectedService.player
@@ -464,6 +481,7 @@ class ExoPlayerFragment : PlayerFragment() {
                 serviceSetupJob?.cancel()
                 serviceSetupJob = null
                 playbackService = null
+                refreshClipAvailability()
             }
         }
         val intent = Intent(requireContext(), ExoPlayerService::class.java).apply {
@@ -503,12 +521,33 @@ class ExoPlayerFragment : PlayerFragment() {
     }
 
     override fun requestLiveClipStatus() {
-        setLiveClipAvailability(playbackService?.liveClipStatus()?.available == true)
+        refreshClipAvailability()
+    }
+
+    override fun createVodClipPreviewMediaSource(uri: String): MediaSource =
+        playbackService?.createVodClipPreviewMediaSource(uri)
+            ?: error("VOD clip preview is unavailable")
+
+    private fun refreshClipAvailability() {
+        if (view == null) return
+        refreshClipControl()
+        val service = playbackService
+        setLiveClipAvailability(
+            when (service?.type) {
+                BasePlaybackService.STREAM -> service.liveClipStatus()?.available == true
+                BasePlaybackService.VIDEO -> service.canCreateVodClip()
+                else -> false
+            },
+        )
     }
 
     override fun prepareLiveClip() {
         val service = playbackService ?: return
         if (clipPreparationJob?.isActive == true || childFragmentManager.findFragmentByTag(CLIP_EDITOR_TAG) != null) {
+            return
+        }
+        if (service.type == BasePlaybackService.VIDEO) {
+            openVodClipEditor()
             return
         }
         clipDebug("editor open requested")
@@ -548,6 +587,70 @@ class ExoPlayerFragment : PlayerFragment() {
         }
     }
 
+    override suspend fun prepareVodClip(
+        startIndex: Int,
+        endIndexExclusive: Int,
+    ): ClipPreparationRepository.PreparedLiveClip {
+        return playbackService?.prepareVodClip(startIndex, endIndexExclusive)?.await()
+            ?: error("VOD clip preparation is unavailable")
+    }
+
+    override fun cancelVodClipPreparation() {
+        playbackService?.cancelVodClipPreparation()
+    }
+
+    override fun estimateVodClipBytes(
+        startIndex: Int,
+        endIndexExclusive: Int,
+        selectedDurationUs: Long,
+    ): Long? = playbackService?.estimateVodClipBytes(
+        startIndex = startIndex,
+        endIndexExclusive = endIndexExclusive,
+        selectedDurationUs = selectedDurationUs,
+    )
+
+    override fun releaseVodClip(directoryPath: String) {
+        playbackService?.releaseVodClip(directoryPath)
+    }
+
+    private fun openVodClipEditor() {
+        val service = playbackService ?: return
+        val descriptor = service.createVodClipDescriptor()
+            ?: run {
+                Snackbar.make(binding.playerBackground, R.string.player_clip_prepare_failed, Snackbar.LENGTH_LONG).show()
+                return
+            }
+        if (!canOpenClipEditor()) return
+        playbackPositionBeforeClipEditor = service.player?.currentPosition
+        playbackBeforeClipEditor = service.player?.playWhenReady == true
+        vodClipEditorOpen = true
+        clipDebug("VOD editor entry cover visible playing=$playbackBeforeClipEditor position=$playbackPositionBeforeClipEditor")
+        binding.clipEditorTransitionCover.visibility = View.VISIBLE
+        binding.clipEditorContainer.visibility = View.VISIBLE
+        scheduleClipEditorCoverFallback()
+        pauseLiveClipPlayback()
+        try {
+            childFragmentManager.beginTransaction()
+                .replace(
+                    R.id.clipEditorContainer,
+                    ClipEditorDialogFragment.newVodInstance(
+                        previewUri = descriptor.previewUri,
+                        segmentDurationsUs = descriptor.segmentDurationsUs,
+                        initialPositionUs = descriptor.initialPositionUs,
+                        bitrateBitsPerSecond = descriptor.bitrateBitsPerSecond,
+                        channelName = service.channelName,
+                    ),
+                    CLIP_EDITOR_TAG,
+                )
+                .commitNow()
+        } catch (_: IllegalStateException) {
+            binding.clipEditorContainer.visibility = View.GONE
+            clipEditorCoverTimeout?.let(binding.root::removeCallbacks)
+            clipEditorCoverTimeout = null
+            restoreLiveClipPlayback()
+        }
+    }
+
     private fun openClipEditor(prepared: ClipPreparationRepository.PreparedLiveClip) {
         if (childFragmentManager.findFragmentByTag(CLIP_EDITOR_TAG) != null) {
             playbackService?.releaseLiveClip(prepared.directory.absolutePath)
@@ -558,6 +661,7 @@ class ExoPlayerFragment : PlayerFragment() {
             return
         }
         livePlaybackBeforeClipEditor = playbackService?.player?.playWhenReady == true
+        vodClipEditorOpen = false
         liveClipDirectoryPath = prepared.directory.absolutePath
         clipDebug("editor entry cover visible playing=$livePlaybackBeforeClipEditor")
         binding.clipEditorTransitionCover.visibility = View.VISIBLE
@@ -608,17 +712,22 @@ class ExoPlayerFragment : PlayerFragment() {
     private fun isClipEditorVisible(): Boolean = view != null && binding.clipEditorContainer.isVisible
 
     private fun closeClipEditor(directoryPath: String?) {
-        if (binding.clipEditorContainer.visibility != View.VISIBLE && liveClipDirectoryPath == null) return
+        if (binding.clipEditorContainer.visibility != View.VISIBLE && liveClipDirectoryPath == null && !vodClipEditorOpen) return
         clipDebug("editor close requested")
         binding.clipEditorTransitionCover.visibility = View.VISIBLE
         binding.clipEditorContainer.visibility = View.GONE
         clipEditorCoverTimeout?.let(binding.root::removeCallbacks)
         clipEditorCoverTimeout = null
-        val directoryToRelease = directoryPath ?: liveClipDirectoryPath
-        binding.root.post {
-            playbackService?.releaseLiveClip(directoryToRelease)
+        if (vodClipEditorOpen) {
+            playbackService?.clearVodClipSource()
+            liveClipDirectoryPath = null
+        } else {
+            val directoryToRelease = directoryPath ?: liveClipDirectoryPath
+            binding.root.post {
+                playbackService?.releaseLiveClip(directoryToRelease)
+            }
+            liveClipDirectoryPath = null
         }
-        liveClipDirectoryPath = null
         restoreLiveClipPlayback()
     }
 
@@ -630,6 +739,16 @@ class ExoPlayerFragment : PlayerFragment() {
         )
         restoration.staleParentDirectoryPath?.let { playbackService?.releaseLiveClip(it) }
         val directoryPath = restoration.directoryPath
+        val vodEditor = editor?.isVodSource == true
+        if (vodEditor && playbackService?.type == BasePlaybackService.VIDEO) {
+            if (playbackService?.createVodClipDescriptor() != null) {
+                vodClipEditorOpen = true
+                binding.clipEditorContainer.visibility = View.VISIBLE
+                binding.clipEditorTransitionCover.visibility = View.VISIBLE
+                scheduleClipEditorCoverFallback()
+                return true
+            }
+        }
         val validEditor = playbackService?.type == BasePlaybackService.STREAM &&
             restoration.shouldRestoreEditor &&
             directoryPath != null &&
@@ -644,6 +763,9 @@ class ExoPlayerFragment : PlayerFragment() {
             }
             liveClipDirectoryPath = null
             livePlaybackBeforeClipEditor = null
+            vodClipEditorOpen = false
+            playbackPositionBeforeClipEditor = null
+            playbackBeforeClipEditor = null
             binding.clipEditorContainer.visibility = View.GONE
             binding.clipEditorTransitionCover.visibility = View.GONE
             clipEditorCoverTimeout?.let(binding.root::removeCallbacks)
@@ -681,12 +803,16 @@ class ExoPlayerFragment : PlayerFragment() {
         val livePlayer = playbackService?.player
         if (livePlayer == null) {
             livePlaybackBeforeClipEditor = null
+            playbackPositionBeforeClipEditor = null
+            playbackBeforeClipEditor = null
+            vodClipEditorOpen = false
             binding.clipEditorTransitionCover.visibility = View.GONE
             return
         }
         liveSurfaceRestoreTimeout?.let(binding.root::removeCallbacks)
         liveSurfaceRestoreListener?.let(livePlayer::removeListener)
-        val resumePlayback = livePlaybackBeforeClipEditor == true
+        val isVod = vodClipEditorOpen
+        val resumePlayback = if (isVod) playbackBeforeClipEditor == true else livePlaybackBeforeClipEditor == true
         val firstFrameListener = object : Player.Listener {
             override fun onRenderedFirstFrame() {
                 logVideoSurfaceBinding("first_frame", livePlayer, binding.playerTextureView)
@@ -700,7 +826,10 @@ class ExoPlayerFragment : PlayerFragment() {
         setVideoOutputVisible(true)
         clipDebug("live surface reattach")
         attachVideoOutput(livePlayer)
-        if (resumePlayback) {
+        if (isVod) {
+            playbackPositionBeforeClipEditor?.let(livePlayer::seekTo)
+            livePlayer.playWhenReady = resumePlayback
+        } else if (resumePlayback) {
             livePlayer.seekToDefaultPosition()
             livePlayer.playWhenReady = true
         } else {
@@ -717,6 +846,9 @@ class ExoPlayerFragment : PlayerFragment() {
         liveSurfaceRestoreListener?.let(livePlayer::removeListener)
         liveSurfaceRestoreListener = null
         livePlaybackBeforeClipEditor = null
+        playbackPositionBeforeClipEditor = null
+        playbackBeforeClipEditor = null
+        vodClipEditorOpen = false
         binding.clipEditorTransitionCover.visibility = View.GONE
         clipDebug("live first frame/timeout cover hidden")
     }
@@ -849,6 +981,7 @@ class ExoPlayerFragment : PlayerFragment() {
     override fun close(deleteStates: Boolean) {
         detachVideoOutput()
         playbackService?.cancelLiveClipPreparation()
+        playbackService?.clearVodClipSource()
         liveClipDirectoryPath?.let { playbackService?.releaseLiveClip(it) }
         liveClipDirectoryPath = null
         playbackService?.player?.pause()
@@ -905,6 +1038,9 @@ class ExoPlayerFragment : PlayerFragment() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString(STATE_CLIP_DIRECTORY, liveClipDirectoryPath)
         livePlaybackBeforeClipEditor?.let { outState.putBoolean(STATE_CLIP_PLAYING, it) }
+        playbackPositionBeforeClipEditor?.let { outState.putLong(STATE_CLIP_POSITION, it) }
+        playbackBeforeClipEditor?.let { outState.putBoolean(STATE_CLIP_VOD_PLAYING, it) }
+        outState.putBoolean(STATE_CLIP_VOD_OPEN, vodClipEditorOpen)
         super.onSaveInstanceState(outState)
     }
 
@@ -955,6 +1091,7 @@ class ExoPlayerFragment : PlayerFragment() {
     }
     override fun onDestroy() {
         playbackService?.cancelLiveClipPreparation()
+        playbackService?.clearVodClipSource()
         super.onDestroy()
         playbackService = null
     }
@@ -979,6 +1116,9 @@ class ExoPlayerFragment : PlayerFragment() {
         private const val CLIP_EDITOR_TAG = "liveClipEditor"
         private const val STATE_CLIP_DIRECTORY = "liveClipDirectory"
         private const val STATE_CLIP_PLAYING = "liveClipPlaying"
+        private const val STATE_CLIP_POSITION = "clipPlaybackPosition"
+        private const val STATE_CLIP_VOD_PLAYING = "vodClipPlaying"
+        private const val STATE_CLIP_VOD_OPEN = "vodClipOpen"
         private const val LIVE_SURFACE_RESTORE_TIMEOUT_MS = 4_000L
         private const val CLIP_EDITOR_COVER_TIMEOUT_MS = 5_000L
         private const val CLIP_LOG_TAG = "XtraClipPlayer"
