@@ -160,6 +160,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     private var pendingLiveSession: LiveRewindSession? = null
     private var liveRewindSwitching = false
     private var liveRewindReturningLive = false
+    private var uptimeStartedAtMs: Long? = null
     private var liveRewindPendingVodId: String? = null
     private var liveRewindPendingTargetMs: Long? = null
 
@@ -1015,6 +1016,12 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             }.coerceIn(0L, edgeMs)
             binding.playerControls.progressBar.setPosition(positionMs)
         }
+        val displayedPositionMs = liveRewindTimelinePositionMs(
+            mode = livePlaybackMode,
+            edgeMs = edgeMs,
+            playerPositionMs = getCurrentPosition() ?: 0L,
+            scrubPositionMs = liveRewindScrubPositionMs,
+        )
         binding.playerControls.liveButton.isVisible = livePlaybackMode is LivePlaybackMode.Rewound && !liveRewindStreamOffline
         binding.playerControls.position.visibility = View.VISIBLE
         binding.playerControls.position.text = DateUtils.formatElapsedTime(0)
@@ -1023,8 +1030,11 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             binding.playerControls.position.text,
         )
         binding.playerControls.duration.visibility = View.VISIBLE
-        binding.playerControls.duration.text = DateUtils.formatElapsedTime(edgeMs / 1000L)
-        binding.playerControls.duration.contentDescription = getString(R.string.player_duration, binding.playerControls.duration.text)
+        binding.playerControls.duration.text = DateUtils.formatElapsedTime(displayedPositionMs / 1000L)
+        binding.playerControls.duration.contentDescription = getString(
+            if (livePlaybackMode is LivePlaybackMode.Rewound) R.string.player_position else R.string.player_duration,
+            binding.playerControls.duration.text,
+        )
         val edgeColor = requireContext().getColor(
             if (livePlaybackMode is LivePlaybackMode.Live && !liveRewindStreamOffline) R.color.liveStreamRed else R.color.chatStatusDark,
         )
@@ -1116,6 +1126,12 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         binding.playerControls.position.contentDescription = getString(
             R.string.player_position,
             binding.playerControls.position.text,
+        )
+        binding.playerControls.duration.visibility = View.VISIBLE
+        binding.playerControls.duration.text = DateUtils.formatElapsedTime(positionMs.coerceIn(0L, edgeMs) / 1000L)
+        binding.playerControls.duration.contentDescription = getString(
+            R.string.player_position,
+            binding.playerControls.duration.text,
         )
         binding.playerControls.progressBar.setPosition(positionMs.coerceIn(0L, edgeMs))
     }
@@ -1491,9 +1507,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                     // the title/category views are already
                                     // populated.
                                     updateStreamInfo(stream.title, stream.gameId, stream.gameSlug, stream.gameName)
-                                    if (requireContext().prefs().getBoolean(C.PLAYER_SHOW_UPTIME, true) &&
-                                        !uptimeLayout.isVisible
-                                    ) {
+                                    if (requireContext().prefs().getBoolean(C.PLAYER_SHOW_UPTIME, true)) {
                                         stream.createdAt?.let { date ->
                                             Instant.parseOrNull(date)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let { createdAt ->
                                                 updateUptime(createdAt)
@@ -2329,23 +2343,32 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             } else {
                 onLiveStreamWentOffline()
             }
-            updateUptime(serverTime?.times(1000))
+            if (live) {
+                serverTime?.times(1000)?.let(::updateUptime)
+            } else {
+                updateUptime(null)
+            }
         }
     }
 
     private fun updateUptime(uptimeMs: Long?) {
         with(binding.playerControls) {
-            uptimeTimer.stop()
             if (uptimeMs != null && requireContext().prefs().getBoolean(C.PLAYER_SHOW_UPTIME, true)) {
                 uptimeLayout.visibility = View.VISIBLE
-                uptimeTimer.base = SystemClock.elapsedRealtime() + uptimeMs - System.currentTimeMillis()
-                uptimeTimer.start()
+                if (uptimeStartedAtMs != uptimeMs || !uptimeTimer.isShown) {
+                    uptimeTimer.stop()
+                    uptimeTimer.base = SystemClock.elapsedRealtime() + uptimeMs - System.currentTimeMillis()
+                    uptimeTimer.start()
+                }
+                uptimeStartedAtMs = uptimeMs
                 if (requireContext().prefs().getBoolean(C.PLAYER_VIEWER_ICON, true)) {
                     uptimeIcon.visibility = View.VISIBLE
                 } else {
                     uptimeIcon.visibility = View.GONE
                 }
             } else {
+                uptimeStartedAtMs = null
+                uptimeTimer.stop()
                 uptimeLayout.visibility = View.GONE
             }
         }

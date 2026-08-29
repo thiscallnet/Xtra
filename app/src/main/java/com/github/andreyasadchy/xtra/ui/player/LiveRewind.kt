@@ -243,6 +243,14 @@ sealed class LivePlaybackMode {
     data class Rewound(val vodId: String) : LivePlaybackMode()
 }
 
+fun liveRewindTimelinePositionMs(
+    mode: LivePlaybackMode,
+    edgeMs: Long,
+    playerPositionMs: Long,
+    scrubPositionMs: Long?,
+): Long = (scrubPositionMs ?: if (mode is LivePlaybackMode.Live) edgeMs else playerPositionMs)
+    .coerceIn(0L, edgeMs)
+
 /** Twitch's checked-in schema has no recording-state field on Video. */
 suspend fun GraphQLRepository.findCurrentRecordingVod(
     networkLibrary: String?,

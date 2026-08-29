@@ -268,6 +268,13 @@ class LiveRewindTest {
     }
 
     @Test
+    fun rewindTimelineUsesLiveEdgeLiveAndCurrentPositionWhenRewound() {
+        assertEquals(600_000L, liveRewindTimelinePositionMs(LivePlaybackMode.Live, 600_000L, 120_000L, null))
+        assertEquals(120_000L, liveRewindTimelinePositionMs(LivePlaybackMode.Rewound("vod"), 600_000L, 120_000L, null))
+        assertEquals(300_000L, liveRewindTimelinePositionMs(LivePlaybackMode.Rewound("vod"), 600_000L, 120_000L, 300_000L))
+    }
+
+    @Test
     fun changedStreamIdOrCreatedAtStartsANewSession() {
         assertTrue(hasLiveStreamSessionChanged("old", "created", "new", "created"))
         assertTrue(hasLiveStreamSessionChanged("same", "old", "same", "new"))
