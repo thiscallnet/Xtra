@@ -1447,4 +1447,9 @@
     <string name="chat_highlight_title">Destacar minha mensagem</string>
     <string name="chat_watch_streak_reached">Sequência de visualização alcançada</string>
     <string name="chat_watch_streak_status">%1$s está atualmente em uma sequência de %2$s streams!</string>
+    <string name="pinned_message_label">Pinned by</string>
+    <string name="pinned_message_mark_seen">Mark pinned message as seen</string>
+    <string name="pinned_message_minimize">Minimize pinned message</string>
+    <string name="pinned_message_expand">Expand pinned message</string>
+    <string name="pinned_message_sent_at">sent at %1$s</string>
 </resources>

@@ -77,7 +77,12 @@
     <string name="clips_preview_title">Preview</string>
     <string name="connection_error">Error connecting to the server. Please try again.</string>
     <string name="chat_reconnecting">Reconnecting to chat…</string>
-    <string name="sort">Sort</string>
+    <string name="pinned_message_label">Pinned by</string>
+      <string name="pinned_message_mark_seen">Mark pinned message as seen</string>
+      <string name="pinned_message_minimize">Minimize pinned message</string>
+      <string name="pinned_message_expand">Expand pinned message</string>
+      <string name="pinned_message_sent_at">sent at %1$s</string>
+      <string name="sort">Sort</string>
     <string name="upload_date">Upload date</string>
     <string name="today">Today</string>
     <string name="this_week">This week</string>

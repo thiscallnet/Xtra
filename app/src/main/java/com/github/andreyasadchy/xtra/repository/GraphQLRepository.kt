@@ -78,6 +78,7 @@ import com.github.andreyasadchy.xtra.model.gql.chat.GlobalCheerEmotesResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.MakePredictionResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.ModeratorsResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.PollVoteResponse
+import com.github.andreyasadchy.xtra.model.gql.chat.PinnedChatMessageResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.UserEmotesResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.VipsResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.WatchStreakResponse
@@ -153,6 +154,38 @@ class GraphQLRepository(
                         }
                         watchStreakThreshold
                         watchStreakCopoBonus
+                    }
+                }
+            }
+        }
+    """.trimIndent()
+
+    private val pinnedChatMessagesQuery = """
+        query PinnedChatMessages(${'$'}channelId: ID!) {
+            channel(id: ${'$'}channelId) {
+                pinnedChatMessages {
+                    edges {
+                        node {
+                            id
+                            pinnedBy {
+                                id
+                                displayName
+                                login
+                                chatColor
+                            }
+                            pinnedMessage {
+                                sentAt
+                                sender {
+                                    id
+                                    displayName
+                                    login
+                                    chatColor
+                                }
+                                content {
+                                    text
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1614,6 +1647,21 @@ class GraphQLRepository(
             }
         }.toString()
         json.decodeFromString<ChannelPointContextResponse>(sendPersistedQuery(networkLibrary, headers, body))
+    }
+
+    suspend fun loadPinnedChatMessages(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        channelId: String,
+    ): PinnedChatMessageResponse = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("operationName", "PinnedChatMessages")
+            put("query", pinnedChatMessagesQuery)
+            putJsonObject("variables") {
+                put("channelId", channelId)
+            }
+        }.toString()
+        json.decodeFromString(sendPersistedQuery(networkLibrary, headers, body))
     }
 
     /**
