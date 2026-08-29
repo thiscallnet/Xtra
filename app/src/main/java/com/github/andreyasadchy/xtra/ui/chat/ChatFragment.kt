@@ -1709,7 +1709,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     channelPointRewardSubtitle.text = state.reward.prompt
                         ?.takeIf { it.isNotBlank() }
                         ?: getString(R.string.channel_points_reward_message_overlay)
-                    updateComposerOverlayIcon(state.reward.imageUrl, R.drawable.ic_channel_points)
+                    updateComposerOverlayIcon(state.reward.imageUrl, R.drawable.ic_channel_points_default)
                 }
                 is ComposerOverlayState.StreakShare -> {
                     channelPointRewardTitle.text = getString(

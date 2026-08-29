@@ -269,7 +269,7 @@
                     android:layout_height="34dp"
                     android:importantForAccessibility="no"
                     android:scaleType="centerInside"
-                    android:src="@drawable/ic_channel_points"
+                    android:src="@drawable/ic_channel_points_default"
                     app:tint="?attr/colorControlNormal" />
 
                 <LinearLayout

@@ -355,7 +355,7 @@ class ChannelPointsDialog : DialogFragment() {
         val image = ImageView(requireContext()).apply {
             layoutParams = LinearLayout.LayoutParams(dp(42), dp(42))
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setImageResource(R.drawable.ic_channel_points)
+            setImageResource(R.drawable.ic_channel_points_default)
             imageTintList = ColorStateList.valueOf(Color.WHITE)
         }
         reward.imageUrl?.let { imageUrl ->
@@ -559,7 +559,7 @@ class ChannelPointsDialog : DialogFragment() {
     }
 
     private fun setChannelPointsIcon(image: ImageView, imageUrl: String?, fallbackTint: Int) {
-        image.setImageResource(R.drawable.ic_channel_points)
+        image.setImageResource(R.drawable.ic_channel_points_default)
         image.imageTintList = ColorStateList.valueOf(fallbackTint)
         if (!imageUrl.isNullOrBlank()) {
             image.imageTintList = null
