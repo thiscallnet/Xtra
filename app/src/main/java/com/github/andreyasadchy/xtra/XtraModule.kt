@@ -47,6 +47,7 @@ import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedPager
 import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCoordinator
 import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
+import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
 import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
 import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
@@ -94,6 +95,10 @@ class XtraModule(application: Application) {
 
     val gameFeedPager by lazy {
         GameFeedPager(gameFeedCache, gameFeedRefreshCoordinator)
+    }
+
+    val liveCaptionManager by lazy {
+        LiveCaptionManager(application.applicationContext)
     }
 
     val streamMedia3Runtime by lazy {

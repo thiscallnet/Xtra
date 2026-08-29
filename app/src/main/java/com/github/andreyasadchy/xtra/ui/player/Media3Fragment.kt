@@ -20,6 +20,8 @@ import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Format
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
@@ -28,6 +30,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
+import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
@@ -82,6 +85,9 @@ class Media3Fragment : Media3PlayerFragment() {
     private var streamRecoveryAttempt = 0
     private var adAvoidanceJob: Job? = null
     private var primaryStreamRestoreJob: Job? = null
+    private var nativeCues: List<Cue> = emptyList()
+    private var liveCaptionText: String = ""
+    private var shownLiveCaptionError: String? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
     private val videoOutputOwner = VideoOutputOwner<Player, SurfaceView>(
         attachTarget = { currentPlayer, target -> currentPlayer.setVideoSurfaceView(target) },
@@ -90,6 +96,49 @@ class Media3Fragment : Media3PlayerFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                xtraModule.liveCaptionManager.state.collect { state ->
+                    liveCaptionText = if (videoType == STREAM && state.enabled) state.text else ""
+                    if (videoType == STREAM) {
+                        binding.playerControls.liveCaptions.setImageResource(
+                            if (state.enabled) {
+                                androidx.media3.ui.R.drawable.exo_ic_subtitle_on
+                            } else {
+                                androidx.media3.ui.R.drawable.exo_ic_subtitle_off
+                            },
+                        )
+                        binding.playerControls.liveCaptions.contentDescription = getString(
+                            if (state.enabled) {
+                                R.string.disable_live_captions
+                            } else {
+                                R.string.enable_live_captions
+                            },
+                        )
+                    }
+                    if (state.error.isNullOrBlank()) {
+                        shownLiveCaptionError = null
+                    } else if (state.error != shownLiveCaptionError) {
+                        shownLiveCaptionError = state.error
+                        Snackbar.make(
+                            binding.root,
+                            getString(R.string.live_captions_error, state.error),
+                            Snackbar.LENGTH_LONG,
+                        ).show()
+                    }
+                    renderSubtitleOverlay()
+                }
+            }
+        }
+
+        binding.playerControls.liveCaptions.apply {
+            visibility = if (videoType == STREAM) View.VISIBLE else View.GONE
+            setOnClickListener {
+                showController(force = true)
+                toggleLiveCaptions()
+            }
+        }
 
         binding.playerTextureView.visibility = View.GONE
         binding.playerSurface.visibility = View.VISIBLE
@@ -233,7 +282,8 @@ class Media3Fragment : Media3PlayerFragment() {
                 }
 
                 override fun onCues(cueGroup: CueGroup) {
-                    binding.subtitleView.setCues(cueGroup.cues)
+                    nativeCues = cueGroup.cues
+                    renderSubtitleOverlay()
                 }
 
                 override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
@@ -1465,9 +1515,21 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     override fun onDestroyView() {
+        nativeCues = emptyList()
+        liveCaptionText = ""
+        shownLiveCaptionError = null
         logVideoSurfaceBinding("on_destroy_view", player, view?.findViewById(R.id.playerSurface))
         detachVideoOutput()
         super.onDestroyView()
+    }
+
+    private fun renderSubtitleOverlay() {
+        val liveCue = if (liveCaptionText.isBlank()) {
+            emptyList()
+        } else {
+            listOf(Cue.Builder().setText(liveCaptionText).build())
+        }
+        binding.subtitleView.setCues(nativeCues + liveCue)
     }
 
     private fun attachVideoOutput(currentPlayer: Player) {

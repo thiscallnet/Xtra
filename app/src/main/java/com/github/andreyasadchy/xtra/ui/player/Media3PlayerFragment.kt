@@ -65,6 +65,7 @@ import androidx.media3.ui.TimeBar
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Clip
@@ -119,6 +120,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     protected var chatFragment: ChatFragment? = null
 
     protected var videoType: String? = null
+    protected val xtraModule
+        get() = (requireContext().applicationContext as XtraApp).xtraModule
     private var isPortrait = false
     var isMaximized = true
     private var isChatOpen = true
@@ -224,6 +227,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     open fun toggleAudioCompressor() {}
     open fun setSubtitlesButton() {}
     open fun toggleSubtitles(enabled: Boolean) {}
+
+    fun toggleLiveCaptions() {
+        if (videoType != STREAM) return
+        val preferences = requireContext().prefs()
+        val enabled = !preferences.getBoolean(C.PLAYER_LIVE_CAPTIONS, false)
+        preferences.edit { putBoolean(C.PLAYER_LIVE_CAPTIONS, enabled) }
+        xtraModule.liveCaptionManager.setEnabled(enabled)
+    }
     open fun showPlaylistTags(mediaPlaylist: Boolean) {}
     open fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean = true) {}
     open fun startAudioOnly() {}
@@ -236,6 +247,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             enableNetworkCheck = false
         }
         super.onCreate(savedInstanceState)
+        xtraModule.liveCaptionManager.setEnabled(
+            videoType == STREAM && requireContext().prefs().getBoolean(C.PLAYER_LIVE_CAPTIONS, false),
+        )
         (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
         isPortrait = resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
         requireActivity().onBackPressedDispatcher.addCallback(this, backPressedCallback)
@@ -3354,6 +3368,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     override fun onDestroyView() {
+        xtraModule.liveCaptionManager.resetForPlaybackTransition()
         loadedChannelAvatarUrl = null
         liveRewindDiscoveryJob?.cancel()
         liveRewindDiscoveryJob = null

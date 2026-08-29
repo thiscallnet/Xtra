@@ -203,6 +203,7 @@ object C {
     const val PLAYER_SPEED_LIST = "player_speed_list"
     const val PLAYER_AUDIO_COMPRESSOR = "player_audio_compressor"
     const val PLAYER_SUBTITLES_ENABLED = "player_subtitles_enabled"
+    const val PLAYER_LIVE_CAPTIONS = "player_live_captions"
     const val PLAYER_REWIND = "playerRewindV2"
     const val PLAYER_FORWARD = "playerForwardV2"
     const val PLAYER_BACKGROUND_PLAYBACK = "player_background_playback"

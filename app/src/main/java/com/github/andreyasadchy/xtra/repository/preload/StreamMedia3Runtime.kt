@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.source.preload.TargetPreloadStatusControl
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.ui.player.StreamHlsMediaSourceFactory
+import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -407,6 +408,12 @@ class StreamMedia3Runtime(
         val builder = DefaultPreloadManager.Builder(context, statusControl)
             .setMediaSourceFactory(hlsFactory)
             .setLoadControl(loadControl)
+            .setRenderersFactory(
+                LiveCaptionRenderersFactory(
+                    context = context,
+                    audioBufferSink = xtraModule.liveCaptionManager.audioBufferSink,
+                ),
+            )
         val generation = Generation(configuration, hlsFactory, builder, builder.build())
         generation.manager.addListener(object : PreloadManagerListener {
             override fun onCompleted(mediaItem: MediaItem) {
