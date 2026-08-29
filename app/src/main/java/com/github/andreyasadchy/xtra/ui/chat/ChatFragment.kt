@@ -94,7 +94,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.max
 
@@ -579,11 +578,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 viewModel.channelPoints.collectLatest { points ->
                                     if (points != null) {
-                                        val balance = NumberFormat.getInstance().format(points.balance)
+                                        val balance = TwitchApiHelper.formatCount(points.balance, compact = true)
+                                        val accessibleBalance = TwitchApiHelper.formatCount(points.balance, compact = false)
                                         channelPointsText.text = balance
                                         channelPointsAccessibilityLabel = getString(
                                             R.string.channel_points_balance,
-                                            balance,
+                                            accessibleBalance,
                                         )
                                         updateChannelPointsIcon(points.iconUrl)
                                         updateChannelPointsActivity(
@@ -2142,7 +2142,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         channelPointsIconUrl = url
         channelPointsIconLoaded = false
         val requestGeneration = ++channelPointsIconRequestGeneration
-        icon.setImageResource(R.drawable.ic_channel_points)
+        icon.setImageResource(R.drawable.ic_channel_points_default)
         updateChannelPointsIconTint()
         if (url.isNullOrBlank()) return
 
@@ -2152,7 +2152,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 .data(url)
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .crossfade(true)
-                .error(R.drawable.ic_channel_points)
+                .error(R.drawable.ic_channel_points_default)
                 .target(icon)
                 .listener(object : ImageRequest.Listener {
                     override fun onError(request: ImageRequest, result: coil3.request.ErrorResult) {
@@ -2186,6 +2186,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val icon = _binding?.channelPointsIcon ?: return
         icon.imageTintList = if (channelPointsIconLoaded) {
             null
+        } else if (channelPointsIconUrl.isNullOrBlank()) {
+            ColorStateList.valueOf(requireContext().getColor(R.color.channel_points_default))
         } else {
             ColorStateList.valueOf(
                 channelPointsIconForeground
