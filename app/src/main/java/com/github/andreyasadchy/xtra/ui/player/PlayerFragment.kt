@@ -1022,7 +1022,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             playerPositionMs = getCurrentPosition() ?: 0L,
             scrubPositionMs = liveRewindScrubPositionMs,
         )
-        binding.playerControls.liveButton.isVisible = livePlaybackMode is LivePlaybackMode.Rewound && !liveRewindStreamOffline
         binding.playerControls.position.visibility = View.VISIBLE
         binding.playerControls.position.text = DateUtils.formatElapsedTime(0)
         binding.playerControls.position.contentDescription = getString(
@@ -1035,21 +1034,17 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             if (livePlaybackMode is LivePlaybackMode.Rewound) R.string.player_position else R.string.player_duration,
             binding.playerControls.duration.text,
         )
+        binding.playerControls.duration.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
         val edgeColor = requireContext().getColor(
             if (livePlaybackMode is LivePlaybackMode.Live && !liveRewindStreamOffline) R.color.liveStreamRed else R.color.chatStatusDark,
         )
         binding.playerControls.uptimeIcon.imageTintList = ColorStateList.valueOf(edgeColor)
-        binding.playerControls.uptimeIcon.drawable.constantState?.newDrawable()?.mutate()?.let { edgeIcon ->
-            edgeIcon.setTint(edgeColor)
-            binding.playerControls.duration.compoundDrawablePadding =
-                (4 * resources.displayMetrics.density).toInt()
-            binding.playerControls.duration.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                edgeIcon,
-                null,
-                null,
-                null,
-            )
-        }
+        binding.playerControls.liveButton.visibility =
+            if (livePlaybackMode is LivePlaybackMode.Rewound && !liveRewindStreamOffline) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
     }
 
     private fun updateLiveRewindUi() {
@@ -1090,6 +1085,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         val duration = binding.playerControls.duration
         val durationParams = duration.layoutParams as? RelativeLayout.LayoutParams ?: return
         if (enabled) {
+            bottomParams.height = (48 * resources.displayMetrics.density).toInt()
             bottomParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             bottomParams.addRule(RelativeLayout.ABOVE, R.id.bottomLeftLayout)
             bottomLeftParams.removeRule(RelativeLayout.ABOVE)
@@ -1101,6 +1097,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             durationParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             durationParams.addRule(RelativeLayout.ABOVE, R.id.bottomLeftLayout)
         } else {
+            bottomParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
             bottomParams.removeRule(RelativeLayout.ABOVE)
             bottomParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             bottomLeftParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
