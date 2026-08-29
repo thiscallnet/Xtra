@@ -10,10 +10,10 @@ import android.os.Build
 import android.os.Bundle
 import android.text.format.DateUtils
 import android.util.Log
+import android.view.SurfaceView
 import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.TextView
-import android.view.TextureView
 import androidx.annotation.OptIn
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -41,9 +41,10 @@ import com.github.andreyasadchy.xtra.model.ui.Clip
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Video
+import com.github.andreyasadchy.xtra.ui.common.logVideoSurfaceBinding
+import com.github.andreyasadchy.xtra.ui.common.logVideoTracks
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
-import com.github.andreyasadchy.xtra.ui.common.logVideoSurfaceBinding
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -80,10 +81,22 @@ class Media3Fragment : Media3PlayerFragment() {
     private var adAvoidanceJob: Job? = null
     private var primaryStreamRestoreJob: Job? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
-    private val videoOutputOwner = VideoOutputOwner<Player, TextureView>(
-        attachTarget = { currentPlayer, target -> currentPlayer.setVideoTextureView(target) },
-        detachTarget = { currentPlayer, target -> currentPlayer.clearVideoTextureView(target) },
+    private val videoOutputOwner = VideoOutputOwner<Player, SurfaceView>(
+        attachTarget = { currentPlayer, target -> currentPlayer.setVideoSurfaceView(target) },
+        detachTarget = { currentPlayer, target -> currentPlayer.clearVideoSurfaceView(target) },
     )
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        binding.playerTextureView.visibility = View.GONE
+        binding.playerSurface.visibility = View.VISIBLE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            binding.playerSurface.setSurfaceLifecycle(
+                SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT,
+            )
+        }
+    }
 
     override fun onViewingMetadataChanged(title: String?, gameId: String?, gameName: String?) {
         if (videoType != STREAM) return
@@ -241,6 +254,10 @@ class Media3Fragment : Media3PlayerFragment() {
                 }
 
                 override fun onTracksChanged(tracks: Tracks) {
+                    logVideoTracks(
+                        reason = "Media3Fragment.onTracksChanged",
+                        player = player,
+                    )
                     if (!tracks.isEmpty && !viewModel.loaded.value) {
                         viewModel.loaded.value = true
                         toggleSubtitles(requireContext().prefs().getBoolean(C.PLAYER_SUBTITLES_ENABLED, false))
@@ -470,11 +487,11 @@ class Media3Fragment : Media3PlayerFragment() {
                 }
 
                 override fun onRenderedFirstFrame() {
-                    logVideoSurfaceBinding("first_frame", controller, binding.playerTextureView)
+                    logVideoSurfaceBinding("first_frame", controller, binding.playerSurface)
                 }
             }
             val restored = viewModel.videoOutputState.restoreIfNeeded {
-                binding.playerTextureView.visibility = View.VISIBLE
+                binding.playerSurface.visibility = View.VISIBLE
                 attachVideoOutput(controller)
                 true
             }
@@ -604,7 +621,7 @@ class Media3Fragment : Media3PlayerFragment() {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                         setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                     }.build()
-                    binding.playerTextureView.visibility = View.GONE
+                    binding.playerSurface.visibility = View.GONE
                 }
                 player.volume = 0f
             }
@@ -620,7 +637,7 @@ class Media3Fragment : Media3PlayerFragment() {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                         setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                     }.build()
-                    binding.playerTextureView.visibility = View.VISIBLE
+                    binding.playerSurface.visibility = View.VISIBLE
                 }
                 player.volume = requireContext().prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
             }
@@ -794,7 +811,7 @@ class Media3Fragment : Media3PlayerFragment() {
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
             }.build()
-            binding.playerTextureView.visibility = View.VISIBLE
+            binding.playerSurface.visibility = View.VISIBLE
             player.sendCustomCommand(
                 SessionCommand(
                     PlaybackService.START_VIDEO, Bundle().apply {
@@ -821,12 +838,12 @@ class Media3Fragment : Media3PlayerFragment() {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                 }.build()
-                binding.playerTextureView.visibility = View.GONE
+                binding.playerSurface.visibility = View.GONE
             } else {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                 }.build()
-                binding.playerTextureView.visibility = View.VISIBLE
+                binding.playerSurface.visibility = View.VISIBLE
             }
             player.sendCustomCommand(
                 SessionCommand(
@@ -853,12 +870,12 @@ class Media3Fragment : Media3PlayerFragment() {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                 }.build()
-                binding.playerTextureView.visibility = View.GONE
+                binding.playerSurface.visibility = View.GONE
             } else {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                 }.build()
-                binding.playerTextureView.visibility = View.VISIBLE
+                binding.playerSurface.visibility = View.VISIBLE
             }
             player.sendCustomCommand(
                 SessionCommand(
@@ -1062,7 +1079,7 @@ class Media3Fragment : Media3PlayerFragment() {
                                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                                 clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
                             }.build()
-                            binding.playerTextureView.visibility = View.VISIBLE
+                            binding.playerSurface.visibility = View.VISIBLE
                         }
                         AUDIO_ONLY_QUALITY -> {
                             if (viewModel.usingProxy) {
@@ -1078,7 +1095,7 @@ class Media3Fragment : Media3PlayerFragment() {
                             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                             }.build()
-                            binding.playerTextureView.visibility = View.GONE
+                            binding.playerSurface.visibility = View.GONE
                             quality.url?.let {
                                 val position = player.currentPosition
                                 if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
@@ -1115,7 +1132,7 @@ class Media3Fragment : Media3PlayerFragment() {
                                 } ?: player.prepare()
                                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
-                                    binding.playerTextureView.visibility = View.VISIBLE
+                                    binding.playerSurface.visibility = View.VISIBLE
                                     if (!player.currentTracks.isEmpty) {
                                         player.currentTracks.groups.find { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO }?.let { trackGroup ->
                                             val selectedQuality = quality.name?.split("p")
@@ -1160,7 +1177,7 @@ class Media3Fragment : Media3PlayerFragment() {
                                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                                 }.build()
-                                binding.playerTextureView.visibility = View.VISIBLE
+                                binding.playerSurface.visibility = View.VISIBLE
                             }
                         }
                     }
@@ -1200,7 +1217,7 @@ class Media3Fragment : Media3PlayerFragment() {
                             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                             }.build()
-                            binding.playerTextureView.visibility = View.GONE
+                            binding.playerSurface.visibility = View.GONE
                         }
                     }
                 }
@@ -1309,7 +1326,7 @@ class Media3Fragment : Media3PlayerFragment() {
                     if (!isInPIPMode && player.playWhenReady && viewModel.quality?.name != AUDIO_ONLY_QUALITY) {
                         if (player.currentMediaItem != null) {
                             viewModel.videoOutputState.markDetachedForBackground()
-                            binding.playerTextureView.visibility = View.GONE
+                            binding.playerSurface.visibility = View.GONE
                         }
                     }
                 } else {
@@ -1361,13 +1378,13 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     private fun attachVideoOutput(currentPlayer: Player) {
-        videoOutputOwner.attach(currentPlayer, binding.playerTextureView)
-        logVideoSurfaceBinding("attach", currentPlayer, binding.playerTextureView)
+        videoOutputOwner.attach(currentPlayer, binding.playerSurface)
+        logVideoSurfaceBinding("attach", currentPlayer, binding.playerSurface)
     }
 
     private fun detachVideoOutput() {
         val currentPlayer = videoOutputOwner.attachedPlayer() ?: return
-        logVideoSurfaceBinding("detach", currentPlayer, binding.playerTextureView)
+        logVideoSurfaceBinding("detach", currentPlayer, binding.playerSurface)
         videoOutputOwner.clear()
     }
 

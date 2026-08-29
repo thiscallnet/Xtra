@@ -71,6 +71,7 @@ import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HlsPlaylistParser
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
+import com.github.andreyasadchy.xtra.ui.common.logVideoTracks
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipPreparationRepository
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipSizeEstimator
@@ -212,6 +213,10 @@ class ExoPlayerService : BasePlaybackService() {
                 }
 
                 override fun onTracksChanged(tracks: Tracks) {
+                    logVideoTracks(
+                        reason = "ExoPlayerService.onTracksChanged",
+                        player = player,
+                    )
                     if (!tracks.isEmpty) {
                         if (!loaded) {
                             loaded = true
