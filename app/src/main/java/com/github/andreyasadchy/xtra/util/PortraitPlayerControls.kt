@@ -6,7 +6,7 @@ import android.view.MotionEvent
 import android.view.TouchDelegate
 import android.view.View
 import android.view.ViewGroup
-import androidx.core.view.doOnPreDraw
+import androidx.core.view.doOnLayout
 import androidx.media3.ui.TimeBar
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
 
@@ -15,10 +15,28 @@ object PortraitPlayerControls {
 
     private const val BASELINE_HEIGHT_DP = 380f
     private const val MIN_SCALE = 0.55f
+    // The anchor layouts already provide the landscape-safe margins. Adding a
+    // second portrait inset leaves a visible gap beside the outer controls.
+    private const val EDGE_INSET_DP = 0f
+
+    private enum class HorizontalAnchor {
+        START,
+        CENTER,
+        END,
+    }
+
+    private enum class VerticalAnchor {
+        TOP,
+        CENTER,
+        BOTTOM,
+    }
 
     fun schedule(binding: FragmentPlayerBinding, isPortrait: Boolean) {
         apply(binding, isPortrait)
-        binding.playerControls.root.doOnPreDraw { apply(binding, isPortrait) }
+        // Controls can be GONE while the player is being initialized, so the
+        // first pass may happen before the anchor containers have dimensions.
+        // Reapply after layout to use their real bounds.
+        binding.playerControls.root.doOnLayout { apply(binding, isPortrait) }
     }
 
     private fun apply(binding: FragmentPlayerBinding, isPortrait: Boolean) {
@@ -29,33 +47,38 @@ object PortraitPlayerControls {
         } else {
             1f
         }
-
         with(binding.playerControls) {
             val compositionContainers = listOf(
-                topLeftLayout,
-                topRightLayout,
-                topCenterLayout,
-                middleLeftLayout,
-                middleRightLayout,
-                bottomLeftLayout,
-                bottomRightLayout,
-                bottomCenterLayout,
-                streamInfoLayout,
-                bottomLayout,
+                Triple(topLeftLayout, HorizontalAnchor.START, VerticalAnchor.TOP),
+                Triple(topRightLayout, HorizontalAnchor.END, VerticalAnchor.TOP),
+                Triple(topCenterLayout, HorizontalAnchor.CENTER, VerticalAnchor.TOP),
+                Triple(middleLeftLayout, HorizontalAnchor.START, VerticalAnchor.CENTER),
+                Triple(middleRightLayout, HorizontalAnchor.END, VerticalAnchor.CENTER),
+                Triple(bottomLeftLayout, HorizontalAnchor.START, VerticalAnchor.BOTTOM),
+                Triple(bottomRightLayout, HorizontalAnchor.END, VerticalAnchor.BOTTOM),
+                Triple(bottomCenterLayout, HorizontalAnchor.CENTER, VerticalAnchor.BOTTOM),
+                Triple(streamInfoLayout, HorizontalAnchor.CENTER, VerticalAnchor.BOTTOM),
+                Triple(bottomLayout, HorizontalAnchor.CENTER, VerticalAnchor.BOTTOM),
             )
-            compositionContainers.forEach { container ->
+            compositionContainers.forEach { (container, horizontalAnchor, verticalAnchor) ->
                 resetDescendantTransforms(container)
-                scaleCompositionView(root, container, scale)
+                scaleCompositionView(root, container, scale, horizontalAnchor, verticalAnchor)
             }
 
-            val rootControls = listOf(playPause, rewind, fastForward, position, duration)
-            rootControls.forEach { view ->
+            val rootControls = listOf(
+                Triple(playPause, HorizontalAnchor.CENTER, VerticalAnchor.CENTER),
+                Triple(rewind, HorizontalAnchor.CENTER, VerticalAnchor.CENTER),
+                Triple(fastForward, HorizontalAnchor.CENTER, VerticalAnchor.CENTER),
+                Triple(position, HorizontalAnchor.START, VerticalAnchor.BOTTOM),
+                Triple(duration, HorizontalAnchor.END, VerticalAnchor.BOTTOM),
+            )
+            rootControls.forEach { (view, horizontalAnchor, verticalAnchor) ->
                 resetTransform(view)
-                scaleCompositionView(root, view, scale)
+                scaleCompositionView(root, view, scale, horizontalAnchor, verticalAnchor)
             }
             val interactiveTargets = compositionContainers
-                .flatMap(::interactiveDescendants)
-                .plus(rootControls)
+                .flatMap { (container, _, _) -> interactiveDescendants(container) }
+                .plus(rootControls.map { (view, _, _) -> view })
                 .filter(::isInteractiveControl)
                 .distinct()
             root.touchDelegate = if (scale < 1f) {
@@ -66,7 +89,19 @@ object PortraitPlayerControls {
         }
     }
 
-    private fun scaleCompositionView(root: View, view: View, scale: Float) {
+    private fun scaleCompositionView(
+        root: View,
+        view: View,
+        scale: Float,
+        horizontalAnchor: HorizontalAnchor,
+        verticalAnchor: VerticalAnchor,
+    ) {
+        // Landscape must use the XML layout exactly. This also clears stale
+        // portrait transforms when a control is temporarily GONE/unmeasured.
+        if (scale >= 1f) {
+            resetTransform(view)
+            return
+        }
         if (view.width <= 0 || view.height <= 0) {
             view.scaleX = scale
             view.scaleY = scale
@@ -81,8 +116,88 @@ object PortraitPlayerControls {
         val viewCenterY = view.top + view.height / 2f
         val rootCenterX = root.width / 2f
         val rootCenterY = root.height / 2f
-        view.translationX = rootCenterX + (viewCenterX - rootCenterX) * scale - viewCenterX
-        view.translationY = rootCenterY + (viewCenterY - rootCenterY) * scale - viewCenterY
+        val scaledCenterX = when (horizontalAnchor) {
+            HorizontalAnchor.START -> {
+                val contentEdge = contentEdge(view, isStart = true)
+                if (contentEdge != null) {
+                    root.paddingLeft - scaledChildEdge(view, contentEdge, scale) + viewCenterX
+                } else {
+                    root.paddingLeft + view.width * scale / 2f
+                }
+            }
+            HorizontalAnchor.CENTER -> rootCenterX + (viewCenterX - rootCenterX)
+            HorizontalAnchor.END -> {
+                val contentEdge = contentEdge(view, isStart = false)
+                if (contentEdge != null) {
+                    root.width - root.paddingRight - scaledChildEdge(view, contentEdge, scale) + viewCenterX
+                } else {
+                    root.width - root.paddingRight - view.width * scale / 2f
+                }
+            }
+        }
+        view.translationX = scaledCenterX - viewCenterX
+        if (scale < 1f && horizontalAnchor != HorizontalAnchor.CENTER && view is ViewGroup) {
+            alignVisibleChildToEdge(root, view, horizontalAnchor)
+        }
+        val scaledCenterY = when (verticalAnchor) {
+            VerticalAnchor.TOP -> viewCenterY * scale
+            VerticalAnchor.CENTER -> rootCenterY + (viewCenterY - rootCenterY) * scale
+            VerticalAnchor.BOTTOM -> root.height - (root.height - viewCenterY) * scale
+        }
+        view.translationY = scaledCenterY - viewCenterY
+    }
+
+    private fun contentEdge(view: View, isStart: Boolean): Float? {
+        if (view !is ViewGroup) return if (isStart) 0f else view.width.toFloat()
+        val children = (0 until view.childCount)
+            .map(view::getChildAt)
+            .filter { it.visibility == View.VISIBLE && it.width > 0 && it.height > 0 }
+        return if (isStart) {
+            children.minOfOrNull { it.left.toFloat() }
+        } else {
+            children.maxOfOrNull { it.right.toFloat() }
+        }
+    }
+
+    private fun scaledChildEdge(view: View, childEdge: Float, scale: Float): Float =
+        view.left + (childEdge - view.width / 2f) * scale + view.width / 2f
+
+    private fun alignVisibleChildToEdge(
+        root: View,
+        container: ViewGroup,
+        horizontalAnchor: HorizontalAnchor,
+    ) {
+        val childBounds = Rect()
+        val rootLocation = IntArray(2)
+        root.getLocationOnScreen(rootLocation)
+        val visibleChildren = (0 until container.childCount)
+            .map(container::getChildAt)
+            .filter { child ->
+                child.visibility == View.VISIBLE && child.width > 0 && child.height > 0 &&
+                    child.getGlobalVisibleRect(childBounds)
+            }
+        if (visibleChildren.isEmpty()) return
+
+        val visibleEdge = if (horizontalAnchor == HorizontalAnchor.START) {
+            visibleChildren.minOf { child ->
+                val bounds = Rect()
+                child.getGlobalVisibleRect(bounds)
+                bounds.left - rootLocation[0].toFloat()
+            }
+        } else {
+            visibleChildren.maxOf { child ->
+                val bounds = Rect()
+                child.getGlobalVisibleRect(bounds)
+                bounds.right - rootLocation[0].toFloat()
+            }
+        }
+        val inset = EDGE_INSET_DP * root.resources.displayMetrics.density
+        val targetEdge = if (horizontalAnchor == HorizontalAnchor.START) {
+            root.paddingLeft + inset
+        } else {
+            root.width - root.paddingRight - inset
+        }
+        container.translationX += targetEdge - visibleEdge
     }
 
     private fun resetDescendantTransforms(view: ViewGroup) {
