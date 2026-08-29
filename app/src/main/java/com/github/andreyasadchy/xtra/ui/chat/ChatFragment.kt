@@ -487,7 +487,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                     chatAdapterUpdatePosted = false
                                 }
                                 adapter?.setAnimationsPaused(newState != RecyclerView.SCROLL_STATE_IDLE)
-                                adapter?.setRenderUpdatesPaused(newState != RecyclerView.SCROLL_STATE_IDLE)
                                 val offset = recyclerView.computeVerticalScrollOffset()
                                 if (offset < 0) {
                                     btnDown.isVisible = false
