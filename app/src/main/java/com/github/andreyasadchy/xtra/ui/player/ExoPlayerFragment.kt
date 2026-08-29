@@ -12,8 +12,8 @@ import android.os.Bundle
 import android.os.IBinder
 import android.text.format.DateUtils
 import android.util.Log
+import android.view.SurfaceView
 import android.view.View
-import android.view.TextureView
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.TextView
@@ -39,8 +39,8 @@ import androidx.navigation.fragment.findNavController
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.VideoQuality
-import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.logVideoSurfaceBinding
+import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipEditorDialogFragment
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipEditorRestorationState
@@ -72,9 +72,9 @@ class ExoPlayerFragment : PlayerFragment() {
     private var liveSurfaceRestoreTimeout: Runnable? = null
     private var clipEditorCoverTimeout: Runnable? = null
     private var videoOutputCover: View? = null
-    private val videoOutputOwner = VideoOutputOwner<Player, TextureView>(
-        attachTarget = { currentPlayer, target -> currentPlayer.setVideoTextureView(target) },
-        detachTarget = { currentPlayer, target -> currentPlayer.clearVideoTextureView(target) },
+    private val videoOutputOwner = VideoOutputOwner<Player, SurfaceView>(
+        attachTarget = { currentPlayer, target -> currentPlayer.setVideoSurfaceView(target) },
+        detachTarget = { currentPlayer, target -> currentPlayer.clearVideoSurfaceView(target) },
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -96,11 +96,16 @@ class ExoPlayerFragment : PlayerFragment() {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         videoOutputCover = outputCover
-        // Keep the TextureView renderer in the moving player layout. The cover is a normal
+        // Keep the SurfaceView renderer for lower composition overhead. The cover is a normal
         // view above it and remains visible until the player confirms a new decoded frame.
         binding.aspectRatioFrameLayout.addView(outputCover)
-        binding.playerSurface.visibility = View.GONE
-        binding.playerTextureView.visibility = View.VISIBLE
+        binding.playerTextureView.visibility = View.GONE
+        binding.playerSurface.visibility = View.VISIBLE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            binding.playerSurface.setSurfaceLifecycle(
+                SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT,
+            )
+        }
         childFragmentManager.setFragmentResultListener(
             ClipEditorDialogFragment.RESULT_KEY,
             viewLifecycleOwner,
@@ -264,7 +269,7 @@ class ExoPlayerFragment : PlayerFragment() {
             }
 
             override fun onRenderedFirstFrame() {
-                logVideoSurfaceBinding("first_frame", playbackService?.player, binding.playerTextureView)
+                logVideoSurfaceBinding("first_frame", playbackService?.player, binding.playerSurface)
                 hideVideoOutputCover()
             }
         }
@@ -599,9 +604,9 @@ class ExoPlayerFragment : PlayerFragment() {
         livePlayer?.pause()
         clipDebug("live player paused")
         setVideoOutputVisible(false)
-        clipDebug("live surface hidden parentVisible=${binding.playerTextureView.visibility == View.VISIBLE}")
+        clipDebug("live surface hidden parentVisible=${binding.playerSurface.visibility == View.VISIBLE}")
         detachVideoOutput(livePlayer)
-        clipDebug("live surface cleared parentVisible=${binding.playerTextureView.visibility == View.VISIBLE}")
+        clipDebug("live surface cleared parentVisible=${binding.playerSurface.visibility == View.VISIBLE}")
         binding.playerLayout.visibility = View.GONE
     }
 
@@ -689,7 +694,7 @@ class ExoPlayerFragment : PlayerFragment() {
         val resumePlayback = livePlaybackBeforeClipEditor == true
         val firstFrameListener = object : Player.Listener {
             override fun onRenderedFirstFrame() {
-                logVideoSurfaceBinding("first_frame", livePlayer, binding.playerTextureView)
+                logVideoSurfaceBinding("first_frame", livePlayer, binding.playerSurface)
                 finishLiveSurfaceRestore(livePlayer)
             }
         }
@@ -927,20 +932,20 @@ class ExoPlayerFragment : PlayerFragment() {
     }
 
     private fun attachVideoOutput(currentPlayer: Player) {
-        videoOutputOwner.attach(currentPlayer, binding.playerTextureView)
-        logVideoSurfaceBinding("attach", currentPlayer, binding.playerTextureView)
+        videoOutputOwner.attach(currentPlayer, binding.playerSurface)
+        logVideoSurfaceBinding("attach", currentPlayer, binding.playerSurface)
     }
 
     private fun detachVideoOutput(currentPlayer: Player? = videoOutputOwner.attachedPlayer()) {
         if (currentPlayer == null) return
         if (videoOutputOwner.attachedPlayer() === currentPlayer) {
-            logVideoSurfaceBinding("detach", currentPlayer, binding.playerTextureView)
+            logVideoSurfaceBinding("detach", currentPlayer, binding.playerSurface)
             videoOutputOwner.clear()
         }
     }
 
     private fun setVideoOutputVisible(visible: Boolean) {
-        binding.playerTextureView.visibility = if (visible) View.VISIBLE else View.GONE
+        binding.playerSurface.visibility = if (visible) View.VISIBLE else View.GONE
         if (!visible) {
             showVideoOutputCover()
         }

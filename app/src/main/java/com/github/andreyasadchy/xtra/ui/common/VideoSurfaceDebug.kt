@@ -19,6 +19,7 @@ internal fun logVideoSurfaceBinding(
     Log.d(
         "VideoSurface",
         "$action player=${player.identityId()} target=${target.identityId()} " +
+            "targetType=${target?.javaClass?.simpleName} " +
             "target.player=${targetPlayer.identityId()} " +
             "attached=${target?.isAttachedToWindow} visible=${target?.visibility} " +
             "size=${target?.width}x${target?.height} xy=${target?.x},${target?.y}",

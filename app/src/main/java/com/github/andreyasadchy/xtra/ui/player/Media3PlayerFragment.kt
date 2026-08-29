@@ -198,8 +198,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     @SuppressLint("ClickableViewAccessibility")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        binding.playerSurface.visibility = View.GONE
-        binding.playerTextureView.visibility = View.VISIBLE
+        binding.playerTextureView.visibility = View.GONE
+        binding.playerSurface.visibility = View.VISIBLE
         with(binding) {
             val ignoreCutouts = requireContext().prefs().getBoolean(C.UI_DRAW_BEHIND_CUTOUTS, false)
             val cornerPadding = requireContext().prefs().getBoolean(C.PLAYER_ROUNDED_CORNER_PADDING, false)
