@@ -251,10 +251,20 @@ class LiveRewindTest {
 
     @Test
     fun liveClipIsUnavailableDuringRewindOrSourceTransition() {
+        assertFalse(canUseLiveSource(BasePlaybackService.STREAM, false, true))
+        assertFalse(canUseLiveSource(BasePlaybackService.STREAM, true, false))
+        assertTrue(canUseLiveSource(BasePlaybackService.STREAM, false, false))
         assertFalse(canUseLiveClipSource(BasePlaybackService.STREAM, false, true))
         assertFalse(canUseLiveClipSource(BasePlaybackService.STREAM, true, false))
         assertTrue(canUseLiveClipSource(BasePlaybackService.STREAM, false, false))
         assertFalse(canUseLiveClipSource(BasePlaybackService.VIDEO, false, false))
+    }
+
+    @Test
+    fun lateManifestFromThePreviousSourceCannotEnterTheNewLiveGeneration() {
+        assertFalse(isCurrentLiveClipSource("live-clip-2", "vod-1"))
+        assertTrue(isCurrentLiveClipSource("live-clip-2", "live-clip-2"))
+        assertFalse(isCurrentLiveClipSource(null, "live-clip-2"))
     }
 
     @Test

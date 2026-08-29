@@ -65,13 +65,22 @@ fun isLiveRewindSourceActiveOrSwitching(
     physicalSourceSwitching: Boolean,
 ): Boolean = mode is LivePlaybackMode.Rewound || physicalSourceSwitching
 
-fun canUseLiveClipSource(
+fun canUseLiveSource(
     playbackType: String?,
     liveRewindActive: Boolean,
     liveRewindTransitioning: Boolean,
 ): Boolean = playbackType == BasePlaybackService.STREAM &&
     !liveRewindActive &&
     !liveRewindTransitioning
+
+fun canUseLiveClipSource(
+    playbackType: String?,
+    liveRewindActive: Boolean,
+    liveRewindTransitioning: Boolean,
+): Boolean = canUseLiveSource(playbackType, liveRewindActive, liveRewindTransitioning)
+
+fun isCurrentLiveClipSource(expectedMediaId: String?, actualMediaId: String?): Boolean =
+    expectedMediaId != null && expectedMediaId == actualMediaId
 
 fun shouldMarkLiveStreamOffline(
     statusKnown: Boolean,
