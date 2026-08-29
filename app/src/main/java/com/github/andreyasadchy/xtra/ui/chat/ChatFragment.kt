@@ -133,6 +133,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var lastSlowModeUiState = SlowModeState()
     private var chatAdapterUpdatePosted = false
     private var chatAdapterReady = false
+    private var chatSnapshotSyncPending = false
     private val pendingChatMutations = ArrayDeque<ChatViewModel.ChatMutation>()
     private var chatMutationRevision = 0L
     private data class ChatViewportAnchor(val stableId: Long, val fallbackPosition: Int, val top: Int)
@@ -210,6 +211,32 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val recyclerView = _binding?.recyclerView ?: return
         chatAdapterUpdatePosted = true
         recyclerView.postOnAnimation(chatAdapterUpdateRunnable)
+    }
+
+    private suspend fun synchronizeChatAdapterToSnapshot() {
+        val currentAdapter = adapter ?: return
+        if (!chatAdapterReady) return
+        val currentBinding = _binding ?: return
+        val snapshot = viewModel.chatSnapshot()
+        if (!shouldSynchronizeChatSnapshot(chatMutationRevision, snapshot.revision)) return
+
+        pendingChatMutations.clear()
+        currentAdapter.prepareForDisplay(snapshot.messages)
+
+        if (_binding !== currentBinding || adapter !== currentAdapter) return
+        // Preparation suspends, so another synchronization may have advanced the UI.
+        // Never replace newer state with an older snapshot.
+        if (!shouldSynchronizeChatSnapshot(chatMutationRevision, snapshot.revision)) return
+        val recyclerView = currentBinding.recyclerView
+        val followBottom = !recyclerView.canScrollVertically(1)
+        val anchor = if (followBottom) null else captureChatViewportAnchor(recyclerView, currentAdapter)
+        currentAdapter.replaceMessages(snapshot.messages)
+        chatMutationRevision = snapshot.revision
+        if (followBottom && currentAdapter.itemCount > 0) {
+            recyclerView.scrollToPosition(currentAdapter.itemCount - 1)
+        } else if (!followBottom) {
+            restoreChatViewportAnchor(recyclerView, currentAdapter, anchor)
+        }
     }
 
     private fun captureChatViewportAnchor(
@@ -513,7 +540,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             recyclerView.adapter = chatAdapter
                             chatAdapterReady = true
                             chatAdapter?.appendMessages(initialMessages, 0)
-                            if (pendingChatMutations.isNotEmpty() && !isChatTouched) {
+                            if (chatSnapshotSyncPending) {
+                                chatSnapshotSyncPending = false
+                                viewLifecycleOwner.lifecycleScope.launch {
+                                    synchronizeChatAdapterToSnapshot()
+                                }
+                            } else if (pendingChatMutations.isNotEmpty() && !isChatTouched) {
                                 scheduleChatAdapterUpdate()
                             }
                         }
@@ -877,8 +909,20 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     }
                     viewLifecycleOwner.lifecycleScope.launch {
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
+                            synchronizeChatAdapterToSnapshot()
                             viewModel.chatMutations.collect { mutation ->
-                                if (mutation.revision <= chatMutationRevision) return@collect
+                                when (chatMutationAction(chatMutationRevision, mutation.revision)) {
+                                    ChatMutationAction.IGNORE -> return@collect
+                                    ChatMutationAction.SYNCHRONIZE_SNAPSHOT -> {
+                                        if (chatAdapterReady) {
+                                            synchronizeChatAdapterToSnapshot()
+                                        } else {
+                                            chatSnapshotSyncPending = true
+                                        }
+                                        return@collect
+                                    }
+                                    ChatMutationAction.APPLY_INCREMENTAL -> Unit
+                                }
                                 // Complete render plans are prepared by ChatAdapter's bounded
                                 // background workers before this mutation can reach RecyclerView.
                                 val messagesToPrepare = when (mutation) {
@@ -1996,6 +2040,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         _binding?.recyclerView?.removeCallbacks(chatAdapterUpdateRunnable)
         chatAdapterUpdatePosted = false
         chatAdapterReady = false
+        chatSnapshotSyncPending = false
         pendingChatMutations.clear()
         disposeChannelPointsIconRequest()
         channelPointsIconRequestGeneration++
@@ -2172,5 +2217,21 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
 internal fun shouldCaptureReplayComposerState(mode: ChatViewModel.ActiveChatMode): Boolean =
     mode !is ChatViewModel.ActiveChatMode.VideoReplay
+
+internal enum class ChatMutationAction {
+    IGNORE,
+    APPLY_INCREMENTAL,
+    SYNCHRONIZE_SNAPSHOT,
+}
+
+internal fun chatMutationAction(displayedRevision: Long, mutationRevision: Long): ChatMutationAction =
+    when {
+        mutationRevision <= displayedRevision -> ChatMutationAction.IGNORE
+        mutationRevision == displayedRevision + 1 -> ChatMutationAction.APPLY_INCREMENTAL
+        else -> ChatMutationAction.SYNCHRONIZE_SNAPSHOT
+    }
+
+internal fun shouldSynchronizeChatSnapshot(displayedRevision: Long, snapshotRevision: Long): Boolean =
+    snapshotRevision > displayedRevision
 
 
