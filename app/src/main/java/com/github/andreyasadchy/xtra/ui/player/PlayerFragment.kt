@@ -80,6 +80,7 @@ import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.isKeyboardShown
 import com.github.andreyasadchy.xtra.util.isChatEnabled
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
+import com.github.andreyasadchy.xtra.util.PortraitPlayerControls
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -2001,6 +2002,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
 
     private fun applyControlLayout() {
         PlayerControlLayout.applyToPlayer(requireContext(), binding)
+        schedulePortraitControlScale()
     }
 
     private fun refreshPlayerControls() {
@@ -2025,6 +2027,10 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             setInteractionLocked(true, force = true)
         }
         showController(force = true)
+    }
+
+    private fun schedulePortraitControlScale() {
+        PortraitPlayerControls.schedule(binding, isPortrait)
     }
 
     fun setResizeMode() {

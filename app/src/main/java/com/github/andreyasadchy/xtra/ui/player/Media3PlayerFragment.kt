@@ -87,6 +87,7 @@ import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.isKeyboardShown
 import com.github.andreyasadchy.xtra.util.isChatEnabled
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
+import com.github.andreyasadchy.xtra.util.PortraitPlayerControls
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -1256,6 +1257,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             }
             refreshPlayerControls()
             PlayerControlLayout.applyToPlayer(requireContext(), binding)
+            schedulePortraitControlScale()
             dismissPlayer.setOnClickListener {
                 close()
                 (activity as? MainActivity)?.closePlayer()
@@ -1268,6 +1270,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         initLayout()
         refreshPlayerControls()
         PlayerControlLayout.applyToPlayer(requireContext(), binding)
+        schedulePortraitControlScale()
         showController(force = true)
     }
 
@@ -1464,6 +1467,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 }
             }
         }
+    }
+
+    private fun schedulePortraitControlScale() {
+        PortraitPlayerControls.schedule(binding, isPortrait)
     }
 
     fun setResizeMode() {
@@ -2963,6 +2970,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 initLayout()
                 refreshPlayerControls()
                 PlayerControlLayout.applyToPlayer(requireContext(), binding)
+                schedulePortraitControlScale()
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.dismiss()
         }
