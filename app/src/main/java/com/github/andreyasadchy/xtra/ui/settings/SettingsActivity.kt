@@ -19,7 +19,6 @@ import android.os.PowerManager
 import android.os.ext.SdkExtensions
 import android.provider.Settings
 import android.text.InputType
-import android.text.format.Formatter
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
@@ -108,16 +107,9 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.updater.UpdateError
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckFrequency
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckScheduler
-import com.github.andreyasadchy.xtra.util.updater.UpdatePrimaryAction
-import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
-import com.github.andreyasadchy.xtra.util.updater.UpdateRetryAction
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
 import com.github.andreyasadchy.xtra.util.updater.UpdateTimeFormatter
 import com.github.andreyasadchy.xtra.util.updater.UpdateVersionDisplay
-import com.github.andreyasadchy.xtra.util.updater.downloadableRelease
-import com.github.andreyasadchy.xtra.util.updater.errorTitle
-import com.github.andreyasadchy.xtra.util.updater.primaryAction
-import com.github.andreyasadchy.xtra.util.updater.retryAction
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -1692,44 +1684,11 @@ class SettingsActivity : AppCompatActivity() {
                 )
                 UpdateCheckScheduler.schedule(requireContext())
             }
-            binding.checkButton.setOnClickListener {
-                repository.check(preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP), C.DEFAULT_UPDATE_URL)
-            }
-            binding.downloadButton.setOnClickListener {
-                repository.downloadCurrent()
-            }
-            binding.installButton.setOnClickListener {
-                val state = repository.state.value
-                if (state is UpdateState.AwaitingUserAction) {
-                    repository.launchPendingInstall()
-                } else if (state is UpdateState.Error && state.cause == UpdateError.InstallPermissionDenied &&
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                    !requireContext().packageManager.canRequestPackageInstalls()
-                ) {
-                    try {
-                        startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${requireContext().packageName}".toUri()))
-                    } catch (_: ActivityNotFoundException) {
-                        Toast.makeText(requireContext(), R.string.update_error_install, Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    repository.refreshInstallPermission()
-                    repository.install()
-                }
-            }
-            binding.cancelButton.setOnClickListener { repository.cancelDownload() }
-            binding.retryButton.setOnClickListener { repository.retry() }
-            binding.skipButton.setOnClickListener {
-                (repository.state.value as? UpdateState.Available)?.release?.let(repository::skip)
-            }
-            binding.notNowButton.setOnClickListener {
-                (repository.state.value as? UpdateState.Available)?.release?.let(repository::defer)
-            }
-            binding.undoSkipButton.setOnClickListener { repository.undoSkip() }
             binding.primaryButton.setOnClickListener {
-                performUpdateAction(UpdateUiMapper.map(repository.state.value).primaryAction)
+                performUpdateAction(UpdateUiMapper.map(repository.state.value, repository.selectedAssetInfo()).primaryAction)
             }
             binding.secondaryButton.setOnClickListener {
-                performUpdateAction(UpdateUiMapper.map(repository.state.value).secondaryActions.firstOrNull())
+                performUpdateAction(UpdateUiMapper.map(repository.state.value, repository.selectedAssetInfo()).secondaryAction)
             }
             binding.technicalDetailsToggle.setOnClickListener {
                 technicalDetailsExpanded = !technicalDetailsExpanded
@@ -1856,150 +1815,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         private fun render(state: UpdateState) {
-            renderModern(UpdateUiMapper.map(state))
-            return
-            @Suppress("UNREACHABLE_CODE")
-            val release = when (state) {
-                is UpdateState.Available -> state.release
-                is UpdateState.Skipped -> state.release
-                is UpdateState.Deferred -> state.release
-                is UpdateState.Downloading -> state.release
-                is UpdateState.Downloaded -> state.release
-                is UpdateState.Installing -> state.release
-                is UpdateState.AwaitingUserAction -> state.release
-                is UpdateState.Error -> state.release
-                else -> null
-            }
-            val recentRelease = when (state) {
-                is UpdateState.UpToDate -> state.release
-                else -> release
-            }
-            binding.statusTitle.text = when (state) {
-                UpdateState.Idle -> getString(R.string.settings_updates)
-                UpdateState.Checking -> getString(R.string.update_checking)
-                is UpdateState.UpToDate -> getString(R.string.update_up_to_date)
-                is UpdateState.Available, is UpdateState.Skipped, is UpdateState.Deferred -> getString(R.string.update_available)
-                is UpdateState.Downloading -> getString(R.string.downloading_update)
-                is UpdateState.Downloaded -> getString(R.string.update_ready_to_install, state.release.displayVersion)
-                is UpdateState.Installing -> getString(R.string.update_installing)
-                is UpdateState.AwaitingUserAction -> getString(R.string.update_awaiting_user_action)
-                is UpdateState.Error -> errorTitle(state.stage)
-            }
-            binding.versionText.text = getString(
-                R.string.update_version,
-                release?.displayVersion ?: UpdateVersionDisplay.installed(
-                    BuildConfig.VERSION_NAME,
-                    BuildConfig.VERSION_CODE.toLong(),
-                    BuildConfig.CI_VERSION_CODE_BASE.toLong(),
-                ),
-            )
-            binding.currentVersionText.text = if (release != null && state !is UpdateState.UpToDate) {
-                getString(
-                    R.string.update_current_version,
-                    UpdateVersionDisplay.installed(
-                        BuildConfig.VERSION_NAME,
-                        BuildConfig.VERSION_CODE.toLong(),
-                        BuildConfig.CI_VERSION_CODE_BASE.toLong(),
-                    ),
-                )
-            } else ""
-            val showReleaseDetails = release != null && state !is UpdateState.UpToDate
-            binding.notesTitle.visibility = if (showReleaseDetails) View.VISIBLE else View.GONE
-            binding.notesText.visibility = if (showReleaseDetails) View.VISIBLE else View.GONE
-            binding.notesText.text = if (release != null && state !is UpdateState.UpToDate) {
-                UpdateReleaseHistory.formatForUpdate(
-                    historyComplete = repository.releaseHistoryComplete.value,
-                    cumulativeReleases = repository.releasesSinceInstalled(release),
-                    latestRelease = release,
-                    noReleaseNotes = getString(R.string.update_no_release_notes),
-                    incompleteHistoryMessage = getString(R.string.update_history_incomplete),
-                )
-            } else {
-                ""
-            }
-            binding.statusMessage.text = when (state) {
-                UpdateState.Checking -> getString(R.string.update_checking)
-                is UpdateState.Available -> when {
-                    state.previouslySkipped -> getString(R.string.update_previously_skipped)
-                    state.previouslyDeferred -> getString(R.string.update_deferred)
-                    else -> ""
-                }
-                is UpdateState.Skipped -> getString(R.string.update_previously_skipped)
-                is UpdateState.Deferred -> getString(R.string.update_deferred)
-                is UpdateState.Downloading -> state.progress?.let { progress ->
-                    val total = progress.totalBytes
-                    if (total != null && total > 0L) {
-                        getString(
-                            R.string.update_downloaded_progress,
-                            "${Formatter.formatFileSize(requireContext(), progress.downloadedBytes)} / ${Formatter.formatFileSize(requireContext(), total)} (${progress.percent}%)",
-                        )
-                    } else {
-                        getString(R.string.downloading_update)
-                    }
-                }.orEmpty()
-                is UpdateState.Installing -> getString(R.string.update_installing)
-                is UpdateState.AwaitingUserAction -> getString(R.string.update_awaiting_user_action)
-                is UpdateState.Error -> errorMessage(state.cause)
-                else -> ""
-            }
-            binding.checkButton.isEnabled = state !is UpdateState.Checking &&
-                state !is UpdateState.Downloading &&
-                state !is UpdateState.Installing &&
-                state !is UpdateState.AwaitingUserAction
-            binding.checkButton.text = getString(if (state is UpdateState.Checking) R.string.update_checking else R.string.check_for_updates)
-            binding.downloadButton.visibility = if (state.downloadableRelease() != null) View.VISIBLE else View.GONE
-            binding.installButton.visibility = if (state is UpdateState.Downloaded ||
-                state is UpdateState.AwaitingUserAction ||
-                state is UpdateState.Error && state.primaryAction() in setOf(
-                    UpdatePrimaryAction.INSTALL,
-                    UpdatePrimaryAction.ALLOW_INSTALL,
-                )
-            ) View.VISIBLE else View.GONE
-            binding.installButton.text = when {
-                state is UpdateState.Error && state.primaryAction() == UpdatePrimaryAction.ALLOW_INSTALL ->
-                    getString(R.string.allow_install)
-                state is UpdateState.AwaitingUserAction -> getString(R.string.continue_install)
-                state is UpdateState.Error && state.primaryAction() == UpdatePrimaryAction.INSTALL ->
-                    getString(R.string.retry_install)
-                else -> getString(R.string.install_update)
-            }
-            binding.cancelButton.visibility = if (state is UpdateState.Downloading) View.VISIBLE else View.GONE
-            binding.retryButton.visibility = if (state is UpdateState.Error &&
-                state.retryable && state.retryAction() != UpdateRetryAction.INSTALL
-            ) View.VISIBLE else View.GONE
-            binding.skipButton.visibility = if (state is UpdateState.Available && !state.previouslySkipped) View.VISIBLE else View.GONE
-            binding.notNowButton.visibility = if (state is UpdateState.Available && !state.previouslySkipped) View.VISIBLE else View.GONE
-            binding.undoSkipButton.visibility = if (state is UpdateState.Skipped ||
-                state is UpdateState.Available && state.previouslySkipped
-            ) View.VISIBLE else View.GONE
-            binding.lastCheckedText.text = getString(
-                R.string.last_successful_update_check,
-                UpdateTimeFormatter.format(requireContext(), repository.lastSuccessfulCheck),
-            )
-            binding.technicalDetailsToggle.visibility = if (showReleaseDetails) View.VISIBLE else View.GONE
-            binding.technicalDetails.visibility = if (showReleaseDetails && technicalDetailsExpanded) View.VISIBLE else View.GONE
-            binding.technicalDetailsToggle.text = getString(
-                if (technicalDetailsExpanded) R.string.hide_technical_details else R.string.technical_details,
-            )
-            binding.technicalDetails.text = release?.let {
-                buildString {
-                    appendLine(getString(R.string.technical_details))
-                    appendLine(getString(R.string.update_tag, it.tagName))
-                    it.buildNumber?.let { buildNumber -> appendLine(getString(R.string.update_build_number, buildNumber)) }
-                    appendLine(getString(R.string.update_release, it.releaseUrl))
-                    it.publishedAt?.let { timestamp -> appendLine(getString(R.string.update_published, timestamp)) }
-                    if (it.rawBody.isNotBlank()) {
-                        appendLine()
-                        appendLine(it.rawBody)
-                    }
-                }
-            }.orEmpty()
-            val recentReleases = repository.recentReleases(recentRelease)
-            binding.recentUpdatesCard.visibility = if (recentReleases.isEmpty()) View.GONE else View.VISIBLE
-            binding.recentUpdatesText.text = UpdateReleaseHistory.formatGrouped(
-                recentReleases,
-                getString(R.string.update_no_release_notes),
-            )
+            renderModern(UpdateUiMapper.map(state, repository.selectedAssetInfo()))
         }
 
         private fun renderModern(model: UpdateUiModel) {
@@ -2033,11 +1849,17 @@ class SettingsActivity : AppCompatActivity() {
             )
             binding.primaryButton.visibility = if (model.primaryAction == null) View.GONE else View.VISIBLE
             binding.primaryButton.text = actionText(model.primaryAction)
-            val secondary = model.secondaryActions.firstOrNull()
+            val secondary = model.secondaryAction
             binding.secondaryButton.visibility = if (secondary == null) View.GONE else View.VISIBLE
             binding.secondaryButton.text = actionText(secondary)
-            binding.notesContainer.visibility = if (model.showReleaseNotes) View.VISIBLE else View.GONE
-            UpdateNotesBinder.bind(binding.notesContainer, release)
+            val showNotes = model.showReleaseNotes && release != null
+            binding.whatsNewTitle.visibility = if (showNotes) View.VISIBLE else View.GONE
+            binding.notesContainer.visibility = if (showNotes) View.VISIBLE else View.GONE
+            if (showNotes) {
+                UpdateNotesBinder.bind(binding.notesContainer, release)
+            } else {
+                binding.notesContainer.removeAllViews()
+            }
             val earlier = release?.let { repository.releasesSinceInstalled(it).drop(1) }.orEmpty()
             binding.earlierChangesButton.visibility = if (earlier.isNotEmpty()) View.VISIBLE else View.GONE
             binding.earlierChangesContainer.visibility = View.GONE
@@ -2052,7 +1874,11 @@ class SettingsActivity : AppCompatActivity() {
                             title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
                             binding.earlierChangesContainer.addView(title)
                         }
-                        UpdateNotesBinder.bind(binding.earlierChangesContainer, oldRelease, maxItems = 3, clear = false)
+                        val notes = LinearLayout(requireContext()).apply {
+                            orientation = LinearLayout.VERTICAL
+                        }
+                        UpdateNotesBinder.bind(notes, oldRelease, maxItems = 3)
+                        binding.earlierChangesContainer.addView(notes)
                     }
                 }
             }
@@ -2077,15 +1903,15 @@ class SettingsActivity : AppCompatActivity() {
                     val counts = recentRelease.structuredReleaseNotes.items.groupingBy { it.kind }.eachCount()
                     text = buildString {
                         append(recentRelease.displayVersion)
-                        date?.let { append(" · ").append(it) }
+                        date?.let { append(getString(R.string.update_meta_separator)).append(it) }
                         if (counts.isNotEmpty()) append("\n").append(
-                            counts.entries.joinToString(" · ") {
+                            counts.entries.joinToString(getString(R.string.update_meta_separator)) {
                                 getString(changeKindLabel(it.key), it.value)
                             },
                         )
                     }
                     setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-                    setPadding(0, 8, 0, 8)
+                    setPadding(0, dp(8), 0, dp(8))
                 }
                 binding.recentUpdatesContainer.addView(row)
             }
@@ -2115,16 +1941,6 @@ class SettingsActivity : AppCompatActivity() {
             },
         )
 
-        private fun errorTitle(stage: com.github.andreyasadchy.xtra.util.updater.UpdateStage): String = getString(
-            when (stage.errorTitle()) {
-                com.github.andreyasadchy.xtra.util.updater.UpdateErrorTitle.CHECK -> R.string.update_check_failed
-                com.github.andreyasadchy.xtra.util.updater.UpdateErrorTitle.PARSE -> R.string.update_parse_failed
-                com.github.andreyasadchy.xtra.util.updater.UpdateErrorTitle.ASSET_SELECTION -> R.string.update_asset_selection_failed
-                com.github.andreyasadchy.xtra.util.updater.UpdateErrorTitle.DOWNLOAD -> R.string.update_download_failed_title
-                com.github.andreyasadchy.xtra.util.updater.UpdateErrorTitle.INSTALL -> R.string.update_install_failed_title
-            },
-        )
-
         private fun errorMessage(error: UpdateError): String = getString(
             when (error) {
                 UpdateError.NoConnection -> R.string.update_error_no_connection
@@ -2139,10 +1955,14 @@ class SettingsActivity : AppCompatActivity() {
                 UpdateError.DownloadFailed, UpdateError.DownloadCancelled, UpdateError.DownloadedFileMissing,
                 UpdateError.DownloadNoConnection -> R.string.update_download_failed_connection_message
                 UpdateError.DownloadNotEnoughStorage -> R.string.update_download_failed_storage_message
-                UpdateError.DownloadServer -> R.string.update_download_failed_server_message
+                 UpdateError.DownloadServer -> R.string.update_download_failed_server_message
+                 UpdateError.DownloadStorageUnavailable -> R.string.update_download_storage_unavailable_message
                 UpdateError.InstallPermissionDenied, UpdateError.InstallCancelled, UpdateError.InstallFailed -> R.string.update_error_install
             }
         )
+
+        private fun dp(value: Int): Int =
+            (value * resources.displayMetrics.density).toInt()
 
         override fun onDestroyView() {
             _binding = null

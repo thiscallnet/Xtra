@@ -51,4 +51,38 @@ class StructuredReleaseNotesTest {
         assertEquals("Notes", notes.items.first().text)
         assertEquals("A note", notes.items[1].text)
     }
+
+    @Test
+    fun conventionalCommitPrefixesSurviveCleaningForClassification() {
+        val notes = ReleaseNotes.structured(
+            body = null,
+            commits = listOf(
+                "fix: player crash",
+                "feat: add multiview",
+                "perf: reduce startup latency",
+                "improve: player controls",
+                "refactor: update state handling",
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                ChangeKind.FIXED,
+                ChangeKind.NEW,
+                ChangeKind.IMPROVED,
+                ChangeKind.IMPROVED,
+                ChangeKind.IMPROVED,
+            ),
+            notes.items.map(ChangeItem::kind),
+        )
+    }
+
+    @Test
+    fun generatedGithubChangelogNoiseIsNotShown() {
+        val notes = ReleaseNotes.structured(
+            "## What's Changed\n- **Full Changelog**: https://github.com/example/compare/old...new\n- A useful change",
+        )
+
+        assertEquals(listOf("A useful change"), notes.items.map(ChangeItem::text))
+    }
 }

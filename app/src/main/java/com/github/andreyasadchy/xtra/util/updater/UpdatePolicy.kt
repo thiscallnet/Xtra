@@ -64,6 +64,7 @@ object UpdatePolicy {
             UpdateError.DownloadedFileMissing,
             UpdateError.DownloadNoConnection,
             UpdateError.DownloadNotEnoughStorage,
+            UpdateError.DownloadStorageUnavailable,
             UpdateError.DownloadServer,
         )
         UpdateStage.INSTALL -> error in setOf(
@@ -233,10 +234,16 @@ object UpdateErrorMapper {
 
     fun fromDownloadReason(reason: Int?): UpdateError = when (reason) {
         android.app.DownloadManager.ERROR_INSUFFICIENT_SPACE -> UpdateError.DownloadNotEnoughStorage
+        android.app.DownloadManager.ERROR_DEVICE_NOT_FOUND,
+        android.app.DownloadManager.ERROR_FILE_ERROR,
+        android.app.DownloadManager.ERROR_FILE_ALREADY_EXISTS,
+        -> UpdateError.DownloadStorageUnavailable
         android.app.DownloadManager.ERROR_HTTP_DATA_ERROR,
+        android.app.DownloadManager.ERROR_TOO_MANY_REDIRECTS,
         android.app.DownloadManager.ERROR_UNHANDLED_HTTP_CODE,
         -> UpdateError.DownloadServer
-        android.app.DownloadManager.ERROR_DEVICE_NOT_FOUND -> UpdateError.DownloadNoConnection
+        android.app.DownloadManager.ERROR_CANNOT_RESUME -> UpdateError.DownloadFailed
+        in 400..599 -> UpdateError.DownloadServer
         else -> UpdateError.DownloadFailed
     }
 

@@ -94,8 +94,6 @@ class UpdateRepository(
     @Volatile
     private var activeCheckJob: Job? = null
     private val checkLock = Mutex()
-    private var downloadMonitorJob: Job? = null
-    private var monitoredDownloadId: Long? = null
     private val downloadMonitor = downloadStore?.let { store ->
         UpdateDownloadMonitor(store, scope)
     }
@@ -828,6 +826,12 @@ class UpdateRepository(
         lastAttemptedCheck = lastAttemptedCheck.takeIf { it > 0L },
         downloadRecord = activeDownloadId?.let { id -> runCatching { downloadStore?.query(id) }.getOrNull() },
     )
+
+    fun selectedAssetInfo(): UpdateSelectedAssetInfo? {
+        val name = preferences.getString(C.UPDATE_AVAILABLE_ASSET_NAME, null) ?: return null
+        val size = preferences.getLong(C.UPDATE_AVAILABLE_SIZE, -1L).takeIf { it >= 0L }
+        return UpdateSelectedAssetInfo(name, size)
+    }
 
     fun releasesSinceInstalled(fallbackRelease: UpdateRelease? = null): List<UpdateRelease> =
         if (_releaseHistoryComplete.value) {

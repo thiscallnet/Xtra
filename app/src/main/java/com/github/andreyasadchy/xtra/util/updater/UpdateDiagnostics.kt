@@ -4,7 +4,7 @@ import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
 import android.text.format.Formatter
-import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.R
 
 data class UpdateDiagnosticsSnapshot(
     val state: String,
@@ -59,14 +59,14 @@ object UpdateDiagnostics {
                 is UpdateState.Available,
                 is UpdateState.Skipped,
                 is UpdateState.Deferred,
+                is UpdateState.UpToDate,
                 -> UpdateStage.CHECK.name
                 is UpdateState.Downloading -> UpdateStage.DOWNLOAD.name
-            is UpdateState.Downloaded -> "READY"
+                is UpdateState.Downloaded -> "READY"
                 is UpdateState.Installing,
                 is UpdateState.AwaitingUserAction,
                 -> if (state is UpdateState.Installing && state.sessionId == null) "VERIFYING" else UpdateStage.INSTALL.name
                 is UpdateState.Error -> state.stage.name
-                is UpdateState.UpToDate -> UpdateStage.CHECK.name
             },
             installedVersion = installedVersion,
             targetVersion = release?.displayVersion,
@@ -84,31 +84,58 @@ object UpdateDiagnostics {
     }
 
     fun format(context: Context, snapshot: UpdateDiagnosticsSnapshot): String = buildString {
-        appendLine("Xtra updater diagnostics")
-        appendLine("State: ${snapshot.state}")
-        snapshot.stage?.let { appendLine("Stage: $it") }
-        appendLine("Installed: ${snapshot.installedVersion}")
-        snapshot.targetVersion?.let { appendLine("Target: $it") }
-        snapshot.assetName?.let { appendLine("Asset: $it") }
+        appendLine(context.getString(R.string.update_diagnostics))
+        appendLine(context.getString(R.string.update_diagnostics_state, snapshot.state))
+        snapshot.stage?.let { appendLine(context.getString(R.string.update_diagnostics_stage, it)) }
+        appendLine(context.getString(R.string.update_diagnostics_installed, snapshot.installedVersion))
+        snapshot.targetVersion?.let { appendLine(context.getString(R.string.update_diagnostics_target, it)) }
+        snapshot.assetName?.let { appendLine(context.getString(R.string.update_diagnostics_asset, it)) }
         val downloaded = snapshot.downloadedBytes
         val total = snapshot.totalBytes
         if (downloaded != null) {
             val progress = total?.let {
-                "${Formatter.formatFileSize(context, downloaded)} / ${Formatter.formatFileSize(context, it)}"
+                Formatter.formatFileSize(context, downloaded) + " / " + Formatter.formatFileSize(context, it)
             } ?: Formatter.formatFileSize(context, downloaded)
-            appendLine("Progress: $progress")
+            appendLine(context.getString(R.string.update_diagnostics_progress, progress))
         }
         snapshot.bytesPerSecond?.takeIf { it > 0L }?.let {
-            appendLine("Transfer speed: ${Formatter.formatFileSize(context, it)}/s")
+            appendLine(
+                context.getString(
+                    R.string.update_diagnostics_speed,
+                    Formatter.formatFileSize(context, it) + "/s",
+                ),
+            )
         }
-        snapshot.downloadManagerStatus?.let { appendLine("DownloadManager status: ${downloadStatusName(it)}") }
+        snapshot.downloadManagerStatus?.let {
+            appendLine(context.getString(R.string.update_diagnostics_status, downloadStatusName(it)))
+        }
         snapshot.downloadManagerReason?.takeIf { it != DownloadManager.ERROR_UNKNOWN }?.let {
-            appendLine("DownloadManager reason: $it")
+            appendLine(context.getString(R.string.update_diagnostics_reason, downloadReasonName(it), it))
         }
-        appendLine("Last successful check: ${snapshot.lastSuccessfulCheck ?: 0L}")
-        appendLine("Last attempted check: ${snapshot.lastAttemptedCheck ?: 0L}")
-        appendLine("Error: ${snapshot.errorType ?: "None"}")
-        appendLine("Timestamp: ${snapshot.timestamp}")
+        appendLine(
+            context.getString(
+                R.string.update_diagnostics_last_check,
+                formatTimestamp(context, snapshot.lastSuccessfulCheck, snapshot.timestamp),
+            ),
+        )
+        appendLine(
+            context.getString(
+                R.string.update_diagnostics_last_attempt,
+                formatTimestamp(context, snapshot.lastAttemptedCheck, snapshot.timestamp),
+            ),
+        )
+        appendLine(
+            context.getString(
+                R.string.update_diagnostics_error,
+                snapshot.errorType ?: context.getString(R.string.none),
+            ),
+        )
+        appendLine(
+            context.getString(
+                R.string.update_diagnostics_timestamp,
+                formatTimestamp(context, snapshot.timestamp, snapshot.timestamp),
+            ),
+        )
     }
 
     fun sanitizeEndpoint(raw: String): String = runCatching {
@@ -129,4 +156,24 @@ object UpdateDiagnostics {
         DownloadManager.STATUS_FAILED -> "Failed"
         else -> "Unknown"
     }
+
+    private fun downloadReasonName(reason: Int): String = when (reason) {
+        DownloadManager.PAUSED_WAITING_TO_RETRY -> "PAUSED_WAITING_TO_RETRY"
+        DownloadManager.PAUSED_WAITING_FOR_NETWORK -> "PAUSED_WAITING_FOR_NETWORK"
+        DownloadManager.PAUSED_QUEUED_FOR_WIFI -> "PAUSED_QUEUED_FOR_WIFI"
+        DownloadManager.PAUSED_UNKNOWN -> "PAUSED_UNKNOWN"
+        DownloadManager.ERROR_FILE_ERROR -> "ERROR_FILE_ERROR"
+        DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "ERROR_UNHANDLED_HTTP_CODE"
+        DownloadManager.ERROR_HTTP_DATA_ERROR -> "ERROR_HTTP_DATA_ERROR"
+        DownloadManager.ERROR_TOO_MANY_REDIRECTS -> "ERROR_TOO_MANY_REDIRECTS"
+        DownloadManager.ERROR_INSUFFICIENT_SPACE -> "ERROR_INSUFFICIENT_SPACE"
+        DownloadManager.ERROR_DEVICE_NOT_FOUND -> "ERROR_DEVICE_NOT_FOUND"
+        DownloadManager.ERROR_CANNOT_RESUME -> "ERROR_CANNOT_RESUME"
+        DownloadManager.ERROR_FILE_ALREADY_EXISTS -> "ERROR_FILE_ALREADY_EXISTS"
+        else -> "UNKNOWN"
+    }
+
+    private fun formatTimestamp(context: Context, timestamp: Long?, now: Long): String =
+        timestamp?.takeIf { it > 0L }?.let { UpdateTimeFormatter.format(context, it, now) }
+            ?: context.getString(R.string.never)
 }

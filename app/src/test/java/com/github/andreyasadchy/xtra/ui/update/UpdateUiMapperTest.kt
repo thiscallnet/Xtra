@@ -7,6 +7,7 @@ import com.github.andreyasadchy.xtra.util.updater.UpdateStage
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UpdateUiMapperTest {
@@ -40,6 +41,29 @@ class UpdateUiMapperTest {
         assertEquals(UpdateUiAction.Retry, UpdateState.Error(UpdateStage.DOWNLOAD, UpdateError.DownloadFailed, true, release).toUiModel().primaryAction)
         assertEquals(UpdateUiStatus.SKIPPED, UpdateState.Skipped(release).toUiModel().status)
         assertEquals(UpdateUiStatus.DEFERRED, UpdateState.Deferred(release).toUiModel().status)
+    }
+
+    @Test
+    fun availableUpdateExposesSecondaryAndOverflowActionsSeparately() {
+        val model = UpdateState.Available(release).toUiModel()
+
+        assertEquals(UpdateUiAction.Download, model.primaryAction)
+        assertEquals(UpdateUiAction.NotNow, model.secondaryAction)
+        assertEquals(listOf(UpdateUiAction.SkipVersion), model.overflowActions)
+    }
+
+    @Test
+    fun previouslySkippedUpdateOffersUndoWithoutLosingTheDownloadAction() {
+        val model = UpdateState.Available(release, previouslySkipped = true).toUiModel()
+
+        assertEquals(UpdateUiAction.Download, model.primaryAction)
+        assertEquals(UpdateUiAction.UndoSkip, model.secondaryAction)
+        assertTrue(model.overflowActions.isEmpty())
+    }
+
+    @Test
+    fun downloadingStateExposesDiagnostics() {
+        assertTrue(UpdateState.Downloading(release, DownloadProgress(1L, 2L)).toUiModel().showDiagnostics)
     }
 
     private fun artifact() = com.github.andreyasadchy.xtra.util.updater.DownloadedArtifact(

@@ -19,6 +19,18 @@ class UpdateTransferTelemetryTest {
     }
 
     @Test
+    fun etaWaitsForStableTransferRate() {
+        val estimator = TransferRateEstimator()
+        assertFalse(estimator.sample(0L, 0L).stable)
+        assertFalse(estimator.sample(1_000L, 1_000L).stable)
+        assertFalse(estimator.sample(2_000L, 2_000L).stable)
+
+        val stable = estimator.sample(3_000L, 3_000L)
+        assertTrue(stable.stable)
+        assertEquals(7L, calculateEtaSeconds(3_000L, 10_000L, stable.bytesPerSecond))
+    }
+
+    @Test
     fun rateChangesAreSmoothed() {
         val estimator = TransferRateEstimator(smoothingFactor = 0.25)
         estimator.sample(0L, 0L)
@@ -32,6 +44,19 @@ class UpdateTransferTelemetryTest {
         estimator.sample(100L, 0L)
         estimator.sample(100L, 4_000L).also { assertTrue(it.stalled) }
         estimator.sample(200L, 4_100L).also { assertFalse(it.stalled) }
+    }
+
+    @Test
+    fun stallHidesStabilityAndResetRequiresNewSamples() {
+        val estimator = TransferRateEstimator(stallAfterMs = 4_000L)
+        estimator.sample(0L, 0L)
+        estimator.sample(1_000L, 1_000L)
+        estimator.sample(2_000L, 2_000L)
+        estimator.sample(3_000L, 3_000L)
+        assertTrue(estimator.sample(3_000L, 7_000L).stalled)
+        assertFalse(estimator.sample(3_000L, 7_000L).stable)
+
+        assertFalse(estimator.sample(10L, 8_000L).stable)
     }
 
     @Test

@@ -5,6 +5,7 @@ import com.github.andreyasadchy.xtra.util.updater.DownloadProgress
 import com.github.andreyasadchy.xtra.util.updater.UpdateError
 import com.github.andreyasadchy.xtra.util.updater.UpdatePrimaryAction
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
+import com.github.andreyasadchy.xtra.util.updater.UpdateSelectedAssetInfo
 import com.github.andreyasadchy.xtra.util.updater.primaryAction
 import com.github.andreyasadchy.xtra.util.updater.retryAction
 
@@ -39,17 +40,20 @@ data class UpdateUiModel(
     val status: UpdateUiStatus,
     val titleRes: Int = R.string.update_available,
     val release: com.github.andreyasadchy.xtra.util.updater.UpdateRelease? = null,
+    val selectedAsset: UpdateSelectedAssetInfo? = null,
     val progress: DownloadProgress? = null,
     val downloadManagerStatus: Int? = null,
     val downloadManagerReason: Int? = null,
     val error: UpdateError? = null,
     val primaryAction: UpdateUiAction? = null,
-    val secondaryActions: List<UpdateUiAction> = emptyList(),
+    val secondaryAction: UpdateUiAction? = null,
+    val overflowActions: List<UpdateUiAction> = emptyList(),
     val showReleaseNotes: Boolean = false,
     val showDiagnostics: Boolean = false,
 )
 
-fun UpdateState.toUiModel(): UpdateUiModel = when (this) {
+fun UpdateState.toUiModel(selectedAsset: UpdateSelectedAssetInfo? = null): UpdateUiModel {
+    val model = when (this) {
     UpdateState.Idle -> UpdateUiModel(UpdateUiStatus.IDLE, primaryAction = UpdateUiAction.Check)
     UpdateState.Checking -> UpdateUiModel(UpdateUiStatus.CHECKING, titleRes = R.string.update_checking, primaryAction = null)
     is UpdateState.UpToDate -> UpdateUiModel(UpdateUiStatus.CURRENT, titleRes = R.string.update_up_to_date, release = release, primaryAction = UpdateUiAction.Check)
@@ -57,25 +61,22 @@ fun UpdateState.toUiModel(): UpdateUiModel = when (this) {
         status = UpdateUiStatus.AVAILABLE,
         release = release,
         primaryAction = UpdateUiAction.Download,
-        secondaryActions = buildList {
-            if (!previouslySkipped) add(UpdateUiAction.NotNow)
-            if (!previouslySkipped) add(UpdateUiAction.SkipVersion)
-            else add(UpdateUiAction.UndoSkip)
-        },
+        secondaryAction = if (previouslySkipped) UpdateUiAction.UndoSkip else UpdateUiAction.NotNow,
+        overflowActions = if (previouslySkipped) emptyList() else listOf(UpdateUiAction.SkipVersion),
         showReleaseNotes = true,
     )
     is UpdateState.Skipped -> UpdateUiModel(
         status = UpdateUiStatus.SKIPPED,
         release = release,
         primaryAction = UpdateUiAction.Check,
-        secondaryActions = listOf(UpdateUiAction.UndoSkip),
+        secondaryAction = UpdateUiAction.UndoSkip,
         showReleaseNotes = true,
     )
     is UpdateState.Deferred -> UpdateUiModel(
         status = UpdateUiStatus.DEFERRED,
         release = release,
         primaryAction = UpdateUiAction.Download,
-        secondaryActions = listOf(UpdateUiAction.Check),
+        secondaryAction = UpdateUiAction.Check,
         showReleaseNotes = true,
     )
     is UpdateState.Downloading -> UpdateUiModel(
@@ -87,6 +88,7 @@ fun UpdateState.toUiModel(): UpdateUiModel = when (this) {
         downloadManagerReason = downloadManagerReason,
         primaryAction = UpdateUiAction.CancelDownload,
         showReleaseNotes = true,
+        showDiagnostics = true,
     )
     is UpdateState.Downloaded -> UpdateUiModel(
         status = UpdateUiStatus.READY,
@@ -122,11 +124,12 @@ fun UpdateState.toUiModel(): UpdateUiModel = when (this) {
             retryAction() != null -> UpdateUiAction.Retry
             else -> null
         },
-        secondaryActions = emptyList(),
         showReleaseNotes = release != null,
         showDiagnostics = true,
         downloadManagerReason = downloadManagerReason,
     )
+    }
+    return model.copy(selectedAsset = selectedAsset)
 }
 
 private fun errorTitleRes(error: UpdateError): Int = when (error) {
@@ -134,6 +137,7 @@ private fun errorTitleRes(error: UpdateError): Int = when (error) {
     UpdateError.DownloadNoConnection,
     -> R.string.update_download_failed_connection
     UpdateError.DownloadNotEnoughStorage -> R.string.update_download_failed_storage
+    UpdateError.DownloadStorageUnavailable -> R.string.update_download_storage_unavailable
     UpdateError.InstallPermissionDenied -> R.string.update_install_permission_title
     UpdateError.InstallCancelled,
     UpdateError.InstallFailed,

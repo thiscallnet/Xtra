@@ -108,6 +108,11 @@ data class DownloadedArtifact(
     val size: Long,
 )
 
+data class UpdateSelectedAssetInfo(
+    val name: String,
+    val size: Long?,
+)
+
 object UpdateVersionDisplay {
     fun installed(versionName: String, versionCode: Long, versionCodeBase: Long): String {
         val buildNumber = installedBuildNumber(versionCode, versionCodeBase)
@@ -156,6 +161,7 @@ sealed interface UpdateError {
     data object DownloadFailed : UpdateError
     data object DownloadNoConnection : UpdateError
     data object DownloadNotEnoughStorage : UpdateError
+    data object DownloadStorageUnavailable : UpdateError
     data object DownloadServer : UpdateError
     data object DownloadCancelled : UpdateError
     data object DownloadedFileMissing : UpdateError

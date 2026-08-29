@@ -12,24 +12,25 @@ import android.text.format.Formatter
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.core.net.toUri
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.appcompat.widget.PopupMenu
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.SheetUpdateDetailsBinding
-import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.updater.UpdateError
 import com.github.andreyasadchy.xtra.util.updater.UpdateDiagnostics
 import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
+import com.github.andreyasadchy.xtra.util.updater.UpdateSelectedAssetInfo
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
-import com.github.andreyasadchy.xtra.util.updater.UpdateTimeFormatter
 import com.github.andreyasadchy.xtra.util.updater.UpdateVersionDisplay
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -45,6 +46,7 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
     private var earlierExpanded = false
     private var fullNotesExpanded = false
     private var diagnosticsExpanded = false
+    private val markwon by lazy(LazyThreadSafetyMode.NONE) { Markwon.create(requireContext()) }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = SheetUpdateDetailsBinding.inflate(inflater, container, false)
@@ -73,11 +75,12 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
         }
         binding.diagnosticsText.setOnClickListener { copyDiagnostics() }
         binding.copyDiagnosticsButton.setOnClickListener { copyDiagnostics() }
-        binding.detailsPrimaryButton.setOnClickListener { perform(repository.state.value.toUiModel().primaryAction) }
+        binding.detailsPrimaryButton.setOnClickListener { perform(repository.state.value.toUiModel(repository.selectedAssetInfo()).primaryAction) }
         binding.detailsSecondaryButton.setOnClickListener {
-            val action = repository.state.value.toUiModel().secondaryActions.firstOrNull()
+            val action = repository.state.value.toUiModel(repository.selectedAssetInfo()).secondaryAction
             if (action != null) perform(action)
         }
+        binding.detailsOverflowButton.setOnClickListener { showOverflowMenu() }
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch { repository.state.collectLatest(::render) }
@@ -89,14 +92,14 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
 
     private fun render(state: UpdateState) {
         if (_binding == null) return
-        val model = state.toUiModel()
+        val model = state.toUiModel(repository.selectedAssetInfo())
         val release = model.release
         binding.detailsTitle.text = getString(model.titleRes)
         binding.detailsVersion.text = release?.displayVersion ?: getString(
             R.string.update_version,
             UpdateVersionDisplay.installed(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong(), BuildConfig.CI_VERSION_CODE_BASE.toLong()),
         )
-        binding.detailsMeta.text = release?.let { releaseMeta(it) }.orEmpty()
+        binding.detailsMeta.text = release?.let { releaseMeta(it, model.selectedAsset) }.orEmpty()
         binding.detailsStatus.text = statusText(model)
         binding.detailsProgressView.root.visibility = if (model.status == UpdateUiStatus.DOWNLOADING) View.VISIBLE else View.GONE
         UpdateStatusBinder.bindDownloadProgress(
@@ -108,8 +111,11 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
         )
         binding.detailsError.visibility = if (model.status == UpdateUiStatus.ERROR) View.VISIBLE else View.GONE
         binding.detailsError.text = errorText(model.error)
-        binding.detailsNotesTitle.visibility = if (model.showReleaseNotes) View.VISIBLE else View.GONE
-        UpdateNotesBinder.bind(binding.detailsNotesContainer, release)
+        val showNotes = model.showReleaseNotes && release != null
+        binding.detailsNotesTitle.visibility = if (showNotes) View.VISIBLE else View.GONE
+        binding.detailsNotesContainer.visibility = if (showNotes) View.VISIBLE else View.GONE
+        if (showNotes) UpdateNotesBinder.bind(binding.detailsNotesContainer, release)
+        else binding.detailsNotesContainer.removeAllViews()
         val earlier = release?.let { repository.releasesSinceInstalled(it).drop(1) }.orEmpty()
         binding.earlierChangesButton.visibility = if (earlier.isNotEmpty()) View.VISIBLE else View.GONE
         binding.earlierChangesButton.text = getString(
@@ -119,7 +125,7 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
         if (earlierExpanded) renderEarlier(earlier)
         binding.fullNotesButton.visibility = if (!release?.rawBody.isNullOrBlank()) View.VISIBLE else View.GONE
         binding.fullNotesText.visibility = if (fullNotesExpanded && !release?.rawBody.isNullOrBlank()) View.VISIBLE else View.GONE
-        if (fullNotesExpanded) release?.rawBody?.let { Markwon.builder(requireContext()).build().setMarkdown(binding.fullNotesText, it) }
+        if (fullNotesExpanded) release?.rawBody?.let { markwon.setMarkdown(binding.fullNotesText, it) }
         binding.diagnosticsButton.visibility = if (model.showDiagnostics) View.VISIBLE else View.GONE
         binding.diagnosticsText.visibility = if (diagnosticsExpanded && model.showDiagnostics) View.VISIBLE else View.GONE
         binding.copyDiagnosticsButton.visibility = if (diagnosticsExpanded && model.showDiagnostics) View.VISIBLE else View.GONE
@@ -139,7 +145,11 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
                 setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
             }
             binding.earlierChangesContainer.addView(title)
-            UpdateNotesBinder.bind(binding.earlierChangesContainer, release, maxItems = 3, clear = false)
+            val notes = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+            UpdateNotesBinder.bind(notes, release, maxItems = 3)
+            binding.earlierChangesContainer.addView(notes)
         }
     }
 
@@ -147,9 +157,11 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
         val primary = model.primaryAction
         binding.detailsPrimaryButton.visibility = if (primary == null) View.GONE else View.VISIBLE
         binding.detailsPrimaryButton.text = actionText(primary)
-        val secondary = model.secondaryActions.firstOrNull()
+        val secondary = model.secondaryAction
         binding.detailsSecondaryButton.visibility = if (secondary == null) View.GONE else View.VISIBLE
         binding.detailsSecondaryButton.text = actionText(secondary)
+        val overflow = model.overflowActions.isNotEmpty()
+        binding.detailsOverflowButton.visibility = if (overflow) View.VISIBLE else View.GONE
     }
 
     private fun perform(action: UpdateUiAction?) {
@@ -165,6 +177,18 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
             UpdateUiAction.ContinueInstall -> repository.launchPendingInstall()
             null -> Unit
         }
+    }
+
+    private fun showOverflowMenu() {
+        val menu = PopupMenu(requireContext(), binding.detailsOverflowButton)
+        repository.state.value.toUiModel(repository.selectedAssetInfo()).overflowActions.forEach { action ->
+            menu.menu.add(actionText(action))
+                .setOnMenuItemClickListener {
+                    perform(action)
+                    true
+                }
+        }
+        menu.show()
     }
 
     private fun install() {
@@ -189,10 +213,10 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
         Toast.makeText(requireContext(), R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
     }
 
-    private fun releaseMeta(release: UpdateRelease): String {
-        val size = release.assets.firstOrNull()?.size?.let { Formatter.formatFileSize(requireContext(), it) }
+    private fun releaseMeta(release: UpdateRelease, selectedAsset: UpdateSelectedAssetInfo?): String {
+        val size = selectedAsset?.size?.let { Formatter.formatFileSize(requireContext(), it) }
         val date = release.publishedAt?.substringBefore('T')
-        return listOfNotNull(size, date).joinToString(" · ")
+        return listOfNotNull(size, date).joinToString(getString(R.string.update_meta_separator))
     }
 
     private fun statusText(model: UpdateUiModel): String = when (model.status) {
@@ -213,6 +237,7 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
 
     private fun errorText(error: UpdateError?): String = when (error) {
         UpdateError.DownloadNotEnoughStorage -> getString(R.string.update_download_failed_storage_message)
+        UpdateError.DownloadStorageUnavailable -> getString(R.string.update_download_storage_unavailable_message)
         UpdateError.DownloadNoConnection -> getString(R.string.update_download_failed_connection_message)
         UpdateError.DownloadServer -> getString(R.string.update_download_failed_server_message)
         UpdateError.DownloadFailed,

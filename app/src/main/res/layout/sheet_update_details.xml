@@ -165,18 +165,32 @@
         android:paddingEnd="16dp"
         android:paddingBottom="8dp">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/detailsSecondaryButton"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/detailsSecondaryButton"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/update_not_now"
-            android:visibility="gone" />
+                android:visibility="gone" />
 
-        <com.google.android.material.button.MaterialButton
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/detailsOverflowButton"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="48dp"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/update_more_actions"
+                android:minWidth="48dp"
+                android:text="@string/update_more_actions_symbol"
+                android:visibility="gone" />
+
+            <com.google.android.material.button.MaterialButton
             android:id="@+id/detailsPrimaryButton"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:minWidth="0dp"
             android:text="@string/download_update"
             android:visibility="gone" />
     </LinearLayout>

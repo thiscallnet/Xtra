@@ -5,6 +5,7 @@ import kotlin.math.ceil
 data class TransferRateSample(
     val bytesPerSecond: Long,
     val stalled: Boolean,
+    val stable: Boolean,
 )
 
 /** Estimates the current transfer rate from successive DownloadManager samples. */
@@ -16,12 +17,14 @@ class TransferRateEstimator(
     private var previousTimeMs: Long? = null
     private var lastProgressTimeMs: Long? = null
     private var smoothedBytesPerSecond = 0.0
+    private var usefulSampleCount = 0
 
     fun reset() {
         previousBytes = null
         previousTimeMs = null
         lastProgressTimeMs = null
         smoothedBytesPerSecond = 0.0
+        usefulSampleCount = 0
     }
 
     fun sample(downloadedBytes: Long, nowMs: Long): TransferRateSample {
@@ -32,11 +35,20 @@ class TransferRateEstimator(
             previousTimeMs = nowMs
             lastProgressTimeMs = nowMs
             smoothedBytesPerSecond = 0.0
-            return TransferRateSample(0L, stalled = false)
+            usefulSampleCount = 0
+            return TransferRateSample(0L, stalled = false, stable = false)
         }
 
         val deltaBytes = downloadedBytes - oldBytes
         val deltaMs = nowMs - oldTime
+        if (deltaMs <= 0L) {
+            previousBytes = downloadedBytes
+            previousTimeMs = nowMs
+            lastProgressTimeMs = nowMs
+            smoothedBytesPerSecond = 0.0
+            usefulSampleCount = 0
+            return TransferRateSample(0L, stalled = false, stable = false)
+        }
         if (deltaBytes > 0L) lastProgressTimeMs = nowMs
 
         // DownloadManager is sampled frequently, but rate estimates need a useful interval.
@@ -49,6 +61,7 @@ class TransferRateEstimator(
                     smoothingFactor * instantaneous +
                         (1.0 - smoothingFactor) * smoothedBytesPerSecond
                 }
+                usefulSampleCount++
             }
             previousBytes = downloadedBytes
             previousTimeMs = nowMs
@@ -58,6 +71,7 @@ class TransferRateEstimator(
         return TransferRateSample(
             bytesPerSecond = if (stalled) 0L else smoothedBytesPerSecond.toLong().coerceAtLeast(0L),
             stalled = stalled,
+            stable = !stalled && usefulSampleCount >= 3,
         )
     }
 }

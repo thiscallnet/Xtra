@@ -11,6 +11,11 @@ data class ChangeItem(val text: String, val kind: ChangeKind)
 data class StructuredReleaseNotes(val items: List<ChangeItem>)
 
 object ReleaseNotes {
+    private data class ParsedReleaseLine(
+        val text: String,
+        val explicitKind: ChangeKind?,
+    )
+
     private val commitLine = Regex("^\\s*(?:[0-9a-f]{7,40})\\s+(.+?)\\s*$", RegexOption.IGNORE_CASE)
     private val commitHash = Regex("\\b[0-9a-f]{7,40}\\b", RegexOption.IGNORE_CASE)
     private val mergeCommit = Regex("^merge\\b", RegexOption.IGNORE_CASE)
@@ -18,6 +23,7 @@ object ReleaseNotes {
     private val markdownPrefix = Regex("^\\s*(?:[-*+]\\s+|\\d+[.)]\\s+)")
     private val conventionalPrefix = Regex("^(feat|feature|add|fix|fixed|perf|performance|improve|improved|update|refactor|chore|docs?)\\s*[:\\-]\\s*", RegexOption.IGNORE_CASE)
     private val whitespace = Regex("\\s+")
+    private val generatedChangelog = Regex("^\\**full changelog\\**\\s*:", RegexOption.IGNORE_CASE)
 
     fun structured(body: String?, commits: List<String> = emptyList()): StructuredReleaseNotes {
         val lines = body.orEmpty().lineSequence().toList()
@@ -30,16 +36,17 @@ object ReleaseNotes {
         val items = mutableListOf<ChangeItem>()
         fun parseLines(sourceLines: List<String>) {
             sourceLines.forEach { line ->
-            val match = heading.matchEntire(line)
-            if (match != null) {
-                val headingText = clean(match.groupValues[1]) ?: return@forEach
-                val headingKind = kindForHeading(headingText)
-                if (headingKind == ChangeKind.OTHER) items += ChangeItem(headingText, ChangeKind.OTHER)
-                kind = headingKind
-                return@forEach
-            }
-            val text = clean(line) ?: return@forEach
-            items += ChangeItem(text, if (kind == ChangeKind.OTHER) kindFor(text) else kind)
+                val match = heading.matchEntire(line)
+                if (match != null) {
+                    val headingText = clean(match.groupValues[1]) ?: return@forEach
+                    val headingKind = kindForHeading(headingText)
+                    if (headingKind == ChangeKind.OTHER) items += ChangeItem(headingText, ChangeKind.OTHER)
+                    kind = headingKind
+                    return@forEach
+                }
+                val parsed = parseLine(line) ?: return@forEach
+                val finalKind = if (kind != ChangeKind.OTHER) kind else parsed.explicitKind ?: kindFor(parsed.text)
+                items += ChangeItem(parsed.text, finalKind)
             }
         }
         parseLines(source)
@@ -75,17 +82,32 @@ object ReleaseNotes {
         else -> ChangeKind.OTHER
     }
 
-    private fun clean(line: String): String? {
+    private fun parseLine(line: String): ParsedReleaseLine? {
         if (line.isBlank()) return null
         val withoutPrefix = line.replace(markdownPrefix, "")
+        if (mergeCommit.containsMatchIn(withoutPrefix)) return null
         val description = commitLine.matchEntire(withoutPrefix)?.groupValues?.get(1) ?: withoutPrefix
+        val conventional = conventionalPrefix.find(description)
+        val explicitKind = conventional?.groupValues?.getOrNull(1)?.let(::kindForPrefix)
         val cleaned = description
             .replace(commitHash, "")
             .replace(Regex("\\s+by\\s+@[\\w-]+.*$", RegexOption.IGNORE_CASE), "")
-            .replace(conventionalPrefix, "")
+            .let { value -> conventional?.let { value.removeRange(it.range) } ?: value }
             .trim(' ', '-', ':', '|')
             .replace(whitespace, " ")
-        return cleaned.takeIf { it.isNotBlank() }?.let(::sentenceCase)
+        return cleaned.takeIf { it.isNotBlank() }?.let(::sentenceCase)?.let {
+            ParsedReleaseLine(text = it, explicitKind = explicitKind)
+        }
+    }
+
+    private fun clean(line: String): String? = parseLine(line)?.text
+
+    private fun kindForPrefix(prefix: String): ChangeKind = when (prefix.lowercase()) {
+        "feat", "feature", "add" -> ChangeKind.NEW
+        "fix", "fixed" -> ChangeKind.FIXED
+        "perf", "performance", "improve", "improved" -> ChangeKind.IMPROVED
+        "update", "refactor" -> ChangeKind.IMPROVED
+        else -> ChangeKind.OTHER
     }
 
     private fun sentenceCase(value: String): String {
@@ -102,6 +124,8 @@ object ReleaseNotes {
     private fun isNoise(value: String): Boolean {
         val text = value.trim()
         return text.isBlank() || mergeCommit.containsMatchIn(text) ||
+            generatedChangelog.containsMatchIn(text) ||
+            text.equals("what's changed", ignoreCase = true) ||
             text.matches(Regex("(?i)(chore|ci|build)?\\s*[:\\-]?\\s*(release automation|automate master build releases|bump version).*"))
     }
 }

@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.util.updater
 
 import android.app.DownloadManager
+import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -26,7 +27,7 @@ sealed interface UpdateDownloadEvent {
 class UpdateDownloadMonitor(
     private val store: UpdateDownloadStore,
     private val scope: CoroutineScope,
-    private val nowMs: () -> Long = System::currentTimeMillis,
+    private val nowMs: () -> Long = SystemClock::elapsedRealtime,
     private val pollMillis: Long = 400L,
 ) {
     private var job: Job? = null
@@ -61,11 +62,13 @@ class UpdateDownloadMonitor(
                                         downloadedBytes = record.downloadedBytes,
                                         totalBytes = record.totalBytes,
                                         bytesPerSecond = rate.bytesPerSecond,
-                                        etaSeconds = calculateEtaSeconds(
-                                            record.downloadedBytes,
-                                            record.totalBytes,
-                                            rate.bytesPerSecond,
-                                        ),
+                                        etaSeconds = if (rate.stable) {
+                                            calculateEtaSeconds(
+                                                record.downloadedBytes,
+                                                record.totalBytes,
+                                                rate.bytesPerSecond,
+                                            )
+                                        } else null,
                                         stalled = rate.stalled,
                                     ),
                                 ),
