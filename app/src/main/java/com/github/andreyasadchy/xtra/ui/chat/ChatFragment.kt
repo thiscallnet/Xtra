@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.chat
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.text.format.DateUtils
@@ -10,6 +11,7 @@ import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.LinearLayout
@@ -44,12 +46,14 @@ import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentChatBinding
+import com.github.andreyasadchy.xtra.model.chat.Badge
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityState
 import com.github.andreyasadchy.xtra.model.chat.effectiveBadge
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.Poll
 import com.github.andreyasadchy.xtra.model.chat.PollVoteState
+import com.github.andreyasadchy.xtra.model.chat.PinnedChatMessage
 import com.github.andreyasadchy.xtra.model.chat.Prediction
 import com.github.andreyasadchy.xtra.model.chat.PredictionBetState
 import com.github.andreyasadchy.xtra.model.ui.ChannelPoints
@@ -129,6 +133,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var composerTextBeforeOverlay: String? = null
     private var composerSelectionBeforeOverlay: Int? = null
     private var messageViewWasVisibleBeforeOverlay: Boolean? = null
+    private var seenPinnedMessageId: String? = null
+    private var displayedPinnedMessageId: String? = null
+    private var pinnedMessageMinimized = false
     private var backPressedCallbackAdded = false
     private var lastSlowModeUiState = SlowModeState()
     private var chatAdapterUpdatePosted = false
@@ -307,7 +314,27 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        seenPinnedMessageId = savedInstanceState?.getString(KEY_SEEN_PINNED_MESSAGE_ID)
+        displayedPinnedMessageId = savedInstanceState?.getString(KEY_DISPLAYED_PINNED_MESSAGE_ID)
+        pinnedMessageMinimized = savedInstanceState?.getBoolean(KEY_PINNED_MESSAGE_MINIMIZED) ?: false
         setupEmotePickerSizing()
+        binding.chatTopOverlays.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updatePinnedMessageOverlayWidth()
+        }
+        updatePinnedMessageOverlayWidth()
+        binding.pinnedMessageSeen.setOnClickListener {
+            seenPinnedMessageId = displayedPinnedMessageId
+            binding.pinnedMessageOverlay.isGone = true
+        }
+        binding.pinnedMessageMinimize.setOnClickListener {
+            pinnedMessageMinimized = !pinnedMessageMinimized
+            updatePinnedMessage(viewModel.pinnedChatMessage.value)
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.pinnedChatMessage.collectLatest(::updatePinnedMessage)
+            }
+        }
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.connectionState.collectLatest { state ->
@@ -754,6 +781,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                         adapter.notifyItemRangeChanged(0, size)
                                     }
                                     viewModel.reloadMessages.value = false
+                                    updatePinnedMessage(viewModel.pinnedChatMessage.value)
                                 }
                             }
                         }
@@ -972,6 +1000,97 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             parent = parent.parent
         }
         return false
+    }
+
+    private fun updatePinnedMessage(message: PinnedChatMessage?) {
+        val currentBinding = _binding ?: return
+        val overlay = currentBinding.pinnedMessageOverlay
+        if (message == null || message.id == seenPinnedMessageId) {
+            overlay.isGone = true
+            return
+        }
+        if (message.id != displayedPinnedMessageId) {
+            displayedPinnedMessageId = message.id
+            pinnedMessageMinimized = false
+        }
+        currentBinding.pinnedMessageBy.text = message.pinnedBy
+        currentBinding.pinnedMessageSender.text = message.sender ?: message.pinnedBy
+        val senderColor = message.senderColor?.let { color ->
+            runCatching { Color.parseColor(color) }.getOrNull()
+        }
+        currentBinding.pinnedMessageSender.setTextColor(
+            senderColor ?: MaterialColors.getColor(currentBinding.pinnedMessageSender, androidx.appcompat.R.attr.colorPrimary),
+        )
+        val sentAt = message.sentAt?.let { TwitchApiHelper.getTimestamp(it, "2") }
+        currentBinding.pinnedMessageSentAt.text = sentAt?.let { getString(R.string.pinned_message_sent_at, it) }.orEmpty()
+        currentBinding.pinnedMessageSentAt.isVisible = sentAt != null
+        currentBinding.pinnedMessageText.text = message.text
+        currentBinding.pinnedMessageText.isVisible = !pinnedMessageMinimized
+        currentBinding.pinnedMessageFooter.isVisible = !pinnedMessageMinimized
+        renderPinnedMessageBadges(currentBinding.pinnedMessagePinnedByBadges, message.pinnedByBadges)
+        renderPinnedMessageBadges(currentBinding.pinnedMessageSenderBadges, message.senderBadges)
+        currentBinding.pinnedMessageMinimize.setImageResource(
+            if (pinnedMessageMinimized) R.drawable.baseline_expand_more_black_24 else R.drawable.ic_expand_less,
+        )
+        currentBinding.pinnedMessageMinimize.contentDescription = getString(
+            if (pinnedMessageMinimized) R.string.pinned_message_expand else R.string.pinned_message_minimize,
+        )
+        overlay.isVisible = true
+    }
+
+    private fun renderPinnedMessageBadges(container: LinearLayout, badges: List<Badge>) {
+        container.removeAllViews()
+        badges.forEach { badge ->
+            val catalogBadge = synchronized(viewModel.globalBadges) {
+                viewModel.globalBadges.firstOrNull { it.setId == badge.setId && it.version == badge.version }
+            } ?: synchronized(viewModel.channelBadges) {
+                viewModel.channelBadges.firstOrNull { it.setId == badge.setId && it.version == badge.version }
+            }
+            val url = catalogBadge?.url2x ?: catalogBadge?.url1x
+            if (url.isNullOrBlank() && badge.setId !in setOf("moderator", "broadcaster")) return@forEach
+            val density = resources.displayMetrics.density
+            val image = ImageView(requireContext()).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    (18 * density).toInt(),
+                    (18 * density).toInt(),
+                ).apply {
+                    marginEnd = (3 * density).toInt()
+                }
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                contentDescription = badge.setId
+            }
+            if (url.isNullOrBlank()) {
+                image.setImageResource(
+                    if (badge.setId == "broadcaster") R.drawable.ic_broadcaster_badge else R.drawable.ic_moderator_badge,
+                )
+            } else {
+                requireContext().imageLoader.enqueue(
+                    ImageRequest.Builder(requireContext())
+                        .data(url)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .crossfade(false)
+                        .target(image)
+                        .build(),
+                )
+            }
+            container.addView(image)
+        }
+        container.isVisible = container.childCount > 0
+    }
+
+    private fun updatePinnedMessageOverlayWidth() {
+        val currentBinding = _binding ?: return
+        val container = currentBinding.chatTopOverlays
+        val availableWidth = container.width - container.paddingLeft - container.paddingRight
+        if (availableWidth <= 0) return
+        val maxWidth = (360 * resources.displayMetrics.density).toInt()
+        val width = minOf(maxWidth, availableWidth)
+        val layoutParams = currentBinding.pinnedMessageOverlay.layoutParams ?: return
+        if (layoutParams.width != width) {
+            currentBinding.pinnedMessageOverlay.updateLayoutParams<ViewGroup.LayoutParams> {
+                this.width = width
+            }
+        }
     }
 
     private fun currentLiveStreamId(): String? =
@@ -1982,6 +2101,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString(KEY_COMPOSER_DRAFT, _binding?.editText?.text?.toString())
+        outState.putString(KEY_SEEN_PINNED_MESSAGE_ID, seenPinnedMessageId)
+        outState.putString(KEY_DISPLAYED_PINNED_MESSAGE_ID, displayedPinnedMessageId)
+        outState.putBoolean(KEY_PINNED_MESSAGE_MINIMIZED, pinnedMessageMinimized)
         super.onSaveInstanceState(outState)
     }
 
@@ -2126,6 +2248,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         private const val KEY_CHAT_URL = "chatUrl"
         private const val KEY_START_TIME = "startTime"
         private const val KEY_COMPOSER_DRAFT = "composerDraft"
+        private const val KEY_SEEN_PINNED_MESSAGE_ID = "seenPinnedMessageId"
+        private const val KEY_DISPLAYED_PINNED_MESSAGE_ID = "displayedPinnedMessageId"
+        private const val KEY_PINNED_MESSAGE_MINIMIZED = "pinnedMessageMinimized"
 
         fun newInstance(
             channelId: String?,

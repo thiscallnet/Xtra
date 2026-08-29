@@ -1448,4 +1448,9 @@
     <string name="chat_highlight_title">Sorot Pesan Saya</string>
     <string name="chat_watch_streak_reached">Streak Menonton Tercapai</string>
     <string name="chat_watch_streak_status">%1$s sedang menjalani streak selama %2$s stream!</string>
+    <string name="pinned_message_label">Pinned by</string>
+    <string name="pinned_message_mark_seen">Mark pinned message as seen</string>
+    <string name="pinned_message_minimize">Minimize pinned message</string>
+    <string name="pinned_message_expand">Expand pinned message</string>
+    <string name="pinned_message_sent_at">sent at %1$s</string>
 </resources>

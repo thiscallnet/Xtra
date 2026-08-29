@@ -24,6 +24,174 @@
                 android:padding="0dp"
                 tools:listitem="@layout/chat_list_item" />
 
+            <LinearLayout
+                android:id="@+id/chatTopOverlays"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top"
+                android:gravity="end"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="16dp">
+
+                <LinearLayout
+                    android:id="@+id/pinnedMessageOverlay"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="4dp"
+                    android:background="@drawable/bg_pinned_chat_message"
+                    android:clickable="true"
+                    android:elevation="4dp"
+                    android:focusable="true"
+                    android:orientation="vertical"
+                    android:paddingStart="8dp"
+                    android:paddingTop="4dp"
+                    android:paddingEnd="4dp"
+                    android:paddingBottom="8dp"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:minHeight="32dp"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="18dp"
+                            android:layout_height="18dp"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_push_pin"
+                            app:tint="?attr/colorOnSurfaceVariant" />
+
+                        <TextView
+                            android:id="@+id/pinnedMessageLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:text="@string/pinned_message_label"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+
+                        <LinearLayout
+                            android:id="@+id/pinnedMessagePinnedByBadges"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal" />
+
+                        <TextView
+                            android:id="@+id/pinnedMessageBy"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:layout_weight="1"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurface"
+                            tools:text="barbara" />
+
+                        <ImageButton
+                            android:id="@+id/pinnedMessageSeen"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:background="?android:selectableItemBackgroundBorderless"
+                            android:contentDescription="@string/pinned_message_mark_seen"
+                            android:padding="14dp"
+                            android:src="@drawable/ic_visibility_off"
+                            app:tint="?attr/colorOnSurfaceVariant" />
+
+                        <ImageButton
+                            android:id="@+id/pinnedMessageMinimize"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:background="?android:selectableItemBackgroundBorderless"
+                            android:contentDescription="@string/pinned_message_minimize"
+                            android:padding="14dp"
+                            android:src="@drawable/ic_expand_less"
+                            app:tint="?attr/colorOnSurfaceVariant" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/pinnedMessageText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:ellipsize="end"
+                        android:maxLines="4"
+                        android:textAppearance="?attr/textAppearanceBodyLarge"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textStyle="bold"
+                        tools:text="Matches: 1. Vitality vs 9z | 2. Inner Circle vs MOUZ | 3. FUT vs Lynn Vision | 4. Legacy vs Falcons" />
+
+                    <LinearLayout
+                        android:id="@+id/pinnedMessageFooter"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:gravity="center_vertical"
+                        android:minHeight="22dp"
+                        android:orientation="horizontal">
+
+                        <LinearLayout
+                            android:id="@+id/pinnedMessageSenderBadges"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal" />
+
+                        <TextView
+                            android:id="@+id/pinnedMessageSender"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorPrimary"
+                            android:textStyle="bold"
+                            tools:text="lbarbara" />
+
+                        <TextView
+                            android:id="@+id/pinnedMessageSentAt"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            tools:text="sent at 10:29 AM" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/slowModeIndicator"
+                    style="@style/Widget.Material3.Chip.Assist"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:accessibilityLiveRegion="none"
+                    android:clickable="false"
+                    android:elevation="2dp"
+                    android:focusable="false"
+                    android:importantForAccessibility="yes"
+                    android:layout_marginTop="4dp"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceLabelSmall"
+                    android:visibility="gone"
+                    app:chipBackgroundColor="?attr/colorSurfaceContainerHigh"
+                    app:chipEndPadding="8dp"
+                    app:chipIcon="@drawable/ic_stream_uptime"
+                    app:chipIconSize="14dp"
+                    app:chipIconTint="?attr/colorOnSurfaceVariant"
+                    app:chipMinHeight="28dp"
+                    app:chipStartPadding="8dp"
+                    app:chipStrokeColor="?attr/colorOutlineVariant"
+                    app:chipStrokeWidth="1dp"
+                    tools:text="Send again · 4s"
+                    tools:visibility="visible" />
+            </LinearLayout>
+
             <Button
                 android:id="@+id/btnDown"
                 style="?attr/elevatedButtonStyle"
@@ -38,33 +206,6 @@
                 android:visibility="gone"
                 tools:visibility="visible" />
 
-            <com.google.android.material.chip.Chip
-                android:id="@+id/slowModeIndicator"
-                style="@style/Widget.Material3.Chip.Assist"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="top|end"
-                android:layout_marginTop="8dp"
-                android:layout_marginEnd="8dp"
-                android:accessibilityLiveRegion="none"
-                android:clickable="false"
-                android:elevation="2dp"
-                android:focusable="false"
-                android:importantForAccessibility="yes"
-                android:maxLines="1"
-                android:textAppearance="?attr/textAppearanceLabelSmall"
-                android:visibility="gone"
-                app:chipBackgroundColor="?attr/colorSurfaceContainerHigh"
-                app:chipEndPadding="8dp"
-                app:chipIcon="@drawable/ic_stream_uptime"
-                app:chipIconSize="14dp"
-                app:chipIconTint="?attr/colorOnSurfaceVariant"
-                app:chipMinHeight="28dp"
-                app:chipStartPadding="8dp"
-                app:chipStrokeColor="?attr/colorOutlineVariant"
-                app:chipStrokeWidth="1dp"
-                tools:text="Send again · 4s"
-                tools:visibility="visible" />
         </FrameLayout>
 
         <LinearLayout

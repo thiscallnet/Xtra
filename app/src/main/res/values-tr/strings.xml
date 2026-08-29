@@ -1448,4 +1448,9 @@
     <string name="chat_highlight_title">Mesajımı öne çıkar</string>
     <string name="chat_watch_streak_reached">İzleme serisine ulaşıldı</string>
     <string name="chat_watch_streak_status">%1$s şu anda %2$s yayınlık bir seride!</string>
+    <string name="pinned_message_label">Pinned by</string>
+    <string name="pinned_message_mark_seen">Mark pinned message as seen</string>
+    <string name="pinned_message_minimize">Minimize pinned message</string>
+    <string name="pinned_message_expand">Expand pinned message</string>
+    <string name="pinned_message_sent_at">sent at %1$s</string>
 </resources>

@@ -33,6 +33,7 @@ import com.github.andreyasadchy.xtra.model.chat.favoriteKey
 import com.github.andreyasadchy.xtra.model.chat.NamePaint
 import com.github.andreyasadchy.xtra.model.chat.Poll
 import com.github.andreyasadchy.xtra.model.chat.PollVoteState
+import com.github.andreyasadchy.xtra.model.chat.PinnedChatMessage
 import com.github.andreyasadchy.xtra.model.chat.Prediction
 import com.github.andreyasadchy.xtra.model.chat.PredictionBetState
 import com.github.andreyasadchy.xtra.model.chat.Raid
@@ -222,6 +223,7 @@ class ChatViewModel(
     private var pubSubJob: Job? = null
     private var channelPointsJob: Job? = null
     private var channelPointsReconciliationJob: Job? = null
+    private var pinnedChatRefreshJob: Job? = null
     private var claimJob: Job? = null
     private var watchStreakWorkerJob: Job? = null
     private var watchStreakRefreshJob: Job? = null
@@ -286,6 +288,8 @@ class ChatViewModel(
     val cheerEmotes = mutableListOf<CheerEmote>()
 
     val roomState = MutableStateFlow<RoomState?>(null)
+    private val _pinnedChatMessage = MutableStateFlow<PinnedChatMessage?>(null)
+    val pinnedChatMessage: StateFlow<PinnedChatMessage?> = _pinnedChatMessage
     private val _slowModeState = MutableStateFlow(SlowModeState())
     val slowModeState: StateFlow<SlowModeState> = _slowModeState
     val raid = MutableStateFlow<Raid?>(null)
@@ -2100,6 +2104,70 @@ class ChatViewModel(
         }
     }
 
+    private fun startPinnedChatRefresh(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        channelId: String?,
+    ) {
+        if (channelId.isNullOrBlank()) return
+        val expectedChannelId = channelId
+        pinnedChatRefreshJob?.cancel()
+        pinnedChatRefreshJob = viewModelScope.launch {
+            try {
+                while (isActive && activeChannelId == expectedChannelId) {
+                    val response = runCatching {
+                        graphQLRepository.loadPinnedChatMessages(networkLibrary, gqlHeaders, expectedChannelId)
+                    }.getOrElse { error ->
+                        Log.d("ChatViewModel", "Pinned chat message refresh failed: ${error.message}")
+                        null
+                    }
+                    if (response != null && response.errors.isNullOrEmpty() && activeChannelId == expectedChannelId) {
+                        val node = response.data?.channel?.pinnedChatMessages?.edges
+                            ?.asSequence()
+                            ?.mapNotNull { it.node }
+                            ?.firstOrNull { !it.id.isNullOrBlank() }
+                        _pinnedChatMessage.value = node?.let {
+                            val text = it.pinnedMessage?.content?.text?.trim().orEmpty()
+                            val pinnedBy = it.pinnedBy?.displayName?.takeIf(String::isNotBlank)
+                                ?: it.pinnedBy?.login?.takeIf(String::isNotBlank)
+                            val sender = it.pinnedMessage?.sender ?: it.pinnedBy
+                            val senderLogin = sender?.login?.takeIf(String::isNotBlank)
+                            val senderName = sender?.displayName?.takeIf(String::isNotBlank) ?: senderLogin
+                            val senderId = sender?.id
+                            val chatMessage = synchronized(chatMessages) {
+                                chatMessages.asReversed().firstOrNull { message ->
+                                    (senderId != null && message.userId == senderId) ||
+                                        (senderLogin != null && message.userLogin.equals(senderLogin, true))
+                                }
+                            }
+                            val roleBadge = Badge(
+                                setId = if (it.pinnedBy?.id == expectedChannelId) "broadcaster" else "moderator",
+                                version = "1",
+                            )
+                            if (text.isBlank() || pinnedBy.isNullOrBlank()) null else PinnedChatMessage(
+                                id = it.id!!,
+                                pinnedBy = pinnedBy,
+                                pinnedByBadges = listOf(roleBadge),
+                                text = text,
+                                sender = senderName,
+                                senderColor = sender?.chatColor ?: it.pinnedBy?.chatColor,
+                                senderBadges = chatMessage?.badges.orEmpty(),
+                                sentAt = it.pinnedMessage?.sentAt?.let { value ->
+                                    runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrNull()
+                                },
+                            )
+                        }
+                    }
+                    delay(PINNED_CHAT_REFRESH_INTERVAL_MILLIS)
+                }
+            } finally {
+                if (pinnedChatRefreshJob === coroutineContext[Job]) {
+                    pinnedChatRefreshJob = null
+                }
+            }
+        }
+    }
+
     private fun scheduleChannelPointsReconciliation(
         networkLibrary: String?,
         gqlHeaders: Map<String, String>,
@@ -2492,6 +2560,7 @@ class ChatViewModel(
             if (isLoggedIn) gqlHeaders else TwitchApiHelper.getGQLHeaders(applicationContext, includeToken = false),
             channelLogin,
         )
+        startPinnedChatRefresh(networkLibrary, gqlHeaders, channelId)
         if (isLoggedIn) {
             loadWatchStreak(networkLibrary, gqlHeaders, channelId)
             startWatchStreakRefresh(networkLibrary, gqlHeaders, channelId)
@@ -2586,6 +2655,9 @@ class ChatViewModel(
         lastWatchStreakReconciliationElapsedRealtime = null
         activeChannelId = null
         activeChannelLogin = null
+        pinnedChatRefreshJob?.cancel()
+        pinnedChatRefreshJob = null
+        _pinnedChatMessage.value = null
         synchronized(channelEmotes) {
             channelEmotes.clear()
         }
@@ -5651,6 +5723,7 @@ class ChatViewModel(
         private const val CHAT_IDENTITY_CACHE_TTL_MS = 5 * 60 * 1000L
         private const val WATCH_STREAK_RECONCILIATION_DELAY_MILLIS = 750L
         private val CHANNEL_POINTS_RECONCILIATION_DELAYS_MILLIS = listOf(750L, 3_000L, 10_000L, 20_000L)
+        private const val PINNED_CHAT_REFRESH_INTERVAL_MILLIS = 30_000L
         private const val METERED_CACHE_MAX_AGE_MS = 604_800_000L
         private const val MAX_BADGE_CACHE_FILES = 100
         private const val DEFAULT_REWARD_COLOR = "#9146FF"

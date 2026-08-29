@@ -1447,4 +1447,9 @@
     <string name="chat_highlight_title">突出显示我的消息</string>
     <string name="chat_watch_streak_reached">达成观看连胜</string>
     <string name="chat_watch_streak_status">%1$s 当前已连续观看 %2$s 场直播！</string>
+    <string name="pinned_message_label">Pinned by</string>
+    <string name="pinned_message_mark_seen">Mark pinned message as seen</string>
+    <string name="pinned_message_minimize">Minimize pinned message</string>
+    <string name="pinned_message_expand">Expand pinned message</string>
+    <string name="pinned_message_sent_at">sent at %1$s</string>
 </resources>
