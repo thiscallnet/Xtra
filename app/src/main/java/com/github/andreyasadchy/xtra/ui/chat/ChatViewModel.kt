@@ -152,6 +152,17 @@ class ChatViewModel(
     private val json: Json,
 ) : ViewModel() {
 
+    sealed interface ActiveChatMode {
+        data object Live : ActiveChatMode
+        data class VideoReplay(
+            val videoId: String,
+            val createdAt: String?,
+        ) : ActiveChatMode
+    }
+
+    var activeChatMode: ActiveChatMode = ActiveChatMode.Live
+        private set
+
     private data class CachedChatIdentity(
         val loadedAtElapsedRealtime: Long,
         val state: ChatIdentityState,
@@ -588,6 +599,7 @@ class ChatViewModel(
         streamId: String?,
         readOnly: Boolean = false,
     ) {
+        activeChatMode = ActiveChatMode.Live
         if (chatReadIRCSocket == null && chatReadWebSocket == null && eventSub == null && channelLogin != null) {
             messageLimit = 600
             this.streamId = streamId
@@ -607,6 +619,9 @@ class ChatViewModel(
     }
 
     fun startReplay(channelId: String?, channelLogin: String?, chatUrl: String? = null, videoId: String? = null, createdAt: String?, startTime: Int = 0, getCurrentPosition: () -> Long?, getCurrentSpeed: () -> Float?) {
+        if (!videoId.isNullOrBlank()) {
+            activeChatMode = ActiveChatMode.VideoReplay(videoId, createdAt)
+        }
         if (chatReplayManager == null && chatReplayManagerLocal == null) {
             messageLimit = 600
             startReplayChat(videoId, createdAt, startTime, chatUrl, getCurrentPosition, getCurrentSpeed, channelId, channelLogin)
@@ -633,6 +648,9 @@ class ChatViewModel(
     }
 
     fun resumeReplay(channelId: String?, channelLogin: String?, chatUrl: String?, videoId: String?, createdAt: String?, startTime: Int, getCurrentPosition: () -> Long?, getCurrentSpeed: () -> Float?) {
+        if (!videoId.isNullOrBlank()) {
+            rebindReplayPositionProviders(getCurrentPosition, getCurrentSpeed)
+        }
         if (chatReplayManager?.isActive == false || chatReplayManagerLocal?.isActive == false) {
             startReplayChat(videoId, createdAt, startTime, chatUrl, getCurrentPosition, getCurrentSpeed, channelId, channelLogin)
         }
@@ -4822,8 +4840,93 @@ class ChatViewModel(
         chatReplayManager?.start() ?: chatReplayManagerLocal?.startLoad()
     }
 
+    fun enterVideoReplay(
+        videoId: String,
+        createdAt: String?,
+        getCurrentPosition: () -> Long?,
+        getCurrentSpeed: () -> Float?,
+        channelId: String?,
+        channelLogin: String?,
+    ) {
+        activeChatMode = ActiveChatMode.VideoReplay(videoId, createdAt)
+        stopLiveChat()
+        messageLimit = 600
+        startReplayChat(
+            videoId = videoId,
+            createdAt = createdAt,
+            startTime = 0,
+            chatUrl = null,
+            getCurrentPosition = getCurrentPosition,
+            getCurrentSpeed = getCurrentSpeed,
+            channelId = channelId,
+            channelLogin = channelLogin,
+        )
+        loadEmotes(channelId, channelLogin)
+        startReplayChatLoad()
+    }
+
+    fun returnToLiveChat(
+        channelId: String?,
+        channelLogin: String?,
+        channelName: String?,
+        streamId: String?,
+    ) {
+        activeChatMode = ActiveChatMode.Live
+        stopReplayChat()
+        clearChatMessages()
+        startLive(
+            networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+            recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+            channelId = channelId,
+            channelLogin = channelLogin,
+            channelName = channelName,
+            streamId = streamId,
+            readOnly = liveChatReadOnly,
+        )
+    }
+
     fun stopReplayChat() {
-        chatReplayManager?.stop() ?: chatReplayManagerLocal?.stop()
+        chatReplayManager?.stop()
+        chatReplayManagerLocal?.stop()
+        // ChatReplayManager is intentionally one-shot: stop() cancels its jobs,
+        // but does not reset its started flag. Drop it so a later rewind or
+        // recreation creates a fresh replay session instead of a dead manager.
+        chatReplayManager = null
+        chatReplayManagerLocal = null
+    }
+
+    fun resumeTemporaryReplay(
+        videoId: String,
+        createdAt: String?,
+        getCurrentPosition: () -> Long?,
+        getCurrentSpeed: () -> Float?,
+        channelId: String?,
+        channelLogin: String?,
+    ) {
+        activeChatMode = ActiveChatMode.VideoReplay(videoId, createdAt)
+        rebindReplayPositionProviders(getCurrentPosition, getCurrentSpeed)
+        if (chatReplayManager?.isActive != true && chatReplayManagerLocal?.isActive != true) {
+            startReplayChat(
+                videoId = videoId,
+                createdAt = createdAt,
+                startTime = 0,
+                chatUrl = null,
+                getCurrentPosition = getCurrentPosition,
+                getCurrentSpeed = getCurrentSpeed,
+                channelId = channelId,
+                channelLogin = channelLogin,
+            )
+            loadEmotes(channelId, channelLogin)
+            startReplayChatLoad()
+        }
+    }
+
+    fun rebindReplayPositionProviders(
+        getCurrentPosition: () -> Long?,
+        getCurrentSpeed: () -> Float?,
+    ) {
+        chatReplayManager?.rebindPositionProviders(getCurrentPosition, getCurrentSpeed)
+        chatReplayManagerLocal?.rebindPositionProviders(getCurrentPosition, getCurrentSpeed)
     }
 
     fun updatePosition(position: Long) {

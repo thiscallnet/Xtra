@@ -112,6 +112,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var isChatTouched = false
     private var showChatStatus = false
     private var messagingEnabled = false
+    private var messageViewWasVisibleBeforeReplay: Boolean? = null
+    private var messagingEnabledBeforeReplay = false
     private var channelPointsIconUrl: String? = null
     private var channelPointsIconRequest: Disposable? = null
     private var channelPointsIconRequestGeneration = 0
@@ -386,7 +388,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank())
                 val chatUrl = args.getString(KEY_CHAT_URL)
                 if (isLive || (args.getString(KEY_VIDEO_ID) != null && args.getInt(KEY_START_TIME) != -1) || chatUrl != null) {
-                    val enableMessaging = isLive && isLoggedIn
+                    val enableMessaging = isLive &&
+                            viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live &&
+                            isLoggedIn
+                    messagingEnabled = enableMessaging
                     val sizeModifier = (requireContext().prefs().getInt(C.CHAT_SIZE_MODIFIER, 100).toFloat() / 100f)
                     val chatSnapshot = viewModel.chatSnapshot().also { chatMutationRevision = it.revision }
                     val initialMessages = chatSnapshot.messages
@@ -671,7 +676,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 ChannelPointsDialog().show(childFragmentManager, ChannelPointsDialog.TAG)
                             }
                         }
-                        messagingEnabled = true
                         updateSlowModeIndicator(viewModel.slowModeState.value)
                     }
                     viewLifecycleOwner.lifecycleScope.launch {
@@ -976,16 +980,29 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             val args = requireArguments()
             val channelId = args.getString(KEY_CHANNEL_ID)
             val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
-            if (args.getBoolean(KEY_IS_LIVE)) {
-                viewModel.startLive(
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
-                    channelId,
-                    channelLogin,
-                    args.getString(KEY_CHANNEL_NAME),
-                    args.getString(KEY_STREAM_ID),
-                )
-            } else {
+            when (val mode = viewModel.activeChatMode) {
+                ChatViewModel.ActiveChatMode.Live -> if (args.getBoolean(KEY_IS_LIVE)) {
+                    viewModel.startLive(
+                        requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                        "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+                        channelId,
+                        channelLogin,
+                        args.getString(KEY_CHANNEL_NAME),
+                        args.getString(KEY_STREAM_ID),
+                    )
+                }
+                is ChatViewModel.ActiveChatMode.VideoReplay -> {
+                    viewModel.resumeTemporaryReplay(
+                        videoId = mode.videoId,
+                        createdAt = mode.createdAt,
+                        getCurrentPosition = currentPositionProvider(),
+                        getCurrentSpeed = currentSpeedProvider(),
+                        channelId = args.getString(KEY_CHANNEL_ID),
+                        channelLogin = args.getString(KEY_CHANNEL_LOGIN),
+                    )
+                }
+            }
+            if (viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live && !args.getBoolean(KEY_IS_LIVE)) {
                 val videoId = args.getString(KEY_VIDEO_ID)
                 val startTime = args.getInt(KEY_START_TIME)
                 if (videoId != null && startTime != -1) {
@@ -1008,9 +1025,22 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val args = requireArguments()
         val channelId = args.getString(KEY_CHANNEL_ID)
         val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
-        if (args.getBoolean(KEY_IS_LIVE)) {
-            viewModel.resumeLive(channelId, channelLogin)
-        } else {
+        when (val mode = viewModel.activeChatMode) {
+            ChatViewModel.ActiveChatMode.Live -> if (args.getBoolean(KEY_IS_LIVE)) {
+                viewModel.resumeLive(channelId, channelLogin)
+            }
+            is ChatViewModel.ActiveChatMode.VideoReplay -> {
+                viewModel.resumeTemporaryReplay(
+                    videoId = mode.videoId,
+                    createdAt = mode.createdAt,
+                    getCurrentPosition = currentPositionProvider(),
+                    getCurrentSpeed = currentSpeedProvider(),
+                    channelId = channelId,
+                    channelLogin = channelLogin,
+                )
+            }
+        }
+        if (viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live && !args.getBoolean(KEY_IS_LIVE)) {
             viewModel.resumeReplay(
                 channelId = channelId,
                 channelLogin = channelLogin,
@@ -1024,6 +1054,22 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
     }
 
+    private fun currentPositionProvider(): () -> Long? = {
+        when (val parent = parentFragment) {
+            is Media3PlayerFragment -> parent.getCurrentPosition()
+            is PlayerFragment -> parent.getCurrentPosition()
+            else -> null
+        }
+    }
+
+    private fun currentSpeedProvider(): () -> Float? = {
+        when (val parent = parentFragment) {
+            is Media3PlayerFragment -> parent.getCurrentSpeed()
+            is PlayerFragment -> parent.getCurrentSpeed()
+            else -> null
+        }
+    }
+
     fun isActive(): Boolean? {
         return viewModel.isActive()
     }
@@ -1034,18 +1080,28 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     fun reconnect() {
         val channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN)
-        if (channelLogin != null) {
-            viewModel.startLiveChat(
-                requireArguments().getString(KEY_CHANNEL_ID),
-                channelLogin,
+        val activeMode = viewModel.activeChatMode
+        if (activeMode is ChatViewModel.ActiveChatMode.VideoReplay) {
+            viewModel.resumeTemporaryReplay(
+                videoId = activeMode.videoId,
+                createdAt = activeMode.createdAt,
+                getCurrentPosition = currentPositionProvider(),
+                getCurrentSpeed = currentSpeedProvider(),
+                channelId = requireArguments().getString(KEY_CHANNEL_ID),
+                channelLogin = channelLogin,
             )
-            if (requireContext().prefs().getBoolean(C.CHAT_RECENT, true)) {
-                viewModel.loadRecentMessages(
-                    requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
-                    channelLogin,
-                )
-            }
+            viewModel.autoReconnect = true
+            return
+        }
+        if (channelLogin != null) {
+            viewModel.startLive(
+                networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+                channelId = requireArguments().getString(KEY_CHANNEL_ID),
+                channelLogin = channelLogin,
+                channelName = requireArguments().getString(KEY_CHANNEL_NAME),
+                streamId = requireArguments().getString(KEY_STREAM_ID),
+            )
         }
         viewModel.autoReconnect = true
     }
@@ -1071,6 +1127,44 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     fun updateStreamId(id: String?) {
         viewModel.streamId = id
+    }
+
+    fun enterVideoReplay(videoId: String, createdAt: String?, positionMs: Long) {
+        val args = requireArguments()
+        _binding?.let {
+            messageViewWasVisibleBeforeReplay = it.messageView.isVisible
+            messagingEnabledBeforeReplay = messagingEnabled
+            it.messageView.isVisible = false
+            it.editText.clearFocus()
+            toggleEmoteMenu(false)
+            messagingEnabled = false
+            updateComposerButtons()
+        }
+        viewModel.enterVideoReplay(
+            videoId = videoId,
+            createdAt = createdAt,
+            getCurrentPosition = currentPositionProvider(),
+            getCurrentSpeed = currentSpeedProvider(),
+            channelId = args.getString(KEY_CHANNEL_ID),
+            channelLogin = args.getString(KEY_CHANNEL_LOGIN),
+        )
+        viewModel.updatePosition(positionMs)
+    }
+
+    fun returnToLiveChat() {
+        val args = requireArguments()
+        viewModel.returnToLiveChat(
+            channelId = args.getString(KEY_CHANNEL_ID),
+            channelLogin = args.getString(KEY_CHANNEL_LOGIN),
+            channelName = args.getString(KEY_CHANNEL_NAME),
+            streamId = args.getString(KEY_STREAM_ID),
+        )
+        _binding?.let {
+            messagingEnabled = messagingEnabledBeforeReplay
+            messageViewWasVisibleBeforeReplay?.let { wasVisible -> it.messageView.isVisible = wasVisible }
+            messageViewWasVisibleBeforeReplay = null
+            updateComposerButtons()
+        }
     }
 
     fun getTranslateAllMessages(): Boolean {
@@ -1554,6 +1648,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     private fun sendMessage(replyId: String? = null): Boolean {
+        if (!messagingEnabled) return false
         with(binding) {
             val overlay = composerOverlayState
             if (overlay != null) {
@@ -1853,19 +1948,20 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             val args = requireArguments()
             val channelId = args.getString(KEY_CHANNEL_ID)
             val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
-            if (args.getBoolean(KEY_IS_LIVE)) {
-                viewModel.resumeLive(channelId, channelLogin)
-            } else {
-                viewModel.resumeReplay(
-                    channelId = channelId,
-                    channelLogin = channelLogin,
-                    chatUrl = args.getString(KEY_CHAT_URL),
-                    videoId = args.getString(KEY_VIDEO_ID),
-                    createdAt = args.getString(KEY_CREATED_AT),
-                    startTime = args.getInt(KEY_START_TIME),
-                    getCurrentPosition = if (parentFragment is Media3PlayerFragment) (parentFragment as Media3PlayerFragment)::getCurrentPosition else (parentFragment as PlayerFragment)::getCurrentPosition,
-                    getCurrentSpeed = if (parentFragment is Media3PlayerFragment) (parentFragment as Media3PlayerFragment)::getCurrentSpeed else (parentFragment as PlayerFragment)::getCurrentSpeed
-                )
+            when (val mode = viewModel.activeChatMode) {
+                ChatViewModel.ActiveChatMode.Live -> if (args.getBoolean(KEY_IS_LIVE)) {
+                    viewModel.resumeLive(channelId, channelLogin)
+                }
+                is ChatViewModel.ActiveChatMode.VideoReplay -> {
+                    viewModel.resumeTemporaryReplay(
+                        videoId = mode.videoId,
+                        createdAt = mode.createdAt,
+                        getCurrentPosition = currentPositionProvider(),
+                        getCurrentSpeed = currentSpeedProvider(),
+                        channelId = channelId,
+                        channelLogin = channelLogin,
+                    )
+                }
             }
         }
     }

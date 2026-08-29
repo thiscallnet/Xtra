@@ -55,9 +55,11 @@ import com.google.android.material.snackbar.Snackbar
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.floor
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -129,6 +131,9 @@ class Media3Fragment : Media3PlayerFragment() {
             val listener = object : Player.Listener {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_ENDED) {
+                        onLiveRewindPlaybackError()
+                    }
                     if (playbackState == Player.STATE_READY) {
                         streamRecoveryJob?.cancel()
                         streamRecoveryJob = null
@@ -322,7 +327,7 @@ class Media3Fragment : Media3PlayerFragment() {
                             }, MoreExecutors.directExecutor())
                         }
                     }
-                    if (videoType == STREAM) {
+                    if (videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
                         val avoidAds = requireContext().prefs().shouldAvoidTwitchAds()
                         val suppressAds = avoidAds
                         val useProxy = requireContext().prefs().httpProxyHost() != null
@@ -333,7 +338,7 @@ class Media3Fragment : Media3PlayerFragment() {
                                 Bundle.EMPTY
                             )?.let { result ->
                                 result.addListener({
-                                    if (!isAdded || view == null) {
+                                    if (!isAdded || view == null || isLiveRewindActiveOrSwitching()) {
                                         return@addListener
                                     }
                                     if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
@@ -371,6 +376,8 @@ class Media3Fragment : Media3PlayerFragment() {
 
                 override fun onPlayerError(error: PlaybackException) {
                     Log.e(tag, "Player error", error)
+                    if (onLiveRewindPlaybackError()) return
+                    if (isLiveRewindActiveOrSwitching()) return
                     when (videoType) {
                         STREAM -> {
                             player?.sendCustomCommand(
@@ -567,6 +574,7 @@ class Media3Fragment : Media3PlayerFragment() {
         if (!isAdded || view == null
             || !context.prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
             || videoType != STREAM
+            || isLiveRewindActiveOrSwitching()
             || player?.playWhenReady != true
         ) {
             return
@@ -672,6 +680,7 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     private fun tryAlternateStream(playerTypes: List<String>, useProxy: Boolean) {
+        if (isLiveRewindActiveOrSwitching()) return
         val channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN) ?: run {
             fallbackFromAd(useProxy, suppressAds = true)
             return
@@ -684,7 +693,7 @@ class Media3Fragment : Media3PlayerFragment() {
             } catch (_: Exception) {
                 null
             }
-            if (candidate != null && isAdded && view != null) {
+            if (candidate != null && isAdded && view != null && !isLiveRewindActiveOrSwitching()) {
                 primaryStreamRestoreJob?.cancel()
                 primaryStreamRestoreJob = null
                 viewModel.usingAlternateStream = true
@@ -701,20 +710,20 @@ class Media3Fragment : Media3PlayerFragment() {
                     setQualityText()
                     fallbackFromAd(useProxy, suppressAds = true)
                 }
-            } else {
+            } else if (!isLiveRewindActiveOrSwitching()) {
                 fallbackFromAd(useProxy, suppressAds = true)
             }
         }
     }
 
     private fun schedulePrimaryStreamRestore() {
-        if (!viewModel.usingAlternateStream || primaryStreamRestoreJob?.isActive == true) {
+        if (isLiveRewindActiveOrSwitching() || !viewModel.usingAlternateStream || primaryStreamRestoreJob?.isActive == true) {
             return
         }
         val channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN) ?: return
         val primaryPlayerType = requireContext().prefs().getString(C.TOKEN_PLAYER_TYPE, "site") ?: "site"
         primaryStreamRestoreJob = viewLifecycleOwner.lifecycleScope.launch {
-            while (viewModel.usingAlternateStream && isAdded && view != null) {
+            while (viewModel.usingAlternateStream && !isLiveRewindActiveOrSwitching() && isAdded && view != null) {
                 val candidate = try {
                     viewModel.loadCleanStreamPlaylistUrl(
                         channelLogin = channelLogin,
@@ -750,6 +759,10 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     override fun startStream(url: String?) {
+        startStreamInternal(url, null)
+    }
+
+    private fun startStreamInternal(url: String?, playWhenReady: Boolean?): ListenableFuture<SessionResult>? {
         clearPlayerError()
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
@@ -758,12 +771,15 @@ class Media3Fragment : Media3PlayerFragment() {
         viewModel.usingAlternateStream = false
         viewModel.resetAdController()
         viewModel.playingAds = false
+        viewModel.qualities = null
+        viewModel.quality = null
+        viewModel.updateQualities = true
         setQualityText()
-        sendStreamToService(url)
+        return sendStreamToService(url, playWhenReady)
     }
 
-    private fun sendStreamToService(url: String?, playWhenReady: Boolean? = null) {
-        player?.sendCustomCommand(
+    private fun sendStreamToService(url: String?, playWhenReady: Boolean? = null): ListenableFuture<SessionResult>? {
+        return player?.sendCustomCommand(
             SessionCommand(
                 PlaybackService.START_STREAM, Bundle().apply {
                     putString(PlaybackService.URI, url)
@@ -905,6 +921,74 @@ class Media3Fragment : Media3PlayerFragment() {
         player?.seekToDefaultPosition()
     }
 
+    override suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean {
+        val controller = player ?: return false
+        adAvoidanceJob?.cancel()
+        adAvoidanceJob = null
+        primaryStreamRestoreJob?.cancel()
+        primaryStreamRestoreJob = null
+        viewModel.usingAlternateStream = false
+        viewModel.resetAdController()
+        viewModel.playingAds = false
+        val url = try {
+            viewModel.loadRewindVideoPlaylistUrl(vodId)
+        } catch (_: Exception) {
+            null
+        } ?: return false
+        viewModel.qualities = null
+        viewModel.quality = null
+        viewModel.updateQualities = true
+        val result = controller.sendCustomCommand(
+            SessionCommand(
+                PlaybackService.START_LIVE_REWIND,
+                Bundle().apply {
+                    putString(PlaybackService.URI, url)
+                    putLong(PlaybackService.PLAYBACK_POSITION, positionMs)
+                    putBoolean(PlaybackService.PLAY_WHEN_READY, controller.playWhenReady)
+                    putString(PlaybackService.REWIND_VIDEO_ID, vodId)
+                },
+            ),
+            Bundle.EMPTY,
+        )
+        return withContext(Dispatchers.IO) {
+            runCatching { result.get().resultCode == SessionResult.RESULT_SUCCESS }.getOrDefault(false)
+        }
+    }
+
+    override suspend fun returnToLivePlayback(): Boolean {
+        val controller = player ?: return false
+        val wasPlaying = controller.playWhenReady
+        val login = requireArguments().getString(KEY_CHANNEL_LOGIN) ?: return false
+        val proxyUrl = requireContext().prefs().getString(C.PLAYER_PROXY_URL, "")
+        val url = if (viewModel.useCustomProxy && !proxyUrl.isNullOrBlank()) {
+            proxyUrl.replace("\$channel", login)
+        } else {
+            try {
+                viewModel.loadFreshStreamPlaylistUrl(login)
+            } catch (_: Exception) {
+                null
+            }
+        } ?: return false
+        val result = startStreamInternal(url, wasPlaying) ?: return false
+        return withContext(Dispatchers.IO) {
+            runCatching { result.get().resultCode == SessionResult.RESULT_SUCCESS }.getOrDefault(false)
+        }
+    }
+
+    override suspend fun getLiveRewindVodId(): String? {
+        val result = player?.sendCustomCommand(
+            SessionCommand(PlaybackService.GET_LIVE_REWIND_STATE, Bundle.EMPTY),
+            Bundle.EMPTY,
+        ) ?: return null
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                result.get().takeIf { it.resultCode == SessionResult.RESULT_SUCCESS }
+                    ?.extras?.takeIf { it.getBoolean(PlaybackService.LIVE_REWIND_ACTIVE) }
+                    ?.getString(PlaybackService.REWIND_VIDEO_ID)
+            }.getOrNull()
+        }
+    }
+
     override fun setPlaybackSpeed(speed: Float) {
         player?.setPlaybackSpeed(speed)
     }
@@ -914,6 +998,10 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     override fun updateProgress() {
+        if (isLiveRewindAvailable()) {
+            updateLiveRewindProgress()
+            return
+        }
         with(binding.playerControls) {
             if (root.isVisible && !progressBar.isPressed) {
                 val currentPosition = player?.currentPosition ?: 0
@@ -1339,7 +1427,7 @@ class Media3Fragment : Media3PlayerFragment() {
 
     override fun onNetworkRestored() {
         if (isResumed) {
-            if (videoType == STREAM) {
+            if (videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
                 if (player?.playWhenReady == true) {
                     restartPlayer()
                 }

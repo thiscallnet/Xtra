@@ -38,6 +38,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.RelativeLayout
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.trackPipAnimationHintView
@@ -101,6 +102,8 @@ import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.time.Duration.Companion.milliseconds
@@ -144,6 +147,24 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var backgroundVisible = false
     private var pipPlaying = false
     private var loadedChannelAvatarUrl: String? = null
+    private var liveRewindVod: LiveRewindVod? = null
+    private var liveRewindStreamId: String? = null
+    private var liveRewindStreamCreatedAt: String? = null
+    private var livePlaybackMode: LivePlaybackMode = LivePlaybackMode.Live
+    private var liveRewindScrubPositionMs: Long? = null
+    private var liveRewindDiscoveryJob: Job? = null
+    private var liveRewindTickerJob: Job? = null
+    private var liveRewindSwitchJob: Job? = null
+    private var liveRewindSessionGeneration = 0L
+    private var liveRewindSwitchGeneration = 0L
+    private var liveRewindFrozenEdgeMs: Long? = null
+    private var liveRewindStreamWasLive = false
+    private var liveRewindStreamOffline = false
+    private var pendingLiveSession: LiveRewindSession? = null
+    private var liveRewindSwitching = false
+    private var liveRewindReturningLive = false
+    private var liveRewindPendingVodId: String? = null
+    private var liveRewindPendingTargetMs: Long? = null
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
@@ -154,6 +175,38 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     open fun startStream(url: String?) {}
     open fun startVideo(url: String?, playbackPosition: Long?, multivariantPlaylist: Boolean) {}
     open fun startClip(url: String?) {}
+    open suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean = false
+    open suspend fun returnToLivePlayback(): Boolean = false
+    protected open suspend fun getLiveRewindVodId(): String? = null
+    protected fun isLiveRewindActiveOrSwitching(): Boolean =
+        isLiveRewindSourceActiveOrSwitching(livePlaybackMode, liveRewindSwitching)
+
+    private fun liveRewindSourceState(): LiveRewindSourceState = LiveRewindSourceState(
+        mode = livePlaybackMode,
+        vod = liveRewindVod,
+        offline = liveRewindStreamOffline,
+        frozenEdgeMs = liveRewindFrozenEdgeMs,
+        committedSession = LiveRewindSession(liveRewindStreamId, liveRewindStreamCreatedAt),
+        pendingSession = pendingLiveSession,
+    )
+
+    private fun commitPendingLiveSession(): LiveRewindSession? {
+        val result = liveRewindSourceState().completeLiveTransition()
+        val session = result.state.committedSession ?: return null
+        pendingLiveSession = null
+        if (result.shouldDiscoverRecordingVod) {
+            liveRewindStreamId = session.id
+            liveRewindStreamCreatedAt = session.createdAt
+            liveRewindStreamOffline = false
+            liveRewindFrozenEdgeMs = null
+            liveRewindVod = null
+        }
+        livePlaybackMode = LivePlaybackMode.Live
+        return session.takeIf { result.shouldDiscoverRecordingVod }
+    }
+    protected open fun startLiveRewindChat(positionMs: Long) {
+        enterLiveRewindChat(positionMs)
+    }
     open fun startOfflineVideo(url: String?, position: Long) {}
     open fun getCurrentPosition(): Long? = null
     open fun getCurrentSpeed(): Float? = null
@@ -622,6 +675,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 progressBar.addListener(
                     object : TimeBar.OnScrubListener {
                         override fun onScrubStart(timeBar: TimeBar, position: Long) {
+                            if (isLiveRewindAvailable()) {
+                                liveRewindScrubPositionMs = position
+                                showLiveRewindPreview(position)
+                                return
+                            }
                             binding.playerControls.position.text = DateUtils.formatElapsedTime(position / 1000)
                             binding.playerControls.position.contentDescription = getString(
                                 R.string.player_position,
@@ -631,6 +689,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         }
 
                         override fun onScrubMove(timeBar: TimeBar, position: Long) {
+                            if (isLiveRewindAvailable()) {
+                                liveRewindScrubPositionMs = position
+                                showLiveRewindPreview(position)
+                                return
+                            }
                             binding.playerControls.position.text = DateUtils.formatElapsedTime(position / 1000)
                             binding.playerControls.position.contentDescription = getString(
                                 R.string.player_position,
@@ -639,6 +702,16 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         }
 
                         override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
+                            if (isLiveRewindAvailable()) {
+                                liveRewindScrubPositionMs = null
+                                hideLiveRewindPreview()
+                                if (!canceled) {
+                                    onLiveRewindScrubFinished(position)
+                                } else {
+                                    updateLiveRewindProgress()
+                                }
+                                return
+                            }
                             if (!canceled) {
                                 seek(position)
                             } else {
@@ -824,6 +897,23 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                             }
                                         }
                                     }
+                                    if (isLiveRewindEnabled() &&
+                                        videoType == BasePlaybackService.STREAM &&
+                                        hasLiveStreamSessionChanged(
+                                            oldId = liveRewindStreamId,
+                                            oldCreatedAt = liveRewindStreamCreatedAt,
+                                            newId = stream.id,
+                                            newCreatedAt = stream.createdAt,
+                                        ) && pendingLiveSession != LiveRewindSession(stream.id, stream.createdAt)
+                                    ) {
+                                        onLiveStreamSessionChanged(stream.id, stream.createdAt)
+                                        return@collectLatest
+                                    }
+                                    if (isLiveRewindAvailable()) {
+                                        updateLiveRewindProgress()
+                                    }
+                                } else if (shouldMarkLiveStreamOffline(viewModel.streamStatusKnown.value, liveRewindStreamWasLive, false)) {
+                                    onLiveStreamWentOffline()
                                 }
                             }
                         }
@@ -1663,7 +1753,21 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun updateLiveStatus(live: Boolean, serverTime: Long?, channelLogin: String?) {
         if (channelLogin == requireArguments().getString(KEY_CHANNEL_LOGIN)) {
             if (live) {
+                if (isLiveRewindEnabled() && videoType == BasePlaybackService.STREAM) {
+                    viewModel.loadStreamInfo(
+                        channelId = requireArguments().getString(KEY_CHANNEL_ID),
+                        channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+                        viewerCount = null,
+                        loop = false,
+                        networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                        helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
+                        gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
+                    )
+                    startLiveRewindTicker()
+                }
                 restartPlayer()
+            } else {
+                onLiveStreamWentOffline()
             }
             updateUptime(serverTime?.times(1000))
         }
@@ -1724,6 +1828,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     ) = Unit
 
     fun restartPlayer() {
+        if (videoType == STREAM && isLiveRewindActiveOrSwitching()) return
         if (viewModel.quality?.name != CHAT_ONLY_QUALITY) {
             loadStream()
         }
@@ -2208,6 +2313,448 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
+    private fun isLiveRewindEnabled(): Boolean =
+        requireContext().prefs().getBoolean(C.PLAYER_LIVE_REWIND, true)
+
+    protected fun isLiveRewindAvailable(): Boolean =
+        videoType == BasePlaybackService.STREAM &&
+            isLiveRewindEnabled() &&
+            liveRewindVod != null
+
+    private fun prepareLiveRewind(
+        requestedStreamId: String? = null,
+        requestedStreamCreatedAt: String? = null,
+    ) {
+        if (!isLiveRewindEnabled() || videoType != BasePlaybackService.STREAM) {
+            stopLiveRewindTicker()
+            liveRewindVod = null
+            liveRewindStreamId = null
+            liveRewindStreamCreatedAt = null
+            liveRewindFrozenEdgeMs = null
+            liveRewindStreamOffline = false
+            pendingLiveSession = null
+            updateLiveRewindUi()
+            return
+        }
+        val currentStream = viewModel.stream.value
+        val streamCreatedAt = requestedStreamCreatedAt
+            ?: currentStream?.createdAt
+            ?: requireArguments().getString(KEY_STARTED_AT)
+        if (streamCreatedAt.isNullOrBlank()) return
+        val streamId = requestedStreamId
+            ?: currentStream?.id
+            ?: requireArguments().getString(KEY_STREAM_ID)
+        val generation = ++liveRewindSessionGeneration
+        liveRewindStreamId = streamId
+        liveRewindStreamCreatedAt = streamCreatedAt
+        liveRewindStreamWasLive = true
+        liveRewindStreamOffline = false
+        liveRewindFrozenEdgeMs = null
+        updateLiveRewindUi()
+        liveRewindDiscoveryJob?.cancel()
+        liveRewindDiscoveryJob = viewLifecycleOwner.lifecycleScope.launch {
+            val channelId = requireArguments().getString(KEY_CHANNEL_ID)
+            val channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN)
+            repeat(2) { attempt ->
+                if (attempt > 0) delay(20_000L)
+                if (generation != liveRewindSessionGeneration || !isLiveRewindEnabled() || view == null || !isAdded) return@launch
+                if (attempt > 0) {
+                    val refreshedStream = viewModel.stream.value
+                    if (!isSameLiveStreamSession(
+                            expectedId = streamId,
+                            expectedCreatedAt = streamCreatedAt,
+                            actualId = refreshedStream?.id,
+                            actualCreatedAt = refreshedStream?.createdAt,
+                        )
+                    ) return@launch
+                }
+                val vod = try {
+                    viewModel.findCurrentRecordingVod(
+                        channelId = channelId,
+                        channelLogin = channelLogin,
+                        streamCreatedAt = streamCreatedAt,
+                        networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                        gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+                if (vod != null) {
+                    if (generation != liveRewindSessionGeneration) return@launch
+                    val ownerVodId = getLiveRewindVodId()
+                    if (ownerVodId != null && ownerVodId != vod.id) {
+                        goLive(
+                            force = true,
+                            onSuccess = {
+                                if (generation == liveRewindSessionGeneration) applyLiveRewindVod(vod, generation)
+                            },
+                            onFailure = {
+                                if (generation == liveRewindSessionGeneration) updateLiveRewindUi()
+                            },
+                        )
+                    } else {
+                        applyLiveRewindVod(vod, generation)
+                    }
+                    return@launch
+                }
+            }
+            if (generation == liveRewindSessionGeneration) {
+                stopLiveRewindTicker()
+                updateLiveRewindUi()
+            }
+        }
+    }
+
+    private fun applyLiveRewindVod(vod: LiveRewindVod, generation: Long) {
+        if (generation != liveRewindSessionGeneration || view == null || !isAdded) return
+        liveRewindVod = vod
+        liveRewindStreamOffline = false
+        liveRewindSwitching = false
+        viewLifecycleOwner.lifecycleScope.launch {
+            livePlaybackMode = if (getLiveRewindVodId() == vod.id) {
+                LivePlaybackMode.Rewound(vod.id)
+            } else {
+                LivePlaybackMode.Live
+            }
+            updateLiveRewindUi()
+            if (livePlaybackMode is LivePlaybackMode.Rewound) {
+                startLiveRewindChat(getCurrentPosition() ?: 0L)
+            }
+            startLiveRewindTicker()
+        }
+    }
+
+    @SuppressLint("RepeatOnLifecycleWrongUsage")
+    private fun startLiveRewindTicker() {
+        liveRewindTickerJob?.cancel()
+        liveRewindTickerJob = viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (isActive) {
+                    updateLiveRewindProgress()
+                    delay(500L)
+                }
+            }
+        }
+    }
+
+    private fun stopLiveRewindTicker() {
+        liveRewindTickerJob?.cancel()
+        liveRewindTickerJob = null
+    }
+
+    protected fun updateLiveRewindProgress() {
+        val vod = liveRewindVod ?: return
+        if (!isLiveRewindAvailable() || view == null) {
+            binding.playerControls.progressBar.visibility = View.GONE
+            binding.playerControls.liveButton.visibility = View.GONE
+            return
+        }
+        val currentStream = viewModel.stream.value
+        val currentStreamId = currentStream?.id
+        val currentStreamCreatedAt = currentStream?.createdAt
+        if (currentStream != null) {
+            liveRewindStreamWasLive = true
+            val currentState = liveRewindSourceState()
+            val recoveredState = currentState.recoverSession(
+                LiveRewindSession(currentStreamId, currentStreamCreatedAt),
+            )
+            if (recoveredState != currentState) {
+                liveRewindStreamOffline = recoveredState.offline
+                liveRewindFrozenEdgeMs = recoveredState.frozenEdgeMs
+                if (liveRewindTickerJob?.isActive != true) startLiveRewindTicker()
+                updateLiveRewindUi()
+                return
+            }
+        } else if (shouldMarkLiveStreamOffline(viewModel.streamStatusKnown.value, liveRewindStreamWasLive, false) && !liveRewindStreamOffline) {
+            onLiveStreamWentOffline()
+            return
+        }
+        if (hasLiveStreamSessionChanged(
+                oldId = liveRewindStreamId,
+                oldCreatedAt = liveRewindStreamCreatedAt,
+                newId = currentStreamId,
+                newCreatedAt = currentStreamCreatedAt,
+            ) && pendingLiveSession != LiveRewindSession(currentStreamId, currentStreamCreatedAt)
+        ) {
+            onLiveStreamSessionChanged(currentStreamId, currentStreamCreatedAt)
+            return
+        }
+        val edgeMs = freezeLiveEdge(vod.predictedDurationMs(), liveRewindFrozenEdgeMs)
+        binding.playerControls.progressBar.setDuration(edgeMs)
+        if (liveRewindScrubPositionMs == null) {
+            val positionMs = when (livePlaybackMode) {
+                LivePlaybackMode.Live -> edgeMs
+                is LivePlaybackMode.Rewound -> getCurrentPosition() ?: 0L
+            }.coerceIn(0L, edgeMs)
+            binding.playerControls.progressBar.setPosition(positionMs)
+        }
+        binding.playerControls.liveButton.isVisible =
+            livePlaybackMode is LivePlaybackMode.Rewound && !liveRewindStreamOffline
+        binding.playerControls.position.visibility = View.VISIBLE
+        binding.playerControls.position.text = DateUtils.formatElapsedTime(0)
+        binding.playerControls.position.contentDescription = getString(
+            R.string.player_position,
+            binding.playerControls.position.text,
+        )
+        binding.playerControls.duration.visibility = View.VISIBLE
+        binding.playerControls.duration.text = DateUtils.formatElapsedTime(edgeMs / 1000L)
+        binding.playerControls.duration.contentDescription = getString(R.string.player_duration, binding.playerControls.duration.text)
+        val edgeColor = requireContext().getColor(
+            if (livePlaybackMode is LivePlaybackMode.Live && !liveRewindStreamOffline) R.color.liveStreamRed else R.color.chatStatusDark,
+        )
+        binding.playerControls.uptimeIcon.imageTintList = ColorStateList.valueOf(edgeColor)
+        binding.playerControls.uptimeIcon.drawable.constantState?.newDrawable()?.mutate()?.let { edgeIcon ->
+            edgeIcon.setTint(edgeColor)
+            binding.playerControls.duration.compoundDrawablePadding =
+                (4 * resources.displayMetrics.density).toInt()
+            binding.playerControls.duration.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                edgeIcon,
+                null,
+                null,
+                null,
+            )
+        }
+    }
+
+    private fun updateLiveRewindUi() {
+        if (!isLiveRewindAvailable()) {
+            setLiveRewindTimelineLayout(false)
+            binding.playerControls.progressBar.visibility = View.GONE
+            binding.playerControls.liveButton.visibility = View.GONE
+            binding.playerControls.position.visibility = View.GONE
+            binding.playerControls.duration.visibility = View.GONE
+            binding.playerControls.duration.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
+            return
+        }
+        setLiveRewindTimelineLayout(true)
+        binding.playerControls.progressBar.visibility = View.VISIBLE
+        binding.playerControls.progressBar.setPlayedColor(
+            requireContext().getColor(R.color.channel_points_reward_default),
+        )
+        binding.playerControls.progressBar.setScrubberColor(
+            requireContext().getColor(R.color.channel_points_reward_default),
+        )
+        binding.playerControls.liveButton.setOnClickListener {
+            showController(force = true)
+            goLive()
+        }
+        updateLiveRewindProgress()
+    }
+
+    private fun showLiveRewindPreview(positionMs: Long) {
+        val edgeMs = currentLiveEdgeMs()
+        binding.playerControls.position.visibility = View.VISIBLE
+        binding.playerControls.position.text = formatBehindLive(positionMs, edgeMs)
+        binding.playerControls.position.contentDescription = getString(
+            R.string.player_position,
+            binding.playerControls.position.text,
+        )
+        binding.playerControls.progressBar.setPosition(positionMs.coerceIn(0L, edgeMs))
+    }
+
+    private fun onLiveRewindScrubFinished(positionMs: Long) {
+        val vod = liveRewindVod ?: return
+        val edgeMs = currentLiveEdgeMs()
+        val targetMs = positionMs.coerceIn(0L, edgeMs)
+        if (shouldReturnToLive(targetMs, edgeMs)) {
+            goLive()
+        } else {
+            playRecordingVodAt(vod, targetMs)
+        }
+    }
+
+    private fun playRecordingVodAt(vod: LiveRewindVod, targetMs: Long) {
+        if (!liveRewindSwitching && livePlaybackMode is LivePlaybackMode.Rewound &&
+            (livePlaybackMode as LivePlaybackMode.Rewound).vodId == vod.id
+        ) {
+            seek(targetMs)
+            chatFragment?.updatePosition(targetMs)
+            updateLiveRewindProgress()
+            return
+        }
+        if (liveRewindSwitchJob?.isActive == true && !liveRewindReturningLive) {
+            liveRewindPendingVodId = vod.id
+            liveRewindPendingTargetMs = targetMs
+            return
+        }
+        liveRewindPendingVodId = null
+        liveRewindPendingTargetMs = null
+        val previousPlaybackMode = livePlaybackMode
+        val generation = ++liveRewindSwitchGeneration
+        liveRewindSwitchJob?.cancel()
+        liveRewindReturningLive = false
+        liveRewindSwitching = true
+        liveRewindDiscoveryJob?.cancel()
+        liveRewindSwitchJob = viewLifecycleOwner.lifecycleScope.launch {
+            val success = startLiveRewind(vod.id, targetMs)
+            if (generation != liveRewindSwitchGeneration) return@launch
+            liveRewindSwitching = false
+            if (!success) {
+                livePlaybackMode = previousPlaybackMode
+                updateLiveRewindUi()
+                return@launch
+            }
+            val pendingTarget = liveRewindPendingTargetMs
+                .takeIf { liveRewindPendingVodId == vod.id }
+            liveRewindPendingVodId = null
+            liveRewindPendingTargetMs = null
+            livePlaybackMode = LivePlaybackMode.Rewound(vod.id)
+            startLiveRewindChat(targetMs)
+            pendingTarget?.let {
+                seek(it)
+                chatFragment?.updatePosition(it)
+            }
+            updateLiveRewindUi()
+        }
+    }
+
+    protected fun enterLiveRewindChat(positionMs: Long) {
+        liveRewindVod?.let { vod ->
+            chatFragment?.enterVideoReplay(vod.id, vod.createdAt, positionMs)
+        }
+    }
+
+    private fun goLive() {
+        goLive(force = false)
+    }
+
+    private fun goLive(
+        force: Boolean,
+        onSuccess: (() -> Unit)? = null,
+        onFailure: (() -> Unit)? = null,
+    ) {
+        if (liveRewindReturningLive || (!force && livePlaybackMode is LivePlaybackMode.Live && !liveRewindSwitching)) return
+        val generation = ++liveRewindSwitchGeneration
+        liveRewindSwitchJob?.cancel()
+        liveRewindPendingVodId = null
+        liveRewindPendingTargetMs = null
+        liveRewindReturningLive = true
+        liveRewindSwitching = true
+        liveRewindSwitchJob = viewLifecycleOwner.lifecycleScope.launch {
+            val success = returnToLivePlayback()
+            if (generation != liveRewindSwitchGeneration) return@launch
+            liveRewindSwitching = false
+            liveRewindReturningLive = false
+            if (success) {
+                livePlaybackMode = LivePlaybackMode.Live
+                chatFragment?.returnToLiveChat()
+                val newSession = commitPendingLiveSession()
+                if (newSession != null) {
+                    prepareLiveRewind(newSession.id, newSession.createdAt)
+                } else {
+                    updateLiveRewindUi()
+                    onSuccess?.invoke()
+                }
+            } else {
+                onFailure?.invoke()
+            }
+        }
+    }
+
+    private fun currentLiveEdgeMs(): Long = liveRewindVod?.predictedDurationMs()?.let {
+        freezeLiveEdge(it, liveRewindFrozenEdgeMs)
+    }
+        ?: 0L
+
+    private fun hideLiveRewindPreview() {
+        binding.playerControls.position.visibility = View.GONE
+    }
+
+    private fun onLiveStreamWentOffline() {
+        if (view == null) return
+        val state = liveRewindSourceState().streamEnded(
+            liveRewindVod?.predictedDurationMs() ?: return,
+        )
+        liveRewindStreamOffline = state.offline
+        liveRewindFrozenEdgeMs = state.frozenEdgeMs
+        stopLiveRewindTicker()
+        updateLiveRewindProgress()
+    }
+
+    private fun setLiveRewindTimelineLayout(enabled: Boolean) {
+        val bottom = binding.playerControls.bottomLayout
+        val bottomParams = bottom.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val bottomLeft = binding.playerControls.bottomLeftLayout
+        val bottomLeftParams = bottomLeft.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val bottomRight = binding.playerControls.bottomRightLayout
+        val bottomRightParams = bottomRight.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val position = binding.playerControls.position
+        val positionParams = position.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val duration = binding.playerControls.duration
+        val durationParams = duration.layoutParams as? RelativeLayout.LayoutParams ?: return
+        if (enabled) {
+            bottomParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            bottomParams.addRule(RelativeLayout.ABOVE, R.id.bottomLeftLayout)
+            bottomLeftParams.removeRule(RelativeLayout.ABOVE)
+            bottomLeftParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            bottomRightParams.removeRule(RelativeLayout.ABOVE)
+            bottomRightParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            positionParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            positionParams.addRule(RelativeLayout.ABOVE, R.id.bottomLeftLayout)
+            durationParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            durationParams.addRule(RelativeLayout.ABOVE, R.id.bottomLeftLayout)
+        } else {
+            bottomParams.removeRule(RelativeLayout.ABOVE)
+            bottomParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            bottomLeftParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            bottomLeftParams.addRule(RelativeLayout.ABOVE, R.id.bottomLayout)
+            bottomRightParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            bottomRightParams.addRule(RelativeLayout.ABOVE, R.id.bottomLayout)
+            positionParams.removeRule(RelativeLayout.ABOVE)
+            positionParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            durationParams.removeRule(RelativeLayout.ABOVE)
+            durationParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+        }
+        bottom.layoutParams = bottomParams
+        bottomLeft.layoutParams = bottomLeftParams
+        bottomRight.layoutParams = bottomRightParams
+        position.layoutParams = positionParams
+        duration.layoutParams = durationParams
+    }
+
+    private fun onLiveStreamSessionChanged(newStreamId: String?, newCreatedAt: String?) {
+        if (!hasLiveStreamSessionChanged(
+                oldId = liveRewindStreamId,
+                oldCreatedAt = liveRewindStreamCreatedAt,
+                newId = newStreamId,
+                newCreatedAt = newCreatedAt,
+            )
+        ) return
+        ++liveRewindSessionGeneration
+        liveRewindDiscoveryJob?.cancel()
+        if (livePlaybackMode is LivePlaybackMode.Rewound) {
+            val frozenPendingState = liveRewindSourceState().observeNewSessionWhileRewound(
+                session = LiveRewindSession(newStreamId, newCreatedAt),
+                frozenEdgeMs = currentLiveEdgeMs(),
+            )
+            pendingLiveSession = frozenPendingState.pendingSession
+            liveRewindStreamOffline = frozenPendingState.offline
+            liveRewindFrozenEdgeMs = frozenPendingState.frozenEdgeMs
+            updateLiveRewindUi()
+            goLive(force = true)
+        } else {
+            val state = liveRewindSourceState().observeSession(
+                LiveRewindSession(newStreamId, newCreatedAt),
+            )
+            val session = state.committedSession ?: return
+            pendingLiveSession = null
+            liveRewindStreamId = session.id
+            liveRewindStreamCreatedAt = session.createdAt
+            liveRewindStreamOffline = false
+            liveRewindFrozenEdgeMs = null
+            liveRewindVod = null
+            prepareLiveRewind(session.id, session.createdAt)
+        }
+    }
+
+    protected fun onLiveRewindPlaybackError(): Boolean {
+        if (livePlaybackMode is LivePlaybackMode.Rewound) {
+            goLive()
+            return true
+        }
+        return false
+    }
+
     override fun initialize() {
         if (isMaximized) {
             (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
@@ -2245,11 +2792,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     channelId = requireArguments().getString(KEY_CHANNEL_ID),
                     channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
                     viewerCount = requireArguments().getInt(KEY_VIEWER_COUNT).takeIf { it != -1 },
-                    loop = !requireContext().prefs().isChatEnabled(),
+                    loop = !requireContext().prefs().isChatEnabled() || isLiveRewindEnabled(),
                     networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                     helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
                     gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
+                    refreshForLiveRewind = isLiveRewindEnabled(),
                 )
+                prepareLiveRewind()
             }
             VIDEO -> {
                 if (requireContext().prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
@@ -2762,6 +3311,17 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     override fun onDestroyView() {
         loadedChannelAvatarUrl = null
+        liveRewindDiscoveryJob?.cancel()
+        liveRewindDiscoveryJob = null
+        stopLiveRewindTicker()
+        liveRewindScrubPositionMs = null
+        liveRewindSwitchGeneration++
+        liveRewindSwitchJob?.cancel()
+        liveRewindSwitchJob = null
+        liveRewindSwitching = false
+        liveRewindReturningLive = false
+        liveRewindPendingVodId = null
+        liveRewindPendingTargetMs = null
         super.onDestroyView()
         _binding = null
     }

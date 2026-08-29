@@ -26,6 +26,7 @@ import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionParameters
@@ -134,6 +135,9 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
         super.onStart()
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    onLiveRewindPlaybackError()
+                }
                 if (playbackState == Player.STATE_READY) {
                     clearPlayerError()
                 }
@@ -234,6 +238,10 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                         chatFragment?.updatePosition(newPosition.positionMs)
                     }
                 }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                if (onLiveRewindPlaybackError()) return
             }
 
             override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
@@ -519,6 +527,12 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
     override fun seekToLivePosition() {
         playbackService?.player?.seekToDefaultPosition()
     }
+
+    override suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean =
+        playbackService?.startLiveRewind(vodId, positionMs) == true
+
+    override suspend fun returnToLivePlayback(): Boolean =
+        playbackService?.returnToLivePlayback() == true
 
     override fun requestLiveClipStatus() {
         refreshClipAvailability()
@@ -862,6 +876,10 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
     }
 
     override fun updateProgress() {
+        if (isLiveRewindAvailable()) {
+            updateLiveRewindProgress()
+            return
+        }
         with(binding.playerControls) {
             if (root.isVisible && !progressBar.isPressed) {
                 val currentPosition = playbackService?.player?.currentPosition ?: 0

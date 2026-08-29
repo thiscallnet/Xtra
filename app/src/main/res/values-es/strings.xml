@@ -693,6 +693,8 @@
     <string name="settings_player_quality">Calidad y latencia</string>
     <string name="settings_low_latency">Reproducción de directos con baja latencia</string>
     <string name="settings_low_latency_summary">Reduce el retraso respecto al streamer. Puede haber más almacenamiento en búfer con conexiones inestables.</string>
+    <string name="settings_live_rewind">Rebobinado de transmisiones en directo</string>
+    <string name="settings_live_rewind_summary">Rebobina las transmisiones en directo usando su grabación</string>
     <string name="settings_player_behavior">Comportamiento del reproductor</string>
     <string name="settings_buffer_limits">Límites de búfer</string>
     <string name="settings_buffer_live">Latencia en vivo</string>

@@ -688,6 +688,8 @@
     <string name="settings_player_quality">Qualité et latence</string>
     <string name="settings_low_latency">Lecture en direct à faible latence</string>
     <string name="settings_low_latency_summary">Réduit le délai avec le streamer. La mise en mémoire tampon peut être plus fréquente avec une connexion instable.</string>
+    <string name="settings_live_rewind">Retour en arrière des diffusions en direct</string>
+    <string name="settings_live_rewind_summary">Revenir en arrière dans les diffusions en direct grâce à leur enregistrement</string>
     <string name="settings_player_behavior">Comportement du joueur</string>
     <string name="settings_buffer_limits">Limites de tampon</string>
     <string name="settings_buffer_live">Latence en direct</string>

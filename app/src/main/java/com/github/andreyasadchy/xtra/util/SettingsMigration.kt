@@ -167,6 +167,7 @@ object SettingsMigration {
         C.PLAYER_KEEP_CHAT_OPEN,
         C.PLAYER_AVOID_ADS,
         C.PLAYER_HIDE_ADS,
+        C.PLAYER_LIVE_REWIND,
         C.PLAYER_PROXY,
         C.PLAYER_STREAM_PROXY,
         C.PLAYER_PROXY_URL,

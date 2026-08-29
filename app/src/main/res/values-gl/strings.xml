@@ -688,6 +688,8 @@
     <string name="settings_player_quality">Calidade e latencia</string>
     <string name="settings_low_latency">Reprodución en directo de baixa latencia</string>
     <string name="settings_low_latency_summary">Reduce o atraso respecto ao emisor. Pode producirse máis almacenamento en búfer con conexións inestables.</string>
+    <string name="settings_live_rewind">Rebobinado de emisións en directo</string>
+    <string name="settings_live_rewind_summary">Rebobina as emisións en directo usando a súa gravación</string>
     <string name="settings_player_behavior">Comportamento do xogador</string>
     <string name="settings_buffer_limits">Límites do búfer</string>
     <string name="settings_buffer_live">Latencia en directo</string>

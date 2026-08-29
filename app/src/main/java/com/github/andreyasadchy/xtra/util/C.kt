@@ -219,6 +219,7 @@ object C {
     const val PLAYER_KEEP_CHAT_OPEN = "player_keep_chat_open"
     const val PLAYER_AVOID_ADS = "player_avoid_ads"
     const val PLAYER_HIDE_ADS = "player_hide_ads"
+    const val PLAYER_LIVE_REWIND = "player_live_rewind"
     const val PLAYER_PROXY = "player_proxy"
     const val PLAYER_STREAM_PROXY = "player_stream_proxy"
     const val PLAYER_PROXY_URL = "player_proxy_url"

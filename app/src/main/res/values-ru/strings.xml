@@ -688,6 +688,8 @@
     <string name="settings_player_quality">Качество и задержка</string>
     <string name="settings_low_latency">Воспроизведение прямых трансляций с низкой задержкой</string>
     <string name="settings_low_latency_summary">Уменьшает задержку относительно стримера. При нестабильном соединении буферизация может происходить чаще.</string>
+    <string name="settings_live_rewind">Перемотка прямых трансляций</string>
+    <string name="settings_live_rewind_summary">Перематывать прямые трансляции с помощью их записи</string>
     <string name="settings_player_behavior">Поведение игрока</string>
     <string name="settings_buffer_limits">Ограничения буфера</string>
     <string name="settings_buffer_live">Задержка в реальном времени</string>

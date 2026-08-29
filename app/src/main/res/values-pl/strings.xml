@@ -175,6 +175,8 @@
     <string name="settings_player_quality">Jakość i opóźnienie</string>
     <string name="settings_low_latency">Odtwarzanie transmisji na żywo z niskim opóźnieniem</string>
     <string name="settings_low_latency_summary">Zmniejsza opóźnienie względem nadawcy. Przy niestabilnym połączeniu buforowanie może występować częściej.</string>
+    <string name="settings_live_rewind">Przewijanie transmisji na żywo</string>
+    <string name="settings_live_rewind_summary">Przewijaj transmisje na żywo za pomocą ich nagrania</string>
     <string name="settings_player_behavior">Zachowanie gracza</string>
     <string name="settings_buffer_limits">Limity bufora</string>
     <string name="settings_buffer_live">Opóźnienie na żywo</string>

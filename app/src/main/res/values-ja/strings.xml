@@ -688,6 +688,8 @@
     <string name="settings_player_quality">品質と遅延</string>
     <string name="settings_low_latency">低遅延ライブ再生</string>
     <string name="settings_low_latency_summary">配信者との遅延を短縮します。接続が不安定な場合、バッファリングが増えることがあります。</string>
+    <string name="settings_live_rewind">ライブ配信の巻き戻し</string>
+    <string name="settings_live_rewind_summary">録画を使ってライブ配信を巻き戻します</string>
     <string name="settings_player_behavior">プレーヤーの動作</string>
     <string name="settings_buffer_limits">バッファ制限</string>
     <string name="settings_buffer_live">ライブ遅延</string>

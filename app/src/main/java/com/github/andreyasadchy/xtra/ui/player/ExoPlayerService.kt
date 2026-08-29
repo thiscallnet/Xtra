@@ -94,6 +94,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -146,6 +147,7 @@ class ExoPlayerService : BasePlaybackService() {
     private var primaryStreamRestoreJob: Job? = null
     private var usingAlternateStream = false
     private var backupQualities: List<String>? = null
+    private var liveRewindPositionOverride: Long? = null
     private var updateQualities = false
     private var created = false
     private var resumeWhenForeground = false
@@ -232,7 +234,7 @@ class ExoPlayerService : BasePlaybackService() {
                     updatePlaybackState()
                     updateMetadata()
                     updateNotification()
-                    if (type == STREAM) {
+                    if (type == STREAM && !liveRewindActive) {
                         (player?.currentManifest as? HlsManifest)?.let { manifest ->
                             configureLiveClipBuffer()
                             liveClipBufferManager.capture(manifest)
@@ -284,7 +286,7 @@ class ExoPlayerService : BasePlaybackService() {
                             updateQualities = false
                         }
                     }
-                    if (type == STREAM) {
+                    if (type == STREAM && !liveRewindActive) {
                         val avoidAds = prefs().shouldAvoidTwitchAds()
                         val suppressAds = avoidAds
                         val useProxy = prefs().httpProxyHost() != null
@@ -650,6 +652,7 @@ class ExoPlayerService : BasePlaybackService() {
             }
             when (type) {
                 STREAM -> {
+                    clearLiveRewindState()
                     started = true
                     serviceListener?.started()
                     if (qualities.isNullOrEmpty()) {
@@ -1273,10 +1276,94 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
+    suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean = liveRewindTransitionMutex.withLock {
+        val player = player ?: return@withLock false
+        val oldVideoId = videoId
+        val oldPlaylistUrl = playlistUrl
+        val oldQualities = qualities
+        val oldQuality = quality
+        val oldBackupQualities = backupQualities
+        val oldSavedPosition = savedPosition
+        val oldLiveRewindPositionOverride = liveRewindPositionOverride
+        val oldPaused = paused
+        val wasPlaying = player.playWhenReady
+        clearLiveRewindState()
+        videoId = vodId
+        playlistUrl = null
+        qualities = null
+        quality = null
+        savedPosition = positionMs
+        liveRewindPositionOverride = positionMs
+        paused = !wasPlaying
+        return try {
+            loadVideo(restorePauseState = true)
+            val loaded = !playlistUrl.isNullOrBlank()
+            videoId = oldVideoId
+            if (!loaded) {
+                playlistUrl = oldPlaylistUrl
+                qualities = oldQualities
+                quality = oldQuality
+                backupQualities = oldBackupQualities
+            }
+            savedPosition = oldSavedPosition
+            liveRewindPositionOverride = oldLiveRewindPositionOverride
+            paused = oldPaused
+            if (loaded) {
+                markLiveRewindActive(vodId)
+            } else {
+                clearLiveRewindState()
+            }
+            loaded
+        } catch (_: Exception) {
+            videoId = oldVideoId
+            playlistUrl = oldPlaylistUrl
+            qualities = oldQualities
+            quality = oldQuality
+            backupQualities = oldBackupQualities
+            savedPosition = oldSavedPosition
+            liveRewindPositionOverride = oldLiveRewindPositionOverride
+            paused = oldPaused
+            clearLiveRewindState()
+            false
+        }
+    }
+
+    suspend fun returnToLivePlayback(): Boolean = liveRewindTransitionMutex.withLock {
+        val player = player ?: return@withLock false
+        val wasPlaying = player.playWhenReady
+        val rewindVodId = liveRewindVodId
+        val oldPlaylistUrl = playlistUrl
+        val oldQualities = qualities
+        val oldQuality = quality
+        val oldBackupQualities = backupQualities
+        playlistUrl = null
+        qualities = null
+        quality = null
+        backupQualities = null
+        return try {
+            loadStream(restorePauseState = false, restart = true).let {
+                !playlistUrl.isNullOrBlank() && player.currentMediaItem != null
+            }
+        } catch (_: Exception) {
+            false
+        }.also {
+            if (it) {
+                clearLiveRewindState()
+            } else {
+                playlistUrl = oldPlaylistUrl
+                qualities = oldQualities
+                quality = oldQuality
+                backupQualities = oldBackupQualities
+                (rewindVodId ?: videoId)?.let(::markLiveRewindActive)
+            }
+            player.playWhenReady = wasPlaying
+        }
+    }
+
     private suspend fun loadVideo(restorePauseState: Boolean = false) {
         clearVodClipSource()
         videoId?.let { videoId ->
-            val playbackPosition = if (prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
+            val playbackPosition = liveRewindPositionOverride ?: if (prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
                 videoId.toLongOrNull()?.let { xtraModule.playerRepository.getVideoPosition(it)?.position }
             } else {
                 null
@@ -1964,6 +2051,7 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     fun restartPlayer() {
+        if (type == STREAM && liveRewindActive) return
         if (quality?.name != CHAT_ONLY_QUALITY) {
             lifecycleScope.launch {
                 loadStream(restart = true)
@@ -1974,6 +2062,7 @@ class ExoPlayerService : BasePlaybackService() {
     private fun scheduleStreamRecovery() {
         if (!prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
             || type != STREAM
+            || liveRewindActive
             || player?.playWhenReady != true
         ) {
             return
@@ -1986,6 +2075,7 @@ class ExoPlayerService : BasePlaybackService() {
             if (prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
                 && player?.playWhenReady == true
                 && type == STREAM
+                && !liveRewindActive
             ) {
                 loadStream(restart = true)
             }

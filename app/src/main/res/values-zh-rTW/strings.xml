@@ -688,6 +688,8 @@
     <string name="settings_player_quality">品質和延遲</string>
     <string name="settings_low_latency">低延遲直播播放</string>
     <string name="settings_low_latency_summary">減少與實況主之間的延遲。網路連線不穩定時可能會更頻繁地緩衝。</string>
+    <string name="settings_live_rewind">直播倒帶</string>
+    <string name="settings_live_rewind_summary">使用直播錄製內容回看直播</string>
     <string name="settings_player_behavior">玩家行為</string>
     <string name="settings_buffer_limits">緩衝區限制</string>
     <string name="settings_buffer_live">即時延遲</string>

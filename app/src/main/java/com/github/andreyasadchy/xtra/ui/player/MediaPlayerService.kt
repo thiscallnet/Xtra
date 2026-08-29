@@ -53,6 +53,7 @@ import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -93,6 +94,7 @@ class MediaPlayerService : BasePlaybackService() {
     var seekPosition: Long? = null
     var startPlayer = true
     private var backupQualities: List<String>? = null
+    private var liveRewindPositionOverride: Long? = null
     private var created = false
     private var resumeWhenForeground = false
     private var backgroundVideoDisabled = false
@@ -113,6 +115,7 @@ class MediaPlayerService : BasePlaybackService() {
         fun onInfo(player: MediaPlayer, what: Int, extra: Int)
         fun onVideoSizeChanged(player: MediaPlayer, width: Int, height: Int)
         fun onError(player: MediaPlayer, what: Int, extra: Int)
+        fun onPlayerError(player: MediaPlayer, what: Int, extra: Int) {}
         fun onIsPlayingChanged()
         fun onSpeedChanged(speed: Float)
     }
@@ -319,7 +322,7 @@ class MediaPlayerService : BasePlaybackService() {
                 } else {
                     startPlayer = true
                 }
-                if (type == STREAM) {
+                if (type == STREAM && !liveRewindActive) {
                     streamPlaybackRequested = runCatching { player.isPlaying }.getOrDefault(false)
                 }
                 updateMetadata()
@@ -359,10 +362,11 @@ class MediaPlayerService : BasePlaybackService() {
                 playerBuffering = false
                 updatePlaybackState()
                 updateNotification()
-                if (type == STREAM) {
+                if (type == STREAM && !liveRewindActive) {
                     scheduleStreamRecovery()
                 }
                 playerListener?.onError(player, what, extra)
+                playerListener?.onPlayerError(player, what, extra)
                 return@setOnErrorListener true
             }
             val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
@@ -413,6 +417,7 @@ class MediaPlayerService : BasePlaybackService() {
             restorePlaybackState()
             when (type) {
                 STREAM -> {
+                    clearLiveRewindState()
                     started = true
                     serviceListener?.started()
                     if (qualities.isNullOrEmpty()) {
@@ -829,9 +834,94 @@ class MediaPlayerService : BasePlaybackService() {
         }
     }
 
+    suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean = liveRewindTransitionMutex.withLock {
+        val player = player ?: return@withLock false
+        val oldVideoId = videoId
+        val oldPlaylistUrl = playlistUrl
+        val oldQualities = qualities
+        val oldQuality = quality
+        val oldBackupQualities = backupQualities
+        val oldSavedPosition = savedPosition
+        val oldLiveRewindPositionOverride = liveRewindPositionOverride
+        val oldPaused = paused
+        val wasPlaying = runCatching { player.isPlaying }.getOrDefault(false)
+        clearLiveRewindState()
+        videoId = vodId
+        playlistUrl = null
+        qualities = null
+        quality = null
+        savedPosition = positionMs
+        liveRewindPositionOverride = positionMs
+        paused = !wasPlaying
+        return try {
+            loadVideo(restorePauseState = true)
+            val loaded = !playlistUrl.isNullOrBlank()
+            videoId = oldVideoId
+            if (!loaded) {
+                playlistUrl = oldPlaylistUrl
+                qualities = oldQualities
+                quality = oldQuality
+                backupQualities = oldBackupQualities
+            }
+            savedPosition = oldSavedPosition
+            liveRewindPositionOverride = oldLiveRewindPositionOverride
+            paused = oldPaused
+            if (loaded) {
+                markLiveRewindActive(vodId)
+            } else {
+                clearLiveRewindState()
+            }
+            loaded
+        } catch (_: Exception) {
+            videoId = oldVideoId
+            playlistUrl = oldPlaylistUrl
+            qualities = oldQualities
+            quality = oldQuality
+            backupQualities = oldBackupQualities
+            savedPosition = oldSavedPosition
+            liveRewindPositionOverride = oldLiveRewindPositionOverride
+            paused = oldPaused
+            clearLiveRewindState()
+            false
+        }
+    }
+
+    suspend fun returnToLivePlayback(): Boolean = liveRewindTransitionMutex.withLock {
+        val player = player ?: return@withLock false
+        val wasPlaying = runCatching { player.isPlaying }.getOrDefault(false)
+        val rewindVodId = liveRewindVodId
+        val oldPlaylistUrl = playlistUrl
+        val oldQualities = qualities
+        val oldQuality = quality
+        val oldBackupQualities = backupQualities
+        val oldPaused = paused
+        playlistUrl = null
+        qualities = null
+        quality = null
+        backupQualities = null
+        return try {
+            paused = !wasPlaying
+            loadStream(restorePauseState = true, restart = true)
+            !playlistUrl.isNullOrBlank()
+        } catch (_: Exception) {
+            false
+        }.also {
+            if (it) {
+                clearLiveRewindState()
+            } else {
+                playlistUrl = oldPlaylistUrl
+                qualities = oldQualities
+                quality = oldQuality
+                backupQualities = oldBackupQualities
+                paused = oldPaused
+                (rewindVodId ?: videoId)?.let(::markLiveRewindActive)
+            }
+        }
+    }
+
     private suspend fun loadVideo(restorePauseState: Boolean = false) {
         videoId?.let { videoId ->
-            val playbackPosition = if (prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
+            val playbackPosition = liveRewindPositionOverride ?: if (prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
                 videoId.toLongOrNull()?.let { xtraModule.playerRepository.getVideoPosition(it)?.position }
             } else {
                 null
@@ -1314,6 +1404,7 @@ class MediaPlayerService : BasePlaybackService() {
     }
 
     fun restartPlayer() {
+        if (type == STREAM && liveRewindActive) return
         if (quality?.name != CHAT_ONLY_QUALITY) {
             lifecycleScope.launch {
                 loadStream(restart = true)
@@ -1324,6 +1415,7 @@ class MediaPlayerService : BasePlaybackService() {
     private fun scheduleStreamRecovery() {
         if (!prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
             || type != STREAM
+            || liveRewindActive
             || !streamPlaybackRequested
             || player == null
         ) {
@@ -1336,6 +1428,7 @@ class MediaPlayerService : BasePlaybackService() {
             delay(delayMs)
             if (prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
                 && type == STREAM
+                && !liveRewindActive
                 && streamPlaybackRequested
                 && player != null
             ) {

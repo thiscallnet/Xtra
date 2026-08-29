@@ -25,8 +25,8 @@ class ChatReplayManager(
     private val videoId: String,
     private val createdAt: Long?,
     private val startTime: Long,
-    private val getCurrentPosition: () -> Long?,
-    private val getCurrentSpeed: () -> Float?,
+    private var getCurrentPosition: () -> Long?,
+    private var getCurrentSpeed: () -> Float?,
     private val coroutineScope: CoroutineScope,
     private val listener: Listener,
 ) {
@@ -249,6 +249,18 @@ class ChatReplayManager(
     fun updateSpeed(speed: Float) {
         if (started && playbackSpeed != speed) {
             playbackSpeed = speed
+            messageJob?.cancel()
+            startJob()
+        }
+    }
+
+    fun rebindPositionProviders(
+        getCurrentPosition: () -> Long?,
+        getCurrentSpeed: () -> Float?,
+    ) {
+        this.getCurrentPosition = getCurrentPosition
+        this.getCurrentSpeed = getCurrentSpeed
+        if (started && isActive) {
             messageJob?.cancel()
             startJob()
         }
