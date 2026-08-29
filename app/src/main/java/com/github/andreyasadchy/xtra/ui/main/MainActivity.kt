@@ -31,7 +31,6 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.OptIn
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.view.menu.MenuBuilder
@@ -93,13 +92,11 @@ import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.UiInteractionGovernor
 import com.github.andreyasadchy.xtra.util.PerfFrameMetricsDiagnostics
-import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
-import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckScheduler
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
+import com.github.andreyasadchy.xtra.ui.update.UpdateDetailsBottomSheet
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.applyTheme
-import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.rawPrefs
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -124,6 +121,7 @@ class MainActivity : AppCompatActivity() {
         const val INTENT_START_AUDIO_ONLY = "com.github.andreyasadchy.xtra.START_AUDIO_ONLY"
         const val INTENT_PLAY_PAUSE_PLAYER = "com.github.andreyasadchy.xtra.PLAY_PAUSE_PLAYER"
         const val INTENT_OPEN_OWN_PROFILE = "com.github.andreyasadchy.xtra.OPEN_OWN_PROFILE"
+        const val EXTRA_OPEN_UPDATE_DETAILS = "com.github.andreyasadchy.xtra.OPEN_UPDATE_DETAILS"
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -142,8 +140,6 @@ class MainActivity : AppCompatActivity() {
     private var authMaintenanceResultLauncher: ActivityResultLauncher<Intent>? = null
     private val updateRepository by lazy { (application as XtraApp).xtraModule.updateRepository }
     private val authSessionMaintainer by lazy { (application as XtraApp).xtraModule.authSessionMaintainer }
-    private var updateDialog: AlertDialog? = null
-    private var updateDialogReleaseId: String? = null
     private var networkSnackbar: Snackbar? = null
     private var updateNotificationSnackbar: Snackbar? = null
     private var updateNotificationPermissionLauncher: ActivityResultLauncher<String>? = null
@@ -356,19 +352,13 @@ class MainActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 updateRepository.state.collectLatest { state ->
                     updateSettingsIndicator(state)
-                    if (state is UpdateState.Available &&
-                        updateDialog?.isShowing == true &&
-                        updateDialogReleaseId != state.release.id
-                    ) {
-                        dismissUpdateDialogForRefresh()
-                    }
                 }
             }
         }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 updateRepository.automaticPromptEvents.collectLatest { release ->
-                    showUpdateDialog(release)
+                    showUpdateBanner(release)
                 }
             }
         }
@@ -639,7 +629,6 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             !prefs.getBoolean(C.UPDATE_CHECK_ENABLED, true) ||
             prefs.getBoolean(C.UPDATE_NOTIFICATION_PERMISSION_PROMPT_SHOWN, false) ||
-            updateDialog?.isShowing == true ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
                 PackageManager.PERMISSION_GRANTED
         ) {
@@ -695,45 +684,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showUpdateDialog(release: UpdateRelease) {
+    private fun showUpdateBanner(release: com.github.andreyasadchy.xtra.util.updater.UpdateRelease) {
         updateRepository.consumeAutomaticPrompt(release)
-        if (updateDialog?.isShowing == true && updateDialogReleaseId == release.id) return
         updateRepository.dismissUpdateNotification()
-        dismissUpdateDialogForRefresh()
-        val releaseNotes = UpdateReleaseHistory.formatForUpdate(
-            historyComplete = updateRepository.releaseHistoryComplete.value,
-            cumulativeReleases = updateRepository.releasesSinceInstalled(release),
-            latestRelease = release,
-            noReleaseNotes = getString(R.string.update_no_release_notes),
-            incompleteHistoryMessage = getString(R.string.update_history_incomplete),
-        )
-        var userActionTaken = false
-        fun deferFromUserAction() {
-            if (!userActionTaken) {
-                userActionTaken = true
-                updateRepository.defer(release)
-            }
-        }
-        lateinit var dialog: AlertDialog
-        dialog = getAlertDialogBuilder()
-            .setTitle(getString(R.string.update_available_title, release.displayVersion))
-            .setMessage(releaseNotes.ifBlank { getString(R.string.update_no_release_notes) })
-            .setPositiveButton(getString(R.string.download_update)) { _, _ ->
-                userActionTaken = true
-                updateRepository.downloadCurrent()
-            }
-            .setNegativeButton(getString(R.string.update_not_now)) { _, _ -> deferFromUserAction() }
-            .setOnCancelListener { deferFromUserAction() }
-            .setOnDismissListener {
-                if (updateDialog === dialog) {
-                    updateDialog = null
-                    updateDialogReleaseId = null
-                    scheduleUpdateNotificationPrompt()
-                }
-            }
-            .show()
-        updateDialog = dialog
-        updateDialogReleaseId = release.id
+        updateNotificationSnackbar?.dismiss()
+        updateNotificationSnackbar = Snackbar.make(
+            binding.root,
+            getString(R.string.update_available_banner, release.displayVersion),
+            Snackbar.LENGTH_LONG,
+        ).setAction(R.string.update_view) { openUpdateDetails() }.also { it.show() }
     }
 
     private fun scheduleUpdateNotificationPrompt() {
@@ -750,17 +709,13 @@ class MainActivity : AppCompatActivity() {
             if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
             val release = (updateRepository.state.value as? UpdateState.Available)?.release ?: return@launch
             if (!updateRepository.hasPendingAutomaticPrompt(release)) return@launch
-            showUpdateDialog(release)
+            showUpdateBanner(release)
         }
     }
 
-    private fun dismissUpdateDialogForRefresh() {
-        val dialog = updateDialog ?: return
-        dialog.dismiss()
-        if (updateDialog === dialog) {
-            updateDialog = null
-            updateDialogReleaseId = null
-        }
+    private fun openUpdateDetails() {
+        if (supportFragmentManager.findFragmentByTag(UpdateDetailsBottomSheet.TAG) != null) return
+        UpdateDetailsBottomSheet().show(supportFragmentManager, UpdateDetailsBottomSheet.TAG)
     }
 
     private fun checkUpdatesIfDue() {
@@ -985,6 +940,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_UPDATE_DETAILS, false) == true) {
+            openUpdateDetails()
+            return
+        }
         when (intent?.action) {
             Intent.ACTION_VIEW -> {
                 val uri = intent.data ?: return

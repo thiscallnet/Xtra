@@ -28,7 +28,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -97,6 +96,9 @@ class UpdateRepository(
     private val checkLock = Mutex()
     private var downloadMonitorJob: Job? = null
     private var monitoredDownloadId: Long? = null
+    private val downloadMonitor = downloadStore?.let { store ->
+        UpdateDownloadMonitor(store, scope)
+    }
     // Lock order is check -> install -> download. Check claims install ownership for its state
     // transition and each result publication; download and install callbacks must take their
     // corresponding lock before inspecting or publishing ownership-backed state.
@@ -519,7 +521,11 @@ class UpdateRepository(
                 clearDownloadReference()
                 throw UpdateException(UpdateError.DownloadFailed)
             }
-            _state.value = UpdateState.Downloading(selectedRelease, DownloadProgress(0L, asset.size))
+            _state.value = UpdateState.Downloading(
+                selectedRelease,
+                DownloadProgress(0L, asset.size),
+                downloadManagerStatus = DownloadManager.STATUS_PENDING,
+            )
             monitorDownload(selectedRelease)
         } catch (cancellation: CancellationException) {
             throw cancellation
@@ -810,6 +816,19 @@ class UpdateRepository(
     val ignoredReleaseId: String?
         get() = preferences.getString(C.UPDATE_IGNORED_VERSION, null)
 
+    fun diagnostics(): UpdateDiagnosticsSnapshot = UpdateDiagnostics.snapshot(
+        state = _state.value,
+        installedVersion = UpdateVersionDisplay.installed(
+            BuildConfig.VERSION_NAME,
+            BuildConfig.VERSION_CODE.toLong(),
+            BuildConfig.CI_VERSION_CODE_BASE.toLong(),
+        ),
+        assetName = preferences.getString(C.UPDATE_AVAILABLE_ASSET_NAME, null),
+        lastSuccessfulCheck = lastSuccessfulCheck.takeIf { it > 0L },
+        lastAttemptedCheck = lastAttemptedCheck.takeIf { it > 0L },
+        downloadRecord = activeDownloadId?.let { id -> runCatching { downloadStore?.query(id) }.getOrNull() },
+    )
+
     fun releasesSinceInstalled(fallbackRelease: UpdateRelease? = null): List<UpdateRelease> =
         if (_releaseHistoryComplete.value) {
             UpdateReleaseHistory.sinceInstalled(
@@ -1022,7 +1041,11 @@ class UpdateRepository(
         }
     }
 
-    private suspend fun reconcileDownload(release: UpdateRelease?) {
+    private suspend fun reconcileDownload(
+        release: UpdateRelease?,
+        observedRecord: UpdateDownloadRecord? = null,
+        observedProgress: DownloadProgress? = null,
+    ) {
         if (release == null) {
             _state.value = UpdateState.Idle
             return
@@ -1051,7 +1074,7 @@ class UpdateRepository(
             return
         }
         val record = try {
-            store.query(id)
+            observedRecord ?: store.query(id)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (error: Throwable) {
@@ -1078,7 +1101,12 @@ class UpdateRepository(
         when (status) {
             DownloadManager.STATUS_PENDING, DownloadManager.STATUS_RUNNING,
             DownloadManager.STATUS_PAUSED -> {
-                _state.value = UpdateState.Downloading(release, DownloadProgress(downloaded, total))
+                _state.value = UpdateState.Downloading(
+                    release,
+                    observedProgress ?: DownloadProgress(downloaded, total),
+                    downloadManagerStatus = status,
+                    downloadManagerReason = record.reason,
+                )
                 monitorDownload(release)
             }
             DownloadManager.STATUS_SUCCESSFUL -> {
@@ -1092,7 +1120,14 @@ class UpdateRepository(
             }
             else -> {
                 clearDownloadReference()
-                _state.value = UpdateState.Error(UpdateStage.DOWNLOAD, UpdateError.DownloadFailed, true, release)
+                val error = UpdateErrorMapper.fromDownloadReason(record.reason)
+                _state.value = UpdateState.Error(
+                    UpdateStage.DOWNLOAD,
+                    error,
+                    UpdatePolicy.isRetryable(UpdateStage.DOWNLOAD, error),
+                    release,
+                    downloadManagerReason = record.reason,
+                )
             }
         }
     }
@@ -1102,28 +1137,36 @@ class UpdateRepository(
     }
 
     private fun monitorDownload(release: UpdateRelease) {
-        val monitoredId = activeDownloadId ?: return
-        if (downloadMonitorJob?.isActive == true && monitoredDownloadId == monitoredId) return
-        downloadMonitorJob?.cancel()
-        monitoredDownloadId = monitoredId
-        downloadMonitorJob = scope.launch {
-            try {
-                while (true) {
-                    val shouldContinue = downloadLock.withLock {
-                        if (activeDownloadId != monitoredId) {
-                            false
-                        } else {
+        val id = activeDownloadId ?: return
+        downloadMonitor?.start(id) { event ->
+            downloadLock.withLock {
+                if (activeDownloadId != id) return@withLock
+                when (event) {
+                    is UpdateDownloadEvent.Progress -> reconcileDownload(
+                        release,
+                        observedRecord = event.record,
+                        observedProgress = event.telemetry,
+                    )
+                    is UpdateDownloadEvent.Completed -> reconcileDownload(
+                        release,
+                        observedRecord = event.record,
+                    )
+                    is UpdateDownloadEvent.Failed -> {
+                        if (event.record == null && !event.queryFailed) {
                             reconcileDownload(release)
-                            activeDownloadId == monitoredId && _state.value is UpdateState.Downloading
+                            return@withLock
                         }
+                        val error = UpdateErrorMapper.fromDownloadReason(event.reason)
+                        clearDownloadReference()
+                        _state.value = UpdateState.Error(
+                            UpdateStage.DOWNLOAD,
+                            error,
+                            UpdatePolicy.isRetryable(UpdateStage.DOWNLOAD, error),
+                            release,
+                            downloadManagerReason = event.reason,
+                        )
                     }
-                    if (!shouldContinue) break
-                    delay(DOWNLOAD_POLL_MILLIS)
-                }
-            } finally {
-                if (monitoredDownloadId == monitoredId) {
-                    monitoredDownloadId = null
-                    downloadMonitorJob = null
+                    UpdateDownloadEvent.Cancelled -> Unit
                 }
             }
         }
@@ -1382,6 +1425,7 @@ class UpdateRepository(
                 Intent()
                     .setComponent(ComponentName(context, MainActivity::class.java))
                     .setPackage(context.packageName)
+                    .putExtra(MainActivity.EXTRA_OPEN_UPDATE_DETAILS, true)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
@@ -1481,9 +1525,7 @@ class UpdateRepository(
     }
 
     private fun cancelDownloadMonitor() {
-        monitoredDownloadId = null
-        downloadMonitorJob?.cancel()
-        downloadMonitorJob = null
+        downloadMonitor?.cancel()
     }
 
     private fun fileNameFor(release: UpdateRelease, asset: UpdateAsset): String {
@@ -1506,7 +1548,6 @@ class UpdateRepository(
         private const val TAG = "UpdateRepository"
         private const val DAY_MILLIS = 86_400_000L
         private const val NOT_NOW_MILLIS = DAY_MILLIS
-        private const val DOWNLOAD_POLL_MILLIS = 500L
         private const val MAX_RELEASE_HISTORY_PAGES = 20
     }
 }

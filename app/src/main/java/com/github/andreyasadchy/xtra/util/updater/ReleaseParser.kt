@@ -61,14 +61,15 @@ object ReleaseParser {
             else -> parseArtifactSha256(metadata)
                 ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
         }
-        val body = response.string("body").orEmpty().trim()
+        val body = response.string("body").orEmpty()
         val commits = response["commits"]?.asArrayOrNull()?.mapNotNull { it.asObjectString("message") } ?: emptyList()
+        val structuredNotes = ReleaseNotes.structured(body, commits)
         val release = UpdateRelease(
             tagName = tagName,
             versionName = versionName,
             buildNumber = buildNumber,
             title = response.string("name")?.takeIf { it.isNotBlank() } ?: "Xtra $versionName",
-            releaseNotes = ReleaseNotes.normalize(body, commits),
+            releaseNotes = structuredNotes.items.map(ChangeItem::text),
             rawBody = body,
             releaseUrl = response.string("html_url")?.takeIf { it.isNotBlank() } ?: fallbackUrl,
             publishedAt = response.string("published_at"),
@@ -78,6 +79,7 @@ object ReleaseParser {
             expectedVersionCode = expectedVersionCode,
             expectedSha256 = expectedSha256,
             artifactSha256 = artifactSha256,
+            releaseNoteKinds = structuredNotes.items.map(ChangeItem::kind),
         )
         return ReleaseParseResult.Success(release)
     }
