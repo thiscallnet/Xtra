@@ -40,9 +40,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -177,7 +174,7 @@ class ChatAdapter(
     /** One signal represents one queued request; this keeps both workers fed during bursts. */
     private var renderSignal = Channel<Unit>(Channel.UNLIMITED)
     private var renderWorkers = emptyList<Job>()
-    private val renderWorkerLimit = MutableStateFlow(MAX_RENDER_WORKERS)
+    private val imagePrefetchTracker = ChatAdapterUtils.ChatImagePrefetchTracker()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingRenderedMessages = Collections.newSetFromMap(
         IdentityHashMap<ChatMessage, Boolean>(),
@@ -509,7 +506,6 @@ class ChatAdapter(
         attachedRecyclerView = recyclerView
         super.onAttachedToRecyclerView(recyclerView)
         recyclerView.addOnScrollListener(prewarmScrollListener)
-        prefetchCatalogAssets()
         scheduleVisiblePrewarm(recyclerView)
     }
 
@@ -555,7 +551,6 @@ class ChatAdapter(
     }
 
     fun notifyCatalogChanged() {
-        prefetchCatalogAssets()
         scheduleConfigurationSwitch(
             composeChatRenderConfiguration(
                 active = activeConfiguration,
@@ -586,6 +581,9 @@ class ChatAdapter(
             prepareForDisplay(currentSnapshot, configuration)
             withContext(Dispatchers.Main.immediate) {
                 if (pendingConfiguration !== configuration) return@withContext
+                // Actual message assets have already been discovered and queued above. Start the
+                // small reusable badge warm-up only after that higher-priority work is in flight.
+                prefetchCatalogAssets()
                 activeConfiguration = configuration
                 pendingConfiguration = null
                 configurationJob = null
@@ -748,8 +746,7 @@ class ChatAdapter(
         const val PREWARM_BEFORE = 8
         const val PREWARM_AFTER = 24
         const val PREWARM_DEBOUNCE_MS = 100L
-        const val MAX_CATALOG_BADGES = 128
-        const val MAX_CATALOG_EMOTES = 192
+        const val MAX_CATALOG_BADGES_PER_SOURCE = 32
     }
 
     private fun cachedRender(key: RenderCacheKey): ChatAdapterUtils.MessageResult? = synchronized(renderCache) {
@@ -813,12 +810,9 @@ class ChatAdapter(
         }
     }
 
-    private fun startRenderWorkers(): List<Job> = List(MAX_RENDER_WORKERS) { workerIndex ->
+    private fun startRenderWorkers(): List<Job> = List(MAX_RENDER_WORKERS) {
         renderScope.launch {
             while (isActive) {
-                if (workerIndex >= renderWorkerLimit.value) {
-                    renderWorkerLimit.filter { it > workerIndex }.first()
-                }
                 if (renderSignal.receiveCatching().getOrNull() == null) break
                 val request = visibleRenderQueue.tryReceive().getOrNull()
                     ?: prewarmRenderQueue.tryReceive().getOrNull()
@@ -873,15 +867,19 @@ class ChatAdapter(
                 request.cacheKey.translateAllMessages,
                 offMain = true,
             )
-            ChatAdapterUtils.prefetchImages(
-                request.context,
-                prepared.images,
-                imageLibrary,
-                emoteQuality,
-                emoteSize,
-                badgeSize,
-                inlineIconSize,
-            )
+            // Enqueue only. Coil and Glide do the actual network/decode work asynchronously.
+            withContext(Dispatchers.Main.immediate) {
+                ChatAdapterUtils.prefetchImages(
+                    request.context,
+                    prepared.images,
+                    imageLibrary,
+                    emoteQuality,
+                    emoteSize,
+                    badgeSize,
+                    inlineIconSize,
+                    imagePrefetchTracker,
+                )
+            }
             withContext(Dispatchers.Main.immediate) {
                 if (isKnownConfiguration(request.configuration) && currentRenderKey(chatMessage, request.configuration) == cacheKey) {
                     synchronized(renderCache) { renderCache[cacheKey] = prepared }
@@ -1010,86 +1008,43 @@ class ChatAdapter(
     }
 
     private fun prefetchCatalogAssets() {
-        val images = ArrayList<Image>()
+        val images = ArrayList<Image>(MAX_CATALOG_BADGES_PER_SOURCE * 3)
 
-        fun add(
-            url1x: String?,
-            url2x: String?,
-            url3x: String?,
-            url4x: String?,
-            kind: ImageKind,
-            format: String? = null,
-            isAnimated: Boolean = false,
-            thirdParty: Boolean = false,
-            sourceWidth: Int? = null,
-            sourceHeight: Int? = null,
-        ) {
-            if (url1x != null || url2x != null || url3x != null || url4x != null) {
-                images += Image(
-                    url1x = url1x,
-                    url2x = url2x,
-                    url3x = url3x,
-                    url4x = url4x,
-                    format = format,
-                    isAnimated = isAnimated,
-                    kind = kind,
-                    thirdParty = thirdParty,
-                    sourceWidth = sourceWidth,
-                    sourceHeight = sourceHeight,
-                    start = 0,
-                    end = 1,
-                )
-            }
+        fun addBadge(badge: TwitchBadge) {
+            images += Image(
+                url1x = badge.url1x,
+                url2x = badge.url2x,
+                url3x = badge.url3x,
+                url4x = badge.url4x,
+                kind = ImageKind.BADGE,
+                start = 0,
+                end = 1,
+            )
+        }
+
+        fun addStvBadge(badge: STVBadge) {
+            images += Image(
+                url1x = badge.url1x,
+                url2x = badge.url2x,
+                url3x = badge.url3x,
+                url4x = badge.url4x,
+                format = badge.format,
+                isAnimated = true,
+                kind = ImageKind.BADGE,
+                thirdParty = true,
+                start = 0,
+                end = 1,
+            )
         }
 
         synchronized(globalBadges) {
-            globalBadges.take(MAX_CATALOG_BADGES).forEach { badge ->
-                add(badge.url1x, badge.url2x, badge.url3x, badge.url4x, ImageKind.BADGE)
-            }
+            globalBadges.take(MAX_CATALOG_BADGES_PER_SOURCE).forEach(::addBadge)
         }
         synchronized(channelBadges) {
-            channelBadges.take(MAX_CATALOG_BADGES).forEach { badge ->
-                add(badge.url1x, badge.url2x, badge.url3x, badge.url4x, ImageKind.BADGE)
-            }
+            channelBadges.take(MAX_CATALOG_BADGES_PER_SOURCE).forEach(::addBadge)
         }
         synchronized(stvBadges) {
-            stvBadges.take(MAX_CATALOG_BADGES).forEach { badge ->
-                add(badge.url1x, badge.url2x, badge.url3x, badge.url4x, ImageKind.BADGE, badge.format, true, true)
-            }
-        }
-        synchronized(localTwitchEmotes) {
-            localTwitchEmotes.take(MAX_CATALOG_EMOTES).forEach { emote ->
-                add(emote.url1x, emote.url2x, emote.url3x, emote.url4x, ImageKind.EMOTE, emote.format, emote.isAnimated)
-            }
-        }
-        synchronized(thirdPartyEmotes) {
-            thirdPartyEmotes.asSequence()
-                .filter {
-                    it.source == Emote.CHANNEL_STV ||
-                        it.source == Emote.CHANNEL_BTTV ||
-                        it.source == Emote.CHANNEL_FFZ ||
-                        it.source == Emote.PERSONAL_STV
-                }
-                .take(MAX_CATALOG_EMOTES)
-                .forEach { emote ->
-                    add(
-                        emote.url1x,
-                        emote.url2x,
-                        emote.url3x,
-                        emote.url4x,
-                        ImageKind.EMOTE,
-                        emote.format,
-                        emote.isAnimated,
-                        emote.thirdParty,
-                        emote.width,
-                        emote.height,
-                    )
-                }
-        }
-        synchronized(cheerEmotes) {
-            cheerEmotes.take(MAX_CATALOG_EMOTES).forEach { emote ->
-                add(emote.url1x, emote.url2x, emote.url3x, emote.url4x, ImageKind.EMOTE, emote.format, emote.isAnimated)
-            }
+            stvBadges.take(MAX_CATALOG_BADGES_PER_SOURCE).forEach(::addStvBadge)
         }
 
         val context = fragment.context ?: return
@@ -1101,6 +1056,7 @@ class ChatAdapter(
             emoteSize,
             badgeSize,
             inlineIconSize,
+            imagePrefetchTracker,
         )
     }
 
