@@ -412,6 +412,7 @@ class StreamMedia3Runtime(
                 LiveCaptionRenderersFactory(
                     context = context,
                     audioBufferSink = xtraModule.liveCaptionManager.audioBufferSink,
+                    presentationDelayMs = xtraModule.liveCaptionManager::presentationDelayMs,
                 ),
             )
         val generation = Generation(configuration, hlsFactory, builder, builder.build())

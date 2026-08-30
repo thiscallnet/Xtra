@@ -11,6 +11,7 @@ import androidx.media3.exoplayer.audio.TeeAudioProcessor
 class LiveCaptionRenderersFactory(
     context: Context,
     private val audioBufferSink: TeeAudioProcessor.AudioBufferSink,
+    private val presentationDelayMs: () -> Int,
 ) : DefaultRenderersFactory(context) {
 
     override fun buildAudioSink(
@@ -19,12 +20,14 @@ class LiveCaptionRenderersFactory(
         enableAudioOutputPlaybackParams: Boolean,
     ): AudioSink {
         return DefaultAudioSink.Builder(context)
-            // Keep integer PCM so the caption conversion path is predictable.
+            // Keep integer PCM so the capture and bounded presentation-delay paths
+            // have one predictable frame format.
             .setEnableFloatOutput(false)
             .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
             .setAudioProcessors(
                 arrayOf(
                     TeeAudioProcessor(audioBufferSink),
+                    CaptionPresentationDelayAudioProcessor(presentationDelayMs),
                 ),
             )
             .build()

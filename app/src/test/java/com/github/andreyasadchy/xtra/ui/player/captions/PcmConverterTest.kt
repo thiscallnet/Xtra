@@ -4,6 +4,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import com.github.andreyasadchy.xtra.ui.player.captions.engine.CaptionRecognitionEvent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -90,6 +91,69 @@ class CaptionTextStateMachineTest {
         assertTrue(displayed.length <= 73)
     }
 
+    @Test
+    fun wordsStayInPlaceUntilAThirdLineRollsAway() {
+        val captions = CaptionTextStateMachine()
+
+        captions.updatePartial("one two three four five six seven eight")
+        val firstDisplay = captions.visibleText
+        val firstLine = firstDisplay.lineSequence().first()
+        val firstShift = captions.lineShiftToken
+
+        captions.updatePartial("one two three four five six seven eight nine")
+        assertTrue(captions.visibleText.startsWith(firstLine))
+        assertEquals(firstShift, captions.lineShiftToken)
+
+        captions.updatePartial(
+            "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen",
+        )
+        assertNotEquals(firstShift, captions.lineShiftToken)
+        assertTrue(captions.visibleText.lines().size <= 2)
+    }
+
+    @Test
+    fun thirdLineRollsOneWholeLineWithoutReflowingVisibleWords() {
+        val captions = CaptionTextStateMachine()
+
+        captions.updatePartial(
+            "one two three four five six seven eight nine ten eleven twelve",
+        )
+        val before = captions.visibleText.lines()
+        val shiftBefore = captions.lineShiftToken
+
+        captions.updatePartial(
+            "one two three four five six seven eight nine ten eleven twelve " +
+                "thirteen fourteen fifteen sixteen",
+        )
+        val after = captions.visibleText.lines()
+
+        assertEquals(2, before.size)
+        assertEquals(2, after.size)
+        assertEquals(before[1], after[0])
+        assertEquals(shiftBefore + 1, captions.lineShiftToken)
+    }
+
+    @Test
+    fun finalCorrectionDoesNotReplaceWordsAlreadyShown() {
+        val captions = CaptionTextStateMachine()
+
+        captions.updatePartial("I bought item")
+        captions.finalize("I bought the item")
+
+        assertEquals("I bought item", captions.visibleText)
+    }
+
+    @Test
+    fun revisedPartialStillAppendsLaterWords() {
+        val captions = CaptionTextStateMachine()
+
+        captions.updatePartial("I bought item")
+        captions.updatePartial("I bought the item")
+        captions.updatePartial("I bought the item today")
+
+        assertEquals("I bought item today", captions.visibleText)
+    }
+
     private class FakeCaptionEngine(
         private val events: List<CaptionRecognitionEvent>,
     ) : com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngine {
@@ -101,5 +165,26 @@ class CaptionTextStateMachineTest {
         override fun close() {
             wasClosed = true
         }
+    }
+}
+
+class CaptionPresentationDelayBufferTest {
+
+    @Test
+    fun asrSideReceivesPcmBeforeOneSecondPresentationDelayIsReleased() {
+        val delay = PcmPresentationDelayBuffer(capacityBytes = 8)
+
+        assertEquals(emptyList<Byte>(), delay.process(byteArrayOf(1, 2, 3, 4), targetBytes = 4).toList())
+        assertEquals(listOf<Byte>(1, 2), delay.process(byteArrayOf(5, 6), targetBytes = 4).toList())
+        assertEquals(listOf<Byte>(3, 4, 5, 6), delay.drain().toList())
+    }
+
+    @Test
+    fun reducingPresentationDelayDropsStalePcmInsteadOfBurstingIt() {
+        val delay = PcmPresentationDelayBuffer(capacityBytes = 8)
+        delay.process(byteArrayOf(1, 2, 3, 4), targetBytes = 4)
+
+        assertEquals(listOf<Byte>(5, 6), delay.process(byteArrayOf(5, 6), targetBytes = 0).toList())
+        assertEquals(emptyList<Byte>(), delay.drain().toList())
     }
 }

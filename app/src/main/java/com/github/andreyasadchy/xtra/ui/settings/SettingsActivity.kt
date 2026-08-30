@@ -12,6 +12,7 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
@@ -153,7 +154,7 @@ private fun playbackBackendDiagnostic(context: android.content.Context): String 
         playerPreference = context.prefs().getString(C.PLAYER, C.EXOPLAYER),
         useLegacyCustomPlaybackService = context.prefs().getBoolean(
             C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE,
-            false,
+            true,
         ),
     ).diagnosticName
 }
@@ -2298,6 +2299,27 @@ class SettingsActivity : AppCompatActivity() {
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.playback_preferences, rootKey)
+            findPreference<PreferenceCategory>("live_caption_settings")?.isVisible = BuildConfig.DEBUG
+            if (BuildConfig.DEBUG) {
+                val background = findPreference<ListPreference>(C.PLAYER_LIVE_CAPTION_BACKGROUND)
+                val customColor = findPreference<EditTextPreference>(C.PLAYER_LIVE_CAPTION_BACKGROUND_COLOR)
+                customColor?.isVisible = background?.value == "custom"
+                background?.setOnPreferenceChangeListener { _, value ->
+                    customColor?.isVisible = value == "custom"
+                    true
+                }
+                customColor?.setOnBindEditTextListener { editText ->
+                    editText.inputType = InputType.TYPE_CLASS_TEXT
+                    editText.hint = "#1A1A1A"
+                }
+                customColor?.setOnPreferenceChangeListener { _, value ->
+                    val valid = runCatching { Color.parseColor(value as String) }.isSuccess
+                    if (!valid) {
+                        Toast.makeText(requireContext(), R.string.live_caption_custom_color_summary, Toast.LENGTH_SHORT).show()
+                    }
+                    valid
+                }
+            }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !requireActivity().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
                 findPreference<SwitchPreferenceCompat>(C.PLAYER_PICTURE_IN_PICTURE)?.isVisible = false
             }

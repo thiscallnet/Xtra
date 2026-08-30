@@ -6,12 +6,12 @@ import org.junit.Test
 class PlaybackBackendTest {
 
     @Test
-    fun `fresh defaults use modern Media3`() {
+    fun `fresh defaults use legacy ExoPlayer`() {
         assertEquals(
-            PlaybackBackend.MEDIA3,
+            PlaybackBackend.LEGACY_EXOPLAYER,
             resolvePlaybackBackend(
                 playerPreference = null,
-                useLegacyCustomPlaybackService = false,
+                useLegacyCustomPlaybackService = true,
             ),
         )
     }

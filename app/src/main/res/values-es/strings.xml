@@ -1495,4 +1495,10 @@
     <string name="drops_active_campaigns">Active campaigns</string>
     <string name="drops_upcoming">Upcoming</string>
     <string name="drops_summary">%1$d rewards ready · %2$d campaigns active</string>
+    <string name="enable_live_captions">Enable live captions</string>
+    <string name="disable_live_captions">Disable live captions</string>
+    <string name="live_captions_error">Live captions unavailable: %s</string>
+    <string name="live_caption_processing_interval">Live caption processing interval</string>
+    <string name="live_caption_processing_interval_value">Moonshine partials every %1$.1f seconds</string>
+    <string name="player_live_captions">Toggle live captions</string>
 </resources>

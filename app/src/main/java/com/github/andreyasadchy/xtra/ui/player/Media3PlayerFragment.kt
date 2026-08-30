@@ -64,6 +64,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.TimeBar
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.RecyclerView
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
@@ -80,7 +81,6 @@ import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerViewModel.Companion.Media3PlayerViewModelFactory
-import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngineId
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -230,53 +230,22 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     open fun toggleSubtitles(enabled: Boolean) {}
 
     fun toggleLiveCaptions() {
-        if (videoType != STREAM) return
+        if (!BuildConfig.DEBUG || videoType != STREAM) return
         val preferences = requireContext().prefs()
         val enabled = !preferences.getBoolean(C.PLAYER_LIVE_CAPTIONS, false)
         preferences.edit { putBoolean(C.PLAYER_LIVE_CAPTIONS, enabled) }
         xtraModule.liveCaptionManager.setEnabled(enabled)
     }
 
-    fun selectedLiveCaptionEngine(): LiveCaptionEngineId {
-        return LiveCaptionEngineId.fromPreference(
-            requireContext().prefs().getString(C.PLAYER_LIVE_CAPTION_ENGINE, null),
-        )
-    }
-
     fun liveCaptionPartialIntervalMs(): Int {
         return requireContext().prefs().getInt(
             C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS,
-            300,
+            1_000,
         ).coerceIn(200, 2_000)
     }
 
-    fun setLiveCaptionEngine(id: LiveCaptionEngineId) {
-        if (videoType == STREAM) {
-            xtraModule.liveCaptionManager.setEngine(id)
-        }
-    }
-
-    fun showLiveCaptionEngineDialog() {
-        val engines = LiveCaptionEngineId.entries.toTypedArray()
-        val labels = engines.map { id ->
-            getString(
-                when (id) {
-                    LiveCaptionEngineId.ZIPFORMER_20M -> R.string.live_caption_engine_zipformer
-                    LiveCaptionEngineId.MOONSHINE_V2_TINY -> R.string.live_caption_engine_moonshine
-                    LiveCaptionEngineId.ZIPFORMER_MOONSHINE_2PASS -> R.string.live_caption_engine_hybrid
-                },
-            )
-        }.toTypedArray()
-        requireContext().getAlertDialogBuilder()
-            .setTitle(R.string.live_caption_engine)
-            .setSingleChoiceItems(labels, engines.indexOf(selectedLiveCaptionEngine())) { dialog, which ->
-                setLiveCaptionEngine(engines[which])
-                dialog.dismiss()
-            }
-            .show()
-    }
-
     fun showLiveCaptionIntervalDialog() {
+        if (!BuildConfig.DEBUG || videoType != STREAM) return
         val intervalsMs = intArrayOf(300, 500, 1_000, 2_000)
         val labels = intervalsMs.map { intervalMs ->
             getString(R.string.live_caption_processing_interval_value, intervalMs / 1000.0)
@@ -288,7 +257,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     putInt(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, intervalsMs[which])
                 }
                 // Recreate the selected engine on the worker so the new interval takes effect.
-                xtraModule.liveCaptionManager.setEngine(selectedLiveCaptionEngine())
+                xtraModule.liveCaptionManager.reloadConfiguration()
                 dialog.dismiss()
             }
             .show()
@@ -306,7 +275,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
         super.onCreate(savedInstanceState)
         xtraModule.liveCaptionManager.setEnabled(
-            videoType == STREAM && requireContext().prefs().getBoolean(C.PLAYER_LIVE_CAPTIONS, false),
+            BuildConfig.DEBUG && videoType == STREAM &&
+                requireContext().prefs().getBoolean(C.PLAYER_LIVE_CAPTIONS, false),
         )
         (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
         isPortrait = resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
@@ -1596,9 +1566,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         } else null
     }
 
-    fun showQualityDialog() {
-        val qualities = getQualities()
-        if (!qualities.isNullOrEmpty()) {
+    open fun showQualityDialog() {
+        ensureQualities {
+            if (!isAdded || childFragmentManager.isStateSaved) return@ensureQualities
+            val qualities = getQualities()
+            if (qualities.isNullOrEmpty()) return@ensureQualities
             RadioButtonDialogFragment.newInstance(
                 REQUEST_CODE_QUALITY,
                 qualities.map { it.first },
@@ -1607,6 +1579,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 qualities.indexOf(qualities.find { it.second.name == viewModel.quality?.name && it.second.url == viewModel.quality?.url })
             ).show(childFragmentManager, "closeOnPip")
         }
+    }
+
+    protected open fun ensureQualities(onReady: () -> Unit) {
+        onReady()
     }
 
     fun showSpeedDialog() {

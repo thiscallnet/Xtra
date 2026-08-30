@@ -1224,7 +1224,7 @@ class MainActivity : AppCompatActivity() {
         playerPreference = prefs.getString(C.PLAYER, C.EXOPLAYER),
         useLegacyCustomPlaybackService = prefs.getBoolean(
             C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE,
-            false,
+            true,
         ),
     )
 

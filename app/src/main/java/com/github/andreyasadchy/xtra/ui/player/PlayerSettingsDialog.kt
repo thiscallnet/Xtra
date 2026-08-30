@@ -13,8 +13,8 @@ import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.media3.common.Tracks
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.databinding.PlayerSettingsBinding
-import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngineId
 import com.github.andreyasadchy.xtra.ui.settings.PlayerControlLayoutEditor
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER_CONTROLS
@@ -93,34 +93,20 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 (parentFragment as? PlayerFragment)?.setQualityText()
             }
             if (type == BasePlaybackService.STREAM) {
-                if (parentFragment is Media3PlayerFragment) {
-                    val media3Parent = parentFragment as Media3PlayerFragment
-                    val selectedEngine = media3Parent.selectedLiveCaptionEngine()
-                    menuLiveCaptionEngine.visibility = View.VISIBLE
-                    menuLiveCaptionEngine.text = getString(
-                        R.string.live_caption_engine_selected,
-                        liveCaptionEngineLabel(selectedEngine),
+                val media3Parent = parentFragment as? Media3PlayerFragment
+                val legacyParent = parentFragment as? ExoPlayerFragment
+                if (BuildConfig.DEBUG && (media3Parent != null || legacyParent != null)) {
+                    menuLiveCaptionInterval.visibility = View.VISIBLE
+                    menuLiveCaptionInterval.text = getString(
+                        R.string.live_caption_processing_interval_value,
+                        (media3Parent?.liveCaptionPartialIntervalMs()
+                            ?: legacyParent?.liveCaptionPartialIntervalMs()
+                            ?: 1_000) / 1000.0,
                     )
-                    menuLiveCaptionEngine.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.showLiveCaptionEngineDialog()
+                    menuLiveCaptionInterval.setOnClickListener {
+                        media3Parent?.showLiveCaptionIntervalDialog()
+                            ?: legacyParent?.showLiveCaptionIntervalDialog()
                         dismiss()
-                    }
-                    menuLiveCaptionInterval.visibility = if (
-                        selectedEngine == LiveCaptionEngineId.MOONSHINE_V2_TINY
-                    ) {
-                        View.VISIBLE
-                    } else {
-                        View.GONE
-                    }
-                    if (menuLiveCaptionInterval.isVisible) {
-                        menuLiveCaptionInterval.text = getString(
-                            R.string.live_caption_processing_interval_value,
-                            media3Parent.liveCaptionPartialIntervalMs() / 1000.0,
-                        )
-                        menuLiveCaptionInterval.setOnClickListener {
-                            media3Parent.showLiveCaptionIntervalDialog()
-                            dismiss()
-                        }
                     }
                 }
                 if (requireContext().prefs().getBoolean(C.PLAYER_MENU_VIEWER_LIST, true)) {
@@ -301,16 +287,6 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
         }
         reorderMenuItems()
         setMenuTextColor(view)
-    }
-
-    private fun liveCaptionEngineLabel(id: LiveCaptionEngineId): String {
-        return getString(
-            when (id) {
-                LiveCaptionEngineId.ZIPFORMER_20M -> R.string.live_caption_engine_zipformer
-                LiveCaptionEngineId.MOONSHINE_V2_TINY -> R.string.live_caption_engine_moonshine
-                LiveCaptionEngineId.ZIPFORMER_MOONSHINE_2PASS -> R.string.live_caption_engine_hybrid
-            },
-        )
     }
 
     private fun showControlLayoutEditor() {

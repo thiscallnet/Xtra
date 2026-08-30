@@ -944,13 +944,28 @@
     <string name="proxy_error">Proxy error</string>
     <string name="show_subtitles">Show subtitles</string>
     <string name="hide_subtitles">Hide subtitles</string>
-    <string name="live_caption_engine">Live caption engine</string>
-    <string name="live_caption_engine_selected">Live caption engine: %1$s</string>
-    <string name="live_caption_engine_zipformer">Streaming — Zipformer 20M</string>
-    <string name="live_caption_engine_moonshine">Moonshine v2 Tiny</string>
-    <string name="live_caption_engine_hybrid">Hybrid — Zipformer + Moonshine</string>
     <string name="live_caption_processing_interval">Live caption processing interval</string>
     <string name="live_caption_processing_interval_value">Moonshine partials every %1$.1f seconds</string>
+    <string name="live_caption_settings" translatable="false">Live captions (experimental)</string>
+    <string name="live_caption_settings_summary" translatable="false">On-device English captions powered by Moonshine v2 Tiny</string>
+    <string name="live_caption_background" translatable="false">Caption background</string>
+    <string name="live_caption_background_black" translatable="false">Black</string>
+    <string name="live_caption_background_transparent" translatable="false">Transparent</string>
+    <string name="live_caption_background_custom" translatable="false">Custom color</string>
+    <string name="live_caption_custom_color" translatable="false">Custom background color</string>
+    <string name="live_caption_custom_color_summary" translatable="false">Hex color, for example #1A1A1A</string>
+    <string name="live_caption_font" translatable="false">Caption font</string>
+    <string name="live_caption_font_size" translatable="false">Caption font size</string>
+    <string name="live_caption_opacity" translatable="false">Caption opacity</string>
+    <string name="live_caption_animation" translatable="false">Line animation speed</string>
+    <string name="live_caption_animation_off" translatable="false">Off</string>
+    <string name="live_caption_animation_fast" translatable="false">Fast</string>
+    <string name="live_caption_animation_normal" translatable="false">Normal</string>
+    <string name="live_caption_animation_slow" translatable="false">Slow</string>
+    <string name="live_caption_hold" translatable="false">Keep captions after speech</string>
+    <string name="live_caption_hold_summary" translatable="false">Seconds captions remain during silence</string>
+    <string name="live_caption_presentation_delay" translatable="false">Caption sync delay</string>
+    <string name="live_caption_presentation_delay_summary" translatable="false">Delays audio and video after PCM capture so captions can catch up</string>
     <string name="toggle_subtitles">Toggle subtitles</string>
     <string name="enable_stv">Enable 7TV emotes</string>
     <string name="enable_bttv">Enable BTTV emotes</string>
@@ -1452,7 +1467,7 @@
     <string name="delete_filter_message">Are you sure you want to delete this filter?</string>
     <string name="use_custom_playback_service">Use custom playback service</string>
     <string name="use_legacy_exoplayer_service" translatable="false">Use legacy ExoPlayer service</string>
-    <string name="use_legacy_exoplayer_service_summary" translatable="false">Off: Modern Media3 (recommended)</string>
+    <string name="use_legacy_exoplayer_service_summary" translatable="false">On: Legacy ExoPlayer service (default) • Off: Modern Media3</string>
     <string name="legacy_playback_engine" translatable="false">Legacy playback engine</string>
     <string name="legacy_exoplayer_service" translatable="false">Legacy ExoPlayer service</string>
     <string name="android_media_player" translatable="false">Android MediaPlayer</string>

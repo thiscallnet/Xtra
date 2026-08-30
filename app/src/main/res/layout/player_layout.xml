@@ -497,25 +497,22 @@
         android:layout_marginBottom="5dp">
 
         <ImageButton
-            android:id="@+id/subtitles"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:id="@+id/liveCaptions"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="@android:color/transparent"
-            android:contentDescription="@string/player_subtitles"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
+            android:contentDescription="@string/player_live_captions"
             android:src="@drawable/exo_ic_subtitle_off"
             android:visibility="gone"
             app:tint="@android:color/white"
             tools:visibility="visible" />
 
         <ImageButton
-            android:id="@+id/liveCaptions"
+            android:id="@+id/subtitles"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:layout_marginEnd="48dp"
             android:background="@android:color/transparent"
-            android:contentDescription="@string/player_live_captions"
+            android:contentDescription="@string/player_subtitles"
             android:minWidth="48dp"
             android:minHeight="48dp"
             android:src="@drawable/exo_ic_subtitle_off"

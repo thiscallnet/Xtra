@@ -141,11 +141,11 @@ android {
     }
     splits {
         abi {
-            // Release distribution uses standalone ABI APKs; keep the diagnostic perf APK universal.
+            // Release distribution uses standalone ABI APKs; keep debug/perf APKs universal.
             isEnable = releaseAbiSplitsRequested
             reset()
             include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
-            isUniversalApk = true
+            isUniversalApk = !releaseAbiSplitsRequested
         }
     }
     lint {

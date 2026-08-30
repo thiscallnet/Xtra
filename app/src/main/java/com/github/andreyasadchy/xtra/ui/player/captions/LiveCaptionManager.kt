@@ -5,7 +5,6 @@ import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
-import androidx.core.content.edit
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.TeeAudioProcessor
@@ -13,7 +12,7 @@ import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.ui.player.captions.engine.CaptionRecognitionEvent
 import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngine
 import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngineFactory
-import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngineId
+import com.github.andreyasadchy.xtra.ui.player.captions.engine.MOONSHINE_ENGINE_ID
 import com.github.andreyasadchy.xtra.util.C as PreferenceKeys
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,7 +24,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
 
 internal sealed interface AudioEvent {
     data class Pcm(
@@ -45,10 +43,7 @@ internal sealed interface AudioEvent {
 
     data class Reset(val generation: Long) : AudioEvent
 
-    data class EngineChanged(
-        val id: LiveCaptionEngineId,
-        val generation: Long,
-    ) : AudioEvent
+    data class Reconfigure(val generation: Long) : AudioEvent
 
     data object Stop : AudioEvent
 }
@@ -77,24 +72,22 @@ private data class AudioFormatState(
 @OptIn(UnstableApi::class)
 class LiveCaptionManager(
     private val context: Context,
-    private val engineFactory: (Context, LiveCaptionEngineId) -> LiveCaptionEngine =
+    private val engineFactory: (Context) -> LiveCaptionEngine =
         LiveCaptionEngineFactory::create,
 ) {
     private val enabled = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val audioGeneration = AtomicLong(0L)
     private val droppedAudioBuffers = AtomicInteger(0)
-    private val selectedEngineId = AtomicReference(
-        LiveCaptionEngineId.fromPreference(
-            context.prefs().getString(PreferenceKeys.PLAYER_LIVE_CAPTION_ENGINE, null),
-        ),
-    )
+    private val presentationDelayMs = AtomicInteger(0)
+    private val captionHoldMs = AtomicInteger(DEFAULT_CAPTION_HOLD_SECONDS * 1_000)
     private val audioQueue = CaptionAudioQueue()
     private val stateMutable = MutableStateFlow(LiveCaptionState())
     private val metricsMutable = MutableStateFlow(
-        LiveCaptionMetrics(selectedEngineId.get().preferenceValue),
+        LiveCaptionMetrics(MOONSHINE_ENGINE_ID),
     )
     private val workerLock = Any()
+    private val captionTextLock = Any()
     private val captionText = CaptionTextStateMachine()
 
     @Volatile
@@ -105,6 +98,9 @@ class LiveCaptionManager(
 
     val state: StateFlow<LiveCaptionState> = stateMutable.asStateFlow()
     val metrics: StateFlow<LiveCaptionMetrics> = metricsMutable.asStateFlow()
+
+    /** Read from the audio render thread; this is deliberately only an atomic load. */
+    fun presentationDelayMs(): Int = presentationDelayMs.get()
 
     val audioBufferSink = object : TeeAudioProcessor.AudioBufferSink {
         override fun flush(
@@ -128,7 +124,9 @@ class LiveCaptionManager(
             if (!enabled.get()) return
 
             val format = audioFormat ?: return
-            if (format.encoding != C.ENCODING_PCM_16BIT) return
+            if (format.encoding != C.ENCODING_PCM_16BIT &&
+                format.encoding != C.ENCODING_PCM_FLOAT
+            ) return
 
             val copy = ByteArray(buffer.remaining())
             buffer.duplicate().get(copy)
@@ -148,20 +146,22 @@ class LiveCaptionManager(
     }
 
     fun setEnabled(value: Boolean) {
-        if (closed.get()) return
+        if (closed.get() || (!BuildConfig.DEBUG && value)) return
 
         if (!value) {
             enabled.set(false)
+            presentationDelayMs.set(0)
             audioGeneration.incrementAndGet()
             audioQueue.clear()
             audioQueue.offer(AudioEvent.Stop)
-            captionText.reset()
+            resetCaptionText()
             stateMutable.value = LiveCaptionState()
             return
         }
 
+        refreshRuntimeSettings()
         enabled.set(true)
-        captionText.reset()
+        resetCaptionText()
         stateMutable.value = LiveCaptionState(
             enabled = true,
             status = LiveCaptionState.Status.STARTING,
@@ -169,22 +169,19 @@ class LiveCaptionManager(
         startWorker()
     }
 
-    fun setEngine(id: LiveCaptionEngineId) {
+    fun reloadConfiguration() {
         if (closed.get()) return
 
-        context.prefs().edit {
-            putString(PreferenceKeys.PLAYER_LIVE_CAPTION_ENGINE, id.preferenceValue)
-        }
-        selectedEngineId.set(id)
+        refreshRuntimeSettings()
         val generation = audioGeneration.incrementAndGet()
         audioQueue.clear()
-        captionText.reset()
+        resetCaptionText()
         if (enabled.get()) {
             stateMutable.value = LiveCaptionState(
                 enabled = true,
                 status = LiveCaptionState.Status.STARTING,
             )
-            audioQueue.offer(AudioEvent.EngineChanged(id, generation))
+            audioQueue.offer(AudioEvent.Reconfigure(generation))
             startWorker()
         } else {
             audioQueue.offer(AudioEvent.Stop)
@@ -193,9 +190,12 @@ class LiveCaptionManager(
     }
 
     fun clearVisibleCaption() {
-        captionText.reset()
+        val lineShiftToken = resetCaptionText()
         if (enabled.get()) {
-            stateMutable.value = stateMutable.value.copy(text = "")
+            stateMutable.value = stateMutable.value.copy(
+                text = "",
+                lineShiftToken = lineShiftToken,
+            )
         }
     }
 
@@ -204,19 +204,23 @@ class LiveCaptionManager(
         if (closed.get()) return
         val generation = audioGeneration.incrementAndGet()
         audioQueue.clear()
-        captionText.reset()
+        val lineShiftToken = resetCaptionText()
         if (enabled.get()) {
             audioQueue.offer(AudioEvent.Reset(generation))
-            stateMutable.value = stateMutable.value.copy(text = "")
+            stateMutable.value = stateMutable.value.copy(
+                text = "",
+                lineShiftToken = lineShiftToken,
+            )
         }
     }
 
     fun close() {
         if (!closed.compareAndSet(false, true)) return
         enabled.set(false)
+        presentationDelayMs.set(0)
         audioQueue.clear()
         audioQueue.offer(AudioEvent.Stop)
-        captionText.reset()
+        resetCaptionText()
         stateMutable.value = LiveCaptionState()
     }
 
@@ -234,7 +238,7 @@ class LiveCaptionManager(
 
         var engine: LiveCaptionEngine? = null
         var engineGeneration = -1L
-        var metricsEngineId = selectedEngineId.get().preferenceValue
+        var metricsEngineId = MOONSHINE_ENGINE_ID
         var metricsStartedAtMs = 0L
         var engineInitMs = 0L
         var firstOutputAfterStartMs: Long? = null
@@ -247,8 +251,8 @@ class LiveCaptionManager(
         var visibleCaptionExpiresAtMs = 0L
         val droppedBuffersBaseline = EngineDropBaseline(droppedAudioBuffers.get())
 
-        fun resetMetrics(id: LiveCaptionEngineId) {
-            metricsEngineId = id.preferenceValue
+        fun resetMetrics() {
+            metricsEngineId = MOONSHINE_ENGINE_ID
             metricsStartedAtMs = SystemClock.elapsedRealtime()
             engineInitMs = 0L
             firstOutputAfterStartMs = null
@@ -265,6 +269,12 @@ class LiveCaptionManager(
                     droppedAudioBuffers = droppedBuffersBaseline.delta(droppedAudioBuffers.get()),
                 ),
             )
+        }
+
+        fun markFirstOutput(text: String) {
+            if (firstOutputAfterStartMs == null && text.isNotBlank()) {
+                firstOutputAfterStartMs = SystemClock.elapsedRealtime() - metricsStartedAtMs
+            }
         }
 
         fun closeEngine() {
@@ -290,12 +300,12 @@ class LiveCaptionManager(
                         if (!enabled.get()) break
                     }
 
-                    is AudioEvent.EngineChanged -> {
+                    is AudioEvent.Reconfigure -> {
                         if (event.generation != audioGeneration.get()) continue
                         closeEngine()
-                        captionText.reset()
+                        resetCaptionText()
                         visibleCaptionExpiresAtMs = 0L
-                        resetMetrics(event.id)
+                        resetMetrics()
                     }
 
                     is AudioEvent.Reset -> {
@@ -313,9 +323,6 @@ class LiveCaptionManager(
                             break
                         }
                         if (event.generation != audioGeneration.get()) continue
-                        if (engine?.id != selectedEngineId.get().preferenceValue) {
-                            closeEngine()
-                        }
                         engine?.reset()
                         engineGeneration = event.generation
                         clearVisibleCaption()
@@ -335,25 +342,23 @@ class LiveCaptionManager(
                         if (!enabled.get() || event.generation != audioGeneration.get()) continue
 
                         if (engine != null &&
-                            (engineGeneration != event.generation ||
-                                engine?.id != selectedEngineId.get().preferenceValue)
+                            engineGeneration != event.generation
                         ) {
                             closeEngine()
                         }
                         if (engine == null) {
                             publishStarting()
-                            val selectedId = selectedEngineId.get()
-                            resetMetrics(selectedId)
+                            resetMetrics()
                             val initStartedAt = SystemClock.elapsedRealtime()
-                            engine = engineFactory(context, selectedId)
+                            engine = engineFactory(context)
                             engineGeneration = event.generation
                             engineInitMs = SystemClock.elapsedRealtime() - initStartedAt
                             metricsMutable.value = metricsMutable.value.copy(
-                                engineId = selectedId.preferenceValue,
+                                engineId = MOONSHINE_ENGINE_ID,
                                 engineInitMs = engineInitMs,
                             )
                             if (BuildConfig.DEBUG) {
-                                Log.d(TAG, "ASR engine=${selectedId.preferenceValue} initialized in ${engineInitMs}ms")
+                                Log.d(TAG, "ASR engine=$MOONSHINE_ENGINE_ID initialized in ${engineInitMs}ms")
                             }
                             publishListening()
                         }
@@ -361,6 +366,7 @@ class LiveCaptionManager(
                         if (engineGeneration != event.generation) continue
                         val samples = when (event.encoding) {
                             C.ENCODING_PCM_16BIT -> pcm16ToMono(event.bytes, event.channelCount)
+                            C.ENCODING_PCM_FLOAT -> pcmFloatToMono(event.bytes, event.channelCount)
                             else -> continue
                         }
                         if (samples.isEmpty()) continue
@@ -379,17 +385,17 @@ class LiveCaptionManager(
                         events.forEach { recognition ->
                             when (recognition) {
                                 is CaptionRecognitionEvent.Partial -> {
-                                    visibleCaptionExpiresAtMs = 0L
-                                    if (firstOutputAfterStartMs == null && recognition.text.isNotBlank()) {
-                                        firstOutputAfterStartMs = SystemClock.elapsedRealtime() - metricsStartedAtMs
-                                    }
+                                    markFirstOutput(recognition.text)
                                     publishPartial(recognition)
+                                    visibleCaptionExpiresAtMs =
+                                        SystemClock.elapsedRealtime() + captionHoldMs.get()
                                 }
 
                                 is CaptionRecognitionEvent.Final -> {
+                                    markFirstOutput(recognition.text)
                                     publishFinal(recognition)
                                     visibleCaptionExpiresAtMs =
-                                        SystemClock.elapsedRealtime() + FINAL_CAPTION_HOLD_MS
+                                        SystemClock.elapsedRealtime() + captionHoldMs.get()
                                 }
                             }
                         }
@@ -463,20 +469,43 @@ class LiveCaptionManager(
 
     private fun publishPartial(event: CaptionRecognitionEvent.Partial) {
         if (!enabled.get()) return
-        captionText.apply(event)
-        stateMutable.value = stateMutable.value.copy(text = captionText.visibleText)
+        val output = applyCaptionEvent(event)
+        stateMutable.value = stateMutable.value.copy(
+            text = output.text,
+            lineShiftToken = output.lineShiftToken,
+        )
     }
 
     private fun publishFinal(event: CaptionRecognitionEvent.Final) {
         if (!enabled.get()) return
-        captionText.apply(event)
-        stateMutable.value = stateMutable.value.copy(text = captionText.visibleText)
+        val output = applyCaptionEvent(event)
+        stateMutable.value = stateMutable.value.copy(
+            text = output.text,
+            lineShiftToken = output.lineShiftToken,
+        )
     }
+
+    private fun resetCaptionText(): Long = synchronized(captionTextLock) {
+        captionText.reset()
+        captionText.lineShiftToken
+    }
+
+    private fun applyCaptionEvent(event: CaptionRecognitionEvent): CaptionTextOutput =
+        synchronized(captionTextLock) {
+            captionText.apply(event)
+            CaptionTextOutput(captionText.visibleText, captionText.lineShiftToken)
+        }
+
+    private data class CaptionTextOutput(
+        val text: String,
+        val lineShiftToken: Long,
+    )
 
     private fun publishError(throwable: Throwable) {
         enabled.set(false)
+        presentationDelayMs.set(0)
         audioQueue.clear()
-        captionText.reset()
+        resetCaptionText()
         stateMutable.value = LiveCaptionState(
             status = LiveCaptionState.Status.ERROR,
             error = throwable.message ?: throwable::class.java.simpleName,
@@ -490,10 +519,25 @@ class LiveCaptionManager(
         )
     }
 
+    private fun refreshRuntimeSettings() {
+        val preferences = context.prefs()
+        presentationDelayMs.set(
+            preferences.getInt(
+                PreferenceKeys.PLAYER_LIVE_CAPTION_PRESENTATION_DELAY_MS,
+                DEFAULT_CAPTION_PRESENTATION_DELAY_MS,
+            ).coerceIn(0, MAX_CAPTION_PRESENTATION_DELAY_MS),
+        )
+        captionHoldMs.set(
+            preferences.getInt(
+                PreferenceKeys.PLAYER_LIVE_CAPTION_HOLD_SECONDS,
+                DEFAULT_CAPTION_HOLD_SECONDS,
+            ).coerceIn(1, 8) * 1_000,
+        )
+    }
+
     private companion object {
         const val TAG = "LiveCaptionManager"
         const val METRICS_LOG_INTERVAL_MS = 10_000L
         const val QUEUE_POLL_INTERVAL_MS = 100L
-        const val FINAL_CAPTION_HOLD_MS = 2_000L
     }
 }

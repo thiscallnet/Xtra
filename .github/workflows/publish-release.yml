@@ -97,7 +97,6 @@ jobs:
       run: |
         set -euo pipefail
         required_assets=(
-          app-release.apk
           app-arm64-v8a-release.apk
           app-armeabi-v7a-release.apk
           app-x86-release.apk
@@ -236,7 +235,6 @@ jobs:
       run: |
         set -euo pipefail
         required_assets=(
-          app-release.apk
           app-arm64-v8a-release.apk
           app-armeabi-v7a-release.apk
           app-x86-release.apk

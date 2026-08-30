@@ -14,12 +14,11 @@ import com.k2fsa.sherpa.onnx.SileroVadModelConfig
 import com.k2fsa.sherpa.onnx.Vad
 import com.k2fsa.sherpa.onnx.VadModelConfig
 
-/** Moonshine's offline model driven by VAD and optional periodic re-decodes. */
+/** Moonshine's offline model driven by VAD and periodic simulated-streaming re-decodes. */
 class SherpaMoonshineEngine(
     private val context: Context,
-    private val emitPartials: Boolean = true,
 ) : LiveCaptionEngine {
-    override val id: String = LiveCaptionEngineId.MOONSHINE_V2_TINY.preferenceValue
+    override val id: String = MOONSHINE_ENGINE_ID
 
     private val recognizer = createRecognizer()
     private val vad = createVad()
@@ -104,7 +103,6 @@ class SherpaMoonshineEngine(
         if (speechActive && !emittedFinal) {
             val nowMs = audioPositionMs()
             if (shouldDecodeMoonshinePartial(
-                    emitPartials = emitPartials,
                     speechActive = speechActive,
                     utteranceSize = utterance.size,
                     nowMs = nowMs,
@@ -196,7 +194,7 @@ class SherpaMoonshineEngine(
         const val MIN_SILENCE_SECONDS = 0.4f
         const val MIN_SPEECH_SECONDS = 0.2f
         const val MAX_SPEECH_SECONDS = 10.0f
-        const val DEFAULT_PARTIAL_DECODE_INTERVAL_MS = 300L
+        const val DEFAULT_PARTIAL_DECODE_INTERVAL_MS = DEFAULT_MOONSHINE_PARTIAL_INTERVAL_MS
         const val MIN_PARTIAL_DECODE_INTERVAL_MS = 200L
         const val MAX_PARTIAL_DECODE_INTERVAL_MS = 2_000L
         const val PRE_ROLL_SAMPLES_AT_16K = 6_400
@@ -204,15 +202,16 @@ class SherpaMoonshineEngine(
     }
 }
 
+internal const val MOONSHINE_ENGINE_ID = "moonshine_v2_tiny"
+internal const val DEFAULT_MOONSHINE_PARTIAL_INTERVAL_MS = 1_000L
+
 internal fun shouldDecodeMoonshinePartial(
-    emitPartials: Boolean,
     speechActive: Boolean,
     utteranceSize: Int,
     nowMs: Long,
     nextPartialDecodeMs: Long,
 ): Boolean {
-    return emitPartials &&
-        speechActive &&
+    return speechActive &&
         utteranceSize > 0 &&
         nowMs >= nextPartialDecodeMs
 }

@@ -38,6 +38,7 @@ import androidx.media3.session.SessionResult
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
@@ -47,13 +48,19 @@ import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.httpProxyHost
+import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.google.common.util.concurrent.SettableFuture
 import java.util.Timer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.concurrent.schedule
 import kotlin.concurrent.scheduleAtFixedRate
 
@@ -231,7 +238,20 @@ class PlaybackService : MediaSessionService() {
                             add(SessionCommand(GET_MEDIA_PLAYLIST, Bundle.EMPTY))
                             add(SessionCommand(GET_MULTIVARIANT_PLAYLIST, Bundle.EMPTY))
                         }.build()
-                        return MediaSession.ConnectionResult.accept(sessionCommands, connectionResult.availablePlayerCommands)
+                        val playerCommands = connectionResult.availablePlayerCommands.buildUpon()
+                            .apply {
+                                if (player.isCommandAvailable(Player.COMMAND_SET_VIDEO_SURFACE)) {
+                                    add(Player.COMMAND_SET_VIDEO_SURFACE)
+                                }
+                                if (player.isCommandAvailable(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)) {
+                                    add(Player.COMMAND_SET_TRACK_SELECTION_PARAMETERS)
+                                }
+                                if (player.isCommandAvailable(Player.COMMAND_GET_TRACKS)) {
+                                    add(Player.COMMAND_GET_TRACKS)
+                                }
+                            }
+                            .build()
+                        return MediaSession.ConnectionResult.accept(sessionCommands, playerCommands)
                     }
 
                     override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle): ListenableFuture<SessionResult> {
@@ -349,6 +369,17 @@ class PlaybackService : MediaSessionService() {
                                 session.player.prepare()
                                 session.player.playWhenReady = true
                                 session.player.seekTo(position)
+                                saveResumptionState(
+                                    PlaybackState(
+                                        type = BasePlaybackService.VIDEO,
+                                        videoId = newId?.toString(),
+                                        channelName = channelName,
+                                        channelImage = channelLogo,
+                                        title = title,
+                                        playlistUrl = uri,
+                                        position = position,
+                                    ),
+                                )
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                             }
                             START_CLIP -> {
@@ -399,6 +430,15 @@ class PlaybackService : MediaSessionService() {
                                 session.player.setPlaybackSpeed(prefs().getFloat(C.PLAYER_SPEED, 1f))
                                 session.player.prepare()
                                 session.player.playWhenReady = true
+                                saveResumptionState(
+                                    PlaybackState(
+                                        type = BasePlaybackService.CLIP,
+                                        channelName = channelName,
+                                        channelImage = channelLogo,
+                                        title = title,
+                                        playlistUrl = uri,
+                                    ),
+                                )
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                             }
                             START_OFFLINE_VIDEO -> {
@@ -438,6 +478,17 @@ class PlaybackService : MediaSessionService() {
                                 session.player.prepare()
                                 session.player.playWhenReady = true
                                 session.player.seekTo(position)
+                                saveResumptionState(
+                                    PlaybackState(
+                                        type = BasePlaybackService.OFFLINE_VIDEO,
+                                        offlineVideoId = newId,
+                                        channelName = channelName,
+                                        channelImage = channelLogo,
+                                        title = title,
+                                        playlistUrl = uri,
+                                        position = position,
+                                    ),
+                                )
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                             }
                             TOGGLE_DYNAMICS_PROCESSING -> {
@@ -543,9 +594,161 @@ class PlaybackService : MediaSessionService() {
                             else -> super.onCustomCommand(session, controller, customCommand, args)
                         }
                     }
+
+                    override fun onPlaybackResumption(
+                        session: MediaSession,
+                        controller: MediaSession.ControllerInfo,
+                        isForPlay: Boolean,
+                    ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                        val result = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            try {
+                                val savedState = xtraModule.playbackPersistence
+                                    .getPlaybackStatesAndWait()
+                                    .firstOrNull()
+                                val mediaItem = if (savedState == null) {
+                                    null
+                                } else {
+                                    createResumptionMediaItem(savedState)
+                                }
+                                val resumptionPosition = savedState?.let {
+                                    resolveResumptionPosition(it)
+                                } ?: 0L
+                                if (savedState != null &&
+                                    shouldConsumeResumptionState(isForPlay, mediaItem != null)
+                                ) {
+                                    xtraModule.playbackPersistence.takePlaybackState()
+                                    withContext(Dispatchers.Main.immediate) {
+                                        restoreServiceStateForResumption(savedState, resumptionPosition)
+                                    }
+                                }
+                                result.set(
+                                    MediaSession.MediaItemsWithStartPosition(
+                                        mediaItem?.let { listOf(it) } ?: emptyList(),
+                                        0,
+                                        resumptionPosition,
+                                    ),
+                                )
+                            } catch (throwable: Throwable) {
+                                result.setException(throwable)
+                            }
+                        }
+                        return result
+                    }
                 }
             )
         }.build()
+    }
+
+    private suspend fun createResumptionMediaItem(state: PlaybackState): MediaItem? {
+        val uri = if (state.type == BasePlaybackService.STREAM) {
+            // Twitch playlist URLs expire. Resolve by channel first and retain
+            // the stored URL only as an offline/failure fallback.
+            resolveResumptionStreamUri(state) ?: state.playlistUrl
+        } else {
+            state.playlistUrl ?: state.videoUrl
+        }?.takeIf { it.isNotBlank() }
+        ?: return null
+        return MediaItem.Builder()
+            .setUri(uri.toUri())
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(state.title)
+                    .setArtist(state.channelName)
+                    .setArtworkUri(state.channelImage?.toUri())
+                    .build(),
+            )
+            .build()
+    }
+
+    private suspend fun resolveResumptionStreamUri(state: PlaybackState): String? {
+        if (state.type != BasePlaybackService.STREAM) return null
+        val channelLogin = state.channelLogin ?: return null
+        return runCatching {
+            xtraModule.playerRepository.loadStreamPlaylistUrl(
+                context = this,
+                networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                gqlHeaders = TwitchApiHelper.getGQLHeaders(
+                    this,
+                    prefs().getBoolean(C.TOKEN_INCLUDE_TOKEN_STREAM, true),
+                ),
+                channelLogin = channelLogin,
+                randomDeviceId = prefs().getBoolean(C.TOKEN_RANDOM_DEVICE_ID, true),
+                xDeviceId = prefs().getString(C.TOKEN_X_DEVICE_ID, "twitch-web-wall-mason"),
+                playerType = prefs().getString(C.TOKEN_PLAYER_TYPE, "site"),
+                supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
+                proxyPlaybackAccessToken = prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
+                proxyHost = prefs().httpProxyHost(),
+                proxyPort = prefs().httpProxyPort(),
+                proxyUser = prefs().getString(C.PROXY_USER, null),
+                proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
+            )
+        }.getOrNull()
+    }
+
+    /**
+     * Restores the service-owned state that normal START_* commands establish.
+     * This is deliberately called only for an actual playback resumption.
+     */
+    private suspend fun resolveResumptionPosition(state: PlaybackState): Long {
+        return when (state.type) {
+            BasePlaybackService.VIDEO -> state.videoId?.toLongOrNull()
+                ?.let { xtraModule.playerRepository.getVideoPosition(it)?.position }
+            BasePlaybackService.OFFLINE_VIDEO -> state.offlineVideoId
+                ?.let { xtraModule.offlineVideosRepository.getById(it)?.lastWatchPosition }
+            else -> null
+        } ?: state.position ?: 0L
+    }
+
+    private fun restoreServiceStateForResumption(state: PlaybackState, position: Long) {
+        finishViewingStats()
+
+        videoId = null
+        offlineVideoId = null
+        when (state.type) {
+            BasePlaybackService.VIDEO -> {
+                videoId = state.videoId?.toLongOrNull()
+            }
+            BasePlaybackService.OFFLINE_VIDEO -> {
+                offlineVideoId = state.offlineVideoId
+            }
+        }
+        lastSavedPosition = position
+
+        viewingChannelId = state.channelId
+        viewingChannelLogin = state.channelLogin
+        viewingChannelName = state.channelName
+        viewingChannelImage = state.channelImage
+        viewingCategoryId = state.gameId
+        viewingCategoryName = state.gameName
+        viewingCategoryImage = null
+        viewingTitle = state.title
+        viewingContentType = when (state.type) {
+            BasePlaybackService.STREAM -> ViewingPlaybackMetadata.CONTENT_TYPE_LIVE
+            BasePlaybackService.VIDEO -> ViewingPlaybackMetadata.CONTENT_TYPE_VOD
+            BasePlaybackService.CLIP -> ViewingPlaybackMetadata.CONTENT_TYPE_CLIP
+            BasePlaybackService.OFFLINE_VIDEO -> ViewingPlaybackMetadata.CONTENT_TYPE_OFFLINE_VIDEO
+            else -> null
+        }
+        viewingContentId = when (state.type) {
+            BasePlaybackService.STREAM -> state.streamId
+            BasePlaybackService.VIDEO -> state.videoId
+            BasePlaybackService.CLIP -> state.clipId
+            BasePlaybackService.OFFLINE_VIDEO -> state.offlineVideoId?.toString()
+            else -> null
+        }
+
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackResumption",
+                "restored type=${state.type} videoId=$videoId offlineVideoId=$offlineVideoId " +
+                    "position=${state.position ?: 0L}",
+            )
+        }
+    }
+
+    private fun saveResumptionState(state: PlaybackState) {
+        xtraModule.playbackPersistence.savePlaybackState(state)
     }
 
     private fun reinitializeDynamicsProcessing(audioSessionId: Int) {
@@ -636,6 +839,18 @@ class PlaybackService : MediaSessionService() {
         player.prepare()
         streamStartupTrace?.prepareCalledAtMs = SystemClock.elapsedRealtime()
         player.playWhenReady = extras.getBoolean(PLAY_WHEN_READY, true)
+        saveResumptionState(
+            PlaybackState(
+                type = BasePlaybackService.STREAM,
+                streamId = extras.getString(STREAM_ID),
+                channelLogin = login,
+                channelName = channelName,
+                channelImage = channelLogo,
+                title = title,
+                playlistUrl = uri,
+                paused = !player.playWhenReady,
+            ),
+        )
         return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
     }
 

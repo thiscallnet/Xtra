@@ -692,7 +692,7 @@ jobs:
           name: xtra-geckoview-universal-safe
           path: geckoview/artifacts
 
-      - name: Build one release APK with custom GeckoView
+      - name: Build arm64 release APK with custom GeckoView
         env:
           TWITCH_PUBLIC_CLIENT_ID: ${{ vars.TWITCH_PUBLIC_CLIENT_ID }}
         shell: bash
@@ -706,8 +706,9 @@ jobs:
           [[ -n "$custom_aar" ]] || { echo "Universal custom GeckoView AAR is missing" >&2; exit 1; }
           ./gradlew assembleRelease \
             "-PxtraGeckoViewAar=$custom_aar" \
+            -PxtraReleaseAbiSplits=true \
             "-PtwitchPublicClientId=${TWITCH_PUBLIC_CLIENT_ID}"
-          apk="app/build/outputs/apk/release/app-release.apk"
+          apk="app/build/outputs/apk/release/app-arm64-v8a-release.apk"
           test -f "$apk"
           apk_size_bytes="$(stat -c '%s' "$apk")"
           max_apk_size_bytes=$((300 * 1024 * 1024))
@@ -721,11 +722,11 @@ jobs:
             awk 'NR > 3 && $1 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { print $1 " / " $3 "  " $8 }' |
             sort -nr | sed -n '1,20p'
 
-      - name: Upload integrated release APK
+      - name: Upload integrated arm64 release APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: xtra-custom-gecko-app-release
-          path: app/build/outputs/apk/release/app-release.apk
+          name: xtra-custom-gecko-app-arm64-release
+          path: app/build/outputs/apk/release/app-arm64-v8a-release.apk
           if-no-files-found: error
           retention-days: 3
 

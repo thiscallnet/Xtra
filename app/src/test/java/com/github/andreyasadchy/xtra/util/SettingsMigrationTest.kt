@@ -102,6 +102,22 @@ class SettingsMigrationTest {
     }
 
     @Test
+    fun `moonshine only migration removes engine selector and chooses stable interval`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION - 1,
+                "player_live_caption_engine" to "zipformer_moonshine_2pass",
+                C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS to 300,
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        assertFalse(preferences.contains("player_live_caption_engine"))
+        assertEquals(1_000, preferences.getInt(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, 0))
+    }
+
+    @Test
     fun `schema 25 migration keeps moved following content reachable`() {
         val preferences = MemoryPreferences(
             mutableMapOf(

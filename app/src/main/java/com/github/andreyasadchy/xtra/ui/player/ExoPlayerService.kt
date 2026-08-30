@@ -79,6 +79,7 @@ import com.github.andreyasadchy.xtra.ui.player.clip.ClipSizeEstimator
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipSnapshot
 import com.github.andreyasadchy.xtra.ui.player.clip.HlsClipSnapshotMapper
 import com.github.andreyasadchy.xtra.ui.player.clip.LiveClipBufferManager
+import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.MediaButtonReceiver
 import com.github.andreyasadchy.xtra.util.NetworkUtils
@@ -612,6 +613,13 @@ class ExoPlayerService : BasePlaybackService() {
                 }
             }
             val player = ExoPlayer.Builder(this).apply {
+                setRenderersFactory(
+                    LiveCaptionRenderersFactory(
+                        context = this@ExoPlayerService,
+                        audioBufferSink = xtraModule.liveCaptionManager.audioBufferSink,
+                        presentationDelayMs = xtraModule.liveCaptionManager::presentationDelayMs,
+                    ),
+                )
                 setLoadControl(
                     DefaultLoadControl.Builder().apply {
                         setBufferDurationsMs(
