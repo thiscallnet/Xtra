@@ -621,6 +621,24 @@ class UpdateDomainTest {
     }
 
     @Test
+    fun completeUpdateNotesIncludeEveryReleaseInHistory() {
+        val latest = parse("v2.58.6-build.300", body = "Fix latest")
+        val earlier = parse(
+            "v2.58.6-build.299",
+            body = "Fix earlier one\n- Fix earlier two\n- Fix earlier three\n- Fix earlier four",
+        )
+
+        assertEquals(
+            listOf(latest, earlier),
+            UpdateReleaseHistory.notesForUpdate(
+                historyComplete = true,
+                cumulativeReleases = listOf(latest, earlier),
+                latestRelease = latest,
+            ),
+        )
+    }
+
+    @Test
     fun localFailuresUseDownloadAndInstallErrorMappings() {
         assertEquals(UpdateError.DownloadFailed, UpdateErrorMapper.fromDownloadThrowable(IOException()))
         assertEquals(UpdateError.DownloadedFileMissing, UpdateErrorMapper.fromDownloadThrowable(FileNotFoundException()))

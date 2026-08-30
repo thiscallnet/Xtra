@@ -9,11 +9,27 @@ import com.github.andreyasadchy.xtra.util.updater.ChangeKind
 import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
 
 object UpdateNotesBinder {
-    fun bind(container: LinearLayout, release: UpdateRelease?, maxItems: Int = 6): Int {
+    fun bind(container: LinearLayout, release: UpdateRelease?, maxItems: Int? = null): Int {
         container.removeAllViews()
+        return append(container, release, maxItems)
+    }
+
+    fun bindHistory(container: LinearLayout, releases: List<UpdateRelease>, maxItems: Int? = null): Int {
+        container.removeAllViews()
+        var itemCount = 0
+        releases.forEachIndexed { index, release ->
+            if (releases.size > 1) addReleaseTitle(container, release, addTopMargin = index > 0)
+            itemCount += append(container, release, maxItems)
+        }
+        return itemCount
+    }
+
+    private fun append(container: LinearLayout, release: UpdateRelease?, maxItems: Int?): Int {
         if (release == null) return 0
 
-        val items = release.structuredReleaseNotes.items.take(maxItems)
+        val items = release.structuredReleaseNotes.items.let { notes ->
+            maxItems?.let(notes::take) ?: notes
+        }
         if (items.isEmpty()) {
             addText(container, container.context.getString(R.string.update_no_release_notes))
         } else {
@@ -24,6 +40,19 @@ object UpdateNotesBinder {
                 }
         }
         return items.size
+    }
+
+    private fun addReleaseTitle(container: LinearLayout, release: UpdateRelease, addTopMargin: Boolean) {
+        container.addView(TextView(container.context).apply {
+            text = release.displayVersion
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
+            if (addTopMargin) {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = container.context.dp(18) }
+            }
+        })
     }
 
     private fun addGroup(container: LinearLayout, kind: ChangeKind, items: List<ChangeItem>) {

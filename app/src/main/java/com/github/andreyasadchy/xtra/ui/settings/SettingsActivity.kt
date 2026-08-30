@@ -103,6 +103,7 @@ import com.github.andreyasadchy.xtra.ui.update.UpdateUiStatus
 import com.github.andreyasadchy.xtra.ui.update.toUiModel
 import com.github.andreyasadchy.xtra.util.updater.UpdateDiagnostics
 import com.github.andreyasadchy.xtra.util.updater.ChangeKind
+import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -1861,32 +1862,18 @@ class SettingsActivity : AppCompatActivity() {
             binding.whatsNewTitle.visibility = if (showNotes) View.VISIBLE else View.GONE
             binding.notesContainer.visibility = if (showNotes) View.VISIBLE else View.GONE
             if (showNotes) {
-                UpdateNotesBinder.bind(binding.notesContainer, release)
+                val notes = UpdateReleaseHistory.notesForUpdate(
+                    historyComplete = repository.releaseHistoryComplete.value,
+                    cumulativeReleases = repository.releasesSinceInstalled(release),
+                    latestRelease = release,
+                )
+                UpdateNotesBinder.bindHistory(binding.notesContainer, notes)
             } else {
                 binding.notesContainer.removeAllViews()
             }
-            val earlier = release?.let { repository.releasesSinceInstalled(it).drop(1) }.orEmpty()
-            binding.earlierChangesButton.visibility = if (earlier.isNotEmpty()) View.VISIBLE else View.GONE
+            binding.earlierChangesButton.visibility = View.GONE
             binding.earlierChangesContainer.visibility = View.GONE
-            binding.earlierChangesButton.setOnClickListener {
-                val expanded = binding.earlierChangesContainer.visibility != View.VISIBLE
-                binding.earlierChangesContainer.visibility = if (expanded) View.VISIBLE else View.GONE
-                if (expanded) {
-                    binding.earlierChangesContainer.removeAllViews()
-                    earlier.forEach { oldRelease ->
-                        TextView(requireContext()).also { title ->
-                            title.text = oldRelease.displayVersion
-                            title.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
-                            binding.earlierChangesContainer.addView(title)
-                        }
-                        val notes = LinearLayout(requireContext()).apply {
-                            orientation = LinearLayout.VERTICAL
-                        }
-                        UpdateNotesBinder.bind(notes, oldRelease, maxItems = 3)
-                        binding.earlierChangesContainer.addView(notes)
-                    }
-                }
-            }
+            binding.earlierChangesContainer.removeAllViews()
             binding.lastCheckedText.text = getString(
                 R.string.last_successful_update_check,
                 UpdateTimeFormatter.format(requireContext(), repository.lastSuccessfulCheck),
