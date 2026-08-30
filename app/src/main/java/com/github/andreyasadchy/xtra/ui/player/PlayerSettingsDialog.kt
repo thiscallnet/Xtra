@@ -92,6 +92,17 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 (parentFragment as? PlayerFragment)?.setQualityText()
             }
             if (type == BasePlaybackService.STREAM) {
+                if (parentFragment is Media3PlayerFragment) {
+                    menuLiveCaptions.visibility = View.VISIBLE
+                    val enabled = requireContext().prefs().getBoolean(C.PLAYER_LIVE_CAPTIONS, false)
+                    menuLiveCaptions.text = getString(
+                        if (enabled) R.string.disable_live_captions else R.string.enable_live_captions,
+                    )
+                    menuLiveCaptions.setOnClickListener {
+                        (parentFragment as? Media3PlayerFragment)?.toggleLiveCaptions()
+                        dismiss()
+                    }
+                }
                 if (requireContext().prefs().getBoolean(C.PLAYER_MENU_VIEWER_LIST, true)) {
                     menuViewerList.visibility = View.VISIBLE
                     menuViewerList.setOnClickListener {

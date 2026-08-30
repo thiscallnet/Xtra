@@ -104,6 +104,9 @@
     <string name="chat_only">Chat only</string>
     <string name="select_quality">Select quality</string>
     <string name="download">Download</string>
+    <string name="enable_live_captions">Enable live captions</string>
+    <string name="disable_live_captions">Disable live captions</string>
+    <string name="live_captions_error">Live captions unavailable: %s</string>
     <string name="downloading">Downloading…</string>
     <string name="downloaded">Download complete</string>
     <string name="uploaded_date">Uploaded %s</string>
