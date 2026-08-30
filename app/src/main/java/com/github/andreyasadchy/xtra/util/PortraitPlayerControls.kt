@@ -12,6 +12,7 @@ import androidx.core.view.doOnLayout
 import androidx.media3.ui.TimeBar
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
+import kotlin.math.abs
 import kotlin.math.max
 
 /** Keeps the player overlay visually coherent when portrait video is short. */
@@ -21,7 +22,7 @@ object PortraitPlayerControls {
     private const val MIN_SCALE = 0.55f
     private const val MAX_SCALE = 1.2f
     private const val AUTO_SCALE = "auto"
-    private const val MIDDLE_QUICK_OFFSET_DP = 56f
+    private const val MIDDLE_QUICK_GAP_DP = 8f
     // The anchor layouts already provide the landscape-safe margins. Adding a
     // second portrait inset leaves a visible gap beside the outer controls.
     private const val EDGE_INSET_DP = 0f
@@ -60,6 +61,19 @@ object PortraitPlayerControls {
             } else {
                 VerticalAnchor.BOTTOM
             }
+            val middleQuickCenterY = if (quickControlPosition == QuickControlPosition.MIDDLE) {
+                calculateMiddleQuickCenterY(
+                    root = root,
+                    scale = scale,
+                    topContainers = listOf(topLeftLayout, topRightLayout, topCenterLayout),
+                    transportControls = listOf(playPause, rewind, fastForward),
+                    sideContainers = listOf(middleLeftLayout, middleRightLayout),
+                    quickContainers = listOf(bottomLeftLayout, bottomRightLayout, bottomCenterLayout),
+                    timeline = bottomLayout,
+                )
+            } else {
+                null
+            }
             val compositionContainers = listOf(
                 Triple(topLeftLayout, HorizontalAnchor.START, VerticalAnchor.TOP),
                 Triple(topRightLayout, HorizontalAnchor.END, VerticalAnchor.TOP),
@@ -74,7 +88,15 @@ object PortraitPlayerControls {
             )
             compositionContainers.forEach { (container, horizontalAnchor, verticalAnchor) ->
                 resetDescendantTransforms(container)
-                scaleCompositionView(root, container, scale, isPortrait, horizontalAnchor, verticalAnchor)
+                scaleCompositionView(
+                    root,
+                    container,
+                    scale,
+                    isPortrait,
+                    horizontalAnchor,
+                    verticalAnchor,
+                    middleQuickCenterY,
+                )
             }
 
             val rootControls = listOf(
@@ -86,7 +108,15 @@ object PortraitPlayerControls {
             )
             rootControls.forEach { (view, horizontalAnchor, verticalAnchor) ->
                 resetTransform(view)
-                scaleCompositionView(root, view, scale, isPortrait, horizontalAnchor, verticalAnchor)
+                scaleCompositionView(
+                    root,
+                    view,
+                    scale,
+                    isPortrait,
+                    horizontalAnchor,
+                    verticalAnchor,
+                    middleQuickCenterY,
+                )
             }
             val interactiveTargets = compositionContainers
                 .flatMap { (container, _, _) -> interactiveDescendants(container) }
@@ -108,6 +138,7 @@ object PortraitPlayerControls {
         isPortrait: Boolean,
         horizontalAnchor: HorizontalAnchor,
         verticalAnchor: VerticalAnchor,
+        middleQuickCenterY: Float?,
     ) {
         // The default landscape layout must remain exactly as defined in XML.
         // This also clears stale portrait transforms when a control is
@@ -161,10 +192,55 @@ object PortraitPlayerControls {
         val scaledCenterY = when (verticalAnchor) {
             VerticalAnchor.TOP -> viewCenterY * scale
             VerticalAnchor.CENTER -> rootCenterY + (viewCenterY - rootCenterY) * scale
-            VerticalAnchor.MIDDLE_QUICK -> rootCenterY - MIDDLE_QUICK_OFFSET_DP * root.resources.displayMetrics.density * scale
+            VerticalAnchor.MIDDLE_QUICK -> middleQuickCenterY
+                ?: rootCenterY - 56f * root.resources.displayMetrics.density * scale
             VerticalAnchor.BOTTOM -> root.height - (root.height - viewCenterY) * scale
         }
         view.translationY = scaledCenterY - viewCenterY
+    }
+
+    private fun calculateMiddleQuickCenterY(
+        root: View,
+        scale: Float,
+        topContainers: List<View>,
+        transportControls: List<View>,
+        sideContainers: List<View>,
+        quickContainers: List<View>,
+        timeline: View,
+    ): Float? {
+        if (root.height <= 0 || quickContainers.none { it.height > 0 }) return null
+
+        val density = root.resources.displayMetrics.density
+        val topContentBottom = topContainers.maxOfOrNull { it.bottom.toFloat() * scale } ?: 0f
+        val quickHalfHeight = quickContainers.maxOfOrNull { it.height * scale / 2f } ?: return null
+        val transportHalfHeight = transportControls.maxOfOrNull { it.height * scale / 2f } ?: return null
+        val sideHalfHeight = sideContainers.maxOfOrNull { it.height * scale / 2f } ?: 0f
+        val gap = MIDDLE_QUICK_GAP_DP * density * scale
+        val blockedHalfHeight = max(transportHalfHeight, sideHalfHeight)
+        val blockedTop = root.height / 2f - blockedHalfHeight
+        val blockedBottom = root.height / 2f + blockedHalfHeight
+        val minimumCenterY = topContentBottom + quickHalfHeight + gap
+        val timelineTop = if (timeline.height > 0) {
+            root.height - (root.height - timeline.top) * scale
+        } else {
+            root.height.toFloat()
+        }
+        val maximumCenterY = timelineTop - quickHalfHeight - gap
+        val candidates = listOf(
+            blockedTop - quickHalfHeight - gap,
+            blockedBottom + quickHalfHeight + gap,
+            minimumCenterY,
+            maximumCenterY,
+        )
+        return candidates
+            .filter { centerY ->
+                centerY - quickHalfHeight >= minimumCenterY &&
+                    centerY + quickHalfHeight <= maximumCenterY &&
+                    (centerY + quickHalfHeight + gap <= blockedTop ||
+                        centerY - quickHalfHeight - gap >= blockedBottom)
+            }
+            .minByOrNull { centerY -> abs(centerY - root.height / 2f) }
+            ?: minimumCenterY.coerceIn(quickHalfHeight, root.height - quickHalfHeight)
     }
 
     private fun contentEdge(view: View, isStart: Boolean): Float? {
