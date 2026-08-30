@@ -574,6 +574,12 @@
     <string name="settings_download_restart_wait_summary">Continua ad attendere brevemente dopo la fine di una trasmissione, così un riavvio rapido può continuare l\'acquisizione.</string>
     <string name="live_notifications_following_summary">Attiva automaticamente gli avvisi live per i canali che segui tramite Xtra.</string>
     <string name="settings_customize_controls_summary">Controlli rapidi, menu Altro e controlli nascosti</string>
+    <string name="settings_player_control_scale_portrait">Dimensioni dei controlli del lettore in verticale</string>
+    <string name="settings_player_control_scale_landscape">Dimensioni dei controlli del lettore in orizzontale</string>
+    <string name="settings_player_control_position">Posizione dei controlli rapidi</string>
+    <string name="player_control_position_above">Sopra la timeline</string>
+    <string name="player_control_position_below">Sotto la timeline</string>
+    <string name="player_control_position_middle">Al centro del lettore</string>
     <string name="settings_playback_speed_options_summary">Scegli e riordina i valori della velocità</string>
     <string name="settings_double_tap_chat_summary">Attiva o disattiva la chat con un doppio tocco durante la visione.</string>
     <string name="avoid_rounded_corners_summary">Rientra il contenuto del lettore per evitare che angoli arrotondati fisici e ritagli nascondano il video o i controlli.</string>

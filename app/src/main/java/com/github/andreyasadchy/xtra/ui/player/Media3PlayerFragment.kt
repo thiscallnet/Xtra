@@ -2537,6 +2537,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private fun updateLiveRewindUi() {
         if (!isLiveRewindAvailable()) {
             setLiveRewindTimelineLayout(false)
+            schedulePortraitControlScale()
             binding.playerControls.progressBar.visibility = View.GONE
             binding.playerControls.liveButton.visibility = View.GONE
             binding.playerControls.position.visibility = View.GONE
@@ -2545,6 +2546,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             return
         }
         setLiveRewindTimelineLayout(true)
+        schedulePortraitControlScale()
         binding.playerControls.progressBar.visibility = View.VISIBLE
         binding.playerControls.progressBar.setPlayedColor(
             requireContext().getColor(R.color.channel_points_reward_default),
@@ -2720,15 +2722,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             durationParams.height = timelineRowHeight
             durationParams.bottomMargin = 0
             bottomParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            bottomParams.addRule(RelativeLayout.ABOVE, R.id.bottomLeftLayout)
+            bottomParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
             bottomLeftParams.removeRule(RelativeLayout.ABOVE)
             bottomLeftParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             bottomRightParams.removeRule(RelativeLayout.ABOVE)
             bottomRightParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             positionParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            positionParams.addRule(RelativeLayout.ABOVE, R.id.bottomLeftLayout)
+            positionParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
             durationParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            durationParams.addRule(RelativeLayout.ABOVE, R.id.bottomLeftLayout)
+            durationParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
         } else {
             bottomParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
             progressParams.bottomMargin = normalProgressBottomMargin

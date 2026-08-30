@@ -574,6 +574,12 @@
     <string name="settings_download_restart_wait_summary">直播結束後繼續短暫等待，讓快速重新啟動能繼續擷取。</string>
     <string name="live_notifications_following_summary">自動為你透過 Xtra 追蹤的頻道啟用直播提醒。</string>
     <string name="settings_customize_controls_summary">快速控制項、「更多」選單和隱藏控制項</string>
+    <string name="settings_player_control_scale_portrait">直向播放器控制項大小</string>
+    <string name="settings_player_control_scale_landscape">橫向播放器控制項大小</string>
+    <string name="settings_player_control_position">快速控制項位置</string>
+    <string name="player_control_position_above">時間軸上方</string>
+    <string name="player_control_position_below">時間軸下方</string>
+    <string name="player_control_position_middle">播放器中央</string>
     <string name="settings_playback_speed_options_summary">選擇並重新排列速度值</string>
     <string name="settings_double_tap_chat_summary">觀看時點兩下切換聊天。</string>
     <string name="avoid_rounded_corners_summary">將播放器內容向內嵌入，避免實體圓角和缺口遮擋影片或控制項。</string>

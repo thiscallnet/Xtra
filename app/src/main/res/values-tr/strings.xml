@@ -575,6 +575,12 @@
     <string name="settings_download_restart_wait_summary">Yayın sona erdikten sonra kısa süre beklemeye devam et; hızlı bir yeniden başlatma yakalamayı sürdürebilsin.</string>
     <string name="live_notifications_following_summary">Xtra üzerinden takip ettiğin kanallar için canlı uyarıları otomatik etkinleştir.</string>
     <string name="settings_customize_controls_summary">Hızlı kontroller, Daha Fazla menüsü ve gizli kontroller</string>
+    <string name="settings_player_control_scale_portrait">Dikey oynatıcı kontrol boyutu</string>
+    <string name="settings_player_control_scale_landscape">Yatay oynatıcı kontrol boyutu</string>
+    <string name="settings_player_control_position">Hızlı kontrol konumu</string>
+    <string name="player_control_position_above">Zaman çizelgesinin üstünde</string>
+    <string name="player_control_position_below">Zaman çizelgesinin altında</string>
+    <string name="player_control_position_middle">Oynatıcının ortası</string>
     <string name="settings_playback_speed_options_summary">Hız değerlerini seç ve yeniden sırala</string>
     <string name="settings_double_tap_chat_summary">İzlerken iki kez dokunarak sohbeti aç veya kapat.</string>
     <string name="avoid_rounded_corners_summary">Fiziksel yuvarlatılmış köşeler ve kamera kesikleri videoyu veya kontrolleri kapatmasın diye oynatıcı içeriğini içeri al.</string>

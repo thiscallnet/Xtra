@@ -1346,6 +1346,12 @@
     <string name="settings_download_restart_wait_summary">Po skončení streamu chvíli počkejte, aby mohl záznam pokračovat v rychlém restartu.</string>
     <string name="live_notifications_following_summary">Automaticky povolte živá upozornění pro kanály, které sledujete prostřednictvím Xtra.</string>
     <string name="settings_customize_controls_summary">Rychlé ovládání, nabídka Více a Skrytá</string>
+    <string name="settings_player_control_scale_portrait">Velikost ovládacích prvků přehrávače na výšku</string>
+    <string name="settings_player_control_scale_landscape">Velikost ovládacích prvků přehrávače na šířku</string>
+    <string name="settings_player_control_position">Umístění rychlých ovládacích prvků</string>
+    <string name="player_control_position_above">Nad časovou osou</string>
+    <string name="player_control_position_below">Pod časovou osou</string>
+    <string name="player_control_position_middle">Uprostřed přehrávače</string>
     <string name="settings_playback_speed_options_summary">Vybrat a seřadit hodnoty rychlosti</string>
     <string name="settings_double_tap_chat_summary">Při sledování přepněte chat dvojitým klepnutím.</string>
     <string name="avoid_rounded_corners_summary">Vložte obsah přehrávače tak, aby fyzické zakřivené rohy a výřezy nezakrývaly video nebo ovládací prvky.</string>

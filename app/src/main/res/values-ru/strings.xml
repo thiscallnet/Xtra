@@ -574,6 +574,12 @@
     <string name="settings_download_restart_wait_summary">Недолго продолжать ожидание после окончания трансляции, чтобы быстрое возобновление могло продолжить захват.</string>
     <string name="live_notifications_following_summary">Автоматически включать уведомления о трансляциях для каналов, на которые вы подписаны через Xtra.</string>
     <string name="settings_customize_controls_summary">Быстрые элементы управления, меню «Еще» и скрытые элементы</string>
+    <string name="settings_player_control_scale_portrait">Размер элементов управления плеером в вертикальной ориентации</string>
+    <string name="settings_player_control_scale_landscape">Размер элементов управления плеером в горизонтальной ориентации</string>
+    <string name="settings_player_control_position">Положение быстрых элементов управления</string>
+    <string name="player_control_position_above">Над шкалой времени</string>
+    <string name="player_control_position_below">Под шкалой времени</string>
+    <string name="player_control_position_middle">По центру плеера</string>
     <string name="settings_playback_speed_options_summary">Выбирать и менять порядок значений скорости</string>
     <string name="settings_double_tap_chat_summary">Переключать чат двойным нажатием во время просмотра.</string>
     <string name="avoid_rounded_corners_summary">Сместить содержимое плеера внутрь, чтобы физические закругленные углы и вырезы не закрывали видео или элементы управления.</string>

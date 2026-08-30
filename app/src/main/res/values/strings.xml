@@ -1545,6 +1545,12 @@
     <string name="settings_download_restart_wait_summary">Keep waiting briefly after a stream ends so a quick restart can continue the capture.</string>
     <string name="live_notifications_following_summary">Automatically enable live alerts for channels you follow through Xtra. Twitch notification preferences are used when an authenticated web session is available.</string>
     <string name="settings_customize_controls_summary">Quick controls, More menu and Hidden</string>
+    <string name="settings_player_control_scale_portrait">Vertical player control size</string>
+    <string name="settings_player_control_scale_landscape">Horizontal player control size</string>
+    <string name="settings_player_control_position">Quick control position</string>
+    <string name="player_control_position_above">Above timeline</string>
+    <string name="player_control_position_below">Below timeline</string>
+    <string name="player_control_position_middle">Middle of player</string>
     <string name="settings_layout_preview">Preview</string>
     <string name="settings_tabs_preview_help">Drag to reorder. Use the checkbox to show or hide an item. The home icon marks the default.</string>
     <string name="settings_sections_preview_help">The preview shows the visible shelves in their current order.</string>

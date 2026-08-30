@@ -574,6 +574,12 @@
     <string name="settings_download_restart_wait_summary">استمر في الانتظار قليلًا بعد انتهاء البث حتى تتمكن إعادة تشغيل سريعة من متابعة الالتقاط.</string>
     <string name="live_notifications_following_summary">فعّل تلقائيًا التنبيهات المباشرة للقنوات التي تتابعها عبر Xtra.</string>
     <string name="settings_customize_controls_summary">عناصر التحكم السريعة وقائمة المزيد والعناصر المخفية</string>
+    <string name="settings_player_control_scale_portrait">حجم عناصر تحكم المشغل عموديًا</string>
+    <string name="settings_player_control_scale_landscape">حجم عناصر تحكم المشغل أفقيًا</string>
+    <string name="settings_player_control_position">موضع عناصر التحكم السريعة</string>
+    <string name="player_control_position_above">فوق المخطط الزمني</string>
+    <string name="player_control_position_below">أسفل المخطط الزمني</string>
+    <string name="player_control_position_middle">منتصف المشغل</string>
     <string name="settings_playback_speed_options_summary">اختر قيم السرعة وأعد ترتيبها</string>
     <string name="settings_double_tap_chat_summary">بدّل الدردشة بالنقر مرتين أثناء المشاهدة.</string>
     <string name="avoid_rounded_corners_summary">أزح محتوى المشغل حتى لا تحجب الزوايا المنحنية الفعلية وفتحات الشاشة الفيديو أو عناصر التحكم.</string>
