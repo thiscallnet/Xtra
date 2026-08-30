@@ -41,6 +41,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.widget.SearchView
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.edit
@@ -104,7 +105,6 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.XtraApp
-import com.github.andreyasadchy.xtra.util.updater.UpdateError
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckFrequency
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckScheduler
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
@@ -1690,6 +1690,7 @@ class SettingsActivity : AppCompatActivity() {
             binding.secondaryButton.setOnClickListener {
                 performUpdateAction(UpdateUiMapper.map(repository.state.value, repository.selectedAssetInfo()).secondaryAction)
             }
+            binding.updateOverflowButton.setOnClickListener { showUpdateOverflowMenu() }
             binding.technicalDetailsToggle.setOnClickListener {
                 technicalDetailsExpanded = !technicalDetailsExpanded
                 render(repository.state.value)
@@ -1836,7 +1837,7 @@ class SettingsActivity : AppCompatActivity() {
                 UpdateUiStatus.CHECKING -> getString(R.string.update_checking)
                 UpdateUiStatus.DOWNLOADING -> UpdateStatusBinder.downloadStatusText(requireContext(), model.downloadManagerStatus, model.downloadManagerReason)
                 UpdateUiStatus.READY -> getString(R.string.update_downloaded_ready)
-                 UpdateUiStatus.ERROR -> model.error?.let(::errorMessage).orEmpty()
+                UpdateUiStatus.ERROR -> model.errorUi?.let { getString(it.messageRes) }.orEmpty()
                 else -> ""
             }
             binding.downloadProgressView.root.visibility = if (model.status == UpdateUiStatus.DOWNLOADING) View.VISIBLE else View.GONE
@@ -1852,6 +1853,7 @@ class SettingsActivity : AppCompatActivity() {
             val secondary = model.secondaryAction
             binding.secondaryButton.visibility = if (secondary == null) View.GONE else View.VISIBLE
             binding.secondaryButton.text = actionText(secondary)
+            binding.updateOverflowButton.visibility = if (model.overflowActions.isEmpty()) View.GONE else View.VISIBLE
             val showNotes = model.showReleaseNotes && release != null
             binding.whatsNewTitle.visibility = if (showNotes) View.VISIBLE else View.GONE
             binding.notesContainer.visibility = if (showNotes) View.VISIBLE else View.GONE
@@ -1917,6 +1919,17 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
+        private fun showUpdateOverflowMenu() {
+            val menu = PopupMenu(requireContext(), binding.updateOverflowButton)
+            UpdateUiMapper.map(repository.state.value, repository.selectedAssetInfo()).overflowActions.forEach { action ->
+                menu.menu.add(actionText(action)).setOnMenuItemClickListener {
+                    performUpdateAction(action)
+                    true
+                }
+            }
+            menu.show()
+        }
+
         @StringRes
         private fun changeKindLabel(kind: ChangeKind): Int = when (kind) {
             ChangeKind.NEW -> R.string.update_count_new
@@ -1939,26 +1952,6 @@ class SettingsActivity : AppCompatActivity() {
                 UpdateUiAction.UndoSkip -> R.string.undo_skip
                 null -> R.string.cancel
             },
-        )
-
-        private fun errorMessage(error: UpdateError): String = getString(
-            when (error) {
-                UpdateError.NoConnection -> R.string.update_error_no_connection
-                UpdateError.Timeout -> R.string.update_error_timeout
-                UpdateError.RateLimited -> R.string.update_error_rate_limited
-                UpdateError.NotFound -> R.string.update_error_not_found
-                UpdateError.Server -> R.string.update_error_server
-                UpdateError.InvalidResponse, UpdateError.UnexpectedResponse -> R.string.update_error_invalid_response
-                UpdateError.MissingApk -> R.string.update_error_missing_apk
-                UpdateError.AmbiguousApk -> R.string.update_error_ambiguous_apk
-                UpdateError.IncompatibleApk -> R.string.update_error_incompatible_apk
-                UpdateError.DownloadFailed, UpdateError.DownloadCancelled, UpdateError.DownloadedFileMissing,
-                UpdateError.DownloadNoConnection -> R.string.update_download_failed_connection_message
-                UpdateError.DownloadNotEnoughStorage -> R.string.update_download_failed_storage_message
-                 UpdateError.DownloadServer -> R.string.update_download_failed_server_message
-                 UpdateError.DownloadStorageUnavailable -> R.string.update_download_storage_unavailable_message
-                UpdateError.InstallPermissionDenied, UpdateError.InstallCancelled, UpdateError.InstallFailed -> R.string.update_error_install
-            }
         )
 
         private fun dp(value: Int): Int =

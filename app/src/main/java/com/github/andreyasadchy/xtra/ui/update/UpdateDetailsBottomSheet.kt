@@ -15,7 +15,6 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.core.net.toUri
-import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -26,7 +25,6 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.SheetUpdateDetailsBinding
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.util.updater.UpdateError
 import com.github.andreyasadchy.xtra.util.updater.UpdateDiagnostics
 import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
 import com.github.andreyasadchy.xtra.util.updater.UpdateSelectedAssetInfo
@@ -110,7 +108,7 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
             model.progress,
         )
         binding.detailsError.visibility = if (model.status == UpdateUiStatus.ERROR) View.VISIBLE else View.GONE
-        binding.detailsError.text = errorText(model.error)
+        binding.detailsError.text = model.errorUi?.let { getString(it.messageRes) }.orEmpty()
         val showNotes = model.showReleaseNotes && release != null
         binding.detailsNotesTitle.visibility = if (showNotes) View.VISIBLE else View.GONE
         binding.detailsNotesContainer.visibility = if (showNotes) View.VISIBLE else View.GONE
@@ -237,24 +235,7 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
         UpdateUiStatus.VERIFYING -> getString(R.string.update_verifying)
         UpdateUiStatus.INSTALLING -> getString(R.string.update_installing)
         UpdateUiStatus.AWAITING_USER_ACTION -> getString(R.string.update_awaiting_user_action)
-        UpdateUiStatus.ERROR -> errorText(model.error)
-    }
-
-    private fun errorText(error: UpdateError?): String = when (error) {
-        UpdateError.DownloadNotEnoughStorage -> getString(R.string.update_download_failed_storage_message)
-        UpdateError.DownloadStorageUnavailable -> getString(R.string.update_download_storage_unavailable_message)
-        UpdateError.DownloadNoConnection -> getString(R.string.update_download_failed_connection_message)
-        UpdateError.DownloadServer -> getString(R.string.update_download_failed_server_message)
-        UpdateError.DownloadFailed,
-        UpdateError.DownloadCancelled,
-        UpdateError.DownloadedFileMissing,
-        -> getString(R.string.update_download_failed_generic_message)
-        UpdateError.IncompatibleApk -> getString(R.string.update_verification_failed_message)
-        UpdateError.InstallPermissionDenied -> getString(R.string.update_install_permission_message)
-        UpdateError.InstallCancelled -> getString(R.string.update_install_cancelled_message)
-        UpdateError.InstallFailed -> getString(R.string.update_install_failed_message)
-        null -> ""
-        else -> getString(R.string.update_error_invalid_response)
+        UpdateUiStatus.ERROR -> model.errorUi?.let { getString(it.messageRes) }.orEmpty()
     }
 
     private fun actionText(action: UpdateUiAction?): String = getString(

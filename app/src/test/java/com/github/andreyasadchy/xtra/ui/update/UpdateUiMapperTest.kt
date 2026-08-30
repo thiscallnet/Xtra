@@ -6,6 +6,7 @@ import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
 import com.github.andreyasadchy.xtra.util.updater.UpdateStage
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -64,6 +65,27 @@ class UpdateUiMapperTest {
     @Test
     fun downloadingStateExposesDiagnostics() {
         assertTrue(UpdateState.Downloading(release, DownloadProgress(1L, 2L)).toUiModel().showDiagnostics)
+    }
+
+    @Test
+    fun errorPresentationKeepsCheckErrorsOutOfDownloadFallbacks() {
+        val timeout = UpdateState.Error(UpdateStage.CHECK, UpdateError.Timeout, true, release).toUiModel()
+        val rateLimited = UpdateState.Error(UpdateStage.CHECK, UpdateError.RateLimited, true, release).toUiModel()
+        val missingApk = UpdateState.Error(UpdateStage.ASSET_SELECTION, UpdateError.MissingApk, false, release).toUiModel()
+
+        assertEquals(com.github.andreyasadchy.xtra.R.string.update_check_failed, timeout.titleRes)
+        assertEquals(com.github.andreyasadchy.xtra.R.string.update_error_timeout, timeout.errorUi?.messageRes)
+        assertEquals(com.github.andreyasadchy.xtra.R.string.update_error_rate_limited, rateLimited.errorUi?.messageRes)
+        assertEquals(com.github.andreyasadchy.xtra.R.string.update_asset_selection_failed, missingApk.titleRes)
+        assertNotEquals(com.github.andreyasadchy.xtra.R.string.update_download_failed_server, timeout.titleRes)
+    }
+
+    @Test
+    fun installErrorsUseTheirSpecificUserFacingMessages() {
+        val permission = UpdateState.Error(UpdateStage.INSTALL, UpdateError.InstallPermissionDenied, true, release).toUiModel()
+
+        assertEquals(com.github.andreyasadchy.xtra.R.string.update_install_permission_title, permission.titleRes)
+        assertEquals(com.github.andreyasadchy.xtra.R.string.update_install_permission_message, permission.errorUi?.messageRes)
     }
 
     private fun artifact() = com.github.andreyasadchy.xtra.util.updater.DownloadedArtifact(
