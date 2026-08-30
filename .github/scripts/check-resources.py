@@ -40,6 +40,86 @@ PLURAL_QUANTITIES = {
 }
 ARRAY_REFERENCE = re.compile(r"^@string/([A-Za-z0-9_]+)$")
 
+# The second-generation updater is intentionally shipped with the default
+# English resources until its translations are reviewed by native speakers.
+# Android falls back to values/ for these keys; keeping the allowlist explicit
+# prevents this policy from hiding missing translations elsewhere in the app.
+INTENTIONAL_FALLBACK_RESOURCES = {
+    "automatic_updates",
+    "check_automatically",
+    "copy_diagnostics",
+    "diagnostics_copied",
+    "none",
+    "update_available_banner",
+    "update_checked_recently",
+    "update_count_fixed",
+    "update_count_improved",
+    "update_count_new",
+    "update_count_other",
+    "update_count_security",
+    "update_diagnostics",
+    "update_diagnostics_asset",
+    "update_diagnostics_error",
+    "update_diagnostics_installed",
+    "update_diagnostics_last_attempt",
+    "update_diagnostics_last_check",
+    "update_diagnostics_progress",
+    "update_diagnostics_reason",
+    "update_diagnostics_speed",
+    "update_diagnostics_stage",
+    "update_diagnostics_state",
+    "update_diagnostics_status",
+    "update_diagnostics_target",
+    "update_diagnostics_timestamp",
+    "update_download_failed_connection",
+    "update_download_failed_connection_message",
+    "update_download_failed_generic_message",
+    "update_download_failed_server",
+    "update_download_failed_server_message",
+    "update_download_failed_storage",
+    "update_download_failed_storage_message",
+    "update_download_finished",
+    "update_download_paused",
+    "update_download_starting",
+    "update_download_storage_unavailable",
+    "update_download_storage_unavailable_message",
+    "update_download_waiting_network",
+    "update_download_waiting_retry",
+    "update_download_waiting_wifi",
+    "update_downloaded_ready",
+    "update_downloaded_verified",
+    "update_error_message",
+    "update_eta_minutes",
+    "update_eta_seconds",
+    "update_full_release_notes",
+    "update_install_cancelled_message",
+    "update_install_failed_message",
+    "update_install_permission_message",
+    "update_install_permission_title",
+    "update_meta_separator",
+    "update_more_actions",
+    "update_preparing_download",
+    "update_ready_title",
+    "update_release_note_item",
+    "update_release_notes_earlier",
+    "update_release_notes_earlier_expanded",
+    "update_section_fixed",
+    "update_section_improved",
+    "update_section_new",
+    "update_section_other",
+    "update_section_security",
+    "update_transfer_calculating_speed",
+    "update_transfer_downloaded",
+    "update_transfer_progress",
+    "update_transfer_speed",
+    "update_transfer_speed_eta",
+    "update_transfer_waiting",
+    "update_verification_failed_message",
+    "update_verification_failed_title",
+    "update_verifying",
+    "update_view",
+}
+
 
 def duplicate_resource_keys(directory: Path) -> list[str]:
     counts: Counter[str] = Counter()
@@ -231,14 +311,17 @@ def main() -> int:
             f"{directory.name}: {len(translated)}/{len(default_keys)} present; "
             f"{len(missing)} fallback resources"
         )
+        unexpected_missing = missing - INTENTIONAL_FALLBACK_RESOURCES
         allowed_missing = baseline.get(directory.name)
-        if allowed_missing is None or len(missing) > allowed_missing:
+        if allowed_missing is None or len(unexpected_missing) > allowed_missing:
             coverage_regressions.append(
-                f"{directory.name}: {len(missing)} resources missing; "
+                f"{directory.name}: {len(unexpected_missing)} resources missing; "
                 f"baseline allows {allowed_missing if allowed_missing is not None else 'no value'}"
             )
         required_quantities = PLURAL_QUANTITIES[directory.name]
         for name in default_plurals.keys() | locale_plurals.keys():
+            if name in INTENTIONAL_FALLBACK_RESOURCES and name not in locale_plurals:
+                continue
             missing_quantities = required_quantities - locale_plurals.get(name, set())
             if missing_quantities:
                 plural_regressions.append(

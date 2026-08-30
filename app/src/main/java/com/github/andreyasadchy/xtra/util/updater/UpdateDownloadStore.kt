@@ -12,6 +12,7 @@ data class UpdateDownloadRecord(
     val totalBytes: Long?,
     val uri: Uri?,
     val fileAvailable: Boolean = uri != null,
+    val reason: Int? = null,
 )
 
 /** Small DownloadManager seam so persisted update transitions can be exercised without a device. */
@@ -43,6 +44,7 @@ class AndroidUpdateDownloadStore(
         return downloadManager.query(DownloadManager.Query().setFilterById(id)).use { cursor ->
             if (!cursor.moveToFirst()) return null
             val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
             val uri = if (status == DownloadManager.STATUS_SUCCESSFUL) {
                 downloadManager.getUriForDownloadedFile(id)
             } else {
@@ -55,6 +57,7 @@ class AndroidUpdateDownloadStore(
                     .takeIf { it > 0L },
                 uri = uri,
                 fileAvailable = uri != null,
+                reason = reason,
             )
         }
     }

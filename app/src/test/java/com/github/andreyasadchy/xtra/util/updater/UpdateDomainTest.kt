@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.util.updater
 
+import android.app.DownloadManager
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -625,6 +626,28 @@ class UpdateDomainTest {
         assertEquals(UpdateError.DownloadedFileMissing, UpdateErrorMapper.fromDownloadThrowable(FileNotFoundException()))
         assertEquals(UpdateError.InstallFailed, UpdateErrorMapper.fromInstallThrowable(IOException()))
         assertEquals(UpdateError.DownloadedFileMissing, UpdateErrorMapper.fromInstallThrowable(FileNotFoundException()))
+    }
+
+    @Test
+    fun downloadManagerReasonsKeepStorageAndServerFailuresDistinct() {
+        assertEquals(
+            UpdateError.DownloadNotEnoughStorage,
+            UpdateErrorMapper.fromDownloadReason(DownloadManager.ERROR_INSUFFICIENT_SPACE),
+        )
+        assertEquals(
+            UpdateError.DownloadStorageUnavailable,
+            UpdateErrorMapper.fromDownloadReason(DownloadManager.ERROR_DEVICE_NOT_FOUND),
+        )
+        assertEquals(
+            UpdateError.DownloadStorageUnavailable,
+            UpdateErrorMapper.fromDownloadReason(DownloadManager.ERROR_FILE_ERROR),
+        )
+        assertEquals(
+            UpdateError.DownloadServer,
+            UpdateErrorMapper.fromDownloadReason(DownloadManager.ERROR_UNHANDLED_HTTP_CODE),
+        )
+        assertEquals(UpdateError.DownloadServer, UpdateErrorMapper.fromDownloadReason(404))
+        assertEquals(UpdateError.DownloadServer, UpdateErrorMapper.fromDownloadReason(500))
     }
 
     private fun parse(

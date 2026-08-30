@@ -27,6 +27,7 @@ data class UpdateRelease(
     val expectedVersionCode: Long? = null,
     val expectedSha256: String? = null,
     val artifactSha256: Map<String, String> = emptyMap(),
+    val releaseNoteKinds: List<ChangeKind> = emptyList(),
 ) {
     val id: String
         get() = tagName
@@ -38,6 +39,13 @@ data class UpdateRelease(
     fun expectedSha256For(asset: UpdateAsset): String? = artifactSha256[asset.name]
         ?: expectedSha256.takeIf { asset.name == "app-release.apk" }
 
+    val structuredReleaseNotes: StructuredReleaseNotes
+        get() = StructuredReleaseNotes(
+            releaseNotes.mapIndexed { index, text ->
+                ChangeItem(text, releaseNoteKinds.getOrNull(index) ?: ReleaseNotes.kindFor(text))
+            },
+        )
+
 }
 
 @Serializable
@@ -46,6 +54,7 @@ data class CachedUpdateRelease(
     val versionName: String,
     val buildNumber: Long?,
     val releaseNotes: List<String>,
+    val releaseNoteKinds: List<ChangeKind> = emptyList(),
 )
 
 fun UpdateRelease.toCachedHistory(): CachedUpdateRelease = CachedUpdateRelease(
@@ -53,6 +62,7 @@ fun UpdateRelease.toCachedHistory(): CachedUpdateRelease = CachedUpdateRelease(
     versionName = versionName,
     buildNumber = buildNumber,
     releaseNotes = releaseNotes,
+    releaseNoteKinds = releaseNoteKinds,
 )
 
 fun CachedUpdateRelease.toUpdateRelease(): UpdateRelease = UpdateRelease(
@@ -61,6 +71,7 @@ fun CachedUpdateRelease.toUpdateRelease(): UpdateRelease = UpdateRelease(
     buildNumber = buildNumber,
     title = "",
     releaseNotes = releaseNotes,
+    releaseNoteKinds = releaseNoteKinds,
     rawBody = "",
     releaseUrl = "",
     publishedAt = null,
@@ -72,10 +83,22 @@ fun CachedUpdateRelease.toUpdateRelease(): UpdateRelease = UpdateRelease(
 data class DownloadProgress(
     val downloadedBytes: Long,
     val totalBytes: Long?,
+    val bytesPerSecond: Long = 0L,
+    val etaSeconds: Long? = null,
+    val stalled: Boolean = false,
 ) {
+    val fraction: Float?
+        get() = totalBytes
+            ?.takeIf { it > 0L }
+            ?.let {
+                (downloadedBytes.toDouble() / it.toDouble())
+                    .coerceIn(0.0, 1.0)
+                    .toFloat()
+            }
+
     val percent: Int?
         get() = totalBytes?.takeIf { it > 0L }
-            ?.let { ((downloadedBytes * 100L) / it).toInt().coerceIn(0, 100) }
+            ?.let { ((downloadedBytes * 100L) / it).toInt().coerceIn(0, 99) }
 }
 
 data class DownloadedArtifact(
@@ -83,6 +106,11 @@ data class DownloadedArtifact(
     val uri: Uri?,
     val fileName: String,
     val size: Long,
+)
+
+data class UpdateSelectedAssetInfo(
+    val name: String,
+    val size: Long?,
 )
 
 object UpdateVersionDisplay {
@@ -131,6 +159,10 @@ sealed interface UpdateError {
     data object AmbiguousApk : UpdateError
     data object IncompatibleApk : UpdateError
     data object DownloadFailed : UpdateError
+    data object DownloadNoConnection : UpdateError
+    data object DownloadNotEnoughStorage : UpdateError
+    data object DownloadStorageUnavailable : UpdateError
+    data object DownloadServer : UpdateError
     data object DownloadCancelled : UpdateError
     data object DownloadedFileMissing : UpdateError
     data object InstallPermissionDenied : UpdateError
@@ -157,6 +189,8 @@ sealed interface UpdateState {
     data class Downloading(
         val release: UpdateRelease,
         val progress: DownloadProgress?,
+        val downloadManagerStatus: Int? = null,
+        val downloadManagerReason: Int? = null,
     ) : UpdateState
 
     data class Downloaded(
@@ -183,6 +217,7 @@ sealed interface UpdateState {
         val release: UpdateRelease? = null,
         val artifact: DownloadedArtifact? = null,
         val preservedAction: UpdatePrimaryAction? = null,
+        val downloadManagerReason: Int? = null,
     ) : UpdateState
 }
 
