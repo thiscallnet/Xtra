@@ -361,6 +361,12 @@ class AccountActivity : AppCompatActivity() {
 
         addSettingRow(
             binding.accountRows,
+            getString(R.string.drops),
+            getString(R.string.drops_progress_title),
+            onClick = { openDrops() },
+        )
+        addSettingRow(
+            binding.accountRows,
             getString(R.string.account_manage_on_twitch),
             getString(R.string.account_open_twitch),
             onClick = { openManageOnTwitch() },
@@ -732,6 +738,16 @@ class AccountActivity : AppCompatActivity() {
         startActivity(
             Intent(this, MainActivity::class.java).apply {
                 action = MainActivity.INTENT_OPEN_OWN_PROFILE
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            },
+        )
+        finish()
+    }
+
+    private fun openDrops() {
+        startActivity(
+            Intent(this, MainActivity::class.java).apply {
+                action = MainActivity.INTENT_OPEN_DROPS
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             },
         )

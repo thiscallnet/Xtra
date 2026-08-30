@@ -443,6 +443,16 @@
     <string name="personal_stv_emote">Emote 7TV pribadi</string>
     <string name="show_polls">Tampilkan jajak pendapat</string>
     <string name="show_predictions">Tampilkan prediksi</string>
+    <string name="drops_show">Tampilkan Drops</string>
+    <string name="drops_auto_claim">Klaim Drop yang selesai secara otomatis</string>
+    <string name="drops_auto_claim_summary">Mengklaim Drop yang selesai saat Anda menonton di Xtra. Twitch dapat mengubah API privat ini kapan saja.</string>
+    <string name="drops_ready_title">Menonton membuat Anda mendapatkan Drop!</string>
+    <string name="drops_tap_to_claim">Ketuk untuk mengklaim</string>
+    <string name="drops_claiming">Mengklaim Drop…</string>
+    <string name="drops_claimed">Drop diklaim</string>
+    <string name="drops_claim_failed">Drop tidak dapat diklaim</string>
+    <string name="drops_dismiss">Tutup notifikasi Drop</string>
+    <string name="drops_progress_title">Progres Drops</string>
     <string name="prediction_title">Prediksi saat ini: %s</string>
     <string name="prediction_locked">Locked</string>
     <string name="prediction_refunded">Dikembalikan dananya</string>
@@ -1466,4 +1476,17 @@
     <string name="settings_player_control_preview_horizontal">Horizontal</string>
     <string name="settings_player_control_preview_info">Info</string>
     <string name="player_viewers_suffix">untuk %1$s penonton</string>
+    <string name="drops">Drops</string>
+    <string name="drops_inventory_tab">Inventory</string>
+    <string name="drops_all_campaigns_tab">All Campaigns</string>
+    <string name="drops_social_badge_tab">Social Media Badge</string>
+    <string name="drops_sign_in_required">Sign in to Twitch to view your Drops.</string>
+    <string name="drops_load_failed">Couldn’t load Drops. Twitch may have changed its private API.</string>
+    <string name="drops_social_badge_unavailable">Social Media Badge rewards aren’t available in Xtra yet.</string>
+    <string name="drops_no_rewards">No Drops available</string>
+    <string name="drops_ready_section">Ready to claim</string>
+    <string name="drops_in_progress_section">In progress</string>
+    <string name="drops_active_campaigns">Active campaigns</string>
+    <string name="drops_upcoming">Upcoming</string>
+    <string name="drops_summary">%1$d rewards ready · %2$d campaigns active</string>
 </resources>

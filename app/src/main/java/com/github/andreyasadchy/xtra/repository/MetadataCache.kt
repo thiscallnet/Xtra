@@ -8,6 +8,8 @@ import com.github.andreyasadchy.xtra.model.helix.chat.ChatSettings
 import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
 import com.github.andreyasadchy.xtra.model.helix.user.User as HelixUser
 import com.github.andreyasadchy.xtra.model.ui.Game
+import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
+import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
@@ -35,6 +37,7 @@ private const val GAME_KIND = "game"
 private const val FOLLOWING_OVERVIEW_KIND = "following_overview"
 private const val WHISPER_THREADS_KIND = "whisper_threads"
 private const val TWITCH_NOTIFICATIONS_KIND = "twitch_notifications"
+private const val TWITCH_DROPS_KIND = "twitch_drops"
 private const val LOCAL_FOLLOWING_OVERVIEW_KEY = "local"
 private const val MAX_CACHE_ENTRIES = 240
 private const val METADATA_CACHE_FRESHNESS_VERSION = 1
@@ -78,6 +81,11 @@ data class GamePageCacheSnapshot(
 data class FollowingOverviewCacheSnapshot(
     val recentVideos: List<Video> = emptyList(),
     val upcomingStreams: List<UpcomingStream> = emptyList(),
+)
+
+data class DropsCacheSnapshot(
+    val drops: List<TwitchDrop> = emptyList(),
+    val campaigns: List<TwitchDropCampaign> = emptyList(),
 )
 
 /**
@@ -501,6 +509,41 @@ class MetadataCache(
         )
     }
 
+    suspend fun readDrops(userId: String?): DropsCacheSnapshot? = withContext(Dispatchers.IO) {
+        readPayload<CachedDropsPayload>(
+            kind = TWITCH_DROPS_KIND,
+            keys = accountIdentityKeys(userId),
+            expectedStableId = userId,
+            identity = { it.userId },
+        )?.payload?.let { payload ->
+            DropsCacheSnapshot(
+                drops = payload.drops.map { it.copy(dropInstanceId = null) },
+                campaigns = payload.campaigns,
+            )
+        }
+    }
+
+    suspend fun writeDrops(
+        userId: String?,
+        snapshot: DropsCacheSnapshot,
+        nowMs: Long = clockMs(),
+    ) = withContext(Dispatchers.IO) {
+        val payload = CachedDropsPayload(
+            userId = userId,
+            drops = snapshot.drops.map { it.copy(dropInstanceId = null) },
+            campaigns = snapshot.campaigns,
+        )
+        writePayload(
+            kind = TWITCH_DROPS_KIND,
+            keys = accountIdentityKeys(userId),
+            payload = payload,
+            stableId = userId,
+            identity = { it.userId },
+            nowMs = nowMs,
+            mergePayload = { _, _ -> payload },
+        )
+    }
+
     suspend fun markNotificationsRead(userId: String?, ids: Collection<String>) = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext
         val cached = readNotifications(userId) ?: return@withContext
@@ -731,6 +774,13 @@ private data class CachedNotificationsPayload(
 )
 
 @Serializable
+private data class CachedDropsPayload(
+    val userId: String? = null,
+    val drops: List<TwitchDrop> = emptyList(),
+    val campaigns: List<TwitchDropCampaign> = emptyList(),
+)
+
+@Serializable
 private data class CachedTwitchNotification(
     val id: String,
     val type: String? = null,
@@ -809,6 +859,7 @@ private fun TwitchNotificationAction.toCachedTwitchNotificationAction(): CachedT
     is TwitchNotificationAction.Video -> CachedTwitchNotificationAction("video", id = id)
     is TwitchNotificationAction.Clip -> CachedTwitchNotificationAction("clip", id = slug)
     is TwitchNotificationAction.Game -> CachedTwitchNotificationAction("game", id = id, name = name)
+    is TwitchNotificationAction.Drops -> CachedTwitchNotificationAction("drops", id = campaignId)
     is TwitchNotificationAction.TwitchWebUrl -> CachedTwitchNotificationAction("web_url", url = url)
     TwitchNotificationAction.None -> CachedTwitchNotificationAction("none")
 }
@@ -818,6 +869,7 @@ private fun CachedTwitchNotificationAction.toTwitchNotificationAction(): TwitchN
     "video" -> id?.let(TwitchNotificationAction::Video)
     "clip" -> id?.let(TwitchNotificationAction::Clip)
     "game" -> TwitchNotificationAction.Game(id, name)
+    "drops" -> TwitchNotificationAction.Drops(id)
     "web_url" -> url?.let(TwitchNotificationAction::TwitchWebUrl)
     "none" -> TwitchNotificationAction.None
     else -> null

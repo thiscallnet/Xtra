@@ -11,6 +11,7 @@ sealed interface TwitchNotificationAction {
     data class Video(val id: String) : TwitchNotificationAction
     data class Clip(val slug: String) : TwitchNotificationAction
     data class Game(val id: String?, val name: String?) : TwitchNotificationAction
+    data class Drops(val campaignId: String? = null) : TwitchNotificationAction
     data class TwitchWebUrl(val url: String) : TwitchNotificationAction
     data object None : TwitchNotificationAction
 }

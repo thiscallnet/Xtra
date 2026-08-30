@@ -285,6 +285,7 @@ class CombinedChatViewModel(
                         ChatViewModel(
                             application.applicationContext,
                             module.graphQLRepository,
+                            module.dropsRepository,
                             module.helixRepository,
                             module.playerRepository,
                             module.trustManager,

@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.repository.BookmarksRepository
 import com.github.andreyasadchy.xtra.repository.ChannelSortRepository
 import com.github.andreyasadchy.xtra.repository.GameSortRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
+import com.github.andreyasadchy.xtra.repository.DropsRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.LocalGameFollowsRepository
@@ -560,6 +561,10 @@ class XtraModule(application: Application) {
             json = json,
             twitchWebSessionManager = twitchWebSessionManager,
         )
+    }
+
+    val dropsRepository by lazy {
+        DropsRepository(application, graphQLRepository, metadataCache)
     }
 
     val twitchPrivateGqlClient by lazy {

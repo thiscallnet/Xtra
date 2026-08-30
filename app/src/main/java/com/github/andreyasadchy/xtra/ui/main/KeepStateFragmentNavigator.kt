@@ -46,6 +46,7 @@ class KeepStateFragmentNavigator(
         R.id.followPagerFragment,
         R.id.savedPagerFragment,
         R.id.statisticsFragment,
+        R.id.dropsFragment,
     )
 
     override fun navigate(
@@ -67,6 +68,7 @@ class KeepStateFragmentNavigator(
         val outgoingDestinationId = currentEntry?.destination?.id
         var transactionOutgoingDestinationId = outgoingDestinationId
         val createdInThisNavigation = mutableSetOf<Fragment>()
+        val addedInThisTransaction = mutableSetOf<Fragment>()
 
         entries.forEach { entry ->
             val destinationId = entry.destination.id
@@ -85,10 +87,16 @@ class KeepStateFragmentNavigator(
                 }
             }
 
-            if (fragment.isAdded || (fragment !in createdInThisNavigation && isPending(fragment))) {
+            if (
+                fragment.isAdded ||
+                fragment in addedInThisTransaction ||
+                (fragment !in createdInThisNavigation && isPending(fragment)) ||
+                fragment.tag?.let { fragmentManager.findFragmentByTag(it) === fragment } == true
+            ) {
                 transaction.show(fragment)
             } else {
                 transaction.add(hostContainerId, fragment, fragment.tag ?: entry.id)
+                addedInThisTransaction += fragment
             }
 
             outgoing = fragment
@@ -97,6 +105,23 @@ class KeepStateFragmentNavigator(
 
         val incoming = requireNotNull(outgoing)
         val incomingDestinationId = entries.last().destination.id
+        // Navigation can recover with a stale non-tab fragment still attached when the
+        // navigator's bookkeeping was interrupted by a process/lifecycle transition. The
+        // current-entry cleanup above is not sufficient in that case: remove or hide every
+        // other attached fragment before committing the new primary destination so global
+        // routes (for example Notifications -> Drops) cannot render on top of each other.
+        fragmentManager.fragments
+            .filter { it.isAdded && it !== incoming }
+            .forEach { fragment ->
+                val destinationId = fragment.tag?.let(destinationByTag::get)
+                if (fragment in preservedFragments.values || destinationId?.let(::isTabDestination) == true) {
+                    transaction.hide(fragment)
+                    transaction.setMaxLifecycle(fragment, Lifecycle.State.CREATED)
+                } else {
+                    transaction.remove(fragment)
+                    forget(fragment)
+                }
+            }
         evictLeastRecentlyUsedTabIfNeeded(
             transaction = transaction,
             incomingDestinationId = incomingDestinationId,
@@ -171,6 +196,7 @@ class KeepStateFragmentNavigator(
         val poppedEntries = backStack.subList(popUpToIndex, backStack.size).toList()
         val incomingEntry = backStack.getOrNull(popUpToIndex - 1)
         val transaction = fragmentManager.beginTransaction().setReorderingAllowed(true)
+        val addedInThisTransaction = mutableSetOf<Fragment>()
 
         poppedEntries.asReversed().forEach { entry ->
             val fragment = findFragment(entry) ?: return@forEach
@@ -190,10 +216,16 @@ class KeepStateFragmentNavigator(
         incomingEntry?.let { entry ->
             val existingFragment = findFragment(entry)
             val fragment = existingFragment ?: createFragment(entry).also { registerNewFragment(entry, it) }
-            if (fragment.isAdded || (existingFragment != null && isPending(fragment))) {
+            if (
+                fragment.isAdded ||
+                fragment in addedInThisTransaction ||
+                (existingFragment != null && isPending(fragment)) ||
+                fragment.tag?.let { fragmentManager.findFragmentByTag(it) === fragment } == true
+            ) {
                 transaction.show(fragment)
             } else {
                 transaction.add(hostContainerId, fragment, fragment.tag ?: entry.id)
+                addedInThisTransaction += fragment
             }
             transaction.setMaxLifecycle(fragment, Lifecycle.State.RESUMED)
             transaction.setPrimaryNavigationFragment(fragment)

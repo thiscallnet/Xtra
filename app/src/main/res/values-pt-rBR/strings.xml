@@ -442,6 +442,16 @@
     <string name="personal_stv_emote">Emote pessoal 7TV</string>
     <string name="show_polls">Mostrar enquetes</string>
     <string name="show_predictions">Mostrar previsões</string>
+    <string name="drops_show">Mostrar Drops</string>
+    <string name="drops_auto_claim">Resgatar Drops concluídos automaticamente</string>
+    <string name="drops_auto_claim_summary">Resgata Drops concluídos enquanto você assiste no Xtra. A Twitch pode alterar esta API privada a qualquer momento.</string>
+    <string name="drops_ready_title">Assistir rendeu um Drop!</string>
+    <string name="drops_tap_to_claim">Toque para resgatar</string>
+    <string name="drops_claiming">Resgatando Drop…</string>
+    <string name="drops_claimed">Drop resgatado</string>
+    <string name="drops_claim_failed">Não foi possível resgatar o Drop</string>
+    <string name="drops_dismiss">Dispensar notificação de Drop</string>
+    <string name="drops_progress_title">Progresso dos Drops</string>
     <string name="prediction_title">Previsão atual: %s</string>
     <string name="prediction_locked">Bloqueada</string>
     <string name="prediction_refunded">Reembolsado</string>
@@ -1465,4 +1475,17 @@
     <string name="settings_player_control_preview_horizontal">Horizontal</string>
     <string name="settings_player_control_preview_info">Info</string>
     <string name="player_viewers_suffix">para %1$s espectadores</string>
+    <string name="drops">Drops</string>
+    <string name="drops_inventory_tab">Inventory</string>
+    <string name="drops_all_campaigns_tab">All Campaigns</string>
+    <string name="drops_social_badge_tab">Social Media Badge</string>
+    <string name="drops_sign_in_required">Sign in to Twitch to view your Drops.</string>
+    <string name="drops_load_failed">Couldn’t load Drops. Twitch may have changed its private API.</string>
+    <string name="drops_social_badge_unavailable">Social Media Badge rewards aren’t available in Xtra yet.</string>
+    <string name="drops_no_rewards">No Drops available</string>
+    <string name="drops_ready_section">Ready to claim</string>
+    <string name="drops_in_progress_section">In progress</string>
+    <string name="drops_active_campaigns">Active campaigns</string>
+    <string name="drops_upcoming">Upcoming</string>
+    <string name="drops_summary">%1$d rewards ready · %2$d campaigns active</string>
 </resources>

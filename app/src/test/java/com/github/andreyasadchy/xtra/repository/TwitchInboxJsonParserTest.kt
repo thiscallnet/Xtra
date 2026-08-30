@@ -18,7 +18,7 @@ class TwitchInboxJsonParserTest {
         assertEquals(3, page.notifications.size)
         assertTrue(page.notifications.first().isUnread)
         assertFalse(page.notifications.first().canDismiss)
-        assertTrue(page.notifications.first().action is TwitchNotificationAction.TwitchWebUrl)
+        assertTrue(page.notifications.first().action is TwitchNotificationAction.Drops)
         assertFalse(page.notifications[1].isUnread)
         assertEquals(TwitchNotificationAction.None, page.notifications[1].action)
         assertEquals(TwitchNotificationAction.Channel("channel-1", "channel_login", "Channel Name", "https://static-cdn.jtvnw.net/channel.png"), page.notifications[2].action)

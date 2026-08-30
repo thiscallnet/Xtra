@@ -442,6 +442,16 @@
     <string name="personal_stv_emote">個人的 7TV 表情符號</string>
     <string name="show_polls">顯示投票活動</string>
     <string name="show_predictions">顯示賽況預測</string>
+    <string name="drops_show">顯示 Drops</string>
+    <string name="drops_auto_claim">自動領取已完成的 Drops</string>
+    <string name="drops_auto_claim_summary">在 Xtra 觀看時自動領取已完成的 Drops。Twitch 可能隨時變更此私人 API。</string>
+    <string name="drops_ready_title">觀看讓你獲得了 Drop！</string>
+    <string name="drops_tap_to_claim">點擊領取</string>
+    <string name="drops_claiming">正在領取 Drop…</string>
+    <string name="drops_claimed">Drop 已領取</string>
+    <string name="drops_claim_failed">無法領取 Drop</string>
+    <string name="drops_dismiss">關閉 Drop 通知</string>
+    <string name="drops_progress_title">Drops 進度</string>
     <string name="prediction_title">目前賽況預測：%s</string>
     <string name="prediction_locked">已鎖定</string>
     <string name="prediction_refunded">退還</string>
@@ -1465,4 +1475,17 @@
     <string name="settings_player_control_preview_horizontal">橫向</string>
     <string name="settings_player_control_preview_info">資訊</string>
     <string name="player_viewers_suffix">%1$s 位觀眾</string>
+    <string name="drops">Drops</string>
+    <string name="drops_inventory_tab">Inventory</string>
+    <string name="drops_all_campaigns_tab">All Campaigns</string>
+    <string name="drops_social_badge_tab">Social Media Badge</string>
+    <string name="drops_sign_in_required">Sign in to Twitch to view your Drops.</string>
+    <string name="drops_load_failed">Couldn’t load Drops. Twitch may have changed its private API.</string>
+    <string name="drops_social_badge_unavailable">Social Media Badge rewards aren’t available in Xtra yet.</string>
+    <string name="drops_no_rewards">No Drops available</string>
+    <string name="drops_ready_section">Ready to claim</string>
+    <string name="drops_in_progress_section">In progress</string>
+    <string name="drops_active_campaigns">Active campaigns</string>
+    <string name="drops_upcoming">Upcoming</string>
+    <string name="drops_summary">%1$d rewards ready · %2$d campaigns active</string>
 </resources>

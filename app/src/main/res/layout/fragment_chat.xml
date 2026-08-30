@@ -208,6 +208,8 @@
 
         </FrameLayout>
 
+        <include layout="@layout/view_drop_callout" />
+
         <LinearLayout
             android:id="@+id/replyView"
             android:layout_width="match_parent"

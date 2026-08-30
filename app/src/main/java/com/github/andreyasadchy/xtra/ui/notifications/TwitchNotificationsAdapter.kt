@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.notifications
 import android.content.Intent
 import android.net.Uri
 import android.graphics.Typeface
+import android.text.method.LinkMovementMethod
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -16,6 +17,7 @@ import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ItemTwitchNotificationBinding
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotification
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotificationAction
 import com.github.andreyasadchy.xtra.repository.isSafeTwitchUrl
 import com.github.andreyasadchy.xtra.ui.inbox.relativeTime
 import io.noties.markwon.AbstractMarkwonPlugin
@@ -44,7 +46,10 @@ class TwitchNotificationsAdapter(
                 .usePlugin(object : AbstractMarkwonPlugin() {
                     override fun configureConfiguration(builder: MarkwonConfiguration.Builder) {
                         builder.linkResolver(LinkResolver { view, link ->
-                            if (isSafeTwitchUrl(link)) {
+                            val notification = view.tag as? TwitchNotification
+                            if (notification?.action is TwitchNotificationAction.Drops) {
+                                onClick(notification)
+                            } else if (isSafeTwitchUrl(link)) {
                                 runCatching { view.context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link))) }
                             }
                         })
@@ -62,7 +67,18 @@ class TwitchNotificationsAdapter(
     inner class ViewHolder(private val binding: ItemTwitchNotificationBinding) : RecyclerView.ViewHolder(binding.root) {
         fun bind(item: TwitchNotification) = with(binding) {
             root.setOnClickListener { onClick(item) }
+            body.tag = item
             markwon.setMarkdown(body, item.body)
+            if (item.action is TwitchNotificationAction.Drops) {
+                // Markdown links in Drop notifications often point at a channel or game.
+                // They must not steal the row action and make the native Drops destination
+                // appear unreliable.
+                body.movementMethod = null
+                body.setOnClickListener { onClick(item) }
+            } else {
+                body.movementMethod = LinkMovementMethod.getInstance()
+                body.setOnClickListener(null)
+            }
             body.setTypeface(null, if (item.isUnread) Typeface.BOLD else Typeface.NORMAL)
             timestamp.text = relativeTime(item.createdAt)
             unreadDot.visibility = if (item.isUnread) View.VISIBLE else View.GONE
@@ -70,7 +86,7 @@ class TwitchNotificationsAdapter(
             markRead.setOnClickListener { onMarkRead(item) }
             dismiss.visibility = if (item.canDismiss) View.VISIBLE else View.GONE
             dismiss.setOnClickListener { onDismiss(item) }
-            val isChannel = item.action is com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotificationAction.Channel
+            val isChannel = item.action is TwitchNotificationAction.Channel
             image.isClickable = isChannel
             image.isFocusable = isChannel
             image.contentDescription = if (isChannel) image.context.getString(R.string.view_profile) else null

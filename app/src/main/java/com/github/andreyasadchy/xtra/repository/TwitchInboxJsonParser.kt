@@ -21,6 +21,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.URI
 import java.time.Instant
+import java.util.Locale
 
 private fun JsonObject.obj(name: String): JsonObject? = this[name] as? JsonObject
 private fun JsonObject.array(name: String) = this[name]?.jsonArray
@@ -59,8 +60,27 @@ internal fun parseNotification(node: JsonObject): TwitchNotification? {
     val id = node.string("id") ?: return null
     val body = node.string("body") ?: node.string("bodyMarkdown") ?: return null
     val actions = node.array("actions").orEmpty().mapNotNull { it as? JsonObject }
-    val action = mapNotificationExtraAction(node.obj("extra"))
-        ?: actions.firstOrNull { it.string("type")?.equals("click", true) == true }?.let { mapNotificationAction(it.string("url")) }
+    val clickUrl = actions.firstOrNull {
+        it.string("type")?.equals("click", ignoreCase = true) == true
+    }?.string("url")
+    // Twitch has returned usable notification URLs with more than one action type.
+    // Prefer the click action, but do not discard a safe URL when its type changes.
+    val actionUrl = clickUrl ?: actions.asSequence()
+        .mapNotNull { it.string("url") }
+        .firstOrNull()
+    val structuredValues = listOf(
+        node.string("type"),
+        node.string("category"),
+        node.string("destinationType"),
+    )
+    val action = if (
+        actionUrl?.let(::isDropsTwitchUrl) == true || structuredValues.any(::isStructuredDropsValue)
+    ) {
+        TwitchNotificationAction.Drops(extractCampaignIdIfClearlyAvailable(actionUrl))
+    } else {
+        mapNotificationExtraAction(node.obj("extra"))
+            ?: actionUrl?.let(::mapNotificationAction)
+    }
     return TwitchNotification(
         id = id,
         type = node.string("type"),
@@ -109,6 +129,26 @@ private fun mapNotificationAction(url: String?): TwitchNotificationAction {
     val safeUrl = url?.takeIf { isSafeTwitchUrl(it) } ?: return TwitchNotificationAction.None
     return TwitchNotificationAction.TwitchWebUrl(safeUrl)
 }
+
+internal fun isDropsTwitchUrl(value: String): Boolean {
+    if (!isSafeTwitchUrl(value)) return false
+    val uri = runCatching { URI(value) }.getOrNull() ?: return false
+    val path = uri.path.orEmpty().trimEnd('/').lowercase(Locale.ROOT)
+    return path == "/drops" || path == "/drops/inventory" || path.startsWith("/drops/")
+}
+
+internal fun isStructuredDropsValue(value: String?): Boolean =
+    value?.uppercase(Locale.ROOT)?.contains("DROP") == true
+
+private fun extractCampaignIdIfClearlyAvailable(value: String?): String? = runCatching {
+    val query = URI(value ?: return@runCatching null).rawQuery.orEmpty()
+    query.split('&').asSequence()
+        .mapNotNull { part ->
+            val pair = part.split('=', limit = 2)
+            if (pair.size == 2 && (pair[0] == "campaignId" || pair[0] == "dropId")) pair[1] else null
+        }
+        .firstOrNull { it.isNotBlank() }
+}.getOrNull()
 
 internal fun isSafeTwitchUrl(value: String): Boolean = runCatching {
     val uri = URI(value)

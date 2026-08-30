@@ -11,6 +11,7 @@ internal const val EXTRA_SETTINGS_SCREEN = "settings_screen"
 internal const val EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE = "settings_highlight_preference"
 internal const val SETTINGS_SCREEN_TABS = "tabs"
 internal const val SETTINGS_SCREEN_PLAYER_CONTROLS = "player_controls"
+internal const val MAX_NAVIGATION_VISIBLE_ITEMS = 6
 
 internal fun Context.openTabCustomization(preferenceKey: String) {
     startActivity(Intent(this, SettingsActivity::class.java).apply {
@@ -42,6 +43,22 @@ internal fun minimumVisibleItemsForPreference(preferenceKey: String): Int = when
     C.UI_SEARCH_TABS,
     -> 1
     else -> 0
+}
+
+internal fun maximumVisibleItemsForPreference(preferenceKey: String): Int? =
+    MAX_NAVIGATION_VISIBLE_ITEMS.takeIf { preferenceKey == C.UI_NAVIGATION_TAB_LIST }
+
+internal fun limitNavigationVisibleItems(items: List<String>): List<String> {
+    val result = items.toMutableList()
+    while (result.count { it.split(':').getOrNull(2) != "0" } > MAX_NAVIGATION_VISIBLE_ITEMS) {
+        val index = result.indexOfLast { it.startsWith("4:") && it.split(':').getOrNull(2) != "0" }
+            .takeIf { it >= 0 }
+            ?: result.indexOfLast { it.split(':').getOrNull(2) != "0" }
+        if (index < 0) break
+        val parts = result[index].split(':')
+        result[index] = "${parts[0]}:${parts.getOrElse(1) { "0" }}:0"
+    }
+    return result
 }
 
 internal fun canDisableVisibleItem(
