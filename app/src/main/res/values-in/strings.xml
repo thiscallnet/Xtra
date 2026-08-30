@@ -1459,4 +1459,11 @@
     <string name="pinned_message_minimize">Minimize pinned message</string>
     <string name="pinned_message_expand">Expand pinned message</string>
     <string name="pinned_message_sent_at">sent at %1$s</string>
+    <string name="settings_player_control_metadata_scale">Ukuran info streamer</string>
+    <string name="settings_player_control_preview_summary">Lihat perbandingan ukuran kontrol dan info streamer</string>
+    <string name="settings_player_control_preview_description">Pratinjau. Kontrol vertikal %1$s, kontrol horizontal %2$s, info streamer %3$s.</string>
+    <string name="settings_player_control_preview_vertical">Vertikal</string>
+    <string name="settings_player_control_preview_horizontal">Horizontal</string>
+    <string name="settings_player_control_preview_info">Info</string>
+    <string name="player_viewers_suffix">untuk %1$s penonton</string>
 </resources>

@@ -1481,4 +1481,11 @@
     <string name="pinned_message_minimize">Minimize pinned message</string>
     <string name="pinned_message_expand">Expand pinned message</string>
     <string name="pinned_message_sent_at">sent at %1$s</string>
+    <string name="settings_player_control_metadata_scale">Veľkosť informácií o streamerovi</string>
+    <string name="settings_player_control_preview_summary">Porovnajte veľkosť ovládacích prvkov a informácií o streamerovi</string>
+    <string name="settings_player_control_preview_description">Náhľad. Ovládacie prvky na výšku %1$s, na šírku %2$s, informácie o streamerovi %3$s.</string>
+    <string name="settings_player_control_preview_vertical">Na výšku</string>
+    <string name="settings_player_control_preview_horizontal">Na šírku</string>
+    <string name="settings_player_control_preview_info">Info</string>
+    <string name="player_viewers_suffix">pre %1$s divákov</string>
 </resources>

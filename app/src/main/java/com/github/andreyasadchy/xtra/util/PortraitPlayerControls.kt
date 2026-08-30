@@ -13,6 +13,7 @@ import androidx.media3.ui.TimeBar
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /** Keeps the player overlay visually coherent when portrait video is short. */
 object PortraitPlayerControls {
@@ -22,9 +23,17 @@ object PortraitPlayerControls {
     private const val MAX_SCALE = 1.2f
     private const val AUTO_SCALE = "auto"
     private const val MIDDLE_QUICK_OFFSET_DP = 56f
+    /** The metadata pivot sits just inside the text block, after its layout start. */
+    const val METADATA_PIVOT_AFTER_INFO_START_DP = 6f
     // The anchor layouts already provide the landscape-safe margins. Adding a
     // second portrait inset leaves a visible gap beside the outer controls.
     private const val EDGE_INSET_DP = 0f
+
+    private data class MetadataWidthState(
+        val availableWidth: Float,
+        val scale: Float,
+        val width: Int,
+    )
 
     private enum class HorizontalAnchor {
         START,
@@ -75,6 +84,24 @@ object PortraitPlayerControls {
             compositionContainers.forEach { (container, horizontalAnchor, verticalAnchor) ->
                 resetDescendantTransforms(container)
                 scaleCompositionView(root, container, scale, isPortrait, horizontalAnchor, verticalAnchor)
+            }
+            val metadataNeedsLayout = scaleMetadataComposition(
+                root,
+                topLeftLayout,
+                channelAvatar,
+                infoLayout,
+                metadataContentLayout,
+                pivotX = infoLayout.left + METADATA_PIVOT_AFTER_INFO_START_DP *
+                    root.resources.displayMetrics.density,
+                pivotY = if (channelAvatar.height > 0) {
+                    channelAvatar.top + channelAvatar.height / 2f
+                } else {
+                    infoLayout.top + infoLayout.height / 2f
+                },
+                scale = metadataScale(binding),
+            )
+            if (metadataNeedsLayout) {
+                root.postOnAnimation { apply(binding, isPortrait) }
             }
 
             val rootControls = listOf(
@@ -184,9 +211,8 @@ object PortraitPlayerControls {
 
     private fun controlScale(binding: FragmentPlayerBinding, isPortrait: Boolean): Float {
         val density = binding.root.resources.displayMetrics.density
-        val automaticScale = if (isPortrait && binding.playerLayout.height > 0) {
-            (binding.playerLayout.height / density / BASELINE_HEIGHT_DP)
-                .coerceIn(MIN_SCALE, 1f)
+        val automaticScale = if (isPortrait) {
+            automaticControlScale(binding.playerLayout.height, density)
         } else {
             1f
         }
@@ -202,6 +228,174 @@ object PortraitPlayerControls {
         } else {
             value?.toFloatOrNull()?.div(100f)?.coerceIn(MIN_SCALE, MAX_SCALE) ?: automaticScale
         }
+    }
+
+    private fun metadataScale(binding: FragmentPlayerBinding): Float = binding.root.context.prefs()
+        .getString(C.PLAYER_CONTROL_METADATA_SCALE, "100")
+        ?.toFloatOrNull()
+        ?.div(100f)
+        ?.coerceIn(MIN_SCALE, MAX_SCALE)
+        ?: 1f
+
+    /** Uses the same Auto calculation for the runtime player and its settings preview. */
+    fun automaticControlScale(playerHeight: Int, density: Float): Float = if (playerHeight > 0) {
+        (playerHeight / density / BASELINE_HEIGHT_DP).coerceIn(MIN_SCALE, 1f)
+    } else {
+        1f
+    }
+
+    /** Keeps enlarged metadata inside its weighted info slot. */
+    fun metadataContentWidth(availableWidth: Float, scale: Float): Float =
+        if (scale > 1f) availableWidth.coerceAtLeast(0f) / scale else availableWidth
+
+    /** Scales avatar and metadata text as one visual composition. */
+    private fun scaleMetadataComposition(
+        root: View,
+        commonParent: ViewGroup,
+        channelAvatar: View,
+        infoLayout: View,
+        metadataContentLayout: View,
+        pivotX: Float,
+        pivotY: Float,
+        scale: Float,
+    ): Boolean {
+        if (constrainMetadataContentWidth(
+            infoLayout,
+            metadataContentLayout,
+            scale,
+        )) return true
+        val views = arrayOf(channelAvatar, metadataContentLayout)
+        views.forEach { view ->
+            view.pivotX = view.width / 2f
+            view.pivotY = view.height / 2f
+            view.scaleX = scale
+            view.scaleY = scale
+            if (view.width > 0 && view.height > 0) {
+                val center = layoutCenterInAncestor(view, commonParent)
+                val desiredCenterX = pivotX + (center.first - pivotX) * scale
+                val desiredCenterY = pivotY + (center.second - pivotY) * scale
+                val parent = view.parent as? ViewGroup
+                if (parent != null) {
+                    val parentOffset = layoutOffsetInAncestor(parent, commonParent)
+                    val parentCenterX = view.left + view.width / 2f
+                    val parentCenterY = view.top + view.height / 2f
+                    view.translationX = desiredCenterX - parentOffset.first - parentCenterX
+                    view.translationY = desiredCenterY - parentOffset.second - parentCenterY
+                }
+            }
+        }
+
+        val bounds = views
+            .filter { it.width > 0 && it.height > 0 }
+            .map { transformedBoundsInRoot(root, it) }
+        if (bounds.isEmpty()) return false
+        val metadataLeft = bounds.minOf { it.left }
+        val metadataRight = bounds.maxOf { it.right }
+        val infoBounds = transformedBoundsInRoot(root, infoLayout)
+        val minimumDelta = root.paddingLeft - metadataLeft
+        val maximumDelta = infoBounds.right - metadataRight
+        if (minimumDelta > maximumDelta) {
+            val availableDeficit = minimumDelta - maximumDelta
+            val parentScale = commonParent.scaleX.takeIf { it != 0f } ?: 1f
+            val metadataScale = scale.takeIf { it != 0f } ?: 1f
+            val newWidth = (metadataContentLayout.width - availableDeficit /
+                (parentScale * metadataScale)).roundToInt().coerceAtLeast(1)
+            if (newWidth < metadataContentLayout.width &&
+                setMetadataContentWidth(metadataContentLayout, newWidth)
+            ) {
+                metadataContentLayout.setTag(
+                    R.id.metadataContentLayout,
+                    MetadataWidthState(infoLayout.width.toFloat(), scale, newWidth),
+                )
+                return true
+            }
+        }
+        val correction = when {
+            minimumDelta <= 0f && maximumDelta >= 0f -> 0f
+            minimumDelta > 0f -> minimumDelta
+            else -> maximumDelta
+        }
+        if (correction != 0f) {
+            views.forEach { view ->
+                val parentScale = commonParent.scaleX.takeIf { it != 0f } ?: 1f
+                view.translationX += correction / parentScale
+            }
+        }
+        return false
+    }
+
+    private fun constrainMetadataContentWidth(
+        infoLayout: View,
+        metadataContentLayout: View,
+        scale: Float,
+    ): Boolean {
+        if (infoLayout.width <= 0) return false
+        val availableWidth = infoLayout.width.toFloat()
+        val maxBaseWidth = metadataContentWidth(availableWidth, scale)
+        val nominalWidth = maxBaseWidth.roundToInt().coerceAtLeast(1)
+        val params = metadataContentLayout.layoutParams as? LinearLayout.LayoutParams ?: return false
+        val state = metadataContentLayout.getTag(R.id.metadataContentLayout) as? MetadataWidthState
+        val width = if (state?.availableWidth == availableWidth && state.scale == scale) {
+            state.width
+        } else {
+            nominalWidth
+        }
+        if (params.width != width || params.weight != 0f) {
+            params.width = width
+            params.weight = 0f
+            metadataContentLayout.layoutParams = params
+            metadataContentLayout.setTag(
+                R.id.metadataContentLayout,
+                MetadataWidthState(availableWidth, scale, width),
+            )
+            return true
+        }
+        return false
+    }
+
+    private fun setMetadataContentWidth(
+        metadataContentLayout: View,
+        width: Int,
+    ): Boolean {
+        val params = metadataContentLayout.layoutParams as? LinearLayout.LayoutParams ?: return false
+        if (params.width == width && params.weight == 0f) return false
+        params.width = width
+        params.weight = 0f
+        metadataContentLayout.layoutParams = params
+        return true
+    }
+
+    private fun layoutCenterInAncestor(view: View, ancestor: View): Pair<Float, Float> {
+        val offset = layoutOffsetInAncestor(view, ancestor)
+        return Pair(offset.first + view.width / 2f, offset.second + view.height / 2f)
+    }
+
+    private fun layoutOffsetInAncestor(view: View, ancestor: View): Pair<Float, Float> {
+        var current: View = view
+        var x = 0f
+        var y = 0f
+        while (current !== ancestor) {
+            val parent = current.parent as? ViewGroup ?: break
+            x += current.left - parent.scrollX
+            y += current.top - parent.scrollY
+            current = parent
+        }
+        return Pair(x, y)
+    }
+
+    private fun transformedBoundsInRoot(root: View, view: View): RectF {
+        val bounds = RectF(0f, 0f, view.width.toFloat(), view.height.toFloat())
+        var current: View = view
+        while (current !== root) {
+            current.matrix.mapRect(bounds)
+            val parent = current.parent as? ViewGroup ?: break
+            bounds.offset(
+                current.left.toFloat() - parent.scrollX,
+                current.top.toFloat() - parent.scrollY,
+            )
+            current = parent
+        }
+        return bounds
     }
 
     private enum class QuickControlPosition {

@@ -10,6 +10,7 @@ import com.google.android.material.tabs.TabLayout
 internal const val EXTRA_SETTINGS_SCREEN = "settings_screen"
 internal const val EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE = "settings_highlight_preference"
 internal const val SETTINGS_SCREEN_TABS = "tabs"
+internal const val SETTINGS_SCREEN_PLAYER_CONTROLS = "player_controls"
 
 internal fun Context.openTabCustomization(preferenceKey: String) {
     startActivity(Intent(this, SettingsActivity::class.java).apply {

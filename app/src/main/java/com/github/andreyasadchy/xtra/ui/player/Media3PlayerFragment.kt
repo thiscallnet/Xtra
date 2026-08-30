@@ -1713,15 +1713,22 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun updateViewerCount(viewerCount: Int?) {
         with(binding.playerControls) {
             if (viewerCount != null) {
-                viewersText.text = TwitchApiHelper.formatCount(viewerCount, requireContext().prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true))
+                val formattedCount = TwitchApiHelper.formatCount(viewerCount, requireContext().prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true))
+                viewersText.text = getString(R.string.player_viewers_suffix, formattedCount)
+                viewersLayout.visibility = View.VISIBLE
+                titleAndViewersLayout.visibility = View.VISIBLE
                 viewersLayout.contentDescription = getString(R.string.player_viewers, viewersText.text)
-                if (requireContext().prefs().getBoolean(C.PLAYER_VIEWER_ICON, true)) {
-                    viewersIcon.visibility = View.VISIBLE
+                viewersIcon.visibility = if (requireContext().prefs().getBoolean(C.PLAYER_VIEWER_ICON, true)) {
+                    View.VISIBLE
+                } else {
+                    View.GONE
                 }
             } else {
                 viewersText.text = null
+                viewersLayout.visibility = View.GONE
                 viewersLayout.contentDescription = null
                 viewersIcon.visibility = View.GONE
+                titleAndViewersLayout.visibility = if (title.visibility == View.VISIBLE) View.VISIBLE else View.GONE
             }
         }
     }
@@ -1817,6 +1824,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 visibility = View.GONE
             }
         }
+        binding.playerControls.titleAndViewersLayout.visibility = if (
+            binding.playerControls.title.visibility == View.VISIBLE ||
+                binding.playerControls.viewersLayout.visibility == View.VISIBLE
+        ) View.VISIBLE else View.GONE
         binding.playerControls.category.apply {
             if (!gameName.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_CATEGORY, true)) {
                 text = gameName

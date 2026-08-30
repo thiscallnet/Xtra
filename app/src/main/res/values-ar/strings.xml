@@ -1458,4 +1458,11 @@
     <string name="pinned_message_minimize">Minimize pinned message</string>
     <string name="pinned_message_expand">Expand pinned message</string>
     <string name="pinned_message_sent_at">sent at %1$s</string>
+    <string name="settings_player_control_metadata_scale">حجم معلومات القائم بالبث</string>
+    <string name="settings_player_control_preview_summary">شاهد مقارنة حجم عناصر التحكم ومعلومات القائم بالبث</string>
+    <string name="settings_player_control_preview_description">معاينة. عناصر التحكم العمودية %1$s، الأفقية %2$s، معلومات القائم بالبث %3$s.</string>
+    <string name="settings_player_control_preview_vertical">عمودي</string>
+    <string name="settings_player_control_preview_horizontal">أفقي</string>
+    <string name="settings_player_control_preview_info">معلومات</string>
+    <string name="player_viewers_suffix">لـ %1$s من المشاهدين</string>
 </resources>

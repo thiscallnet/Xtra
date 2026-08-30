@@ -1458,4 +1458,11 @@
     <string name="pinned_message_minimize">Minimize pinned message</string>
     <string name="pinned_message_expand">Expand pinned message</string>
     <string name="pinned_message_sent_at">sent at %1$s</string>
+    <string name="settings_player_control_metadata_scale">Dimensione info dello streamer</string>
+    <string name="settings_player_control_preview_summary">Confronta le dimensioni dei controlli e delle info dello streamer</string>
+    <string name="settings_player_control_preview_description">Anteprima. Controlli verticali %1$s, controlli orizzontali %2$s, info dello streamer %3$s.</string>
+    <string name="settings_player_control_preview_vertical">Verticale</string>
+    <string name="settings_player_control_preview_horizontal">Orizzontale</string>
+    <string name="settings_player_control_preview_info">Info</string>
+    <string name="player_viewers_suffix">per %1$s spettatori</string>
 </resources>
