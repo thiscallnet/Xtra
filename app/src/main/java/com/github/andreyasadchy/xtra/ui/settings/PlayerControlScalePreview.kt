@@ -72,6 +72,7 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
 ) : FrameLayout(context, attrs) {
 
     private val gap = dp(8)
+    private val maxPanelWidth = dp(360)
     private val panels = listOf(
         PreviewPanel(context, R.string.settings_player_control_preview_vertical),
         PreviewPanel(context, R.string.settings_player_control_preview_horizontal),
@@ -105,7 +106,7 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
-        val panelWidth = ((width - gap) / 2).coerceAtLeast(0)
+        val panelWidth = ((width - gap) / 2).coerceAtMost(maxPanelWidth).coerceAtLeast(0)
         val panelHeight = (panelWidth * 9f / 16f).roundToInt()
         val measuredHeight = resolveSize(panelHeight, heightMeasureSpec)
         setMeasuredDimension(resolveSize(width, widthMeasureSpec), measuredHeight)
@@ -118,9 +119,11 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-        val panelWidth = ((width - gap) / 2).coerceAtLeast(0)
-        panels[0].layout(0, 0, panelWidth, height)
-        panels[1].layout(panelWidth + gap, 0, width, height)
+        val panelWidth = ((width - gap) / 2).coerceAtMost(maxPanelWidth).coerceAtLeast(0)
+        val previewWidth = panelWidth * 2 + gap
+        val start = (width - previewWidth) / 2
+        panels[0].layout(start, 0, start + panelWidth, height)
+        panels[1].layout(start + panelWidth + gap, 0, start + previewWidth, height)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
@@ -154,7 +157,7 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
 
         init {
             setWillNotDraw(false)
-            clipChildren = false
+            clipChildren = true
             background = panelBackground()
             addView(play)
             addView(menu)
@@ -402,8 +405,18 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             view.scaleY = actualControlScale
             val viewCenterX = view.left + view.width / 2f
             val viewCenterY = view.top + view.height / 2f
-            val scaledX = width / 2f + (point.x - width / 2f) * actualControlScale
-            val scaledY = height / 2f + (point.y - height / 2f) * actualControlScale
+            val scaledHalfWidth = view.width * actualControlScale / 2f
+            val scaledHalfHeight = view.height * actualControlScale / 2f
+            val scaledX = (width / 2f + (point.x - width / 2f) * actualControlScale)
+                .coerceIn(
+                    scaledHalfWidth,
+                    (width - scaledHalfWidth).coerceAtLeast(scaledHalfWidth),
+                )
+            val scaledY = (height / 2f + (point.y - height / 2f) * actualControlScale)
+                .coerceIn(
+                    scaledHalfHeight,
+                    (height - scaledHalfHeight).coerceAtLeast(scaledHalfHeight),
+                )
             view.translationX = scaledX - viewCenterX
             view.translationY = scaledY - viewCenterY
         }
