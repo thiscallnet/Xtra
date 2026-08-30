@@ -44,6 +44,7 @@ data class UpdateUiModel(
     val titleRes: Int = R.string.update_available,
     val release: com.github.andreyasadchy.xtra.util.updater.UpdateRelease? = null,
     val selectedAsset: UpdateSelectedAssetInfo? = null,
+    @StringRes val statusMessageRes: Int? = null,
     val progress: DownloadProgress? = null,
     val downloadManagerStatus: Int? = null,
     val downloadManagerReason: Int? = null,
@@ -64,8 +65,19 @@ data class UpdateErrorUi(
 fun UpdateState.toUiModel(selectedAsset: UpdateSelectedAssetInfo? = null): UpdateUiModel {
     val model = when (this) {
     UpdateState.Idle -> UpdateUiModel(UpdateUiStatus.IDLE, primaryAction = UpdateUiAction.Check)
-    UpdateState.Checking -> UpdateUiModel(UpdateUiStatus.CHECKING, titleRes = R.string.update_checking, primaryAction = null)
-    is UpdateState.UpToDate -> UpdateUiModel(UpdateUiStatus.CURRENT, titleRes = R.string.update_up_to_date, release = release, primaryAction = UpdateUiAction.Check)
+    UpdateState.Checking -> UpdateUiModel(
+        UpdateUiStatus.CHECKING,
+        titleRes = R.string.update_checking,
+        statusMessageRes = R.string.update_checking,
+        primaryAction = null,
+    )
+    is UpdateState.UpToDate -> UpdateUiModel(
+        UpdateUiStatus.CURRENT,
+        titleRes = R.string.update_up_to_date,
+        release = release,
+        primaryAction = UpdateUiAction.Check,
+        statusMessageRes = R.string.update_up_to_date,
+    )
     is UpdateState.Available -> UpdateUiModel(
         status = UpdateUiStatus.AVAILABLE,
         release = release,
@@ -79,6 +91,7 @@ fun UpdateState.toUiModel(selectedAsset: UpdateSelectedAssetInfo? = null): Updat
         release = release,
         primaryAction = UpdateUiAction.Check,
         secondaryAction = UpdateUiAction.UndoSkip,
+        statusMessageRes = R.string.update_previously_skipped,
         showReleaseNotes = true,
     )
     is UpdateState.Deferred -> UpdateUiModel(
@@ -86,6 +99,7 @@ fun UpdateState.toUiModel(selectedAsset: UpdateSelectedAssetInfo? = null): Updat
         release = release,
         primaryAction = UpdateUiAction.Download,
         secondaryAction = UpdateUiAction.Check,
+        statusMessageRes = R.string.update_deferred,
         showReleaseNotes = true,
     )
     is UpdateState.Downloading -> UpdateUiModel(
@@ -103,6 +117,7 @@ fun UpdateState.toUiModel(selectedAsset: UpdateSelectedAssetInfo? = null): Updat
         status = UpdateUiStatus.READY,
         titleRes = R.string.update_ready_title,
         release = release,
+        statusMessageRes = R.string.update_downloaded_ready,
         primaryAction = UpdateUiAction.Install,
         showReleaseNotes = true,
     )
@@ -110,6 +125,7 @@ fun UpdateState.toUiModel(selectedAsset: UpdateSelectedAssetInfo? = null): Updat
         status = if (sessionId == null) UpdateUiStatus.VERIFYING else UpdateUiStatus.INSTALLING,
         titleRes = if (sessionId == null) R.string.update_verifying else R.string.update_installing,
         release = release,
+        statusMessageRes = if (sessionId == null) R.string.update_verifying else R.string.update_installing,
         primaryAction = null,
         showReleaseNotes = true,
         showDiagnostics = true,
@@ -118,6 +134,7 @@ fun UpdateState.toUiModel(selectedAsset: UpdateSelectedAssetInfo? = null): Updat
         status = UpdateUiStatus.AWAITING_USER_ACTION,
         titleRes = R.string.update_awaiting_user_action,
         release = release,
+        statusMessageRes = R.string.update_awaiting_user_action,
         primaryAction = UpdateUiAction.ContinueInstall,
         showReleaseNotes = true,
         showDiagnostics = true,
@@ -137,6 +154,7 @@ fun UpdateState.toUiModel(selectedAsset: UpdateSelectedAssetInfo? = null): Updat
         showReleaseNotes = release != null,
         showDiagnostics = true,
         downloadManagerReason = downloadManagerReason,
+        statusMessageRes = toErrorUi().messageRes,
     )
     }
     return model.copy(selectedAsset = selectedAsset)

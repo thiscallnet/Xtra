@@ -45,6 +45,18 @@ class UpdateUiMapperTest {
     }
 
     @Test
+    fun skippedAndDeferredStatesExposeTheirSpecificStatusMessages() {
+        assertEquals(
+            com.github.andreyasadchy.xtra.R.string.update_previously_skipped,
+            UpdateState.Skipped(release).toUiModel().statusMessageRes,
+        )
+        assertEquals(
+            com.github.andreyasadchy.xtra.R.string.update_deferred,
+            UpdateState.Deferred(release).toUiModel().statusMessageRes,
+        )
+    }
+
+    @Test
     fun availableUpdateExposesSecondaryAndOverflowActionsSeparately() {
         val model = UpdateState.Available(release).toUiModel()
 

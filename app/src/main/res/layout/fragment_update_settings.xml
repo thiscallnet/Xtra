@@ -90,9 +90,10 @@
                         android:id="@+id/updateOverflowButton"
                         style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_height="48dp"
                         android:contentDescription="@string/update_more_actions"
-                        android:minWidth="0dp"
+                        android:minWidth="48dp"
+                        android:minHeight="48dp"
                         android:text="@string/update_more_actions_symbol"
                         android:visibility="gone" />
                 </LinearLayout>

@@ -1834,11 +1834,8 @@ class SettingsActivity : AppCompatActivity() {
             } else ""
             binding.statusMessage.text = when (model.status) {
                 UpdateUiStatus.CURRENT -> getString(R.string.update_checked_recently, UpdateTimeFormatter.format(requireContext(), repository.lastSuccessfulCheck))
-                UpdateUiStatus.CHECKING -> getString(R.string.update_checking)
                 UpdateUiStatus.DOWNLOADING -> UpdateStatusBinder.downloadStatusText(requireContext(), model.downloadManagerStatus, model.downloadManagerReason)
-                UpdateUiStatus.READY -> getString(R.string.update_downloaded_ready)
-                UpdateUiStatus.ERROR -> model.errorUi?.let { getString(it.messageRes) }.orEmpty()
-                else -> ""
+                else -> model.statusMessageRes?.let(::getString).orEmpty()
             }
             binding.downloadProgressView.root.visibility = if (model.status == UpdateUiStatus.DOWNLOADING) View.VISIBLE else View.GONE
             UpdateStatusBinder.bindDownloadProgress(

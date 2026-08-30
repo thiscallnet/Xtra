@@ -941,6 +941,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_OPEN_UPDATE_DETAILS, false) == true) {
+            intent.removeExtra(EXTRA_OPEN_UPDATE_DETAILS)
             openUpdateDetails()
             return
         }

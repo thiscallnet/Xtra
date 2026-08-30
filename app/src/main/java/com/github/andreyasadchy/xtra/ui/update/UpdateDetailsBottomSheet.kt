@@ -107,8 +107,6 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
             binding.detailsProgressView.downloadRate,
             model.progress,
         )
-        binding.detailsError.visibility = if (model.status == UpdateUiStatus.ERROR) View.VISIBLE else View.GONE
-        binding.detailsError.text = model.errorUi?.let { getString(it.messageRes) }.orEmpty()
         val showNotes = model.showReleaseNotes && release != null
         binding.detailsNotesTitle.visibility = if (showNotes) View.VISIBLE else View.GONE
         binding.detailsNotesContainer.visibility = if (showNotes) View.VISIBLE else View.GONE
@@ -223,19 +221,12 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
     }
 
     private fun statusText(model: UpdateUiModel): String = when (model.status) {
-        UpdateUiStatus.IDLE -> getString(R.string.update_available)
-        UpdateUiStatus.CHECKING -> getString(R.string.update_checking)
-        UpdateUiStatus.CURRENT -> getString(R.string.update_up_to_date)
-        UpdateUiStatus.AVAILABLE,
-        UpdateUiStatus.SKIPPED,
-        UpdateUiStatus.DEFERRED,
-        -> getString(R.string.update_available)
         UpdateUiStatus.DOWNLOADING -> UpdateStatusBinder.downloadStatusText(requireContext(), model.downloadManagerStatus, model.downloadManagerReason)
-        UpdateUiStatus.READY -> getString(R.string.update_downloaded_ready)
-        UpdateUiStatus.VERIFYING -> getString(R.string.update_verifying)
-        UpdateUiStatus.INSTALLING -> getString(R.string.update_installing)
-        UpdateUiStatus.AWAITING_USER_ACTION -> getString(R.string.update_awaiting_user_action)
-        UpdateUiStatus.ERROR -> model.errorUi?.let { getString(it.messageRes) }.orEmpty()
+        UpdateUiStatus.CURRENT -> getString(R.string.update_up_to_date)
+        UpdateUiStatus.IDLE,
+        UpdateUiStatus.AVAILABLE,
+        -> ""
+        else -> model.statusMessageRes?.let(::getString).orEmpty()
     }
 
     private fun actionText(action: UpdateUiAction?): String = getString(

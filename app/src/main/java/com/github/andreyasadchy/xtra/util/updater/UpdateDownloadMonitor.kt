@@ -50,10 +50,19 @@ class UpdateDownloadMonitor(
                         break
                     }
                     when (record.status) {
-                        DownloadManager.STATUS_PENDING,
-                        DownloadManager.STATUS_RUNNING,
-                        DownloadManager.STATUS_PAUSED,
-                        -> {
+                        DownloadManager.STATUS_PENDING -> {
+                            estimator.reset()
+                            onEvent(
+                                UpdateDownloadEvent.Progress(
+                                    record,
+                                    DownloadProgress(
+                                        downloadedBytes = record.downloadedBytes,
+                                        totalBytes = record.totalBytes,
+                                    ),
+                                ),
+                            )
+                        }
+                        DownloadManager.STATUS_RUNNING -> {
                             val rate = estimator.sample(record.downloadedBytes, nowMs())
                             onEvent(
                                 UpdateDownloadEvent.Progress(
@@ -70,6 +79,18 @@ class UpdateDownloadMonitor(
                                             )
                                         } else null,
                                         stalled = rate.stalled,
+                                    ),
+                                ),
+                            )
+                        }
+                        DownloadManager.STATUS_PAUSED -> {
+                            estimator.reset()
+                            onEvent(
+                                UpdateDownloadEvent.Progress(
+                                    record,
+                                    DownloadProgress(
+                                        downloadedBytes = record.downloadedBytes,
+                                        totalBytes = record.totalBytes,
                                     ),
                                 ),
                             )
