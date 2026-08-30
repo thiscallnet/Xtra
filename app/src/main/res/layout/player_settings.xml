@@ -196,14 +196,25 @@
             tools:visibility="visible" />
 
         <TextView
-            android:id="@+id/menuLiveCaptions"
+            android:id="@+id/menuLiveCaptionEngine"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="?attr/selectableItemBackground"
             android:padding="12dp"
             android:textAppearance="?attr/textAppearanceBodyMedium"
             android:visibility="gone"
-            tools:text="@string/enable_live_captions"
+            tools:text="@string/live_caption_engine"
+            tools:visibility="visible" />
+
+        <TextView
+            android:id="@+id/menuLiveCaptionInterval"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:padding="12dp"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:visibility="gone"
+            tools:text="@string/live_caption_processing_interval"
             tools:visibility="visible" />
 
         <TextView

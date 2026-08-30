@@ -5,26 +5,27 @@ import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
+import androidx.core.content.edit
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.TeeAudioProcessor
 import com.github.andreyasadchy.xtra.BuildConfig
-import com.k2fsa.sherpa.onnx.EndpointConfig
-import com.k2fsa.sherpa.onnx.EndpointRule
-import com.k2fsa.sherpa.onnx.FeatureConfig
-import com.k2fsa.sherpa.onnx.OnlineModelConfig
-import com.k2fsa.sherpa.onnx.OnlineRecognizer
-import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
-import com.k2fsa.sherpa.onnx.OnlineStream
-import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
+import com.github.andreyasadchy.xtra.ui.player.captions.engine.CaptionRecognitionEvent
+import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngine
+import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngineFactory
+import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngineId
+import com.github.andreyasadchy.xtra.util.C as PreferenceKeys
+import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.nio.ByteBuffer
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 internal sealed interface AudioEvent {
     data class Pcm(
@@ -42,6 +43,13 @@ internal sealed interface AudioEvent {
         val generation: Long,
     ) : AudioEvent
 
+    data class Reset(val generation: Long) : AudioEvent
+
+    data class EngineChanged(
+        val id: LiveCaptionEngineId,
+        val generation: Long,
+    ) : AudioEvent
+
     data object Stop : AudioEvent
 }
 
@@ -52,6 +60,8 @@ internal class CaptionAudioQueue(capacity: Int = 8) {
     fun offer(event: AudioEvent): Boolean = queue.offer(event)
 
     fun take(): AudioEvent = queue.take()
+
+    fun poll(timeoutMs: Long): AudioEvent? = queue.poll(timeoutMs, TimeUnit.MILLISECONDS)
 
     fun clear() = queue.clear()
 
@@ -65,14 +75,25 @@ private data class AudioFormatState(
 )
 
 @OptIn(UnstableApi::class)
-class LiveCaptionManager(private val context: Context) {
-
+class LiveCaptionManager(
+    private val context: Context,
+    private val engineFactory: (Context, LiveCaptionEngineId) -> LiveCaptionEngine =
+        LiveCaptionEngineFactory::create,
+) {
     private val enabled = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val audioGeneration = AtomicLong(0L)
     private val droppedAudioBuffers = AtomicInteger(0)
+    private val selectedEngineId = AtomicReference(
+        LiveCaptionEngineId.fromPreference(
+            context.prefs().getString(PreferenceKeys.PLAYER_LIVE_CAPTION_ENGINE, null),
+        ),
+    )
     private val audioQueue = CaptionAudioQueue()
     private val stateMutable = MutableStateFlow(LiveCaptionState())
+    private val metricsMutable = MutableStateFlow(
+        LiveCaptionMetrics(selectedEngineId.get().preferenceValue),
+    )
     private val workerLock = Any()
     private val captionText = CaptionTextStateMachine()
 
@@ -83,6 +104,7 @@ class LiveCaptionManager(private val context: Context) {
     private var worker: Thread? = null
 
     val state: StateFlow<LiveCaptionState> = stateMutable.asStateFlow()
+    val metrics: StateFlow<LiveCaptionMetrics> = metricsMutable.asStateFlow()
 
     val audioBufferSink = object : TeeAudioProcessor.AudioBufferSink {
         override fun flush(
@@ -118,9 +140,10 @@ class LiveCaptionManager(private val context: Context) {
                 generation = audioGeneration.get(),
             )
 
-            // Never wait on the playback path. Caption audio is disposable.
+            // NEVER block playback. Caption audio is disposable when the worker falls behind.
             if (!audioQueue.offer(event)) {
                 droppedAudioBuffers.incrementAndGet()
+                updateDroppedMetric()
             }
         }
     }
@@ -147,6 +170,29 @@ class LiveCaptionManager(private val context: Context) {
         startWorker()
     }
 
+    fun setEngine(id: LiveCaptionEngineId) {
+        if (closed.get()) return
+
+        context.prefs().edit {
+            putString(PreferenceKeys.PLAYER_LIVE_CAPTION_ENGINE, id.preferenceValue)
+        }
+        selectedEngineId.set(id)
+        val generation = audioGeneration.incrementAndGet()
+        audioQueue.clear()
+        captionText.reset()
+        if (enabled.get()) {
+            stateMutable.value = LiveCaptionState(
+                enabled = true,
+                status = LiveCaptionState.Status.STARTING,
+            )
+            audioQueue.offer(AudioEvent.EngineChanged(id, generation))
+            startWorker()
+        } else {
+            audioQueue.offer(AudioEvent.Stop)
+            stateMutable.value = LiveCaptionState()
+        }
+    }
+
     fun clearVisibleCaption() {
         captionText.reset()
         if (enabled.get()) {
@@ -157,9 +203,13 @@ class LiveCaptionManager(private val context: Context) {
     /** Invalidates queued audio when the player view changes ownership. */
     fun resetForPlaybackTransition() {
         if (closed.get()) return
-        audioGeneration.incrementAndGet()
+        val generation = audioGeneration.incrementAndGet()
         audioQueue.clear()
-        clearVisibleCaption()
+        captionText.reset()
+        if (enabled.get()) {
+            audioQueue.offer(AudioEvent.Reset(generation))
+            stateMutable.value = stateMutable.value.copy(text = "")
+        }
     }
 
     fun close() {
@@ -183,33 +233,92 @@ class LiveCaptionManager(private val context: Context) {
     private fun runRecognitionLoop() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
 
-        var recognizer: OnlineRecognizer? = null
-        var stream: OnlineStream? = null
+        var engine: LiveCaptionEngine? = null
+        var engineGeneration = -1L
+        var metricsEngineId = selectedEngineId.get().preferenceValue
+        var metricsStartedAtMs = 0L
+        var engineInitMs = 0L
+        var firstPartialMs: Long? = null
+        var lastInferenceMs = 0L
+        var maxInferenceMs = 0L
+        var inferenceCalls = 0L
+        var totalInferenceMs = 0L
+        var acceptedAudioMs = 0L
+        var nextMetricsLogMs = SystemClock.elapsedRealtime() + METRICS_LOG_INTERVAL_MS
+        var visibleCaptionExpiresAtMs = 0L
+
+        fun resetMetrics(id: LiveCaptionEngineId) {
+            metricsEngineId = id.preferenceValue
+            metricsStartedAtMs = SystemClock.elapsedRealtime()
+            engineInitMs = 0L
+            firstPartialMs = null
+            lastInferenceMs = 0L
+            maxInferenceMs = 0L
+            inferenceCalls = 0L
+            totalInferenceMs = 0L
+            acceptedAudioMs = 0L
+            nextMetricsLogMs = metricsStartedAtMs + METRICS_LOG_INTERVAL_MS
+            publishMetrics(
+                LiveCaptionMetrics(
+                    engineId = metricsEngineId,
+                    droppedAudioBuffers = droppedAudioBuffers.get(),
+                ),
+            )
+        }
+
+        fun closeEngine() {
+            runCatching { engine?.close() }
+            engine = null
+            engineGeneration = -1L
+        }
 
         try {
             while (!closed.get()) {
-                when (val event = audioQueue.take()) {
+                if (visibleCaptionExpiresAtMs != 0L &&
+                    SystemClock.elapsedRealtime() >= visibleCaptionExpiresAtMs
+                ) {
+                    clearVisibleCaption()
+                    visibleCaptionExpiresAtMs = 0L
+                }
+
+                val event = audioQueue.poll(QUEUE_POLL_INTERVAL_MS) ?: continue
+                when (event) {
                     AudioEvent.Stop -> {
-                        releaseRecognizer(recognizer, stream)
-                        recognizer = null
-                        stream = null
+                        closeEngine()
                         audioQueue.clear()
                         if (!enabled.get()) break
                     }
 
+                    is AudioEvent.EngineChanged -> {
+                        if (event.generation != audioGeneration.get()) continue
+                        closeEngine()
+                        captionText.reset()
+                        visibleCaptionExpiresAtMs = 0L
+                        resetMetrics(event.id)
+                    }
+
+                    is AudioEvent.Reset -> {
+                        if (event.generation != audioGeneration.get()) continue
+                        engine?.reset()
+                        engineGeneration = event.generation
+                        clearVisibleCaption()
+                        visibleCaptionExpiresAtMs = 0L
+                    }
+
                     is AudioEvent.Flush -> {
                         if (!enabled.get()) {
-                            releaseRecognizer(recognizer, stream)
-                            recognizer = null
-                            stream = null
+                            closeEngine()
                             audioQueue.clear()
                             break
                         }
                         if (event.generation != audioGeneration.get()) continue
-                        recognizer?.let { activeRecognizer ->
-                            stream?.let(activeRecognizer::reset)
+                        if (engine?.id != selectedEngineId.get().preferenceValue) {
+                            closeEngine()
                         }
+                        engine?.reset()
+                        engineGeneration = event.generation
                         clearVisibleCaption()
+                        visibleCaptionExpiresAtMs = 0L
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 TAG,
@@ -223,43 +332,94 @@ class LiveCaptionManager(private val context: Context) {
                     is AudioEvent.Pcm -> {
                         if (!enabled.get() || event.generation != audioGeneration.get()) continue
 
-                        if (recognizer == null) {
+                        if (engine != null &&
+                            (engineGeneration != event.generation ||
+                                engine?.id != selectedEngineId.get().preferenceValue)
+                        ) {
+                            closeEngine()
+                        }
+                        if (engine == null) {
                             publishStarting()
-                            val startedAt = SystemClock.elapsedRealtime()
-                            val newRecognizer = createRecognizer()
-                            val newStream = newRecognizer.createStream()
-                            recognizer = newRecognizer
-                            stream = newStream
+                            val selectedId = selectedEngineId.get()
+                            resetMetrics(selectedId)
+                            val initStartedAt = SystemClock.elapsedRealtime()
+                            engine = engineFactory(context, selectedId)
+                            engineGeneration = event.generation
+                            engineInitMs = SystemClock.elapsedRealtime() - initStartedAt
+                            metricsMutable.value = metricsMutable.value.copy(
+                                engineId = selectedId.preferenceValue,
+                                engineInitMs = engineInitMs,
+                            )
                             if (BuildConfig.DEBUG) {
-                                Log.d(
-                                    TAG,
-                                    "ASR initialized in ${SystemClock.elapsedRealtime() - startedAt}ms",
-                                )
+                                Log.d(TAG, "ASR engine=${selectedId.preferenceValue} initialized in ${engineInitMs}ms")
                             }
                             publishListening()
                         }
 
-                        val activeRecognizer = checkNotNull(recognizer)
-                        val activeStream = checkNotNull(stream)
+                        if (engineGeneration != event.generation) continue
                         val samples = when (event.encoding) {
                             C.ENCODING_PCM_16BIT -> pcm16ToMono(event.bytes, event.channelCount)
                             else -> continue
                         }
                         if (samples.isEmpty()) continue
 
-                        activeStream.acceptWaveform(samples, event.sampleRateHz)
-                        while (activeRecognizer.isReady(activeStream)) {
-                            activeRecognizer.decode(activeStream)
+                        val activeEngine = checkNotNull(engine)
+                        val inferenceStartedAt = SystemClock.elapsedRealtime()
+                        val events = activeEngine.accept(samples, event.sampleRateHz)
+                        val inferenceMs = SystemClock.elapsedRealtime() - inferenceStartedAt
+                        inferenceCalls++
+                        lastInferenceMs = inferenceMs
+                        maxInferenceMs = maxOf(maxInferenceMs, inferenceMs)
+                        totalInferenceMs += inferenceMs
+                        acceptedAudioMs += samples.size * 1_000L / event.sampleRateHz
+
+                        if (event.generation != audioGeneration.get() || !enabled.get()) continue
+                        events.forEach { recognition ->
+                            when (recognition) {
+                                is CaptionRecognitionEvent.Partial -> {
+                                    visibleCaptionExpiresAtMs = 0L
+                                    if (firstPartialMs == null && recognition.text.isNotBlank()) {
+                                        firstPartialMs = SystemClock.elapsedRealtime() - metricsStartedAtMs
+                                    }
+                                    publishPartial(recognition)
+                                }
+
+                                is CaptionRecognitionEvent.Final -> {
+                                    publishFinal(recognition)
+                                    visibleCaptionExpiresAtMs =
+                                        SystemClock.elapsedRealtime() + FINAL_CAPTION_HOLD_MS
+                                }
+                            }
                         }
 
-                        if (event.generation != audioGeneration.get()) continue
-
-                        val result = activeRecognizer.getResult(activeStream).text.trim()
-                        if (result.isNotEmpty()) publishPartial(result)
-
-                        if (activeRecognizer.isEndpoint(activeStream)) {
-                            if (result.isNotEmpty()) publishFinal(result)
-                            activeRecognizer.reset(activeStream)
+                        val now = SystemClock.elapsedRealtime()
+                        publishMetrics(
+                            LiveCaptionMetrics(
+                                engineId = metricsEngineId,
+                                engineInitMs = engineInitMs,
+                                firstPartialMs = firstPartialMs,
+                                lastInferenceMs = lastInferenceMs,
+                                maxInferenceMs = maxInferenceMs,
+                                inferenceCalls = inferenceCalls,
+                                droppedAudioBuffers = droppedAudioBuffers.get(),
+                                realTimeFactor = if (acceptedAudioMs == 0L) {
+                                    0.0
+                                } else {
+                                    totalInferenceMs.toDouble() / acceptedAudioMs
+                                },
+                            ),
+                        )
+                        if (BuildConfig.DEBUG && now >= nextMetricsLogMs) {
+                            Log.d(
+                                TAG,
+                                "LiveCaptions engine=$metricsEngineId " +
+                                    "firstPartial=${firstPartialMs ?: "none"}ms " +
+                                    "lastInfer=${lastInferenceMs}ms " +
+                                    "maxInfer=${maxInferenceMs}ms " +
+                                    "rtf=${"%.2f".format(java.util.Locale.US, totalInferenceMs.toDouble() / acceptedAudioMs.coerceAtLeast(1L))} " +
+                                    "drops=${droppedAudioBuffers.get()}",
+                            )
+                            nextMetricsLogMs = now + METRICS_LOG_INTERVAL_MS
                         }
                     }
                 }
@@ -267,39 +427,16 @@ class LiveCaptionManager(private val context: Context) {
         } catch (throwable: Throwable) {
             if (!closed.get()) publishError(throwable)
         } finally {
-            releaseRecognizer(recognizer, stream)
+            closeEngine()
+            var restartWorker = false
             synchronized(workerLock) {
-                if (worker === Thread.currentThread()) worker = null
+                if (worker === Thread.currentThread()) {
+                    worker = null
+                    restartWorker = enabled.get() && !closed.get()
+                }
             }
+            if (restartWorker) startWorker()
         }
-    }
-
-    private fun createRecognizer(): OnlineRecognizer {
-        val base = "live-captions/en-20m"
-        val config = OnlineRecognizerConfig(
-            featConfig = FeatureConfig(sampleRate = 16_000, featureDim = 80),
-            modelConfig = OnlineModelConfig(
-                transducer = OnlineTransducerModelConfig(
-                    encoder = "$base/encoder-epoch-99-avg-1.int8.onnx",
-                    decoder = "$base/decoder-epoch-99-avg-1.onnx",
-                    joiner = "$base/joiner-epoch-99-avg-1.int8.onnx",
-                ),
-                tokens = "$base/tokens.txt",
-                numThreads = 2,
-                debug = BuildConfig.DEBUG,
-                provider = "cpu",
-                modelType = "zipformer",
-            ),
-            endpointConfig = EndpointConfig(
-                rule1 = EndpointRule(false, 2.4f, 0.0f),
-                rule2 = EndpointRule(true, 1.2f, 0.0f),
-                rule3 = EndpointRule(false, 0.0f, 20.0f),
-            ),
-            enableEndpoint = true,
-            decodingMethod = "greedy_search",
-            maxActivePaths = 4,
-        )
-        return OnlineRecognizer(context.assets, config)
     }
 
     private fun publishStarting() {
@@ -322,15 +459,15 @@ class LiveCaptionManager(private val context: Context) {
         }
     }
 
-    private fun publishPartial(text: String) {
+    private fun publishPartial(event: CaptionRecognitionEvent.Partial) {
         if (!enabled.get()) return
-        captionText.updatePartial(text)
+        captionText.apply(event)
         stateMutable.value = stateMutable.value.copy(text = captionText.visibleText)
     }
 
-    private fun publishFinal(text: String) {
+    private fun publishFinal(event: CaptionRecognitionEvent.Final) {
         if (!enabled.get()) return
-        captionText.finalize(text)
+        captionText.apply(event)
         stateMutable.value = stateMutable.value.copy(text = captionText.visibleText)
     }
 
@@ -345,15 +482,22 @@ class LiveCaptionManager(private val context: Context) {
         if (BuildConfig.DEBUG) Log.e(TAG, "ASR failed", throwable)
     }
 
-    private fun releaseRecognizer(
-        recognizer: OnlineRecognizer?,
-        stream: OnlineStream?,
-    ) {
-        runCatching { stream?.release() }
-        runCatching { recognizer?.release() }
+    private fun updateDroppedMetric() {
+        metricsMutable.value = metricsMutable.value.copy(
+            droppedAudioBuffers = droppedAudioBuffers.get(),
+        )
+    }
+
+    private fun publishMetrics(value: LiveCaptionMetrics) {
+        metricsMutable.value = value.copy(
+            droppedAudioBuffers = droppedAudioBuffers.get(),
+        )
     }
 
     private companion object {
         const val TAG = "LiveCaptionManager"
+        const val METRICS_LOG_INTERVAL_MS = 10_000L
+        const val QUEUE_POLL_INTERVAL_MS = 100L
+        const val FINAL_CAPTION_HOLD_MS = 2_000L
     }
 }

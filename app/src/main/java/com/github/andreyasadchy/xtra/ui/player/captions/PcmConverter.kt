@@ -21,3 +21,20 @@ internal fun pcm16ToMono(
         (sum / channelCount).coerceIn(-1f, 1f)
     }
 }
+
+/** Moonshine and Silero VAD use 16 kHz input; Zipformer accepts the source rate itself. */
+internal fun resampleTo16k(samples: FloatArray, sampleRateHz: Int): FloatArray {
+    require(sampleRateHz > 0)
+    if (samples.isEmpty() || sampleRateHz == 16_000) return samples
+
+    val outputSize = (samples.size.toLong() * 16_000L / sampleRateHz)
+        .toInt()
+        .coerceAtLeast(1)
+    return FloatArray(outputSize) { index ->
+        val sourcePosition = index.toDouble() * sampleRateHz / 16_000.0
+        val left = sourcePosition.toInt().coerceAtMost(samples.lastIndex)
+        val right = (left + 1).coerceAtMost(samples.lastIndex)
+        val fraction = (sourcePosition - left).toFloat()
+        samples[left] + (samples[right] - samples[left]) * fraction
+    }
+}

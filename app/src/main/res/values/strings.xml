@@ -598,6 +598,7 @@
     <string name="player_audio_compressor">Toggle audio compressor</string>
     <string name="player_audio_only">Toggle audio-only mode</string>
     <string name="player_subtitles">Toggle subtitles</string>
+    <string name="player_live_captions">Toggle live captions</string>
     <string name="player_chat_input">Toggle chat input</string>
     <string name="player_show_chat">Show chat</string>
     <string name="player_hide_chat">Hide chat</string>
@@ -943,6 +944,13 @@
     <string name="proxy_error">Proxy error</string>
     <string name="show_subtitles">Show subtitles</string>
     <string name="hide_subtitles">Hide subtitles</string>
+    <string name="live_caption_engine">Live caption engine</string>
+    <string name="live_caption_engine_selected">Live caption engine: %1$s</string>
+    <string name="live_caption_engine_zipformer">Streaming — Zipformer 20M</string>
+    <string name="live_caption_engine_moonshine">Moonshine v2 Tiny</string>
+    <string name="live_caption_engine_hybrid">Hybrid — Zipformer + Moonshine</string>
+    <string name="live_caption_processing_interval">Live caption processing interval</string>
+    <string name="live_caption_processing_interval_value">Process every %1$.1f seconds</string>
     <string name="toggle_subtitles">Toggle subtitles</string>
     <string name="enable_stv">Enable 7TV emotes</string>
     <string name="enable_bttv">Enable BTTV emotes</string>

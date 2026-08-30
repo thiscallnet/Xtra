@@ -80,6 +80,7 @@ import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerViewModel.Companion.Media3PlayerViewModelFactory
+import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngineId
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -234,6 +235,63 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         val enabled = !preferences.getBoolean(C.PLAYER_LIVE_CAPTIONS, false)
         preferences.edit { putBoolean(C.PLAYER_LIVE_CAPTIONS, enabled) }
         xtraModule.liveCaptionManager.setEnabled(enabled)
+    }
+
+    fun selectedLiveCaptionEngine(): LiveCaptionEngineId {
+        return LiveCaptionEngineId.fromPreference(
+            requireContext().prefs().getString(C.PLAYER_LIVE_CAPTION_ENGINE, null),
+        )
+    }
+
+    fun liveCaptionPartialIntervalMs(): Int {
+        return requireContext().prefs().getInt(
+            C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS,
+            300,
+        ).coerceIn(200, 2_000)
+    }
+
+    fun setLiveCaptionEngine(id: LiveCaptionEngineId) {
+        if (videoType == STREAM) {
+            xtraModule.liveCaptionManager.setEngine(id)
+        }
+    }
+
+    fun showLiveCaptionEngineDialog() {
+        val engines = LiveCaptionEngineId.entries.toTypedArray()
+        val labels = engines.map { id ->
+            getString(
+                when (id) {
+                    LiveCaptionEngineId.ZIPFORMER_20M -> R.string.live_caption_engine_zipformer
+                    LiveCaptionEngineId.MOONSHINE_V2_TINY -> R.string.live_caption_engine_moonshine
+                    LiveCaptionEngineId.ZIPFORMER_MOONSHINE_2PASS -> R.string.live_caption_engine_hybrid
+                },
+            )
+        }.toTypedArray()
+        requireContext().getAlertDialogBuilder()
+            .setTitle(R.string.live_caption_engine)
+            .setSingleChoiceItems(labels, engines.indexOf(selectedLiveCaptionEngine())) { dialog, which ->
+                setLiveCaptionEngine(engines[which])
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    fun showLiveCaptionIntervalDialog() {
+        val intervalsMs = intArrayOf(300, 500, 1_000, 2_000)
+        val labels = intervalsMs.map { intervalMs ->
+            getString(R.string.live_caption_processing_interval_value, intervalMs / 1000.0)
+        }.toTypedArray()
+        requireContext().getAlertDialogBuilder()
+            .setTitle(R.string.live_caption_processing_interval)
+            .setSingleChoiceItems(labels, intervalsMs.indexOf(liveCaptionPartialIntervalMs())) { dialog, which ->
+                requireContext().prefs().edit {
+                    putInt(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, intervalsMs[which])
+                }
+                // Recreate the selected engine on the worker so the new interval takes effect.
+                xtraModule.liveCaptionManager.setEngine(selectedLiveCaptionEngine())
+                dialog.dismiss()
+            }
+            .show()
     }
     open fun showPlaylistTags(mediaPlaylist: Boolean) {}
     open fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean = true) {}

@@ -6,8 +6,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.text.Layout
 import android.text.format.DateUtils
 import android.util.Log
 import android.view.SurfaceView
@@ -50,6 +52,7 @@ import com.github.andreyasadchy.xtra.ui.common.logVideoSurfaceBinding
 import com.github.andreyasadchy.xtra.ui.common.logVideoTracks
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.player.captions.formatCaptionTextForDisplay
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -143,6 +146,18 @@ class Media3Fragment : Media3PlayerFragment() {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 xtraModule.liveCaptionManager.state.collect { state ->
                     liveCaptionText = if (videoType == STREAM && state.enabled) state.text else ""
+                    if (videoType == STREAM) {
+                        binding.playerControls.liveCaptions.setImageResource(
+                            if (state.enabled) {
+                                androidx.media3.ui.R.drawable.exo_ic_subtitle_on
+                            } else {
+                                androidx.media3.ui.R.drawable.exo_ic_subtitle_off
+                            },
+                        )
+                        binding.playerControls.liveCaptions.contentDescription = getString(
+                            if (state.enabled) R.string.disable_live_captions else R.string.enable_live_captions,
+                        )
+                    }
                     if (state.error.isNullOrBlank()) {
                         shownLiveCaptionError = null
                     } else if (state.error != shownLiveCaptionError) {
@@ -163,6 +178,15 @@ class Media3Fragment : Media3PlayerFragment() {
                 "renderer=${videoOutputView.javaClass.simpleName} emulatorFallback=$useTextureVideoOutput",
             )
         }
+
+        binding.playerControls.liveCaptions.apply {
+            visibility = if (videoType == STREAM) View.VISIBLE else View.GONE
+            setOnClickListener {
+                showController(force = true)
+                toggleLiveCaptions()
+            }
+        }
+
         logVideoSurfaceBinding("on_view_created", player, videoOutputView)
     }
 
@@ -1543,7 +1567,21 @@ class Media3Fragment : Media3PlayerFragment() {
         val liveCue = if (liveCaptionText.isBlank()) {
             emptyList()
         } else {
-            listOf(Cue.Builder().setText(liveCaptionText).build())
+            listOf(
+                Cue.Builder()
+                    .setText(formatCaptionTextForDisplay(liveCaptionText))
+                    .setTextAlignment(Layout.Alignment.ALIGN_CENTER)
+                    .setMultiRowAlignment(Layout.Alignment.ALIGN_CENTER)
+                    .setLine(0.88f, Cue.LINE_TYPE_FRACTION)
+                    .setLineAnchor(Cue.ANCHOR_TYPE_END)
+                    .setPosition(0.5f)
+                    .setPositionAnchor(Cue.ANCHOR_TYPE_MIDDLE)
+                    .setSize(0.86f)
+                    // Match the compact, centered two-line treatment used by YouTube.
+                    .setTextSize(0.032f, Cue.TEXT_SIZE_TYPE_FRACTIONAL_IGNORE_PADDING)
+                    .setWindowColor(Color.argb(210, 0, 0, 0))
+                    .build(),
+            )
         }
         binding.subtitleView.setCues(nativeCues + liveCue)
     }

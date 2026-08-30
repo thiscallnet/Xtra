@@ -14,6 +14,7 @@ import androidx.core.view.isVisible
 import androidx.media3.common.Tracks
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.PlayerSettingsBinding
+import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngineId
 import com.github.andreyasadchy.xtra.ui.settings.PlayerControlLayoutEditor
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER_CONTROLS
@@ -93,13 +94,22 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             }
             if (type == BasePlaybackService.STREAM) {
                 if (parentFragment is Media3PlayerFragment) {
-                    menuLiveCaptions.visibility = View.VISIBLE
-                    val enabled = requireContext().prefs().getBoolean(C.PLAYER_LIVE_CAPTIONS, false)
-                    menuLiveCaptions.text = getString(
-                        if (enabled) R.string.disable_live_captions else R.string.enable_live_captions,
+                    menuLiveCaptionEngine.visibility = View.VISIBLE
+                    menuLiveCaptionEngine.text = getString(
+                        R.string.live_caption_engine_selected,
+                        liveCaptionEngineLabel((parentFragment as Media3PlayerFragment).selectedLiveCaptionEngine()),
                     )
-                    menuLiveCaptions.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.toggleLiveCaptions()
+                    menuLiveCaptionEngine.setOnClickListener {
+                        (parentFragment as? Media3PlayerFragment)?.showLiveCaptionEngineDialog()
+                        dismiss()
+                    }
+                    menuLiveCaptionInterval.visibility = View.VISIBLE
+                    menuLiveCaptionInterval.text = getString(
+                        R.string.live_caption_processing_interval_value,
+                        (parentFragment as Media3PlayerFragment).liveCaptionPartialIntervalMs() / 1000.0,
+                    )
+                    menuLiveCaptionInterval.setOnClickListener {
+                        (parentFragment as? Media3PlayerFragment)?.showLiveCaptionIntervalDialog()
                         dismiss()
                     }
                 }
@@ -281,6 +291,16 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
         }
         reorderMenuItems()
         setMenuTextColor(view)
+    }
+
+    private fun liveCaptionEngineLabel(id: LiveCaptionEngineId): String {
+        return getString(
+            when (id) {
+                LiveCaptionEngineId.ZIPFORMER_20M -> R.string.live_caption_engine_zipformer
+                LiveCaptionEngineId.MOONSHINE_V2_TINY -> R.string.live_caption_engine_moonshine
+                LiveCaptionEngineId.ZIPFORMER_MOONSHINE_2PASS -> R.string.live_caption_engine_hybrid
+            },
+        )
     }
 
     private fun showControlLayoutEditor() {

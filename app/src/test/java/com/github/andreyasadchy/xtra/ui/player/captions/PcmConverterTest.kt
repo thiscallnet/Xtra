@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.player.captions
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import com.github.andreyasadchy.xtra.ui.player.captions.engine.CaptionRecognitionEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -56,5 +57,49 @@ class CaptionTextStateMachineTest {
 
         captions.reset()
         assertEquals("", captions.visibleText)
+    }
+
+    @Test
+    fun fakeEngineEventsUseTheSharedCaptionStateMachine() {
+        val fakeEngine = FakeCaptionEngine(
+            listOf(
+                CaptionRecognitionEvent.Partial("hello"),
+                CaptionRecognitionEvent.Partial("hello guys"),
+                CaptionRecognitionEvent.Final("hello guys today"),
+            ),
+        )
+        val captions = CaptionTextStateMachine()
+
+        fakeEngine.accept(FloatArray(160), 16_000).forEach(captions::apply)
+
+        assertEquals("hello guys today", captions.visibleText)
+        fakeEngine.reset()
+        captions.reset()
+        fakeEngine.close()
+        assertTrue(fakeEngine.wasClosed)
+        assertEquals("", captions.visibleText)
+    }
+
+    @Test
+    fun displayCaptionIsLimitedToTwoRollingLines() {
+        val displayed = formatCaptionTextForDisplay(
+            "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen",
+        )
+
+        assertTrue(displayed.lines().size <= 2)
+        assertTrue(displayed.length <= 73)
+    }
+
+    private class FakeCaptionEngine(
+        private val events: List<CaptionRecognitionEvent>,
+    ) : com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngine {
+        override val id = "fake"
+        var wasClosed = false
+
+        override fun accept(samples: FloatArray, sampleRateHz: Int): List<CaptionRecognitionEvent> = events
+        override fun reset() = Unit
+        override fun close() {
+            wasClosed = true
+        }
     }
 }
