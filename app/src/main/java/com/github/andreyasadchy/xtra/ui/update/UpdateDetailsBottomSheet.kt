@@ -106,6 +106,7 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
             binding.detailsProgressView.downloadBytes,
             binding.detailsProgressView.downloadRate,
             model.progress,
+            model.downloadManagerStatus,
         )
         val showNotes = model.showReleaseNotes && release != null
         binding.detailsNotesTitle.visibility = if (showNotes) View.VISIBLE else View.GONE

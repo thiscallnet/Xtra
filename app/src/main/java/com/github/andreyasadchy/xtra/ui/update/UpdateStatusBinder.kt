@@ -10,12 +10,34 @@ import com.github.andreyasadchy.xtra.util.updater.DownloadProgress
 import com.google.android.material.progressindicator.LinearProgressIndicator
 
 object UpdateStatusBinder {
+    internal enum class RateLine {
+        HIDDEN,
+        WAITING,
+        CALCULATING,
+        SPEED,
+        SPEED_WITH_ETA,
+    }
+
+    internal fun rateLineFor(
+        value: DownloadProgress?,
+        downloadManagerStatus: Int?,
+    ): RateLine = when {
+        value == null ||
+            downloadManagerStatus == DownloadManager.STATUS_PENDING ||
+            downloadManagerStatus == DownloadManager.STATUS_PAUSED -> RateLine.HIDDEN
+        value.stalled -> RateLine.WAITING
+        value.bytesPerSecond <= 0L -> RateLine.CALCULATING
+        value.etaSeconds != null -> RateLine.SPEED_WITH_ETA
+        else -> RateLine.SPEED
+    }
+
     fun bindDownloadProgress(
         context: Context,
         progress: LinearProgressIndicator,
         bytes: TextView,
         rate: TextView,
         value: DownloadProgress?,
+        downloadManagerStatus: Int?,
     ) {
         val percent = value?.percent
         progress.isIndeterminate = percent == null
@@ -33,19 +55,25 @@ object UpdateStatusBinder {
                 Formatter.formatFileSize(context, value.downloadedBytes),
             )
         }
-        rate.text = when {
-            value == null -> ""
-            value.stalled -> context.getString(R.string.update_transfer_waiting)
-            value.bytesPerSecond <= 0L -> context.getString(R.string.update_transfer_calculating_speed)
-            value.etaSeconds != null -> context.getString(
-                R.string.update_transfer_speed_eta,
-                "${Formatter.formatFileSize(context, value.bytesPerSecond)}/s",
-                formatEta(context, value.etaSeconds),
-            )
-            else -> context.getString(
-                R.string.update_transfer_speed,
-                "${Formatter.formatFileSize(context, value.bytesPerSecond)}/s",
-            )
+        rate.text = when (rateLineFor(value, downloadManagerStatus)) {
+            RateLine.HIDDEN -> ""
+            RateLine.WAITING -> context.getString(R.string.update_transfer_waiting)
+            RateLine.CALCULATING -> context.getString(R.string.update_transfer_calculating_speed)
+            RateLine.SPEED_WITH_ETA -> value?.let { transfer ->
+                transfer.etaSeconds?.let { eta ->
+                    context.getString(
+                        R.string.update_transfer_speed_eta,
+                        "${Formatter.formatFileSize(context, transfer.bytesPerSecond)}/s",
+                        formatEta(context, eta),
+                    )
+                }
+            }.orEmpty()
+            RateLine.SPEED -> value?.let { transfer ->
+                context.getString(
+                    R.string.update_transfer_speed,
+                    "${Formatter.formatFileSize(context, transfer.bytesPerSecond)}/s",
+                )
+            }.orEmpty()
         }
         progress.visibility = View.VISIBLE
         bytes.visibility = View.VISIBLE

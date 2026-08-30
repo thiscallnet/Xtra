@@ -1844,6 +1844,7 @@ class SettingsActivity : AppCompatActivity() {
                 binding.downloadProgressView.downloadBytes,
                 binding.downloadProgressView.downloadRate,
                 model.progress,
+                model.downloadManagerStatus,
             )
             binding.primaryButton.visibility = if (model.primaryAction == null) View.GONE else View.VISIBLE
             binding.primaryButton.text = actionText(model.primaryAction)
