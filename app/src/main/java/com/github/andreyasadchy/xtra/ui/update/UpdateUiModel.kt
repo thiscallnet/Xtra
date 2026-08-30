@@ -84,6 +84,11 @@ fun UpdateState.toUiModel(selectedAsset: UpdateSelectedAssetInfo? = null): Updat
         primaryAction = UpdateUiAction.Download,
         secondaryAction = if (previouslySkipped) UpdateUiAction.UndoSkip else UpdateUiAction.NotNow,
         overflowActions = if (previouslySkipped) emptyList() else listOf(UpdateUiAction.SkipVersion),
+        statusMessageRes = when {
+            previouslySkipped -> R.string.update_previously_skipped
+            previouslyDeferred -> R.string.update_deferred
+            else -> null
+        },
         showReleaseNotes = true,
     )
     is UpdateState.Skipped -> UpdateUiModel(

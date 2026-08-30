@@ -54,6 +54,14 @@ class UpdateUiMapperTest {
             com.github.andreyasadchy.xtra.R.string.update_deferred,
             UpdateState.Deferred(release).toUiModel().statusMessageRes,
         )
+        assertEquals(
+            com.github.andreyasadchy.xtra.R.string.update_previously_skipped,
+            UpdateState.Available(release, previouslySkipped = true).toUiModel().statusMessageRes,
+        )
+        assertEquals(
+            com.github.andreyasadchy.xtra.R.string.update_deferred,
+            UpdateState.Available(release, previouslyDeferred = true).toUiModel().statusMessageRes,
+        )
     }
 
     @Test
