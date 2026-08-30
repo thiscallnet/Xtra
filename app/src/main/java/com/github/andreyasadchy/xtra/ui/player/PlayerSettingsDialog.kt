@@ -94,23 +94,33 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             }
             if (type == BasePlaybackService.STREAM) {
                 if (parentFragment is Media3PlayerFragment) {
+                    val media3Parent = parentFragment as Media3PlayerFragment
+                    val selectedEngine = media3Parent.selectedLiveCaptionEngine()
                     menuLiveCaptionEngine.visibility = View.VISIBLE
                     menuLiveCaptionEngine.text = getString(
                         R.string.live_caption_engine_selected,
-                        liveCaptionEngineLabel((parentFragment as Media3PlayerFragment).selectedLiveCaptionEngine()),
+                        liveCaptionEngineLabel(selectedEngine),
                     )
                     menuLiveCaptionEngine.setOnClickListener {
                         (parentFragment as? Media3PlayerFragment)?.showLiveCaptionEngineDialog()
                         dismiss()
                     }
-                    menuLiveCaptionInterval.visibility = View.VISIBLE
-                    menuLiveCaptionInterval.text = getString(
-                        R.string.live_caption_processing_interval_value,
-                        (parentFragment as Media3PlayerFragment).liveCaptionPartialIntervalMs() / 1000.0,
-                    )
-                    menuLiveCaptionInterval.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.showLiveCaptionIntervalDialog()
-                        dismiss()
+                    menuLiveCaptionInterval.visibility = if (
+                        selectedEngine == LiveCaptionEngineId.MOONSHINE_V2_TINY
+                    ) {
+                        View.VISIBLE
+                    } else {
+                        View.GONE
+                    }
+                    if (menuLiveCaptionInterval.isVisible) {
+                        menuLiveCaptionInterval.text = getString(
+                            R.string.live_caption_processing_interval_value,
+                            media3Parent.liveCaptionPartialIntervalMs() / 1000.0,
+                        )
+                        menuLiveCaptionInterval.setOnClickListener {
+                            media3Parent.showLiveCaptionIntervalDialog()
+                            dismiss()
+                        }
                     }
                 }
                 if (requireContext().prefs().getBoolean(C.PLAYER_MENU_VIEWER_LIST, true)) {

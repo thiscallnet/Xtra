@@ -14,8 +14,11 @@ import com.k2fsa.sherpa.onnx.SileroVadModelConfig
 import com.k2fsa.sherpa.onnx.Vad
 import com.k2fsa.sherpa.onnx.VadModelConfig
 
-/** Moonshine's offline model driven by VAD and periodic re-decodes. */
-class SherpaMoonshineEngine(private val context: Context) : LiveCaptionEngine {
+/** Moonshine's offline model driven by VAD and optional periodic re-decodes. */
+class SherpaMoonshineEngine(
+    private val context: Context,
+    private val emitPartials: Boolean = true,
+) : LiveCaptionEngine {
     override val id: String = LiveCaptionEngineId.MOONSHINE_V2_TINY.preferenceValue
 
     private val recognizer = createRecognizer()
@@ -100,7 +103,14 @@ class SherpaMoonshineEngine(private val context: Context) : LiveCaptionEngine {
 
         if (speechActive && !emittedFinal) {
             val nowMs = audioPositionMs()
-            if (nowMs >= nextPartialDecodeMs && utterance.size > 0) {
+            if (shouldDecodeMoonshinePartial(
+                    emitPartials = emitPartials,
+                    speechActive = speechActive,
+                    utteranceSize = utterance.size,
+                    nowMs = nowMs,
+                    nextPartialDecodeMs = nextPartialDecodeMs,
+                )
+            ) {
                 decode(utterance.toArray()).takeIf(String::isNotEmpty)?.let {
                     events += CaptionRecognitionEvent.Partial(it)
                 }
@@ -192,6 +202,19 @@ class SherpaMoonshineEngine(private val context: Context) : LiveCaptionEngine {
         const val PRE_ROLL_SAMPLES_AT_16K = 6_400
         const val MAX_UTTERANCE_SAMPLES = TARGET_SAMPLE_RATE * MAX_SPEECH_SECONDS.toInt()
     }
+}
+
+internal fun shouldDecodeMoonshinePartial(
+    emitPartials: Boolean,
+    speechActive: Boolean,
+    utteranceSize: Int,
+    nowMs: Long,
+    nextPartialDecodeMs: Long,
+): Boolean {
+    return emitPartials &&
+        speechActive &&
+        utteranceSize > 0 &&
+        nowMs >= nextPartialDecodeMs
 }
 
 private class FloatBuffer(val capacity: Int) {

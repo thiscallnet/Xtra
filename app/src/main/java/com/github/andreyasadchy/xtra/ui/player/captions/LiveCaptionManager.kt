@@ -143,7 +143,6 @@ class LiveCaptionManager(
             // NEVER block playback. Caption audio is disposable when the worker falls behind.
             if (!audioQueue.offer(event)) {
                 droppedAudioBuffers.incrementAndGet()
-                updateDroppedMetric()
             }
         }
     }
@@ -238,7 +237,7 @@ class LiveCaptionManager(
         var metricsEngineId = selectedEngineId.get().preferenceValue
         var metricsStartedAtMs = 0L
         var engineInitMs = 0L
-        var firstPartialMs: Long? = null
+        var firstOutputAfterStartMs: Long? = null
         var lastInferenceMs = 0L
         var maxInferenceMs = 0L
         var inferenceCalls = 0L
@@ -246,22 +245,24 @@ class LiveCaptionManager(
         var acceptedAudioMs = 0L
         var nextMetricsLogMs = SystemClock.elapsedRealtime() + METRICS_LOG_INTERVAL_MS
         var visibleCaptionExpiresAtMs = 0L
+        val droppedBuffersBaseline = EngineDropBaseline(droppedAudioBuffers.get())
 
         fun resetMetrics(id: LiveCaptionEngineId) {
             metricsEngineId = id.preferenceValue
             metricsStartedAtMs = SystemClock.elapsedRealtime()
             engineInitMs = 0L
-            firstPartialMs = null
+            firstOutputAfterStartMs = null
             lastInferenceMs = 0L
             maxInferenceMs = 0L
             inferenceCalls = 0L
             totalInferenceMs = 0L
             acceptedAudioMs = 0L
+            droppedBuffersBaseline.reset(droppedAudioBuffers.get())
             nextMetricsLogMs = metricsStartedAtMs + METRICS_LOG_INTERVAL_MS
             publishMetrics(
                 LiveCaptionMetrics(
                     engineId = metricsEngineId,
-                    droppedAudioBuffers = droppedAudioBuffers.get(),
+                    droppedAudioBuffers = droppedBuffersBaseline.delta(droppedAudioBuffers.get()),
                 ),
             )
         }
@@ -324,7 +325,8 @@ class LiveCaptionManager(
                                 TAG,
                                 "audio format ${event.sampleRateHz}Hz, " +
                                     "${event.channelCount}ch, encoding=${event.encoding}, " +
-                                    "dropped=${droppedAudioBuffers.get()}, queue=${audioQueue.size}",
+                                    "dropped=${droppedBuffersBaseline.delta(droppedAudioBuffers.get())}, " +
+                                    "queue=${audioQueue.size}",
                             )
                         }
                     }
@@ -378,8 +380,8 @@ class LiveCaptionManager(
                             when (recognition) {
                                 is CaptionRecognitionEvent.Partial -> {
                                     visibleCaptionExpiresAtMs = 0L
-                                    if (firstPartialMs == null && recognition.text.isNotBlank()) {
-                                        firstPartialMs = SystemClock.elapsedRealtime() - metricsStartedAtMs
+                                    if (firstOutputAfterStartMs == null && recognition.text.isNotBlank()) {
+                                        firstOutputAfterStartMs = SystemClock.elapsedRealtime() - metricsStartedAtMs
                                     }
                                     publishPartial(recognition)
                                 }
@@ -397,11 +399,11 @@ class LiveCaptionManager(
                             LiveCaptionMetrics(
                                 engineId = metricsEngineId,
                                 engineInitMs = engineInitMs,
-                                firstPartialMs = firstPartialMs,
+                                firstOutputAfterStartMs = firstOutputAfterStartMs,
                                 lastInferenceMs = lastInferenceMs,
                                 maxInferenceMs = maxInferenceMs,
                                 inferenceCalls = inferenceCalls,
-                                droppedAudioBuffers = droppedAudioBuffers.get(),
+                                droppedAudioBuffers = droppedBuffersBaseline.delta(droppedAudioBuffers.get()),
                                 realTimeFactor = if (acceptedAudioMs == 0L) {
                                     0.0
                                 } else {
@@ -413,11 +415,11 @@ class LiveCaptionManager(
                             Log.d(
                                 TAG,
                                 "LiveCaptions engine=$metricsEngineId " +
-                                    "firstPartial=${firstPartialMs ?: "none"}ms " +
+                                    "firstOutput=${firstOutputAfterStartMs ?: "none"}ms " +
                                     "lastInfer=${lastInferenceMs}ms " +
                                     "maxInfer=${maxInferenceMs}ms " +
                                     "rtf=${"%.2f".format(java.util.Locale.US, totalInferenceMs.toDouble() / acceptedAudioMs.coerceAtLeast(1L))} " +
-                                    "drops=${droppedAudioBuffers.get()}",
+                                    "drops=${droppedBuffersBaseline.delta(droppedAudioBuffers.get())}",
                             )
                             nextMetricsLogMs = now + METRICS_LOG_INTERVAL_MS
                         }
@@ -482,15 +484,9 @@ class LiveCaptionManager(
         if (BuildConfig.DEBUG) Log.e(TAG, "ASR failed", throwable)
     }
 
-    private fun updateDroppedMetric() {
-        metricsMutable.value = metricsMutable.value.copy(
-            droppedAudioBuffers = droppedAudioBuffers.get(),
-        )
-    }
-
     private fun publishMetrics(value: LiveCaptionMetrics) {
         metricsMutable.value = value.copy(
-            droppedAudioBuffers = droppedAudioBuffers.get(),
+            droppedAudioBuffers = value.droppedAudioBuffers,
         )
     }
 

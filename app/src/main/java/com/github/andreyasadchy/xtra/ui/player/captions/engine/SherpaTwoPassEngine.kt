@@ -6,7 +6,10 @@ class SherpaTwoPassEngine(context: Context) : LiveCaptionEngine {
     override val id: String = LiveCaptionEngineId.ZIPFORMER_MOONSHINE_2PASS.preferenceValue
 
     private val streaming = SherpaZipformerEngine(context)
-    private val finalizer = SherpaMoonshineEngine(context)
+    private val finalizer = SherpaMoonshineEngine(
+        context = context,
+        emitPartials = false,
+    )
 
     override fun accept(
         samples: FloatArray,

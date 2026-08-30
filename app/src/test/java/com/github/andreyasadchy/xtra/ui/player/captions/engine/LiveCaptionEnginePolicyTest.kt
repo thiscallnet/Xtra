@@ -26,4 +26,32 @@ class LiveCaptionEnginePolicyTest {
             events,
         )
     }
+
+    @Test
+    fun `standalone moonshine partial policy remains enabled`() {
+        assertEquals(
+            true,
+            shouldDecodeMoonshinePartial(
+                emitPartials = true,
+                speechActive = true,
+                utteranceSize = 1,
+                nowMs = 300,
+                nextPartialDecodeMs = 300,
+            ),
+        )
+    }
+
+    @Test
+    fun `hybrid moonshine partial policy is disabled`() {
+        assertEquals(
+            false,
+            shouldDecodeMoonshinePartial(
+                emitPartials = false,
+                speechActive = true,
+                utteranceSize = 1,
+                nowMs = 300,
+                nextPartialDecodeMs = 300,
+            ),
+        )
+    }
 }

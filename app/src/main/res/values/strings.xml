@@ -950,7 +950,7 @@
     <string name="live_caption_engine_moonshine">Moonshine v2 Tiny</string>
     <string name="live_caption_engine_hybrid">Hybrid — Zipformer + Moonshine</string>
     <string name="live_caption_processing_interval">Live caption processing interval</string>
-    <string name="live_caption_processing_interval_value">Process every %1$.1f seconds</string>
+    <string name="live_caption_processing_interval_value">Moonshine partials every %1$.1f seconds</string>
     <string name="toggle_subtitles">Toggle subtitles</string>
     <string name="enable_stv">Enable 7TV emotes</string>
     <string name="enable_bttv">Enable BTTV emotes</string>

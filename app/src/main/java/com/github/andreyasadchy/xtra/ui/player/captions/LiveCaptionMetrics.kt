@@ -3,7 +3,7 @@ package com.github.andreyasadchy.xtra.ui.player.captions
 data class LiveCaptionMetrics(
     val engineId: String,
     val engineInitMs: Long = 0,
-    val firstPartialMs: Long? = null,
+    val firstOutputAfterStartMs: Long? = null,
     val lastInferenceMs: Long = 0,
     val maxInferenceMs: Long = 0,
     val inferenceCalls: Long = 0,
