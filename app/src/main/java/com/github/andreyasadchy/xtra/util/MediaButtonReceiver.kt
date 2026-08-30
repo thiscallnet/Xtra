@@ -43,13 +43,16 @@ class MediaButtonReceiver : BroadcastReceiver() {
             scope = app.applicationScope,
             playbackStateLookup = { app.xtraModule.playbackPersistence.getPlaybackStatesAndWait() },
             onPlaybackAvailable = {
-                val serviceIntent = when (receiverContext.prefs().getString(C.PLAYER, C.EXOPLAYER)) {
-                    C.MEDIA_PLAYER -> Intent(receiverContext, MediaPlayerService::class.java)
-                    else -> if (receiverContext.prefs().getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
-                        Intent(receiverContext, ExoPlayerService::class.java)
-                    } else {
-                        null
-                    }
+                val serviceIntent = when (resolvePlaybackBackend(
+                    playerPreference = receiverContext.prefs().getString(C.PLAYER, C.EXOPLAYER),
+                    useLegacyCustomPlaybackService = receiverContext.prefs().getBoolean(
+                        C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE,
+                        false,
+                    ),
+                )) {
+                    PlaybackBackend.ANDROID_MEDIA_PLAYER -> Intent(receiverContext, MediaPlayerService::class.java)
+                    PlaybackBackend.LEGACY_EXOPLAYER -> Intent(receiverContext, ExoPlayerService::class.java)
+                    PlaybackBackend.MEDIA3 -> null
                 }?.apply {
                     fillIn(receiverIntent, 0)
                 }

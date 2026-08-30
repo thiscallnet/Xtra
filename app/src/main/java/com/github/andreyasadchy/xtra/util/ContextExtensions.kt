@@ -220,7 +220,7 @@ internal fun developerBooleanValue(key: String?, storedValue: Boolean, enabled: 
         C.PROXY_PLAYBACK_ACCESS_TOKEN,
         C.PROXY_MULTIVARIANT_PLAYLIST,
         C.PROXY_MEDIA_PLAYLIST -> false
-        C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE -> true
+        C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE -> false
         C.TOKEN_RANDOM_DEVICE_ID,
         C.TOKEN_INCLUDE_TOKEN_STREAM,
         C.TOKEN_INCLUDE_TOKEN_VIDEO -> true

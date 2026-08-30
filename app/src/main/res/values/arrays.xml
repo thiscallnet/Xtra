@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string-array name="playerEntries" translatable="false">
+        <item>@string/legacy_exoplayer_service</item>
+        <item>@string/android_media_player</item>
+    </string-array>
+
+    <string-array name="playerEntryValues" translatable="false">
         <item>ExoPlayer</item>
         <item>MediaPlayer</item>
     </string-array>

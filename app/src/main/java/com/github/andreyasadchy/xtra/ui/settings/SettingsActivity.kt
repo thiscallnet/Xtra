@@ -107,6 +107,7 @@ import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.resolvePlaybackBackend
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckFrequency
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckScheduler
@@ -146,6 +147,16 @@ internal fun needsUpdateNotificationUserAction(
     notificationsBlocked: Boolean,
     updatesChannelBlocked: Boolean,
 ): Boolean = permissionMissing || notificationsBlocked || updatesChannelBlocked
+
+private fun playbackBackendDiagnostic(context: android.content.Context): String {
+    return resolvePlaybackBackend(
+        playerPreference = context.prefs().getString(C.PLAYER, C.EXOPLAYER),
+        useLegacyCustomPlaybackService = context.prefs().getBoolean(
+            C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE,
+            false,
+        ),
+    ).diagnosticName
+}
 
 private const val DISCORD_URL = "https://discord.gg/2cKy8DNgPX"
 
@@ -1523,7 +1534,7 @@ class SettingsActivity : AppCompatActivity() {
             appendLine("Build: ${BuildConfig.BUILD_TYPE}")
             appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
-            appendLine("Player: ${requireContext().prefs().getString(C.PLAYER, C.EXOPLAYER)}")
+            appendLine("Playback backend: ${playbackBackendDiagnostic(requireContext())}")
             appendLine("Network engine: ${requireContext().prefs().getString(C.NETWORK_LIBRARY, "Automatic")}")
             appendLine("PiP: ${requireContext().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)}")
             appendLine("Notifications: ${Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED}")
@@ -2542,7 +2553,7 @@ class SettingsActivity : AppCompatActivity() {
             appendLine("Build: ${BuildConfig.BUILD_TYPE}")
             appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
-            appendLine("Player: ${requireContext().prefs().getString(C.PLAYER, C.EXOPLAYER)}")
+            appendLine("Playback backend: ${playbackBackendDiagnostic(requireContext())}")
             appendLine("Network engine: ${requireContext().prefs().getString(C.NETWORK_LIBRARY, "Automatic")}")
             appendLine("PiP: ${requireContext().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)}")
             appendLine("Notifications: ${Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED}")
