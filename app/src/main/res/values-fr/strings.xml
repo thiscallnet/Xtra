@@ -574,6 +574,12 @@
     <string name="settings_download_restart_wait_summary">Continuer à patienter brièvement après la fin d\'un stream afin qu\'un redémarrage rapide puisse poursuivre la capture.</string>
     <string name="live_notifications_following_summary">Activer automatiquement les alertes de direct pour les chaînes que vous suivez via Xtra.</string>
     <string name="settings_customize_controls_summary">Commandes rapides, menu Plus et commandes masquées</string>
+    <string name="settings_player_control_scale_portrait">Taille des commandes du lecteur en mode vertical</string>
+    <string name="settings_player_control_scale_landscape">Taille des commandes du lecteur en mode horizontal</string>
+    <string name="settings_player_control_position">Position des commandes rapides</string>
+    <string name="player_control_position_above">Au-dessus de la timeline</string>
+    <string name="player_control_position_below">Au-dessous de la timeline</string>
+    <string name="player_control_position_middle">Au centre du lecteur</string>
     <string name="settings_playback_speed_options_summary">Choisir et réorganiser les valeurs de vitesse</string>
     <string name="settings_double_tap_chat_summary">Afficher ou masquer le chat avec un double appui pendant le visionnage.</string>
     <string name="avoid_rounded_corners_summary">Décaler le contenu du lecteur afin que les coins arrondis physiques et les découpes ne masquent pas la vidéo ni les commandes.</string>

@@ -574,6 +574,12 @@
     <string name="settings_download_restart_wait_summary">Seguir agardando brevemente despois de que remate unha emisión para que un reinicio rápido poida continuar a captura.</string>
     <string name="live_notifications_following_summary">Activar automaticamente as alertas de emisión para as canles que segues a través de Xtra.</string>
     <string name="settings_customize_controls_summary">Controis rápidos, menú Máis e controis ocultos</string>
+    <string name="settings_player_control_scale_portrait">Tamaño dos controis do reprodutor en vertical</string>
+    <string name="settings_player_control_scale_landscape">Tamaño dos controis do reprodutor en horizontal</string>
+    <string name="settings_player_control_position">Posición dos controis rápidos</string>
+    <string name="player_control_position_above">Enriba da liña de tempo</string>
+    <string name="player_control_position_below">Debaixo da liña de tempo</string>
+    <string name="player_control_position_middle">No centro do reprodutor</string>
     <string name="settings_playback_speed_options_summary">Escoller e reordenar os valores de velocidade</string>
     <string name="settings_double_tap_chat_summary">Activar ou desactivar o chat cunha dobre pulsación mentres miras.</string>
     <string name="avoid_rounded_corners_summary">Inserir o contido do reprodutor para que as esquinas curvas físicas e os recortes non oculten o vídeo nin os controis.</string>

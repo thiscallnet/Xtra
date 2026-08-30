@@ -6,15 +6,22 @@ import android.view.MotionEvent
 import android.view.TouchDelegate
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.RelativeLayout
 import androidx.core.view.doOnLayout
 import androidx.media3.ui.TimeBar
+import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
+import kotlin.math.max
 
 /** Keeps the player overlay visually coherent when portrait video is short. */
 object PortraitPlayerControls {
 
     private const val BASELINE_HEIGHT_DP = 380f
     private const val MIN_SCALE = 0.55f
+    private const val MAX_SCALE = 1.2f
+    private const val AUTO_SCALE = "auto"
+    private const val MIDDLE_QUICK_OFFSET_DP = 56f
     // The anchor layouts already provide the landscape-safe margins. Adding a
     // second portrait inset leaves a visible gap beside the outer controls.
     private const val EDGE_INSET_DP = 0f
@@ -28,41 +35,46 @@ object PortraitPlayerControls {
     private enum class VerticalAnchor {
         TOP,
         CENTER,
+        MIDDLE_QUICK,
         BOTTOM,
     }
 
     fun schedule(binding: FragmentPlayerBinding, isPortrait: Boolean) {
         apply(binding, isPortrait)
-        // Controls can be GONE while the player is being initialized, so the
-        // first pass may happen before the anchor containers have dimensions.
-        // Reapply after layout to use their real bounds.
-        binding.playerControls.root.doOnLayout { apply(binding, isPortrait) }
+        // Controls start GONE and can be unmeasured. Wait for their first real
+        // layout, then allow one more frame for placement-rule changes to settle.
+        binding.playerControls.root.doOnLayout {
+            binding.playerControls.root.postOnAnimation {
+                apply(binding, isPortrait)
+            }
+        }
     }
 
     private fun apply(binding: FragmentPlayerBinding, isPortrait: Boolean) {
-        val scale = if (isPortrait && binding.playerLayout.height > 0) {
-            val density = binding.root.resources.displayMetrics.density
-            (binding.playerLayout.height / density / BASELINE_HEIGHT_DP)
-                .coerceIn(MIN_SCALE, 1f)
-        } else {
-            1f
-        }
+        val scale = controlScale(binding, isPortrait)
+        val quickControlPosition = quickControlPosition(binding)
+        applyQuickControlPosition(binding, quickControlPosition)
         with(binding.playerControls) {
+            val quickVerticalAnchor = if (quickControlPosition == QuickControlPosition.MIDDLE) {
+                VerticalAnchor.MIDDLE_QUICK
+            } else {
+                VerticalAnchor.BOTTOM
+            }
             val compositionContainers = listOf(
                 Triple(topLeftLayout, HorizontalAnchor.START, VerticalAnchor.TOP),
                 Triple(topRightLayout, HorizontalAnchor.END, VerticalAnchor.TOP),
                 Triple(topCenterLayout, HorizontalAnchor.CENTER, VerticalAnchor.TOP),
                 Triple(middleLeftLayout, HorizontalAnchor.START, VerticalAnchor.CENTER),
                 Triple(middleRightLayout, HorizontalAnchor.END, VerticalAnchor.CENTER),
-                Triple(bottomLeftLayout, HorizontalAnchor.START, VerticalAnchor.BOTTOM),
-                Triple(bottomRightLayout, HorizontalAnchor.END, VerticalAnchor.BOTTOM),
-                Triple(bottomCenterLayout, HorizontalAnchor.CENTER, VerticalAnchor.BOTTOM),
+                Triple(bottomLeftLayout, HorizontalAnchor.START, quickVerticalAnchor),
+                Triple(bottomRightLayout, HorizontalAnchor.END, quickVerticalAnchor),
+                Triple(bottomCenterLayout, HorizontalAnchor.CENTER, quickVerticalAnchor),
                 Triple(streamInfoLayout, HorizontalAnchor.CENTER, VerticalAnchor.BOTTOM),
                 Triple(bottomLayout, HorizontalAnchor.CENTER, VerticalAnchor.BOTTOM),
             )
             compositionContainers.forEach { (container, horizontalAnchor, verticalAnchor) ->
                 resetDescendantTransforms(container)
-                scaleCompositionView(root, container, scale, horizontalAnchor, verticalAnchor)
+                scaleCompositionView(root, container, scale, isPortrait, horizontalAnchor, verticalAnchor)
             }
 
             val rootControls = listOf(
@@ -74,14 +86,14 @@ object PortraitPlayerControls {
             )
             rootControls.forEach { (view, horizontalAnchor, verticalAnchor) ->
                 resetTransform(view)
-                scaleCompositionView(root, view, scale, horizontalAnchor, verticalAnchor)
+                scaleCompositionView(root, view, scale, isPortrait, horizontalAnchor, verticalAnchor)
             }
             val interactiveTargets = compositionContainers
                 .flatMap { (container, _, _) -> interactiveDescendants(container) }
                 .plus(rootControls.map { (view, _, _) -> view })
                 .filter(::isInteractiveControl)
                 .distinct()
-            root.touchDelegate = if (scale < 1f) {
+            root.touchDelegate = if (scale != 1f) {
                 ScaledControlTouchDelegate(root, interactiveTargets)
             } else {
                 null
@@ -93,12 +105,15 @@ object PortraitPlayerControls {
         root: View,
         view: View,
         scale: Float,
+        isPortrait: Boolean,
         horizontalAnchor: HorizontalAnchor,
         verticalAnchor: VerticalAnchor,
     ) {
-        // Landscape must use the XML layout exactly. This also clears stale
-        // portrait transforms when a control is temporarily GONE/unmeasured.
-        if (scale >= 1f) {
+        // The default landscape layout must remain exactly as defined in XML.
+        // This also clears stale portrait transforms when a control is
+        // temporarily GONE/unmeasured.
+        val keepLandscapeLayout = !isPortrait && scale == 1f
+        if (keepLandscapeLayout && verticalAnchor != VerticalAnchor.MIDDLE_QUICK) {
             resetTransform(view)
             return
         }
@@ -116,32 +131,37 @@ object PortraitPlayerControls {
         val viewCenterY = view.top + view.height / 2f
         val rootCenterX = root.width / 2f
         val rootCenterY = root.height / 2f
-        val scaledCenterX = when (horizontalAnchor) {
-            HorizontalAnchor.START -> {
-                val contentEdge = contentEdge(view, isStart = true)
-                if (contentEdge != null) {
-                    root.paddingLeft - scaledChildEdge(view, contentEdge, scale) + viewCenterX
-                } else {
-                    root.paddingLeft + view.width * scale / 2f
+        if (keepLandscapeLayout) {
+            view.translationX = 0f
+        } else {
+            val scaledCenterX = when (horizontalAnchor) {
+                HorizontalAnchor.START -> {
+                    val contentEdge = contentEdge(view, isStart = true)
+                    if (contentEdge != null) {
+                        root.paddingLeft - scaledChildEdge(view, contentEdge, scale) + viewCenterX
+                    } else {
+                        root.paddingLeft + view.width * scale / 2f
+                    }
+                }
+                HorizontalAnchor.CENTER -> rootCenterX + (viewCenterX - rootCenterX)
+                HorizontalAnchor.END -> {
+                    val contentEdge = contentEdge(view, isStart = false)
+                    if (contentEdge != null) {
+                        root.width - root.paddingRight - scaledChildEdge(view, contentEdge, scale) + viewCenterX
+                    } else {
+                        root.width - root.paddingRight - view.width * scale / 2f
+                    }
                 }
             }
-            HorizontalAnchor.CENTER -> rootCenterX + (viewCenterX - rootCenterX)
-            HorizontalAnchor.END -> {
-                val contentEdge = contentEdge(view, isStart = false)
-                if (contentEdge != null) {
-                    root.width - root.paddingRight - scaledChildEdge(view, contentEdge, scale) + viewCenterX
-                } else {
-                    root.width - root.paddingRight - view.width * scale / 2f
-                }
+            view.translationX = scaledCenterX - viewCenterX
+            if (scale != 1f && horizontalAnchor != HorizontalAnchor.CENTER && view is ViewGroup) {
+                alignVisibleChildToEdge(root, view, horizontalAnchor)
             }
-        }
-        view.translationX = scaledCenterX - viewCenterX
-        if (scale < 1f && horizontalAnchor != HorizontalAnchor.CENTER && view is ViewGroup) {
-            alignVisibleChildToEdge(root, view, horizontalAnchor)
         }
         val scaledCenterY = when (verticalAnchor) {
             VerticalAnchor.TOP -> viewCenterY * scale
             VerticalAnchor.CENTER -> rootCenterY + (viewCenterY - rootCenterY) * scale
+            VerticalAnchor.MIDDLE_QUICK -> rootCenterY - MIDDLE_QUICK_OFFSET_DP * root.resources.displayMetrics.density * scale
             VerticalAnchor.BOTTOM -> root.height - (root.height - viewCenterY) * scale
         }
         view.translationY = scaledCenterY - viewCenterY
@@ -161,6 +181,152 @@ object PortraitPlayerControls {
 
     private fun scaledChildEdge(view: View, childEdge: Float, scale: Float): Float =
         view.left + (childEdge - view.width / 2f) * scale + view.width / 2f
+
+    private fun controlScale(binding: FragmentPlayerBinding, isPortrait: Boolean): Float {
+        val density = binding.root.resources.displayMetrics.density
+        val automaticScale = if (isPortrait && binding.playerLayout.height > 0) {
+            (binding.playerLayout.height / density / BASELINE_HEIGHT_DP)
+                .coerceIn(MIN_SCALE, 1f)
+        } else {
+            1f
+        }
+        val key = if (isPortrait) {
+            C.PLAYER_CONTROL_SCALE_PORTRAIT
+        } else {
+            C.PLAYER_CONTROL_SCALE_LANDSCAPE
+        }
+        val defaultValue = if (isPortrait) AUTO_SCALE else "100"
+        val value = binding.root.context.prefs().getString(key, defaultValue)
+        return if (value == AUTO_SCALE) {
+            automaticScale
+        } else {
+            value?.toFloatOrNull()?.div(100f)?.coerceIn(MIN_SCALE, MAX_SCALE) ?: automaticScale
+        }
+    }
+
+    private enum class QuickControlPosition {
+        ABOVE,
+        BELOW,
+        MIDDLE,
+    }
+
+    private fun quickControlPosition(binding: FragmentPlayerBinding): QuickControlPosition = when (
+        binding.root.context.prefs().getString(
+            C.PLAYER_CONTROL_POSITION,
+            C.PLAYER_CONTROL_POSITION_ABOVE,
+        )
+    ) {
+        C.PLAYER_CONTROL_POSITION_BELOW -> QuickControlPosition.BELOW
+        C.PLAYER_CONTROL_POSITION_MIDDLE -> QuickControlPosition.MIDDLE
+        else -> QuickControlPosition.ABOVE
+    }
+
+    private fun applyQuickControlPosition(
+        binding: FragmentPlayerBinding,
+        position: QuickControlPosition,
+    ) {
+        val bottom = binding.playerControls.bottomLayout
+        val bottomParams = bottom.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val bottomLeft = binding.playerControls.bottomLeftLayout
+        val bottomLeftParams = bottomLeft.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val bottomRight = binding.playerControls.bottomRightLayout
+        val bottomRightParams = bottomRight.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val bottomCenter = binding.playerControls.bottomCenterLayout
+        val bottomCenterParams = bottomCenter.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val positionView = binding.playerControls.position
+        val positionParams = positionView.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val duration = binding.playerControls.duration
+        val durationParams = duration.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val progress = binding.playerControls.progressBar
+        val progressParams = progress.layoutParams as? LinearLayout.LayoutParams ?: return
+        val bottomAnchor = binding.playerControls.quickControlsBottomAnchor
+        val density = binding.root.resources.displayMetrics.density
+        val timelineRowHeight = (48 * density).toInt()
+        val bottomAnchorParams = bottomAnchor.layoutParams as? RelativeLayout.LayoutParams ?: return
+        bottomAnchorParams.height = (53 * density).toInt()
+        bottomAnchorParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+        bottomAnchorParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+        bottomAnchor.layoutParams = bottomAnchorParams
+
+        when (position) {
+            QuickControlPosition.BELOW -> {
+                bottomParams.height = timelineRowHeight
+                bottomParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+                bottomParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
+                progressParams.bottomMargin = 0
+                positionParams.height = timelineRowHeight
+                positionParams.bottomMargin = 0
+                positionParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+                positionParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
+                durationParams.height = timelineRowHeight
+                durationParams.bottomMargin = 0
+                durationParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+                durationParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
+                setQuickControlRule(bottomLeftParams, QuickControlRule.BELOW)
+                setQuickControlRule(bottomRightParams, QuickControlRule.BELOW)
+                setQuickControlRule(bottomCenterParams, QuickControlRule.BELOW)
+            }
+            QuickControlPosition.MIDDLE -> {
+                restoreTimelineLayout(bottomParams, progressParams, positionParams, durationParams, density)
+                setQuickControlRule(bottomLeftParams, QuickControlRule.MIDDLE)
+                setQuickControlRule(bottomRightParams, QuickControlRule.MIDDLE)
+                setQuickControlRule(bottomCenterParams, QuickControlRule.MIDDLE)
+            }
+            QuickControlPosition.ABOVE -> {
+                restoreTimelineLayout(bottomParams, progressParams, positionParams, durationParams, density)
+                setQuickControlRule(bottomLeftParams, QuickControlRule.ABOVE)
+                setQuickControlRule(bottomRightParams, QuickControlRule.ABOVE)
+                bottomCenterParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+                bottomCenterParams.removeRule(RelativeLayout.CENTER_VERTICAL)
+                bottomCenterParams.addRule(RelativeLayout.ABOVE, R.id.streamInfoLayout)
+            }
+        }
+        bottom.layoutParams = bottomParams
+        bottomLeft.layoutParams = bottomLeftParams
+        bottomRight.layoutParams = bottomRightParams
+        bottomCenter.layoutParams = bottomCenterParams
+        progress.layoutParams = progressParams
+        positionView.layoutParams = positionParams
+        duration.layoutParams = durationParams
+    }
+
+    private enum class QuickControlRule {
+        ABOVE,
+        BELOW,
+        MIDDLE,
+    }
+
+    private fun setQuickControlRule(params: RelativeLayout.LayoutParams, rule: QuickControlRule) {
+        params.removeRule(RelativeLayout.ABOVE)
+        params.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+        params.removeRule(RelativeLayout.CENTER_VERTICAL)
+        when (rule) {
+            QuickControlRule.ABOVE -> params.addRule(RelativeLayout.ABOVE, R.id.bottomLayout)
+            QuickControlRule.BELOW -> params.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            QuickControlRule.MIDDLE -> params.addRule(RelativeLayout.CENTER_VERTICAL)
+        }
+    }
+
+    private fun restoreTimelineLayout(
+        bottomParams: RelativeLayout.LayoutParams,
+        progressParams: LinearLayout.LayoutParams,
+        positionParams: RelativeLayout.LayoutParams,
+        durationParams: RelativeLayout.LayoutParams,
+        density: Float,
+    ) {
+        bottomParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        bottomParams.removeRule(RelativeLayout.ABOVE)
+        bottomParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+        progressParams.bottomMargin = (5 * density).toInt()
+        positionParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        positionParams.bottomMargin = (10 * density).toInt()
+        positionParams.removeRule(RelativeLayout.ABOVE)
+        positionParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+        durationParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        durationParams.bottomMargin = (10 * density).toInt()
+        durationParams.removeRule(RelativeLayout.ABOVE)
+        durationParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+    }
 
     private fun alignVisibleChildToEdge(
         root: View,
@@ -277,11 +443,13 @@ object PortraitPlayerControls {
             val visualBounds = visualBounds(target)
             val centerX = visualBounds.centerX()
             val centerY = visualBounds.centerY()
+            val halfWidth = max(target.width / 2f, visualBounds.width() / 2f)
+            val halfHeight = max(target.height / 2f, visualBounds.height() / 2f)
             return RectF(
-                centerX - target.width / 2f,
-                centerY - target.height / 2f,
-                centerX + target.width / 2f,
-                centerY + target.height / 2f,
+                centerX - halfWidth,
+                centerY - halfHeight,
+                centerX + halfWidth,
+                centerY + halfHeight,
             )
         }
 

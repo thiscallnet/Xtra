@@ -574,6 +574,12 @@
     <string name="settings_download_restart_wait_summary">Continuar aguardando brevemente após o fim de uma transmissão para que uma reinicialização rápida continue a captura.</string>
     <string name="live_notifications_following_summary">Ativar automaticamente alertas de transmissões ao vivo para canais que você segue pelo Xtra.</string>
     <string name="settings_customize_controls_summary">Controles rápidos, menu Mais e controles ocultos</string>
+    <string name="settings_player_control_scale_portrait">Tamanho dos controles do player na vertical</string>
+    <string name="settings_player_control_scale_landscape">Tamanho dos controles do player na horizontal</string>
+    <string name="settings_player_control_position">Posição dos controles rápidos</string>
+    <string name="player_control_position_above">Acima da linha do tempo</string>
+    <string name="player_control_position_below">Abaixo da linha do tempo</string>
+    <string name="player_control_position_middle">No meio do player</string>
     <string name="settings_playback_speed_options_summary">Escolher e reordenar valores de velocidade</string>
     <string name="settings_double_tap_chat_summary">Alternar o chat com dois toques enquanto assiste.</string>
     <string name="avoid_rounded_corners_summary">Recuar o conteúdo do player para que cantos curvos físicos e recortes não ocultem o vídeo ou os controles.</string>

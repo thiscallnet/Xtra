@@ -575,6 +575,12 @@
     <string name="settings_download_restart_wait_summary">Tetap menunggu sebentar setelah siaran berakhir agar mulai ulang dengan cepat dapat melanjutkan pengambilan.</string>
     <string name="live_notifications_following_summary">Aktifkan peringatan live secara otomatis untuk channel yang Anda ikuti melalui Xtra.</string>
     <string name="settings_customize_controls_summary">Kontrol cepat, menu Lainnya, dan kontrol tersembunyi</string>
+    <string name="settings_player_control_scale_portrait">Ukuran kontrol pemutar vertikal</string>
+    <string name="settings_player_control_scale_landscape">Ukuran kontrol pemutar horizontal</string>
+    <string name="settings_player_control_position">Posisi kontrol cepat</string>
+    <string name="player_control_position_above">Di atas linimasa</string>
+    <string name="player_control_position_below">Di bawah linimasa</string>
+    <string name="player_control_position_middle">Di tengah pemutar</string>
     <string name="settings_playback_speed_options_summary">Pilih dan urutkan ulang nilai kecepatan</string>
     <string name="settings_double_tap_chat_summary">Alihkan chat dengan mengetuk dua kali saat menonton.</string>
     <string name="avoid_rounded_corners_summary">Atur jarak konten pemutar agar sudut melengkung fisik dan potongan layar tidak menutupi video atau kontrol.</string>

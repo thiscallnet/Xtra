@@ -574,6 +574,12 @@
     <string name="settings_download_restart_wait_summary">Nach dem Ende eines Streams kurz weiter warten, damit eine schnelle Wiederaufnahme die Aufnahme fortsetzen kann.</string>
     <string name="live_notifications_following_summary">Live-Benachrichtigungen für Kanäle, denen du über Xtra folgst, automatisch aktivieren.</string>
     <string name="settings_customize_controls_summary">Schnelle Steuerung, Menü „Mehr“ und ausgeblendete Steuerelemente</string>
+    <string name="settings_player_control_scale_portrait">Größe der Player-Steuerelemente im Hochformat</string>
+    <string name="settings_player_control_scale_landscape">Größe der Player-Steuerelemente im Querformat</string>
+    <string name="settings_player_control_position">Position der Schnellsteuerung</string>
+    <string name="player_control_position_above">Über der Zeitleiste</string>
+    <string name="player_control_position_below">Unter der Zeitleiste</string>
+    <string name="player_control_position_middle">In der Mitte des Players</string>
     <string name="settings_playback_speed_options_summary">Geschwindigkeitswerte auswählen und neu anordnen</string>
     <string name="settings_double_tap_chat_summary">Chat beim Anschauen durch zweimaliges Tippen umschalten.</string>
     <string name="avoid_rounded_corners_summary">Player-Inhalte einrücken, damit physische abgerundete Ecken und Aussparungen Video oder Steuerelemente nicht verdecken.</string>

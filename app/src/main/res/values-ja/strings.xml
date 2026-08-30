@@ -574,6 +574,12 @@
     <string name="settings_download_restart_wait_summary">配信終了後もしばらく待機し、すぐに再開した場合にキャプチャを続行します。</string>
     <string name="live_notifications_following_summary">Xtraでフォローしているチャンネルのライブ通知を自動的に有効にします。</string>
     <string name="settings_customize_controls_summary">クイック操作、「その他」メニュー、非表示の操作</string>
+    <string name="settings_player_control_scale_portrait">縦向きプレーヤーの操作サイズ</string>
+    <string name="settings_player_control_scale_landscape">横向きプレーヤーの操作サイズ</string>
+    <string name="settings_player_control_position">クイック操作の位置</string>
+    <string name="player_control_position_above">タイムラインの上</string>
+    <string name="player_control_position_below">タイムラインの下</string>
+    <string name="player_control_position_middle">プレーヤーの中央</string>
     <string name="settings_playback_speed_options_summary">速度の値を選択して並べ替えます</string>
     <string name="settings_double_tap_chat_summary">視聴中にダブルタップしてチャットを切り替えます。</string>
     <string name="avoid_rounded_corners_summary">物理的な曲面や切り欠きで動画や操作が隠れないよう、プレーヤーのコンテンツを内側に配置します。</string>

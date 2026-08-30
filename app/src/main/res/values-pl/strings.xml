@@ -1321,6 +1321,12 @@
     <string name="settings_download_restart_wait_summary">Odczekaj chwilę po zakończeniu strumienia, aby szybkie ponowne uruchomienie mogło kontynuować przechwytywanie.</string>
     <string name="live_notifications_following_summary">Automatycznie włączaj powiadomienia na żywo dla kanałów, które obserwujesz w Xtra.</string>
     <string name="settings_customize_controls_summary">Szybkie sterowanie, menu Więcej i Ukryte</string>
+    <string name="settings_player_control_scale_portrait">Rozmiar elementów sterujących odtwarzacza w pionie</string>
+    <string name="settings_player_control_scale_landscape">Rozmiar elementów sterujących odtwarzacza w poziomie</string>
+    <string name="settings_player_control_position">Położenie szybkich elementów sterujących</string>
+    <string name="player_control_position_above">Nad osią czasu</string>
+    <string name="player_control_position_below">Pod osią czasu</string>
+    <string name="player_control_position_middle">Na środku odtwarzacza</string>
     <string name="settings_playback_speed_options_summary">Wybierz i zmień kolejność wartości prędkości</string>
     <string name="settings_double_tap_chat_summary">Przełącz czat dwukrotnym dotknięciem oglądania.</string>
     <string name="avoid_rounded_corners_summary">Umieść zawartość odtwarzacza tak, aby fizyczne zakrzywione rogi i wycięcia nie przesłaniały obrazu ani elementów sterujących.</string>
