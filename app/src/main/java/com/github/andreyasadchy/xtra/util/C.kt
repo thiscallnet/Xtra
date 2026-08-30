@@ -218,6 +218,7 @@ object C {
     const val PLAYER_MOVE_FREELY = "player_move_freely"
     const val PLAYER_CONTROL_SCALE_PORTRAIT = "player_control_scale_portrait"
     const val PLAYER_CONTROL_SCALE_LANDSCAPE = "player_control_scale_landscape"
+    const val PLAYER_CONTROL_METADATA_SCALE = "player_control_metadata_scale"
     const val PLAYER_CONTROL_POSITION = "player_control_position"
     const val PLAYER_CONTROL_POSITION_ABOVE = "above"
     const val PLAYER_CONTROL_POSITION_BELOW = "below"

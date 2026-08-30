@@ -1458,4 +1458,11 @@
     <string name="pinned_message_minimize">Minimize pinned message</string>
     <string name="pinned_message_expand">Expand pinned message</string>
     <string name="pinned_message_sent_at">sent at %1$s</string>
+    <string name="settings_player_control_metadata_scale">配信者情報のサイズ</string>
+    <string name="settings_player_control_preview_summary">操作ボタンと配信者情報のサイズを比較できます</string>
+    <string name="settings_player_control_preview_description">プレビュー。縦向きの操作ボタン %1$s、横向きの操作ボタン %2$s、配信者情報 %3$s。</string>
+    <string name="settings_player_control_preview_vertical">縦向き</string>
+    <string name="settings_player_control_preview_horizontal">横向き</string>
+    <string name="settings_player_control_preview_info">情報</string>
+    <string name="player_viewers_suffix">%1$s 人の視聴者</string>
 </resources>

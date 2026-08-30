@@ -1458,4 +1458,11 @@
     <string name="pinned_message_minimize">Minimize pinned message</string>
     <string name="pinned_message_expand">Expand pinned message</string>
     <string name="pinned_message_sent_at">sent at %1$s</string>
+    <string name="settings_player_control_metadata_scale">實況主資訊大小</string>
+    <string name="settings_player_control_preview_summary">比較控制項與實況主資訊的大小</string>
+    <string name="settings_player_control_preview_description">預覽。直向控制項 %1$s，橫向控制項 %2$s，實況主資訊 %3$s。</string>
+    <string name="settings_player_control_preview_vertical">直向</string>
+    <string name="settings_player_control_preview_horizontal">橫向</string>
+    <string name="settings_player_control_preview_info">資訊</string>
+    <string name="player_viewers_suffix">%1$s 位觀眾</string>
 </resources>

@@ -1458,4 +1458,11 @@
     <string name="pinned_message_minimize">Minimize pinned message</string>
     <string name="pinned_message_expand">Expand pinned message</string>
     <string name="pinned_message_sent_at">sent at %1$s</string>
+    <string name="settings_player_control_metadata_scale">Размер информации о стримере</string>
+    <string name="settings_player_control_preview_summary">Сравните размеры элементов управления и информации о стримере</string>
+    <string name="settings_player_control_preview_description">Предпросмотр. Управление в вертикальном режиме %1$s, в горизонтальном режиме %2$s, информация о стримере %3$s.</string>
+    <string name="settings_player_control_preview_vertical">Вертикально</string>
+    <string name="settings_player_control_preview_horizontal">Горизонтально</string>
+    <string name="settings_player_control_preview_info">Инфо</string>
+    <string name="player_viewers_suffix">для %1$s зрителей</string>
 </resources>

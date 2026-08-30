@@ -77,6 +77,15 @@
             android:textAppearance="?attr/textAppearanceBodyMedium" />
 
         <TextView
+            android:id="@+id/menuPlayerControlSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:padding="12dp"
+            android:text="@string/settings_home_controls"
+            android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+        <TextView
             android:id="@+id/menuViewerList"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

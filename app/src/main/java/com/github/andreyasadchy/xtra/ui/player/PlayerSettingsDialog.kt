@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.player
 
+import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
@@ -14,6 +15,10 @@ import androidx.media3.common.Tracks
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.PlayerSettingsBinding
 import com.github.andreyasadchy.xtra.ui.settings.PlayerControlLayoutEditor
+import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
+import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER_CONTROLS
+import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
+import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.SettingsMigration
@@ -62,6 +67,14 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             menuCustomizeControls.visibility = View.VISIBLE
             menuCustomizeControls.setOnClickListener {
                 showControlLayoutEditor()
+            }
+            menuPlayerControlSettings.setOnClickListener {
+                dismiss()
+                val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
+                    putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER_CONTROLS)
+                }
+                (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
+                    ?: startActivity(intent)
             }
             if (type != BasePlaybackService.STREAM && requireContext().prefs().getBoolean(C.PLAYER_MENU_SPEED, false)) {
                 menuSpeed.visibility = View.VISIBLE

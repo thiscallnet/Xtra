@@ -1456,4 +1456,11 @@
     <string name="pinned_message_minimize">Minimize pinned message</string>
     <string name="pinned_message_expand">Expand pinned message</string>
     <string name="pinned_message_sent_at">sent at %1$s</string>
+    <string name="settings_player_control_metadata_scale">Rozmiar informacji o streamerze</string>
+    <string name="settings_player_control_preview_summary">Porównaj rozmiar elementów sterujących i informacji o streamerze</string>
+    <string name="settings_player_control_preview_description">Podgląd. Sterowanie pionowe %1$s, sterowanie poziome %2$s, informacje o streamerze %3$s.</string>
+    <string name="settings_player_control_preview_vertical">Pionowo</string>
+    <string name="settings_player_control_preview_horizontal">Poziomo</string>
+    <string name="settings_player_control_preview_info">Info</string>
+    <string name="player_viewers_suffix">dla %1$s widzów</string>
 </resources>

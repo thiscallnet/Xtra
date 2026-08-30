@@ -15,6 +15,8 @@ import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.os.ext.SdkExtensions
 import android.provider.Settings
@@ -212,8 +214,11 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         settingsHighlightPreference = intent.getStringExtra(EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE)
-        if (savedInstanceState == null && intent.getStringExtra(EXTRA_SETTINGS_SCREEN) == SETTINGS_SCREEN_TABS) {
-            navController.navigate(R.id.browsingTabsFragment)
+        if (savedInstanceState == null) {
+            when (intent.getStringExtra(EXTRA_SETTINGS_SCREEN)) {
+                SETTINGS_SCREEN_TABS -> navController.navigate(R.id.browsingTabsFragment)
+                SETTINGS_SCREEN_PLAYER_CONTROLS -> navController.navigate(R.id.playerButtonSettingsFragment)
+            }
         }
         binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String): Boolean {
@@ -2314,8 +2319,21 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     class PlayerButtonSettingsFragment : MaterialPreferenceFragment() {
+        private var scalePreview: PlayerControlScalePreviewPreference? = null
+
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.player_controls_preferences, rootKey)
+            scalePreview = findPreference("player_control_scale_preview")
+            listOf(
+                C.PLAYER_CONTROL_SCALE_PORTRAIT,
+                C.PLAYER_CONTROL_SCALE_LANDSCAPE,
+                C.PLAYER_CONTROL_METADATA_SCALE,
+            ).forEach { key ->
+                findPreference<ListPreference>(key)?.setOnPreferenceChangeListener { _, _ ->
+                    Handler(Looper.getMainLooper()).post { scalePreview?.refreshPreview() }
+                    true
+                }
+            }
             findPreference<Preference>("player_seek_controls")?.setOnPreferenceClickListener { findNavController().navigate(R.id.playerSeekFragment); true }
             findPreference<Preference>("player_gestures")?.setOnPreferenceClickListener { findNavController().navigate(R.id.playerGesturesFragment); true }
             findPreference<Preference>("player_information")?.setOnPreferenceClickListener { findNavController().navigate(R.id.playerInformationFragment); true }

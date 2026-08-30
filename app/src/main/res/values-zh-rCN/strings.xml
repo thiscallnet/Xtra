@@ -1458,4 +1458,11 @@
     <string name="pinned_message_minimize">Minimize pinned message</string>
     <string name="pinned_message_expand">Expand pinned message</string>
     <string name="pinned_message_sent_at">sent at %1$s</string>
+    <string name="settings_player_control_metadata_scale">主播信息大小</string>
+    <string name="settings_player_control_preview_summary">比较控件和主播信息的大小</string>
+    <string name="settings_player_control_preview_description">预览。竖屏控件 %1$s，横屏控件 %2$s，主播信息 %3$s。</string>
+    <string name="settings_player_control_preview_vertical">竖屏</string>
+    <string name="settings_player_control_preview_horizontal">横屏</string>
+    <string name="settings_player_control_preview_info">信息</string>
+    <string name="player_viewers_suffix">%1$s 位观众</string>
 </resources>

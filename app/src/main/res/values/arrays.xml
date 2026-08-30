@@ -198,6 +198,26 @@
         <item>120</item>
     </string-array>
 
+    <string-array name="playerControlMetadataScaleEntries" translatable="false">
+        <item>55%</item>
+        <item>65%</item>
+        <item>75%</item>
+        <item>85%</item>
+        <item>100%</item>
+        <item>110%</item>
+        <item>120%</item>
+    </string-array>
+
+    <string-array name="playerControlMetadataScaleValues" translatable="false">
+        <item>55</item>
+        <item>65</item>
+        <item>75</item>
+        <item>85</item>
+        <item>100</item>
+        <item>110</item>
+        <item>120</item>
+    </string-array>
+
     <string-array name="playerControlPositionEntries">
         <item>@string/player_control_position_above</item>
         <item>@string/player_control_position_below</item>
