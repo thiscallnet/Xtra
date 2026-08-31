@@ -433,6 +433,19 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     /** Wraps all words in order and keeps only the last two complete display rows. */
     private fun fitCaptionLines(lines: List<String>): List<String> {
         val maxWidth = captionContentWidth()
+        val wrapped = lines.flatMap { line -> fitCaptionLineRows(line, maxWidth) }
+
+        return wrapped.takeLast(2).let { result ->
+            when (result.size) {
+                0 -> listOf("", "")
+                1 -> listOf("", result[0])
+                else -> result
+            }
+        }
+    }
+
+    /** Fits one state-machine row without borrowing space from the next row. */
+    private fun fitCaptionLineRows(line: String, maxWidth: Float): List<String> {
         val wrapped = mutableListOf<String>()
         var current = ""
 
@@ -443,8 +456,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
             }
         }
 
-        lines.asSequence()
-            .flatMap { it.trim().split(Regex("\\s+")).asSequence() }
+        line.trim().split(Regex("\\s+"))
             .filter(String::isNotEmpty)
             .forEach { word ->
                 if (topLine.paint.measureText(word) <= maxWidth) {
@@ -469,14 +481,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
                 }
             }
         flush()
-
-        return wrapped.takeLast(2).let { result ->
-            when (result.size) {
-                0 -> listOf("", "")
-                1 -> listOf("", result[0])
-                else -> result
-            }
-        }
+        return wrapped
     }
 
     private fun reflowVisibleLines() {
