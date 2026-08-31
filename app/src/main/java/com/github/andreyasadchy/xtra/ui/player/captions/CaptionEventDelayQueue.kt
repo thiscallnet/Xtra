@@ -31,9 +31,14 @@ internal class CaptionEventDelayQueue(
             // Partial text is a cumulative hypothesis. Replace its payload,
             // but keep the original deadline so continuous speech cannot keep
             // postponing the first visible update forever.
-            pending.firstOrNull { it.event is CaptionRecognitionEvent.Partial }?.let {
-                it.event = event
-                return
+            for (pendingEvent in pending.toList().asReversed()) {
+                when (pendingEvent.event) {
+                    is CaptionRecognitionEvent.Final -> break
+                    is CaptionRecognitionEvent.Partial -> {
+                        pendingEvent.event = event
+                        return
+                    }
+                }
             }
         }
 

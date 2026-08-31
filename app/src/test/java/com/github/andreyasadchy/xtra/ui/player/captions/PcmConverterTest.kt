@@ -243,4 +243,28 @@ class CaptionEventDelayQueueTest {
 
         assertEquals(listOf("new"), output)
     }
+
+    @Test
+    fun partialCoalescingDoesNotCrossFinalBoundary() {
+        val queue = CaptionEventDelayQueue()
+        val output = mutableListOf<String>()
+        val apply: (CaptionRecognitionEvent) -> Unit = { event ->
+            output += when (event) {
+                is CaptionRecognitionEvent.Partial -> "partial:${event.text}"
+                is CaptionRecognitionEvent.Final -> "final:${event.text}"
+            }
+        }
+
+        queue.enqueue(CaptionRecognitionEvent.Partial("old partial"), 2_000L, 0L, apply)
+        queue.enqueue(CaptionRecognitionEvent.Final("old final"), 2_000L, 500L, apply)
+        queue.enqueue(CaptionRecognitionEvent.Partial("new partial"), 2_000L, 1_000L, apply)
+
+        queue.drain(2_000L, apply)
+        queue.drain(3_000L, apply)
+
+        assertEquals(
+            listOf("partial:old partial", "final:old final", "partial:new partial"),
+            output,
+        )
+    }
 }
