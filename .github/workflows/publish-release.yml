@@ -25,7 +25,7 @@ on:
 
 concurrency:
   group: publish-build-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   actions: read
@@ -45,6 +45,7 @@ jobs:
       CHANNEL: ${{ github.event_name == 'workflow_run' && 'stable' || inputs.channel }}
     steps:
     - name: Validate source build
+      id: validate-source
       shell: bash
       run: |
         set -euo pipefail
@@ -72,11 +73,12 @@ jobs:
         fi
 
         current_master_sha="$(gh api "repos/${GH_REPO}/git/ref/heads/master" --jq '.object.sha')"
-        ancestry_status="$(gh api "repos/${GH_REPO}/compare/${current_master_sha}...${source_sha}" --jq '.status')"
-        if [[ "$ancestry_status" != "behind" && "$ancestry_status" != "identical" ]]; then
-          echo "The selected build commit is no longer reachable from current master" >&2
-          exit 1
+        if [[ "$source_sha" != "$current_master_sha" ]]; then
+          echo "Skipping obsolete build: $source_sha is no longer current master"
+          echo 'should_publish=false' >> "$GITHUB_OUTPUT"
+          exit 0
         fi
+        echo 'should_publish=true' >> "$GITHUB_OUTPUT"
 
         {
           echo "SOURCE_SHA=$source_sha"
@@ -84,6 +86,7 @@ jobs:
         } >> "$GITHUB_ENV"
 
     - name: Download master build package
+      if: steps.validate-source.outputs.should_publish == 'true'
       uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
       with:
         name: xtra-master-release-package
@@ -93,6 +96,7 @@ jobs:
         run-id: ${{ env.SOURCE_RUN_ID }}
 
     - name: Validate build package
+      if: steps.validate-source.outputs.should_publish == 'true'
       shell: bash
       run: |
         set -euo pipefail
@@ -135,6 +139,7 @@ jobs:
         } >> "$GITHUB_ENV"
 
     - name: Validate release token
+      if: steps.validate-source.outputs.should_publish == 'true'
       env:
         RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       shell: bash
@@ -146,6 +151,7 @@ jobs:
         fi
 
     - name: Create or verify immutable build tag
+      if: steps.validate-source.outputs.should_publish == 'true'
       env:
         GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       shell: bash
@@ -167,6 +173,7 @@ jobs:
         fi
 
     - name: Create or recover draft release
+      if: steps.validate-source.outputs.should_publish == 'true'
       env:
         GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       shell: bash
@@ -229,6 +236,7 @@ jobs:
         echo "RELEASE_ID=$release_id" >> "$GITHUB_ENV"
 
     - name: Upload and verify release assets
+      if: steps.validate-source.outputs.should_publish == 'true'
       env:
         GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       shell: bash
@@ -283,7 +291,22 @@ jobs:
           fi
         done
 
+    - name: Revalidate current master before publishing
+      if: steps.validate-source.outputs.should_publish == 'true'
+      id: revalidate-source
+      shell: bash
+      run: |
+        set -euo pipefail
+        current_master_sha="$(gh api "repos/${GH_REPO}/git/ref/heads/master" --jq '.object.sha')"
+        if [[ "$SOURCE_SHA" != "$current_master_sha" ]]; then
+          echo "Skipping obsolete build: $SOURCE_SHA is no longer current master"
+          echo 'current=false' >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo 'current=true' >> "$GITHUB_OUTPUT"
+
     - name: Publish verified release
+      if: steps.revalidate-source.outputs.current == 'true'
       env:
         GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
       shell: bash
@@ -309,6 +332,15 @@ jobs:
             fi
           fi
         fi
+
+        current_master_sha="$(gh api \
+          "repos/${GH_REPO}/git/ref/heads/master" \
+          --jq '.object.sha')"
+        if [[ "$SOURCE_SHA" != "$current_master_sha" ]]; then
+          echo "Skipping obsolete build: $SOURCE_SHA is no longer current master"
+          exit 0
+        fi
+
         if [[ "$CHANNEL" == "prerelease" ]]; then
           gh api --method PATCH "repos/${GH_REPO}/releases/${RELEASE_ID}" \
             -F draft=false \
