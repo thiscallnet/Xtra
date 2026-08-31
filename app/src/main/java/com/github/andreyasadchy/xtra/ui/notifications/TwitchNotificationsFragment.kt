@@ -13,6 +13,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.navigation.fragment.findNavController
+import androidx.navigation.NavOptions
 import androidx.navigation.ui.setupWithNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.github.andreyasadchy.xtra.R
@@ -121,6 +122,11 @@ class TwitchNotificationsFragment : Fragment() {
                 putString("gameId", action.id)
                 putString("gameName", action.name)
             })
+            is TwitchNotificationAction.Drops -> findNavController().navigate(
+                R.id.action_global_dropsFragment,
+                Bundle().apply { putString("campaignId", action.campaignId) },
+                NavOptions.Builder().setLaunchSingleTop(true).build(),
+            )
             is TwitchNotificationAction.Video -> openTwitchUrl("https://www.twitch.tv/videos/${action.id}")
             is TwitchNotificationAction.Clip -> openTwitchUrl("https://clips.twitch.tv/${action.slug}")
             is TwitchNotificationAction.TwitchWebUrl -> openTwitchUrl(action.url)

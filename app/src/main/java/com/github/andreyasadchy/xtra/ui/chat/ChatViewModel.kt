@@ -52,6 +52,8 @@ import com.github.andreyasadchy.xtra.model.ui.ChannelPointRewardInput
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRewardRedemption
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRedemptionResult
 import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
+import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
+import com.github.andreyasadchy.xtra.repository.DropsRepository
 import com.github.andreyasadchy.xtra.model.ui.WatchStreak
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakReward
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakShareResult
@@ -149,9 +151,29 @@ internal fun shouldResumeLiveChat(
 internal fun resolveCurrentLiveStreamId(currentStreamId: String?, initialStreamId: String?): String? =
     currentStreamId ?: initialStreamId
 
+data class DropsUiState(
+    val drops: List<TwitchDrop> = emptyList(),
+    val claimingDropId: String? = null,
+    val lastError: String? = null,
+) {
+    val claimableDrops: List<TwitchDrop>
+        get() = drops.filter { it.isClaimable }
+
+    val mostRelevantDrop: TwitchDrop?
+        get() = claimableDrops.firstOrNull()
+            ?: drops
+                .asSequence()
+                .filter {
+                    !it.isClaimed &&
+                        it.requiredMinutesWatched > 0
+                }
+                .maxByOrNull { it.progressPercent }
+}
+
 class ChatViewModel(
     private val applicationContext: Context,
     private val graphQLRepository: GraphQLRepository,
+    private val dropsRepository: DropsRepository,
     private val helixRepository: HelixRepository,
     private val playerRepository: PlayerRepository,
     private val trustManager: Lazy<X509TrustManager>,
@@ -213,12 +235,19 @@ class ChatViewModel(
         val message: String? = null,
     )
 
+    data class DropClaimResult(
+        val success: Boolean,
+        val dropName: String?,
+        val message: String? = null,
+    )
+
     private var chatReadIRCSocket: ChatReadIRCSocket? = null
     private var chatWriteIRCSocket: ChatWriteIRCSocket? = null
     private var chatReadWebSocket: ChatReadWebSocket? = null
     private var chatWriteWebSocket: ChatWriteWebSocket? = null
     private var chatReadJob: Job? = null
     private var chatWriteJob: Job? = null
+    private var dropsJob: Job? = null
     private var eventSub: EventSubWebSocket? = null
     private var hermesWebSocket: HermesWebSocket? = null
     private var pubSubJob: Job? = null
@@ -373,6 +402,10 @@ class ChatViewModel(
     val channelPointRedemption: Flow<ChannelPointRedemptionResult> = channelPointRedemptionEvents.receiveAsFlow()
     private val watchStreakShareEvents = Channel<WatchStreakShareResult>(Channel.BUFFERED)
     val watchStreakShare: Flow<WatchStreakShareResult> = watchStreakShareEvents.receiveAsFlow()
+    private val _dropsUiState = MutableStateFlow(DropsUiState())
+    val dropsUiState: StateFlow<DropsUiState> = _dropsUiState
+    private val dropClaimEvents = Channel<DropClaimResult>(Channel.BUFFERED)
+    val dropClaimResults: Flow<DropClaimResult> = dropClaimEvents.receiveAsFlow()
 
     val reloadMessages = MutableStateFlow(false)
     val hideRaid = MutableStateFlow(false)
@@ -2508,6 +2541,12 @@ class ChatViewModel(
         val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
         val helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext)
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        startDrops(
+            networkLibrary = networkLibrary,
+            gqlHeaders = gqlHeaders,
+            expectedChannelId = channelId,
+            expectedChannelLogin = channelLogin,
+        )
         val accountId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
         val accountLogin = applicationContext.tokenPrefs().getString(C.USERNAME, null)
         val gqlWebToken = applicationContext.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)?.takeIf { it.isNotBlank() }
@@ -2649,6 +2688,202 @@ class ChatViewModel(
         }
     }
 
+    private fun startDrops(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        expectedChannelId: String?,
+        expectedChannelLogin: String,
+    ) {
+        dropsJob?.cancel()
+        dropsJob = null
+
+        if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+            _dropsUiState.value = DropsUiState()
+            return
+        }
+
+        val preferences = applicationContext.prefs()
+        val showDrops = preferences.getBoolean(C.CHAT_DROPS_SHOW, true)
+        val autoClaim = preferences.getBoolean(C.CHAT_DROPS_AUTO_CLAIM, false)
+
+        // Autoclaim must work even if the visual banner is disabled.
+        if (!showDrops && !autoClaim) {
+            _dropsUiState.value = DropsUiState()
+            return
+        }
+
+        dropsJob = viewModelScope.launch {
+            var nextDelayMillis = 0L
+
+            while (
+                isActive &&
+                activeChannelId == expectedChannelId &&
+                activeChannelLogin == expectedChannelLogin
+            ) {
+                if (nextDelayMillis > 0L) {
+                    delay(nextDelayMillis)
+                }
+
+                try {
+                    val inventory = dropsRepository.refreshInventory()
+                    if (inventory.error != null) {
+                        _dropsUiState.update {
+                            it.copy(drops = emptyList(), lastError = inventory.error.message)
+                        }
+                        nextDelayMillis = if (nextDelayMillis < DROPS_RETRY_MILLIS) {
+                            DROPS_RETRY_MILLIS
+                        } else {
+                            DROPS_MAX_RETRY_MILLIS
+                        }
+                        continue
+                    }
+
+                    if (
+                        activeChannelId != expectedChannelId ||
+                        activeChannelLogin != expectedChannelLogin
+                    ) {
+                        return@launch
+                    }
+
+                    val showDropsNow = applicationContext.prefs().getBoolean(C.CHAT_DROPS_SHOW, true)
+                    val drops = if (showDropsNow) {
+                        dropsRepository.refreshChannelDrops(
+                            expectedChannelId,
+                            expectedChannelLogin,
+                        )
+                    } else {
+                        emptyList()
+                    }
+                    _dropsUiState.update { it.copy(drops = drops, lastError = null) }
+
+                    if (
+                        applicationContext.prefs().getBoolean(
+                            C.CHAT_DROPS_AUTO_CLAIM,
+                            false,
+                        )
+                    ) {
+                        dropsRepository.autoClaimCompletedDrops()
+                    }
+
+                    nextDelayMillis = DROPS_REFRESH_MILLIS
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (
+                        activeChannelId != expectedChannelId ||
+                        activeChannelLogin != expectedChannelLogin
+                    ) {
+                        return@launch
+                    }
+                    _dropsUiState.update {
+                        it.copy(lastError = e.message)
+                    }
+
+                    nextDelayMillis = when {
+                        nextDelayMillis < DROPS_RETRY_MILLIS ->
+                            DROPS_RETRY_MILLIS
+                        else ->
+                            DROPS_MAX_RETRY_MILLIS
+                    }
+                }
+            }
+        }
+    }
+
+    fun claimDrop(drop: TwitchDrop) {
+        if (!drop.isClaimable) return
+
+        val gqlHeaders =
+            TwitchApiHelper.getGQLHeaders(applicationContext, true)
+
+        if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+            return
+        }
+
+        viewModelScope.launch {
+            claimDropInternal(drop)
+        }
+    }
+
+    private suspend fun claimDropInternal(
+        drop: TwitchDrop,
+    ): Boolean {
+        if (drop.dropInstanceId.isNullOrBlank()) return false
+
+        if (!drop.isClaimable) {
+            return false
+        }
+
+        _dropsUiState.update {
+            it.copy(
+                claimingDropId = drop.id,
+                lastError = null,
+            )
+        }
+
+        return try {
+            val success = dropsRepository.claim(drop)
+
+            if (success) {
+                _dropsUiState.update { state ->
+                    state.copy(
+                        drops = state.drops.filterNot {
+                            it.id == drop.id
+                        },
+                        claimingDropId = null,
+                        lastError = null,
+                    )
+                }
+
+                dropClaimEvents.send(
+                    DropClaimResult(
+                        success = true,
+                        dropName = drop.rewardName ?: drop.name,
+                    ),
+                )
+            } else {
+                _dropsUiState.update {
+                    it.copy(
+                        claimingDropId = null,
+                        lastError = "Twitch rejected the Drop claim",
+                    )
+                }
+
+                dropClaimEvents.send(
+                    DropClaimResult(
+                        success = false,
+                        dropName = drop.rewardName ?: drop.name,
+                        message = "Twitch rejected the Drop claim",
+                    ),
+                )
+            }
+
+            success
+        } catch (e: CancellationException) {
+            _dropsUiState.update {
+                it.copy(claimingDropId = null)
+            }
+            throw e
+        } catch (e: Exception) {
+            _dropsUiState.update {
+                it.copy(
+                    claimingDropId = null,
+                    lastError = e.message,
+                )
+            }
+
+            dropClaimEvents.send(
+                DropClaimResult(
+                    success = false,
+                    dropName = drop.rewardName ?: drop.name,
+                    message = e.message,
+                ),
+            )
+
+            false
+        }
+    }
+
     fun stopLiveChat() {
         predictionSessionToken += 1
         predictionSnapshotJob?.cancel()
@@ -2680,6 +2915,9 @@ class ChatViewModel(
         watchStreakWorkerJob?.cancel()
         watchStreakWorkerJob = null
         pendingWatchStreakRequests.clear()
+        dropsJob?.cancel()
+        dropsJob = null
+        _dropsUiState.value = DropsUiState()
         resetChannelPointsBalance()
         watchStreak.value = null
         clearPollPresentation()
@@ -5724,6 +5962,9 @@ class ChatViewModel(
     }
 
     companion object {
+        private const val DROPS_REFRESH_MILLIS = 60_000L
+        private const val DROPS_RETRY_MILLIS = 120_000L
+        private const val DROPS_MAX_RETRY_MILLIS = 300_000L
         private const val CHAT_IDENTITY_CACHE_TTL_MS = 5 * 60 * 1000L
         private const val WATCH_STREAK_RECONCILIATION_DELAY_MILLIS = 750L
         private val CHANNEL_POINTS_RECONCILIATION_DELAYS_MILLIS = listOf(750L, 3_000L, 10_000L, 20_000L)
@@ -5744,7 +5985,7 @@ class ChatViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                ChatViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.trustManager, xtraModule.json)
+                ChatViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.dropsRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.trustManager, xtraModule.json)
             }
         }
     }

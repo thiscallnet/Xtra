@@ -6,4 +6,15 @@
     <SwitchPreferenceCompat android:defaultValue="true" android:dependency="chat_raids_show" android:key="multiview_raids" android:title="@string/multiview_raids" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_polls_show" android:title="@string/show_polls" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_predictions_show" android:title="@string/show_predictions" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat
+        android:defaultValue="true"
+        android:key="chat_drops_show"
+        android:title="@string/drops_show"
+        app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="chat_drops_auto_claim"
+        android:title="@string/drops_auto_claim"
+        android:summary="@string/drops_auto_claim_summary"
+        app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

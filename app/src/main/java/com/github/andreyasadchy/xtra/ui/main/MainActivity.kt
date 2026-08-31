@@ -51,6 +51,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.withStarted
 import androidx.navigation.NavController
+import androidx.navigation.NavOptions
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.NavigationUI
 import androidx.navigation.ui.setupWithNavController
@@ -84,6 +85,7 @@ import com.github.andreyasadchy.xtra.ui.saved.SavedMediaFragment
 import com.github.andreyasadchy.xtra.ui.saved.SavedPagerFragment
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.settings.openTabCustomization
+import com.github.andreyasadchy.xtra.ui.settings.limitNavigationVisibleItems
 import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
@@ -121,6 +123,7 @@ class MainActivity : AppCompatActivity() {
         const val INTENT_START_AUDIO_ONLY = "com.github.andreyasadchy.xtra.START_AUDIO_ONLY"
         const val INTENT_PLAY_PAUSE_PLAYER = "com.github.andreyasadchy.xtra.PLAY_PAUSE_PLAYER"
         const val INTENT_OPEN_OWN_PROFILE = "com.github.andreyasadchy.xtra.OPEN_OWN_PROFILE"
+        const val INTENT_OPEN_DROPS = "com.github.andreyasadchy.xtra.OPEN_DROPS"
         const val EXTRA_OPEN_UPDATE_DETAILS = "com.github.andreyasadchy.xtra.OPEN_UPDATE_DETAILS"
     }
 
@@ -946,6 +949,16 @@ class MainActivity : AppCompatActivity() {
             return
         }
         when (intent?.action) {
+            INTENT_OPEN_DROPS -> {
+                intent.action = null
+                if (navController.currentDestination?.id != R.id.dropsFragment) {
+                    navController.navigate(
+                        R.id.action_global_dropsFragment,
+                        null,
+                        NavOptions.Builder().setLaunchSingleTop(true).build(),
+                    )
+                }
+            }
             Intent.ACTION_VIEW -> {
                 val uri = intent.data ?: return
                 if (!isTwitchWebUri(uri)) return
@@ -1385,7 +1398,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 list
             } else defaultTabs
-        }
+        }.let(::limitNavigationVisibleItems)
         navController.setGraph(navController.navInflater.inflate(R.navigation.nav_graph).also {
             val defaultItem = tabList.find { it.split(':')[1] != "0" }?.split(':')[0] ?: "1"
             when {
@@ -1394,6 +1407,7 @@ class MainActivity : AppCompatActivity() {
                 defaultItem == "4" -> it.setStartDestination(R.id.rootDiscoverFragment)
                 defaultItem == "3" -> it.setStartDestination(R.id.savedPagerFragment)
                 defaultItem == "5" -> it.setStartDestination(R.id.statisticsFragment)
+                defaultItem == "6" -> it.setStartDestination(R.id.dropsFragment)
             }
         }, null)
         keepStateNavigator = navController.navigatorProvider
@@ -1435,6 +1449,9 @@ class MainActivity : AppCompatActivity() {
                             }
                             "5" -> {
                                 menu.add(Menu.NONE, R.id.statisticsFragment, Menu.NONE, R.string.statistics).setIcon(R.drawable.ic_statistics)
+                            }
+                            "6" -> {
+                                menu.add(Menu.NONE, R.id.dropsFragment, Menu.NONE, R.string.drops).setIcon(R.drawable.ic_drops)
                             }
                         }
                     }

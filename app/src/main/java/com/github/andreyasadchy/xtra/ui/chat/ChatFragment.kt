@@ -32,6 +32,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
+import androidx.navigation.NavOptions
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.adapter.FragmentStateAdapter
@@ -60,6 +61,7 @@ import com.github.andreyasadchy.xtra.model.ui.ChannelPoints
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointReward
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRedemptionResult
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.model.ui.WatchStreak
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakShareResult
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
@@ -137,6 +139,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var pinnedMessageMinimized = false
     private var backPressedCallbackAdded = false
     private var lastSlowModeUiState = SlowModeState()
+    private var dismissedDropPresentationKey: String? = null
+    private var dropCalloutView: View? = null
+    private var dropImageView: ImageView? = null
+    private var dropTitleView: TextView? = null
+    private var dropSubtitleView: TextView? = null
+    private var dropProgressView: com.google.android.material.progressindicator.LinearProgressIndicator? = null
     private var chatAdapterUpdatePosted = false
     private var chatAdapterReady = false
     private var chatSnapshotSyncPending = false
@@ -344,6 +352,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         displayedPinnedMessageId = savedInstanceState?.getString(KEY_DISPLAYED_PINNED_MESSAGE_ID)
         pinnedMessageMinimized = savedInstanceState?.getBoolean(KEY_PINNED_MESSAGE_MINIMIZED) ?: false
         setupEmotePickerSizing()
+        setupDropCallout()
         binding.chatTopOverlays.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             updatePinnedMessageOverlayWidth()
         }
@@ -406,6 +415,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         }
                         Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
                     }
+                }
+                launch {
+                    viewModel.dropsUiState.collectLatest(::updateDropCallout)
+                }
+                launch {
+                    viewModel.dropClaimResults.collectLatest(::handleDropClaimResult)
                 }
             }
         }
@@ -1815,6 +1830,115 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
     }
 
+    private fun setupDropCallout() {
+        val root = binding.root
+        dropCalloutView = root.findViewById(R.id.dropCallout)
+        dropImageView = root.findViewById(R.id.dropImage)
+        dropTitleView = root.findViewById(R.id.dropTitle)
+        dropSubtitleView = root.findViewById(R.id.dropSubtitle)
+        dropProgressView = root.findViewById(R.id.dropProgress)
+
+        dropCalloutView?.setOnClickListener {
+            val state = viewModel.dropsUiState.value
+            val drop = state.mostRelevantDrop
+            if (state.claimingDropId != null || drop == null) return@setOnClickListener
+            if (drop.isClaimable) {
+                viewModel.claimDrop(drop)
+            } else {
+                findNavController().navigate(
+                    R.id.action_global_dropsFragment,
+                    null,
+                    NavOptions.Builder().setLaunchSingleTop(true).build(),
+                )
+            }
+        }
+        root.findViewById<View>(R.id.dropClose)?.setOnClickListener {
+            viewModel.dropsUiState.value.mostRelevantDrop?.let { drop ->
+                dismissedDropPresentationKey = dropPresentationKey(drop)
+            }
+            dropCalloutView?.isGone = true
+        }
+    }
+
+    private fun updateDropCallout(state: DropsUiState) {
+        val callout = dropCalloutView ?: return
+        if (!requireContext().prefs().getBoolean(C.CHAT_DROPS_SHOW, true)) {
+            callout.isGone = true
+            return
+        }
+
+        val drop = state.mostRelevantDrop
+        if (drop == null || dismissedDropPresentationKey == dropPresentationKey(drop)) {
+            callout.isGone = true
+            return
+        }
+
+        val isClaiming = state.claimingDropId == drop.id
+        val rewardName = drop.rewardName ?: drop.name
+        dropTitleView?.text = getString(
+            if (drop.isClaimable) R.string.drops_ready_title else R.string.drops_progress_title,
+        )
+        dropSubtitleView?.text = when {
+            isClaiming -> getString(R.string.drops_claiming)
+            drop.isClaimable -> listOfNotNull(
+                rewardName,
+                getString(R.string.drops_tap_to_claim),
+            ).joinToString(" · ")
+            else -> listOfNotNull(
+                rewardName,
+                "${drop.progressPercent}%",
+                "${drop.currentMinutesWatched}/${drop.requiredMinutesWatched} min",
+            ).joinToString(" · ")
+        }
+        dropProgressView?.progress = drop.progressPercent
+        callout.isClickable = !isClaiming
+        callout.alpha = if (isClaiming) 0.65f else 1f
+        updateDropImage(drop.imageUrl)
+        callout.isVisible = true
+    }
+
+    private fun updateDropImage(url: String?) {
+        val image = dropImageView ?: return
+        image.setImageDrawable(null)
+        image.isVisible = !url.isNullOrBlank()
+        if (url.isNullOrBlank()) return
+
+        val context = requireContext()
+        context.imageLoader.enqueue(
+            ImageRequest.Builder(context)
+                .data(url)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .crossfade(true)
+                .target(image)
+                .build(),
+        )
+    }
+
+    private fun handleDropClaimResult(result: ChatViewModel.DropClaimResult) {
+        val message = if (result.success) {
+            getString(R.string.drops_claimed)
+        } else {
+            val safeError = result.message
+                ?.takeIf { it.length <= 80 }
+                ?.takeUnless {
+                    it.contains('{') ||
+                        it.contains('}') ||
+                        it.contains("OAuth", ignoreCase = true) ||
+                        it.contains("Bearer", ignoreCase = true) ||
+                        it.contains("dropInstance", ignoreCase = true)
+                }
+            if (safeError.isNullOrBlank()) {
+                getString(R.string.drops_claim_failed)
+            } else {
+                "${getString(R.string.drops_claim_failed)}: $safeError"
+            }
+        }
+        Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+    }
+
+    private fun dropPresentationKey(drop: TwitchDrop): String =
+        "${drop.id}:${drop.isClaimable}"
+
     private fun sendMessage(replyId: String? = null): Boolean {
         if (!messagingEnabled) return false
         with(binding) {
@@ -2176,6 +2300,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         composerSelectionBeforeOverlay = null
         messageViewWasVisibleBeforeOverlay = null
         lastSlowModeUiState = SlowModeState()
+        dropCalloutView = null
+        dropImageView = null
+        dropTitleView = null
+        dropSubtitleView = null
+        dropProgressView = null
         super.onDestroyView()
         _binding = null
     }

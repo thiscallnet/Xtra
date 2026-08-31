@@ -401,6 +401,127 @@ class GraphQLRepository(
         json.parseToJsonElement(sendPersistedQuery(networkLibrary, headers, body)).jsonObject
     }
 
+    suspend fun loadDropsInventory(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+    ): String = withContext(Dispatchers.IO) {
+        sendDropsPersistedQuery(
+            networkLibrary,
+            headers,
+            TwitchGqlOperations.DROPS_INVENTORY_NAME,
+            TwitchGqlOperations.DROPS_INVENTORY_HASH,
+            buildJsonObject { put("fetchRewardCampaigns", false) },
+        )
+    }
+
+    suspend fun loadDropsDashboard(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+    ): String = withContext(Dispatchers.IO) {
+        sendDropsPersistedQuery(
+            networkLibrary,
+            headers,
+            TwitchGqlOperations.DROPS_DASHBOARD_NAME,
+            TwitchGqlOperations.DROPS_DASHBOARD_HASH,
+            buildJsonObject { put("fetchRewardCampaigns", false) },
+        )
+    }
+
+    suspend fun loadAvailableDrops(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        channelId: String,
+    ): String = withContext(Dispatchers.IO) {
+        require(channelId.isNotBlank()) { "channelId is required" }
+        sendDropsPersistedQuery(
+            networkLibrary,
+            headers,
+            TwitchGqlOperations.AVAILABLE_DROPS_NAME,
+            TwitchGqlOperations.AVAILABLE_DROPS_HASH,
+            buildJsonObject { put("channelID", channelId) },
+        )
+    }
+
+    suspend fun loadCurrentDrop(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        channelId: String,
+        channelLogin: String,
+    ): String = withContext(Dispatchers.IO) {
+        require(channelId.isNotBlank()) { "channelId is required" }
+        sendDropsPersistedQuery(
+            networkLibrary,
+            headers,
+            TwitchGqlOperations.CURRENT_DROP_NAME,
+            TwitchGqlOperations.CURRENT_DROP_HASH,
+            buildJsonObject {
+                put("channelID", channelId)
+                put("channelLogin", channelLogin)
+            },
+        )
+    }
+
+    suspend fun loadDropCampaignDetails(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        channelLogin: String,
+        dropId: String,
+    ): String = withContext(Dispatchers.IO) {
+        require(dropId.isNotBlank()) { "dropId is required" }
+        sendDropsPersistedQuery(
+            networkLibrary,
+            headers,
+            TwitchGqlOperations.DROP_CAMPAIGN_DETAILS_NAME,
+            TwitchGqlOperations.DROP_CAMPAIGN_DETAILS_HASH,
+            buildJsonObject {
+                put("channelLogin", channelLogin)
+                put("dropID", dropId)
+            },
+        )
+    }
+
+    suspend fun claimDrop(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        dropInstanceId: String,
+    ): String = withContext(Dispatchers.IO) {
+        require(dropInstanceId.isNotBlank()) {
+            "dropInstanceId is required"
+        }
+
+        sendDropsPersistedQuery(
+            networkLibrary,
+            headers,
+            TwitchGqlOperations.CLAIM_DROP_NAME,
+            TwitchGqlOperations.CLAIM_DROP_HASH,
+            buildJsonObject {
+                putJsonObject("input") {
+                    put("dropInstanceID", dropInstanceId)
+                }
+            },
+        )
+    }
+
+    private suspend fun sendDropsPersistedQuery(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        operationName: String,
+        hash: String,
+        variables: JsonObject,
+    ): String {
+        val body = buildJsonObject {
+            putJsonObject("extensions") {
+                putJsonObject("persistedQuery") {
+                    put("sha256Hash", hash)
+                    put("version", 1)
+                }
+            }
+            put("operationName", operationName)
+            put("variables", variables)
+        }.toString()
+        return sendPersistedQuery(networkLibrary, headers, body)
+    }
+
     suspend fun loadQueryBadges(networkLibrary: String?, headers: Map<String, String>, quality: BadgeImageSize): ApolloResponse<BadgesQuery.Data> = withContext(Dispatchers.IO) {
         val query = BadgesQuery(Optional.Present(quality))
         sendQuery(networkLibrary, headers, query)

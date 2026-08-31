@@ -282,6 +282,8 @@ object C {
     const val CHAT_RAIDS_AUTO_SWITCH = "chat_raids_auto_switch"
     const val CHAT_POLLS_SHOW = "chat_polls_show"
     const val CHAT_PREDICTIONS_SHOW = "chat_predictions_show"
+    const val CHAT_DROPS_SHOW = "chat_drops_show"
+    const val CHAT_DROPS_AUTO_CLAIM = "chat_drops_auto_claim"
     const val CHAT_SYSTEM_MESSAGE_EMOTES = "chat_system_message_emotes"
     const val CHAT_SHOW_PAINTS = "chat_show_paints"
     const val CHAT_SHOW_BADGES = "chat_show_badges"
@@ -297,7 +299,8 @@ object C {
     const val TOKEN_SUPPORTED_CODECS = "token_supported_codecs"
     const val TOKEN_SKIP_VIDEO_ACCESS_TOKEN = "token_skip_video_access_token"
     const val TOKEN_SKIP_CLIP_ACCESS_TOKEN = "token_skip_clip_access_token"
-    const val DEFAULT_NAVIGATION_TAB_LIST = "0:0:1,4:0:1,1:1:1,2:0:1,3:0:1,5:0:1"
+    // BottomNavigationView supports six items; Drops takes the default slot previously used by Discover.
+    const val DEFAULT_NAVIGATION_TAB_LIST = "0:0:1,4:0:0,1:1:1,2:0:1,3:0:1,5:0:1,6:0:1"
     const val DEFAULT_FOLLOWING_TABS = "1:1:1,3:1:1,2:0:1,0:0:1"
     const val DEFAULT_FOLLOWING_OVERVIEW_SECTIONS = "live:0:1,recommended:0:1,continue:0:1,upcoming:0:1"
     const val DEFAULT_SAVED_TABS = "0:1:1,1:0:1,2:0:1,3:0:1"

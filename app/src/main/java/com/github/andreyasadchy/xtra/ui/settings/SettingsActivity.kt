@@ -264,6 +264,7 @@ class SettingsActivity : AppCompatActivity() {
     ) {
         val listAdapter = SettingsDragListAdapter()
         listAdapter.minimumVisibleItems = minimumVisibleItemsForPreference(prefKey)
+        listAdapter.maximumVisibleItems = maximumVisibleItemsForPreference(prefKey)
         ensureMinimumVisibleItems(list, listAdapter.minimumVisibleItems)
         if (showDefaultSelector) promoteDefaultToVisible(list)
         val preview = when (prefKey) {
@@ -389,7 +390,7 @@ class SettingsActivity : AppCompatActivity() {
             else -> C.DEFAULT_SEARCH_TABS
         }
         val labels = when (prefKey) {
-            C.UI_NAVIGATION_TAB_LIST -> mapOf("0" to getString(R.string.browse), "4" to getString(R.string.discover), "1" to getString(R.string.following_overview), "2" to getString(R.string.following), "3" to getString(R.string.saved), "5" to getString(R.string.statistics))
+            C.UI_NAVIGATION_TAB_LIST -> mapOf("0" to getString(R.string.browse), "4" to getString(R.string.discover), "1" to getString(R.string.following_overview), "2" to getString(R.string.following), "3" to getString(R.string.saved), "5" to getString(R.string.statistics), "6" to getString(R.string.drops))
             C.UI_FOLLOWING_TABS -> FollowingTabs.definitions.associate { it.key to getString(it.titleRes) }
             C.UI_SAVED_TABS -> mapOf("0" to getString(R.string.bookmarks), "1" to getString(R.string.downloads), "2" to getString(R.string.filters), "3" to getString(R.string.clips))
             C.UI_CHANNEL_TABS -> mapOf("0" to getString(R.string.suggestions), "1" to getString(R.string.videos), "2" to getString(R.string.clips), "3" to getString(R.string.chat), "4" to getString(R.string.about))
@@ -2027,7 +2028,7 @@ class SettingsActivity : AppCompatActivity() {
                         }
                         list
                     } else defaultTabs
-                }
+                }.let(::limitNavigationVisibleItems)
                 val tabs = tabList.map {
                     val split = it.split(':')
                     SettingsDragListItem(
@@ -2039,6 +2040,7 @@ class SettingsActivity : AppCompatActivity() {
                             "2" -> getString(R.string.following)
                             "3" -> getString(R.string.saved)
                             "5" -> getString(R.string.statistics)
+                            "6" -> getString(R.string.drops)
                             else -> getString(R.string.following_overview)
                         },
                         default = split[1] != "0",
@@ -2074,7 +2076,7 @@ class SettingsActivity : AppCompatActivity() {
                                 list.add(index, item)
                             }
                         }
-                        list
+                        limitNavigationVisibleItems(list)
                     } else defaultTabs
                 }
                 val tabs = tabList.map {
