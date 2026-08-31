@@ -121,6 +121,23 @@ class SettingsMigrationTest {
     }
 
     @Test
+    fun `current schema repairs an old integer caption interval`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION,
+                C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS to 1_000,
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        assertEquals(
+            "1000",
+            preferences.getAll()[C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS],
+        )
+    }
+
+    @Test
     fun `schema 25 migration keeps moved following content reachable`() {
         val preferences = MemoryPreferences(
             mutableMapOf(

@@ -377,6 +377,11 @@ object SettingsMigration {
     }
 
     internal fun migratePreferences(preferences: SharedPreferences, freshInstall: Boolean? = null) {
+        // Schema 27 briefly wrote this ListPreference as an Int for some
+        // upgraded installs. Repair the representation even when the schema
+        // marker already says current; AndroidX ListPreference requires a
+        // String and reads the raw SharedPreferences value directly.
+        normalizeCaptionIntervalPreference(preferences)
         if (preferences.getInt(C.SETTINGS_VERSION, 0) >= C.SETTINGS_SCHEMA_VERSION) return
         val isFreshInstall = freshInstall ?: inferFreshInstall(preferences)
 
@@ -533,6 +538,18 @@ object SettingsMigration {
             remove(C.UI_THEME_COMPACT_TEXT)
 
             putInt(C.SETTINGS_VERSION, C.SETTINGS_SCHEMA_VERSION)
+        }
+    }
+
+    private fun normalizeCaptionIntervalPreference(preferences: SharedPreferences) {
+        val storedValue = preferences.all[C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS]
+        if (storedValue is Number) {
+            preferences.edit {
+                putString(
+                    C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS,
+                    storedValue.toInt().toString(),
+                )
+            }
         }
     }
 
