@@ -233,6 +233,41 @@ object ChatAdapterUtils {
         var builderIndex = 0
         val badgeVisibility = chatBadgeVisibility(showBadges, showSTVBadges, showNamePaints, showPersonalEmotes)
         when {
+            chatMessage.type == ChatMessage.NEW_MESSAGE_DIVIDER -> {
+                val lineColor = getSavedColor("#7B737D", savedColors, useReadableColors, isLightTheme)
+                val newColor = getSavedColor("#FF6B6B", savedColors, useReadableColors, isLightTheme)
+                appendSpecialText(builder, "-------------------- ", lineColor)
+                appendSpecialText(builder, context.getString(R.string.chat_new_messages), newColor, bold = true)
+                backgroundResource = 0
+            }
+            chatMessage.isFirst && firstMsgVisibility == 0 -> {
+                val headingColor = getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme)
+                val userColor = chatMessage.color?.let { getSavedColor(it, savedColors, useReadableColors, isLightTheme) }
+                    ?: headingColor
+                appendSpecialIcon(builder, context, R.drawable.ic_chat_first_chatter, headingColor)
+                builder.append(' ')
+                appendSpecialText(builder, firstChatMsg, headingColor, bold = true)
+                builder.append('\n')
+                val chatterName = chatMessage.displayName(nameDisplay)
+                if (!chatterName.isNullOrBlank()) {
+                    appendSpecialText(builder, chatterName, userColor, bold = true)
+                    builder.append(": ")
+                }
+                val message = chatMessage.message.orEmpty()
+                val messageStart = builder.length
+                builder.append(message)
+                if (message.isNotEmpty()) {
+                    wasMentioned = prepareEmotes(chatMessage, message, builder, messageStart, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes)
+                }
+                builderIndex = builder.length
+                if (chatMessage.translatedMessage != null) {
+                    translated = true
+                    builderIndex = addTranslation(chatMessage, builder, builderIndex, savedColors, useReadableColors, isLightTheme, showLanguageDownloadDialog, hideErrors)
+                } else if (translateAllMessages) {
+                    translateMessage(chatMessage, null)
+                }
+                backgroundResource = R.drawable.bg_chat_first_chatter
+            }
             chatMessage.type == ChatMessage.REPLY_MESSAGE -> {
                 val userName = if (chatMessage.reply?.userName != null && chatMessage.reply.userLogin != null && !chatMessage.reply.userLogin.equals(chatMessage.reply.userName, true)) {
                     when (nameDisplay) {

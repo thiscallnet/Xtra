@@ -124,6 +124,8 @@ class ChatAdapter(
 
     /** UI-owned snapshot. ChatViewModel may continue receiving messages while a fling is active. */
     private val messages = ArrayList(initialMessages)
+    private var newMessageDividerInserted = false
+    private var newMessageDividerConsumed = false
     private val generatedStableIds = IdentityHashMap<ChatMessage, Long>()
     private var nextGeneratedStableId = Long.MIN_VALUE
     internal class RenderCacheKey(
@@ -330,26 +332,62 @@ class ChatAdapter(
         super.onViewRecycled(holder)
     }
 
-    fun appendMessages(incoming: List<ChatMessage>, trimCount: Int) {
-        val removed = trimCount.coerceAtMost(messages.size)
-        if (removed > 0) {
-            repeat(removed) { pendingRenderedMessages.remove(messages[it]) }
-            messages.subList(0, removed).clear()
-            notifyItemRangeRemoved(0, removed)
+    fun appendMessages(
+        incoming: List<ChatMessage>,
+        trimCount: Int,
+        insertDivider: Boolean = true,
+        dividerPosition: Int? = null,
+        dividerConsumed: Boolean = false,
+    ) {
+        val rowsToRemove = adapterRowsToRemoveForTrim(messages, trimCount)
+        if (rowsToRemove > 0) {
+            if (messages.take(rowsToRemove).any { it.type == ChatMessage.NEW_MESSAGE_DIVIDER }) {
+                newMessageDividerInserted = false
+                newMessageDividerConsumed = true
+            }
+            repeat(rowsToRemove) { pendingRenderedMessages.remove(messages[it]) }
+            messages.subList(0, rowsToRemove).clear()
+            notifyItemRangeRemoved(0, rowsToRemove)
         }
         if (incoming.isNotEmpty()) {
             val start = messages.size
-            messages.addAll(incoming)
-            incoming.forEach(::stableIdFor)
-            notifyItemRangeInserted(start, incoming.size)
+            val firstLiveIndex = incoming.indexOfFirst { it.establishesLiveBoundary }
+            val shouldInsertDivider = insertDivider && firstLiveIndex >= 0 && !newMessageDividerInserted
+                && !newMessageDividerConsumed
+            val items = if (shouldInsertDivider) {
+                newMessageDividerInserted = true
+                incoming.take(firstLiveIndex) + ChatMessage(
+                    type = ChatMessage.NEW_MESSAGE_DIVIDER,
+                    systemMsg = "New",
+                ) + incoming.drop(firstLiveIndex)
+            } else {
+                incoming
+            }
+            messages.addAll(items)
+            items.forEach(::stableIdFor)
+            notifyItemRangeInserted(start, items.size)
+            if (!insertDivider && shouldReconstructNewMessageDivider(dividerPosition, dividerConsumed) && !newMessageDividerInserted) {
+                insertNewMessageDivider(dividerPosition!!)
+            } else if (!insertDivider) {
+                newMessageDividerConsumed = dividerConsumed
+            }
         }
     }
 
-    fun replaceMessages(replacement: List<ChatMessage>) {
+    fun replaceMessages(
+        replacement: List<ChatMessage>,
+        dividerPosition: Int? = null,
+        dividerConsumed: Boolean = false,
+    ) {
         pendingRenderedMessages.clear()
         messages.clear()
         messages.addAll(replacement)
         replacement.forEach(::stableIdFor)
+        newMessageDividerInserted = false
+        newMessageDividerConsumed = dividerConsumed
+        if (shouldReconstructNewMessageDivider(dividerPosition, dividerConsumed)) {
+            insertNewMessageDivider(dividerPosition!!, notify = false)
+        }
         notifyDataSetChanged()
     }
 
@@ -369,6 +407,8 @@ class ChatAdapter(
     }
 
     fun clearMessages() {
+        newMessageDividerInserted = false
+        newMessageDividerConsumed = false
         if (messages.isEmpty()) return
         val removed = messages.size
         messages.clear()
@@ -1235,6 +1275,10 @@ class ChatAdapter(
     }
 
     private fun fastFallback(chatMessage: ChatMessage): ChatAdapterUtils.MessageResult {
+        if (chatMessage.type == ChatMessage.NEW_MESSAGE_DIVIDER) {
+            val builder = SpannableStringBuilder("-------------------- ${chatMessage.systemMsg.orEmpty()}")
+            return ChatAdapterUtils.MessageResult(builder, arrayListOf(), null, null, null, false, 0)
+        }
         val displayName = when {
             chatMessage.userName.isNullOrBlank() -> null
             chatMessage.userLogin.isNullOrBlank() || chatMessage.userLogin.equals(chatMessage.userName, true) -> chatMessage.userName
@@ -1265,7 +1309,34 @@ class ChatAdapter(
         }
         return ChatAdapterUtils.MessageResult(builder, arrayListOf(), null, displayName, null, false, backgroundResource)
     }
+
+    private fun insertNewMessageDivider(realPosition: Int, notify: Boolean = true) {
+        val position = realPosition.coerceIn(0, messages.size)
+        val divider = ChatMessage(
+            type = ChatMessage.NEW_MESSAGE_DIVIDER,
+            systemMsg = "New",
+        )
+        messages.add(position, divider)
+        stableIdFor(divider)
+        newMessageDividerInserted = true
+        newMessageDividerConsumed = false
+        if (notify) notifyItemInserted(position)
+    }
 }
+
+internal fun adapterRowsToRemoveForTrim(messages: List<ChatMessage>, trimCount: Int): Int {
+    if (trimCount <= 0) return 0
+    var realMessagesRemoved = 0
+    var rowsRemoved = 0
+    while (rowsRemoved < messages.size && realMessagesRemoved < trimCount) {
+        if (messages[rowsRemoved].type != ChatMessage.NEW_MESSAGE_DIVIDER) realMessagesRemoved++
+        rowsRemoved++
+    }
+    return rowsRemoved
+}
+
+internal fun shouldReconstructNewMessageDivider(dividerPosition: Int?, consumed: Boolean): Boolean =
+    dividerPosition != null && !consumed
 
 internal fun selectRenderResultForBind(
     cachedResult: ChatAdapterUtils.MessageResult?,

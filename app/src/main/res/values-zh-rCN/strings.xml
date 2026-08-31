@@ -176,6 +176,7 @@
     <string name="chat_ban">%s 已被永久禁止</string>
     <string name="chat_clearmsg">信息已从 %1$s\: %2$s 中删除</string>
     <string name="chat_first">第一次聊天</string>
+    <string name="chat_new_messages">新消息</string>
     <string name="chat_reward">忠诚点数兑换</string>
     <string name="always">总是</string>
     <string name="local">本地</string>

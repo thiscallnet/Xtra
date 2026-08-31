@@ -176,6 +176,7 @@
     <string name="chat_ban">%s был навсегда заблокирован</string>
     <string name="chat_clearmsg">Сообщение от %1$s удалено: %2$s</string>
     <string name="chat_first">Первый раз в чате</string>
+    <string name="chat_new_messages">Новые</string>
     <string name="chat_reward">Списание баллов канала</string>
     <string name="always">Всегда</string>
     <string name="local">Локально</string>

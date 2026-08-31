@@ -176,6 +176,7 @@
     <string name="chat_ban">%s wurde dauerhaft gesperrt</string>
     <string name="chat_clearmsg">Gelöschte Nachricht von %1$s\: %2$s</string>
     <string name="chat_first">Erstes Mal im Chat</string>
+    <string name="chat_new_messages">Neu</string>
     <string name="chat_reward">Einlösung von Kanalpunkten</string>
     <string name="always">Immer</string>
     <string name="local">Lokal</string>

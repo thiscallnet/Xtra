@@ -697,13 +697,14 @@
     <string name="chat_slow_mode_remaining">Send again · %1$ds</string>
     <string name="chat_slow_mode_accessibility">Slow mode enabled. Messages can be sent every %1$d seconds.</string>
     <string name="chat_slow_mode_ready">You can send another message.</string>
-    <string name="chat_join">Connected to %s</string>
+    <string name="chat_join">Welcome to %s\'s chat room!</string>
     <string name="copy_clip">Copy to clipboard</string>
     <string name="chat_clear">Chat has been cleared by a moderator.</string>
     <string name="chat_timeout">%1$s has been timed out for %2$s.</string>
     <string name="chat_ban">%s has been permanently banned.</string>
     <string name="chat_clearmsg">Message deleted from %1$s\: %2$s</string>
-    <string name="chat_first">First time chat</string>
+    <string name="chat_first">First Time Chatter</string>
+    <string name="chat_new_messages">New</string>
     <string name="chat_reward">Channel point redemption</string>
     <string name="always">Always</string>
     <string name="local">Local</string>
