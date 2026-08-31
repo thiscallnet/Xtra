@@ -154,6 +154,18 @@ class CaptionTextStateMachineTest {
         assertEquals("I bought the item today", captions.visibleText)
     }
 
+    @Test
+    fun consecutivePartialPrefixStaysFixedWhileSuffixCanBeCorrected() {
+        val captions = CaptionTextStateMachine()
+
+        captions.updatePartial("I bought item")
+        captions.updatePartial("I bought the item")
+        assertEquals("I bought the item", captions.visibleText)
+        captions.updatePartial("I brought the item")
+
+        assertEquals("I brought the item", captions.visibleText)
+    }
+
     private class FakeCaptionEngine(
         private val events: List<CaptionRecognitionEvent>,
     ) : com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngine {

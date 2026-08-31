@@ -54,7 +54,7 @@ internal data class LiveCaptionStyle(
 }
 
 internal const val DEFAULT_CAPTION_HOLD_SECONDS = 3
-internal const val DEFAULT_CAPTION_PRESENTATION_DELAY_MS = 1_000
+internal const val DEFAULT_CAPTION_PRESENTATION_DELAY_MS = 1_250
 internal const val MAX_CAPTION_PRESENTATION_DELAY_MS = 2_000
 
 private const val BACKGROUND_BLACK = "black"

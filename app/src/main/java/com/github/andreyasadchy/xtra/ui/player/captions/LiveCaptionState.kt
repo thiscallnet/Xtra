@@ -89,6 +89,7 @@ internal class CaptionTextStateMachine {
     )
 
     private val displayedLines = ArrayDeque<MutableList<DisplayedWord>>()
+    private var activeHypothesis: List<String> = emptyList()
 
     var visibleText: String = ""
         private set
@@ -122,18 +123,51 @@ internal class CaptionTextStateMachine {
 
     fun reset() {
         displayedLines.clear()
+        activeHypothesis = emptyList()
         visibleText = ""
     }
 
     private fun replaceActivePartial(words: List<String>) {
+        val previousVisibleActiveWords = displayedLines
+            .asSequence()
+            .flatMap { line -> line.asSequence() }
+            .filter { it.activePartial }
+            .map { it.text }
+            .toList()
+        val stablePrefixLength = activeHypothesis
+            .zip(words)
+            .takeWhile { (previous, next) -> previous == next }
+            .count()
+
+        // Streaming recognizers return cumulative hypotheses. Keep the
+        // common visible prefix in place and replace only the changing suffix.
+        // The full hypothesis is retained separately because the display may
+        // already have rolled older words above its two-line window.
+        val hiddenPrefixLength =
+            (activeHypothesis.size - previousVisibleActiveWords.size).coerceAtLeast(0)
+        val visiblePrefixLength =
+            (stablePrefixLength - hiddenPrefixLength)
+                .coerceIn(0, previousVisibleActiveWords.size)
+
+        var preserved = 0
         displayedLines.forEach { line ->
-            line.removeAll { it.activePartial }
+            line.removeAll { word ->
+                if (!word.activePartial) {
+                    false
+                } else if (preserved < visiblePrefixLength) {
+                    preserved++
+                    false
+                } else {
+                    true
+                }
+            }
         }
         val lines = displayedLines.iterator()
         while (lines.hasNext()) {
             if (lines.next().isEmpty()) lines.remove()
         }
-        words.forEach { appendWord(it, activePartial = true) }
+        words.drop(stablePrefixLength).forEach { appendWord(it, activePartial = true) }
+        activeHypothesis = words
     }
 
     private fun appendWord(text: String, activePartial: Boolean) {
@@ -159,6 +193,7 @@ internal class CaptionTextStateMachine {
                 word.copy(activePartial = false)
             }
         }
+        activeHypothesis = emptyList()
     }
 
     private fun updateVisibleText() {
