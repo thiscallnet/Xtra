@@ -77,6 +77,7 @@ import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.PlayerViewModel.Companion.PlayerViewModelFactory
+import com.github.andreyasadchy.xtra.ui.player.captions.liveCaptionPartialIntervalMs
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -236,10 +237,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         configureLiveCaptionsButton()
     }
 
-    fun liveCaptionPartialIntervalMs(): Int = requireContext().prefs().getInt(
-        C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS,
-        1_000,
-    ).coerceIn(200, 2_000)
+    fun liveCaptionPartialIntervalMs(): Int = requireContext().prefs().liveCaptionPartialIntervalMs()
 
     fun showLiveCaptionIntervalDialog() {
         val intervalsMs = intArrayOf(300, 500, 1_000, 2_000)
@@ -250,7 +248,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             .setTitle(R.string.live_caption_processing_interval)
             .setSingleChoiceItems(labels, intervalsMs.indexOf(liveCaptionPartialIntervalMs())) { dialog, which ->
                 requireContext().prefs().edit {
-                    putInt(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, intervalsMs[which])
+                    putString(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, intervalsMs[which].toString())
                 }
                 xtraModule.liveCaptionManager.reloadConfiguration()
                 dialog.dismiss()

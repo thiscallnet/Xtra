@@ -3,7 +3,7 @@ package com.github.andreyasadchy.xtra.ui.player.captions.engine
 import android.content.Context
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.ui.player.captions.resampleTo16k
-import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.ui.player.captions.liveCaptionPartialIntervalMs
 import com.github.andreyasadchy.xtra.util.prefs
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
@@ -22,10 +22,7 @@ class SherpaMoonshineEngine(
 
     private val recognizer = createRecognizer()
     private val vad = createVad()
-    private val partialDecodeIntervalMs = context.prefs().getInt(
-        C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS,
-        DEFAULT_PARTIAL_DECODE_INTERVAL_MS.toInt(),
-    ).coerceIn(MIN_PARTIAL_DECODE_INTERVAL_MS.toInt(), MAX_PARTIAL_DECODE_INTERVAL_MS.toInt()).toLong()
+    private val partialDecodeIntervalMs = context.prefs().liveCaptionPartialIntervalMs().toLong()
     private val pendingWindow = FloatArray(VAD_WINDOW_SAMPLES)
     private var pendingWindowSize = 0
     private val preRoll = FloatRingBuffer(PRE_ROLL_SAMPLES_AT_16K)
@@ -195,8 +192,6 @@ class SherpaMoonshineEngine(
         const val MIN_SPEECH_SECONDS = 0.2f
         const val MAX_SPEECH_SECONDS = 10.0f
         const val DEFAULT_PARTIAL_DECODE_INTERVAL_MS = DEFAULT_MOONSHINE_PARTIAL_INTERVAL_MS
-        const val MIN_PARTIAL_DECODE_INTERVAL_MS = 200L
-        const val MAX_PARTIAL_DECODE_INTERVAL_MS = 2_000L
         const val PRE_ROLL_SAMPLES_AT_16K = 6_400
         const val MAX_UTTERANCE_SAMPLES = TARGET_SAMPLE_RATE * MAX_SPEECH_SECONDS.toInt()
     }

@@ -81,6 +81,7 @@ import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerViewModel.Companion.Media3PlayerViewModelFactory
+import com.github.andreyasadchy.xtra.ui.player.captions.liveCaptionPartialIntervalMs
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -238,10 +239,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     fun liveCaptionPartialIntervalMs(): Int {
-        return requireContext().prefs().getInt(
-            C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS,
-            1_000,
-        ).coerceIn(200, 2_000)
+        return requireContext().prefs().liveCaptionPartialIntervalMs()
     }
 
     fun showLiveCaptionIntervalDialog() {
@@ -254,7 +252,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             .setTitle(R.string.live_caption_processing_interval)
             .setSingleChoiceItems(labels, intervalsMs.indexOf(liveCaptionPartialIntervalMs())) { dialog, which ->
                 requireContext().prefs().edit {
-                    putInt(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, intervalsMs[which])
+                    putString(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, intervalsMs[which].toString())
                 }
                 // Recreate the selected engine on the worker so the new interval takes effect.
                 xtraModule.liveCaptionManager.reloadConfiguration()
