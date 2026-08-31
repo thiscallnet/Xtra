@@ -209,6 +209,7 @@ object C {
     const val PLAYER_LIVE_CAPTION_BACKGROUND_COLOR = "player_live_caption_background_color"
     const val PLAYER_LIVE_CAPTION_FONT = "player_live_caption_font"
     const val PLAYER_LIVE_CAPTION_FONT_SIZE = "player_live_caption_font_size"
+    const val PLAYER_LIVE_CAPTION_WIDTH = "player_live_caption_width"
     const val PLAYER_LIVE_CAPTION_OPACITY = "player_live_caption_opacity"
     const val PLAYER_LIVE_CAPTION_ANIMATION_MS = "player_live_caption_animation_ms"
     const val PLAYER_LIVE_CAPTION_HOLD_SECONDS = "player_live_caption_hold_seconds"

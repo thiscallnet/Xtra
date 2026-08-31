@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.drawable.GradientDrawable
 import android.graphics.Typeface
-import android.text.TextUtils
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.GestureDetector
@@ -39,6 +38,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
                 currentStyle = null
                 applyStyle(LiveCaptionStyle.from(context))
             }
+            C.PLAYER_LIVE_CAPTION_WIDTH -> requestLayout()
         }
     }
     private data class CaptionUpdate(
@@ -158,8 +158,12 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         val lineHeight = ceil(topLine.paint.fontMetrics.run { descent - ascent }).toInt()
         val desiredHeight = paddingTop + paddingBottom + lineHeight * 2
         val availableWidth = MeasureSpec.getSize(widthMeasureSpec)
+        val widthPreference = preferences.getString(C.PLAYER_LIVE_CAPTION_WIDTH, "auto")
+        val widthFraction = widthPreference?.toFloatOrNull()?.div(100f)
+            ?.coerceIn(0.5f, 1f)
+            ?: 0.92f
         val desiredWidth = if (availableWidth > 0) {
-            (availableWidth * 0.72f).toInt()
+            (availableWidth * widthFraction).toInt()
         } else {
             dp(320)
         }
@@ -382,7 +386,10 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         gravity = Gravity.CENTER
         includeFontPadding = false
         maxLines = 1
-        ellipsize = TextUtils.TruncateAt.END
+        // The caption state already constrains the rolling window by words.
+        // TextView ellipsizing would replace the last spoken word with "…" on
+        // narrow displays, which is especially confusing for live speech.
+        ellipsize = null
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 

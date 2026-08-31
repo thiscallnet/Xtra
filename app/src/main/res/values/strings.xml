@@ -962,6 +962,8 @@
     <string name="live_caption_settings_link" translatable="false">Live caption settings</string>
     <string name="live_caption_font" translatable="false">Caption font</string>
     <string name="live_caption_font_size" translatable="false">Caption font size</string>
+    <string name="live_caption_width" translatable="false">Caption width</string>
+    <string name="live_caption_width_auto" translatable="false">Auto (recommended)</string>
     <string name="live_caption_opacity" translatable="false">Caption opacity</string>
     <string name="live_caption_animation" translatable="false">Line animation speed</string>
     <string name="live_caption_animation_off" translatable="false">Off</string>
