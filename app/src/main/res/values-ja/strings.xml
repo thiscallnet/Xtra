@@ -1143,6 +1143,8 @@
     <string name="whats_new">新機能</string>
     <string name="check_for_updates">アップデートのチェック</string>
     <string name="download_update">アップデートをダウンロード</string>
+    <string name="restart_download">ダウンロードを再開</string>
+    <string name="update_download_stalled">ダウンロードが進んでいません。再開すると新しくダウンロードし直します。</string>
     <string name="install_update">アップデートをインストール</string>
     <string name="retry_install">インストールを再試行</string>
     <string name="continue_install">インストールを続行</string>

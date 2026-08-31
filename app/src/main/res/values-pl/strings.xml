@@ -949,6 +949,8 @@
     <string name="whats_new">Co to jest nowość</string>
     <string name="check_for_updates">Sprawdź aktualizacje</string>
     <string name="download_update">Pobierz aktualizację</string>
+    <string name="restart_download">Uruchom ponownie pobieranie</string>
+    <string name="update_download_stalled">Pobieranie nie robi postępów. Uruchom je ponownie, aby zacząć od nowa.</string>
     <string name="install_update">Zainstaluj aktualizację</string>
     <string name="retry_install">Ponów instalację</string>
     <string name="continue_install">Kontynuuj instalację</string>

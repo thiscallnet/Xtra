@@ -1143,6 +1143,8 @@
     <string name="whats_new">Что нового</string>
     <string name="check_for_updates">Проверить наличие обновлений</string>
     <string name="download_update">Загрузить обновление</string>
+    <string name="restart_download">Перезапустить загрузку</string>
+    <string name="update_download_stalled">Загрузка не продвигается. Перезапустите её, чтобы начать заново.</string>
     <string name="install_update">Установить обновление</string>
     <string name="retry_install">Повторить установку</string>
     <string name="continue_install">Продолжить установку</string>

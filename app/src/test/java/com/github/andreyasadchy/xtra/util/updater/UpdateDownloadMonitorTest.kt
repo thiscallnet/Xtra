@@ -15,6 +15,45 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 class UpdateDownloadMonitorTest {
     @Test
+    fun pendingDownloadEventuallyExposesRecovery() = runBlocking {
+        val records = ArrayDeque(
+            listOf(
+                record(DownloadManager.STATUS_PENDING, 0L),
+                record(DownloadManager.STATUS_PENDING, 0L),
+                record(DownloadManager.STATUS_PENDING, 0L),
+                record(DownloadManager.STATUS_SUCCESSFUL, 1L),
+            ),
+        )
+        val events = CopyOnWriteArrayList<UpdateDownloadEvent>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val monitor = UpdateDownloadMonitor(
+            store = SequenceStore(records),
+            scope = scope,
+            nowMs = object {
+                private var value = 0L
+                operator fun invoke(): Long = value.also { value += 1_000L }
+            }::invoke,
+            pollMillis = 1L,
+            pendingRestartAfterMs = 2_000L,
+        )
+
+        try {
+            monitor.start(1L) { events += it }
+            withTimeout(2_000L) {
+                while (events.none { it is UpdateDownloadEvent.Completed }) delay(5L)
+            }
+        } finally {
+            monitor.cancel()
+            scope.cancel()
+        }
+
+        assertEquals(
+            true,
+            events.filterIsInstance<UpdateDownloadEvent.Progress>().last().telemetry.stalled,
+        )
+    }
+
+    @Test
     fun pausingAndResumingClearsPreviousRateAndEta() = runBlocking {
         val records = ArrayDeque(
             listOf(

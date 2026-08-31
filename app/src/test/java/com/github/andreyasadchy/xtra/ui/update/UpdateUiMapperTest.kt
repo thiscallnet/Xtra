@@ -88,6 +88,31 @@ class UpdateUiMapperTest {
     }
 
     @Test
+    fun stalledDownloadOffersRestartWithoutRemovingCancel() {
+        val model = UpdateState.Downloading(
+            release,
+            DownloadProgress(1L, 2L, stalled = true),
+        ).toUiModel()
+
+        assertEquals(UpdateUiAction.RestartDownload, model.primaryAction)
+        assertEquals(UpdateUiAction.CancelDownload, model.secondaryAction)
+        assertEquals(com.github.andreyasadchy.xtra.R.string.update_download_stalled, model.statusMessageRes)
+    }
+
+    @Test
+    fun downloadManagerWaitingToRetryOffersRestart() {
+        val model = UpdateState.Downloading(
+            release,
+            DownloadProgress(1L, 2L),
+            downloadManagerStatus = android.app.DownloadManager.STATUS_PAUSED,
+            downloadManagerReason = android.app.DownloadManager.PAUSED_WAITING_TO_RETRY,
+        ).toUiModel()
+
+        assertEquals(UpdateUiAction.RestartDownload, model.primaryAction)
+        assertEquals(UpdateUiAction.CancelDownload, model.secondaryAction)
+    }
+
+    @Test
     fun errorPresentationKeepsCheckErrorsOutOfDownloadFallbacks() {
         val timeout = UpdateState.Error(UpdateStage.CHECK, UpdateError.Timeout, true, release).toUiModel()
         val rateLimited = UpdateState.Error(UpdateStage.CHECK, UpdateError.RateLimited, true, release).toUiModel()
