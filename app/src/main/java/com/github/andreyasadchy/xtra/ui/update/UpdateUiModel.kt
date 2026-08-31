@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.update
 
+import android.app.DownloadManager
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.util.updater.DownloadProgress
 import com.github.andreyasadchy.xtra.util.updater.UpdateError
@@ -29,6 +30,7 @@ enum class UpdateUiStatus {
 sealed interface UpdateUiAction {
     data object Check : UpdateUiAction
     data object Download : UpdateUiAction
+    data object RestartDownload : UpdateUiAction
     data object CancelDownload : UpdateUiAction
     data object Install : UpdateUiAction
     data object ContinueInstall : UpdateUiAction
@@ -107,17 +109,24 @@ fun UpdateState.toUiModel(selectedAsset: UpdateSelectedAssetInfo? = null): Updat
         statusMessageRes = R.string.update_deferred,
         showReleaseNotes = true,
     )
-    is UpdateState.Downloading -> UpdateUiModel(
-        status = UpdateUiStatus.DOWNLOADING,
-        titleRes = R.string.downloading_update,
-        release = release,
-        progress = progress,
-        downloadManagerStatus = downloadManagerStatus,
-        downloadManagerReason = downloadManagerReason,
-        primaryAction = UpdateUiAction.CancelDownload,
-        showReleaseNotes = true,
-        showDiagnostics = true,
-    )
+    is UpdateState.Downloading -> {
+        val canRestart = progress?.stalled == true ||
+            downloadManagerStatus == DownloadManager.STATUS_PAUSED &&
+            downloadManagerReason == DownloadManager.PAUSED_WAITING_TO_RETRY
+        UpdateUiModel(
+            status = UpdateUiStatus.DOWNLOADING,
+            titleRes = R.string.downloading_update,
+            release = release,
+            progress = progress,
+            downloadManagerStatus = downloadManagerStatus,
+            downloadManagerReason = downloadManagerReason,
+            statusMessageRes = if (progress?.stalled == true) R.string.update_download_stalled else null,
+            primaryAction = if (canRestart) UpdateUiAction.RestartDownload else UpdateUiAction.CancelDownload,
+            secondaryAction = if (canRestart) UpdateUiAction.CancelDownload else null,
+            showReleaseNotes = true,
+            showDiagnostics = true,
+        )
+    }
     is UpdateState.Downloaded -> UpdateUiModel(
         status = UpdateUiStatus.READY,
         titleRes = R.string.update_ready_title,

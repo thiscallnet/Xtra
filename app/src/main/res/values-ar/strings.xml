@@ -1153,6 +1153,8 @@
     <string name="whats_new">ما الجديد</string>
     <string name="check_for_updates">التحقق من وجود تحديثات</string>
     <string name="download_update">تنزيل التحديث</string>
+    <string name="restart_download">إعادة تنزيل</string>
+    <string name="update_download_stalled">توقف التنزيل عن التقدم. أعد تشغيله لبدء تنزيل جديد.</string>
     <string name="install_update">تثبيت التحديث</string>
     <string name="retry_install">إعادة محاولة التثبيت</string>
     <string name="continue_install">متابعة التثبيت</string>

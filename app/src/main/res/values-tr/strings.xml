@@ -1154,6 +1154,8 @@
     <string name="whats_new">Yenilikler</string>
     <string name="check_for_updates">Güncellemeleri kontrol edin</string>
     <string name="download_update">Güncellemeyi indir</string>
+    <string name="restart_download">İndirmeyi yeniden başlat</string>
+    <string name="update_download_stalled">İndirme ilerlemiyor. Baştan indirmek için yeniden başlatın.</string>
     <string name="install_update">Güncellemeyi yükle</string>
     <string name="retry_install">Kurulumu yeniden dene</string>
     <string name="continue_install">Kuruluma devam et</string>

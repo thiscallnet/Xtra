@@ -1154,6 +1154,8 @@
     <string name="whats_new">Apa yang baru</string>
     <string name="check_for_updates">Periksa pembaruan</string>
     <string name="download_update">Unduh pembaruan</string>
+    <string name="restart_download">Mulai ulang unduhan</string>
+    <string name="update_download_stalled">Unduhan berhenti berjalan. Mulai ulang untuk mengunduh dari awal.</string>
     <string name="install_update">Instal pembaruan</string>
     <string name="retry_install">Coba lagi instalasi</string>
     <string name="continue_install">Lanjutkan instalasi</string>

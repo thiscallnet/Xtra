@@ -1153,6 +1153,8 @@
     <string name="whats_new">什麼是新的</string>
     <string name="check_for_updates">檢查更新</string>
     <string name="download_update">下載更新</string>
+    <string name="restart_download">重新下載</string>
+    <string name="update_download_stalled">下載沒有進度。重新開始即可從頭下載。</string>
     <string name="install_update">安裝更新</string>
     <string name="retry_install">重試安裝</string>
     <string name="continue_install">繼續安裝</string>

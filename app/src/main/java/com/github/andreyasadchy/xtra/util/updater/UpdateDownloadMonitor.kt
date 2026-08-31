@@ -29,6 +29,7 @@ class UpdateDownloadMonitor(
     private val scope: CoroutineScope,
     private val nowMs: () -> Long = SystemClock::elapsedRealtime,
     private val pollMillis: Long = 400L,
+    private val pendingRestartAfterMs: Long = 15_000L,
 ) {
     private var job: Job? = null
     private var monitoredId: Long? = null
@@ -39,6 +40,7 @@ class UpdateDownloadMonitor(
         monitoredId = id
         job = scope.launch {
             val estimator = TransferRateEstimator()
+            var pendingSinceMs: Long? = null
             try {
                 while (isActive && monitoredId == id) {
                     val record = runCatching { store.query(id) }.getOrElse {
@@ -52,17 +54,21 @@ class UpdateDownloadMonitor(
                     when (record.status) {
                         DownloadManager.STATUS_PENDING -> {
                             estimator.reset()
+                            val observedAt = nowMs()
+                            val pendingSince = pendingSinceMs ?: observedAt.also { pendingSinceMs = it }
                             onEvent(
                                 UpdateDownloadEvent.Progress(
                                     record,
                                     DownloadProgress(
                                         downloadedBytes = record.downloadedBytes,
                                         totalBytes = record.totalBytes,
+                                        stalled = observedAt - pendingSince >= pendingRestartAfterMs,
                                     ),
                                 ),
                             )
                         }
                         DownloadManager.STATUS_RUNNING -> {
+                            pendingSinceMs = null
                             val rate = estimator.sample(record.downloadedBytes, nowMs())
                             onEvent(
                                 UpdateDownloadEvent.Progress(
@@ -84,6 +90,7 @@ class UpdateDownloadMonitor(
                             )
                         }
                         DownloadManager.STATUS_PAUSED -> {
+                            pendingSinceMs = null
                             estimator.reset()
                             onEvent(
                                 UpdateDownloadEvent.Progress(

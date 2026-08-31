@@ -551,6 +551,20 @@ class UpdateRepository(
         }
     }
 
+    fun restartDownload() {
+        scope.launch {
+            ready.await()
+            downloadLock.withLock {
+                val current = _state.value as? UpdateState.Downloading ?: return@withLock
+                val oldDownloadId = activeDownloadId
+                clearDownloadReference()
+                removeDownload(oldDownloadId)
+                _state.value = UpdateState.Available(current.release)
+                downloadLocked(current.release)
+            }
+        }
+    }
+
     fun install() {
         scope.launch {
             ready.await()

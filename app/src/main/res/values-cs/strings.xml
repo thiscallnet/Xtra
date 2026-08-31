@@ -973,6 +973,8 @@
     <string name="whats_new">Co je nového</string>
     <string name="check_for_updates">Kontrola aktualizací</string>
     <string name="download_update">Stáhnout aktualizaci</string>
+    <string name="restart_download">Restartovat stahování</string>
+    <string name="update_download_stalled">Stahování se zastavilo. Restartujte ho a začněte znovu.</string>
     <string name="install_update">Nainstalovat aktualizaci</string>
     <string name="retry_install">Opakovat instalaci</string>
     <string name="continue_install">Pokračovat v instalaci</string>

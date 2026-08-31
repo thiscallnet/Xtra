@@ -1158,6 +1158,8 @@
     <string name="whats_new">Novedades</string>
     <string name="check_for_updates">Buscar actualizaciones</string>
     <string name="download_update">Descargar la actualización</string>
+    <string name="restart_download">Reiniciar descarga</string>
+    <string name="update_download_stalled">La descarga dejó de avanzar. Reiníciala para empezar una descarga nueva.</string>
     <string name="install_update">Instalar la actualización</string>
     <string name="retry_install">Reintentar la instalación</string>
     <string name="continue_install">Continuar la instalación</string>

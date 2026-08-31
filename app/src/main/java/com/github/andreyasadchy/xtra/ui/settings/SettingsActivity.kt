@@ -1799,6 +1799,7 @@ class SettingsActivity : AppCompatActivity() {
             when (action) {
                 UpdateUiAction.Check -> repository.check(requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP), C.DEFAULT_UPDATE_URL)
                 UpdateUiAction.Download -> repository.downloadCurrent()
+                UpdateUiAction.RestartDownload -> repository.restartDownload()
                 UpdateUiAction.CancelDownload -> repository.cancelDownload()
                 UpdateUiAction.Retry -> repository.retry()
                 UpdateUiAction.NotNow -> (repository.state.value as? UpdateState.Available)?.release?.let(repository::defer)
@@ -1841,7 +1842,8 @@ class SettingsActivity : AppCompatActivity() {
             } else ""
             binding.statusMessage.text = when (model.status) {
                 UpdateUiStatus.CURRENT -> getString(R.string.update_checked_recently, UpdateTimeFormatter.format(requireContext(), repository.lastSuccessfulCheck))
-                UpdateUiStatus.DOWNLOADING -> UpdateStatusBinder.downloadStatusText(requireContext(), model.downloadManagerStatus, model.downloadManagerReason)
+                UpdateUiStatus.DOWNLOADING -> model.statusMessageRes?.let(::getString)
+                    ?: UpdateStatusBinder.downloadStatusText(requireContext(), model.downloadManagerStatus, model.downloadManagerReason)
                 else -> model.statusMessageRes?.let(::getString).orEmpty()
             }
             binding.downloadProgressView.root.visibility = if (model.status == UpdateUiStatus.DOWNLOADING) View.VISIBLE else View.GONE
@@ -1934,6 +1936,7 @@ class SettingsActivity : AppCompatActivity() {
             when (action) {
                 UpdateUiAction.Check -> R.string.check_for_updates
                 UpdateUiAction.Download -> R.string.download_update
+                UpdateUiAction.RestartDownload -> R.string.restart_download
                 UpdateUiAction.CancelDownload -> R.string.cancel
                 UpdateUiAction.Install -> R.string.install_update
                 UpdateUiAction.ContinueInstall -> R.string.continue_install
