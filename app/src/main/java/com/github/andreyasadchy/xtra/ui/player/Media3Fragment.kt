@@ -90,6 +90,7 @@ class Media3Fragment : Media3PlayerFragment() {
     private var qualityRetryJob: Job? = null
     private var qualityRetryAttempts = 0
     private var qualityRequestInFlight = false
+    private var qualityRequestGeneration = 0
     private val pendingQualityCallbacks = mutableListOf<() -> Unit>()
     private var nativeCues: List<Cue> = emptyList()
     private var shownLiveCaptionError: String? = null
@@ -1389,6 +1390,8 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     private fun releaseController(controller: MediaController? = player) {
+        qualityRequestGeneration++
+        qualityRequestInFlight = false
         streamRecoveryJob?.cancel()
         streamRecoveryJob = null
         streamRecoveryAttempt = 0
@@ -1422,11 +1425,23 @@ class Media3Fragment : Media3PlayerFragment() {
             return
         }
         qualityRequestInFlight = true
+        val requestGeneration = qualityRequestGeneration
+        val requestedPlayer = currentPlayer
         val result = currentPlayer.sendCustomCommand(
             SessionCommand(PlaybackService.GET_QUALITIES, Bundle.EMPTY),
             Bundle.EMPTY,
         )
         result.addListener({
+            // The command future is not lifecycle-bound. A controller can be
+            // released, or the fragment view can be destroyed, before the
+            // service responds. Do not let an old response touch a new view.
+            if (requestGeneration != qualityRequestGeneration ||
+                requestedPlayer !== player ||
+                !isAdded ||
+                view == null
+            ) {
+                return@addListener
+            }
             val response = runCatching { result.get() }.getOrNull()
             if (response?.resultCode == SessionResult.RESULT_SUCCESS) {
                 val extras = response.extras
@@ -1570,6 +1585,8 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     override fun onDestroyView() {
+        qualityRequestGeneration++
+        qualityRequestInFlight = false
         nativeCues = emptyList()
         shownLiveCaptionError = null
         qualityRetryJob?.cancel()

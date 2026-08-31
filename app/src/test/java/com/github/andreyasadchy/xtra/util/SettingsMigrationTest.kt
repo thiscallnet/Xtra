@@ -114,7 +114,10 @@ class SettingsMigrationTest {
         SettingsMigration.migratePreferences(preferences, freshInstall = false)
 
         assertFalse(preferences.contains("player_live_caption_engine"))
-        assertEquals(1_000, preferences.getInt(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, 0))
+        assertEquals(
+            "1000",
+            preferences.getString(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, null),
+        )
     }
 
     @Test

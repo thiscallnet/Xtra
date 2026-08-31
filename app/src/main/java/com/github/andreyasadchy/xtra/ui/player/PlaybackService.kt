@@ -619,7 +619,11 @@ class PlaybackService : MediaSessionService() {
                                 ) {
                                     xtraModule.playbackPersistence.takePlaybackState()
                                     withContext(Dispatchers.Main.immediate) {
-                                        restoreServiceStateForResumption(savedState, resumptionPosition)
+                                        restoreServiceStateForResumption(
+                                            state = savedState,
+                                            position = resumptionPosition,
+                                            player = session.player,
+                                        )
                                     }
                                 }
                                 result.set(
@@ -700,7 +704,11 @@ class PlaybackService : MediaSessionService() {
         } ?: state.position ?: 0L
     }
 
-    private fun restoreServiceStateForResumption(state: PlaybackState, position: Long) {
+    private fun restoreServiceStateForResumption(
+        state: PlaybackState,
+        position: Long,
+        player: Player,
+    ) {
         finishViewingStats()
 
         videoId = null
@@ -714,6 +722,13 @@ class PlaybackService : MediaSessionService() {
             }
         }
         lastSavedPosition = position
+        player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+        player.setPlaybackSpeed(
+            resumptionPlaybackSpeed(
+                playbackType = state.type,
+                configuredSpeed = prefs().getFloat(C.PLAYER_SPEED, 1f),
+            ),
+        )
 
         viewingChannelId = state.channelId
         viewingChannelLogin = state.channelLogin
