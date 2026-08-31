@@ -176,6 +176,7 @@
     <string name="chat_ban">%s は無期限追放されました</string>
     <string name="chat_clearmsg">%1$s からのメッセージが削除されました: %2$s</string>
     <string name="chat_first">初めてのチャット</string>
+    <string name="chat_new_messages">新着</string>
     <string name="chat_reward">チャンネルポイントの引き換え</string>
     <string name="always">常に</string>
     <string name="local">ローカル</string>

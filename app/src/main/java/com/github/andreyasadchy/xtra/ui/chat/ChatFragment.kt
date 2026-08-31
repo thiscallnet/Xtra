@@ -271,7 +271,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             if (followBottom) null
             else captureChatViewportAnchor(recyclerView, currentAdapter)
 
-        currentAdapter.replaceMessages(snapshot.messages)
+        currentAdapter.replaceMessages(
+            snapshot.messages,
+            snapshot.liveMessageStartIndex,
+            snapshot.liveMessageBoundaryConsumed,
+        )
         chatMutationRevision = snapshot.revision
         chatSnapshotSyncCount++
         Log.d(
@@ -622,7 +626,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         if (_binding?.recyclerView === recyclerView && chatAdapter === adapter) {
                             recyclerView.adapter = chatAdapter
                             chatAdapterReady = true
-                            chatAdapter?.appendMessages(initialMessages, 0)
+                            chatAdapter?.appendMessages(
+                                initialMessages,
+                                0,
+                                insertDivider = false,
+                                dividerPosition = chatSnapshot.liveMessageStartIndex,
+                                dividerConsumed = chatSnapshot.liveMessageBoundaryConsumed,
+                            )
                             if (chatSnapshotSyncPending) {
                                 chatSnapshotSyncPending = false
                                 viewLifecycleOwner.lifecycleScope.launch {

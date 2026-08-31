@@ -616,6 +616,7 @@
     <string name="chat_ban">%s bol natrvalo zablokovaný.</string>
     <string name="chat_clearmsg">Správa bola odstránená z %1$s\: %2$s</string>
     <string name="chat_first">Prvýkrát chat</string>
+    <string name="chat_new_messages">Nové</string>
     <string name="chat_reward">Uplatnenie kanálových bodov</string>
     <string name="always">Vždy</string>
     <string name="local">Miestne</string>

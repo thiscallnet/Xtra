@@ -25,6 +25,7 @@
     <color name="chatStatusDark">#99000000</color>
     <color name="chatStatusLight">#99FFFFFF</color>
     <color name="chatMessageFirst">#800a4028</color>
+    <color name="chatMessageFirstChatter">#432A40</color>
     <color name="chatMessageReward">#800E4C68</color>
     <color name="chatMessageNotice">#803E0E68</color>
     <color name="chatMessageHighlight">#31204D</color>

@@ -176,6 +176,7 @@
     <string name="chat_ban">%s a été banni.e définitivement</string>
     <string name="chat_clearmsg">Message supprimé de %1$s : %2$s</string>
     <string name="chat_first">Première fois sur le chat</string>
+    <string name="chat_new_messages">Nouveaux</string>
     <string name="chat_reward">Échange de points de chaîne</string>
     <string name="always">Toujours</string>
     <string name="local">Local</string>
