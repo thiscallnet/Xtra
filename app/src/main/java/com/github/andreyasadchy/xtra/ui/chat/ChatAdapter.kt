@@ -656,11 +656,6 @@ class ChatAdapter(
         pendingAppends = publicationQueue.hasPendingAppends,
     )
 
-    internal fun shouldReconstructNewMessageDivider(
-        dividerPosition: Int?,
-        dividerConsumed: Boolean,
-    ): Boolean = shouldReconstructNewMessageDivider(dividerPosition, dividerConsumed)
-
     private fun promoteReadyRender(message: ChatMessage, configuration: ChatRenderConfiguration) {
         val key = createRenderKey(message, configuration)
         check(cachedRender(key) != null) { "Published chat message has no complete render" }
