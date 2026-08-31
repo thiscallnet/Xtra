@@ -100,23 +100,6 @@
                 android:visibility="gone" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/fullNotesButton"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/update_full_release_notes"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/fullNotesText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textAppearance="?attr/textAppearanceBodyMedium"
-                android:visibility="gone" />
-
-            <com.google.android.material.button.MaterialButton
                 android:id="@+id/diagnosticsButton"
                 style="@style/Widget.Material3.Button.TextButton"
                 android:layout_width="wrap_content"

@@ -24,6 +24,9 @@ object ReleaseNotes {
     private val conventionalPrefix = Regex("^(feat|feature|add|fix|fixed|perf|performance|improve|improved|update|refactor|chore|docs?)\\s*[:\\-]\\s*", RegexOption.IGNORE_CASE)
     private val whitespace = Regex("\\s+")
     private val generatedChangelog = Regex("^\\**full changelog\\**\\s*:", RegexOption.IGNORE_CASE)
+    private val markdownLink = Regex("\\[([^]]+)]\\(([^()]*(?:\\([^()]*\\)[^()]*)*)\\)")
+    private val asteriskEmphasis = Regex("(\\*{1,3})([^*\\n]+)\\1")
+    private val underscoreEmphasis = Regex("(?<![\\p{L}\\p{N}_])(_{1,3})([^_\\n]+)\\1(?![\\p{L}\\p{N}_])")
 
     fun structured(body: String?, commits: List<String> = emptyList()): StructuredReleaseNotes {
         val lines = body.orEmpty().lineSequence().toList()
@@ -40,7 +43,6 @@ object ReleaseNotes {
                 if (match != null) {
                     val headingText = clean(match.groupValues[1]) ?: return@forEach
                     val headingKind = kindForHeading(headingText)
-                    if (headingKind == ChangeKind.OTHER) items += ChangeItem(headingText, ChangeKind.OTHER)
                     kind = headingKind
                     return@forEach
                 }
@@ -92,6 +94,9 @@ object ReleaseNotes {
         val cleaned = description
             .replace(commitHash, "")
             .replace(Regex("\\s+by\\s+@[\\w-]+.*$", RegexOption.IGNORE_CASE), "")
+            .replace(markdownLink) { it.groupValues[1] }
+            .replace(asteriskEmphasis, "$2")
+            .replace(underscoreEmphasis, "$2")
             .let { value -> conventional?.let { value.removeRange(it.range) } ?: value }
             .trim(' ', '-', ':', '|')
             .replace(whitespace, " ")

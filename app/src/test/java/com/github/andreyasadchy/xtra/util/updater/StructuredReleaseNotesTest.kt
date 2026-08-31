@@ -47,9 +47,7 @@ class StructuredReleaseNotesTest {
     @Test
     fun unknownHeadingsRemainAsOther() {
         val notes = ReleaseNotes.structured("## Notes\n- A note")
-        assertEquals(ChangeKind.OTHER, notes.items.first().kind)
-        assertEquals("Notes", notes.items.first().text)
-        assertEquals("A note", notes.items[1].text)
+        assertEquals(listOf(ChangeItem("A note", ChangeKind.OTHER)), notes.items)
     }
 
     @Test
@@ -84,5 +82,49 @@ class StructuredReleaseNotesTest {
         )
 
         assertEquals(listOf("A useful change"), notes.items.map(ChangeItem::text))
+    }
+
+    @Test
+    fun markdownFormattingAndNonSemanticHeadingsAreRemoved() {
+        val notes = ReleaseNotes.structured(
+            "## Notes\n- **Fixed** [chat rendering](https://example.test/chat)\n- Full Changelog: https://example.test/compare/old...new",
+        )
+
+        assertEquals(listOf("Fixed chat rendering"), notes.items.map(ChangeItem::text))
+        assertEquals(listOf(ChangeKind.FIXED), notes.items.map(ChangeItem::kind))
+    }
+
+    @Test
+    fun markdownEmphasisIsRemovedBeforeClassification() {
+        val notes = ReleaseNotes.structured(
+            "- _Fixed_ one\n- __Fixed__ two\n- *Fixed* three\n- **Fixed** four\n- ***Fixed*** five",
+        )
+
+        assertEquals(
+            listOf("Fixed one", "Fixed two", "Fixed three", "Fixed four", "Fixed five"),
+            notes.items.map(ChangeItem::text),
+        )
+        assertTrue(notes.items.all { it.kind == ChangeKind.FIXED })
+    }
+
+    @Test
+    fun intrawordUnderscoresAndMismatchedEmphasisArePreserved() {
+        val notes = ReleaseNotes.structured(
+            "- Fixed player_buffer_size\n- *foo_",
+        )
+
+        assertEquals(
+            listOf("Fixed player_buffer_size", "*foo_"),
+            notes.items.map(ChangeItem::text),
+        )
+    }
+
+    @Test
+    fun markdownLinksCanContainParentheses() {
+        val notes = ReleaseNotes.structured(
+            "- Read [the docs](https://example.com/foo_(bar))",
+        )
+
+        assertEquals(listOf("Read the docs"), notes.items.map(ChangeItem::text))
     }
 }
