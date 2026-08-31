@@ -1,6 +1,5 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
-import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -196,19 +195,6 @@ class ChatAdapterTest {
         assertNull(queue.takeReadyReplacement())
         assertNull(queue.takeReadyPrepend())
         assertNull(queue.takeReadyAppendSegment())
-    }
-
-    @Test
-    fun trimSkipsSyntheticDivider() {
-        val divider = ChatMessage(type = ChatMessage.NEW_MESSAGE_DIVIDER)
-        assertEquals(2, adapterRowsToRemoveForTrim(listOf(divider, ChatMessage(), ChatMessage()), 1))
-    }
-
-    @Test
-    fun dividerReconstructionRequiresUnconsumedSnapshotBoundary() {
-        assertEquals(true, shouldReconstructNewMessageDivider(3, false))
-        assertEquals(false, shouldReconstructNewMessageDivider(3, true))
-        assertEquals(false, shouldReconstructNewMessageDivider(null, false))
     }
 
 }

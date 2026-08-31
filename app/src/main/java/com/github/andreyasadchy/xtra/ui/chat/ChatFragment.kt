@@ -313,8 +313,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
         currentAdapter.replaceMessages(
             snapshot.messages,
-            dividerPosition = snapshot.liveMessageStartIndex,
-            dividerConsumed = snapshot.liveMessageBoundaryConsumed,
         )
         chatMutationRevision = snapshot.revision
         chatSnapshotSyncCount++
@@ -558,7 +556,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         firstChatMsg = getString(R.string.chat_first),
                         redeemedChatMsg = getString(R.string.redeemed),
                         redeemedNoMsg = getString(R.string.user_redeemed),
-                        rewardChatMsg = getString(R.string.chat_reward),
                         replyMessage = getString(R.string.replying_to_message),
                         useRandomColors = requireContext().prefs().getBoolean(C.CHAT_RANDOM_COLOR, true),
                         useReadableColors = requireContext().prefs().getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),
@@ -675,9 +672,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             chatAdapter?.appendMessages(
                                 initialMessages,
                                 0,
-                                insertDivider = false,
-                                dividerPosition = chatSnapshot.liveMessageStartIndex,
-                                dividerConsumed = chatSnapshot.liveMessageBoundaryConsumed,
                             )
                             if (chatSnapshotSyncPending) {
                                 chatSnapshotSyncPending = false

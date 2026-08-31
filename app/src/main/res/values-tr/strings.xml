@@ -177,8 +177,6 @@
     <string name="chat_ban">%s kalıcı olarak yasaklandı</string>
     <string name="chat_clearmsg">%1$s kullanıcısından silinen mesaj\: %2$s</string>
     <string name="chat_first">İlk kez sohbet</string>
-    <string name="chat_new_messages">Yeni</string>
-    <string name="chat_reward">Kanal puanı kullanımı</string>
     <string name="always">Her zaman</string>
     <string name="local">Yerel</string>
     <string name="days">g</string>

@@ -593,8 +593,6 @@
     <string name="chat_ban">%s został trwale zbanowany.</string>
     <string name="chat_clearmsg">Wiadomość usunięta z %1$s\: %2$s</string>
     <string name="chat_first">Czat po raz pierwszy</string>
-    <string name="chat_new_messages">Nowe</string>
-    <string name="chat_reward">Wykorzystanie punktów kanału</string>
     <string name="always">Zawsze</string>
     <string name="local">Lokalny</string>
     <string name="days">d</string>

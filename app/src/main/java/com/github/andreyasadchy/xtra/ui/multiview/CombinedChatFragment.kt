@@ -526,7 +526,6 @@ private class CombinedChatAdapter(
                 firstChatMsg = fragment.getString(R.string.chat_first),
                 redeemedChatMsg = fragment.getString(R.string.redeemed),
                 redeemedNoMsg = fragment.getString(R.string.user_redeemed),
-                rewardChatMsg = fragment.getString(R.string.chat_reward),
                 replyMessage = fragment.getString(R.string.replying_to_message),
                 useRandomColors = preferences.getBoolean(C.CHAT_RANDOM_COLOR, true),
                 useReadableColors = preferences.getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),

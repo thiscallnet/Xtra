@@ -184,32 +184,6 @@ internal fun appendChatMessageToHistory(
     return removeCount
 }
 
-internal data class LiveMessageBoundaryState(
-    val startIndex: Int?,
-    val consumed: Boolean,
-)
-
-internal fun advanceLiveMessageBoundary(
-    startIndex: Int?,
-    consumed: Boolean,
-    establishesLiveBoundary: Boolean,
-    removeCount: Int,
-    resultingLastIndex: Int,
-): LiveMessageBoundaryState {
-    if (startIndex == null) {
-        return if (!consumed && establishesLiveBoundary) {
-            LiveMessageBoundaryState(resultingLastIndex, consumed = false)
-        } else {
-            LiveMessageBoundaryState(startIndex, consumed)
-        }
-    }
-    return if (removeCount > startIndex) {
-        LiveMessageBoundaryState(startIndex = null, consumed = true)
-    } else {
-        LiveMessageBoundaryState(startIndex - removeCount, consumed)
-    }
-}
-
 class ChatViewModel(
     private val applicationContext: Context,
     private val graphQLRepository: GraphQLRepository,
@@ -239,8 +213,6 @@ class ChatViewModel(
     data class ChatSnapshot(
         val revision: Long,
         val messages: List<ChatMessage>,
-        val liveMessageStartIndex: Int? = null,
-        val liveMessageBoundaryConsumed: Boolean = false,
     )
 
     sealed interface ChatMutation {
@@ -465,8 +437,6 @@ class ChatViewModel(
     private var messageLimit = 600
     val chatMessages = mutableListOf<ChatMessage>()
     private var chatRevision = 0L
-    private var liveMessageStartIndex: Int? = null
-    private var liveMessageBoundaryConsumed = false
     val autoCompleteList = mutableListOf<Any?>()
     private val chatters = ConcurrentHashMap<String, Chatter>()
 
@@ -1380,7 +1350,6 @@ class ChatViewModel(
                             if (left > 0) {
                                 val items = list.takeLast(left)
                                 chatMessages.addAll(0, items)
-                                liveMessageStartIndex = liveMessageStartIndex?.plus(items.size)
                                 chatRevision++
                                 chatMutationEvents.trySend(ChatMutation.Prepend(chatRevision, items))
                             }
@@ -1455,15 +1424,6 @@ class ChatViewModel(
         }
         synchronized(chatMessages) {
             val removeCount = appendChatMessageToHistory(chatMessages, message, messageLimit)
-            val boundary = advanceLiveMessageBoundary(
-                startIndex = liveMessageStartIndex,
-                consumed = liveMessageBoundaryConsumed,
-                establishesLiveBoundary = message.establishesLiveBoundary,
-                removeCount = removeCount,
-                resultingLastIndex = chatMessages.lastIndex,
-            )
-            liveMessageStartIndex = boundary.startIndex
-            liveMessageBoundaryConsumed = boundary.consumed
             chatRevision++
             chatMutationEvents.trySend(
                 ChatMutation.Append(
@@ -1628,13 +1588,11 @@ class ChatViewModel(
     }
 
     fun chatSnapshot(): ChatSnapshot = synchronized(chatMessages) {
-        ChatSnapshot(chatRevision, chatMessages.toList(), liveMessageStartIndex, liveMessageBoundaryConsumed)
+        ChatSnapshot(chatRevision, chatMessages.toList())
     }
 
     private fun clearChatMessages() {
         synchronized(chatMessages) {
-            liveMessageStartIndex = null
-            liveMessageBoundaryConsumed = false
             if (chatMessages.isEmpty()) return
             chatMessages.clear()
             chatRevision++
@@ -3043,7 +3001,6 @@ class ChatViewModel(
             clearChatMessages()
             onMessage(ChatMessage(
                 systemMsg = ContextCompat.getString(applicationContext, R.string.disconnected),
-                establishesLiveBoundary = false,
             ))
         }
         if (!hideRaid.value) {
@@ -3073,7 +3030,6 @@ class ChatViewModel(
             onMessage(ChatMessage(
                 systemMsg = ContextCompat.getString(applicationContext, R.string.chat_join).format(channelLogin),
                 isChatJoin = true,
-                establishesLiveBoundary = false,
             ))
         }
 
@@ -3543,7 +3499,6 @@ class ChatViewModel(
                 onMessage(ChatMessage(
                     systemMsg = ContextCompat.getString(applicationContext, R.string.chat_join).format(channelLogin),
                     isChatJoin = true,
-                    establishesLiveBoundary = false,
                 ))
             }
         }

@@ -176,8 +176,6 @@
     <string name="chat_ban">%s è stato bannato permanentemente</string>
     <string name="chat_clearmsg">Messaggio eliminato da %1$s\: %2$s</string>
     <string name="chat_first">Prima volta in chat</string>
-    <string name="chat_new_messages">Nuovi</string>
-    <string name="chat_reward">Riscatto dei punti del canale</string>
     <string name="always">Sempre</string>
     <string name="local">Locale</string>
     <string name="days">g</string>

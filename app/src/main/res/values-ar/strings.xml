@@ -176,8 +176,6 @@
     <string name="chat_ban">تم حظر %s نهائيًا</string>
     <string name="chat_clearmsg">تم حذف الرسالة من%1$s\:%2$s</string>
     <string name="chat_first">الدردشة لأول مرة</string>
-    <string name="chat_new_messages">جديد</string>
-    <string name="chat_reward">استرداد نقطة القناة</string>
     <string name="always">دائمًا</string>
     <string name="local">محلي</string>
     <string name="days">d</string>
