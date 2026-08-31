@@ -81,7 +81,7 @@ object PlayerControlLayout {
         )
         with(binding.playerControls) {
             val containers = mapOf(
-                ANCHOR_TOP_START to topLeftLayout,
+                ANCHOR_TOP_START to topStartLayout,
                 ANCHOR_TOP_CENTER to topCenterLayout,
                 ANCHOR_TOP_END to topRightLayout,
                 ANCHOR_MIDDLE_START to middleLeftLayout,

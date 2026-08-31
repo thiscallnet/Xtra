@@ -71,15 +71,17 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
 ) : FrameLayout(context, attrs) {
 
-    private val gap = dp(8)
-    private val maxPanelWidth = dp(360)
+    private val gap = dp(12)
+    private val headerHeight = dp(38)
+    private val maxPanelWidth = dp(520)
+    private val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val panels = listOf(
         PreviewPanel(context, R.string.settings_player_control_preview_vertical),
         PreviewPanel(context, R.string.settings_player_control_preview_horizontal),
     )
 
     init {
-        setWillNotDraw(true)
+        setWillNotDraw(false)
         clipChildren = false
         panels.forEach(::addView)
         contentDescription = context.getString(R.string.settings_player_control_preview_summary)
@@ -101,29 +103,54 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             horizontalLabel,
             metadataLabel,
         )
+        invalidate()
         requestLayout()
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
-        val panelWidth = ((width - gap) / 2).coerceAtMost(maxPanelWidth).coerceAtLeast(0)
+        val panelWidth = width.coerceAtMost(maxPanelWidth).coerceAtLeast(0)
         val panelHeight = (panelWidth * 9f / 16f).roundToInt()
-        val measuredHeight = resolveSize(panelHeight, heightMeasureSpec)
-        setMeasuredDimension(resolveSize(width, widthMeasureSpec), measuredHeight)
+        val totalHeight = panelHeight * panels.size + gap + headerHeight * panels.size
+        setMeasuredDimension(resolveSize(width, widthMeasureSpec), resolveSize(totalHeight, heightMeasureSpec))
         panels.forEach { panel ->
             panel.measure(
                 MeasureSpec.makeMeasureSpec(panelWidth, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(measuredHeight, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(panelHeight, MeasureSpec.EXACTLY),
             )
         }
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-        val panelWidth = ((width - gap) / 2).coerceAtMost(maxPanelWidth).coerceAtLeast(0)
-        val previewWidth = panelWidth * 2 + gap
-        val start = (width - previewWidth) / 2
-        panels[0].layout(start, 0, start + panelWidth, height)
-        panels[1].layout(start + panelWidth + gap, 0, start + previewWidth, height)
+        val panelWidth = width.coerceAtMost(maxPanelWidth).coerceAtLeast(0)
+        val panelHeight = (panelWidth * 9f / 16f).roundToInt()
+        val start = (width - panelWidth) / 2
+        panels.forEachIndexed { index, panel ->
+            val panelTop = index * (panelHeight + gap + headerHeight) + headerHeight
+            panel.layout(start, panelTop, start + panelWidth, panelTop + panelHeight)
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val panelWidth = width.coerceAtMost(maxPanelWidth).coerceAtLeast(0)
+        val panelHeight = (panelWidth * 9f / 16f).roundToInt()
+        val start = (width - panelWidth) / 2f
+        val size = { value: Float -> value * resources.displayMetrics.density }
+
+        panels.forEachIndexed { index, panel ->
+            val panelTop = index * (panelHeight + gap + headerHeight) + headerHeight
+            val headerTop = panelTop - headerHeight
+            headerPaint.color = Color.WHITE
+            headerPaint.alpha = 220
+            headerPaint.typeface = Typeface.DEFAULT_BOLD
+            headerPaint.textSize = size(11f)
+            canvas.drawText(panel.headerLabel(), start + size(10f), headerTop + size(15f), headerPaint)
+            headerPaint.alpha = 150
+            headerPaint.typeface = Typeface.DEFAULT
+            headerPaint.textSize = size(8f)
+            canvas.drawText(panel.headerDetails(context), start + size(10f), headerTop + size(30f), headerPaint)
+        }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
@@ -177,6 +204,11 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             invalidate()
         }
 
+        fun headerLabel(): String = context.getString(labelRes)
+
+        fun headerDetails(context: Context): String =
+            "$controlLabel · ${context.getString(R.string.settings_player_control_preview_info)} $metadataLabel"
+
         override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
             super.onSizeChanged(width, height, oldWidth, oldHeight)
             if (width > 0 && height > 0) rebuildControls()
@@ -194,20 +226,18 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             val size = { value: Float -> value * unit }
 
             paint.style = Paint.Style.FILL
-            paint.color = Color.argb(80, 105, 125, 155)
-            canvas.drawRect(0f, height * 0.31f, width.toFloat(), height * 0.32f, paint)
-            canvas.drawRect(0f, height * 0.67f, width.toFloat(), height * 0.68f, paint)
+            paint.color = Color.argb(28, 255, 255, 255)
+            canvas.drawRect(
+                0f,
+                height - size(68f),
+                width.toFloat(),
+                height - size(67f),
+                paint,
+            )
 
-            val topStartCount = items.count {
-                it.group == PlayerControlLayout.GROUP_QUICK &&
-                    it.anchor == PlayerControlLayout.ANCHOR_TOP_START
-            }
-            val infoStart = if (topStartCount > 0) {
-                9f + topStartCount * 44f + (topStartCount - 1).coerceAtLeast(0) * 6f + 6f
-            } else {
-                12f
-            }
-            drawMetadata(canvas, infoStart, size)
+            // Keep the metadata row fixed while the minimize control sits in
+            // the compact top-start control slot.
+            drawMetadata(canvas, 12f, size)
 
             paint.color = Color.argb(140, 255, 255, 255)
             canvas.drawRoundRect(
@@ -221,29 +251,16 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             )
 
             paint.color = Color.WHITE
-            paint.alpha = 210
-            paint.textSize = size(9f)
-            paint.typeface = Typeface.DEFAULT_BOLD
-            canvas.drawText(context.getString(labelRes), size(10f), size(18f), paint)
             paint.alpha = 170
-            paint.typeface = Typeface.DEFAULT
             paint.textSize = size(8f)
             canvas.drawText("12:16", size(10f), height - size(20f), paint)
             canvas.drawText("1:12:16", width - size(47f), height - size(20f), paint)
-            val scaleLabel = "$controlLabel · $metadataLabel ${context.getString(R.string.settings_player_control_preview_info)}"
-            canvas.drawText(
-                scaleLabel,
-                width / 2f - paint.measureText(scaleLabel) / 2f,
-                height - size(20f),
-                paint,
-            )
+            paint.textSize = size(8f)
         }
 
         private fun drawMetadata(canvas: Canvas, infoStart: Float, size: (Float) -> Float) {
             val avatarX = size(infoStart + 16f)
-            val avatarY = size(34f)
-            val rootCenterX = width / 2f
-            val rootCenterY = height / 2f
+            val avatarY = size(48f)
             val infoSlotStart = infoStart + 36f
             val panelWidthDp = width / previewUnit()
             val topEndCount = items.count {
@@ -259,16 +276,16 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             )
             val metadataPivotY = avatarY
             val actualControlScale = actualControlScale()
-            val scaledPivotX = rootCenterX + (metadataPivotX - rootCenterX) * actualControlScale
-            val scaledPivotY = rootCenterY + (metadataPivotY - rootCenterY) * actualControlScale
+            val scaledPivotX = metadataPivotX * actualControlScale
+            val scaledPivotY = metadataPivotY * actualControlScale
             val effectiveScale = actualControlScale * metadataScale
             var metadataContentWidth = PortraitPlayerControls.metadataContentWidth(
                 metadataAvailableWidth,
                 metadataScale,
             )
             val point: (Float, Float) -> PointF = { x, y ->
-                val composedX = rootCenterX + (x - rootCenterX) * actualControlScale
-                val composedY = rootCenterY + (y - rootCenterY) * actualControlScale
+                val composedX = x * actualControlScale
+                val composedY = y * actualControlScale
                 PointF(
                     scaledPivotX + (composedX - scaledPivotX) * metadataScale,
                     scaledPivotY + (composedY - scaledPivotY) * metadataScale,
@@ -281,15 +298,14 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             var metadataBoundaryPoint = PointF(0f, 0f)
             var metadataLeft = 0f
             var metadataRightEdge = 0f
-            val rightBoundaryPoint = rootCenterX +
-                (size(infoSlotRight) - rootCenterX) * actualControlScale
+            val rightBoundaryPoint = size(infoSlotRight) * actualControlScale
             repeat(2) {
                 avatarPoint = point(avatarX, avatarY)
-                titlePoint = point(size(infoSlotStart), size(29f))
-                livePoint = point(size(infoSlotStart), size(40f))
+                titlePoint = point(size(infoSlotStart), size(43f))
+                livePoint = point(size(infoSlotStart), size(54f))
                 viewersPoint = point(
                     size(infoSlotStart + metadataContentWidth - 62f),
-                    size(50f),
+                    size(64f),
                 )
                 metadataBoundaryPoint = point(size(infoSlotStart + metadataContentWidth), avatarY)
                 metadataLeft = minOf(
@@ -384,7 +400,7 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             grouped.forEach { (anchor, group) ->
                 group.forEachIndexed { index, item ->
                     chips[item.action]?.let { chip ->
-                        placeScaled(chip, controlPoint(anchor, index, group.size))
+                        placeScaled(chip, controlPoint(anchor, index, group.size), anchor)
                     }
                 }
             }
@@ -394,10 +410,10 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             play.layoutParams = LayoutParams(previewDp(48), previewDp(48))
             play.x = (width - play.width) / 2f
             play.y = (height - play.height) / 2f
-            placeScaled(play, PointF(width / 2f, height / 2f))
+            placeScaled(play, PointF(width / 2f, height / 2f), null)
         }
 
-        private fun placeScaled(view: View, point: PointF) {
+        private fun placeScaled(view: View, point: PointF, anchor: String?) {
             val actualControlScale = actualControlScale()
             view.pivotX = view.width / 2f
             view.pivotY = view.height / 2f
@@ -407,18 +423,51 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             val viewCenterY = view.top + view.height / 2f
             val scaledHalfWidth = view.width * actualControlScale / 2f
             val scaledHalfHeight = view.height * actualControlScale / 2f
-            val scaledX = (width / 2f + (point.x - width / 2f) * actualControlScale)
+            val scaledX = when (anchor) {
+                PlayerControlLayout.ANCHOR_TOP_START,
+                PlayerControlLayout.ANCHOR_MIDDLE_START,
+                PlayerControlLayout.ANCHOR_BOTTOM_START -> {
+                    val edge = previewDp(9).toFloat()
+                    edge + (point.x - edge) * actualControlScale
+                }
+                PlayerControlLayout.ANCHOR_TOP_END -> {
+                    val edge = width - previewDp(9) - previewDp(48)
+                    edge - (edge - point.x) * actualControlScale
+                }
+                PlayerControlLayout.ANCHOR_MIDDLE_END,
+                PlayerControlLayout.ANCHOR_BOTTOM_END -> {
+                    val edge = width - previewDp(9).toFloat()
+                    edge - (edge - point.x) * actualControlScale
+                }
+                else -> width / 2f + (point.x - width / 2f) * actualControlScale
+            }
+            val scaledY = when (anchor) {
+                PlayerControlLayout.ANCHOR_TOP_START,
+                PlayerControlLayout.ANCHOR_TOP_CENTER,
+                PlayerControlLayout.ANCHOR_TOP_END -> {
+                    val edge = previewDp(9).toFloat()
+                    edge + (point.y - edge) * actualControlScale
+                }
+                PlayerControlLayout.ANCHOR_BOTTOM_START,
+                PlayerControlLayout.ANCHOR_BOTTOM_CENTER,
+                PlayerControlLayout.ANCHOR_BOTTOM_END -> {
+                    val edge = height - previewDp(9) - previewDp(13)
+                    edge - (edge - point.y) * actualControlScale
+                }
+                else -> height / 2f + (point.y - height / 2f) * actualControlScale
+            }
+            val boundedX = scaledX
                 .coerceIn(
                     scaledHalfWidth,
                     (width - scaledHalfWidth).coerceAtLeast(scaledHalfWidth),
                 )
-            val scaledY = (height / 2f + (point.y - height / 2f) * actualControlScale)
+            val boundedY = scaledY
                 .coerceIn(
                     scaledHalfHeight,
                     (height - scaledHalfHeight).coerceAtLeast(scaledHalfHeight),
                 )
-            view.translationX = scaledX - viewCenterX
-            view.translationY = scaledY - viewCenterY
+            view.translationX = boundedX - viewCenterX
+            view.translationY = boundedY - viewCenterY
         }
 
         private fun controlPoint(anchor: String, index: Int, count: Int): PointF {
@@ -438,13 +487,26 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
                 PlayerControlLayout.ANCHOR_MIDDLE_END -> if (anchor.endsWith("start")) padding + size / 2f else width - padding - size / 2f
                 else -> width / 2f
             }
+            val bottomEndRowOffset = if (
+                anchor == PlayerControlLayout.ANCHOR_BOTTOM_END &&
+                items.any {
+                    it.group == PlayerControlLayout.GROUP_QUICK &&
+                        it.anchor == PlayerControlLayout.ANCHOR_BOTTOM_START
+                }
+            ) {
+                size + spacing
+            } else {
+                0f
+            }
             val y = when (anchor) {
-                PlayerControlLayout.ANCHOR_TOP_START,
                 PlayerControlLayout.ANCHOR_TOP_CENTER,
                 PlayerControlLayout.ANCHOR_TOP_END -> padding + size / 2f
+                PlayerControlLayout.ANCHOR_TOP_START ->
+                    padding + size / 2f + previewDp(64)
                 PlayerControlLayout.ANCHOR_BOTTOM_START,
-                PlayerControlLayout.ANCHOR_BOTTOM_CENTER,
-                PlayerControlLayout.ANCHOR_BOTTOM_END -> height - padding - size / 2f - previewDp(13)
+                PlayerControlLayout.ANCHOR_BOTTOM_CENTER -> height - padding - size / 2f - previewDp(13)
+                PlayerControlLayout.ANCHOR_BOTTOM_END ->
+                    height - padding - size / 2f - previewDp(13) - bottomEndRowOffset
                 PlayerControlLayout.ANCHOR_MIDDLE_START,
                 PlayerControlLayout.ANCHOR_MIDDLE_END -> (height - total) / 2f + size / 2f + index * (size + spacing)
                 else -> height / 2f
