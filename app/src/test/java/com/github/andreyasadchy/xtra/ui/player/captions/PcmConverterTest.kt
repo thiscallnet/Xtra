@@ -200,3 +200,47 @@ class CaptionPresentationDelayBufferTest {
         assertEquals(emptyList<Byte>(), delay.drain().toList())
     }
 }
+
+class CaptionEventDelayQueueTest {
+
+    @Test
+    fun repeatedPartialsKeepTheOriginalPresentationDeadline() {
+        val queue = CaptionEventDelayQueue()
+        val output = mutableListOf<String>()
+        val apply: (CaptionRecognitionEvent) -> Unit = { event ->
+            output += when (event) {
+                is CaptionRecognitionEvent.Partial -> event.text
+                is CaptionRecognitionEvent.Final -> event.text
+            }
+        }
+
+        queue.enqueue(CaptionRecognitionEvent.Partial("one"), 2_000L, 0L, apply)
+        queue.enqueue(CaptionRecognitionEvent.Partial("one two"), 2_000L, 1_000L, apply)
+
+        queue.drain(1_999L, apply)
+        assertEquals(emptyList<String>(), output)
+
+        queue.drain(2_000L, apply)
+        assertEquals(listOf("one two"), output)
+    }
+
+    @Test
+    fun clearingPendingEventsWhenOffsetChangesPreventsStaleCaption() {
+        val queue = CaptionEventDelayQueue()
+        val output = mutableListOf<String>()
+        val apply: (CaptionRecognitionEvent) -> Unit = { event ->
+            output += when (event) {
+                is CaptionRecognitionEvent.Partial -> event.text
+                is CaptionRecognitionEvent.Final -> event.text
+            }
+        }
+
+        // The old +2 s event is invalidated by a live +2 s -> 0 s change.
+        queue.enqueue(CaptionRecognitionEvent.Partial("old"), 2_000L, 0L, apply)
+        queue.clear()
+        queue.enqueue(CaptionRecognitionEvent.Partial("new"), 0L, 500L, apply)
+        queue.drain(2_500L, apply)
+
+        assertEquals(listOf("new"), output)
+    }
+}
