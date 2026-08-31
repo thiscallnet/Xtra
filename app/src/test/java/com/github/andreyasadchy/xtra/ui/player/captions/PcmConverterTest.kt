@@ -134,13 +134,13 @@ class CaptionTextStateMachineTest {
     }
 
     @Test
-    fun finalCorrectionDoesNotReplaceWordsAlreadyShown() {
+    fun finalCorrectionReplacesStaleActiveWords() {
         val captions = CaptionTextStateMachine()
 
         captions.updatePartial("I bought item")
         captions.finalize("I bought the item")
 
-        assertEquals("I bought item", captions.visibleText)
+        assertEquals("I bought the item", captions.visibleText)
     }
 
     @Test
@@ -151,7 +151,7 @@ class CaptionTextStateMachineTest {
         captions.updatePartial("I bought the item")
         captions.updatePartial("I bought the item today")
 
-        assertEquals("I bought item today", captions.visibleText)
+        assertEquals("I bought the item today", captions.visibleText)
     }
 
     private class FakeCaptionEngine(

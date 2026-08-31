@@ -78,9 +78,9 @@ internal fun formatCaptionTextForDisplay(text: String): String {
 /**
  * Small, transcript-free text state used by the manager and JVM tests.
  *
- * Partial ASR results are cumulative hypotheses. We only append their new
- * suffix, so words already shown keep their position. A changed trailing word
- * is allowed to be corrected, but an older phrase is never reflowed wholesale.
+ * Partial ASR results are cumulative hypotheses. The active partial portion is
+ * replaceable so decoder corrections are visible, while finalized rolling lines
+ * remain fixed until a complete line rolls away.
  */
 internal class CaptionTextStateMachine {
     private data class DisplayedWord(
@@ -89,7 +89,6 @@ internal class CaptionTextStateMachine {
     )
 
     private val displayedLines = ArrayDeque<MutableList<DisplayedWord>>()
-    private var previousPartialWords: List<String> = emptyList()
 
     var visibleText: String = ""
         private set
@@ -101,42 +100,16 @@ internal class CaptionTextStateMachine {
         val words = words(text)
         if (words.isEmpty()) return
 
-        if (previousPartialWords.isEmpty()) {
-            words.forEach { appendWord(it, activePartial = true) }
-            previousPartialWords = words
-            updateVisibleText()
-            return
-        }
-
-        // Moonshine may revise an earlier word while the utterance grows. Keep
-        // already displayed words fixed, but still append genuinely new words
-        // by position so a correction cannot freeze the caption forever.
-        if (words.size > previousPartialWords.size) {
-            if (words.take(previousPartialWords.size) == previousPartialWords) {
-                words.drop(previousPartialWords.size)
-                    .forEach { appendWord(it, activePartial = true) }
-            }
-            previousPartialWords = words
-        } else if (words.size == previousPartialWords.size) {
-            // Keep the corrected hypothesis as the baseline for the next
-            // suffix, without changing any word that is already visible.
-            previousPartialWords = words
-        }
+        replaceActivePartial(words)
         updateVisibleText()
     }
 
     fun finalize(text: String) {
         val words = words(text)
-        if (previousPartialWords.isEmpty()) {
-            words.forEach { appendWord(it, activePartial = false) }
-        } else if (words.size >= previousPartialWords.size &&
-            words.take(previousPartialWords.size) == previousPartialWords
-        ) {
-            words.drop(previousPartialWords.size)
-                .forEach { appendWord(it, activePartial = false) }
+        if (words.isNotEmpty()) {
+            replaceActivePartial(words)
         }
         markPartialWordsFinal()
-        previousPartialWords = emptyList()
         updateVisibleText()
     }
 
@@ -149,8 +122,18 @@ internal class CaptionTextStateMachine {
 
     fun reset() {
         displayedLines.clear()
-        previousPartialWords = emptyList()
         visibleText = ""
+    }
+
+    private fun replaceActivePartial(words: List<String>) {
+        displayedLines.forEach { line ->
+            line.removeAll { it.activePartial }
+        }
+        val lines = displayedLines.iterator()
+        while (lines.hasNext()) {
+            if (lines.next().isEmpty()) lines.remove()
+        }
+        words.forEach { appendWord(it, activePartial = true) }
     }
 
     private fun appendWord(text: String, activePartial: Boolean) {
