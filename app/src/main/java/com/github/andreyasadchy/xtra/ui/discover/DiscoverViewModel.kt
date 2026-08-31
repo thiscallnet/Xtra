@@ -96,7 +96,6 @@ class DiscoverViewModel(
         DiscoverSectionState<List<Stream>>(emptyList(), refreshing = true),
     )
     private val recommendationsMutex = Mutex()
-    private var recommendationsLastAttemptAt = 0L
     private var currentTrendingSpec: StreamFeedSpec? = null
     private var lastVisibleRefreshAt = 0L
 
@@ -175,13 +174,14 @@ class DiscoverViewModel(
         ) {
             val now = System.currentTimeMillis()
             if (now - lastVisibleRefreshAt < StreamFeedFreshnessPolicy.VISIBLE_REVALIDATION_INTERVAL_MS) {
+                if (reason == RefreshReason.SCREEN_VISIBLE) refreshRecommendations()
                 return
             }
             lastVisibleRefreshAt = now
         }
         refreshTopStreams(reason, force)
         refreshTopGames(reason, force)
-        refreshRecommendations(force)
+        refreshRecommendations()
         currentTrendingSpec?.let { refreshTrending(it, reason, force) }
     }
 
@@ -221,10 +221,7 @@ class DiscoverViewModel(
         }
     }
 
-    private fun refreshRecommendations(force: Boolean) {
-        val now = System.currentTimeMillis()
-        if (!force && now - recommendationsLastAttemptAt < RECOMMENDATIONS_TTL_MS) return
-        recommendationsLastAttemptAt = now
+    private fun refreshRecommendations() {
         viewModelScope.launch {
             recommendationsMutex.withLock {
                 recommendationsSection.update { it.copy(refreshing = true) }
@@ -355,7 +352,6 @@ class DiscoverViewModel(
         const val KEY_CATEGORIES = "discover_categories"
         private const val STREAM_LIMIT = 12
         private const val CATEGORY_LIMIT = 12
-        private const val RECOMMENDATIONS_TTL_MS = 5 * 60_000L
 
         val Factory = viewModelFactory {
             initializer {

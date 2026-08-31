@@ -3,6 +3,8 @@ package com.github.andreyasadchy.xtra.repository
 import com.github.andreyasadchy.xtra.repository.auth.PrivateGqlCredential
 import com.github.andreyasadchy.xtra.repository.auth.PrivateGqlCredentialType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -63,5 +65,11 @@ class RecommendationsAuthTest {
             RecommendationSource.UNAVAILABLE,
             recommendationSourceFor(personalized = null, result = emptyList()),
         )
+    }
+
+    @Test
+    fun liveRecommendationCacheExpiresAtItsDeadline() {
+        assertTrue(recommendationCacheIsFresh(nowMs = 99L, expiresAtMs = 100L))
+        assertFalse(recommendationCacheIsFresh(nowMs = 100L, expiresAtMs = 100L))
     }
 }

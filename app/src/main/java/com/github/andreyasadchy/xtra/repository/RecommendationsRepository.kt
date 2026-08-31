@@ -9,6 +9,7 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.auth.AuthSessionStore
 import com.github.andreyasadchy.xtra.repository.auth.PrivateGqlCredential
 import com.github.andreyasadchy.xtra.repository.auth.PrivateGqlCredentialType
+import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedFreshnessPolicy
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
@@ -52,7 +53,7 @@ class RecommendationsRepository(
         val accountKey = requestContext.accountKey
         cacheMutex.withLock {
             cache
-                ?.takeIf { it.accountKey == accountKey && it.expiresAt > now }
+                ?.takeIf { it.accountKey == accountKey && recommendationCacheIsFresh(now, it.expiresAt) }
                 ?.let { entry ->
                     lastSource = entry.source
                     return RecommendationResult(
@@ -262,9 +263,11 @@ class RecommendationsRepository(
 
     private companion object {
         const val LOG_TAG = "FollowingRecommendations"
-        const val RECOMMENDATIONS_CACHE_MILLIS = 5 * 60 * 1000L
+        const val RECOMMENDATIONS_CACHE_MILLIS = StreamFeedFreshnessPolicy.LIVE_STREAM_SOFT_TTL_MS
     }
 }
+
+internal fun recommendationCacheIsFresh(nowMs: Long, expiresAtMs: Long): Boolean = expiresAtMs > nowMs
 
 private data class RecommendationCache(
     val accountKey: RecommendationAccountKey,

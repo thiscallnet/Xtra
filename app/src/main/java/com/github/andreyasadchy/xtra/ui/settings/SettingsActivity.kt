@@ -2044,7 +2044,7 @@ class SettingsActivity : AppCompatActivity() {
                         }
                         list
                     } else defaultTabs
-                }.let(::limitNavigationVisibleItems)
+                }
                 val tabs = tabList.map {
                     val split = it.split(':')
                     SettingsDragListItem(
