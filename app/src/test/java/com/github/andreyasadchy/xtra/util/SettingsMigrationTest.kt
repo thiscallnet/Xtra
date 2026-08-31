@@ -115,7 +115,7 @@ class SettingsMigrationTest {
 
         assertFalse(preferences.contains("player_live_caption_engine"))
         assertEquals(
-            "1000",
+            "2000",
             preferences.getString(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, null),
         )
     }

@@ -16,6 +16,6 @@ class LiveCaptionPreferencesTest {
 
     @Test
     fun `invalid value uses safe default`() {
-        assertEquals(1_000, parseLiveCaptionPartialInterval("not-a-duration"))
+        assertEquals(2_000, parseLiveCaptionPartialInterval("not-a-duration"))
     }
 }

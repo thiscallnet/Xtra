@@ -77,6 +77,9 @@ import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.PlayerViewModel.Companion.PlayerViewModelFactory
+import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
+import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER
+import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -242,6 +245,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         if (!supportsLiveCaptions || playbackService?.type != BasePlaybackService.STREAM) {
             button.visibility = View.GONE
             button.setOnClickListener(null)
+            button.setOnLongClickListener(null)
             return
         }
         val enabled = requireContext().prefs().getBoolean(C.PLAYER_LIVE_CAPTIONS, false)
@@ -254,6 +258,19 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             showController(force = true)
             toggleLiveCaptions()
         }
+        button.setOnLongClickListener {
+            showController(force = true)
+            openLiveCaptionSettings()
+            true
+        }
+    }
+
+    private fun openLiveCaptionSettings() {
+        val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
+            putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
+        }
+        (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
+            ?: startActivity(intent)
     }
 
     private fun setupLiveCaptionOverlay() {
