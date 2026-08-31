@@ -40,6 +40,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
             C.PLAYER_LIVE_CAPTION_OPACITY -> {
                 currentStyle = null
                 applyStyle(LiveCaptionStyle.from(context))
+                post { reflowVisibleLines() }
             }
             C.PLAYER_LIVE_CAPTION_WIDTH -> {
                 requestLayout()
@@ -58,6 +59,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     private val incomingLine = createLineView().apply { visibility = View.INVISIBLE }
 
     private var currentLines = listOf("", "")
+    private var rawLines = listOf("", "")
     private var currentLineShiftToken = 0L
     private var currentStyle: LiveCaptionStyle? = null
     private var animationRunning = false
@@ -152,6 +154,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         cancelLineAnimations()
         animationRunning = false
         currentLines = listOf("", "")
+        rawLines = listOf("", "")
         topLine.text = ""
         bottomLine.text = ""
         incomingLine.text = ""
@@ -198,7 +201,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
 
     private fun applyUpdate(update: CaptionUpdate) {
         applyStyle(update.style)
-        val fittedUpdate = update.copy(lines = update.lines.map(::fitCaptionLine))
+        val fittedUpdate = update.copy(lines = fitCaptionLines(update.lines))
         visibility = View.VISIBLE
 
         val shouldRoll = fittedUpdate.lineShiftToken != currentLineShiftToken &&
@@ -208,8 +211,10 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
             height > 0
 
         if (shouldRoll) {
+            rawLines = update.lines
             animateLineRoll(fittedUpdate)
         } else {
+            rawLines = update.lines
             currentLines = fittedUpdate.lines
             currentLineShiftToken = fittedUpdate.lineShiftToken
             topLine.text = fittedUpdate.lines[0]
@@ -421,24 +426,62 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     private fun captionContentWidth(): Float {
         val parentWidth = (parent as? ViewGroup)?.width ?: width
         val panelWidth = if (parentWidth > 0) parentWidth * captionWidthFraction() else width.toFloat()
-        return (panelWidth - paddingLeft - paddingRight).coerceAtLeast(1f)
+        val textPadding = topLine.paddingLeft + topLine.paddingRight
+        return (panelWidth - textPadding).coerceAtLeast(1f)
     }
 
-    private fun fitCaptionLine(line: String): String {
-        if (line.isBlank() || topLine.paint.measureText(line) <= captionContentWidth()) return line
-        var fitted = ""
-        line.trim().split(Regex("\\s+")).forEach { word ->
-            val candidate = if (fitted.isEmpty()) word else "$fitted $word"
-            if (fitted.isEmpty() || topLine.paint.measureText(candidate) <= captionContentWidth()) {
-                fitted = candidate
+    /** Wraps all words in order and keeps only the last two complete display rows. */
+    private fun fitCaptionLines(lines: List<String>): List<String> {
+        val maxWidth = captionContentWidth()
+        val wrapped = mutableListOf<String>()
+        var current = ""
+
+        fun flush() {
+            if (current.isNotEmpty()) {
+                wrapped += current
+                current = ""
             }
         }
-        return fitted
+
+        lines.asSequence()
+            .flatMap { it.trim().split(Regex("\\s+")).asSequence() }
+            .filter(String::isNotEmpty)
+            .forEach { word ->
+                if (topLine.paint.measureText(word) <= maxWidth) {
+                    val candidate = if (current.isEmpty()) word else "$current $word"
+                    if (current.isNotEmpty() && topLine.paint.measureText(candidate) > maxWidth) {
+                        flush()
+                        current = word
+                    } else {
+                        current = candidate
+                    }
+                } else {
+                    // A URL or other single long token must not be accepted as
+                    // an unmeasurable line. Split it deterministically instead.
+                    flush()
+                    var remainder = word
+                    while (remainder.isNotEmpty()) {
+                        val count = topLine.paint.breakText(remainder, true, maxWidth, null)
+                            .coerceAtLeast(1)
+                        wrapped += remainder.take(count)
+                        remainder = remainder.drop(count)
+                    }
+                }
+            }
+        flush()
+
+        return wrapped.takeLast(2).let { result ->
+            when (result.size) {
+                0 -> listOf("", "")
+                1 -> listOf("", result[0])
+                else -> result
+            }
+        }
     }
 
     private fun reflowVisibleLines() {
-        if (currentLines.all(String::isBlank)) return
-        currentLines = currentLines.map(::fitCaptionLine)
+        if (rawLines.all(String::isBlank)) return
+        currentLines = fitCaptionLines(rawLines)
         topLine.text = currentLines[0]
         bottomLine.text = currentLines[1]
         requestLayout()
