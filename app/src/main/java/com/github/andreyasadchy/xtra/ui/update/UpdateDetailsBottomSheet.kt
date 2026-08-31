@@ -32,7 +32,6 @@ import com.github.andreyasadchy.xtra.util.updater.UpdateState
 import com.github.andreyasadchy.xtra.util.updater.UpdateVersionDisplay
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import io.noties.markwon.Markwon
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -41,9 +40,7 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
     private val binding get() = _binding!!
     private val repository
         get() = (requireContext().applicationContext as XtraApp).xtraModule.updateRepository
-    private var fullNotesExpanded = false
     private var diagnosticsExpanded = false
-    private val markwon by lazy(LazyThreadSafetyMode.NONE) { Markwon.create(requireContext()) }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = SheetUpdateDetailsBinding.inflate(inflater, container, false)
@@ -57,10 +54,6 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
                 skipCollapsed = true
                 state = BottomSheetBehavior.STATE_EXPANDED
             }
-        }
-        binding.fullNotesButton.setOnClickListener {
-            fullNotesExpanded = !fullNotesExpanded
-            render(repository.state.value)
         }
         binding.diagnosticsButton.setOnClickListener {
             diagnosticsExpanded = !diagnosticsExpanded
@@ -119,9 +112,6 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
         binding.earlierChangesButton.visibility = View.GONE
         binding.earlierChangesContainer.visibility = View.GONE
         binding.earlierChangesContainer.removeAllViews()
-        binding.fullNotesButton.visibility = if (!release?.rawBody.isNullOrBlank()) View.VISIBLE else View.GONE
-        binding.fullNotesText.visibility = if (fullNotesExpanded && !release?.rawBody.isNullOrBlank()) View.VISIBLE else View.GONE
-        if (fullNotesExpanded) release?.rawBody?.let { markwon.setMarkdown(binding.fullNotesText, it) }
         binding.diagnosticsButton.visibility = if (model.showDiagnostics) View.VISIBLE else View.GONE
         binding.diagnosticsText.visibility = if (diagnosticsExpanded && model.showDiagnostics) View.VISIBLE else View.GONE
         binding.copyDiagnosticsButton.visibility = if (diagnosticsExpanded && model.showDiagnostics) View.VISIBLE else View.GONE
