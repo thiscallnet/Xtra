@@ -11,6 +11,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentStreamsListItemCompactBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
+import com.github.andreyasadchy.xtra.util.isTelevision
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -129,6 +131,7 @@ class StreamsCompactAdapter(
 
         init {
             binding.root.setOnClickListener { boundStream?.let(::openStream) }
+            TvFocusHelper.install(binding.root)
             binding.userImage.setOnClickListener { boundStream?.let(::openChannel) }
             binding.username.setOnClickListener { boundStream?.let(::openChannel) }
             binding.gameName.setOnClickListener { boundStream?.let(::openGame) }
@@ -210,7 +213,7 @@ class StreamsCompactAdapter(
                         }
                     }
                     val selectionMode = onStreamClick != null
-                    multiview.visibility = if (selectionMode || item.channelLogin.isNullOrBlank()) View.GONE else View.VISIBLE
+                    multiview.visibility = if (selectionMode || item.channelLogin.isNullOrBlank() || context.isTelevision()) View.GONE else View.VISIBLE
                     if (presentation?.channelImage != null || item.channelImage != null) {
                         userImage.visibility = View.VISIBLE
                         userImage.contentDescription = item.channelName?.let {

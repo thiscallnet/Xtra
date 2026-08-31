@@ -23,6 +23,7 @@ import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.isTelevision
 import com.google.android.material.snackbar.Snackbar
 
 @OptIn(UnstableApi::class)
@@ -245,7 +246,7 @@ class MediaPlayerFragment : PlayerFragment() {
                         } else {
                             binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
                             binding.playerControls.playPause.contentDescription = getString(R.string.player_pause_action)
-                            if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                            if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
                                 binding.playerControls.playPause.visibility = View.GONE
                             }
                         }
@@ -292,12 +293,12 @@ class MediaPlayerFragment : PlayerFragment() {
             } else {
                 binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
                 binding.playerControls.playPause.contentDescription = getString(R.string.player_pause_action)
-                if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
                     binding.playerControls.playPause.visibility = View.GONE
                 }
             }
             setPipActions(isPlaying)
-            controllerAutoHide = isPlaying
+            controllerAutoHide = !requireContext().isTelevision() && isPlaying
             if (useController) {
                 showController(show = playbackService?.type != BasePlaybackService.STREAM && ended)
             }

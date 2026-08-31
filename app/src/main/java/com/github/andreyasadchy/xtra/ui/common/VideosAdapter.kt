@@ -26,6 +26,8 @@ import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
+import com.github.andreyasadchy.xtra.util.isTelevision
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -141,10 +143,11 @@ class VideosAdapter(
             binding.root.setOnClickListener { boundVideo?.let(::openVideo) }
             binding.root.setOnLongClickListener {
                 boundVideo?.let {
-                    showDownloadDialog(it)
+                    if (binding.root.context.isTelevision()) showOptions(binding.root) else showDownloadDialog(it)
                     true
                 } ?: false
             }
+            TvFocusHelper.install(binding.root)
             binding.userImage.setOnClickListener { boundVideo?.let(::openChannel) }
             binding.username.setOnClickListener { boundVideo?.let(::openChannel) }
             binding.gameName.setOnClickListener { boundVideo?.let(::openGame) }

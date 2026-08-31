@@ -12,6 +12,7 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Build
@@ -95,6 +96,13 @@ import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationService
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.SettingsViewModelFactory
+import com.github.andreyasadchy.xtra.ui.tv.TvChatOverlayAnchor
+import com.github.andreyasadchy.xtra.ui.tv.TvChatOverlayConfig
+import com.github.andreyasadchy.xtra.ui.tv.TvChatOverlayPreset
+import com.github.andreyasadchy.xtra.ui.tv.persistTvChatOverlayConfig
+import com.github.andreyasadchy.xtra.ui.tv.tvChatOverlayConfig
+import com.github.andreyasadchy.xtra.ui.tv.tvChatPreset
+import com.github.andreyasadchy.xtra.util.isTelevision
 import com.github.andreyasadchy.xtra.ui.update.UpdateNotesBinder
 import com.github.andreyasadchy.xtra.ui.update.UpdateStatusBinder
 import com.github.andreyasadchy.xtra.ui.update.UpdateUiAction
@@ -181,6 +189,9 @@ class SettingsActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        if (isTelevision()) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
         loginResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             accountActionIsLogout = false
             if (result.resultCode == RESULT_OK) {
@@ -278,7 +289,11 @@ class SettingsActivity : AppCompatActivity() {
     ) {
         val listAdapter = SettingsDragListAdapter()
         listAdapter.minimumVisibleItems = minimumVisibleItemsForPreference(prefKey)
-        listAdapter.maximumVisibleItems = maximumVisibleItemsForPreference(prefKey)
+        listAdapter.maximumVisibleItems = if (isTelevision() && prefKey == C.UI_NAVIGATION_TAB_LIST) {
+            MAX_TV_NAVIGATION_VISIBLE_ITEMS
+        } else {
+            maximumVisibleItemsForPreference(prefKey)
+        }
         ensureMinimumVisibleItems(list, listAdapter.minimumVisibleItems)
         if (showDefaultSelector) promoteDefaultToVisible(list)
         val preview = when (prefKey) {
@@ -396,7 +411,7 @@ class SettingsActivity : AppCompatActivity() {
 
     fun showTabDialog(prefKey: String, title: CharSequence?) {
         val defaults = when (prefKey) {
-            C.UI_NAVIGATION_TAB_LIST -> C.DEFAULT_NAVIGATION_TAB_LIST
+            C.UI_NAVIGATION_TAB_LIST -> navigationTabDefaults(isTelevision())
             C.UI_FOLLOWING_TABS -> C.DEFAULT_FOLLOWING_TABS
             C.UI_SAVED_TABS -> C.DEFAULT_SAVED_TABS
             C.UI_CHANNEL_TABS -> C.DEFAULT_CHANNEL_TABS
@@ -2229,6 +2244,7 @@ class SettingsActivity : AppCompatActivity() {
     class ChatSettingsFragment : MaterialPreferenceFragment() {
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.chat_preferences, rootKey)
+            configureTvChatPreferences()
             findPreference<Preference>("chat_appearance_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatAppearanceFragment); true }
             findPreference<Preference>("chat_username_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatUsernameFragment); true }
             findPreference<Preference>("chat_emotes_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatEmotesFragment); true }
@@ -2291,6 +2307,76 @@ class SettingsActivity : AppCompatActivity() {
                 findPreference<SwitchPreferenceCompat>("chat_translate")?.isVisible = false
                 findPreference<Preference>("downloaded_languages")?.isVisible = false
                 findPreference<ListPreference>("chat_translate_target")?.isVisible = false
+            }
+        }
+
+        private fun configureTvChatPreferences() {
+            val category = findPreference<PreferenceCategory>("tv_chat_category") ?: return
+            category.isVisible = requireContext().isTelevision()
+            if (!category.isVisible) return
+
+            val preset = findPreference<ListPreference>(C.TV_CHAT_OVERLAY_PRESET)
+            val anchor = findPreference<ListPreference>(C.TV_CHAT_OVERLAY_ANCHOR)
+            val width = findPreference<SeekBarPreference>(C.TV_CHAT_OVERLAY_WIDTH_PERCENT)
+            val height = findPreference<SeekBarPreference>(C.TV_CHAT_OVERLAY_HEIGHT_PERCENT)
+            val opacity = findPreference<SeekBarPreference>(C.TV_CHAT_OVERLAY_OPACITY)
+
+            preset?.setOnPreferenceChangeListener { _, value ->
+                val selected = tvChatPreset(value.toString())
+                val config = if (selected == TvChatOverlayPreset.CUSTOM) {
+                    tvChatOverlayConfig(requireContext()).copy(preset = selected)
+                } else {
+                    com.github.andreyasadchy.xtra.ui.tv.tvChatPresetConfig(selected)
+                }
+                persistTvChatOverlayConfig(requireContext(), config)
+                anchor?.value = config.anchor.name
+                width?.value = config.widthPercent
+                height?.value = config.heightPercent
+                opacity?.value = config.opacityPercent
+                true
+            }
+
+            fun makeCustom(key: String, value: Int): Boolean {
+                val current = tvChatOverlayConfig(requireContext())
+                val updated = when (key) {
+                    C.TV_CHAT_OVERLAY_WIDTH_PERCENT -> current.copy(widthPercent = value)
+                    C.TV_CHAT_OVERLAY_HEIGHT_PERCENT -> current.copy(heightPercent = value)
+                    C.TV_CHAT_OVERLAY_OPACITY -> current.copy(opacityPercent = value)
+                    else -> current
+                }.copy(preset = TvChatOverlayPreset.CUSTOM)
+                persistTvChatOverlayConfig(requireContext(), updated)
+                preset?.value = TvChatOverlayPreset.CUSTOM.name
+                return true
+            }
+
+            anchor?.setOnPreferenceChangeListener { _, value ->
+                val current = tvChatOverlayConfig(requireContext())
+                persistTvChatOverlayConfig(
+                    requireContext(),
+                    current.copy(
+                        anchor = runCatching { TvChatOverlayAnchor.valueOf(value.toString()) }
+                            .getOrDefault(current.anchor),
+                        preset = TvChatOverlayPreset.CUSTOM,
+                    ),
+                )
+                preset?.value = TvChatOverlayPreset.CUSTOM.name
+                true
+            }
+            width?.setOnPreferenceChangeListener { _, value -> makeCustom(C.TV_CHAT_OVERLAY_WIDTH_PERCENT, value as Int) }
+            height?.setOnPreferenceChangeListener { _, value -> makeCustom(C.TV_CHAT_OVERLAY_HEIGHT_PERCENT, value as Int) }
+            opacity?.setOnPreferenceChangeListener { _, value -> makeCustom(C.TV_CHAT_OVERLAY_OPACITY, value as Int) }
+            findPreference<Preference>("tv_chat_reset")?.setOnPreferenceClickListener {
+                val config = TvChatOverlayConfig()
+                requireContext().prefs().edit {
+                    putString(C.TV_CHAT_MODE, "side_panel")
+                }
+                persistTvChatOverlayConfig(requireContext(), config)
+                preset?.value = TvChatOverlayPreset.AUTO.name
+                anchor?.value = config.anchor.name
+                width?.value = config.widthPercent
+                height?.value = config.heightPercent
+                opacity?.value = config.opacityPercent
+                true
             }
         }
 

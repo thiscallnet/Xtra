@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name" translatable="false">Xtra</string>
+    <string name="tv_browser_remote_hint">Use the D-pad to move the pointer. Press OK to select.</string>
     <string name="notification_downloads_channel_id" translatable="false">xtra_downloads_channel</string>
     <string name="notification_live_channel_id" translatable="false">xtra_live_channel</string>
     <string name="notification_playback_channel_id" translatable="false">xtra_playback_channel</string>
@@ -450,6 +451,17 @@
     <string name="settings_playback_speed_options">Playback speed options</string>
     <string name="settings_chat_general">General</string>
     <string name="settings_enable_chat">Enable chat</string>
+    <string name="settings_tv_chat">TV chat</string>
+    <string name="settings_tv_chat_layout">Chat layout</string>
+    <string name="settings_tv_chat_hidden">Hidden</string>
+    <string name="settings_tv_chat_side_panel">Side panel</string>
+    <string name="settings_tv_chat_overlay">Floating overlay</string>
+    <string name="settings_tv_chat_preset">Overlay preset</string>
+    <string name="settings_tv_chat_position">Overlay position</string>
+    <string name="settings_tv_chat_width">Overlay width</string>
+    <string name="settings_tv_chat_height">Overlay height</string>
+    <string name="settings_tv_chat_opacity">Overlay opacity</string>
+    <string name="settings_tv_chat_reset">Reset TV chat layout</string>
     <string name="settings_chat_appearance">Appearance</string>
     <string name="settings_chat_emotes_badges">Emotes &amp; badges</string>
     <string name="settings_chat_features">Twitch features</string>

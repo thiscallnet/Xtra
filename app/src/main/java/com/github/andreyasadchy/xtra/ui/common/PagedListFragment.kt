@@ -19,6 +19,8 @@ import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.isTelevision
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -48,7 +50,13 @@ abstract class PagedListFragment : BaseNetworkFragment() {
             // The RecyclerView is sized by the fixed fragment container, not
             // by its children. Avoid remeasuring the parent as rows change.
             recyclerView.setHasFixedSize(true)
-            swipeRefresh.isEnabled = enableSwipeRefresh
+            if (requireContext().isTelevision()) {
+                recyclerView.clipChildren = false
+                recyclerView.clipToPadding = false
+                val padding = resources.getDimensionPixelSize(R.dimen.tv_content_padding)
+                recyclerView.setPadding(padding, padding, padding, padding)
+            }
+            swipeRefresh.isEnabled = enableSwipeRefresh && !requireContext().isTelevision()
             if (enableSwipeRefresh) {
                 swipeRefresh.setOnRefreshListener { onRefresh() }
             }
@@ -68,6 +76,7 @@ abstract class PagedListFragment : BaseNetworkFragment() {
                     (parentFragment as? Scrollable)?.scrollToTop()
                     it.visibility = View.GONE
                 }
+                if (requireContext().isTelevision()) scrollTop.isFocusable = false
             }
         }
     }
@@ -89,6 +98,12 @@ abstract class PagedListFragment : BaseNetworkFragment() {
             // holders alive and add extra layout/draw work during refreshes.
             recyclerView.itemAnimator = null
             recyclerView.setHasFixedSize(true)
+            if (requireContext().isTelevision()) {
+                recyclerView.clipChildren = false
+                recyclerView.clipToPadding = false
+                val padding = resources.getDimensionPixelSize(R.dimen.tv_content_padding)
+                recyclerView.setPadding(padding, padding, padding, padding)
+            }
             setupPagingControls(binding, pagingAdapter, enableSwipeRefresh)
             root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                 updateTopInsetGuard(binding)
@@ -113,6 +128,7 @@ abstract class PagedListFragment : BaseNetworkFragment() {
                     (parentFragment as? Scrollable)?.scrollToTop()
                     it.visibility = View.GONE
                 }
+                if (requireContext().isTelevision()) scrollTop.isFocusable = false
             }
         }
     }
@@ -142,7 +158,7 @@ abstract class PagedListFragment : BaseNetworkFragment() {
         enableSwipeRefresh: Boolean = true,
     ) {
         binding.retryButton.setOnClickListener { pagingAdapter.retry() }
-        binding.swipeRefresh.isEnabled = enableSwipeRefresh
+        binding.swipeRefresh.isEnabled = enableSwipeRefresh && !requireContext().isTelevision()
         if (enableSwipeRefresh) {
             binding.swipeRefresh.setOnRefreshListener {
                 manualRefreshRequested = true

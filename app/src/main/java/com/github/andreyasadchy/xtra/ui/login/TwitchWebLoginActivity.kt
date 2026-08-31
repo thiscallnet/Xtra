@@ -3,15 +3,21 @@ package com.github.andreyasadchy.xtra.ui.login
 import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
+import android.view.KeyEvent
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.repository.auth.TwitchWebSessionManager
 import com.github.andreyasadchy.xtra.repository.auth.TwitchWebSessionState
+import com.github.andreyasadchy.xtra.databinding.ActivityTwitchWebLoginBinding
+import com.github.andreyasadchy.xtra.util.isTelevision
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.filterNotNull
 import org.mozilla.geckoview.GeckoSession
@@ -19,16 +25,20 @@ import org.mozilla.geckoview.GeckoView
 
 /** Displays the process-wide Twitch browser session. Authentication belongs to the manager. */
 class TwitchWebLoginActivity : AppCompatActivity() {
+    private lateinit var binding: ActivityTwitchWebLoginBinding
     private lateinit var geckoView: GeckoView
     private lateinit var session: GeckoSession
     private lateinit var sessionManager: TwitchWebSessionManager
     private var finished = false
+    private var tvPointerController: TvRemotePointerController? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
 
-        geckoView = GeckoView(this)
+        binding = ActivityTwitchWebLoginBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        geckoView = binding.geckoView
         sessionManager = (application as XtraApp).xtraModule.twitchWebSessionManager
         if (intent.getBooleanExtra(EXTRA_LOGOUT, false)) {
             lifecycleScope.launch {
@@ -39,7 +49,18 @@ class TwitchWebLoginActivity : AppCompatActivity() {
             return
         }
 
-        setContentView(geckoView)
+        if (isTelevision()) {
+            binding.tvCursor.isVisible = true
+            binding.tvRemoteHint.isVisible = true
+            tvPointerController = TvRemotePointerController(binding.root, geckoView, binding.tvCursor).also { it.initialize() }
+            binding.root.postDelayed({ binding.tvRemoteHint.isVisible = false }, 5_000L)
+            ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+                val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+                binding.tvCursor.isVisible = !imeVisible
+                binding.tvRemoteHint.isVisible = !imeVisible && !finished
+                insets
+            }
+        }
         session = sessionManager.openLoginSession(
             reauthorize = intent.getBooleanExtra(EXTRA_REAUTHORIZE, false),
         )
@@ -69,6 +90,15 @@ class TwitchWebLoginActivity : AppCompatActivity() {
 
     override fun onBackPressed() {
         cancel()
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (isTelevision()) {
+            val imeVisible = ViewCompat.getRootWindowInsets(binding.root)
+                ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            if (!imeVisible && tvPointerController?.handleKeyEvent(event) == true) return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onDestroy() {

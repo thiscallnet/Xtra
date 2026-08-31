@@ -8,4 +8,13 @@
     <Preference android:dependency="chat_enabled" android:key="chat_history_page" android:title="@string/settings_chat_history_page" app:iconSpaceReserved="false" />
     <Preference android:dependency="chat_enabled" android:key="chat_translation_page" android:title="@string/settings_chat_translation_page" app:iconSpaceReserved="false" />
     <Preference android:dependency="chat_enabled" android:key="chat_visibility_page" android:title="@string/settings_chat_visibility" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:key="tv_chat_category" android:title="@string/settings_tv_chat" app:iconSpaceReserved="false">
+    <ListPreference android:defaultValue="side_panel" android:entries="@array/tvChatModeEntries" android:entryValues="@array/tvChatModeValues" android:key="tv_chat_mode" android:summary="%s" android:title="@string/settings_tv_chat_layout" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="AUTO" android:entries="@array/tvChatPresetEntries" android:entryValues="@array/tvChatPresetValues" android:key="tv_chat_overlay_preset" android:summary="%s" android:title="@string/settings_tv_chat_preset" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="TOP_RIGHT" android:entries="@array/tvChatAnchorEntries" android:entryValues="@array/tvChatAnchorValues" android:key="tv_chat_overlay_anchor" android:summary="%s" android:title="@string/settings_tv_chat_position" app:iconSpaceReserved="false" />
+    <SeekBarPreference android:defaultValue="34" android:key="tv_chat_overlay_width_percent" android:max="65" android:min="25" android:title="@string/settings_tv_chat_width" app:iconSpaceReserved="false" app:showSeekBarValue="true" />
+    <SeekBarPreference android:defaultValue="44" android:key="tv_chat_overlay_height_percent" android:max="80" android:min="20" android:title="@string/settings_tv_chat_height" app:iconSpaceReserved="false" app:showSeekBarValue="true" />
+    <SeekBarPreference android:defaultValue="85" android:key="tv_chat_overlay_opacity" android:max="100" android:min="40" android:title="@string/settings_tv_chat_opacity" app:iconSpaceReserved="false" app:showSeekBarValue="true" />
+    <Preference android:key="tv_chat_reset" android:title="@string/settings_tv_chat_reset" app:iconSpaceReserved="false" />
+    </PreferenceCategory>
 </androidx.preference.PreferenceScreen>

@@ -9,14 +9,67 @@
     <androidx.fragment.app.FragmentContainerView
         android:id="@+id/navHostFragment"
         android:name="com.github.andreyasadchy.xtra.ui.main.MainNavHostFragment"
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="0dp"
         app:defaultNavHost="true"
         app:layout_constraintBottom_toTopOf="@id/navBarContainer"
-        app:layout_constraintLeft_toLeftOf="parent"
-        app:layout_constraintRight_toRightOf="parent"
+        app:layout_constraintStart_toEndOf="@id/tvNavigationContainer"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         tools:layout="@layout/fragment_media_pager" />
+
+    <LinearLayout
+        android:id="@+id/tvNavigationContainer"
+        android:layout_width="@dimen/tv_navigation_width"
+        android:layout_height="0dp"
+        android:orientation="vertical"
+        android:paddingTop="@dimen/tv_navigation_vertical_padding"
+        android:paddingBottom="@dimen/tv_navigation_vertical_padding"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:scrollbars="none">
+
+            <com.google.android.material.navigationrail.NavigationRailView
+                android:id="@+id/tvNavRail"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:labelVisibilityMode="labeled"
+                app:menuGravity="top" />
+        </ScrollView>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tvSearch"
+                style="?attr/borderlessButtonStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/search" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tvAccount"
+                style="?attr/borderlessButtonStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/account" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tvSettings"
+                style="?attr/borderlessButtonStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings" />
+        </LinearLayout>
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/navBarContainer"

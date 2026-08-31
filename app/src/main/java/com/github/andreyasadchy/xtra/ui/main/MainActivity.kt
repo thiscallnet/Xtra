@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.ActivityOptions
 import android.app.PictureInPictureParams
 import android.app.admin.DevicePolicyManager
+import android.content.pm.ActivityInfo
 import android.content.BroadcastReceiver
 import android.content.ComponentCallbacks2
 import android.content.Context
@@ -13,6 +14,7 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.Rect
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -27,6 +29,7 @@ import android.util.Log
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
+import android.view.KeyEvent
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -75,6 +78,9 @@ import com.github.andreyasadchy.xtra.ui.download.VideoDownloadService
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
+import com.github.andreyasadchy.xtra.ui.account.AccountActivity
+import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
+import com.github.andreyasadchy.xtra.ui.tv.TvRemoteKeyHandler
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel.Companion.MainViewModelFactory
 import com.github.andreyasadchy.xtra.ui.player.BasePlaybackService
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerFragment
@@ -88,6 +94,10 @@ import com.github.andreyasadchy.xtra.ui.saved.SavedPagerFragment
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.settings.openTabCustomization
 import com.github.andreyasadchy.xtra.ui.settings.limitNavigationVisibleItems
+import com.github.andreyasadchy.xtra.ui.settings.MAX_TV_NAVIGATION_VISIBLE_ITEMS
+import com.github.andreyasadchy.xtra.ui.settings.navigationTabDefaults
+import com.github.andreyasadchy.xtra.ui.tv.applyTvSafePadding
+import com.github.andreyasadchy.xtra.ui.tv.disableTvClippingUpTree
 import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
@@ -106,6 +116,8 @@ import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.rawPrefs
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import com.github.andreyasadchy.xtra.util.isTelevision
+import com.google.android.material.navigation.NavigationBarView
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.snackbar.Snackbar
 import java.util.Locale
@@ -158,6 +170,10 @@ class MainActivity : AppCompatActivity() {
     private var bottomNavigationDrainPosted = false
     private val bottomNavigationInteractionSource = Any()
     private var keepStateNavigator: KeepStateFragmentNavigator? = null
+    private val isTv: Boolean get() = isTelevision()
+
+    private fun rootNavigationView(): NavigationBarView =
+        if (isTv) binding.tvNavRail else binding.navBar
 
     //Lifecycle methods
 
@@ -170,6 +186,25 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        if (isTv) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
+        binding.tvNavigationContainer.isVisible = isTv
+        binding.navBarContainer.isVisible = !isTv
+        binding.playerContainer.isFocusable = !isTv
+        if (isTv) {
+            binding.root.disableTvClippingUpTree(levels = 2)
+            binding.tvNavigationContainer.disableTvClippingUpTree(levels = 1)
+            binding.navHostFragment.applyTvSafePadding()
+        }
+        binding.tvSearch.setOnClickListener {
+            leavePlayerForBrowsing()
+            navController.navigate(R.id.action_global_searchPagerFragment)
+        }
+        binding.tvAccount.setOnClickListener { openTvAccount() }
+        binding.tvSettings.setOnClickListener {
+            settingsResultLauncher?.launch(Intent(this, com.github.andreyasadchy.xtra.ui.settings.SettingsActivity::class.java))
+        }
         PerfFrameMetricsDiagnostics.attach(this)
         fragmentLifecycleCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
             override fun onFragmentViewCreated(
@@ -521,12 +556,12 @@ class MainActivity : AppCompatActivity() {
                     if (video != null) {
                         if (!video.id.isNullOrBlank()) {
                             (playerFragment as? Media3PlayerFragment)?.also {
-                                it.minimize()
+                                if (!isTv) it.minimize()
                                 it.close()
                                 closePlayer()
                             } ?:
                             (playerFragment as? PlayerFragment)?.also {
-                                it.minimize()
+                                if (!isTv) it.minimize()
                                 it.close()
                                 closePlayer()
                             }
@@ -554,7 +589,7 @@ class MainActivity : AppCompatActivity() {
                 viewModel.user.collectLatest { user ->
                     if (user != null) {
                         if (!user.id.isNullOrBlank() || !user.login.isNullOrBlank()) {
-                            (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
+                            leavePlayerForBrowsing()
                             navController.navigate(
                                 ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
                                     channelId = user.id,
@@ -576,7 +611,7 @@ class MainActivity : AppCompatActivity() {
                         val game = pair.first
                         val tag = pair.second
                         if (game != null) {
-                            (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
+                            leavePlayerForBrowsing()
                             navController.navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
                                 gameId = game.id,
                                 gameSlug = game.slug,
@@ -594,7 +629,7 @@ class MainActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.tag.collectLatest { tag ->
                     if (tag != null) {
-                        (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
+                        leavePlayerForBrowsing()
                         navController.navigate(
                             GamesFragmentDirections.actionGlobalGamesFragment(
                                 tags = arrayOf(tag)
@@ -745,8 +780,7 @@ class MainActivity : AppCompatActivity() {
         if (userId.isNullOrBlank() && login.isNullOrBlank()) {
             return
         }
-        (playerFragment as? Media3PlayerFragment)?.minimize()
-            ?: (playerFragment as? PlayerFragment)?.minimize()
+        leavePlayerForBrowsing()
         navController.navigate(
             ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
                 channelId = userId,
@@ -811,6 +845,16 @@ class MainActivity : AppCompatActivity() {
         }
         updateSettingsIndicator()
         restorePlayerFragment()
+        if (isTv) {
+            binding.root.post { restoreTvRootFocusIfNeeded() }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && isTv) {
+            binding.root.post { restoreTvRootFocusIfNeeded() }
+        }
     }
 
     override fun onUserInteraction() {
@@ -894,6 +938,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        if (isTv) return
         // Multiview uses background audio when Home is pressed. Its explicit
         // toolbar action is the opt-in path into PiP, so Home never leaves a
         // grid unexpectedly floating over another app.
@@ -913,7 +958,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun canMinimizeMultiview(): Boolean {
-        return playerFragment == null &&
+        return !isTv && playerFragment == null &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
             prefs.getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true)
@@ -1007,12 +1052,12 @@ class MainActivity : AppCompatActivity() {
                     }
                     path.take(3) == listOf("directory", "all", "tags") -> {
                         path.getOrNull(3)?.takeIf { it.isNotBlank() }?.let {
-                            (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
+                            leavePlayerForBrowsing()
                             navController.navigate(TopStreamsFragmentDirections.actionGlobalTopFragment(tags = arrayOf(it)))
                         }
                     }
                     path == listOf("directory", "all") -> {
-                        (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
+                        leavePlayerForBrowsing()
                         navController.navigate(TopStreamsFragmentDirections.actionGlobalTopFragment())
                     }
                     path.take(2) == listOf("directory", "tags") -> {
@@ -1021,12 +1066,12 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     path.firstOrNull() == "directory" -> {
-                        (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
+                        leavePlayerForBrowsing()
                         navController.navigate(GamesFragmentDirections.actionGlobalGamesFragment())
                     }
                     path.firstOrNull() == "team" -> {
                         path.getOrNull(1)?.takeIf { it.isNotBlank() }?.let {
-                            (playerFragment as? Media3PlayerFragment)?.minimize() ?: (playerFragment as? PlayerFragment)?.minimize()
+                            leavePlayerForBrowsing()
                             navController.navigate(TeamFragmentDirections.actionGlobalTeamFragment(teamName = it))
                         }
                     }
@@ -1048,7 +1093,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             INTENT_OPEN_DOWNLOADS_TAB -> {
-                binding.navBar.selectedItemId = R.id.savedPagerFragment
+                rootNavigationView().selectedItemId = R.id.savedPagerFragment
             }
             INTENT_OPEN_DOWNLOADED_VIDEO -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -1328,12 +1373,12 @@ class MainActivity : AppCompatActivity() {
                     lifecycleScope.launch {
                         if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
                             (playerFragment as? Media3PlayerFragment)?.also {
-                                it.minimize()
+                                if (!isTv) it.minimize()
                                 it.close()
                                 closePlayer()
                             } ?:
                             (playerFragment as? PlayerFragment)?.also {
-                                it.minimize()
+                                if (!isTv) it.minimize()
                                 it.close()
                                 closePlayer()
                             }
@@ -1349,12 +1394,12 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             withStarted {
                                 (playerFragment as? Media3PlayerFragment)?.also {
-                                    it.minimize()
+                                    if (!isTv) it.minimize()
                                     it.close()
                                     closePlayer()
                                 } ?:
                                 (playerFragment as? PlayerFragment)?.also {
-                                    it.minimize()
+                                    if (!isTv) it.minimize()
                                     it.close()
                                     closePlayer()
                                 }
@@ -1391,11 +1436,133 @@ class MainActivity : AppCompatActivity() {
         navController.navigateUp()
     }
 
+    private fun openTvAccount() {
+        val tokenPreferences = tokenPrefs()
+        val loggedIn = !tokenPreferences.getString(C.USER_ID, null).isNullOrBlank() ||
+            !tokenPreferences.getString(C.USERNAME, null).isNullOrBlank()
+        if (loggedIn) {
+            startActivity(Intent(this, AccountActivity::class.java))
+        } else {
+            loginResultLauncher?.launch(Intent(this, TwitchWebLoginActivity::class.java))
+        }
+    }
+
+    private fun leavePlayerForBrowsing() {
+        if (isTv) {
+            when (val player = playerFragment) {
+                is Media3PlayerFragment -> player.close()
+                is PlayerFragment -> player.close()
+            }
+            if (playerFragment != null) closePlayer()
+        } else {
+            (playerFragment as? Media3PlayerFragment)?.minimize()
+                ?: (playerFragment as? PlayerFragment)?.minimize()
+        }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (isTv) {
+            val player = playerFragment
+            if (player is TvRemoteKeyHandler && player.handleTvKeyEvent(event)) return true
+            val focused = currentFocus
+            if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT &&
+                focused != null && isDescendantOf(focused, binding.tvNavigationContainer)) {
+                focused.focusSearch(View.FOCUS_RIGHT)?.takeIf {
+                    !isDescendantOf(it, binding.tvNavigationContainer) &&
+                        isTvContentFocusCandidate(it)
+                }?.let { it.requestFocus(); return true }
+                if (requestFirstTvContentFocus()) return true
+                focused.requestFocus()
+                return true
+            }
+            if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT &&
+                focused != null && isDescendantOf(focused, binding.navHostFragment) &&
+                (focused.focusSearch(View.FOCUS_LEFT) == null ||
+                    focused.focusSearch(View.FOCUS_LEFT)?.let { isDescendantOf(it, binding.tvNavigationContainer) } == true) &&
+                requestTvRootNavigationFocus()) {
+                return true
+            }
+            if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in setOf(
+                    KeyEvent.KEYCODE_DPAD_LEFT,
+                    KeyEvent.KEYCODE_DPAD_RIGHT,
+                    KeyEvent.KEYCODE_DPAD_UP,
+                    KeyEvent.KEYCODE_DPAD_DOWN,
+                )) {
+                binding.root.postDelayed({
+                    if (currentFocus == null && rootNavigationView().menu.size() > 0) {
+                        rootNavigationView().findViewById<View>(rootNavigationView().selectedItemId)?.requestFocus()
+                    }
+                }, 50L)
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun restoreTvRootFocusIfNeeded() {
+        if (!isTv || playerFragment != null || currentFocus != null) return
+        requestTvRootNavigationFocus()
+    }
+
+    private fun requestTvRootNavigationFocus(): Boolean {
+        val navigationView = rootNavigationView()
+        val itemId = navigationView.selectedItemId
+            .takeIf { it != View.NO_ID && navigationView.menu.findItem(it) != null }
+            ?: navigationView.menu.takeIf { it.size() > 0 }?.getItem(0)?.itemId
+            ?: return false
+        return navigationView.findViewById<View>(itemId)?.requestFocus() == true
+    }
+
+    private fun isDescendantOf(view: View?, ancestor: ViewGroup): Boolean {
+        var current = view
+        while (current != null) {
+            if (current === ancestor) return true
+            current = current.parent as? View
+        }
+        return false
+    }
+
+    private fun requestFirstTvContentFocus(): Boolean {
+        val candidates = buildList {
+            collectTvFocusableViews(binding.navHostFragment, this)
+        }
+        val navRight = binding.tvNavigationContainer.right
+        val candidate = candidates
+            .filter { view ->
+                isTvContentFocusCandidate(view, navRight)
+            }
+            .minWithOrNull(compareBy<View> { view ->
+                val bounds = Rect()
+                view.getGlobalVisibleRect(bounds)
+                bounds.top
+            }.thenBy { view ->
+                val bounds = Rect()
+                view.getGlobalVisibleRect(bounds)
+                bounds.left
+            })
+        return candidate?.requestFocus() == true
+    }
+
+    private fun isTvContentFocusCandidate(view: View, minimumLeft: Int = binding.tvNavigationContainer.right): Boolean {
+        val bounds = Rect()
+        return view.getGlobalVisibleRect(bounds) &&
+            bounds.left >= minimumLeft &&
+            bounds.top > resources.getDimensionPixelSize(R.dimen.tv_safe_vertical) * 3
+    }
+
+    private fun collectTvFocusableViews(view: View, result: MutableList<View>) {
+        if (view.isShown && view.isFocusable && view.isClickable) result += view
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                collectTvFocusableViews(view.getChildAt(index), result)
+            }
+        }
+    }
+
     private fun initNavigation() {
         navController = (supportFragmentManager.findFragmentById(R.id.navHostFragment) as NavHostFragment).navController
         navController.setOnBackPressedDispatcher(onBackPressedDispatcher)
         val tabList = prefs.getString(C.UI_NAVIGATION_TAB_LIST, null).let { tabPref ->
-            val defaultTabs = C.DEFAULT_NAVIGATION_TAB_LIST.split(',')
+            val defaultTabs = navigationTabDefaults(isTv).split(',')
             if (tabPref != null) {
                 val list = tabPref.split(',').filter { item ->
                     defaultTabs.find { it.first() == item.first() } != null
@@ -1407,7 +1574,12 @@ class MainActivity : AppCompatActivity() {
                 }
                 list
             } else defaultTabs
-        }.let(::limitNavigationVisibleItems)
+        }.let {
+            limitNavigationVisibleItems(
+                it,
+                if (isTv) MAX_TV_NAVIGATION_VISIBLE_ITEMS else 6,
+            )
+        }
         navController.setGraph(navController.navInflater.inflate(R.navigation.nav_graph).also {
             val defaultItem = tabList.find { it.split(':')[1] != "0" }?.split(':')[0] ?: "1"
             when {
@@ -1424,7 +1596,7 @@ class MainActivity : AppCompatActivity() {
             .let { it as? KeepStateFragmentNavigator }
             ?.also { navigator ->
                 navigator.onNavigationTransactionCommitted = { destinationId ->
-                    binding.navBar.post {
+                    rootNavigationView().post {
                         if (bottomNavigationTransactionInFlight &&
                             destinationId == bottomNavigationDestinationInFlight
                         ) {
@@ -1436,7 +1608,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
         }
-        binding.navBar.apply {
+        rootNavigationView().apply {
             val menuBuilder = menu as? MenuBuilder
             menuBuilder?.stopDispatchingItemsChanged()
             try {
@@ -1480,6 +1652,12 @@ class MainActivity : AppCompatActivity() {
                         true
                     }
                 }
+                if (isTv && menu.size() > 0) {
+                    configureTvRootFocusOrder()
+                    findViewById<View>(menu.getItem(0).itemId)?.post {
+                        findViewById<View>(menu.getItem(0).itemId)?.requestFocus()
+                    }
+                }
             }
             setOnItemSelectedListener {
                 pendingBottomNavigationItemId = it.itemId
@@ -1500,10 +1678,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun configureTvRootFocusOrder() {
+        if (!isTv) return
+        val railItems = (0 until rootNavigationView().menu.size())
+            .mapNotNull { rootNavigationView().menu.getItem(it)?.itemId }
+            .mapNotNull { rootNavigationView().findViewById<View>(it) }
+        val actions = listOf(binding.tvSearch, binding.tvAccount, binding.tvSettings)
+        val ordered = railItems + actions
+        ordered.forEachIndexed { index, view ->
+            ordered.getOrNull(index - 1)?.id?.takeIf { it != View.NO_ID }?.let { view.nextFocusUpId = it }
+            ordered.getOrNull(index + 1)?.id?.takeIf { it != View.NO_ID }?.let { view.nextFocusDownId = it }
+        }
+    }
+
     private fun drainBottomNavigation() {
         if (bottomNavigationDrainPosted) return
         bottomNavigationDrainPosted = true
-        binding.navBar.post {
+        rootNavigationView().post {
             bottomNavigationDrainPosted = false
             if (isFinishing || isDestroyed || bottomNavigationTransactionInFlight) return@post
 
@@ -1513,7 +1704,7 @@ class MainActivity : AppCompatActivity() {
                 return@post
             }
 
-            val item = binding.navBar.menu.findItem(itemId) ?: return@post
+            val item = rootNavigationView().menu.findItem(itemId) ?: return@post
             pendingBottomNavigationItemId = null
             bottomNavigationTransactionInFlight = true
             bottomNavigationDestinationInFlight = itemId
