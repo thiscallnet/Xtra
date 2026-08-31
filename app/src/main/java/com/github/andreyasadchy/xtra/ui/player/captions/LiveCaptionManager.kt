@@ -69,6 +69,13 @@ private data class AudioFormatState(
     val encoding: Int,
 )
 
+private data class PendingCaptionEvent(
+    val event: CaptionRecognitionEvent,
+    val dueAtMs: Long,
+)
+
+private const val MAX_PENDING_CAPTION_EVENTS = 16
+
 @OptIn(UnstableApi::class)
 class LiveCaptionManager(
     private val context: Context,
@@ -82,6 +89,7 @@ class LiveCaptionManager(
     private val activeAudioSinkId = AtomicLong(NO_AUDIO_SINK)
     private val droppedAudioBuffers = AtomicInteger(0)
     private val presentationDelayMs = AtomicInteger(0)
+    private val captionTextOffsetMs = AtomicInteger(DEFAULT_CAPTION_TEXT_OFFSET_MS)
     private val captionHoldMs = AtomicInteger(DEFAULT_CAPTION_HOLD_SECONDS * 1_000)
     private val audioQueue = CaptionAudioQueue()
     private val stateMutable = MutableStateFlow(LiveCaptionState())
@@ -102,7 +110,24 @@ class LiveCaptionManager(
     val metrics: StateFlow<LiveCaptionMetrics> = metricsMutable.asStateFlow()
 
     /** Read from the audio render thread; this is deliberately only an atomic load. */
-    fun presentationDelayMs(): Int = presentationDelayMs.get()
+    fun presentationDelayMs(): Int {
+        val baseDelayMs = presentationDelayMs.get()
+        val textOffsetMs = captionTextOffsetMs.get()
+        // Positive offsets are applied to caption events by the worker. A
+        // negative offset is represented by holding playback back slightly,
+        // which is the only safe way to make already-produced text appear
+        // earlier relative to the audible content.
+        return if (textOffsetMs < 0) {
+            (baseDelayMs - textOffsetMs).coerceAtMost(MAX_CAPTION_PRESENTATION_DELAY_MS)
+        } else {
+            baseDelayMs
+        }
+    }
+
+    fun reloadCaptionSettings() {
+        if (closed.get()) return
+        refreshRuntimeSettings()
+    }
 
     /**
      * A renderer-owned sink. Only the sink claimed by the current playback
@@ -190,6 +215,7 @@ class LiveCaptionManager(
         if (!value) {
             enabled.set(false)
             presentationDelayMs.set(0)
+            captionTextOffsetMs.set(DEFAULT_CAPTION_TEXT_OFFSET_MS)
             audioGeneration.incrementAndGet()
             audioQueue.clear()
             audioQueue.offer(AudioEvent.Stop)
@@ -257,6 +283,7 @@ class LiveCaptionManager(
         if (!closed.compareAndSet(false, true)) return
         enabled.set(false)
         presentationDelayMs.set(0)
+        captionTextOffsetMs.set(DEFAULT_CAPTION_TEXT_OFFSET_MS)
         audioQueue.clear()
         audioQueue.offer(AudioEvent.Stop)
         resetCaptionText()
@@ -288,7 +315,58 @@ class LiveCaptionManager(
         var acceptedAudioMs = 0L
         var nextMetricsLogMs = SystemClock.elapsedRealtime() + METRICS_LOG_INTERVAL_MS
         var visibleCaptionExpiresAtMs = 0L
+        val pendingCaptionEvents = ArrayDeque<PendingCaptionEvent>()
         val droppedBuffersBaseline = EngineDropBaseline(droppedAudioBuffers.get())
+
+        fun markFirstOutput(text: String) {
+            if (firstOutputAfterStartMs == null && text.isNotBlank()) {
+                firstOutputAfterStartMs = SystemClock.elapsedRealtime() - metricsStartedAtMs
+            }
+        }
+
+        fun applyCaptionEvent(event: CaptionRecognitionEvent) {
+            val text = when (event) {
+                is CaptionRecognitionEvent.Partial -> event.text
+                is CaptionRecognitionEvent.Final -> event.text
+            }
+            markFirstOutput(text)
+            when (event) {
+                is CaptionRecognitionEvent.Partial -> publishPartial(event)
+                is CaptionRecognitionEvent.Final -> publishFinal(event)
+            }
+            visibleCaptionExpiresAtMs = SystemClock.elapsedRealtime() + captionHoldMs.get()
+        }
+
+        fun enqueueCaptionEvent(event: CaptionRecognitionEvent) {
+            val delayMs = captionTextOffsetMs.get().coerceAtLeast(0)
+            if (delayMs == 0) {
+                applyCaptionEvent(event)
+                return
+            }
+
+            // Only the newest pending partial is useful; each hypothesis is
+            // cumulative and an older one would make the caption move
+            // backwards when it is eventually displayed.
+            if (event is CaptionRecognitionEvent.Partial) {
+                pendingCaptionEvents.removeIf { it.event is CaptionRecognitionEvent.Partial }
+            }
+            if (pendingCaptionEvents.size >= MAX_PENDING_CAPTION_EVENTS) {
+                pendingCaptionEvents.removeFirst()
+            }
+            pendingCaptionEvents.addLast(
+                PendingCaptionEvent(
+                    event = event,
+                    dueAtMs = SystemClock.elapsedRealtime() + delayMs,
+                ),
+            )
+        }
+
+        fun drainPendingCaptionEvents() {
+            val now = SystemClock.elapsedRealtime()
+            while (pendingCaptionEvents.firstOrNull()?.dueAtMs?.let { it <= now } == true) {
+                applyCaptionEvent(pendingCaptionEvents.removeFirst().event)
+            }
+        }
 
         fun resetMetrics() {
             metricsEngineId = MOONSHINE_ENGINE_ID
@@ -310,12 +388,6 @@ class LiveCaptionManager(
             )
         }
 
-        fun markFirstOutput(text: String) {
-            if (firstOutputAfterStartMs == null && text.isNotBlank()) {
-                firstOutputAfterStartMs = SystemClock.elapsedRealtime() - metricsStartedAtMs
-            }
-        }
-
         fun closeEngine() {
             runCatching { engine?.close() }
             engine = null
@@ -324,6 +396,7 @@ class LiveCaptionManager(
 
         try {
             while (!closed.get()) {
+                drainPendingCaptionEvents()
                 if (visibleCaptionExpiresAtMs != 0L &&
                     SystemClock.elapsedRealtime() >= visibleCaptionExpiresAtMs
                 ) {
@@ -334,6 +407,7 @@ class LiveCaptionManager(
                 val event = audioQueue.poll(QUEUE_POLL_INTERVAL_MS) ?: continue
                 when (event) {
                     AudioEvent.Stop -> {
+                        pendingCaptionEvents.clear()
                         closeEngine()
                         audioQueue.clear()
                         if (!enabled.get()) break
@@ -341,6 +415,7 @@ class LiveCaptionManager(
 
                     is AudioEvent.Reconfigure -> {
                         if (event.generation != audioGeneration.get()) continue
+                        pendingCaptionEvents.clear()
                         closeEngine()
                         resetCaptionText()
                         visibleCaptionExpiresAtMs = 0L
@@ -349,6 +424,7 @@ class LiveCaptionManager(
 
                     is AudioEvent.Reset -> {
                         if (event.generation != audioGeneration.get()) continue
+                        pendingCaptionEvents.clear()
                         engine?.reset()
                         engineGeneration = event.generation
                         clearVisibleCaption()
@@ -356,6 +432,7 @@ class LiveCaptionManager(
                     }
 
                     is AudioEvent.Flush -> {
+                        pendingCaptionEvents.clear()
                         if (!enabled.get()) {
                             closeEngine()
                             audioQueue.clear()
@@ -422,21 +499,7 @@ class LiveCaptionManager(
 
                         if (event.generation != audioGeneration.get() || !enabled.get()) continue
                         events.forEach { recognition ->
-                            when (recognition) {
-                                is CaptionRecognitionEvent.Partial -> {
-                                    markFirstOutput(recognition.text)
-                                    publishPartial(recognition)
-                                    visibleCaptionExpiresAtMs =
-                                        SystemClock.elapsedRealtime() + captionHoldMs.get()
-                                }
-
-                                is CaptionRecognitionEvent.Final -> {
-                                    markFirstOutput(recognition.text)
-                                    publishFinal(recognition)
-                                    visibleCaptionExpiresAtMs =
-                                        SystemClock.elapsedRealtime() + captionHoldMs.get()
-                                }
-                            }
+                            enqueueCaptionEvent(recognition)
                         }
 
                         val now = SystemClock.elapsedRealtime()
@@ -565,6 +628,14 @@ class LiveCaptionManager(
                 PreferenceKeys.PLAYER_LIVE_CAPTION_PRESENTATION_DELAY_MS,
                 DEFAULT_CAPTION_PRESENTATION_DELAY_MS,
             ).coerceIn(0, MAX_CAPTION_PRESENTATION_DELAY_MS),
+        )
+        captionTextOffsetMs.set(
+            parseCaptionTextOffsetMs(
+                preferences.getString(
+                    PreferenceKeys.PLAYER_LIVE_CAPTION_TEXT_OFFSET_SECONDS,
+                    DEFAULT_CAPTION_TEXT_OFFSET_MS.toString(),
+                ),
+            ),
         )
         captionHoldMs.set(
             preferences.getInt(

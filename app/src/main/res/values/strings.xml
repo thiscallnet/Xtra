@@ -966,6 +966,10 @@
     <string name="live_caption_hold_summary" translatable="false">Seconds captions remain during silence</string>
     <string name="live_caption_presentation_delay" translatable="false">Caption sync delay</string>
     <string name="live_caption_presentation_delay_summary" translatable="false">Delays audio and video after PCM capture so captions can catch up</string>
+    <string name="live_caption_text_offset" translatable="false">Caption timing adjustment</string>
+    <string name="live_caption_text_offset_description" translatable="false">Positive values show captions later; negative values show them earlier relative to playback</string>
+    <string name="live_caption_text_offset_summary" translatable="false">%1$s (positive = captions later, negative = captions earlier)</string>
+    <string name="live_caption_text_offset_invalid" translatable="false">Enter a value from -2.0 to 2.0 seconds</string>
     <string name="toggle_subtitles">Toggle subtitles</string>
     <string name="enable_stv">Enable 7TV emotes</string>
     <string name="enable_bttv">Enable BTTV emotes</string>

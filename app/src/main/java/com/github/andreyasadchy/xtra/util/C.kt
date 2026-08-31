@@ -213,6 +213,7 @@ object C {
     const val PLAYER_LIVE_CAPTION_ANIMATION_MS = "player_live_caption_animation_ms"
     const val PLAYER_LIVE_CAPTION_HOLD_SECONDS = "player_live_caption_hold_seconds"
     const val PLAYER_LIVE_CAPTION_PRESENTATION_DELAY_MS = "player_live_caption_presentation_delay_ms"
+    const val PLAYER_LIVE_CAPTION_TEXT_OFFSET_SECONDS = "player_live_caption_text_offset_seconds"
     const val PLAYER_REWIND = "playerRewindV2"
     const val PLAYER_FORWARD = "playerForwardV2"
     const val PLAYER_BACKGROUND_PLAYBACK = "player_background_playback"

@@ -118,6 +118,7 @@ import com.github.andreyasadchy.xtra.util.updater.UpdateVersionDisplay
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.ui.player.captions.formatCaptionTextOffset
 import com.github.andreyasadchy.xtra.util.parseChatBadgeSize
 import com.github.andreyasadchy.xtra.util.proxyPrefs
 import com.github.andreyasadchy.xtra.util.rawPrefs
@@ -2318,6 +2319,42 @@ class SettingsActivity : AppCompatActivity() {
                         Toast.makeText(requireContext(), R.string.live_caption_custom_color_summary, Toast.LENGTH_SHORT).show()
                     }
                     valid
+                }
+                findPreference<EditTextPreference>(C.PLAYER_LIVE_CAPTION_TEXT_OFFSET_SECONDS)?.apply {
+                    fun updateSummary(value: String?) {
+                        summary = getString(
+                            R.string.live_caption_text_offset_summary,
+                            formatCaptionTextOffset(value),
+                        )
+                    }
+
+                    updateSummary(text)
+                    setOnBindEditTextListener { editText ->
+                        editText.inputType =
+                            InputType.TYPE_CLASS_NUMBER or
+                                InputType.TYPE_NUMBER_FLAG_DECIMAL or
+                                InputType.TYPE_NUMBER_FLAG_SIGNED
+                        editText.hint = "0.0"
+                    }
+                    setOnPreferenceChangeListener { preference, value ->
+                        val rawValue = value.toString().trim()
+                        val seconds = rawValue.toDoubleOrNull()
+                        if (seconds == null || !seconds.isFinite() || seconds !in -2.0..2.0) {
+                            Toast.makeText(
+                                requireContext(),
+                                R.string.live_caption_text_offset_invalid,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            false
+                        } else {
+                            // Normalize the displayed value but preserve the
+                            // user's signed seconds in SharedPreferences.
+                            updateSummary(rawValue)
+                            (requireContext().applicationContext as XtraApp)
+                                .xtraModule.liveCaptionManager.reloadCaptionSettings()
+                            true
+                        }
+                    }
                 }
             }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !requireActivity().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
