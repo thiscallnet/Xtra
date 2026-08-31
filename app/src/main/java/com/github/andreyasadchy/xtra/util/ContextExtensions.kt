@@ -6,7 +6,6 @@ import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.os.Build
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.res.use
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -15,7 +14,6 @@ import com.github.andreyasadchy.xtra.R
 import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.DynamicColorsOptions
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import java.util.Locale
 import java.util.WeakHashMap
 
 private val preferencesCache = WeakHashMap<Context, PreferenceSet>()
@@ -250,17 +248,6 @@ fun SharedPreferences.httpProxyPort(): Int? = getString(C.PROXY_PORT, null)?.toI
 fun SharedPreferences.shouldAvoidTwitchAds(): Boolean = getBoolean(C.PLAYER_AVOID_ADS, true)
 
 fun Activity.applyTheme() {
-    // On Android 15, wrong language is used when multiple languages are set in device settings
-    if (Build.VERSION.SDK_INT == Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-        val lang = AppCompatDelegate.getApplicationLocales()
-        resources.configuration.setLocale(
-            if (!lang.isEmpty) {
-                Locale.forLanguageTag(lang.toLanguageTags())
-            } else {
-                Locale.getDefault()
-            }
-        )
-    }
     val themeMode = prefs().getString(C.SETTINGS_THEME_MODE, "system") ?: "system"
     val resolvedMode = if (themeMode == "system") {
         if ((resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES) {
