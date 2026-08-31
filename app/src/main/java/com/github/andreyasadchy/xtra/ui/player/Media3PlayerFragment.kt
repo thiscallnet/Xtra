@@ -3101,8 +3101,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             hideController(true)
             fun animate() {
                 val (minimizedScaleX, minimizedScaleY) = getScaleValues()
-                dismissPlayer.scaleX = 1f / minimizedScaleX
-                dismissPlayer.scaleY = 1f / minimizedScaleY
+                // Keep the close control at a 48dp effective touch target while
+                // allowing its icon to scale down with the mini-player.
+                dismissPlayer.scaleX = (2f / 3f) / minimizedScaleX
+                dismissPlayer.scaleY = (2f / 3f) / minimizedScaleY
                 val windowInsets = ViewCompat.getRootWindowInsets(requireView())
                 val insets = windowInsets?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
                 val keyboardInsets = windowInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom?.let { if (it > 0) it - (insets?.bottom ?: 0) else it } ?: 0
