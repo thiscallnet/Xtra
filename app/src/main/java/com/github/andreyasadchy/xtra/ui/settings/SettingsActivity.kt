@@ -95,6 +95,7 @@ import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationService
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.SettingsViewModelFactory
+import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionPositionDialogFragment
 import com.github.andreyasadchy.xtra.ui.update.UpdateNotesBinder
 import com.github.andreyasadchy.xtra.ui.update.UpdateStatusBinder
 import com.github.andreyasadchy.xtra.ui.update.UpdateUiAction
@@ -232,6 +233,7 @@ class SettingsActivity : AppCompatActivity() {
             when (intent.getStringExtra(EXTRA_SETTINGS_SCREEN)) {
                 SETTINGS_SCREEN_TABS -> navController.navigate(R.id.browsingTabsFragment)
                 SETTINGS_SCREEN_PLAYER_CONTROLS -> navController.navigate(R.id.playerButtonSettingsFragment)
+                SETTINGS_SCREEN_PLAYER -> navController.navigate(R.id.playerSettingsFragment)
             }
         }
         binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
@@ -2358,6 +2360,30 @@ class SettingsActivity : AppCompatActivity() {
                             true
                         }
                     }
+                }
+                findPreference<EditTextPreference>(C.PLAYER_LIVE_CAPTION_TEXT_COLOR)?.apply {
+                    setOnBindEditTextListener { editText ->
+                        editText.inputType = InputType.TYPE_CLASS_TEXT
+                        editText.hint = "#FFFFFF"
+                    }
+                    setOnPreferenceChangeListener { _, value ->
+                        val valid = runCatching { Color.parseColor(value.toString()) }.isSuccess
+                        if (!valid) {
+                            Toast.makeText(
+                                requireContext(),
+                                R.string.live_caption_text_color_summary,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        valid
+                    }
+                }
+                findPreference<Preference>(C.PLAYER_LIVE_CAPTION_POSITION)?.setOnPreferenceClickListener {
+                    LiveCaptionPositionDialogFragment().show(
+                        parentFragmentManager,
+                        "liveCaptionPosition",
+                    )
+                    true
                 }
             }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !requireActivity().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {

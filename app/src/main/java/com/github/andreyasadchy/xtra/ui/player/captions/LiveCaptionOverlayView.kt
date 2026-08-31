@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.player.captions
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.drawable.GradientDrawable
 import android.graphics.Typeface
 import android.text.TextUtils
@@ -9,6 +10,8 @@ import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import kotlin.math.ceil
 
 /** A fixed two-row caption panel whose text rolls upward one complete line at a time. */
@@ -17,6 +20,22 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0,
 ) : FrameLayout(context, attrs, defStyleAttr) {
+    private val preferences = context.prefs()
+    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        when (key) {
+            C.PLAYER_LIVE_CAPTION_POSITION_X,
+            C.PLAYER_LIVE_CAPTION_POSITION_Y -> applySavedPosition()
+            C.PLAYER_LIVE_CAPTION_BACKGROUND,
+            C.PLAYER_LIVE_CAPTION_BACKGROUND_COLOR,
+            C.PLAYER_LIVE_CAPTION_TEXT_COLOR,
+            C.PLAYER_LIVE_CAPTION_FONT,
+            C.PLAYER_LIVE_CAPTION_FONT_SIZE,
+            C.PLAYER_LIVE_CAPTION_OPACITY -> {
+                currentStyle = null
+                applyStyle(LiveCaptionStyle.from(context))
+            }
+        }
+    }
     private data class CaptionUpdate(
         val lines: List<String>,
         val lineShiftToken: Long,
@@ -41,6 +60,12 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         addView(bottomLine)
         addView(incomingLine)
         visibility = View.GONE
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
+        applySavedPosition()
     }
 
     fun submitCaption(text: String, lineShiftToken: Long) {
@@ -88,6 +113,10 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         val lineHeight = ceil(topLine.paint.fontMetrics.run { descent - ascent }).toInt()
         val desiredHeight = paddingTop + paddingBottom + lineHeight * 2
         val resolvedHeight = resolveSize(desiredHeight, heightMeasureSpec)
+        val rowHeight = ((resolvedHeight - paddingTop - paddingBottom) / 2).coerceAtLeast(1)
+        listOf(topLine, bottomLine, incomingLine).forEach { line ->
+            line.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, rowHeight)
+        }
         super.onMeasure(
             widthMeasureSpec,
             MeasureSpec.makeMeasureSpec(resolvedHeight, MeasureSpec.EXACTLY),
@@ -97,9 +126,11 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
         super.onSizeChanged(width, height, oldWidth, oldHeight)
         resetLinePositions()
+        applySavedPosition()
     }
 
     override fun onDetachedFromWindow() {
+        preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener)
         cancelLineAnimations()
         super.onDetachedFromWindow()
     }
@@ -181,8 +212,27 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         listOf(topLine, bottomLine, incomingLine).forEach { line ->
             line.typeface = typeface
             line.textSize = style.fontSizeSp
+            line.setTextColor(style.textColor)
         }
         requestLayout()
+    }
+
+    private fun applySavedPosition() {
+        val parent = parent as? android.view.ViewGroup ?: return
+        if (width == 0 || height == 0 || parent.width == 0 || parent.height == 0) {
+            post { applySavedPosition() }
+            return
+        }
+        val x = preferences.getFloat(C.PLAYER_LIVE_CAPTION_POSITION_X, 0f)
+        val y = preferences.getFloat(C.PLAYER_LIVE_CAPTION_POSITION_Y, 0f)
+        translationX = (x * parent.width).coerceIn(
+            -left.toFloat(),
+            (parent.width - right).toFloat(),
+        )
+        translationY = (y * parent.height).coerceIn(
+            -top.toFloat(),
+            (parent.height - bottom).toFloat(),
+        )
     }
 
     private fun resetLinePositions() {

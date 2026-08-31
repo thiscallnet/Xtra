@@ -13,11 +13,11 @@ import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.media3.common.Tracks
 import com.github.andreyasadchy.xtra.R
-import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.databinding.PlayerSettingsBinding
 import com.github.andreyasadchy.xtra.ui.settings.PlayerControlLayoutEditor
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER_CONTROLS
+import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
@@ -99,19 +99,15 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             }
             if (type == BasePlaybackService.STREAM) {
                 val media3Parent = parentFragment as? Media3PlayerFragment
-                val legacyParent = parentFragment as? ExoPlayerFragment
-                if (BuildConfig.DEBUG && (media3Parent != null || legacyParent != null)) {
-                    menuLiveCaptionInterval.visibility = View.VISIBLE
-                    menuLiveCaptionInterval.text = getString(
-                        R.string.live_caption_processing_interval_value,
-                        (media3Parent?.liveCaptionPartialIntervalMs()
-                            ?: legacyParent?.liveCaptionPartialIntervalMs()
-                            ?: 1_000) / 1000.0,
-                    )
-                    menuLiveCaptionInterval.setOnClickListener {
-                        media3Parent?.showLiveCaptionIntervalDialog()
-                            ?: legacyParent?.showLiveCaptionIntervalDialog()
+                if (media3Parent != null) {
+                    menuLiveCaptionSettings.visibility = View.VISIBLE
+                    menuLiveCaptionSettings.setOnClickListener {
+                        val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
+                            putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
+                        }
                         dismiss()
+                        (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
+                            ?: startActivity(intent)
                     }
                 }
                 if (requireContext().prefs().getBoolean(C.PLAYER_MENU_VIEWER_LIST, true)) {

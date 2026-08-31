@@ -7,6 +7,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 
 internal data class LiveCaptionStyle(
     val backgroundColor: Int,
+    val textColor: Int,
     val fontFamily: String,
     val fontSizeSp: Float,
     val opacity: Float,
@@ -29,8 +30,15 @@ internal data class LiveCaptionStyle(
                 }.getOrDefault(DEFAULT_BACKGROUND_COLOR)
                 else -> DEFAULT_BACKGROUND_COLOR
             }
+            val textColor = runCatching {
+                Color.parseColor(
+                    preferences.getString(C.PLAYER_LIVE_CAPTION_TEXT_COLOR, DEFAULT_TEXT_COLOR)
+                        ?: DEFAULT_TEXT_COLOR,
+                )
+            }.getOrDefault(Color.WHITE)
             return LiveCaptionStyle(
                 backgroundColor = backgroundColor,
+                textColor = textColor,
                 fontFamily = preferences.getString(
                     C.PLAYER_LIVE_CAPTION_FONT,
                     DEFAULT_FONT_FAMILY,
@@ -61,6 +69,7 @@ private const val BACKGROUND_BLACK = "black"
 private const val BACKGROUND_TRANSPARENT = "transparent"
 private const val BACKGROUND_CUSTOM = "custom"
 private const val DEFAULT_CUSTOM_COLOR = "#000000"
+private const val DEFAULT_TEXT_COLOR = "#FFFFFF"
 private const val DEFAULT_BACKGROUND_COLOR = 0xD9000000.toInt()
 private const val DEFAULT_FONT_FAMILY = "sans-serif"
 private const val DEFAULT_FONT_SIZE_SP = 18

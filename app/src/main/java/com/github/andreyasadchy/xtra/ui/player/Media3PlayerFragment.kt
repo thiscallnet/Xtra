@@ -81,7 +81,9 @@ import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerViewModel.Companion.Media3PlayerViewModelFactory
-import com.github.andreyasadchy.xtra.ui.player.captions.liveCaptionPartialIntervalMs
+import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
+import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER
+import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -238,27 +240,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         xtraModule.liveCaptionManager.setEnabled(enabled)
     }
 
-    fun liveCaptionPartialIntervalMs(): Int {
-        return requireContext().prefs().liveCaptionPartialIntervalMs()
-    }
-
-    fun showLiveCaptionIntervalDialog() {
+    fun openLiveCaptionSettings() {
         if (!BuildConfig.DEBUG || videoType != STREAM) return
-        val intervalsMs = intArrayOf(300, 500, 1_000, 2_000)
-        val labels = intervalsMs.map { intervalMs ->
-            getString(R.string.live_caption_processing_interval_value, intervalMs / 1000.0)
-        }.toTypedArray()
-        requireContext().getAlertDialogBuilder()
-            .setTitle(R.string.live_caption_processing_interval)
-            .setSingleChoiceItems(labels, intervalsMs.indexOf(liveCaptionPartialIntervalMs())) { dialog, which ->
-                requireContext().prefs().edit {
-                    putString(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, intervalsMs[which].toString())
-                }
-                // Recreate the selected engine on the worker so the new interval takes effect.
-                xtraModule.liveCaptionManager.reloadConfiguration()
-                dialog.dismiss()
-            }
-            .show()
+        val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
+            putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
+        }
+        (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
+            ?: startActivity(intent)
     }
     open fun showPlaylistTags(mediaPlaylist: Boolean) {}
     open fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean = true) {}

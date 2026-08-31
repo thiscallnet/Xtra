@@ -142,6 +142,11 @@ class Media3Fragment : Media3PlayerFragment() {
                 showController(force = true)
                 toggleLiveCaptions()
             }
+            setOnLongClickListener {
+                showController(force = true)
+                openLiveCaptionSettings()
+                true
+            }
         }
 
         binding.playerTextureView.visibility = View.GONE
