@@ -1507,30 +1507,32 @@ class SettingsActivity : AppCompatActivity() {
                 is UpdateState.AwaitingUserAction -> getString(R.string.update_awaiting_user_action)
                 is UpdateState.Error -> errorTitle(state.stage)
             }
+            val installedVersion = UpdateVersionDisplay.installed(
+                BuildConfig.VERSION_NAME,
+                BuildConfig.VERSION_CODE.toLong(),
+                BuildConfig.CI_VERSION_CODE_BASE.toLong(),
+            )
             binding.versionText.text = getString(
                 R.string.update_version,
-                release?.displayVersion ?: UpdateVersionDisplay.installed(
-                    BuildConfig.VERSION_NAME,
-                    BuildConfig.VERSION_CODE.toLong(),
-                    BuildConfig.CI_VERSION_CODE_BASE.toLong(),
-                ),
+                release?.displayVersion ?: installedVersion,
             )
-            binding.currentVersionText.text = if (release != null && state !is UpdateState.UpToDate) {
-                getString(
-                    R.string.update_current_version,
-                    UpdateVersionDisplay.installed(
-                        BuildConfig.VERSION_NAME,
-                        BuildConfig.VERSION_CODE.toLong(),
-                        BuildConfig.CI_VERSION_CODE_BASE.toLong(),
-                    ),
-                )
-            } else ""
+            binding.currentVersionText.text = ""
             val showReleaseDetails = release != null && state !is UpdateState.UpToDate
             binding.notesTitle.visibility = if (showReleaseDetails) View.VISIBLE else View.GONE
             binding.notesText.visibility = if (showReleaseDetails) View.VISIBLE else View.GONE
-            binding.notesText.text = release?.releaseNotes?.joinToString("\n") { "• $it" }
-                ?.ifBlank { getString(R.string.update_no_release_notes) }
-                ?: ""
+            binding.notesText.text = if (showReleaseDetails && release != null) {
+                buildString {
+                    appendLine(getString(R.string.update_version, release.displayVersion))
+                    appendLine(getString(R.string.update_current_version, installedVersion))
+                    appendLine()
+                    appendLine(getString(R.string.whats_new))
+                    append(
+                        release.releaseNotes.joinToString("\n") { "• $it" }
+                            .ifBlank { getString(R.string.update_no_release_notes) },
+                    )
+                }
+            } else ""
+            binding.notesText.movementMethod = android.text.method.ScrollingMovementMethod.getInstance()
             binding.statusMessage.text = when (state) {
                 UpdateState.Checking -> getString(R.string.update_checking)
                 is UpdateState.Available -> when {

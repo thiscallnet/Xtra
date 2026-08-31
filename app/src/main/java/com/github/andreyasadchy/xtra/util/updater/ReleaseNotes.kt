@@ -11,7 +11,7 @@ object ReleaseNotes {
     fun normalize(body: String?, commits: List<String> = emptyList()): List<String> {
         val source = body.orEmpty().lineSequence().filter { it.isNotBlank() }.toList()
         val bodyNotes = normalizeLines(source)
-        return (bodyNotes.ifEmpty { normalizeLines(commits) })
+        return (bodyNotes + normalizeLines(commits))
             .asSequence()
             .distinctBy { it.lowercase() }
             .toList()
@@ -25,6 +25,7 @@ object ReleaseNotes {
             .map(::sentenceCase)
             .map { it.replace(whitespace, " ").trim() }
             .filter { it.isNotBlank() }
+            .filterNot { it.startsWith("full changelog", ignoreCase = true) }
             .toList()
 
     private fun normalizeLine(line: String): String? {

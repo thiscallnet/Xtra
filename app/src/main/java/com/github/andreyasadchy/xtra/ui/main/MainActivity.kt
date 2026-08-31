@@ -23,6 +23,8 @@ import android.os.ext.SdkExtensions
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -54,6 +56,7 @@ import androidx.navigation.ui.setupWithNavController
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ActivityMainBinding
 import com.github.andreyasadchy.xtra.model.PlaybackState
@@ -87,6 +90,7 @@ import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
+import com.github.andreyasadchy.xtra.util.updater.UpdateVersionDisplay
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -577,7 +581,31 @@ class MainActivity : AppCompatActivity() {
 
     private fun showUpdateDialog(release: UpdateRelease) {
         dismissUpdateDialogForRefresh()
-        val releaseNotes = release.releaseNotes.joinToString("\n") { "• $it" }
+        val installedVersion = UpdateVersionDisplay.installed(
+            BuildConfig.VERSION_NAME,
+            BuildConfig.VERSION_CODE.toLong(),
+            BuildConfig.CI_VERSION_CODE_BASE.toLong(),
+        )
+        val content = TextView(this).apply {
+            setPadding(24, 0, 24, 0)
+            text = buildString {
+                appendLine(getString(R.string.update_version, release.displayVersion))
+                appendLine(getString(R.string.update_current_version, installedVersion))
+                appendLine()
+                appendLine(getString(R.string.whats_new))
+                append(
+                    release.releaseNotes.joinToString("\n") { "• $it" }
+                        .ifBlank { getString(R.string.update_no_release_notes) },
+                )
+            }
+        }
+        val notesScroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(content, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
+        }
         var userActionTaken = false
         fun deferFromUserAction() {
             if (!userActionTaken) {
@@ -587,8 +615,8 @@ class MainActivity : AppCompatActivity() {
         }
         lateinit var dialog: AlertDialog
         dialog = getAlertDialogBuilder()
-            .setTitle(getString(R.string.update_available_title, release.displayVersion))
-            .setMessage(releaseNotes.ifBlank { getString(R.string.update_no_release_notes) })
+            .setTitle(getString(R.string.update_available))
+            .setView(notesScroll)
             .setPositiveButton(getString(R.string.download_update)) { _, _ ->
                 userActionTaken = true
                 updateRepository.downloadCurrent()
@@ -604,6 +632,11 @@ class MainActivity : AppCompatActivity() {
             .show()
         updateDialog = dialog
         updateDialogReleaseId = release.id
+        notesScroll.post {
+            notesScroll.layoutParams = notesScroll.layoutParams.apply {
+                height = (resources.displayMetrics.heightPixels * 0.45f).toInt()
+            }
+        }
     }
 
     private fun dismissUpdateDialogForRefresh() {

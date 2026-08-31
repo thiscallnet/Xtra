@@ -128,6 +128,17 @@ class UpdateDomainTest {
     }
 
     @Test
+    fun releaseNotesIncludeReleaseBodyAndAllCompareCommits() {
+        assertEquals(
+            listOf("Fixed first issue", "Added second issue", "Updated third issue"),
+            ReleaseNotes.normalize(
+                body = "* Fix first issue",
+                commits = listOf("abc1234 Add second issue", "def5678 Update third issue"),
+            ),
+        )
+    }
+
+    @Test
     fun meaninglessReleaseBodyFallsBackToCommitDescriptions() {
         assertEquals(
             listOf("Fixed chat spacing"),

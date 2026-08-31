@@ -39,7 +39,13 @@ class ReleaseClient(
 
     override suspend fun fetch(url: String, networkLibrary: String?): JsonObject {
         return try {
-            val release = fetchJson(url, networkLibrary)
+            var release = fetchJson(url, networkLibrary)
+            release.changelogApiUrl()?.let { changelogUrl ->
+                val changelog = runCatching { fetchJson(changelogUrl, networkLibrary) }.getOrNull()
+                changelog?.get("commits")?.let { commits ->
+                    release = JsonObject(release + ("commits" to commits))
+                }
+            }
             val metadataUrl = release.metadataUrl()
             if (metadataUrl == null) {
                 release
@@ -120,6 +126,16 @@ class ReleaseClient(
         }
     }
 }
+
+private val githubChangelog = Regex(
+    "https://github\\.com/([^/]+/[^/]+)/compare/([^\\s)]+)",
+    RegexOption.IGNORE_CASE,
+)
+
+private fun JsonObject.changelogApiUrl(): String? =
+    this["body"]?.jsonPrimitive?.contentOrNull
+        ?.let(githubChangelog::find)
+        ?.let { match -> "https://api.github.com/repos/${match.groupValues[1]}/compare/${match.groupValues[2]}" }
 
 private fun JsonObject.metadataUrl(): String? = runCatching {
     this["assets"]?.jsonArray?.firstNotNullOfOrNull { element: JsonElement ->
