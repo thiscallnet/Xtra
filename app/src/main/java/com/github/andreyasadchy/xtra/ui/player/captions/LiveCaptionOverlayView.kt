@@ -7,9 +7,12 @@ import android.graphics.Typeface
 import android.text.TextUtils
 import android.util.AttributeSet
 import android.view.Gravity
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
+import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlin.math.ceil
@@ -23,6 +26,8 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     private val preferences = context.prefs()
     private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
+            C.PLAYER_LIVE_CAPTION_POSITION_CENTER_X,
+            C.PLAYER_LIVE_CAPTION_POSITION_CENTER_Y,
             C.PLAYER_LIVE_CAPTION_POSITION_X,
             C.PLAYER_LIVE_CAPTION_POSITION_Y -> applySavedPosition()
             C.PLAYER_LIVE_CAPTION_BACKGROUND,
@@ -51,6 +56,23 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     private var currentStyle: LiveCaptionStyle? = null
     private var animationRunning = false
     private var pendingUpdate: CaptionUpdate? = null
+    private var positioning = false
+    private var positioningUpdate: CaptionUpdate? = null
+    private var dragStartRawX = 0f
+    private var dragStartRawY = 0f
+    private var dragStartTranslationX = 0f
+    private var dragStartTranslationY = 0f
+
+    private val gestureDetector = GestureDetector(
+        context,
+        object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(event: MotionEvent): Boolean = true
+
+            override fun onLongPress(event: MotionEvent) {
+                beginPositioning(event.rawX, event.rawY)
+            }
+        },
+    )
 
     init {
         clipChildren = true
@@ -59,6 +81,25 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         addView(topLine)
         addView(bottomLine)
         addView(incomingLine)
+        isClickable = true
+        isLongClickable = true
+        setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_MOVE -> {
+                    if (positioning) {
+                        updatePosition(event.rawX, event.rawY)
+                    }
+                }
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    if (positioning) {
+                        finishPositioning()
+                    }
+                }
+            }
+            positioning || event.actionMasked != MotionEvent.ACTION_UP
+        }
         visibility = View.GONE
     }
 
@@ -87,7 +128,11 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
             lineShiftToken = lineShiftToken,
             style = LiveCaptionStyle.from(context),
         )
-        if (normalizedLines.all(String::isBlank)) {
+        if (positioning) {
+            // Keep the visible phrase stable while the user drags it. Apply only
+            // the newest worker result when the gesture ends.
+            positioningUpdate = update
+        } else if (normalizedLines.all(String::isBlank)) {
             clearCaption()
         } else if (animationRunning) {
             pendingUpdate = update
@@ -112,13 +157,20 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val lineHeight = ceil(topLine.paint.fontMetrics.run { descent - ascent }).toInt()
         val desiredHeight = paddingTop + paddingBottom + lineHeight * 2
+        val availableWidth = MeasureSpec.getSize(widthMeasureSpec)
+        val desiredWidth = if (availableWidth > 0) {
+            (availableWidth * 0.72f).toInt()
+        } else {
+            dp(320)
+        }
+        val resolvedWidth = resolveSize(desiredWidth, widthMeasureSpec)
         val resolvedHeight = resolveSize(desiredHeight, heightMeasureSpec)
         val rowHeight = ((resolvedHeight - paddingTop - paddingBottom) / 2).coerceAtLeast(1)
         listOf(topLine, bottomLine, incomingLine).forEach { line ->
             line.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, rowHeight)
         }
         super.onMeasure(
-            widthMeasureSpec,
+            MeasureSpec.makeMeasureSpec(resolvedWidth, MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(resolvedHeight, MeasureSpec.EXACTLY),
         )
     }
@@ -223,16 +275,83 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
             post { applySavedPosition() }
             return
         }
-        val x = preferences.getFloat(C.PLAYER_LIVE_CAPTION_POSITION_X, 0f)
-        val y = preferences.getFloat(C.PLAYER_LIVE_CAPTION_POSITION_Y, 0f)
-        translationX = (x * parent.width).coerceIn(
+        if (!preferences.contains(C.PLAYER_LIVE_CAPTION_POSITION_CENTER_X) ||
+            !preferences.contains(C.PLAYER_LIVE_CAPTION_POSITION_CENTER_Y)
+        ) {
+            translationX = 0f
+            translationY = 0f
+            return
+        }
+        translationX = LiveCaptionPosition.translationForCenter(
+            preferences.getFloat(C.PLAYER_LIVE_CAPTION_POSITION_CENTER_X, 0.5f),
+            parent.width,
+            left,
+            width,
+        ).coerceIn(-left.toFloat(), (parent.width - right).toFloat())
+        translationY = LiveCaptionPosition.translationForCenter(
+            preferences.getFloat(C.PLAYER_LIVE_CAPTION_POSITION_CENTER_Y, 0.5f),
+            parent.height,
+            top,
+            height,
+        ).coerceIn(-top.toFloat(), (parent.height - bottom).toFloat())
+    }
+
+    private fun beginPositioning(rawX: Float, rawY: Float) {
+        if (positioning || visibility != View.VISIBLE) return
+        positioning = true
+        positioningUpdate = null
+        cancelLineAnimations()
+        animationRunning = false
+        dragStartRawX = rawX
+        dragStartRawY = rawY
+        dragStartTranslationX = translationX
+        dragStartTranslationY = translationY
+        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        contentDescription = context.getString(R.string.live_caption_positioning)
+    }
+
+    private fun updatePosition(rawX: Float, rawY: Float) {
+        val parent = parent as? android.view.ViewGroup ?: return
+        translationX = (dragStartTranslationX + rawX - dragStartRawX).coerceIn(
             -left.toFloat(),
             (parent.width - right).toFloat(),
         )
-        translationY = (y * parent.height).coerceIn(
+        translationY = (dragStartTranslationY + rawY - dragStartRawY).coerceIn(
             -top.toFloat(),
             (parent.height - bottom).toFloat(),
         )
+    }
+
+    private fun finishPositioning() {
+        val parent = parent as? android.view.ViewGroup
+        if (parent != null && parent.width > 0 && parent.height > 0) {
+            preferences.edit()
+                .putFloat(
+                    C.PLAYER_LIVE_CAPTION_POSITION_CENTER_X,
+                    LiveCaptionPosition.normalizedCenterForTranslation(
+                        translationX,
+                        parent.width,
+                        left,
+                        width,
+                    ),
+                )
+                .putFloat(
+                    C.PLAYER_LIVE_CAPTION_POSITION_CENTER_Y,
+                    LiveCaptionPosition.normalizedCenterForTranslation(
+                        translationY,
+                        parent.height,
+                        top,
+                        height,
+                    ),
+                )
+                .apply()
+        }
+        positioning = false
+        positioningUpdate?.also {
+            positioningUpdate = null
+            if (it.lines.all(String::isBlank)) clearCaption() else applyUpdate(it)
+        }
+        updateAccessibilityText()
     }
 
     private fun resetLinePositions() {

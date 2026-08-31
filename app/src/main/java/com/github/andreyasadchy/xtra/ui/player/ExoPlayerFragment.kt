@@ -61,7 +61,7 @@ import java.io.File
 class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
     override val supportsLiveClipping = true
-    override val supportsLiveCaptions = BuildConfig.DEBUG
+    override val supportsLiveCaptions = true
     override var playbackService: ExoPlayerService? = null
     private var serviceConnection: ServiceConnection? = null
     private var playerListener: Player.Listener? = null

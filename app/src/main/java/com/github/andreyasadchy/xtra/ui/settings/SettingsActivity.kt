@@ -95,7 +95,6 @@ import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationService
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.SettingsViewModelFactory
-import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionPositionDialogFragment
 import com.github.andreyasadchy.xtra.ui.update.UpdateNotesBinder
 import com.github.andreyasadchy.xtra.ui.update.UpdateStatusBinder
 import com.github.andreyasadchy.xtra.ui.update.UpdateUiAction
@@ -2302,8 +2301,7 @@ class SettingsActivity : AppCompatActivity() {
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.playback_preferences, rootKey)
-            findPreference<PreferenceCategory>("live_caption_settings")?.isVisible = BuildConfig.DEBUG
-            if (BuildConfig.DEBUG) {
+            findPreference<PreferenceCategory>("live_caption_settings")?.isVisible = true
                 val background = findPreference<ListPreference>(C.PLAYER_LIVE_CAPTION_BACKGROUND)
                 val customColor = findPreference<EditTextPreference>(C.PLAYER_LIVE_CAPTION_BACKGROUND_COLOR)
                 customColor?.isVisible = background?.value == "custom"
@@ -2378,14 +2376,15 @@ class SettingsActivity : AppCompatActivity() {
                         valid
                     }
                 }
-                findPreference<Preference>(C.PLAYER_LIVE_CAPTION_POSITION)?.setOnPreferenceClickListener {
-                    LiveCaptionPositionDialogFragment().show(
-                        parentFragmentManager,
-                        "liveCaptionPosition",
-                    )
+                findPreference<Preference>(C.PLAYER_LIVE_CAPTION_RESET_POSITION)?.setOnPreferenceClickListener {
+                    requireContext().prefs().edit {
+                        remove(C.PLAYER_LIVE_CAPTION_POSITION_CENTER_X)
+                        remove(C.PLAYER_LIVE_CAPTION_POSITION_CENTER_Y)
+                        remove(C.PLAYER_LIVE_CAPTION_POSITION_X)
+                        remove(C.PLAYER_LIVE_CAPTION_POSITION_Y)
+                    }
                     true
                 }
-            }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !requireActivity().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
                 findPreference<SwitchPreferenceCompat>(C.PLAYER_PICTURE_IN_PICTURE)?.isVisible = false
             }

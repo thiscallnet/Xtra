@@ -956,12 +956,9 @@
     <string name="live_caption_custom_color_summary" translatable="false">Hex color, for example #1A1A1A or #CC1A1A1A</string>
     <string name="live_caption_text_color" translatable="false">Caption text color</string>
     <string name="live_caption_text_color_summary" translatable="false">Hex color, for example #FFFFFF</string>
-    <string name="live_caption_position" translatable="false">Position captions</string>
-    <string name="live_caption_position_summary" translatable="false">Drag the preview to choose where captions appear</string>
-    <string name="live_caption_position_dialog_title" translatable="false">Caption position</string>
-    <string name="live_caption_position_preview_description" translatable="false">Drag the caption preview to position it on the video</string>
-    <string name="live_caption_position_preview_text" translatable="false">This is a live-caption preview</string>
-    <string name="live_caption_position_reset" translatable="false">Reset position</string>
+    <string name="live_caption_position_reset" translatable="false">Reset caption position</string>
+    <string name="live_caption_position_reset_summary" translatable="false">Return captions to their default position</string>
+    <string name="live_caption_positioning" translatable="false">Caption positioning active</string>
     <string name="live_caption_settings_link" translatable="false">Live caption settings</string>
     <string name="live_caption_font" translatable="false">Caption font</string>
     <string name="live_caption_font_size" translatable="false">Caption font size</string>

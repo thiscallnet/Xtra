@@ -40,7 +40,6 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.github.andreyasadchy.xtra.R
-import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Clip
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
@@ -103,8 +102,7 @@ class Media3Fragment : Media3PlayerFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        if (BuildConfig.DEBUG) {
-            viewLifecycleOwner.lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
                 viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     xtraModule.liveCaptionManager.state.collect { state ->
                         val nextCaptionText = if (videoType == STREAM && state.enabled) state.text else ""
@@ -134,10 +132,9 @@ class Media3Fragment : Media3PlayerFragment() {
                     }
                 }
             }
-        }
 
         binding.playerControls.liveCaptions.apply {
-            visibility = if (BuildConfig.DEBUG && videoType == STREAM) View.VISIBLE else View.GONE
+            visibility = if (videoType == STREAM) View.VISIBLE else View.GONE
             setOnClickListener {
                 showController(force = true)
                 toggleLiveCaptions()

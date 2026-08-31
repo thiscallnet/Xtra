@@ -205,7 +205,7 @@ class LiveCaptionManager(
     }
 
     fun setEnabled(value: Boolean) {
-        if (closed.get() || (!BuildConfig.DEBUG && value)) return
+        if (closed.get()) return
 
         if (!value) {
             enabled.set(false)

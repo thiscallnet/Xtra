@@ -64,7 +64,6 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.TimeBar
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.RecyclerView
-import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
@@ -233,7 +232,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     open fun toggleSubtitles(enabled: Boolean) {}
 
     fun toggleLiveCaptions() {
-        if (!BuildConfig.DEBUG || videoType != STREAM) return
+        if (videoType != STREAM) return
         val preferences = requireContext().prefs()
         val enabled = !preferences.getBoolean(C.PLAYER_LIVE_CAPTIONS, false)
         preferences.edit { putBoolean(C.PLAYER_LIVE_CAPTIONS, enabled) }
@@ -241,7 +240,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     fun openLiveCaptionSettings() {
-        if (!BuildConfig.DEBUG || videoType != STREAM) return
+        if (videoType != STREAM) return
         val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
             putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
         }
@@ -261,7 +260,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
         super.onCreate(savedInstanceState)
         xtraModule.liveCaptionManager.setEnabled(
-            BuildConfig.DEBUG && videoType == STREAM &&
+            videoType == STREAM &&
                 requireContext().prefs().getBoolean(C.PLAYER_LIVE_CAPTIONS, false),
         )
         (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)

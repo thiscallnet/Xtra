@@ -215,9 +215,11 @@ object C {
     const val PLAYER_LIVE_CAPTION_PRESENTATION_DELAY_MS = "player_live_caption_presentation_delay_ms"
     const val PLAYER_LIVE_CAPTION_TEXT_OFFSET_SECONDS = "player_live_caption_text_offset_seconds"
     const val PLAYER_LIVE_CAPTION_TEXT_COLOR = "player_live_caption_text_color"
-    const val PLAYER_LIVE_CAPTION_POSITION = "player_live_caption_position"
-    const val PLAYER_LIVE_CAPTION_POSITION_X = "player_live_caption_position_x"
-    const val PLAYER_LIVE_CAPTION_POSITION_Y = "player_live_caption_position_y"
+    const val PLAYER_LIVE_CAPTION_POSITION_CENTER_X = "player_live_caption_position_center_x"
+    const val PLAYER_LIVE_CAPTION_POSITION_CENTER_Y = "player_live_caption_position_center_y"
+    const val PLAYER_LIVE_CAPTION_POSITION_X = "player_live_caption_position_x" // Legacy cleanup.
+    const val PLAYER_LIVE_CAPTION_POSITION_Y = "player_live_caption_position_y" // Legacy cleanup.
+    const val PLAYER_LIVE_CAPTION_RESET_POSITION = "player_live_caption_reset_position"
     const val PLAYER_REWIND = "playerRewindV2"
     const val PLAYER_FORWARD = "playerForwardV2"
     const val PLAYER_BACKGROUND_PLAYBACK = "player_background_playback"
