@@ -656,15 +656,6 @@ class ChatAdapter(
         pendingAppends = publicationQueue.hasPendingAppends,
     )
 
-    /**
-     * Converts a logical trim count into adapter rows. The synthetic live-message divider is
-     * not part of the ViewModel history and therefore must not consume one of those rows.
-     */
-    internal fun adapterRowsToRemoveForTrim(
-        messages: List<ChatMessage>,
-        trimCount: Int,
-    ): Int = adapterRowsToRemoveForTrim(messages, trimCount)
-
     internal fun shouldReconstructNewMessageDivider(
         dividerPosition: Int?,
         dividerConsumed: Boolean,
