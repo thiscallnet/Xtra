@@ -483,7 +483,6 @@ class SettingsActivity : AppCompatActivity() {
             accountRow = ItemSettingsRowBinding.inflate(layoutInflater, binding.accountActions, false)
             binding.accountActions.addView(accountRow!!.root)
             renderAccountRow()
-            binding.scrollView.post { binding.scrollView.scrollTo(0, 0) }
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
                 view.updatePadding(bottom = resources.getDimensionPixelSize(R.dimen.settings_section_spacing) * 2 + insets.bottom)
