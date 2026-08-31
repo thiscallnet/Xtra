@@ -145,6 +145,16 @@ object UpdateReleaseHistory {
     fun recent(releases: List<UpdateRelease>, fallbackRelease: UpdateRelease? = null): List<UpdateRelease> =
         merge(releases + listOfNotNull(fallbackRelease)).take(RECENT_RELEASE_COUNT)
 
+    fun notesForUpdate(
+        historyComplete: Boolean,
+        cumulativeReleases: List<UpdateRelease>,
+        latestRelease: UpdateRelease,
+    ): List<UpdateRelease> = if (historyComplete && cumulativeReleases.isNotEmpty()) {
+        cumulativeReleases
+    } else {
+        listOf(latestRelease)
+    }
+
     fun retainForInstalled(releases: List<UpdateRelease>, installedVersionName: String, installedBuildNumber: Long?): List<UpdateRelease> {
         val merged = merge(releases)
         val pending = merged.filter { UpdatePolicy.isNewer(installedVersionName, installedBuildNumber, it) }

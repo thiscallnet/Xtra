@@ -12,7 +12,6 @@ import android.text.format.Formatter
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
@@ -27,6 +26,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.updater.UpdateDiagnostics
 import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
+import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.updater.UpdateSelectedAssetInfo
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
 import com.github.andreyasadchy.xtra.util.updater.UpdateVersionDisplay
@@ -41,7 +41,6 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
     private val binding get() = _binding!!
     private val repository
         get() = (requireContext().applicationContext as XtraApp).xtraModule.updateRepository
-    private var earlierExpanded = false
     private var fullNotesExpanded = false
     private var diagnosticsExpanded = false
     private val markwon by lazy(LazyThreadSafetyMode.NONE) { Markwon.create(requireContext()) }
@@ -58,10 +57,6 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
                 skipCollapsed = true
                 state = BottomSheetBehavior.STATE_EXPANDED
             }
-        }
-        binding.earlierChangesButton.setOnClickListener {
-            earlierExpanded = !earlierExpanded
-            render(repository.state.value)
         }
         binding.fullNotesButton.setOnClickListener {
             fullNotesExpanded = !fullNotesExpanded
@@ -111,15 +106,19 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
         val showNotes = model.showReleaseNotes && release != null
         binding.detailsNotesTitle.visibility = if (showNotes) View.VISIBLE else View.GONE
         binding.detailsNotesContainer.visibility = if (showNotes) View.VISIBLE else View.GONE
-        if (showNotes) UpdateNotesBinder.bind(binding.detailsNotesContainer, release)
-        else binding.detailsNotesContainer.removeAllViews()
-        val earlier = release?.let { repository.releasesSinceInstalled(it).drop(1) }.orEmpty()
-        binding.earlierChangesButton.visibility = if (earlier.isNotEmpty()) View.VISIBLE else View.GONE
-        binding.earlierChangesButton.text = getString(
-            if (earlierExpanded) R.string.update_release_notes_earlier_expanded else R.string.update_release_notes_earlier,
-        )
-        binding.earlierChangesContainer.visibility = if (earlierExpanded && earlier.isNotEmpty()) View.VISIBLE else View.GONE
-        if (earlierExpanded) renderEarlier(earlier)
+        if (showNotes) {
+            val notes = UpdateReleaseHistory.notesForUpdate(
+                historyComplete = repository.releaseHistoryComplete.value,
+                cumulativeReleases = repository.releasesSinceInstalled(release),
+                latestRelease = release,
+            )
+            UpdateNotesBinder.bindHistory(binding.detailsNotesContainer, notes)
+        } else {
+            binding.detailsNotesContainer.removeAllViews()
+        }
+        binding.earlierChangesButton.visibility = View.GONE
+        binding.earlierChangesContainer.visibility = View.GONE
+        binding.earlierChangesContainer.removeAllViews()
         binding.fullNotesButton.visibility = if (!release?.rawBody.isNullOrBlank()) View.VISIBLE else View.GONE
         binding.fullNotesText.visibility = if (fullNotesExpanded && !release?.rawBody.isNullOrBlank()) View.VISIBLE else View.GONE
         if (fullNotesExpanded) release?.rawBody?.let { markwon.setMarkdown(binding.fullNotesText, it) }
@@ -132,22 +131,6 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
         if (diagnosticsExpanded) binding.diagnosticsText.text = UpdateDiagnostics.format(requireContext(), repository.diagnostics()) +
             "\n\n" + getString(R.string.copy_diagnostics)
         bindActions(model)
-    }
-
-    private fun renderEarlier(releases: List<UpdateRelease>) {
-        binding.earlierChangesContainer.removeAllViews()
-        releases.forEach { release ->
-            val title = android.widget.TextView(requireContext()).apply {
-                text = release.displayVersion
-                setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
-            }
-            binding.earlierChangesContainer.addView(title)
-            val notes = LinearLayout(requireContext()).apply {
-                orientation = LinearLayout.VERTICAL
-            }
-            UpdateNotesBinder.bind(notes, release, maxItems = 3)
-            binding.earlierChangesContainer.addView(notes)
-        }
     }
 
     private fun bindActions(model: UpdateUiModel) {
