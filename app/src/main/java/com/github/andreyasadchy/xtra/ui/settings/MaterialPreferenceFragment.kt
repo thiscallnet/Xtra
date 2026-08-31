@@ -24,7 +24,7 @@ abstract class MaterialPreferenceFragment : PreferenceFragmentCompat() {
         }
         (requireActivity() as? SettingsActivity)?.getSelectedSearchItem()?.let { key ->
             listView.post { scrollToPreference(key) }
-        } ?: listView.post { listView.scrollToPosition(0) }
+        }
     }
 
     override fun onDisplayPreferenceDialog(preference: Preference) {
