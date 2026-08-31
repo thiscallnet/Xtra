@@ -209,7 +209,7 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     while (isActive) {
-                        delay(90_000L)
+                        delay(30_000L)
                         if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                             viewModel.refresh(RefreshReason.SCREEN_VISIBLE)
                         }

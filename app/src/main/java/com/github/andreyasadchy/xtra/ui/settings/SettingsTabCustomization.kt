@@ -52,9 +52,7 @@ internal fun maximumVisibleItemsForPreference(preferenceKey: String): Int? =
 internal fun limitNavigationVisibleItems(items: List<String>): List<String> {
     val result = items.toMutableList()
     while (result.count { it.split(':').getOrNull(2) != "0" } > MAX_NAVIGATION_VISIBLE_ITEMS) {
-        val index = result.indexOfLast { it.startsWith("4:") && it.split(':').getOrNull(2) != "0" }
-            .takeIf { it >= 0 }
-            ?: result.indexOfLast { it.split(':').getOrNull(2) != "0" }
+        val index = result.indexOfLast { it.split(':').getOrNull(2) != "0" }
         if (index < 0) break
         val parts = result[index].split(':')
         result[index] = "${parts[0]}:${parts.getOrElse(1) { "0" }}:0"

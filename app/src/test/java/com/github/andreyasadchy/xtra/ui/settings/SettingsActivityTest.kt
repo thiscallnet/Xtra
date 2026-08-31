@@ -70,4 +70,23 @@ class SettingsActivityTest {
 
         assertEquals(1, items.count { it.enabled })
     }
+
+    @Test
+    fun navigationLimitKeepsConfiguredItemsInOrder() {
+        val items = listOf(
+            "0:0:1",
+            "4:0:1",
+            "1:1:1",
+            "2:0:1",
+            "3:0:1",
+            "5:0:1",
+            "6:0:1",
+        )
+
+        val limited = limitNavigationVisibleItems(items)
+
+        assertEquals(6, limited.count { it.endsWith(":1") })
+        assertTrue(limited.first { it.startsWith("4:") }.endsWith(":1"))
+        assertTrue(limited.last { it.startsWith("6:") }.endsWith(":0"))
+    }
 }
