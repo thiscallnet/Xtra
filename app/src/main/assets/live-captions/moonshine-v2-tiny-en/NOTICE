@@ -1,0 +1,11 @@
+Moonshine v2 Tiny English quantized speech model
+Source: https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27.tar.bz2
+The English Moonshine speech model is MIT-licensed. See LICENSE-MOONSHINE.
+
+Silero VAD model
+Source: https://github.com/snakers4/silero-vad
+The VAD model is distributed under the MIT License. See LICENSE-SILERO.
+
+sherpa-onnx Android runtime
+The library is distributed under the Apache License 2.0:
+https://github.com/k2-fsa/sherpa-onnx/blob/master/LICENSE

@@ -13,7 +13,6 @@ import android.os.IBinder
 import android.text.format.DateUtils
 import android.util.Log
 import android.view.SurfaceView
-import android.view.TextureView
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -62,6 +61,7 @@ import java.io.File
 class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
     override val supportsLiveClipping = true
+    override val supportsLiveCaptions = true
     override var playbackService: ExoPlayerService? = null
     private var serviceConnection: ServiceConnection? = null
     private var playerListener: Player.Listener? = null
@@ -78,45 +78,10 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
     private var liveSurfaceRestoreTimeout: Runnable? = null
     private var clipEditorCoverTimeout: Runnable? = null
     private var videoOutputCover: View? = null
-    private val useTextureVideoOutput = shouldUseTextureViewForVideoOutput()
-    private val videoOutputOwner = VideoOutputOwner<Player, View>(
-        attachTarget = { currentPlayer, target ->
-            when (target) {
-                is SurfaceView -> currentPlayer.setVideoSurfaceView(target)
-                is TextureView -> currentPlayer.setVideoTextureView(target)
-                else -> error("Unsupported video output view: ${target.javaClass.name}")
-            }
-        },
-        detachTarget = { currentPlayer, target ->
-            when (target) {
-                is SurfaceView -> currentPlayer.clearVideoSurfaceView(target)
-                is TextureView -> currentPlayer.clearVideoTextureView(target)
-                else -> error("Unsupported video output view: ${target.javaClass.name}")
-            }
-        },
+    private val videoOutputOwner = VideoOutputOwner<Player, SurfaceView>(
+        attachTarget = { currentPlayer, target -> currentPlayer.setVideoSurfaceView(target) },
+        detachTarget = { currentPlayer, target -> currentPlayer.clearVideoSurfaceView(target) },
     )
-
-    private val videoOutputView: View
-        get() = if (useTextureVideoOutput) {
-            binding.playerTextureView
-        } else {
-            binding.playerSurface
-        }
-
-    private fun configureVideoOutputView() {
-        binding.playerTextureView.visibility =
-            if (useTextureVideoOutput) View.VISIBLE else View.GONE
-        binding.playerSurface.visibility =
-            if (useTextureVideoOutput) View.GONE else View.VISIBLE
-
-        if (!useTextureVideoOutput &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
-        ) {
-            binding.playerSurface.setSurfaceLifecycle(
-                SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT,
-            )
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,16 +107,17 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         videoOutputCover = outputCover
-        // Keep the selected renderer covered until the player confirms a new decoded frame.
+        // Keep the SurfaceView renderer for lower composition overhead. The cover is a normal
+        // view above it and remains visible until the player confirms a new decoded frame.
         binding.aspectRatioFrameLayout.addView(outputCover)
-        configureVideoOutputView()
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                "VideoSurface",
-                "renderer=${videoOutputView.javaClass.simpleName} emulatorFallback=$useTextureVideoOutput",
+        binding.playerTextureView.visibility = View.GONE
+        binding.playerSurface.visibility = View.VISIBLE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            binding.playerSurface.setSurfaceLifecycle(
+                SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT,
             )
         }
-        logVideoSurfaceBinding("on_view_created", playbackService?.player, videoOutputView)
+        logVideoSurfaceBinding("on_view_created", playbackService?.player, binding.playerSurface)
         childFragmentManager.setFragmentResultListener(
             ClipEditorDialogFragment.RESULT_KEY,
             viewLifecycleOwner,
@@ -174,7 +140,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
     override fun onStart() {
         super.onStart()
-        logVideoSurfaceBinding("on_start", playbackService?.player, videoOutputView)
+        logVideoSurfaceBinding("on_start", playbackService?.player, binding.playerSurface)
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
@@ -263,7 +229,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
             }
 
             override fun onCues(cueGroup: CueGroup) {
-                binding.subtitleView.setCues(cueGroup.cues)
+                setNativeSubtitleCues(cueGroup.cues)
             }
 
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
@@ -330,7 +296,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
             }
 
             override fun onRenderedFirstFrame() {
-                logVideoSurfaceBinding("first_frame", playbackService?.player, videoOutputView)
+                logVideoSurfaceBinding("first_frame", playbackService?.player, binding.playerSurface)
                 hideVideoOutputCover()
             }
         }
@@ -363,6 +329,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                         audioOnly.setColorFilter(Color.WHITE)
                         setQualityText()
                     }
+                    configureLiveCaptionsButton()
                 }
             }
 
@@ -429,9 +396,14 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                 if (view != null) {
                     val binder = service as ExoPlayerService.ServiceBinder
                     val connectedService = binder.getService()
-                    logVideoSurfaceBinding("service_connected", connectedService.player, videoOutputView)
+                    logVideoSurfaceBinding("service_connected", connectedService.player, binding.playerSurface)
                     val connectedServiceConnection = this
                     playbackService = connectedService
+                    xtraModule.liveCaptionManager.setEnabled(
+                        connectedService.type == BasePlaybackService.STREAM &&
+                            requireContext().prefs().getBoolean(C.PLAYER_LIVE_CAPTIONS, false),
+                    )
+                    configureLiveCaptionsButton()
                     serviceSetupJob?.cancel()
                     serviceSetupJob = viewLifecycleOwner.lifecycleScope.launch {
                         connectedService.awaitInitialRestore()
@@ -444,6 +416,11 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
                         val editorRestored = restoreClipEditorIfNeeded()
                         connectedService.serviceListener = serviceListener
+                        xtraModule.liveCaptionManager.setEnabled(
+                            connectedService.type == BasePlaybackService.STREAM &&
+                                requireContext().prefs().getBoolean(C.PLAYER_LIVE_CAPTIONS, false),
+                        )
+                        configureLiveCaptionsButton()
                         refreshClipAvailability()
                         if (!editorRestored) {
                             val restored = connectedService.restoreVideoOutputIfNeeded {
@@ -761,9 +738,9 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
         livePlayer?.pause()
         clipDebug("live player paused")
         setVideoOutputVisible(false)
-        clipDebug("live surface hidden parentVisible=${videoOutputView.visibility == View.VISIBLE}")
+        clipDebug("live surface hidden parentVisible=${binding.playerSurface.visibility == View.VISIBLE}")
         detachVideoOutput(livePlayer)
-        clipDebug("live surface cleared parentVisible=${videoOutputView.visibility == View.VISIBLE}")
+        clipDebug("live surface cleared parentVisible=${binding.playerSurface.visibility == View.VISIBLE}")
         binding.playerLayout.visibility = View.GONE
     }
 
@@ -873,7 +850,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
         val resumePlayback = if (isVod) playbackBeforeClipEditor == true else livePlaybackBeforeClipEditor == true
         val firstFrameListener = object : Player.Listener {
             override fun onRenderedFirstFrame() {
-                logVideoSurfaceBinding("first_frame", livePlayer, videoOutputView)
+                logVideoSurfaceBinding("first_frame", livePlayer, binding.playerSurface)
                 finishLiveSurfaceRestore(livePlayer)
             }
         }
@@ -986,6 +963,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setSubtitles(textTracks)
             PlayerControlLayout.applyToPlayer(requireContext(), binding)
+            configureLiveCaptionsButton()
         }
     }
 
@@ -1065,7 +1043,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
     }
 
     override fun onStop() {
-        logVideoSurfaceBinding("on_stop", playbackService?.player, view?.let { videoOutputView })
+        logVideoSurfaceBinding("on_stop", playbackService?.player, view?.findViewById(R.id.playerSurface))
         serviceSetupJob?.cancel()
         serviceSetupJob = null
         super.onStop()
@@ -1108,7 +1086,8 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
     }
 
     override fun onDestroyView() {
-        logVideoSurfaceBinding("on_destroy_view", playbackService?.player, view?.let { videoOutputView })
+        xtraModule.liveCaptionManager.resetForPlaybackTransition()
+        logVideoSurfaceBinding("on_destroy_view", playbackService?.player, view?.findViewById(R.id.playerSurface))
         detachVideoOutput()
         clipDebug("parent editor view destroyed")
         serviceSetupJob?.cancel()
@@ -1127,21 +1106,20 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
     }
 
     private fun attachVideoOutput(currentPlayer: Player) {
-        val target = videoOutputView
-        videoOutputOwner.attach(currentPlayer, target)
-        logVideoSurfaceBinding("attach", currentPlayer, target)
+        videoOutputOwner.attach(currentPlayer, binding.playerSurface)
+        logVideoSurfaceBinding("attach", currentPlayer, binding.playerSurface)
     }
 
     private fun detachVideoOutput(currentPlayer: Player? = videoOutputOwner.attachedPlayer()) {
         if (currentPlayer == null) return
         if (videoOutputOwner.attachedPlayer() === currentPlayer) {
-            logVideoSurfaceBinding("detach", currentPlayer, videoOutputView)
+            logVideoSurfaceBinding("detach", currentPlayer, binding.playerSurface)
             videoOutputOwner.clear()
         }
     }
 
     private fun setVideoOutputVisible(visible: Boolean) {
-        videoOutputView.visibility = if (visible) View.VISIBLE else View.GONE
+        binding.playerSurface.visibility = if (visible) View.VISIBLE else View.GONE
         if (!visible) {
             showVideoOutputCover()
         }

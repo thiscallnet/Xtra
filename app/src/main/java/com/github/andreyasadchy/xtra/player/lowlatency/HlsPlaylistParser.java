@@ -902,7 +902,8 @@ public final class HlsPlaylistParser implements ParsingLoadable.Parser<HlsPlayli
         muxedCaptionFormats,
         hasIndependentSegmentsTag,
         variableDefinitions,
-        sessionKeyDrmInitData);
+        sessionKeyDrmInitData,
+        /* contentSteeringInfo= */ null);
   }
 
   @Nullable

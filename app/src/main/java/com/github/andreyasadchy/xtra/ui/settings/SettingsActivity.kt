@@ -12,6 +12,7 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
@@ -107,6 +108,7 @@ import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.resolvePlaybackBackend
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckFrequency
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckScheduler
@@ -116,6 +118,7 @@ import com.github.andreyasadchy.xtra.util.updater.UpdateVersionDisplay
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.ui.player.captions.formatCaptionTextOffset
 import com.github.andreyasadchy.xtra.util.parseChatBadgeSize
 import com.github.andreyasadchy.xtra.util.proxyPrefs
 import com.github.andreyasadchy.xtra.util.rawPrefs
@@ -146,6 +149,16 @@ internal fun needsUpdateNotificationUserAction(
     notificationsBlocked: Boolean,
     updatesChannelBlocked: Boolean,
 ): Boolean = permissionMissing || notificationsBlocked || updatesChannelBlocked
+
+private fun playbackBackendDiagnostic(context: android.content.Context): String {
+    return resolvePlaybackBackend(
+        playerPreference = context.prefs().getString(C.PLAYER, C.EXOPLAYER),
+        useLegacyCustomPlaybackService = context.prefs().getBoolean(
+            C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE,
+            true,
+        ),
+    ).diagnosticName
+}
 
 private const val DISCORD_URL = "https://discord.gg/2cKy8DNgPX"
 
@@ -219,6 +232,7 @@ class SettingsActivity : AppCompatActivity() {
             when (intent.getStringExtra(EXTRA_SETTINGS_SCREEN)) {
                 SETTINGS_SCREEN_TABS -> navController.navigate(R.id.browsingTabsFragment)
                 SETTINGS_SCREEN_PLAYER_CONTROLS -> navController.navigate(R.id.playerButtonSettingsFragment)
+                SETTINGS_SCREEN_PLAYER -> navController.navigate(R.id.playerSettingsFragment)
             }
         }
         binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
@@ -1523,7 +1537,7 @@ class SettingsActivity : AppCompatActivity() {
             appendLine("Build: ${BuildConfig.BUILD_TYPE}")
             appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
-            appendLine("Player: ${requireContext().prefs().getString(C.PLAYER, C.EXOPLAYER)}")
+            appendLine("Playback backend: ${playbackBackendDiagnostic(requireContext())}")
             appendLine("Network engine: ${requireContext().prefs().getString(C.NETWORK_LIBRARY, "Automatic")}")
             appendLine("PiP: ${requireContext().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)}")
             appendLine("Notifications: ${Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED}")
@@ -2287,6 +2301,90 @@ class SettingsActivity : AppCompatActivity() {
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.playback_preferences, rootKey)
+            findPreference<PreferenceCategory>("live_caption_settings")?.isVisible = true
+                val background = findPreference<ListPreference>(C.PLAYER_LIVE_CAPTION_BACKGROUND)
+                val customColor = findPreference<EditTextPreference>(C.PLAYER_LIVE_CAPTION_BACKGROUND_COLOR)
+                customColor?.isVisible = background?.value == "custom"
+                background?.setOnPreferenceChangeListener { _, value ->
+                    customColor?.isVisible = value == "custom"
+                    true
+                }
+                customColor?.setOnBindEditTextListener { editText ->
+                    editText.inputType = InputType.TYPE_CLASS_TEXT
+                    editText.hint = "#1A1A1A"
+                }
+                customColor?.setOnPreferenceChangeListener { _, value ->
+                    val valid = runCatching { Color.parseColor(value as String) }.isSuccess
+                    if (!valid) {
+                        Toast.makeText(requireContext(), R.string.live_caption_custom_color_summary, Toast.LENGTH_SHORT).show()
+                    }
+                    valid
+                }
+                findPreference<EditTextPreference>(C.PLAYER_LIVE_CAPTION_TEXT_OFFSET_SECONDS)?.apply {
+                    fun updateSummary(value: String?) {
+                        summary = getString(
+                            R.string.live_caption_text_offset_summary,
+                            formatCaptionTextOffset(value),
+                        )
+                    }
+
+                    updateSummary(text)
+                    setOnBindEditTextListener { editText ->
+                        editText.inputType =
+                            InputType.TYPE_CLASS_NUMBER or
+                                InputType.TYPE_NUMBER_FLAG_DECIMAL or
+                                InputType.TYPE_NUMBER_FLAG_SIGNED
+                        editText.hint = "0.0"
+                    }
+                    setOnPreferenceChangeListener { preference, value ->
+                        val rawValue = value.toString().trim()
+                        val seconds = rawValue.toDoubleOrNull()
+                        if (seconds == null || !seconds.isFinite() || seconds !in -2.0..2.0) {
+                            Toast.makeText(
+                                requireContext(),
+                                R.string.live_caption_text_offset_invalid,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            false
+                        } else {
+                            // Normalize the displayed value but preserve the
+                            // user's signed seconds in SharedPreferences.
+                            updateSummary(rawValue)
+                            requireContext().prefs().edit {
+                                putString(C.PLAYER_LIVE_CAPTION_TEXT_OFFSET_SECONDS, rawValue)
+                            }
+                            (requireContext().applicationContext as XtraApp).xtraModule
+                                .liveCaptionManager.reloadCaptionSettings()
+                            true
+                        }
+                    }
+                }
+                findPreference<EditTextPreference>(C.PLAYER_LIVE_CAPTION_TEXT_COLOR)?.apply {
+                    setOnBindEditTextListener { editText ->
+                        editText.inputType = InputType.TYPE_CLASS_TEXT
+                        editText.hint = "#FFFFFF"
+                    }
+                    setOnPreferenceChangeListener { _, value ->
+                        val valid = runCatching { Color.parseColor(value.toString()) }.isSuccess
+                        if (!valid) {
+                            Toast.makeText(
+                                requireContext(),
+                                R.string.live_caption_text_color_summary,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        valid
+                    }
+                }
+                findPreference<Preference>(C.PLAYER_LIVE_CAPTION_RESET_POSITION)?.setOnPreferenceClickListener {
+                    requireContext().prefs().edit {
+                        remove(C.PLAYER_LIVE_CAPTION_POSITION_CENTER_X)
+                        remove(C.PLAYER_LIVE_CAPTION_POSITION_CENTER_Y)
+                        remove(C.PLAYER_LIVE_CAPTION_POSITION_X)
+                        remove(C.PLAYER_LIVE_CAPTION_POSITION_Y)
+                    }
+                    true
+                }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !requireActivity().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
                 findPreference<SwitchPreferenceCompat>(C.PLAYER_PICTURE_IN_PICTURE)?.isVisible = false
             }
@@ -2542,7 +2640,7 @@ class SettingsActivity : AppCompatActivity() {
             appendLine("Build: ${BuildConfig.BUILD_TYPE}")
             appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
-            appendLine("Player: ${requireContext().prefs().getString(C.PLAYER, C.EXOPLAYER)}")
+            appendLine("Playback backend: ${playbackBackendDiagnostic(requireContext())}")
             appendLine("Network engine: ${requireContext().prefs().getString(C.NETWORK_LIBRARY, "Automatic")}")
             appendLine("PiP: ${requireContext().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)}")
             appendLine("Notifications: ${Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED}")

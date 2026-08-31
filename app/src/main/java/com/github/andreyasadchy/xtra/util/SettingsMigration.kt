@@ -151,6 +151,20 @@ object SettingsMigration {
         C.PLAYER_SPEED_LIST,
         C.PLAYER_AUDIO_COMPRESSOR,
         C.PLAYER_SUBTITLES_ENABLED,
+        C.PLAYER_LIVE_CAPTIONS,
+        C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS,
+        C.PLAYER_LIVE_CAPTION_BACKGROUND,
+        C.PLAYER_LIVE_CAPTION_BACKGROUND_COLOR,
+        C.PLAYER_LIVE_CAPTION_FONT,
+        C.PLAYER_LIVE_CAPTION_FONT_SIZE,
+        C.PLAYER_LIVE_CAPTION_OPACITY,
+        C.PLAYER_LIVE_CAPTION_ANIMATION_MS,
+        C.PLAYER_LIVE_CAPTION_HOLD_SECONDS,
+        C.PLAYER_LIVE_CAPTION_PRESENTATION_DELAY_MS,
+        C.PLAYER_LIVE_CAPTION_TEXT_OFFSET_SECONDS,
+        C.PLAYER_LIVE_CAPTION_TEXT_COLOR,
+        C.PLAYER_LIVE_CAPTION_POSITION_CENTER_X,
+        C.PLAYER_LIVE_CAPTION_POSITION_CENTER_Y,
         C.PLAYER_REWIND,
         C.PLAYER_FORWARD,
         C.PLAYER_BACKGROUND_PLAYBACK,
@@ -366,6 +380,11 @@ object SettingsMigration {
     }
 
     internal fun migratePreferences(preferences: SharedPreferences, freshInstall: Boolean? = null) {
+        // Schema 27 briefly wrote this ListPreference as an Int for some
+        // upgraded installs. Repair the representation even when the schema
+        // marker already says current; AndroidX ListPreference requires a
+        // String and reads the raw SharedPreferences value directly.
+        normalizeCaptionIntervalPreference(preferences)
         if (preferences.getInt(C.SETTINGS_VERSION, 0) >= C.SETTINGS_SCHEMA_VERSION) return
         val isFreshInstall = freshInstall ?: inferFreshInstall(preferences)
 
@@ -437,6 +456,16 @@ object SettingsMigration {
             if (preferences.getString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, null) == "chat_only") {
                 putString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, "auto")
             }
+
+            // The experimental A/B selector was removed in favor of Moonshine-only
+            // captions. Reset its old aggressive interval to the new stable default.
+            if (preferences.contains("player_live_caption_engine")) {
+                // This is a ListPreference, so Android stores its value as a String.
+                // Writing an Int here makes PreferenceFragmentCompat throw a
+                // ClassCastException when it later reads the preference.
+                putString(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, "2000")
+            }
+            remove("player_live_caption_engine")
 
             val oldDownloadLimit = preferences.getInt(C.DOWNLOAD_LIMIT, 2)
             putInt(C.DOWNLOAD_LIMIT, oldDownloadLimit.coerceIn(1, 4))
@@ -512,6 +541,18 @@ object SettingsMigration {
             remove(C.UI_THEME_COMPACT_TEXT)
 
             putInt(C.SETTINGS_VERSION, C.SETTINGS_SCHEMA_VERSION)
+        }
+    }
+
+    private fun normalizeCaptionIntervalPreference(preferences: SharedPreferences) {
+        val storedValue = preferences.all[C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS]
+        if (storedValue is Number) {
+            preferences.edit {
+                putString(
+                    C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS,
+                    storedValue.toInt().toString(),
+                )
+            }
         }
     }
 

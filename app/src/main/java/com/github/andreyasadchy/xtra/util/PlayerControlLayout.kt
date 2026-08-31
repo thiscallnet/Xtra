@@ -117,6 +117,20 @@ object PlayerControlLayout {
                     controls,
                 )
             }
+
+            // Live captions are intentionally not part of the customizable control
+            // layout, but they must still have a stable position after the other
+            // children are reordered. Keep the caption toggle immediately before
+            // fullscreen in the bottom-right controls.
+            if (liveCaptions.parent === bottomRightLayout) {
+                bottomRightLayout.removeView(liveCaptions)
+                val fullscreenIndex = bottomRightLayout.indexOfChild(fullscreen)
+                if (fullscreenIndex >= 0) {
+                    bottomRightLayout.addView(liveCaptions, fullscreenIndex)
+                } else {
+                    bottomRightLayout.addView(liveCaptions)
+                }
+            }
         }
     }
 

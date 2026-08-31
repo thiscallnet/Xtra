@@ -141,11 +141,11 @@ android {
     }
     splits {
         abi {
-            // Release distribution uses standalone ABI APKs; keep the diagnostic perf APK universal.
+            // Release distribution uses standalone ABI APKs; keep debug/perf APKs universal.
             isEnable = releaseAbiSplitsRequested
             reset()
             include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
-            isUniversalApk = true
+            isUniversalApk = !releaseAbiSplitsRequested
         }
     }
     lint {
@@ -251,6 +251,11 @@ dependencies {
     implementation(libs.media3.transformer)
     implementation(libs.media3.ui)
     implementation(libs.media3.session)
+    implementation("com.github.k2-fsa:sherpa-onnx:v1.13.6") {
+        // JitPack publishes the Android AAR together with a duplicate JVM API jar.
+        // Keep the official Android artifact and avoid duplicate Kotlin API classes.
+        exclude(group = "com.github.k2-fsa.sherpa-onnx", module = "sherpa-onnx-jvm")
+    }
 
     implementation(libs.coil)
     implementation(libs.coil.gif)

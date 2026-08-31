@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string-array name="playerEntries" translatable="false">
+        <item>@string/legacy_exoplayer_service</item>
+        <item>@string/android_media_player</item>
+    </string-array>
+
+    <string-array name="playerEntryValues" translatable="false">
         <item>ExoPlayer</item>
         <item>MediaPlayer</item>
     </string-array>
@@ -621,6 +626,62 @@
         <item>sans-serif-condensed</item>
         <item>serif</item>
         <item>monospace</item>
+    </string-array>
+
+    <string-array name="liveCaptionIntervalEntries" translatable="false">
+        <item>0.3 seconds</item>
+        <item>0.5 seconds</item>
+        <item>1.0 second</item>
+        <item>2.0 seconds</item>
+    </string-array>
+
+    <string-array name="liveCaptionIntervalValues" translatable="false">
+        <item>300</item>
+        <item>500</item>
+        <item>1000</item>
+        <item>2000</item>
+    </string-array>
+
+    <string-array name="liveCaptionWidthEntries" translatable="false">
+        <item>@string/live_caption_width_auto</item>
+        <item>60%</item>
+        <item>75%</item>
+        <item>90%</item>
+        <item>100%</item>
+    </string-array>
+
+    <string-array name="liveCaptionWidthValues" translatable="false">
+        <item>auto</item>
+        <item>60</item>
+        <item>75</item>
+        <item>90</item>
+        <item>100</item>
+    </string-array>
+
+    <string-array name="liveCaptionBackgroundEntries" translatable="false">
+        <item>@string/live_caption_background_black</item>
+        <item>@string/live_caption_background_transparent</item>
+        <item>@string/live_caption_background_custom</item>
+    </string-array>
+
+    <string-array name="liveCaptionBackgroundValues" translatable="false">
+        <item>black</item>
+        <item>transparent</item>
+        <item>custom</item>
+    </string-array>
+
+    <string-array name="liveCaptionAnimationEntries" translatable="false">
+        <item>@string/live_caption_animation_off</item>
+        <item>@string/live_caption_animation_fast</item>
+        <item>@string/live_caption_animation_normal</item>
+        <item>@string/live_caption_animation_slow</item>
+    </string-array>
+
+    <string-array name="liveCaptionAnimationValues" translatable="false">
+        <item>0</item>
+        <item>150</item>
+        <item>250</item>
+        <item>400</item>
     </string-array>
 
     <string-array name="settingsProfilePictureEntries">

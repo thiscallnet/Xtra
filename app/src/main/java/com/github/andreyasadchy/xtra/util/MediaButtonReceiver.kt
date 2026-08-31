@@ -10,6 +10,7 @@ import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
 import com.github.andreyasadchy.xtra.ui.player.MediaPlayerService
+import com.github.andreyasadchy.xtra.ui.player.PlaybackService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,13 +44,19 @@ class MediaButtonReceiver : BroadcastReceiver() {
             scope = app.applicationScope,
             playbackStateLookup = { app.xtraModule.playbackPersistence.getPlaybackStatesAndWait() },
             onPlaybackAvailable = {
-                val serviceIntent = when (receiverContext.prefs().getString(C.PLAYER, C.EXOPLAYER)) {
-                    C.MEDIA_PLAYER -> Intent(receiverContext, MediaPlayerService::class.java)
-                    else -> if (receiverContext.prefs().getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
-                        Intent(receiverContext, ExoPlayerService::class.java)
-                    } else {
-                        null
-                    }
+                val serviceIntent = when (resolvePlaybackBackend(
+                    playerPreference = receiverContext.prefs().getString(C.PLAYER, C.EXOPLAYER),
+                    useLegacyCustomPlaybackService = receiverContext.prefs().getBoolean(
+                        C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE,
+                        true,
+                    ),
+                )) {
+                    PlaybackBackend.ANDROID_MEDIA_PLAYER -> Intent(receiverContext, MediaPlayerService::class.java)
+                    PlaybackBackend.LEGACY_EXOPLAYER -> Intent(receiverContext, ExoPlayerService::class.java)
+                    // MediaSessionService handles the media-button intent and
+                    // invokes PlaybackService's resumption callback when its
+                    // player is not alive yet.
+                    PlaybackBackend.MEDIA3 -> Intent(receiverContext, PlaybackService::class.java)
                 }?.apply {
                     fillIn(receiverIntent, 0)
                 }

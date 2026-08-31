@@ -19,6 +19,8 @@ import androidx.media3.exoplayer.source.preload.TargetPreloadStatusControl
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.ui.player.StreamHlsMediaSourceFactory
+import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
+import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -323,7 +325,13 @@ class StreamMedia3Runtime(
         generation.player?.let { return it }
         return generation.builder.buildExoPlayer(
             ExoPlayer.Builder(playerContext).apply(configure)
-        ).also { generation.player = it }
+        ).also {
+            // Claim this runtime generation before playback can deliver audio.
+            // Older generation sinks then become inert and cannot flush the
+            // active caption stream during a configuration transition.
+            xtraModule.liveCaptionManager.activateAudioBufferSink(generation.captionAudioSink)
+            generation.player = it
+        }
     }
 
     @Synchronized
@@ -363,6 +371,7 @@ class StreamMedia3Runtime(
         val playbackGenerations = states.filter { it.player === player }.toSet()
         states.forEach { generation ->
             if (generation.player === player) {
+                xtraModule.liveCaptionManager.deactivateAudioBufferSink(generation.captionAudioSink)
                 generation.playbackOwnership.release()
                 generation.player = null
             }
@@ -386,6 +395,7 @@ class StreamMedia3Runtime(
         currentGeneration?.takeIf { it.configuration.fingerprint == configuration.fingerprint }?.let { return it }
         currentGeneration?.let { old ->
             if (shouldResetPreloadManager(old.player != null)) {
+                xtraModule.liveCaptionManager.deactivateAudioBufferSink(old.captionAudioSink)
                 old.manager.release()
                 states.remove(old)
             }
@@ -404,10 +414,18 @@ class StreamMedia3Runtime(
             }
         }
         val hlsFactory = StreamHlsMediaSourceFactory(context, xtraModule, configuration)
+        val captionAudioSink = xtraModule.liveCaptionManager.createAudioBufferSinkSession()
         val builder = DefaultPreloadManager.Builder(context, statusControl)
             .setMediaSourceFactory(hlsFactory)
             .setLoadControl(loadControl)
-        val generation = Generation(configuration, hlsFactory, builder, builder.build())
+            .setRenderersFactory(
+                LiveCaptionRenderersFactory(
+                    context = context,
+                    audioBufferSink = captionAudioSink.sink,
+                    presentationDelayMs = xtraModule.liveCaptionManager::presentationDelayMs,
+                ),
+            )
+        val generation = Generation(configuration, hlsFactory, builder, builder.build(), captionAudioSink)
         generation.manager.addListener(object : PreloadManagerListener {
             override fun onCompleted(mediaItem: MediaItem) {
                 val entry = generation.entries.values.firstOrNull { it.mediaItem == mediaItem } ?: return
@@ -470,6 +488,7 @@ class StreamMedia3Runtime(
         val hlsFactory: StreamHlsMediaSourceFactory,
         val builder: DefaultPreloadManager.Builder,
         val manager: DefaultPreloadManager,
+        val captionAudioSink: LiveCaptionManager.AudioBufferSinkSession,
         val entries: StreamMedia3PreloadEntries<Entry> = StreamMedia3PreloadEntries(),
         var player: ExoPlayer? = null,
         val playbackOwnership: StreamMedia3PlaybackOwnership = StreamMedia3PlaybackOwnership(),

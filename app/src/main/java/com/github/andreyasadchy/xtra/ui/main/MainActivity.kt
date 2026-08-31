@@ -23,6 +23,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.os.SystemClock
 import android.os.ext.SdkExtensions
+import android.util.Log
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
@@ -59,6 +60,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.databinding.ActivityMainBinding
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.ui.Clip
@@ -89,6 +91,8 @@ import com.github.andreyasadchy.xtra.ui.settings.limitNavigationVisibleItems
 import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.PlaybackBackend
+import com.github.andreyasadchy.xtra.util.resolvePlaybackBackend
 import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -466,7 +470,7 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         pipActionReceiver = pipReceiver
-        if (prefs.getString(C.PLAYER, C.EXOPLAYER) == C.MEDIA_PLAYER || prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
+        if (playbackBackend() != PlaybackBackend.MEDIA3) {
             lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     viewModel.playbackStates.collectLatest { states ->
@@ -476,10 +480,7 @@ class MainActivity : AppCompatActivity() {
                         // read; never replace that player with a second restored fragment.
                         if (savedState != null && !viewModel.isPlayerOpened && playerFragment == null) {
                             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
-                            val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
-                                C.MEDIA_PLAYER -> MediaPlayerFragment()
-                                else -> ExoPlayerFragment()
-                            }.apply {
+                            val fragment = legacyPlayerFragment().apply {
                                 if (savedState.type == BasePlaybackService.OFFLINE_VIDEO) {
                                     arguments = Bundle().apply {
                                         putBoolean(PlayerFragment.KEY_OFFLINE, true)
@@ -1063,7 +1064,7 @@ class MainActivity : AppCompatActivity() {
                 if (playerFragment != null) {
                     (playerFragment as? Media3PlayerFragment)?.maximize() ?: (playerFragment as? PlayerFragment)?.maximize()
                 } else {
-                    if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
+                    if (playbackBackend() == PlaybackBackend.LEGACY_EXOPLAYER) {
                         viewModel.getPlaybackStates()
                     }
                 }
@@ -1087,7 +1088,7 @@ class MainActivity : AppCompatActivity() {
         (application as XtraApp).xtraModule.streamPreloadCoordinator.onStreamSelected(stream)
         onPlayerEnteredPlayback(isLive = true, channelLogin = stream.channelLogin)
         (application as XtraApp).xtraModule.streamPreloadCoordinator.onPlaybackEntered()
-        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
+        if (playbackBackend() == PlaybackBackend.MEDIA3) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(stream, tapElapsedMs)
             startPlayer(fragment)
@@ -1109,10 +1110,7 @@ class MainActivity : AppCompatActivity() {
             createdAt = stream.createdAt,
             viewerCount = stream.viewerCount,
         ))
-        val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
-            C.MEDIA_PLAYER -> MediaPlayerFragment()
-            else -> ExoPlayerFragment()
-        }
+        val fragment = legacyPlayerFragment()
         startPlayer(fragment)
     }
 
@@ -1124,7 +1122,7 @@ class MainActivity : AppCompatActivity() {
                 video.id?.toLongOrNull()?.let { viewModel.saveVideoPosition(it, offset) }
             }
         }
-        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
+        if (playbackBackend() == PlaybackBackend.MEDIA3) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(video, offset, ignoreSavedPosition)
             startPlayer(fragment)
@@ -1150,16 +1148,13 @@ class MainActivity : AppCompatActivity() {
             videoUrl = videoUrl,
             position = offset,
         ))
-        val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
-            C.MEDIA_PLAYER -> MediaPlayerFragment()
-            else -> ExoPlayerFragment()
-        }
+        val fragment = legacyPlayerFragment()
         startPlayer(fragment)
     }
 
     fun startClip(clip: Clip) {
         onPlayerChangedPlayback(isLive = false)
-        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
+        if (playbackBackend() == PlaybackBackend.MEDIA3) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(clip)
             startPlayer(fragment)
@@ -1185,16 +1180,13 @@ class MainActivity : AppCompatActivity() {
             videoCreatedAt = clip.videoCreatedAt,
             videoAnimatedPreviewURL = clip.videoAnimatedPreviewURL,
         ))
-        val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
-            C.MEDIA_PLAYER -> MediaPlayerFragment()
-            else -> ExoPlayerFragment()
-        }
+        val fragment = legacyPlayerFragment()
         startPlayer(fragment)
     }
 
     fun startOfflineVideo(video: OfflineVideo, offset: Long? = null) {
         onPlayerChangedPlayback(isLive = false)
-        if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && !prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
+        if (playbackBackend() == PlaybackBackend.MEDIA3) {
             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
             val fragment = Media3Fragment.newInstance(video)
             startPlayer(fragment)
@@ -1218,10 +1210,7 @@ class MainActivity : AppCompatActivity() {
         if (offset != null && prefs.getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
             viewModel.saveOfflineVideoPosition(video.id, offset)
         }
-        val fragment = when (prefs.getString(C.PLAYER, C.EXOPLAYER)) {
-            C.MEDIA_PLAYER -> MediaPlayerFragment()
-            else -> ExoPlayerFragment()
-        }.apply {
+        val fragment = legacyPlayerFragment().apply {
             arguments = Bundle().apply {
                 putBoolean(PlayerFragment.KEY_OFFLINE, true)
             }
@@ -1231,7 +1220,27 @@ class MainActivity : AppCompatActivity() {
 
 //Player methods
 
+    private fun playbackBackend(): PlaybackBackend = resolvePlaybackBackend(
+        playerPreference = prefs.getString(C.PLAYER, C.EXOPLAYER),
+        useLegacyCustomPlaybackService = prefs.getBoolean(
+            C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE,
+            true,
+        ),
+    )
+
+    private fun legacyPlayerFragment(): Fragment = when (playbackBackend()) {
+        PlaybackBackend.LEGACY_EXOPLAYER -> ExoPlayerFragment()
+        PlaybackBackend.ANDROID_MEDIA_PLAYER -> MediaPlayerFragment()
+        PlaybackBackend.MEDIA3 -> error("Modern Media3 does not use a legacy player fragment")
+    }
+
     private fun startPlayer(fragment: Fragment) {
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackBackend",
+                "playback_backend=${playbackBackend().name.lowercase(Locale.ROOT)}",
+            )
+        }
         playerFragment = fragment
         viewModel.isPlayerOpened = true
         val transaction = supportFragmentManager.beginTransaction()
@@ -1299,7 +1308,7 @@ class MainActivity : AppCompatActivity() {
         if (playerFragment == null) {
             playerFragment = supportFragmentManager.findFragmentById(R.id.playerContainer) as? Media3PlayerFragment ?: supportFragmentManager.findFragmentById(R.id.playerContainer) as? PlayerFragment
             if (playerFragment == null) {
-                if (prefs.getString(C.PLAYER, C.EXOPLAYER) != C.MEDIA_PLAYER && prefs.getBoolean(C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE, true)) {
+                if (playbackBackend() == PlaybackBackend.LEGACY_EXOPLAYER) {
                     viewModel.getPlaybackStates()
                 }
             }

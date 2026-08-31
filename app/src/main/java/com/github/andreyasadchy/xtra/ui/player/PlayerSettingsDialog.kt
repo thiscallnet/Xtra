@@ -17,6 +17,7 @@ import com.github.andreyasadchy.xtra.databinding.PlayerSettingsBinding
 import com.github.andreyasadchy.xtra.ui.settings.PlayerControlLayoutEditor
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER_CONTROLS
+import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
@@ -87,11 +88,28 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             }
             if (requireContext().prefs().getBoolean(C.PLAYER_MENU_QUALITY, false)) {
                 menuQuality.visibility = View.VISIBLE
-                menuQuality.setOnClickListener { dismiss() }
+                // Quality may not have a label yet while the controller/HLS
+                // playlist is starting. Always route the tap through the
+                // fragment so Media3 can retain it until qualities arrive.
+                menuQuality.setOnClickListener {
+                    openQualityDialog()
+                }
                 (parentFragment as? Media3PlayerFragment)?.setQualityText() ?:
                 (parentFragment as? PlayerFragment)?.setQualityText()
             }
             if (type == BasePlaybackService.STREAM) {
+                val media3Parent = parentFragment as? Media3PlayerFragment
+                if (media3Parent != null) {
+                    menuLiveCaptionSettings.visibility = View.VISIBLE
+                    menuLiveCaptionSettings.setOnClickListener {
+                        val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
+                            putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
+                        }
+                        dismiss()
+                        (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
+                            ?: startActivity(intent)
+                    }
+                }
                 if (requireContext().prefs().getBoolean(C.PLAYER_MENU_VIEWER_LIST, true)) {
                     menuViewerList.visibility = View.VISIBLE
                     menuViewerList.setOnClickListener {
@@ -344,13 +362,14 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             if (!text.isNullOrBlank() && menuQuality.isVisible) {
                 qualityValue.visibility = View.VISIBLE
                 qualityValue.text = text
-                menuQuality.setOnClickListener {
-                    (parentFragment as? Media3PlayerFragment)?.showQualityDialog() ?:
-                    (parentFragment as? PlayerFragment)?.showQualityDialog()
-                    dismiss()
-                }
             }
         }
+    }
+
+    private fun openQualityDialog() {
+        (parentFragment as? Media3PlayerFragment)?.showQualityDialog() ?:
+        (parentFragment as? PlayerFragment)?.showQualityDialog()
+        dismiss()
     }
 
     fun setSpeed(text: String?) {

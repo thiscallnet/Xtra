@@ -140,7 +140,7 @@ jobs:
         # Release and perf share almost all sources. Build them in separate
         # Gradle invocations so Kotlin does not compile both variants at the
         # same time and exhaust the GitHub runner heap.
-        # AGP's incremental universal-APK splitter can fail transiently after
+        # AGP's incremental APK packaging can fail transiently after
         # a packaging worker is interrupted. Avoid reusing a partial
         # configuration-cache/package state and retry the complete variant
         # once; real compilation failures still fail the job.
@@ -192,8 +192,8 @@ jobs:
 
         release_output_dir=app/build/outputs/apk/release
         mapfile -t generated_apks < <(find "$release_output_dir" -maxdepth 1 -type f -name '*.apk' -print | sort)
-        if (( ${#generated_apks[@]} != 5 )); then
-          echo "Expected exactly five release APKs, found ${#generated_apks[@]}" >&2
+        if (( ${#generated_apks[@]} != 4 )); then
+          echo "Expected exactly four ABI-specific release APKs, found ${#generated_apks[@]}" >&2
           printf '%s\n' "${generated_apks[@]}" >&2
           exit 1
         fi
@@ -263,6 +263,23 @@ jobs:
             exit 1
           fi
 
+          local caption_asset
+          local required_caption_assets=(
+            assets/live-captions/moonshine-v2-tiny-en/encoder_model.ort
+            assets/live-captions/moonshine-v2-tiny-en/decoder_model_merged.ort
+            assets/live-captions/moonshine-v2-tiny-en/tokens.txt
+            assets/live-captions/moonshine-v2-tiny-en/silero_vad.onnx
+            assets/live-captions/moonshine-v2-tiny-en/LICENSE-MOONSHINE
+            assets/live-captions/moonshine-v2-tiny-en/LICENSE-SILERO
+            assets/live-captions/moonshine-v2-tiny-en/NOTICE
+          )
+          for caption_asset in "${required_caption_assets[@]}"; do
+            if ! unzip -Z1 "$apk_asset" | grep -Fxq "$caption_asset"; then
+              echo "$apk_name is missing required live-caption asset: $caption_asset" >&2
+              exit 1
+            fi
+          done
+
           local apk_size max_apk_bytes min_apk_bytes apk_sha256 signer_digest
           apk_size="$(stat -c '%s' "$apk_asset")"
           min_apk_bytes=$((1024 * 1024))
@@ -295,14 +312,12 @@ jobs:
         }
 
         declare -A expected_native_abis=(
-          [app-release.apk]="arm64-v8a armeabi-v7a x86 x86_64"
           [app-arm64-v8a-release.apk]="arm64-v8a"
           [app-armeabi-v7a-release.apk]="armeabi-v7a"
           [app-x86-release.apk]="x86"
           [app-x86_64-release.apk]="x86_64"
         )
         release_apk_names=(
-          app-release.apk
           app-arm64-v8a-release.apk
           app-armeabi-v7a-release.apk
           app-x86-release.apk
@@ -314,13 +329,11 @@ jobs:
         done
 
         artifacts_json="$(jq -cn \
-          --arg universal_sha "${apk_sha256s[app-release.apk]}" \
           --arg arm64_sha "${apk_sha256s[app-arm64-v8a-release.apk]}" \
           --arg arm32_sha "${apk_sha256s[app-armeabi-v7a-release.apk]}" \
           --arg x86_sha "${apk_sha256s[app-x86-release.apk]}" \
           --arg x86_64_sha "${apk_sha256s[app-x86_64-release.apk]}" \
           '[
-            {"abi":"universal","name":"app-release.apk","sha256":$universal_sha},
             {"abi":"arm64-v8a","name":"app-arm64-v8a-release.apk","sha256":$arm64_sha},
             {"abi":"armeabi-v7a","name":"app-armeabi-v7a-release.apk","sha256":$arm32_sha},
             {"abi":"x86","name":"app-x86-release.apk","sha256":$x86_sha},
@@ -328,16 +341,10 @@ jobs:
           ]')"
         metadata_tmp="$(mktemp)"
         jq \
-          --arg sha256 "${apk_sha256s[app-release.apk]}" \
           --argjson artifacts "$artifacts_json" \
-          '. + {sha256: $sha256, artifacts: $artifacts}' \
+          '. + {artifacts: $artifacts} | del(.sha256)' \
           "$metadata_asset" > "$metadata_tmp"
         mv "$metadata_tmp" "$metadata_asset"
-        metadata_sha256="$(jq -er '.sha256 | strings' "$metadata_asset")"
-        if [[ "$metadata_sha256" != "${apk_sha256s[app-release.apk]}" ]]; then
-          echo "Release metadata SHA-256 does not match app-release.apk" >&2
-          exit 1
-        fi
 
         mkdir -p release-package
         find release-package -mindepth 1 -maxdepth 1 -type f -delete

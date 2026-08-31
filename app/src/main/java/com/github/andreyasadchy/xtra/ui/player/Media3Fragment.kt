@@ -11,8 +11,8 @@ import android.os.Bundle
 import android.text.format.DateUtils
 import android.util.Log
 import android.view.SurfaceView
-import android.view.TextureView
 import android.view.View
+import android.view.animation.DecelerateInterpolator
 import android.widget.HorizontalScrollView
 import android.widget.TextView
 import androidx.annotation.OptIn
@@ -21,6 +21,8 @@ import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Format
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
@@ -29,6 +31,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
+import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
@@ -36,7 +39,6 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
-import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Clip
@@ -84,62 +86,74 @@ class Media3Fragment : Media3PlayerFragment() {
     private var streamRecoveryAttempt = 0
     private var adAvoidanceJob: Job? = null
     private var primaryStreamRestoreJob: Job? = null
+    private var qualityRetryJob: Job? = null
+    private var qualityRetryAttempts = 0
+    private var qualityRequestInFlight = false
+    private var qualityRequestGeneration = 0
+    private val pendingQualityCallbacks = mutableListOf<() -> Unit>()
+    private var nativeCues: List<Cue> = emptyList()
+    private var shownLiveCaptionError: String? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
-    private val useTextureVideoOutput = shouldUseTextureViewForVideoOutput()
-    private val videoOutputOwner = VideoOutputOwner<Player, View>(
-        attachTarget = { currentPlayer, target ->
-            when (target) {
-                is SurfaceView -> currentPlayer.setVideoSurfaceView(target)
-                is TextureView -> currentPlayer.setVideoTextureView(target)
-                else -> error("Unsupported video output view: ${target.javaClass.name}")
-            }
-        },
-        detachTarget = { currentPlayer, target ->
-            when (target) {
-                is SurfaceView -> currentPlayer.clearVideoSurfaceView(target)
-                is TextureView -> currentPlayer.clearVideoTextureView(target)
-                else -> error("Unsupported video output view: ${target.javaClass.name}")
-            }
-        },
+    private val videoOutputOwner = VideoOutputOwner<Player, SurfaceView>(
+        attachTarget = { currentPlayer, target -> currentPlayer.setVideoSurfaceView(target) },
+        detachTarget = { currentPlayer, target -> currentPlayer.clearVideoSurfaceView(target) },
     )
-
-    private val videoOutputView: View
-        get() = if (useTextureVideoOutput) {
-            binding.playerTextureView
-        } else {
-            binding.playerSurface
-        }
-
-    private fun configureVideoOutputView() {
-        binding.playerTextureView.visibility =
-            if (useTextureVideoOutput) View.VISIBLE else View.GONE
-        binding.playerSurface.visibility =
-            if (useTextureVideoOutput) View.GONE else View.VISIBLE
-
-        if (!useTextureVideoOutput &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
-        ) {
-            binding.playerSurface.setSurfaceLifecycle(
-                SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT,
-            )
-        }
-    }
-
-    private fun setVideoOutputVisible(visible: Boolean) {
-        videoOutputView.visibility = if (visible) View.VISIBLE else View.GONE
-    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        configureVideoOutputView()
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                "VideoSurface",
-                "renderer=${videoOutputView.javaClass.simpleName} emulatorFallback=$useTextureVideoOutput",
+        viewLifecycleOwner.lifecycleScope.launch {
+                viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    xtraModule.liveCaptionManager.state.collect { state ->
+                        val nextCaptionText = if (videoType == STREAM && state.enabled) state.text else ""
+                        updateLiveCaption(nextCaptionText, state.lineShiftToken)
+                        if (videoType == STREAM) {
+                            binding.playerControls.liveCaptions.setImageResource(
+                                if (state.enabled) {
+                                    androidx.media3.ui.R.drawable.exo_ic_subtitle_on
+                                } else {
+                                    androidx.media3.ui.R.drawable.exo_ic_subtitle_off
+                                },
+                            )
+                            binding.playerControls.liveCaptions.contentDescription = getString(
+                                if (state.enabled) R.string.disable_live_captions else R.string.enable_live_captions,
+                            )
+                        }
+                        if (state.error.isNullOrBlank()) {
+                            shownLiveCaptionError = null
+                        } else if (state.error != shownLiveCaptionError) {
+                            shownLiveCaptionError = state.error
+                            Snackbar.make(
+                                binding.root,
+                                getString(R.string.live_captions_error, state.error),
+                                Snackbar.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                }
+            }
+
+        binding.playerControls.liveCaptions.apply {
+            visibility = if (videoType == STREAM) View.VISIBLE else View.GONE
+            setOnClickListener {
+                showController(force = true)
+                toggleLiveCaptions()
+            }
+            setOnLongClickListener {
+                showController(force = true)
+                openLiveCaptionSettings()
+                true
+            }
+        }
+
+        binding.playerTextureView.visibility = View.GONE
+        binding.playerSurface.visibility = View.VISIBLE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            binding.playerSurface.setSurfaceLifecycle(
+                SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT,
             )
         }
-        logVideoSurfaceBinding("on_view_created", player, videoOutputView)
+        logVideoSurfaceBinding("on_view_created", player, binding.playerSurface)
     }
 
     override fun onViewingMetadataChanged(title: String?, gameId: String?, gameName: String?) {
@@ -164,7 +178,7 @@ class Media3Fragment : Media3PlayerFragment() {
 
     override fun onStart() {
         super.onStart()
-        logVideoSurfaceBinding("on_start", player, videoOutputView)
+        logVideoSurfaceBinding("on_start", player, binding.playerSurface)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         val future = MediaController.Builder(
             requireContext(),
@@ -184,7 +198,7 @@ class Media3Fragment : Media3PlayerFragment() {
                 MediaController.releaseFuture(future)
                 return@addListener
             }
-            logVideoSurfaceBinding("controller_connected", controller, videoOutputView)
+            logVideoSurfaceBinding("controller_connected", controller, binding.playerSurface)
             val listener = object : Player.Listener {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
@@ -274,7 +288,8 @@ class Media3Fragment : Media3PlayerFragment() {
                 }
 
                 override fun onCues(cueGroup: CueGroup) {
-                    binding.subtitleView.setCues(cueGroup.cues)
+                    nativeCues = cueGroup.cues
+                    renderSubtitleOverlay()
                 }
 
                 override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
@@ -313,6 +328,9 @@ class Media3Fragment : Media3PlayerFragment() {
                     }
                     setSubtitlesButton()
                     if (!tracks.isEmpty) {
+                        if (viewModel.qualities.isNullOrEmpty() || viewModel.updateQualities) {
+                            requestQualities()
+                        }
                         if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null
                             && viewModel.quality?.name != AUDIO_ONLY_QUALITY
                             && !viewModel.hidden) {
@@ -335,58 +353,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         viewModel.updateQualities = viewModel.quality?.name != AUDIO_ONLY_QUALITY
                     }
                     if (viewModel.qualities.isNullOrEmpty() || viewModel.updateQualities) {
-                        player?.sendCustomCommand(
-                            SessionCommand(PlaybackService.GET_QUALITIES, Bundle.EMPTY),
-                            Bundle.EMPTY
-                        )?.let { result ->
-                            result.addListener({
-                                if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
-                                    val list = result.get().extras.getStringArray(PlaybackService.NAMES)?.let { names ->
-                                        result.get().extras.getStringArray(PlaybackService.CODECS)?.let { codecs ->
-                                            result.get().extras.getStringArray(PlaybackService.BITRATES)?.let { bitrates ->
-                                                result.get().extras.getStringArray(PlaybackService.URLS)?.let { urls ->
-                                                    names.mapIndexed { index, name ->
-                                                        VideoQuality(name, codecs.getOrNull(index).takeIf { it != "null" }, bitrates.getOrNull(index).takeIf { it != "null" }?.toIntOrNull(), urls.getOrNull(index))
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if (!list.isNullOrEmpty()) {
-                                        viewModel.qualities = list.asSequence()
-                                            .sortedByDescending {
-                                                it.bitrate
-                                            }
-                                            .sortedByDescending {
-                                                it.name?.substringAfter("p", "")?.takeWhile { it.isDigit() }?.toIntOrNull()
-                                            }
-                                            .sortedByDescending {
-                                                it.name?.substringBefore("p", "")?.takeWhile { it.isDigit() }?.toIntOrNull()
-                                            }
-                                            .toMutableList().apply {
-                                                add(0, VideoQuality(AUTO_QUALITY))
-                                                find { it.name.equals("source", true) }?.let { source ->
-                                                    remove(source)
-                                                    add(1, VideoQuality(SOURCE_QUALITY, source.codecs, source.bitrate, source.url))
-                                                }
-                                                val audio = find { it.name?.startsWith("audio", true) == true }
-                                                audio?.let { remove(it) }
-                                                add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
-                                                if (videoType == STREAM) {
-                                                }
-                                            }
-                                        setDefaultQuality()
-                                        changePlayerMode()
-                                        if (viewModel.quality?.name == AUDIO_ONLY_QUALITY) {
-                                            changeQuality(viewModel.quality, persistSavedQuality = false)
-                                        }
-                                    }
-                                    if (reason == Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE) {
-                                        viewModel.updateQualities = false
-                                    }
-                                }
-                            }, MoreExecutors.directExecutor())
-                        }
+                        requestQualities()
                     }
                     if (videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
                         val avoidAds = requireContext().prefs().shouldAvoidTwitchAds()
@@ -538,11 +505,11 @@ class Media3Fragment : Media3PlayerFragment() {
                 }
 
                 override fun onRenderedFirstFrame() {
-                    logVideoSurfaceBinding("first_frame", controller, videoOutputView)
+                    logVideoSurfaceBinding("first_frame", controller, binding.playerSurface)
                 }
             }
             val restored = viewModel.videoOutputState.restoreIfNeeded {
-                setVideoOutputVisible(true)
+                binding.playerSurface.visibility = View.VISIBLE
                 attachVideoOutput(controller)
                 true
             }
@@ -551,6 +518,12 @@ class Media3Fragment : Media3PlayerFragment() {
             }
             controller.addListener(listener)
             playerListener = listener
+            // A listener added after the controller is already prepared does
+            // not receive an initial onTracksChanged callback. Retry any
+            // quality request that arrived while the controller was connecting.
+            if (controller.currentMediaItem != null) {
+                requestQualities()
+            }
             controller.sendCustomCommand(
                 SessionCommand(
                     PlaybackService.SET_BACKGROUND_PLAYBACK,
@@ -673,7 +646,7 @@ class Media3Fragment : Media3PlayerFragment() {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                         setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                     }.build()
-                    setVideoOutputVisible(false)
+                    binding.playerSurface.visibility = View.GONE
                 }
                 player.volume = 0f
             }
@@ -689,7 +662,7 @@ class Media3Fragment : Media3PlayerFragment() {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                         setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                     }.build()
-                    setVideoOutputVisible(true)
+                    binding.playerSurface.visibility = View.VISIBLE
                 }
                 player.volume = requireContext().prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
             }
@@ -871,7 +844,7 @@ class Media3Fragment : Media3PlayerFragment() {
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
             }.build()
-            setVideoOutputVisible(true)
+            binding.playerSurface.visibility = View.VISIBLE
             player.sendCustomCommand(
                 SessionCommand(
                     PlaybackService.START_VIDEO, Bundle().apply {
@@ -898,12 +871,12 @@ class Media3Fragment : Media3PlayerFragment() {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                 }.build()
-                setVideoOutputVisible(false)
+                binding.playerSurface.visibility = View.GONE
             } else {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                 }.build()
-                setVideoOutputVisible(true)
+                binding.playerSurface.visibility = View.VISIBLE
             }
             player.sendCustomCommand(
                 SessionCommand(
@@ -930,12 +903,12 @@ class Media3Fragment : Media3PlayerFragment() {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                 }.build()
-                setVideoOutputVisible(false)
+                binding.playerSurface.visibility = View.GONE
             } else {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                 }.build()
-                setVideoOutputVisible(true)
+                binding.playerSurface.visibility = View.VISIBLE
             }
             player.sendCustomCommand(
                 SessionCommand(
@@ -1211,7 +1184,7 @@ class Media3Fragment : Media3PlayerFragment() {
                                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                                 clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
                             }.build()
-                            setVideoOutputVisible(true)
+                            binding.playerSurface.visibility = View.VISIBLE
                         }
                         AUDIO_ONLY_QUALITY -> {
                             if (viewModel.usingProxy) {
@@ -1227,7 +1200,7 @@ class Media3Fragment : Media3PlayerFragment() {
                             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                             }.build()
-                            setVideoOutputVisible(false)
+                            binding.playerSurface.visibility = View.GONE
                             quality.url?.let {
                                 val position = player.currentPosition
                                 if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
@@ -1264,7 +1237,7 @@ class Media3Fragment : Media3PlayerFragment() {
                                 } ?: player.prepare()
                                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
-                                    setVideoOutputVisible(true)
+                                    binding.playerSurface.visibility = View.VISIBLE
                                     if (!player.currentTracks.isEmpty) {
                                         player.currentTracks.groups.find { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO }?.let { trackGroup ->
                                             val selectedQuality = quality.name?.split("p")
@@ -1309,7 +1282,7 @@ class Media3Fragment : Media3PlayerFragment() {
                                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                                 }.build()
-                                setVideoOutputVisible(true)
+                                binding.playerSurface.visibility = View.VISIBLE
                             }
                         }
                     }
@@ -1349,7 +1322,7 @@ class Media3Fragment : Media3PlayerFragment() {
                             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                             }.build()
-                            setVideoOutputVisible(false)
+                            binding.playerSurface.visibility = View.GONE
                         }
                     }
                 }
@@ -1419,6 +1392,8 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     private fun releaseController(controller: MediaController? = player) {
+        qualityRequestGeneration++
+        qualityRequestInFlight = false
         streamRecoveryJob?.cancel()
         streamRecoveryJob = null
         streamRecoveryAttempt = 0
@@ -1434,8 +1409,114 @@ class Media3Fragment : Media3PlayerFragment() {
         future?.let { MediaController.releaseFuture(it) }
     }
 
+    override fun ensureQualities(onReady: () -> Unit) {
+        if (getQualities().isNullOrEmpty()) {
+            requestQualities(onReady)
+        } else {
+            onReady()
+        }
+    }
+
+    private fun requestQualities(onReady: (() -> Unit)? = null) {
+        onReady?.let { pendingQualityCallbacks += it }
+        if (qualityRequestInFlight) return
+
+        val currentPlayer = player ?: run {
+            // Keep the request pending until the controller is connected. A quality
+            // tap during service startup must not be lost.
+            return
+        }
+        qualityRequestInFlight = true
+        val requestGeneration = qualityRequestGeneration
+        val requestedPlayer = currentPlayer
+        val result = currentPlayer.sendCustomCommand(
+            SessionCommand(PlaybackService.GET_QUALITIES, Bundle.EMPTY),
+            Bundle.EMPTY,
+        )
+        result.addListener({
+            // The command future is not lifecycle-bound. A controller can be
+            // released, or the fragment view can be destroyed, before the
+            // service responds. Do not let an old response touch a new view.
+            if (requestGeneration != qualityRequestGeneration ||
+                requestedPlayer !== player ||
+                !isAdded ||
+                view == null
+            ) {
+                return@addListener
+            }
+            val response = runCatching { result.get() }.getOrNull()
+            if (response?.resultCode == SessionResult.RESULT_SUCCESS) {
+                val extras = response.extras
+                val names = extras.getStringArray(PlaybackService.NAMES)
+                val codecs = extras.getStringArray(PlaybackService.CODECS)
+                val bitrates = extras.getStringArray(PlaybackService.BITRATES)
+                val urls = extras.getStringArray(PlaybackService.URLS)
+                val list = if (names != null && codecs != null && bitrates != null && urls != null) {
+                    names.mapIndexed { index, name ->
+                        VideoQuality(
+                            name,
+                            codecs.getOrNull(index).takeIf { it != "null" },
+                            bitrates.getOrNull(index).takeIf { it != "null" }?.toIntOrNull(),
+                            urls.getOrNull(index),
+                        )
+                    }
+                } else {
+                    null
+                }
+                if (!list.isNullOrEmpty()) {
+                    viewModel.qualities = list.asSequence()
+                        .sortedByDescending { it.bitrate }
+                        .sortedByDescending {
+                            it.name?.substringAfter("p", "")?.takeWhile { value -> value.isDigit() }?.toIntOrNull()
+                        }
+                        .sortedByDescending {
+                            it.name?.substringBefore("p", "")?.takeWhile { value -> value.isDigit() }?.toIntOrNull()
+                        }
+                        .toMutableList()
+                        .apply {
+                            add(0, VideoQuality(AUTO_QUALITY))
+                            find { it.name.equals("source", true) }?.let { source ->
+                                remove(source)
+                                add(1, VideoQuality(SOURCE_QUALITY, source.codecs, source.bitrate, source.url))
+                            }
+                            val audio = find { it.name?.startsWith("audio", true) == true }
+                            audio?.let { remove(it) }
+                            add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
+                        }
+                    viewModel.updateQualities = false
+                    setDefaultQuality()
+                    changePlayerMode()
+                    if (viewModel.quality?.name == AUDIO_ONLY_QUALITY) {
+                        changeQuality(viewModel.quality, persistSavedQuality = false)
+                    }
+                    setQualityText()
+                    qualityRetryAttempts = 0
+                }
+            }
+            qualityRequestInFlight = false
+            // The service can answer before the HLS multivariant playlist is
+            // available. Keep callbacks pending; onTracksChanged/onTimelineChanged
+            // will retry and only a non-empty list may open the dialog.
+            if (!viewModel.qualities.isNullOrEmpty()) {
+                val callbacks = pendingQualityCallbacks.toList()
+                pendingQualityCallbacks.clear()
+                callbacks.forEach { it() }
+            } else if (pendingQualityCallbacks.isNotEmpty() && qualityRetryAttempts < MAX_QUALITY_RETRY_ATTEMPTS) {
+                qualityRetryAttempts++
+                qualityRetryJob?.cancel()
+                qualityRetryJob = viewLifecycleOwner.lifecycleScope.launch {
+                    delay(QUALITY_RETRY_DELAY_MS)
+                    qualityRetryJob = null
+                    if (view != null && player != null && viewModel.qualities.isNullOrEmpty()) {
+                        requestQualities()
+                    }
+                }
+            }
+        }, ContextCompat.getMainExecutor(requireContext()))
+    }
+
     override fun onStop() {
-        logVideoSurfaceBinding("on_stop", player, view?.let { videoOutputView })
+        logVideoSurfaceBinding("on_stop", player, view?.findViewById(R.id.playerSurface))
         super.onStop()
         val isInPIPMode = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> requireActivity().isInPictureInPictureMode
@@ -1459,7 +1540,7 @@ class Media3Fragment : Media3PlayerFragment() {
                     if (!isInPIPMode && player.playWhenReady && viewModel.quality?.name != AUDIO_ONLY_QUALITY) {
                         if (player.currentMediaItem != null) {
                             viewModel.videoOutputState.markDetachedForBackground()
-                            setVideoOutputVisible(false)
+                            binding.playerSurface.visibility = View.GONE
                         }
                     }
                 } else {
@@ -1506,24 +1587,46 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     override fun onDestroyView() {
-        logVideoSurfaceBinding("on_destroy_view", player, view?.let { videoOutputView })
+        qualityRequestGeneration++
+        qualityRequestInFlight = false
+        nativeCues = emptyList()
+        shownLiveCaptionError = null
+        qualityRetryJob?.cancel()
+        qualityRetryJob = null
+        qualityRetryAttempts = 0
+        pendingQualityCallbacks.clear()
+        binding.liveCaptionView.clearCaption()
+        logVideoSurfaceBinding("on_destroy_view", player, view?.findViewById(R.id.playerSurface))
         detachVideoOutput()
         super.onDestroyView()
     }
 
+    private fun renderSubtitleOverlay() {
+        // Live captions have their own fixed-size view. Keeping SubtitleView owned by
+        // native cues prevents every partial result from changing the cue window geometry.
+        binding.subtitleView.setCues(nativeCues)
+    }
+
+    /** Updates only the text inside the fixed caption container. */
+    private fun updateLiveCaption(text: String, lineShiftToken: Long) {
+        binding.liveCaptionView.submitCaption(text, lineShiftToken)
+    }
+
     private fun attachVideoOutput(currentPlayer: Player) {
-        val target = videoOutputView
-        videoOutputOwner.attach(currentPlayer, target)
-        logVideoSurfaceBinding("attach", currentPlayer, target)
+        videoOutputOwner.attach(currentPlayer, binding.playerSurface)
+        logVideoSurfaceBinding("attach", currentPlayer, binding.playerSurface)
     }
 
     private fun detachVideoOutput() {
         val currentPlayer = videoOutputOwner.attachedPlayer() ?: return
-        logVideoSurfaceBinding("detach", currentPlayer, videoOutputView)
+        logVideoSurfaceBinding("detach", currentPlayer, binding.playerSurface)
         videoOutputOwner.clear()
     }
 
     companion object {
+        private const val QUALITY_RETRY_DELAY_MS = 500L
+        private const val MAX_QUALITY_RETRY_ATTEMPTS = 10
+
         fun newInstance(item: Stream, tapElapsedMs: Long? = null): Media3Fragment {
             return Media3Fragment().apply {
                 arguments = getStreamArguments(item, tapElapsedMs)

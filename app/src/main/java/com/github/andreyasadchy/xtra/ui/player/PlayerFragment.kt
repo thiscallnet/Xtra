@@ -58,11 +58,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.text.Cue
+import androidx.media3.common.text.CueGroup
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.TimeBar
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Video
@@ -74,6 +77,9 @@ import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.PlayerViewModel.Companion.PlayerViewModelFactory
+import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
+import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER
+import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -111,7 +117,12 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     protected val viewModel: PlayerViewModel by viewModels { PlayerViewModelFactory }
     protected var chatFragment: ChatFragment? = null
     protected open val playbackService: BasePlaybackService? = null
+    protected val xtraModule
+        get() = (requireContext().applicationContext as XtraApp).xtraModule
+    protected open val supportsLiveCaptions: Boolean = false
     protected var started = false
+
+    private var nativeSubtitleCues: List<Cue> = emptyList()
 
     private var isPortrait = false
     protected var isMaximized = true
@@ -218,6 +229,80 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     open fun toggleAudioCompressor() {}
     open fun setSubtitlesButton() {}
     open fun toggleSubtitles(enabled: Boolean) {}
+
+    fun toggleLiveCaptions() {
+        if (!supportsLiveCaptions || playbackService?.type != BasePlaybackService.STREAM) return
+        val preferences = requireContext().prefs()
+        val enabled = !preferences.getBoolean(C.PLAYER_LIVE_CAPTIONS, false)
+        preferences.edit { putBoolean(C.PLAYER_LIVE_CAPTIONS, enabled) }
+        xtraModule.liveCaptionManager.setEnabled(enabled)
+        configureLiveCaptionsButton()
+    }
+
+    protected fun configureLiveCaptionsButton() {
+        if (_binding == null) return
+        val button = binding.playerControls.liveCaptions
+        if (!supportsLiveCaptions || playbackService?.type != BasePlaybackService.STREAM) {
+            button.visibility = View.GONE
+            button.setOnClickListener(null)
+            button.setOnLongClickListener(null)
+            return
+        }
+        val enabled = requireContext().prefs().getBoolean(C.PLAYER_LIVE_CAPTIONS, false)
+        button.visibility = View.VISIBLE
+        button.setImageResource(
+            if (enabled) androidx.media3.ui.R.drawable.exo_ic_subtitle_on
+            else androidx.media3.ui.R.drawable.exo_ic_subtitle_off,
+        )
+        button.setOnClickListener {
+            showController(force = true)
+            toggleLiveCaptions()
+        }
+        button.setOnLongClickListener {
+            showController(force = true)
+            openLiveCaptionSettings()
+            true
+        }
+    }
+
+    private fun openLiveCaptionSettings() {
+        val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
+            putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
+        }
+        (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
+            ?: startActivity(intent)
+    }
+
+    private fun setupLiveCaptionOverlay() {
+        if (!supportsLiveCaptions) return
+        configureLiveCaptionsButton()
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                xtraModule.liveCaptionManager.state.collectLatest { state ->
+                    updateLiveCaption(
+                        text = if (state.enabled) state.text else "",
+                        lineShiftToken = state.lineShiftToken,
+                    )
+                }
+            }
+        }
+    }
+
+    protected fun setNativeSubtitleCues(cues: List<Cue>) {
+        nativeSubtitleCues = cues
+        renderSubtitleOverlay()
+    }
+
+    private fun renderSubtitleOverlay() {
+        // Native subtitle tracks remain owned by SubtitleView. Live captions use a
+        // fixed overlay view so partial updates never move the player or its black bar.
+        binding.subtitleView.setCues(nativeSubtitleCues)
+    }
+
+    private fun updateLiveCaption(text: String, lineShiftToken: Long) {
+        if (_binding == null) return
+        binding.liveCaptionView.submitCaption(text, lineShiftToken)
+    }
     open fun showPlaylistTags(mediaPlaylist: Boolean) {}
     open fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean = true) {}
     open fun startAudioOnly() {}
@@ -364,6 +449,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             aspectRatioFrameLayout.setAspectRatio(16f / 9f)
             initLayout()
             changePlayerMode()
+            setupLiveCaptionOverlay()
             val viewConfiguration = ViewConfiguration.get(requireContext())
             val touchSlop = viewConfiguration.scaledTouchSlop
             val touchSlopRange = -touchSlop.toFloat()..touchSlop.toFloat()
@@ -3312,6 +3398,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         loadedChannelAvatarUrl = null
         interactionLockBackCallback?.remove()
         interactionLockBackCallback = null
+        _binding?.liveCaptionView?.clearCaption()
         super.onDestroyView()
         _binding = null
     }
