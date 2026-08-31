@@ -168,6 +168,20 @@ data class DropsUiState(
                         it.requiredMinutesWatched > 0
                 }
                 .maxByOrNull { it.progressPercent }
+
+}
+
+internal fun appendChatMessageToHistory(
+    messages: MutableList<ChatMessage>,
+    message: ChatMessage,
+    messageLimit: Int,
+): Int {
+    messages.add(message)
+    val removeCount = (messages.size - messageLimit).coerceAtLeast(0)
+    if (removeCount > 0) {
+        messages.subList(0, removeCount).clear()
+    }
+    return removeCount
 }
 
 class ChatViewModel(
@@ -1409,13 +1423,7 @@ class ChatViewModel(
             )
         }
         synchronized(chatMessages) {
-            chatMessages.add(message)
-            val removeCount = if (chatMessages.size > messageLimit) {
-                chatMessages.size - messageLimit
-            } else 0
-            if (removeCount > 0) {
-                chatMessages.subList(0, removeCount).clear()
-            }
+            val removeCount = appendChatMessageToHistory(chatMessages, message, messageLimit)
             chatRevision++
             chatMutationEvents.trySend(
                 ChatMutation.Append(
