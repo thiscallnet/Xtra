@@ -34,11 +34,11 @@ object ReleaseNotes {
             val candidate = it.replace(markdownPrefix, "")
             candidate.isNotBlank() && heading.matchEntire(it) == null && !isNoise(candidate)
         }
-        val source = if (hasUsefulBody) lines else commits
         var kind = ChangeKind.OTHER
         val items = mutableListOf<ChangeItem>()
         fun parseLines(sourceLines: List<String>) {
-            sourceLines.forEach { line ->
+            sourceLines.forEach { sourceLine ->
+                val line = sourceLine.substringBefore('\n')
                 val match = heading.matchEntire(line)
                 if (match != null) {
                     val headingText = clean(match.groupValues[1]) ?: return@forEach
@@ -51,8 +51,11 @@ object ReleaseNotes {
                 items += ChangeItem(parsed.text, finalKind)
             }
         }
-        parseLines(source)
-        if (items.isEmpty() && source !== commits && commits.isNotEmpty()) parseLines(commits)
+        if (hasUsefulBody) parseLines(lines)
+        if (commits.isNotEmpty()) {
+            kind = ChangeKind.OTHER
+            parseLines(commits)
+        }
         return StructuredReleaseNotes(
             items.asSequence()
                 .filterNot { isNoise(it.text) }
