@@ -1409,8 +1409,8 @@ class Media3Fragment : Media3PlayerFragment() {
         if (qualityRequestInFlight) return
 
         val currentPlayer = player ?: run {
-            qualityRequestInFlight = false
-            pendingQualityCallbacks.clear()
+            // Keep the request pending until the controller is connected. A quality
+            // tap during service startup must not be lost.
             return
         }
         qualityRequestInFlight = true
@@ -1468,9 +1468,14 @@ class Media3Fragment : Media3PlayerFragment() {
                 }
             }
             qualityRequestInFlight = false
-            val callbacks = pendingQualityCallbacks.toList()
-            pendingQualityCallbacks.clear()
-            callbacks.forEach { it() }
+            // The service can answer before the HLS multivariant playlist is
+            // available. Keep callbacks pending; onTracksChanged/onTimelineChanged
+            // will retry and only a non-empty list may open the dialog.
+            if (!viewModel.qualities.isNullOrEmpty()) {
+                val callbacks = pendingQualityCallbacks.toList()
+                pendingQualityCallbacks.clear()
+                callbacks.forEach { it() }
+            }
         }, ContextCompat.getMainExecutor(requireContext()))
     }
 

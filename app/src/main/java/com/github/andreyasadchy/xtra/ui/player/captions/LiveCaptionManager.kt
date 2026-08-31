@@ -78,6 +78,8 @@ class LiveCaptionManager(
     private val enabled = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val audioGeneration = AtomicLong(0L)
+    private val nextAudioSinkId = AtomicLong(1L)
+    private val activeAudioSinkId = AtomicLong(NO_AUDIO_SINK)
     private val droppedAudioBuffers = AtomicInteger(0)
     private val presentationDelayMs = AtomicInteger(0)
     private val captionHoldMs = AtomicInteger(DEFAULT_CAPTION_HOLD_SECONDS * 1_000)
@@ -102,47 +104,84 @@ class LiveCaptionManager(
     /** Read from the audio render thread; this is deliberately only an atomic load. */
     fun presentationDelayMs(): Int = presentationDelayMs.get()
 
-    val audioBufferSink = object : TeeAudioProcessor.AudioBufferSink {
-        override fun flush(
-            sampleRateHz: Int,
-            channelCount: Int,
-            encoding: Int,
-        ) {
-            val generation = audioGeneration.incrementAndGet()
-            audioFormat = AudioFormatState(sampleRateHz, channelCount, encoding)
-            audioQueue.clear()
-            if (enabled.get()) {
-                audioQueue.offer(
-                    AudioEvent.Flush(sampleRateHz, channelCount, encoding, generation),
-                )
-            } else {
-                audioQueue.offer(AudioEvent.Stop)
-            }
-        }
+    /**
+     * A renderer-owned sink. Only the sink claimed by the current playback
+     * player may affect the shared caption worker. This prevents a renderer
+     * from an old playback generation from flushing the active stream.
+     */
+    class AudioBufferSinkSession internal constructor(
+        internal val id: Long,
+        internal val sink: TeeAudioProcessor.AudioBufferSink,
+    )
 
-        override fun handleBuffer(buffer: ByteBuffer) {
-            if (!enabled.get()) return
+    private val defaultAudioBufferSinkSession = createAudioBufferSinkSessionInternal(alwaysActive = true)
+    val audioBufferSink: TeeAudioProcessor.AudioBufferSink = defaultAudioBufferSinkSession.sink
 
-            val format = audioFormat ?: return
-            if (format.encoding != C.ENCODING_PCM_16BIT &&
-                format.encoding != C.ENCODING_PCM_FLOAT
-            ) return
+    fun createAudioBufferSinkSession(): AudioBufferSinkSession =
+        createAudioBufferSinkSessionInternal()
 
-            val copy = ByteArray(buffer.remaining())
-            buffer.duplicate().get(copy)
-            val event = AudioEvent.Pcm(
-                bytes = copy,
-                sampleRateHz = format.sampleRateHz,
-                channelCount = format.channelCount,
-                encoding = format.encoding,
-                generation = audioGeneration.get(),
-            )
+    fun activateAudioBufferSink(session: AudioBufferSinkSession) {
+        if (!closed.get()) activeAudioSinkId.set(session.id)
+    }
 
-            // NEVER block playback. Caption audio is disposable when the worker falls behind.
-            if (!audioQueue.offer(event)) {
-                droppedAudioBuffers.incrementAndGet()
-            }
-        }
+    fun deactivateAudioBufferSink(session: AudioBufferSinkSession) {
+        if (!activeAudioSinkId.compareAndSet(session.id, NO_AUDIO_SINK)) return
+        audioGeneration.incrementAndGet()
+        audioFormat = null
+        audioQueue.clear()
+        audioQueue.offer(AudioEvent.Stop)
+    }
+
+    private fun createAudioBufferSinkSessionInternal(
+        alwaysActive: Boolean = false,
+    ): AudioBufferSinkSession {
+        val id = nextAudioSinkId.getAndIncrement()
+        return AudioBufferSinkSession(
+            id = id,
+            sink = object : TeeAudioProcessor.AudioBufferSink {
+                override fun flush(
+                    sampleRateHz: Int,
+                    channelCount: Int,
+                    encoding: Int,
+                ) {
+                    if (!alwaysActive && activeAudioSinkId.get() != id) return
+                    val generation = audioGeneration.incrementAndGet()
+                    audioFormat = AudioFormatState(sampleRateHz, channelCount, encoding)
+                    audioQueue.clear()
+                    if (enabled.get()) {
+                        audioQueue.offer(
+                            AudioEvent.Flush(sampleRateHz, channelCount, encoding, generation),
+                        )
+                    } else {
+                        audioQueue.offer(AudioEvent.Stop)
+                    }
+                }
+
+                override fun handleBuffer(buffer: ByteBuffer) {
+                    if ((!alwaysActive && activeAudioSinkId.get() != id) || !enabled.get()) return
+
+                    val format = audioFormat ?: return
+                    if (format.encoding != C.ENCODING_PCM_16BIT &&
+                        format.encoding != C.ENCODING_PCM_FLOAT
+                    ) return
+
+                    val copy = ByteArray(buffer.remaining())
+                    buffer.duplicate().get(copy)
+                    val event = AudioEvent.Pcm(
+                        bytes = copy,
+                        sampleRateHz = format.sampleRateHz,
+                        channelCount = format.channelCount,
+                        encoding = format.encoding,
+                        generation = audioGeneration.get(),
+                    )
+
+                    // NEVER block playback. Caption audio is disposable when the worker falls behind.
+                    if (!audioQueue.offer(event)) {
+                        droppedAudioBuffers.incrementAndGet()
+                    }
+                }
+            },
+        )
     }
 
     fun setEnabled(value: Boolean) {
@@ -536,6 +575,7 @@ class LiveCaptionManager(
     }
 
     private companion object {
+        const val NO_AUDIO_SINK = Long.MIN_VALUE
         const val TAG = "LiveCaptionManager"
         const val METRICS_LOG_INTERVAL_MS = 10_000L
         const val QUEUE_POLL_INTERVAL_MS = 100L
