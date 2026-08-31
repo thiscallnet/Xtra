@@ -15,6 +15,11 @@
 
 -dontobfuscate
 
+# sherpa-onnx's Android JNI bridge reads recognizer/VAD configuration fields by
+# their Java names. Keep the public API members intact in minified release
+# builds; otherwise native model creation fails with NoSuchFieldError.
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+
 -assumenosideeffects class android.util.Log {
     public static *** d(...);
     public static *** v(...);

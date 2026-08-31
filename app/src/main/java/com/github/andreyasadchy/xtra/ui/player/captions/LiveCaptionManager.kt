@@ -433,15 +433,13 @@ class LiveCaptionManager(
                         engineGeneration = event.generation
                         clearVisibleCaption()
                         visibleCaptionExpiresAtMs = 0L
-                        if (BuildConfig.DEBUG) {
-                            Log.d(
-                                TAG,
-                                "audio format ${event.sampleRateHz}Hz, " +
-                                    "${event.channelCount}ch, encoding=${event.encoding}, " +
-                                    "dropped=${droppedBuffersBaseline.delta(droppedAudioBuffers.get())}, " +
-                                    "queue=${audioQueue.size}",
-                            )
-                        }
+                        Log.i(
+                            TAG,
+                            "audio format ${event.sampleRateHz}Hz, " +
+                                "${event.channelCount}ch, encoding=${event.encoding}, " +
+                                "dropped=${droppedBuffersBaseline.delta(droppedAudioBuffers.get())}, " +
+                                "queue=${audioQueue.size}",
+                        )
                     }
 
                     is AudioEvent.Pcm -> {
@@ -463,9 +461,7 @@ class LiveCaptionManager(
                                 engineId = MOONSHINE_ENGINE_ID,
                                 engineInitMs = engineInitMs,
                             )
-                            if (BuildConfig.DEBUG) {
-                                Log.d(TAG, "ASR engine=$MOONSHINE_ENGINE_ID initialized in ${engineInitMs}ms")
-                            }
+                            Log.i(TAG, "ASR engine=$MOONSHINE_ENGINE_ID initialized in ${engineInitMs}ms")
                             publishListening()
                         }
 
@@ -510,8 +506,8 @@ class LiveCaptionManager(
                                 },
                             ),
                         )
-                        if (BuildConfig.DEBUG && now >= nextMetricsLogMs) {
-                            Log.d(
+                        if (now >= nextMetricsLogMs) {
+                            Log.i(
                                 TAG,
                                 "LiveCaptions engine=$metricsEngineId " +
                                     "firstOutput=${firstOutputAfterStartMs ?: "none"}ms " +
@@ -603,7 +599,9 @@ class LiveCaptionManager(
             status = LiveCaptionState.Status.ERROR,
             error = throwable.message ?: throwable::class.java.simpleName,
         )
-        if (BuildConfig.DEBUG) Log.e(TAG, "ASR failed", throwable)
+        // Initialization/decode failures must remain diagnosable in release builds too.
+        // Do not include recognition text in this log.
+        Log.e(TAG, "ASR failed", throwable)
     }
 
     private fun publishMetrics(value: LiveCaptionMetrics) {
