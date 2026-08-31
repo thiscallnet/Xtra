@@ -458,12 +458,14 @@ object SettingsMigration {
             }
 
             // The experimental A/B selector was removed in favor of Moonshine-only
-            // captions. Reset its old aggressive interval to the new stable default.
+            // captions. Set the new default only when no interval was stored.
             if (preferences.contains("player_live_caption_engine")) {
                 // This is a ListPreference, so Android stores its value as a String.
                 // Writing an Int here makes PreferenceFragmentCompat throw a
                 // ClassCastException when it later reads the preference.
-                putString(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, "2000")
+                if (!preferences.contains(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS)) {
+                    putString(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, "1000")
+                }
             }
             remove("player_live_caption_engine")
 

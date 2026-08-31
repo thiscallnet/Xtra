@@ -102,7 +102,7 @@ class SettingsMigrationTest {
     }
 
     @Test
-    fun `moonshine only migration removes engine selector and chooses stable interval`() {
+    fun `moonshine only migration removes engine selector and keeps explicit interval`() {
         val preferences = MemoryPreferences(
             mutableMapOf(
                 C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION - 1,
@@ -115,7 +115,7 @@ class SettingsMigrationTest {
 
         assertFalse(preferences.contains("player_live_caption_engine"))
         assertEquals(
-            "2000",
+            "300",
             preferences.getString(C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS, null),
         )
     }

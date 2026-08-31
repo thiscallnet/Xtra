@@ -5,6 +5,11 @@ import org.junit.Test
 
 class LiveCaptionPreferencesTest {
     @Test
+    fun `missing value uses one second default`() {
+        assertEquals(1_000, parseLiveCaptionPartialInterval(null))
+    }
+
+    @Test
     fun `accepts ListPreference string value`() {
         assertEquals(1_000, parseLiveCaptionPartialInterval("1000"))
     }
@@ -16,6 +21,6 @@ class LiveCaptionPreferencesTest {
 
     @Test
     fun `invalid value uses safe default`() {
-        assertEquals(2_000, parseLiveCaptionPartialInterval("not-a-duration"))
+        assertEquals(1_000, parseLiveCaptionPartialInterval("not-a-duration"))
     }
 }

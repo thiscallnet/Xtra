@@ -49,7 +49,7 @@ internal sealed interface AudioEvent {
 }
 
 /** A deliberately non-blocking, bounded handoff between the audio sink and ASR. */
-internal class CaptionAudioQueue(capacity: Int = 8) {
+internal class CaptionAudioQueue(capacity: Int = 128) {
     private val queue = ArrayBlockingQueue<AudioEvent>(capacity)
 
     fun offer(event: AudioEvent): Boolean = queue.offer(event)
@@ -195,7 +195,8 @@ class LiveCaptionManager(
                         generation = audioGeneration.get(),
                     )
 
-                    // NEVER block playback. Caption audio is disposable when the worker falls behind.
+                    // Audio is not normally disposable. Drop only as a last resort during
+                    // sustained overload, and never block the playback thread.
                     if (!audioQueue.offer(event)) {
                         droppedAudioBuffers.incrementAndGet()
                     }
@@ -295,7 +296,7 @@ class LiveCaptionManager(
     }
 
     private fun runRecognitionLoop() {
-        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+        Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT)
 
         var engine: LiveCaptionEngine? = null
         var engineGeneration = -1L

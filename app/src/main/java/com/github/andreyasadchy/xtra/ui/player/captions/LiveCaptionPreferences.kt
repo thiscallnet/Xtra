@@ -3,7 +3,7 @@ package com.github.andreyasadchy.xtra.ui.player.captions
 import android.content.SharedPreferences
 import com.github.andreyasadchy.xtra.util.C
 
-private const val DEFAULT_PARTIAL_INTERVAL_MS = 2_000
+private const val DEFAULT_PARTIAL_INTERVAL_MS = 1_000
 private const val MIN_PARTIAL_INTERVAL_MS = 200
 private const val MAX_PARTIAL_INTERVAL_MS = 2_000
 

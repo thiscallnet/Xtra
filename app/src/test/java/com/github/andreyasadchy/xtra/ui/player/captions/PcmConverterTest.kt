@@ -28,6 +28,18 @@ class PcmConverterTest {
 class CaptionAudioQueueTest {
 
     @Test
+    fun defaultQueuePreservesARealisticInferenceBurstInFifoOrder() {
+        val queue = CaptionAudioQueue()
+        val events = (0..100).map { index ->
+            AudioEvent.Pcm(byteArrayOf(index.toByte()), 16_000, 1, 2, 0)
+        }
+
+        events.forEach { event -> assertTrue(queue.offer(event)) }
+
+        assertEquals(events, (0..100).map { queue.take() })
+    }
+
+    @Test
     fun fullQueueDropsWithoutBlocking() {
         val queue = CaptionAudioQueue(capacity = 2)
         val event = AudioEvent.Pcm(ByteArray(4), 16_000, 2, 2, 0)
@@ -164,6 +176,36 @@ class CaptionTextStateMachineTest {
         captions.updatePartial("I brought the item")
 
         assertEquals("I brought the item", captions.visibleText)
+    }
+
+    @Test
+    fun cumulativeFastSpeechAdvancesOneVisibleLineAtATime() {
+        val captions = CaptionTextStateMachine()
+        val partials = listOf(
+            "we need to ship",
+            "we need to ship this change before",
+            "we need to ship this change before the next release",
+            "we need to ship this change before the next release window opens",
+            "we need to ship this change before the next release window opens for everyone",
+        )
+
+        val shifts = partials.map { partial ->
+            captions.updatePartial(partial)
+            assertTrue(captions.visibleText.contains(partial.substringAfterLast(' ')))
+            captions.lineShiftToken
+        }
+
+        assertEquals(shifts, shifts.sorted())
+        shifts.zipWithNext().forEach { (before, after) ->
+            assertTrue("a one-second partial should not skip rows", after - before <= 1)
+        }
+
+        captions.reset()
+        captions.finalize("the confirmed words stay stable")
+        val finalizedText = captions.visibleText
+        captions.updatePartial("the next phrase starts here")
+        assertTrue(captions.visibleText.startsWith(finalizedText))
+        assertTrue(captions.visibleText.length <= 73)
     }
 
     private class FakeCaptionEngine(

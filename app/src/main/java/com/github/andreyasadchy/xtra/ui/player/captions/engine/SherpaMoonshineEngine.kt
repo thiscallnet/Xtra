@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.player.captions.engine
 
 import android.content.Context
+import android.os.SystemClock
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.ui.player.captions.resampleTo16k
 import com.github.andreyasadchy.xtra.ui.player.captions.liveCaptionPartialIntervalMs
@@ -30,6 +31,7 @@ class SherpaMoonshineEngine(
     private var speechActive = false
     private var audioPositionSamples = 0L
     private var nextPartialDecodeMs = DEFAULT_PARTIAL_DECODE_INTERVAL_MS
+    private var previousPartialDecodeDurationMs: Long? = null
 
     override fun accept(
         samples: FloatArray,
@@ -57,6 +59,7 @@ class SherpaMoonshineEngine(
         speechActive = false
         audioPositionSamples = 0L
         nextPartialDecodeMs = partialDecodeIntervalMs
+        previousPartialDecodeDurationMs = null
     }
 
     override fun close() {
@@ -65,6 +68,21 @@ class SherpaMoonshineEngine(
     }
 
     private fun processVadWindow(events: MutableList<CaptionRecognitionEvent>) {
+        if (speechActive && utterance.size + pendingWindow.size > utterance.capacity) {
+            val rollover = prepareMoonshineRollover(
+                utterance = utterance.toArray(),
+                boundaryWindow = pendingWindow,
+                capacity = utterance.capacity,
+            )
+            decode(rollover.completedUtterance).takeIf(String::isNotEmpty)?.let {
+                events += CaptionRecognitionEvent.Final(it)
+            }
+            utterance.clear()
+            vad.reset()
+            speechActive = rollover.speechActiveBeforeFreshVad
+            preRoll.clear()
+        }
+
         val wasSpeechActive = speechActive
         if (!wasSpeechActive) {
             preRoll.append(pendingWindow)
@@ -77,9 +95,9 @@ class SherpaMoonshineEngine(
             speechActive = true
             utterance.clear()
             utterance.append(preRoll.toArray())
-            nextPartialDecodeMs = audioPositionMs() + partialDecodeIntervalMs
+            resetPartialScheduling()
         } else if (wasSpeechActive) {
-            appendToUtteranceOrFinalize(events)
+            utterance.append(pendingWindow)
         }
 
         var emittedFinal = false
@@ -94,7 +112,7 @@ class SherpaMoonshineEngine(
             speechActive = false
             utterance.clear()
             preRoll.clear()
-            nextPartialDecodeMs = audioPositionMs() + partialDecodeIntervalMs
+            resetPartialScheduling()
         }
 
         if (speechActive && !emittedFinal) {
@@ -106,26 +124,20 @@ class SherpaMoonshineEngine(
                     nextPartialDecodeMs = nextPartialDecodeMs,
                 )
             ) {
-                decode(utterance.toArray()).takeIf(String::isNotEmpty)?.let {
+                val decodeStartedAt = SystemClock.elapsedRealtime()
+                val partial = decode(utterance.toArray())
+                previousPartialDecodeDurationMs =
+                    (SystemClock.elapsedRealtime() - decodeStartedAt).coerceAtLeast(0L)
+                partial.takeIf(String::isNotEmpty)?.let {
                     events += CaptionRecognitionEvent.Partial(it)
                 }
-                nextPartialDecodeMs = nowMs + partialDecodeIntervalMs
+                nextPartialDecodeMs = audioPositionMs() + nextMoonshinePartialIntervalMs(
+                    configuredIntervalMs = partialDecodeIntervalMs,
+                    previousPartialDecodeDurationMs = previousPartialDecodeDurationMs,
+                    firstPartial = false,
+                )
             }
         }
-    }
-
-    private fun appendToUtteranceOrFinalize(events: MutableList<CaptionRecognitionEvent>) {
-        if (utterance.size + pendingWindow.size > utterance.capacity) {
-            decode(utterance.toArray()).takeIf(String::isNotEmpty)?.let {
-                events += CaptionRecognitionEvent.Final(it)
-            }
-            utterance.clear()
-            vad.reset()
-            speechActive = false
-            preRoll.clear()
-            return
-        }
-        utterance.append(pendingWindow)
     }
 
     private fun decode(samples: FloatArray): String {
@@ -138,6 +150,15 @@ class SherpaMoonshineEngine(
         } finally {
             stream.release()
         }
+    }
+
+    private fun resetPartialScheduling() {
+        previousPartialDecodeDurationMs = null
+        nextPartialDecodeMs = audioPositionMs() + nextMoonshinePartialIntervalMs(
+            configuredIntervalMs = partialDecodeIntervalMs,
+            previousPartialDecodeDurationMs = null,
+            firstPartial = true,
+        )
     }
 
     private fun createRecognizer(): OfflineRecognizer {
@@ -188,17 +209,49 @@ class SherpaMoonshineEngine(
         const val TARGET_SAMPLE_RATE = 16_000
         const val VAD_WINDOW_SAMPLES = 512
         const val VAD_THRESHOLD = 0.5f
-        const val MIN_SILENCE_SECONDS = 0.4f
+        const val MIN_SILENCE_SECONDS = 0.25f
         const val MIN_SPEECH_SECONDS = 0.2f
-        const val MAX_SPEECH_SECONDS = 10.0f
+        const val MAX_SPEECH_SECONDS = 6.0f
         const val DEFAULT_PARTIAL_DECODE_INTERVAL_MS = DEFAULT_MOONSHINE_PARTIAL_INTERVAL_MS
         const val PRE_ROLL_SAMPLES_AT_16K = 6_400
-        const val MAX_UTTERANCE_SAMPLES = TARGET_SAMPLE_RATE * MAX_SPEECH_SECONDS.toInt()
+        const val MAX_UTTERANCE_SAMPLES = TARGET_SAMPLE_RATE * 8
     }
 }
 
 internal const val MOONSHINE_ENGINE_ID = "moonshine_v2_tiny"
 internal const val DEFAULT_MOONSHINE_PARTIAL_INTERVAL_MS = 1_000L
+
+internal data class MoonshineRolloverTransition(
+    val completedUtterance: FloatArray,
+    val boundaryWindowForVad: FloatArray,
+    val speechActiveBeforeFreshVad: Boolean,
+)
+
+internal fun prepareMoonshineRollover(
+    utterance: FloatArray,
+    boundaryWindow: FloatArray,
+    capacity: Int,
+): MoonshineRolloverTransition {
+    require(utterance.size + boundaryWindow.size > capacity)
+    return MoonshineRolloverTransition(
+        completedUtterance = utterance,
+        boundaryWindowForVad = boundaryWindow,
+        speechActiveBeforeFreshVad = false,
+    )
+}
+
+internal fun nextMoonshinePartialIntervalMs(
+    configuredIntervalMs: Long,
+    previousPartialDecodeDurationMs: Long?,
+    firstPartial: Boolean,
+): Long {
+    val configured = configuredIntervalMs.coerceAtLeast(0L)
+    if (firstPartial) return configured
+    return maxOf(configured, (previousPartialDecodeDurationMs ?: 0L) * 2L)
+        .coerceAtMost(MAX_ADAPTIVE_PARTIAL_INTERVAL_MS)
+}
+
+private const val MAX_ADAPTIVE_PARTIAL_INTERVAL_MS = 2_500L
 
 internal fun shouldDecodeMoonshinePartial(
     speechActive: Boolean,
