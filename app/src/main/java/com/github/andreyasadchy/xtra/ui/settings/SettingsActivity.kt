@@ -2350,8 +2350,11 @@ class SettingsActivity : AppCompatActivity() {
                             // Normalize the displayed value but preserve the
                             // user's signed seconds in SharedPreferences.
                             updateSummary(rawValue)
-                            (requireContext().applicationContext as XtraApp)
-                                .xtraModule.liveCaptionManager.reloadCaptionSettings()
+                            requireContext().prefs().edit {
+                                putString(C.PLAYER_LIVE_CAPTION_TEXT_OFFSET_SECONDS, rawValue)
+                            }
+                            (requireContext().applicationContext as XtraApp).xtraModule
+                                .liveCaptionManager.reloadCaptionSettings()
                             true
                         }
                     }
