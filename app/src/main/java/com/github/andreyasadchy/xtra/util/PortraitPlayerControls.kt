@@ -70,6 +70,7 @@ object PortraitPlayerControls {
                 VerticalAnchor.BOTTOM
             }
             val compositionContainers = listOf(
+                Triple(topStartLayout, HorizontalAnchor.START, VerticalAnchor.TOP),
                 Triple(topLeftLayout, HorizontalAnchor.START, VerticalAnchor.TOP),
                 Triple(topRightLayout, HorizontalAnchor.END, VerticalAnchor.TOP),
                 Triple(topCenterLayout, HorizontalAnchor.CENTER, VerticalAnchor.TOP),
