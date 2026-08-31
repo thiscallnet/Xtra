@@ -603,7 +603,9 @@ class LiveCaptionManager(
             status = LiveCaptionState.Status.ERROR,
             error = throwable.message ?: throwable::class.java.simpleName,
         )
-        if (BuildConfig.DEBUG) Log.e(TAG, "ASR failed", throwable)
+        // Initialization/decode failures must remain diagnosable in release builds too.
+        // Do not include recognition text in this log.
+        Log.e(TAG, "ASR failed", throwable)
     }
 
     private fun publishMetrics(value: LiveCaptionMetrics) {
