@@ -5,7 +5,9 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.text.format.DateUtils
+import android.util.Log
 import android.util.TypedValue
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -150,6 +152,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var chatSnapshotSyncPending = false
     private val pendingChatMutations = ArrayDeque<ChatViewModel.ChatMutation>()
     private var chatMutationRevision = 0L
+    private var chatMutationGapCount = 0L
+    private var chatSnapshotSyncCount = 0L
     private data class ChatViewportAnchor(val stableId: Long, val fallbackPosition: Int, val top: Int)
 
     private val chatAdapterUpdateRunnable = Runnable {
@@ -163,18 +167,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         while (pendingChatMutations.isNotEmpty()) {
             when (val firstMutation = pendingChatMutations.removeFirst()) {
                 is ChatViewModel.ChatMutation.Append -> {
-                    val messages = ArrayList<ChatMessage>(firstMutation.messages.size)
-                    messages.addAll(firstMutation.messages)
-                    var trimCount = firstMutation.trimCount
-                    var revision = firstMutation.revision
+                    val appendMutations = ArrayList<ChatViewModel.ChatMutation.Append>()
+                    appendMutations += firstMutation
                     while (pendingChatMutations.firstOrNull() is ChatViewModel.ChatMutation.Append) {
-                        val next = pendingChatMutations.removeFirst() as ChatViewModel.ChatMutation.Append
-                        messages.addAll(next.messages)
-                        trimCount += next.trimCount
-                        revision = next.revision
+                        appendMutations += pendingChatMutations.removeFirst() as ChatViewModel.ChatMutation.Append
                     }
-                    currentAdapter.appendMessages(messages, trimCount)
-                    chatMutationRevision = revision
+                    val coalesced = coalesceChatAppendMutations(appendMutations)
+                    currentAdapter.appendMessages(coalesced.messages, coalesced.trimCount)
+                    chatMutationRevision = coalesced.revision
                     hasNewMessages = true
                 }
                 is ChatViewModel.ChatMutation.Prepend -> {
@@ -227,25 +227,60 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         recyclerView.postOnAnimation(chatAdapterUpdateRunnable)
     }
 
+    private fun expectedChatMutationRevision(): Long =
+        pendingChatMutations.lastOrNull()?.revision ?: chatMutationRevision
+
+    private fun dispatchChatMutationSideEffects(mutation: ChatViewModel.ChatMutation) {
+        when (mutation) {
+            is ChatViewModel.ChatMutation.Append -> {
+                mutation.messages.forEach { message ->
+                    chatMessageListener?.invoke(message)
+                    messageDialog?.newMessage(message)
+                    replyDialog?.newMessage(message)
+                }
+            }
+            is ChatViewModel.ChatMutation.Prepend -> {
+                chatHistoryListener?.invoke(mutation.messages)
+                messageDialog?.addMessages(mutation.messages)
+                replyDialog?.addMessages(mutation.messages)
+            }
+            is ChatViewModel.ChatMutation.Clear -> Unit
+        }
+    }
+
     private suspend fun synchronizeChatAdapterToSnapshot() {
         val currentAdapter = adapter ?: return
         if (!chatAdapterReady) return
         val currentBinding = _binding ?: return
         val snapshot = viewModel.chatSnapshot()
-        if (!shouldSynchronizeChatSnapshot(chatMutationRevision, snapshot.revision)) return
+        if (!shouldSynchronizeChatSnapshot(
+                chatMutationRevision,
+                snapshot.revision,
+            )
+        ) {
+            return
+        }
 
         pendingChatMutations.clear()
-        currentAdapter.prepareForDisplay(snapshot.messages)
 
         if (_binding !== currentBinding || adapter !== currentAdapter) return
-        // Preparation suspends, so another synchronization may have advanced the UI.
-        // Never replace newer state with an older snapshot.
-        if (!shouldSynchronizeChatSnapshot(chatMutationRevision, snapshot.revision)) return
+        val syncStartedAt = SystemClock.elapsedRealtime()
         val recyclerView = currentBinding.recyclerView
         val followBottom = !recyclerView.canScrollVertically(1)
-        val anchor = if (followBottom) null else captureChatViewportAnchor(recyclerView, currentAdapter)
+        val anchor =
+            if (followBottom) null
+            else captureChatViewportAnchor(recyclerView, currentAdapter)
+
         currentAdapter.replaceMessages(snapshot.messages)
         chatMutationRevision = snapshot.revision
+        chatSnapshotSyncCount++
+        Log.d(
+            "ChatPerf",
+            "snapshot sync count=$chatSnapshotSyncCount " +
+                "revision=${snapshot.revision} " +
+                "messages=${snapshot.messages.size} " +
+                "durationMs=${SystemClock.elapsedRealtime() - syncStartedAt}",
+        )
         if (followBottom && currentAdapter.itemCount > 0) {
             recyclerView.scrollToPosition(currentAdapter.itemCount - 1)
         } else if (!followBottom) {
@@ -568,8 +603,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                     chatStatus.visibility = View.VISIBLE
                                     chatStatus.postDelayed({ chatStatus.visibility = View.GONE }, 5000)
                                 }
-                                if (newState == RecyclerView.SCROLL_STATE_IDLE && pendingChatMutations.isNotEmpty()) {
-                                    scheduleChatAdapterUpdate()
+                                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                                    if (chatSnapshotSyncPending && chatAdapterReady) {
+                                        chatSnapshotSyncPending = false
+                                        viewLifecycleOwner.lifecycleScope.launch {
+                                            synchronizeChatAdapterToSnapshot()
+                                        }
+                                    } else if (pendingChatMutations.isNotEmpty()) {
+                                        scheduleChatAdapterUpdate()
+                                    }
                                 }
                             }
                         })
@@ -954,10 +996,25 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
                             synchronizeChatAdapterToSnapshot()
                             viewModel.chatMutations.collect { mutation ->
-                                when (chatMutationAction(chatMutationRevision, mutation.revision)) {
+                                if (chatSnapshotSyncPending) {
+                                    dispatchChatMutationSideEffects(mutation)
+                                    return@collect
+                                }
+
+                                val expectedRevision = expectedChatMutationRevision()
+                                when (chatMutationAction(expectedRevision, mutation.revision)) {
                                     ChatMutationAction.IGNORE -> return@collect
                                     ChatMutationAction.SYNCHRONIZE_SNAPSHOT -> {
-                                        if (chatAdapterReady) {
+                                        chatMutationGapCount++
+                                        Log.d(
+                                            "ChatPerf",
+                                            "mutation gap count=$chatMutationGapCount " +
+                                                "displayed=$chatMutationRevision " +
+                                                "expected=$expectedRevision " +
+                                                "incoming=${mutation.revision}",
+                                        )
+                                        pendingChatMutations.clear()
+                                        if (chatAdapterReady && !isChatTouched) {
                                             synchronizeChatAdapterToSnapshot()
                                         } else {
                                             chatSnapshotSyncPending = true
@@ -966,31 +1023,16 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                     }
                                     ChatMutationAction.APPLY_INCREMENTAL -> Unit
                                 }
-                                // Complete render plans are prepared by ChatAdapter's bounded
-                                // background workers before this mutation can reach RecyclerView.
-                                val messagesToPrepare = when (mutation) {
-                                    is ChatViewModel.ChatMutation.Append -> mutation.messages
-                                    is ChatViewModel.ChatMutation.Prepend -> mutation.messages
-                                    is ChatViewModel.ChatMutation.Clear -> emptyList()
+                                dispatchChatMutationSideEffects(mutation)
+
+                                if (isChatTouched) {
+                                    pendingChatMutations.clear()
+                                    chatSnapshotSyncPending = true
+                                    return@collect
                                 }
-                                adapter?.prepareForDisplay(messagesToPrepare)
+
                                 pendingChatMutations.addLast(mutation)
-                                when (mutation) {
-                                    is ChatViewModel.ChatMutation.Append -> {
-                                        mutation.messages.forEach { message ->
-                                            chatMessageListener?.invoke(message)
-                                            messageDialog?.newMessage(message)
-                                            replyDialog?.newMessage(message)
-                                        }
-                                    }
-                                    is ChatViewModel.ChatMutation.Prepend -> {
-                                        chatHistoryListener?.invoke(mutation.messages)
-                                        messageDialog?.addMessages(mutation.messages)
-                                        replyDialog?.addMessages(mutation.messages)
-                                    }
-                                    is ChatViewModel.ChatMutation.Clear -> Unit
-                                }
-                                if (!isChatTouched) scheduleChatAdapterUpdate()
+                                scheduleChatAdapterUpdate()
                             }
                         }
                     }
@@ -2478,6 +2520,22 @@ internal enum class ChatMutationAction {
     IGNORE,
     APPLY_INCREMENTAL,
     SYNCHRONIZE_SNAPSHOT,
+}
+
+internal fun expectedChatMutationRevision(
+    displayedRevision: Long,
+    pendingRevision: Long?,
+): Long = pendingRevision ?: displayedRevision
+
+internal fun coalesceChatAppendMutations(
+    mutations: List<ChatViewModel.ChatMutation.Append>,
+): ChatViewModel.ChatMutation.Append {
+    require(mutations.isNotEmpty())
+    return ChatViewModel.ChatMutation.Append(
+        revision = mutations.last().revision,
+        messages = mutations.flatMap { it.messages },
+        trimCount = mutations.sumOf { it.trimCount },
+    )
 }
 
 internal fun chatMutationAction(displayedRevision: Long, mutationRevision: Long): ChatMutationAction =

@@ -82,7 +82,7 @@ class ChatReadWebSocket(
             message.removeSuffix("\r\n").split("\r\n").forEach {
                 when {
                     it.startsWith("PING") -> {
-                        webSocket.write("PONG")
+                        webSocket.write("PONG${it.removePrefix("PING")}")
                     }
                     it.startsWith("PONG") -> {
                         pingTimer?.cancel()

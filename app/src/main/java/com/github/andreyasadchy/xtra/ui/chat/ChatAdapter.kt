@@ -10,7 +10,6 @@ import android.text.SpannableStringBuilder
 import android.text.TextUtils
 import android.text.method.LinkMovementMethod
 import android.text.style.ImageSpan
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -292,10 +291,6 @@ class ChatAdapter(
         val bindGeneration = holder.beginBind(configuration.revision)
         val cachedResult = cachedRender(cacheKey)
         val result = selectRenderResultForBind(cachedResult) {
-            Log.w(
-                "ChatAdapter",
-                "Render cache miss during bind: position=$position revision=${configuration.revision}",
-            )
             ensureRenderScheduled(
                 chatMessage = chatMessage,
                 cacheKey = cacheKey,
