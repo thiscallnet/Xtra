@@ -62,7 +62,12 @@ object ReleaseParser {
                 ?: return ReleaseParseResult.Failure(UpdateError.InvalidResponse)
         }
         val body = response.string("body").orEmpty()
-        val commits = response["commits"]?.asArrayOrNull()?.mapNotNull { it.asObjectString("message") } ?: emptyList()
+        val commits = response["commits"]?.asArrayOrNull()?.mapNotNull { element ->
+            val commit = runCatching { element.jsonObject }.getOrNull() ?: return@mapNotNull null
+            val message = commit["message"]?.jsonPrimitive?.contentOrNull
+                ?: commit["commit"]?.let { runCatching { it.jsonObject["message"]?.jsonPrimitive?.contentOrNull }.getOrNull() }
+            message?.substringBefore('\n')?.trim()?.takeIf { it.isNotBlank() }
+        } ?: emptyList()
         val structuredNotes = ReleaseNotes.structured(body, commits)
         val release = UpdateRelease(
             tagName = tagName,
@@ -105,5 +110,4 @@ object ReleaseParser {
         return entries.toMap()
     }
     private fun JsonElement.asArrayOrNull() = runCatching { jsonArray }.getOrNull()
-    private fun JsonElement.asObjectString(key: String): String? = runCatching { jsonObject[key]?.jsonPrimitive?.contentOrNull }.getOrNull()
 }

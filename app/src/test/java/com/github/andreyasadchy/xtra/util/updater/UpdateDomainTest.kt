@@ -291,6 +291,68 @@ class UpdateDomainTest {
     }
 
     @Test
+    fun githubCompareCommitMessagesUseSubjectsFromNestedCommitObjects() {
+        val response = JsonObject(
+            json.parseToJsonElement(response("v2.58.6", body = "## What's Changed")).jsonObject +
+                ("commits" to buildJsonArray {
+                    add(buildJsonObject {
+                        put("commit", buildJsonObject {
+                            put("message", "Fix player crash\n\nDetailed implementation notes")
+                        })
+                    })
+                }),
+        )
+
+        val result = ReleaseParser.parse(response, "https://example.test/releases/1")
+
+        assertEquals(
+            listOf("Fixed player crash"),
+            (result as ReleaseParseResult.Success).release.releaseNotes,
+        )
+    }
+
+    @Test
+    fun releaseBodyAndCompareSubjectsAreMergedWithoutDuplicateNotes() {
+        assertEquals(
+            listOf("Fixed player crash", "Improved playback recovery"),
+            ReleaseNotes.normalize(
+                body = "* Fix player crash",
+                commits = listOf(
+                    "Fix player crash\n\nDetailed implementation notes",
+                    "Improve playback recovery\n\nMore details",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun enrichedReleaseWinsWhenPlacedBeforeRawHistoryDuplicate() {
+        val raw = parse("v2.58.6", body = "Fix release body")
+        val enriched = parse(
+            "v2.58.6",
+            body = "Fix release body",
+        ).copy(releaseNotes = listOf("Fixed release body", "Fixed compare-only detail"))
+
+        assertEquals(
+            listOf("Fixed release body", "Fixed compare-only detail"),
+            UpdateReleaseHistory.merge(listOf(enriched, raw))
+                .single()
+                .releaseNotes,
+        )
+    }
+
+    @Test
+    fun compareSubjectsDoNotInheritReleaseBodyHeading() {
+        val notes = ReleaseNotes.structured(
+            body = "## Fixed\n- Fix one bug",
+            commits = listOf("Add new player control"),
+        ).items
+
+        assertEquals(ChangeKind.FIXED, notes[0].kind)
+        assertEquals(ChangeKind.NEW, notes[1].kind)
+    }
+
+    @Test
     fun meaninglessReleaseBodyFallsBackToCommitDescriptions() {
         assertEquals(
             listOf("Fixed chat spacing"),

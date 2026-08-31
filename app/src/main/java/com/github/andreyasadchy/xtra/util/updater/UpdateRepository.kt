@@ -182,7 +182,7 @@ class UpdateRepository(
                         val release = (parsed as? ReleaseParseResult.Success)?.release
                             ?: throw UpdateException((parsed as ReleaseParseResult.Failure).error, stage = UpdateStage.PARSE)
                         when (val history = fetchReleaseHistory(url, networkLibrary, generation)) {
-                            is ReleaseHistoryResult.Complete -> updateReleaseHistory(history.releases + release)
+                            is ReleaseHistoryResult.Complete -> updateReleaseHistory(listOf(release) + history.releases)
                             is ReleaseHistoryResult.Partial,
                             ReleaseHistoryResult.Unavailable -> markReleaseHistoryIncomplete()
                         }
