@@ -136,14 +136,13 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                    android:gravity="start"
+                    android:orientation="vertical">
 
                     <TextView
                         android:id="@+id/title"
-                        android:layout_width="0dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
                         android:ellipsize="end"
                         android:gravity="center_vertical|start"
                         android:maxLines="2"
@@ -157,8 +156,8 @@
                         android:id="@+id/viewersLayout"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:gravity="center"
+                        android:layout_marginTop="2dp"
+                        android:gravity="center_vertical|start"
                         android:minWidth="40dp"
                         android:minHeight="40dp"
                         android:orientation="horizontal"
