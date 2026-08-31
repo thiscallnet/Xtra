@@ -176,8 +176,6 @@
     <string name="chat_ban">%s telah diban secara permanen</string>
     <string name="chat_clearmsg">Pesan dihapus dari %1$s\\: %2$s</string>
     <string name="chat_first">Chat pertama kali</string>
-    <string name="chat_new_messages">Baru</string>
-    <string name="chat_reward">Penukaran channel poin</string>
     <string name="always">Selalu</string>
     <string name="local">Lokal</string>
     <string name="days">d</string>

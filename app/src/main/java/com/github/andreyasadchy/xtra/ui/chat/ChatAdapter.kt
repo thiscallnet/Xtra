@@ -142,7 +142,6 @@ class ChatAdapter(
     private val firstChatMsg: String,
     private val redeemedChatMsg: String,
     private val redeemedNoMsg: String,
-    private val rewardChatMsg: String,
     private val replyMessage: String,
     private val useRandomColors: Boolean,
     private val useReadableColors: Boolean,
@@ -179,8 +178,6 @@ class ChatAdapter(
 
     /** UI-owned snapshot. ChatViewModel may continue receiving messages while a fling is active. */
     private val messages = ArrayList(initialMessages)
-    private var newMessageDividerInserted = false
-    private var newMessageDividerConsumed = false
     /** Entries in this queue are not part of the RecyclerView dataset yet. */
     private val publicationQueue = ChatPublicationQueue<ChatMessage>()
     private val inFlightDisplayEntries = Collections.newSetFromMap(IdentityHashMap<PublicationEntry<ChatMessage>, Boolean>())
@@ -380,41 +377,13 @@ class ChatAdapter(
     fun appendMessages(
         incoming: List<ChatMessage>,
         trimCount: Int,
-        insertDivider: Boolean = true,
-        dividerPosition: Int? = null,
-        dividerConsumed: Boolean = false,
     ) {
         if (incoming.isEmpty()) return
-        val firstLiveIndex = incoming.indexOfFirst { it.establishesLiveBoundary }
-        val shouldInsertDivider = insertDivider && firstLiveIndex >= 0 &&
-            !newMessageDividerInserted && !newMessageDividerConsumed
-        val items = if (shouldInsertDivider) {
-            newMessageDividerInserted = true
-            incoming.take(firstLiveIndex) + ChatMessage(
-                type = ChatMessage.NEW_MESSAGE_DIVIDER,
-                systemMsg = "New",
-            ) + incoming.drop(firstLiveIndex)
-        } else if (!insertDivider && shouldReconstructNewMessageDivider(dividerPosition, dividerConsumed) &&
-            !newMessageDividerInserted
-        ) {
-            val mutable = incoming.toMutableList()
-            mutable.add((dividerPosition ?: 0).coerceIn(0, mutable.size), ChatMessage(
-                type = ChatMessage.NEW_MESSAGE_DIVIDER,
-                systemMsg = "New",
-            ))
-            newMessageDividerInserted = true
-            mutable
-        } else {
-            if (!insertDivider) newMessageDividerConsumed = dividerConsumed
-            incoming
-        }
-        queueForDisplay(items, trimCount)
+        queueForDisplay(incoming, trimCount)
     }
 
     fun replaceMessages(
         replacement: List<ChatMessage>,
-        dividerPosition: Int? = null,
-        dividerConsumed: Boolean = false,
     ) {
         renderGeneration++
         // A snapshot supersedes every mutation staged before it. Their jobs will observe the
@@ -422,17 +391,7 @@ class ChatAdapter(
         // Preparing entry from blocking the new snapshot or later live messages.
         inFlightDisplayEntries.clear()
         publicationQueue.clear()
-        newMessageDividerInserted = false
-        newMessageDividerConsumed = dividerConsumed
-        val snapshot = replacement.toMutableList().also {
-            if (it.isNotEmpty() && shouldReconstructNewMessageDivider(dividerPosition, dividerConsumed)) {
-                it.add((dividerPosition ?: 0).coerceIn(0, it.size), ChatMessage(
-                    type = ChatMessage.NEW_MESSAGE_DIVIDER,
-                    systemMsg = "New",
-                ))
-                newMessageDividerInserted = true
-            }
-        }
+        val snapshot = replacement
         if (snapshot.isEmpty()) {
             readyRenderKeys.clear()
             if (messages.isNotEmpty()) {
@@ -486,8 +445,6 @@ class ChatAdapter(
         readyRenderKeys.clear()
         directReadyRenderKeys.clear()
         directReadyOrder.clear()
-        newMessageDividerInserted = false
-        newMessageDividerConsumed = false
         if (messages.isEmpty()) return
         val removed = messages.size
         messages.clear()
@@ -528,10 +485,6 @@ class ChatAdapter(
             val logicalTrim = terminal.sumOf { it.trimBeforePublish }
             val rowsToRemove = adapterRowsToRemoveForTrim(messages, logicalTrim)
             val removedMessages = messages.take(rowsToRemove)
-            if (removedMessages.any { it.type == ChatMessage.NEW_MESSAGE_DIVIDER }) {
-                newMessageDividerInserted = false
-                newMessageDividerConsumed = true
-            }
             val publication = applyTerminalAppend(
                 messages,
                 terminal.mapIndexed { index, entry ->
@@ -779,7 +732,7 @@ class ChatAdapter(
     fun createMessageClickedChatAdapter(): MessageClickedChatAdapter {
         return MessageClickedChatAdapter(
             messages, localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes, namePaints, stvBadges, personalEmoteSets,
-            stvUsers, enableTimestamps, timestampFormat, firstMsgVisibility, firstChatMsg, redeemedChatMsg, redeemedNoMsg, rewardChatMsg, replyMessage,
+            stvUsers, enableTimestamps, timestampFormat, firstMsgVisibility, firstChatMsg, redeemedChatMsg, redeemedNoMsg, replyMessage,
             { chatMessage -> selectedMessage = chatMessage; replyClickListener?.invoke() },
             { url, name, format, isAnimated, source, thirdParty, emoteId -> imageClickListener?.invoke(url, name, format, isAnimated, source, thirdParty, emoteId) },
             useRandomColors, useReadableColors, isLightTheme, nameDisplay, useBoldNames, showNamePaints, showBadges, showSTVBadges, showPersonalEmotes,
@@ -792,7 +745,7 @@ class ChatAdapter(
     fun createReplyClickedChatAdapter(): ReplyClickedChatAdapter {
         return ReplyClickedChatAdapter(
             messages, localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes, namePaints, stvBadges, personalEmoteSets,
-            stvUsers, enableTimestamps, timestampFormat, firstMsgVisibility, firstChatMsg, redeemedChatMsg, redeemedNoMsg, rewardChatMsg, replyMessage,
+            stvUsers, enableTimestamps, timestampFormat, firstMsgVisibility, firstChatMsg, redeemedChatMsg, redeemedNoMsg, replyMessage,
             { url, name, format, isAnimated, source, thirdParty, emoteId -> imageClickListener?.invoke(url, name, format, isAnimated, source, thirdParty, emoteId) },
             useRandomColors, useReadableColors, isLightTheme, nameDisplay, useBoldNames, showNamePaints, showBadges, showSTVBadges, showPersonalEmotes,
             showSystemMessageEmotes, chatUrl, fragment, dialogBackgroundColor, imageLibrary, messageTextSize, emoteSize, badgeSize, inlineIconSize,
@@ -1375,9 +1328,7 @@ class ChatAdapter(
                     builder.append(' ')
                 }
         }
-        if (message.type == ChatMessage.NEW_MESSAGE_DIVIDER) {
-            builder.append("-------------------- New messages")
-        } else {
+        run {
             val name = runCatching { message.displayName(nameDisplay) }.getOrNull()
             if (!name.isNullOrBlank() && message.type != ChatMessage.SYSTEM_MESSAGE) {
                 val start = builder.length
@@ -1652,7 +1603,7 @@ class ChatAdapter(
         }
         val result = ChatAdapterUtils.prepareChatMessage(
             chatMessage, context, itemView, enableTimestamps, timestampFormat, firstMsgVisibility, firstChatMsg,
-            redeemedChatMsg, redeemedNoMsg, rewardChatMsg, replyMessage, null, useRandomColors, random, useReadableColors, isLightTheme,
+            redeemedChatMsg, redeemedNoMsg, replyMessage, null, useRandomColors, random, useReadableColors, isLightTheme,
             nameDisplay, useBoldNames, showNamePaints, namePaints, showBadges, showSTVBadges, stvBadges, showPersonalEmotes, personalEmoteSets, stvUsers,
             enableOverlayEmotes, showSystemMessageEmotes, loggedInUser, chatUrl, userColors, savedColors, translateAllMessages,
             deferredTranslate, deferredLanguageDialog, true, localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes,
@@ -1689,16 +1640,11 @@ internal fun adapterRowsToRemoveForTrim(
     var realRows = 0
     var adapterRows = 0
     while (adapterRows < messages.size && realRows < trimCount) {
-        if (messages[adapterRows].type != ChatMessage.NEW_MESSAGE_DIVIDER) realRows++
+        realRows++
         adapterRows++
     }
     return adapterRows
 }
-
-internal fun shouldReconstructNewMessageDivider(
-    dividerPosition: Int?,
-    dividerConsumed: Boolean,
-): Boolean = dividerPosition != null && !dividerConsumed
 
 internal fun renderRequestCanBecomeReady(
     requestedKey: Any,

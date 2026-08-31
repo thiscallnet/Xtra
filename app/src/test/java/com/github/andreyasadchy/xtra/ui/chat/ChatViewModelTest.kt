@@ -102,52 +102,6 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun consumedLiveBoundaryDoesNotReappearAfterTrimmingPastIt() {
-        val boundary = advanceLiveMessageBoundary(
-            startIndex = 0,
-            consumed = false,
-            establishesLiveBoundary = true,
-            removeCount = 1,
-            resultingLastIndex = 599,
-        )
-
-        assertEquals(LiveMessageBoundaryState(startIndex = null, consumed = true), boundary)
-    }
-
-    @Test
-    fun disconnectAndReconnectStatusesDoNotEstablishTheLiveBoundary() {
-        val welcomeMessage = ChatMessage(
-            isChatJoin = true,
-            establishesLiveBoundary = false,
-        )
-        assertFalse(welcomeMessage.establishesLiveBoundary)
-
-        val disconnected = advanceLiveMessageBoundary(
-            startIndex = null,
-            consumed = false,
-            establishesLiveBoundary = false,
-            removeCount = 0,
-            resultingLastIndex = 0,
-        )
-        val welcome = advanceLiveMessageBoundary(
-            startIndex = disconnected.startIndex,
-            consumed = disconnected.consumed,
-            establishesLiveBoundary = welcomeMessage.establishesLiveBoundary,
-            removeCount = 0,
-            resultingLastIndex = 1,
-        )
-        val firstLiveMessage = advanceLiveMessageBoundary(
-            startIndex = welcome.startIndex,
-            consumed = welcome.consumed,
-            establishesLiveBoundary = true,
-            removeCount = 0,
-            resultingLastIndex = 2,
-        )
-
-        assertEquals(LiveMessageBoundaryState(startIndex = 2, consumed = false), firstLiveMessage)
-    }
-
-    @Test
     fun coalescedAppendsPreserveMessageOrder() {
         val mutations = listOf(
             ChatViewModel.ChatMutation.Append(101L, listOf(ChatMessage(message = "first")), 0),

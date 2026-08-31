@@ -704,8 +704,6 @@
     <string name="chat_ban">%s has been permanently banned.</string>
     <string name="chat_clearmsg">Message deleted from %1$s\: %2$s</string>
     <string name="chat_first">First Time Chatter</string>
-    <string name="chat_new_messages">New</string>
-    <string name="chat_reward">Channel point redemption</string>
     <string name="always">Always</string>
     <string name="local">Local</string>
     <string name="days">d</string>

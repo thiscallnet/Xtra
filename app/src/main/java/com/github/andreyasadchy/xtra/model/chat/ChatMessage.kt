@@ -13,7 +13,6 @@ class ChatMessage(
     val isAction: Boolean = false,
     val isFirst: Boolean = false,
     val isChatJoin: Boolean = false,
-    val establishesLiveBoundary: Boolean = true,
     val bits: Int? = null,
     val systemMsg: String? = null,
     val msgId: String? = null,
@@ -35,6 +34,5 @@ class ChatMessage(
         const val USER_MESSAGE = 1
         const val REPLY_MESSAGE = 2
         const val NOTICE_MESSAGE = 3
-        const val NEW_MESSAGE_DIVIDER = 4
     }
 }
