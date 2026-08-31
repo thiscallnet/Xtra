@@ -426,6 +426,16 @@ private class CombinedChatAdapter(
         super.onViewRecycled(holder)
     }
 
+    override fun onViewAttachedToWindow(holder: ViewHolder) {
+        super.onViewAttachedToWindow(holder)
+        holder.attach()
+    }
+
+    override fun onViewDetachedFromWindow(holder: ViewHolder) {
+        holder.detach()
+        super.onViewDetachedFromWindow(holder)
+    }
+
     suspend fun prepareForDisplay(items: List<CombinedChatMessage>) {
         val batches = linkedMapOf<SessionRenderer, MutableList<ChatMessage>>()
         items.forEach { item ->
@@ -468,6 +478,18 @@ private class CombinedChatAdapter(
             }
             renderer = null
             directViewHolder = null
+        }
+
+        fun attach() {
+            renderer?.let { currentRenderer ->
+                directViewHolder?.let(currentRenderer::attach)
+            }
+        }
+
+        fun detach() {
+            renderer?.let { currentRenderer ->
+                directViewHolder?.let(currentRenderer::detach)
+            }
         }
     }
 
@@ -564,11 +586,19 @@ private class CombinedChatAdapter(
         }
 
         suspend fun prepareForDisplay(messages: List<ChatMessage>) {
-            adapter.prepareForDisplay(messages)
+            messages.forEach { adapter.prepareDirectMessage(it) }
         }
 
         fun release(holder: ChatAdapter.ViewHolder) {
             adapter.releaseDirectViewHolder(holder)
+        }
+
+        fun attach(holder: ChatAdapter.ViewHolder) {
+            adapter.attachDirectViewHolder(holder)
+        }
+
+        fun detach(holder: ChatAdapter.ViewHolder) {
+            adapter.detachDirectViewHolder(holder)
         }
 
         fun isFor(session: ChatViewModel): Boolean = this.session === session
