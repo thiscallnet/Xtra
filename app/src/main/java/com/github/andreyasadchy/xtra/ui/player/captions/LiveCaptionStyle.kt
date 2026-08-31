@@ -46,7 +46,7 @@ internal data class LiveCaptionStyle(
                 fontSizeSp = preferences.getInt(
                     C.PLAYER_LIVE_CAPTION_FONT_SIZE,
                     DEFAULT_FONT_SIZE_SP,
-                ).coerceIn(12, 30).toFloat(),
+                ).coerceIn(8, 30).toFloat(),
                 opacity = preferences.getInt(
                     C.PLAYER_LIVE_CAPTION_OPACITY,
                     DEFAULT_OPACITY_PERCENT,

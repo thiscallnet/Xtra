@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.player.captions
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.graphics.Typeface
 import android.util.AttributeSet
@@ -9,12 +10,14 @@ import android.view.Gravity
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 /** A fixed two-row caption panel whose text rolls upward one complete line at a time. */
 class LiveCaptionOverlayView @JvmOverloads constructor(
@@ -38,7 +41,10 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
                 currentStyle = null
                 applyStyle(LiveCaptionStyle.from(context))
             }
-            C.PLAYER_LIVE_CAPTION_WIDTH -> requestLayout()
+            C.PLAYER_LIVE_CAPTION_WIDTH -> {
+                requestLayout()
+                post { reflowVisibleLines() }
+            }
         }
     }
     private data class CaptionUpdate(
@@ -77,7 +83,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     init {
         clipChildren = true
         clipToPadding = true
-        setPadding(dp(10), dp(4), dp(10), dp(4))
+        setPadding(0, dp(4), 0, dp(4))
         addView(topLine)
         addView(bottomLine)
         addView(incomingLine)
@@ -158,10 +164,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         val lineHeight = ceil(topLine.paint.fontMetrics.run { descent - ascent }).toInt()
         val desiredHeight = paddingTop + paddingBottom + lineHeight * 2
         val availableWidth = MeasureSpec.getSize(widthMeasureSpec)
-        val widthPreference = preferences.getString(C.PLAYER_LIVE_CAPTION_WIDTH, "auto")
-        val widthFraction = widthPreference?.toFloatOrNull()?.div(100f)
-            ?.coerceIn(0.5f, 1f)
-            ?: 0.92f
+        val widthFraction = captionWidthFraction()
         val desiredWidth = if (availableWidth > 0) {
             (availableWidth * widthFraction).toInt()
         } else {
@@ -171,7 +174,9 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         val resolvedHeight = resolveSize(desiredHeight, heightMeasureSpec)
         val rowHeight = ((resolvedHeight - paddingTop - paddingBottom) / 2).coerceAtLeast(1)
         listOf(topLine, bottomLine, incomingLine).forEach { line ->
-            line.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, rowHeight)
+            line.layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, rowHeight).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
         }
         super.onMeasure(
             MeasureSpec.makeMeasureSpec(resolvedWidth, MeasureSpec.EXACTLY),
@@ -193,21 +198,22 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
 
     private fun applyUpdate(update: CaptionUpdate) {
         applyStyle(update.style)
+        val fittedUpdate = update.copy(lines = update.lines.map(::fitCaptionLine))
         visibility = View.VISIBLE
 
-        val shouldRoll = update.lineShiftToken != currentLineShiftToken &&
+        val shouldRoll = fittedUpdate.lineShiftToken != currentLineShiftToken &&
             currentLines[1].isNotBlank() &&
-            currentLines[1] == update.lines[0] &&
-            update.style.animationDurationMs > 0L &&
+            currentLines[1] == fittedUpdate.lines[0] &&
+            fittedUpdate.style.animationDurationMs > 0L &&
             height > 0
 
         if (shouldRoll) {
-            animateLineRoll(update)
+            animateLineRoll(fittedUpdate)
         } else {
-            currentLines = update.lines
-            currentLineShiftToken = update.lineShiftToken
-            topLine.text = update.lines[0]
-            bottomLine.text = update.lines[1]
+            currentLines = fittedUpdate.lines
+            currentLineShiftToken = fittedUpdate.lineShiftToken
+            topLine.text = fittedUpdate.lines[0]
+            bottomLine.text = fittedUpdate.lines[1]
             incomingLine.visibility = View.INVISIBLE
             resetLinePositions()
             updateAccessibilityText()
@@ -255,11 +261,10 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     private fun applyStyle(style: LiveCaptionStyle) {
         if (style == currentStyle) return
         currentStyle = style
-        background = GradientDrawable().apply {
-            setColor(style.backgroundColor)
-            cornerRadius = dp(4).toFloat()
-        }
-        alpha = style.opacity
+        // Keep the panel itself transparent. YouTube-style captions have a
+        // small background behind each rendered line, not a wide empty box.
+        background = null
+        alpha = 1f
         val typeface = if (style.fontFamily == "system") {
             Typeface.DEFAULT
         } else {
@@ -268,7 +273,15 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         listOf(topLine, bottomLine, incomingLine).forEach { line ->
             line.typeface = typeface
             line.textSize = style.fontSizeSp
-            line.setTextColor(style.textColor)
+            line.setTextColor(withOpacity(style.textColor, style.opacity))
+            line.background = if (Color.alpha(style.backgroundColor) == 0) {
+                null
+            } else {
+                GradientDrawable().apply {
+                    setColor(withOpacity(style.backgroundColor, style.opacity))
+                    cornerRadius = dp(4).toFloat()
+                }
+            }
         }
         requestLayout()
     }
@@ -361,7 +374,9 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     private fun resetLinePositions() {
         val rowHeight = contentRowHeight()
         listOf(topLine, bottomLine, incomingLine).forEach { line ->
-            line.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, rowHeight)
+            line.layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, rowHeight).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
             line.alpha = 1f
         }
         topLine.translationY = 0f
@@ -390,8 +405,49 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         // TextView ellipsizing would replace the last spoken word with "…" on
         // narrow displays, which is especially confusing for live speech.
         ellipsize = null
+        setPadding(dp(10), 0, dp(10), 0)
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun captionWidthFraction(): Float = preferences
+        .getString(C.PLAYER_LIVE_CAPTION_WIDTH, "auto")
+        ?.toFloatOrNull()
+        ?.div(100f)
+        ?.coerceIn(0.5f, 1f)
+        ?: 0.92f
+
+    private fun captionContentWidth(): Float {
+        val parentWidth = (parent as? ViewGroup)?.width ?: width
+        val panelWidth = if (parentWidth > 0) parentWidth * captionWidthFraction() else width.toFloat()
+        return (panelWidth - paddingLeft - paddingRight).coerceAtLeast(1f)
+    }
+
+    private fun fitCaptionLine(line: String): String {
+        if (line.isBlank() || topLine.paint.measureText(line) <= captionContentWidth()) return line
+        var fitted = ""
+        line.trim().split(Regex("\\s+")).forEach { word ->
+            val candidate = if (fitted.isEmpty()) word else "$fitted $word"
+            if (fitted.isEmpty() || topLine.paint.measureText(candidate) <= captionContentWidth()) {
+                fitted = candidate
+            }
+        }
+        return fitted
+    }
+
+    private fun reflowVisibleLines() {
+        if (currentLines.all(String::isBlank)) return
+        currentLines = currentLines.map(::fitCaptionLine)
+        topLine.text = currentLines[0]
+        bottomLine.text = currentLines[1]
+        requestLayout()
+    }
+
+    private fun withOpacity(color: Int, opacity: Float): Int = Color.argb(
+        (Color.alpha(color) * opacity).roundToInt().coerceIn(0, 255),
+        Color.red(color),
+        Color.green(color),
+        Color.blue(color),
+    )
 }
