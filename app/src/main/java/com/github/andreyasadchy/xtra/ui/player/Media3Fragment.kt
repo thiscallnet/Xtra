@@ -87,6 +87,8 @@ class Media3Fragment : Media3PlayerFragment() {
     private var streamRecoveryAttempt = 0
     private var adAvoidanceJob: Job? = null
     private var primaryStreamRestoreJob: Job? = null
+    private var qualityRetryJob: Job? = null
+    private var qualityRetryAttempts = 0
     private var qualityRequestInFlight = false
     private val pendingQualityCallbacks = mutableListOf<() -> Unit>()
     private var nativeCues: List<Cue> = emptyList()
@@ -1410,8 +1412,8 @@ class Media3Fragment : Media3PlayerFragment() {
         }
     }
 
-    private fun requestQualities(onReady: () -> Unit = {}) {
-        pendingQualityCallbacks += onReady
+    private fun requestQualities(onReady: (() -> Unit)? = null) {
+        onReady?.let { pendingQualityCallbacks += it }
         if (qualityRequestInFlight) return
 
         val currentPlayer = player ?: run {
@@ -1471,6 +1473,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         changeQuality(viewModel.quality, persistSavedQuality = false)
                     }
                     setQualityText()
+                    qualityRetryAttempts = 0
                 }
             }
             qualityRequestInFlight = false
@@ -1481,6 +1484,16 @@ class Media3Fragment : Media3PlayerFragment() {
                 val callbacks = pendingQualityCallbacks.toList()
                 pendingQualityCallbacks.clear()
                 callbacks.forEach { it() }
+            } else if (pendingQualityCallbacks.isNotEmpty() && qualityRetryAttempts < MAX_QUALITY_RETRY_ATTEMPTS) {
+                qualityRetryAttempts++
+                qualityRetryJob?.cancel()
+                qualityRetryJob = viewLifecycleOwner.lifecycleScope.launch {
+                    delay(QUALITY_RETRY_DELAY_MS)
+                    qualityRetryJob = null
+                    if (view != null && player != null && viewModel.qualities.isNullOrEmpty()) {
+                        requestQualities()
+                    }
+                }
             }
         }, ContextCompat.getMainExecutor(requireContext()))
     }
@@ -1559,6 +1572,9 @@ class Media3Fragment : Media3PlayerFragment() {
     override fun onDestroyView() {
         nativeCues = emptyList()
         shownLiveCaptionError = null
+        qualityRetryJob?.cancel()
+        qualityRetryJob = null
+        qualityRetryAttempts = 0
         pendingQualityCallbacks.clear()
         binding.liveCaptionView.clearCaption()
         logVideoSurfaceBinding("on_destroy_view", player, view?.findViewById(R.id.playerSurface))
@@ -1589,6 +1605,9 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     companion object {
+        private const val QUALITY_RETRY_DELAY_MS = 500L
+        private const val MAX_QUALITY_RETRY_ATTEMPTS = 10
+
         fun newInstance(item: Stream, tapElapsedMs: Long? = null): Media3Fragment {
             return Media3Fragment().apply {
                 arguments = getStreamArguments(item, tapElapsedMs)
