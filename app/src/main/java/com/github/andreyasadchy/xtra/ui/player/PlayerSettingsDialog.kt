@@ -88,7 +88,12 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             }
             if (requireContext().prefs().getBoolean(C.PLAYER_MENU_QUALITY, false)) {
                 menuQuality.visibility = View.VISIBLE
-                menuQuality.setOnClickListener { dismiss() }
+                // Quality may not have a label yet while the controller/HLS
+                // playlist is starting. Always route the tap through the
+                // fragment so Media3 can retain it until qualities arrive.
+                menuQuality.setOnClickListener {
+                    openQualityDialog()
+                }
                 (parentFragment as? Media3PlayerFragment)?.setQualityText() ?:
                 (parentFragment as? PlayerFragment)?.setQualityText()
             }
@@ -361,13 +366,14 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             if (!text.isNullOrBlank() && menuQuality.isVisible) {
                 qualityValue.visibility = View.VISIBLE
                 qualityValue.text = text
-                menuQuality.setOnClickListener {
-                    (parentFragment as? Media3PlayerFragment)?.showQualityDialog() ?:
-                    (parentFragment as? PlayerFragment)?.showQualityDialog()
-                    dismiss()
-                }
             }
         }
+    }
+
+    private fun openQualityDialog() {
+        (parentFragment as? Media3PlayerFragment)?.showQualityDialog() ?:
+        (parentFragment as? PlayerFragment)?.showQualityDialog()
+        dismiss()
     }
 
     fun setSpeed(text: String?) {
