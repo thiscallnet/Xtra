@@ -155,6 +155,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var chatMutationGapCount = 0L
     private var chatSnapshotSyncCount = 0L
     private data class ChatViewportAnchor(val stableId: Long, val fallbackPosition: Int, val top: Int)
+    private var pendingChatPublicationAnchor: ChatViewportAnchor? = null
+    private var pendingChatPublicationFollowBottom = false
+    private var userScrollGeneration = 0L
+    private var pendingChatPublicationScrollGeneration = 0L
 
     private val chatAdapterUpdateRunnable = Runnable {
         chatAdapterUpdatePosted = false
@@ -163,7 +167,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val recyclerView = currentBinding.recyclerView
         val followBottom = !recyclerView.canScrollVertically(1)
         val anchor = if (followBottom) null else captureChatViewportAnchor(recyclerView, currentAdapter)
-        var hasNewMessages = false
+        pendingChatPublicationAnchor = anchor
+        pendingChatPublicationFollowBottom = followBottom
+        pendingChatPublicationScrollGeneration = userScrollGeneration
         while (pendingChatMutations.isNotEmpty()) {
             when (val firstMutation = pendingChatMutations.removeFirst()) {
                 is ChatViewModel.ChatMutation.Append -> {
@@ -175,7 +181,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     val coalesced = coalesceChatAppendMutations(appendMutations)
                     currentAdapter.appendMessages(coalesced.messages, coalesced.trimCount)
                     chatMutationRevision = coalesced.revision
-                    hasNewMessages = true
                 }
                 is ChatViewModel.ChatMutation.Prepend -> {
                     val batches = ArrayList<List<ChatMessage>>()
@@ -192,16 +197,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     chatMutationRevision = revision
                 }
                 is ChatViewModel.ChatMutation.Clear -> {
+                    pendingChatPublicationAnchor = null
+                    pendingChatPublicationFollowBottom = false
                     currentAdapter.clearMessages()
                     chatMutationRevision = firstMutation.revision
                 }
             }
         }
-        if (hasNewMessages && followBottom && currentAdapter.itemCount > 0) {
-            recyclerView.scrollToPosition(currentAdapter.itemCount - 1)
-        } else if (!followBottom) {
-            restoreChatViewportAnchor(recyclerView, currentAdapter, anchor)
-        }
+        // Append/prepend/replace publication is asynchronous. Scroll and anchor restoration are
+        // performed by onChatMessagesPublished after the READY dataset mutation.
     }
 
     private var autoCompleteAdapter: AutoCompleteAdapter<Any>? = null
@@ -225,6 +229,39 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val recyclerView = _binding?.recyclerView ?: return
         chatAdapterUpdatePosted = true
         recyclerView.postOnAnimation(chatAdapterUpdateRunnable)
+    }
+
+    private fun onChatMessagesPublished(kind: ChatPublicationKind, hasMorePending: Boolean) {
+        val recyclerView = _binding?.recyclerView ?: return
+        val currentAdapter = adapter ?: return
+        val viewportIsStillCurrent = userScrollGeneration == pendingChatPublicationScrollGeneration
+        when (kind) {
+            ChatPublicationKind.APPEND -> {
+                // Re-check the live viewport. The user may have scrolled up while rendering ran.
+                if (pendingChatPublicationFollowBottom && !recyclerView.canScrollVertically(1) && currentAdapter.itemCount > 0) {
+                    recyclerView.scrollToPosition(currentAdapter.itemCount - 1)
+                } else if (viewportIsStillCurrent && !pendingChatPublicationFollowBottom) {
+                    pendingChatPublicationAnchor?.let { restoreChatViewportAnchor(recyclerView, currentAdapter, it) }
+                }
+            }
+            ChatPublicationKind.PREPEND -> {
+                if (viewportIsStillCurrent) {
+                    pendingChatPublicationAnchor?.let { restoreChatViewportAnchor(recyclerView, currentAdapter, it) }
+                }
+            }
+            ChatPublicationKind.REPLACE -> {
+                if (pendingChatPublicationFollowBottom && !recyclerView.canScrollVertically(1) && currentAdapter.itemCount > 0) {
+                    recyclerView.scrollToPosition(currentAdapter.itemCount - 1)
+                } else if (viewportIsStillCurrent) {
+                    pendingChatPublicationAnchor?.let { restoreChatViewportAnchor(recyclerView, currentAdapter, it) }
+                }
+            }
+        }
+        if (!hasMorePending) {
+            pendingChatPublicationAnchor = null
+            pendingChatPublicationFollowBottom = false
+            pendingChatPublicationScrollGeneration = userScrollGeneration
+        }
     }
 
     private fun expectedChatMutationRevision(): Long =
@@ -270,11 +307,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val anchor =
             if (followBottom) null
             else captureChatViewportAnchor(recyclerView, currentAdapter)
+        pendingChatPublicationAnchor = anchor
+        pendingChatPublicationFollowBottom = followBottom
+        pendingChatPublicationScrollGeneration = userScrollGeneration
 
         currentAdapter.replaceMessages(
             snapshot.messages,
-            snapshot.liveMessageStartIndex,
-            snapshot.liveMessageBoundaryConsumed,
+            dividerPosition = snapshot.liveMessageStartIndex,
+            dividerConsumed = snapshot.liveMessageBoundaryConsumed,
         )
         chatMutationRevision = snapshot.revision
         chatSnapshotSyncCount++
@@ -285,11 +325,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 "messages=${snapshot.messages.size} " +
                 "durationMs=${SystemClock.elapsedRealtime() - syncStartedAt}",
         )
-        if (followBottom && currentAdapter.itemCount > 0) {
-            recyclerView.scrollToPosition(currentAdapter.itemCount - 1)
-        } else if (!followBottom) {
-            restoreChatViewportAnchor(recyclerView, currentAdapter, anchor)
-        }
+        // The replacement remains staged until its complete renders are ready. The adapter
+        // callback applies bottom/anchor behavior after the atomic dataset publication.
     }
 
     private fun captureChatViewportAnchor(
@@ -582,12 +619,19 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             ImageClickedDialog.newInstance(url, name, format, isAnimated, source, thirdParty, emoteId).show(this@ChatFragment.childFragmentManager, "imageDialog")
                         },
                     )
+                    adapter?.onMessagesPublished = ::onChatMessagesPublished
                     recyclerView.let {
                         it.itemAnimator = null
                         it.layoutManager = LinearLayoutManager(context).apply { stackFromEnd = true }
                         it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
                             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                                 super.onScrollStateChanged(recyclerView, newState)
+                                if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                                    // Programmatic scrolls caused by publication enter SETTLING,
+                                    // not DRAGGING. Only a real user drag invalidates a staged
+                                    // viewport restore.
+                                    userScrollGeneration++
+                                }
                                 isChatTouched = newState != RecyclerView.SCROLL_STATE_IDLE
                                 if (newState != RecyclerView.SCROLL_STATE_IDLE) {
                                     recyclerView.removeCallbacks(chatAdapterUpdateRunnable)
@@ -622,10 +666,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     }
                     val chatAdapter = adapter
                     viewLifecycleOwner.lifecycleScope.launch {
-                        chatAdapter?.prepareForDisplay(initialMessages)
                         if (_binding?.recyclerView === recyclerView && chatAdapter === adapter) {
                             recyclerView.adapter = chatAdapter
                             chatAdapterReady = true
+                            pendingChatPublicationFollowBottom = !recyclerView.canScrollVertically(1)
+                            pendingChatPublicationAnchor = null
+                            pendingChatPublicationScrollGeneration = userScrollGeneration
                             chatAdapter?.appendMessages(
                                 initialMessages,
                                 0,
@@ -2148,15 +2194,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         chatMessage.translatedMessage = getString(R.string.translate_failed_id)
                         chatMessage.translationFailed = true
                         chatMessage.messageLanguage = null
-                        adapter?.let { adapter ->
-                            synchronized(viewModel.chatMessages) {
-                                viewModel.chatMessages.indexOf(chatMessage).takeIf { it != -1 }
-                            }?.let {
-                                (binding.recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
-                                    adapter.updateTranslation(chatMessage, it, previousTranslation)
-                                } ?: adapter.rebindMessageAfterContentUpdate(chatMessage, it)
-                            }
-                        }
+                        adapter?.updateMessageContent(chatMessage)
                         messageDialog?.updateTranslation(chatMessage, previousTranslation)
                         replyDialog?.updateTranslation(chatMessage, previousTranslation)
                     }
@@ -2188,15 +2226,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         chatMessage.translatedMessage = getString(R.string.translated_message, languageName, text)
                         chatMessage.translationFailed = false
                         chatMessage.messageLanguage = null
-                        adapter?.let { adapter ->
-                            synchronized(viewModel.chatMessages) {
-                                viewModel.chatMessages.indexOf(chatMessage).takeIf { it != -1 }
-                            }?.let {
-                                (binding.recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
-                                    adapter.updateTranslation(chatMessage, it, previousTranslation)
-                                } ?: adapter.rebindMessageAfterContentUpdate(chatMessage, it)
-                            }
-                        }
+                        adapter?.updateMessageContent(chatMessage)
                         messageDialog?.updateTranslation(chatMessage, previousTranslation)
                         replyDialog?.updateTranslation(chatMessage, previousTranslation)
                     }
@@ -2206,15 +2236,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         chatMessage.translatedMessage = getString(R.string.translate_failed, languageName)
                         chatMessage.translationFailed = true
                         chatMessage.messageLanguage = sourceLanguage
-                        adapter?.let { adapter ->
-                            synchronized(viewModel.chatMessages) {
-                                viewModel.chatMessages.indexOf(chatMessage).takeIf { it != -1 }
-                            }?.let {
-                                (binding.recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
-                                    adapter.updateTranslation(chatMessage, it, previousTranslation)
-                                } ?: adapter.rebindMessageAfterContentUpdate(chatMessage, it)
-                            }
-                        }
+                        adapter?.updateMessageContent(chatMessage)
                         messageDialog?.updateTranslation(chatMessage, previousTranslation)
                         replyDialog?.updateTranslation(chatMessage, previousTranslation)
                     }
@@ -2224,15 +2246,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             chatMessage.translatedMessage = getString(R.string.translate_failed_id)
             chatMessage.translationFailed = true
             chatMessage.messageLanguage = null
-            adapter?.let { adapter ->
-                synchronized(viewModel.chatMessages) {
-                    viewModel.chatMessages.indexOf(chatMessage).takeIf { it != -1 }
-                }?.let {
-                    (binding.recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
-                        adapter.updateTranslation(chatMessage, it, previousTranslation)
-                    } ?: adapter.rebindMessageAfterContentUpdate(chatMessage, it)
-                }
-            }
+            adapter?.updateMessageContent(chatMessage)
             messageDialog?.updateTranslation(chatMessage, previousTranslation)
             replyDialog?.updateTranslation(chatMessage, previousTranslation)
         }
@@ -2269,15 +2283,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                     chatMessage.translatedMessage = getString(R.string.translated_message, languageName, text)
                                     chatMessage.translationFailed = false
                                     chatMessage.messageLanguage = null
-                                    adapter?.let { adapter ->
-                                        synchronized(viewModel.chatMessages) {
-                                            viewModel.chatMessages.indexOf(chatMessage).takeIf { it != -1 }
-                                        }?.let {
-                                            (binding.recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
-                                                adapter.updateTranslation(chatMessage, it, previousTranslation)
-                                            } ?: adapter.rebindMessageAfterContentUpdate(chatMessage, it)
-                                        }
-                                    }
+                                    adapter?.updateMessageContent(chatMessage)
                                     messageDialog?.updateTranslation(chatMessage, previousTranslation)
                                     replyDialog?.updateTranslation(chatMessage, previousTranslation)
                                 }

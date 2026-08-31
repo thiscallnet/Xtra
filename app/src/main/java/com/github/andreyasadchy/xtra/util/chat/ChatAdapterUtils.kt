@@ -67,10 +67,18 @@ import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.target.Target
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import java.security.MessageDigest
 import java.util.Random
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.floor
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -109,6 +117,12 @@ object ChatAdapterUtils {
     private const val LOCAL_EMOTE_CACHE_MAX_BYTES = 8 * 1024 * 1024
     private val localEmoteCache = LinkedHashMap<LocalEmoteKey, ByteArray>(32, 0.75f, true)
     private var localEmoteCacheBytes = 0
+    /**
+     * Shares one decode operation between simultaneous renders. The result is cloned at each
+     * render boundary, so mutable drawable bounds/callbacks never cross TextViews.
+     */
+    private val imageResolutionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(8))
+    private val imageResolutions = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Drawable?>>()
 
     class ChatCatalogIndexes private constructor(
         val twitchEmotesById: Map<String, TwitchEmote>,
@@ -683,14 +697,7 @@ object ChatAdapterUtils {
                         translateMessage(chatMessage, null)
                     }
                 }
-                backgroundResource = when {
-                    chatMessage.isHighlightedMessage() -> R.drawable.bg_chat_highlight
-                    chatMessage.isFirst && firstMsgVisibility < 2 -> R.color.chatMessageFirst
-                    chatMessage.reward?.id != null && firstMsgVisibility < 2 -> R.color.chatMessageReward
-                    chatMessage.systemMsg != null || chatMessage.msgId != null -> R.color.chatMessageNotice
-                    wasMentioned -> R.color.chatMessageMention
-                    else -> 0
-                }
+                backgroundResource = chatMessageBackgroundResource(chatMessage, firstMsgVisibility, wasMentioned)
             }
         }
         if (chatMessage.isHighlightedMessage()) {
@@ -717,6 +724,92 @@ object ChatAdapterUtils {
         )
     }
 
+    /**
+     * Builds the terminal representation used only when the authoritative renderer cannot
+     * recover. It has no image references, so publication never leaves a semantic row waiting
+     * for a later visual upgrade.
+     */
+    fun prepareTerminalFailureRender(
+        chatMessage: ChatMessage,
+        context: Context,
+        enableTimestamps: Boolean,
+        timestampFormat: String?,
+        firstMsgVisibility: Int,
+        nameDisplay: String?,
+        useReadableColors: Boolean,
+        isLightTheme: Boolean,
+        savedColors: HashMap<String, Int>,
+    ): MessageResult {
+        val builder = SpannableStringBuilder()
+        val muted = getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)
+        var userName: String? = null
+        var userNameStartIndex: Int? = null
+
+        fun appendMuted(value: String) {
+            val start = builder.length
+            builder.append(value)
+            if (value.isNotEmpty()) builder.setSpan(ForegroundColorSpan(muted), start, builder.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+
+        if (chatMessage.type == ChatMessage.NEW_MESSAGE_DIVIDER) {
+            val lineColor = getSavedColor("#7B737D", savedColors, useReadableColors, isLightTheme)
+            val newColor = getSavedColor("#FF6B6B", savedColors, useReadableColors, isLightTheme)
+            appendSpecialText(builder, "-------------------- ", lineColor)
+            appendSpecialText(builder, context.getString(R.string.chat_new_messages), newColor, bold = true)
+            return MessageResult(
+                builder = builder,
+                images = ArrayList(),
+                imagePaint = null,
+                userName = null,
+                userNameStartIndex = null,
+                translated = false,
+                backgroundResource = 0,
+            )
+        }
+
+        if (enableTimestamps && chatMessage.timestamp != null) {
+            runCatching { TwitchApiHelper.getTimestamp(chatMessage.timestamp, timestampFormat) }
+                .getOrNull()?.let { appendMuted("$it ") }
+        }
+
+        val rawName = chatMessage.displayName(nameDisplay)
+        if (!rawName.isNullOrBlank() && chatMessage.type != ChatMessage.SYSTEM_MESSAGE) {
+            userName = rawName
+            userNameStartIndex = builder.length
+            val color = chatMessage.color?.let { colorValue ->
+                runCatching { getSavedColor(colorValue, savedColors, useReadableColors, isLightTheme) }.getOrNull()
+            } ?: Color.rgb(153, 153, 153)
+            builder.append(rawName)
+            builder.setSpan(ForegroundColorSpan(color), userNameStartIndex, builder.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+            builder.append(if (chatMessage.isAction) " " else ": ")
+        }
+
+        val content = when {
+            chatMessage.type == ChatMessage.REPLY_MESSAGE -> chatMessage.reply?.message ?: chatMessage.message
+            !chatMessage.message.isNullOrEmpty() -> chatMessage.message
+            !chatMessage.systemMsg.isNullOrEmpty() -> chatMessage.systemMsg
+            chatMessage.reward?.title != null -> chatMessage.reward?.title
+            !chatMessage.fullMsg.isNullOrEmpty() -> chatMessage.fullMsg
+            else -> ""
+        }.orEmpty()
+        appendMuted(content)
+
+        val backgroundResource = when {
+            chatMessage.isHighlightedMessage() -> R.drawable.bg_chat_highlight
+            chatMessage.isWatchStreakNotice() -> R.drawable.bg_chat_watch_streak
+            else -> chatMessageBackgroundResource(chatMessage, firstMsgVisibility)
+        }
+        return MessageResult(
+            builder = builder,
+            images = ArrayList(),
+            imagePaint = null,
+            userName = userName,
+            userNameStartIndex = userNameStartIndex,
+            translated = false,
+            backgroundResource = backgroundResource,
+        )
+    }
+
     class MessageResult(
         val builder: SpannableStringBuilder,
         val images: ArrayList<Image>,
@@ -726,6 +819,8 @@ object ChatAdapterUtils {
         val translated: Boolean,
         val backgroundResource: Int,
         val accessibilityDescription: String? = null,
+        val resolvedImages: List<Drawable?> = emptyList(),
+        val resolvedImagePaint: Drawable? = null,
     ) {
         /** Keep the parsed spans but give each holder its own mutable builder and image list. */
         fun copyForBind() = MessageResult(
@@ -737,7 +832,169 @@ object ChatAdapterUtils {
             translated = translated,
             backgroundResource = backgroundResource,
             accessibilityDescription = accessibilityDescription,
+            resolvedImages = resolvedImages.map { it?.constantState?.newDrawable()?.mutate() ?: it },
+            resolvedImagePaint = resolvedImagePaint?.constantState?.newDrawable()?.mutate() ?: resolvedImagePaint,
         )
+    }
+
+    /**
+     * Resolves every drawable needed by a message before its render result is published.
+     * Glide and Coil perform network and decode work off the main thread. A null result is a
+     * settled failure, not a placeholder that may later upgrade a visible row.
+     */
+    suspend fun resolveChatImages(
+        context: Context,
+        images: List<Image>,
+        imagePaint: NamePaint?,
+        imageLibrary: String?,
+        emoteQuality: String,
+        emoteSize: Int,
+        badgeSize: Int,
+        inlineIconSize: Int,
+    ): Pair<List<Drawable?>, Drawable?> = coroutineScope {
+        val resolved = images.map { image ->
+            // resolveChatImage composes the complete overlay chain. The cache identity must
+            // therefore include that chain, not only the base drawable.
+            val key = "${imageLibrary ?: "default"}|" +
+                imageCompositionKey(image, emoteQuality, emoteSize, badgeSize, inlineIconSize)
+            sharedImageResolution(key) {
+                resolveChatImage(context, image, imageLibrary, emoteQuality, emoteSize, badgeSize, inlineIconSize)
+            }
+        }.awaitAll().map(::copyDrawableForRender)
+        val paint = imagePaint?.imageUrl?.let { url ->
+            sharedImageResolution("${imageLibrary ?: "default"}|name-paint:$url") {
+                resolveNamePaint(context, url, imageLibrary)
+            }
+        }?.await()
+        resolved to copyDrawableForRender(paint)
+    }
+
+    private fun sharedImageResolution(
+        key: String,
+        block: suspend () -> Drawable?,
+    ): kotlinx.coroutines.Deferred<Drawable?> {
+        imageResolutions[key]?.let { return it }
+        val candidate = imageResolutionScope.async(start = CoroutineStart.LAZY) { block() }
+        val existing = imageResolutions.putIfAbsent(key, candidate)
+        if (existing != null) {
+            candidate.cancel()
+            return existing
+        }
+        candidate.invokeOnCompletion { imageResolutions.remove(key, candidate) }
+        candidate.start()
+        return candidate
+    }
+
+    private fun copyDrawableForRender(drawable: Drawable?): Drawable? =
+        drawable?.constantState?.newDrawable()?.mutate() ?: drawable
+
+    private suspend fun resolveChatImage(
+        context: Context,
+        image: Image,
+        imageLibrary: String?,
+        emoteQuality: String,
+        emoteSize: Int,
+        badgeSize: Int,
+        inlineIconSize: Int,
+    ): Drawable? {
+        return try {
+            val resolvedImage = if (image.localData == null && image.localDataUrl != null && image.localDataRange != null) {
+                val range = image.localDataRange
+                val bytes = getCachedLocalEmote(image.localDataUrl, range)
+                    ?: withContext(Dispatchers.IO) {
+                        readLocalEmote(context, image.localDataUrl, range).also {
+                            cacheLocalEmote(image.localDataUrl, range, it)
+                        }
+                    }
+                image.withLocalData(bytes)
+            } else image
+            val data = imageData(resolvedImage, emoteQuality) ?: return null
+            val geometry = imageGeometry(
+                resolvedImage,
+                imageSizeForKind(resolvedImage.kind, emoteSize, badgeSize, inlineIconSize),
+            )
+            val drawable = if (imageLibrary == "0" || (imageLibrary == "1" && !resolvedImage.format.equals("webp", true))) {
+                val result = context.imageLoader.execute(
+                    chatImageRequest(
+                        context, resolvedImage, data, geometry.widthPx, geometry.heightPx,
+                        imageMemoryCacheKey(stableImageSourceKey(resolvedImage, emoteQuality), geometry.widthPx, geometry.heightPx),
+                        stableImageSourceKey(resolvedImage, emoteQuality),
+                    ).build(),
+                )
+                (result as? coil3.request.SuccessResult)?.image?.asDrawable(context.resources)
+            } else {
+                withContext(Dispatchers.IO) {
+                    Glide.with(context)
+                        .load(glideImageModel(resolvedImage, data))
+                        .diskCacheStrategy(DiskCacheStrategy.DATA)
+                        .dontAnimate()
+                        .override(geometry.widthPx, geometry.heightPx)
+                        .submit()
+                        .get()
+                }
+            }
+            if (drawable == null) return null
+            val overlay = resolvedImage.overlayEmote?.let {
+                resolveChatImage(context, it, imageLibrary, emoteQuality, emoteSize, badgeSize, inlineIconSize)
+            }
+            if (resolvedImage.overlayEmote != null && overlay == null) return null
+            if (overlay == null) drawable else LayerDrawable(arrayOf(drawable, overlay))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private suspend fun resolveNamePaint(context: Context, url: String, imageLibrary: String?): Drawable? = try {
+        if (imageLibrary == "0") {
+            (context.imageLoader.execute(
+                ImageRequest.Builder(context).data(url).crossfade(false).build(),
+            ) as? coil3.request.SuccessResult)?.image?.asDrawable(context.resources)
+        } else {
+            withContext(Dispatchers.IO) {
+                Glide.with(context).load(GlideUrl(url) { mapOf("User-Agent" to "Xtra/" + BuildConfig.VERSION_NAME) })
+                    .diskCacheStrategy(DiskCacheStrategy.DATA).dontAnimate().submit().get()
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
+
+    fun installResolvedImages(
+        builder: SpannableStringBuilder,
+        images: List<Image>,
+        drawables: List<Drawable?>,
+        imagePaint: NamePaint? = null,
+        imagePaintDrawable: Drawable? = null,
+        userName: String? = null,
+        userNameStartIndex: Int? = null,
+        backgroundColor: Int = Color.TRANSPARENT,
+        emoteSize: Int = 1,
+        badgeSize: Int = 1,
+        inlineIconSize: Int = 1,
+    ) {
+        images.forEachIndexed { index, image ->
+            builder.getSpans(image.start, image.end, CenteredImageSpan::class.java).forEach(builder::removeSpan)
+            val geometry = imageGeometry(image, imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize))
+            val drawable = drawables.getOrNull(index) ?: ColorDrawable(Color.TRANSPARENT).apply {
+                setBounds(0, 0, geometry.widthPx, geometry.heightPx)
+            }
+            builder.setSpan(
+                CenteredImageSpan(drawable, geometry.widthPx, geometry.heightPx),
+                image.start, image.end, SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
+        if (imagePaint != null && imagePaintDrawable != null && !userName.isNullOrEmpty() && userNameStartIndex != null) {
+            builder.getSpans(userNameStartIndex, userNameStartIndex + userName.length, NamePaintImageSpan::class.java)
+                .forEach(builder::removeSpan)
+            builder.setSpan(
+                NamePaintImageSpan(userName, imagePaint.shadows, null, backgroundColor, imagePaintDrawable),
+                userNameStartIndex, userNameStartIndex + userName.length, SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
     }
 
     fun addTranslation(chatMessage: ChatMessage, builder: SpannableStringBuilder, startIndex: Int, savedColors: HashMap<String, Int>, useReadableColors: Boolean, isLightTheme: Boolean, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean): Int {
@@ -1497,6 +1754,24 @@ object ChatAdapterUtils {
         }
     }
 
+    internal fun imageCompositionKey(
+        image: Image,
+        emoteQuality: String,
+        emoteSize: Int,
+        badgeSize: Int,
+        inlineIconSize: Int,
+    ): String {
+        val geometry = imageGeometry(image, imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize))
+        return buildString {
+            append(stableImageSourceKey(image, emoteQuality))
+            append('@').append(geometry.widthPx).append('x').append(geometry.heightPx)
+            image.overlayEmote?.let { overlay ->
+                append("|overlay=")
+                append(imageCompositionKey(overlay, emoteQuality, emoteSize, badgeSize, inlineIconSize))
+            }
+        }
+    }
+
     private fun imageMemoryCacheKey(sourceKey: String, widthPx: Int, heightPx: Int): String =
         "xtra:chat-image:$sourceKey:${widthPx}x$heightPx"
 
@@ -1570,6 +1845,20 @@ internal fun ChatMessage.displayName(nameDisplay: String?): String? = when {
 
 private fun dp(context: Context, value: Int): Int =
     (value * context.resources.displayMetrics.density).roundToInt()
+
+internal fun chatMessageBackgroundResource(
+    chatMessage: ChatMessage,
+    firstMsgVisibility: Int,
+    wasMentioned: Boolean = false,
+): Int = when {
+    chatMessage.isHighlightedMessage() -> R.drawable.bg_chat_highlight
+    chatMessage.isFirst && firstMsgVisibility == 0 -> R.drawable.bg_chat_first_chatter
+    chatMessage.isFirst && firstMsgVisibility == 1 -> R.color.chatMessageFirst
+    chatMessage.reward?.id != null && firstMsgVisibility < 2 -> R.color.chatMessageReward
+    chatMessage.systemMsg != null || chatMessage.msgId != null -> R.color.chatMessageNotice
+    wasMentioned -> R.color.chatMessageMention
+    else -> 0
+}
 
 private fun appendSpecialText(
     builder: SpannableStringBuilder,

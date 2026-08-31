@@ -10,8 +10,7 @@ import kotlin.math.roundToInt
 
 /**
  * An inline image span whose slot never changes after the text is measured.
- * The drawable can be decoded later, but its pixels are always drawn inside
- * the dimensions reserved when the message was built.
+ * Chat renders attach a decoded drawable before the message enters RecyclerView.
  */
 class CenteredImageSpan(
     initialDrawable: Drawable,
