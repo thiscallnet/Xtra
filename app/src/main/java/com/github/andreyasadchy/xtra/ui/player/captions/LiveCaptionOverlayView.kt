@@ -159,6 +159,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         bottomLine.text = ""
         incomingLine.text = ""
         incomingLine.visibility = View.INVISIBLE
+        refreshLineBackgrounds()
         contentDescription = null
         visibility = View.GONE
     }
@@ -220,6 +221,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
             topLine.text = fittedUpdate.lines[0]
             bottomLine.text = fittedUpdate.lines[1]
             incomingLine.visibility = View.INVISIBLE
+            refreshLineBackgrounds()
             resetLinePositions()
             updateAccessibilityText()
         }
@@ -231,6 +233,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         incomingLine.text = update.lines[1]
         incomingLine.visibility = View.VISIBLE
         incomingLine.alpha = 1f
+        refreshLineBackgrounds()
         incomingLine.translationY = rowHeight * 2f
 
         topLine.animate()
@@ -252,6 +255,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
                 bottomLine.text = update.lines[1]
                 incomingLine.text = ""
                 incomingLine.visibility = View.INVISIBLE
+                refreshLineBackgrounds()
                 animationRunning = false
                 resetLinePositions()
                 updateAccessibilityText()
@@ -279,15 +283,8 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
             line.typeface = typeface
             line.textSize = style.fontSizeSp
             line.setTextColor(withOpacity(style.textColor, style.opacity))
-            line.background = if (Color.alpha(style.backgroundColor) == 0) {
-                null
-            } else {
-                GradientDrawable().apply {
-                    setColor(withOpacity(style.backgroundColor, style.opacity))
-                    cornerRadius = dp(4).toFloat()
-                }
-            }
         }
+        refreshLineBackgrounds(style)
         requestLayout()
     }
 
@@ -489,6 +486,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         currentLines = fitCaptionLines(rawLines)
         topLine.text = currentLines[0]
         bottomLine.text = currentLines[1]
+        refreshLineBackgrounds()
         requestLayout()
     }
 
@@ -498,4 +496,20 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         Color.green(color),
         Color.blue(color),
     )
+
+    private fun refreshLineBackgrounds(style: LiveCaptionStyle? = currentStyle) {
+        val activeStyle = style ?: return
+        listOf(topLine, bottomLine, incomingLine).forEach { line ->
+            line.background = if (
+                line.text.isNullOrBlank() || Color.alpha(activeStyle.backgroundColor) == 0
+            ) {
+                null
+            } else {
+                GradientDrawable().apply {
+                    setColor(withOpacity(activeStyle.backgroundColor, activeStyle.opacity))
+                    cornerRadius = dp(4).toFloat()
+                }
+            }
+        }
+    }
 }
