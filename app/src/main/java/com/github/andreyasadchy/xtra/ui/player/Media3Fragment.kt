@@ -513,6 +513,12 @@ class Media3Fragment : Media3PlayerFragment() {
             }
             controller.addListener(listener)
             playerListener = listener
+            // A listener added after the controller is already prepared does
+            // not receive an initial onTracksChanged callback. Retry any
+            // quality request that arrived while the controller was connecting.
+            if (controller.currentMediaItem != null) {
+                requestQualities()
+            }
             controller.sendCustomCommand(
                 SessionCommand(
                     PlaybackService.SET_BACKGROUND_PLAYBACK,
