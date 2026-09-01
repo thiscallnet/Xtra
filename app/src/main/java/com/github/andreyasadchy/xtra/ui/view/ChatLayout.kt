@@ -16,9 +16,10 @@ class ChatLayout : RelativeLayout {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         if (isPortrait) {
             val playerHeight = (measuredWidth / (16f / 9f)).toInt()
+            val availableHeight = (measuredHeight - playerHeight).coerceAtLeast(0)
             super.onMeasure(
                 widthMeasureSpec,
-                MeasureSpec.makeMeasureSpec(measuredHeight - playerHeight, MeasureSpec.EXACTLY)
+                MeasureSpec.makeMeasureSpec(availableHeight, MeasureSpec.EXACTLY)
             )
         }
     }

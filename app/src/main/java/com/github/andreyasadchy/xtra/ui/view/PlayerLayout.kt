@@ -23,6 +23,14 @@ class PlayerLayout : FrameLayout {
     private val unlockHitRect = Rect()
     private var unlockGesture = false
 
+    private fun boundedDesiredSize(desired: Int, measureSpec: Int): Int {
+        val safeDesired = desired.coerceAtLeast(0)
+        return when (MeasureSpec.getMode(measureSpec)) {
+            MeasureSpec.UNSPECIFIED -> safeDesired
+            else -> safeDesired.coerceAtMost(MeasureSpec.getSize(measureSpec))
+        }
+    }
+
     override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
         if (!interactionLocked) {
             unlockGesture = false
@@ -74,7 +82,8 @@ class PlayerLayout : FrameLayout {
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         if (isPortrait) {
-            val playerHeight = (measuredWidth / (16f / 9f)).toInt()
+            val desiredHeight = (measuredWidth / (16f / 9f)).toInt()
+            val playerHeight = boundedDesiredSize(desiredHeight, heightMeasureSpec)
             super.onMeasure(
                 widthMeasureSpec,
                 MeasureSpec.makeMeasureSpec(playerHeight, MeasureSpec.EXACTLY)
