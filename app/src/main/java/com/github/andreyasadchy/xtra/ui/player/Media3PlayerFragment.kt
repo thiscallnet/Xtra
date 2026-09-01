@@ -1746,7 +1746,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun updateViewerCount(viewerCount: Int?) {
         with(binding.playerControls) {
             if (viewerCount != null) {
-                val formattedCount = TwitchApiHelper.formatCount(viewerCount, requireContext().prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true))
+                val formattedCount = TwitchApiHelper.formatCount(viewerCount, compact = false)
                 viewersText.text = getString(R.string.player_viewers_suffix, formattedCount)
                 viewersLayout.visibility = View.VISIBLE
                 titleAndViewersLayout.visibility = View.VISIBLE

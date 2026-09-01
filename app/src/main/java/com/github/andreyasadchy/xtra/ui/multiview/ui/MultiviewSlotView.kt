@@ -43,6 +43,7 @@ class MultiviewSlotView(context: Context) : FrameLayout(context) {
             onLongPress?.invoke()
         }
     })
+    private var qualityLabelAvailable = false
 
     val playerView: PlayerView
         get() = binding.playerView
@@ -95,7 +96,8 @@ class MultiviewSlotView(context: Context) : FrameLayout(context) {
         val audioActive = audioVolume > 0f
         binding.channelName.text = name
         binding.qualityBadge.text = snapshot?.qualityLabel.orEmpty()
-        binding.qualityBadge.isVisible = !snapshot?.qualityLabel.isNullOrBlank()
+        qualityLabelAvailable = !snapshot?.qualityLabel.isNullOrBlank()
+        updateResponsiveControls()
         binding.playerView.resizeMode = if (fillVideo) {
             AspectRatioFrameLayout.RESIZE_MODE_ZOOM
         } else {
@@ -130,8 +132,20 @@ class MultiviewSlotView(context: Context) : FrameLayout(context) {
 
     fun setControlsVisible(visible: Boolean) {
         binding.infoBar.isVisible = visible
-        binding.audioIcon.isVisible = visible
+        binding.audioIcon.isVisible = visible && width >= dp(180)
         binding.overflowButton.isVisible = visible
+        binding.qualityBadge.isVisible = visible && qualityLabelAvailable && width >= dp(240)
+    }
+
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        updateResponsiveControls()
+    }
+
+    private fun updateResponsiveControls() {
+        if (!isLaidOut && width == 0) return
+        binding.qualityBadge.isVisible = qualityLabelAvailable && width >= dp(240)
+        binding.audioIcon.isVisible = binding.infoBar.isVisible && width >= dp(180)
     }
 
     private fun updateBorder(active: Boolean) {

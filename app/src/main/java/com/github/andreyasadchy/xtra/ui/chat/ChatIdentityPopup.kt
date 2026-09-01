@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.chat
 import android.app.Dialog
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -35,6 +36,7 @@ import coil3.request.crossfade
 import coil3.request.target
 import coil3.imageLoader
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.util.PlayerUiGeometry
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityBadge
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityCampaign
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityState
@@ -546,19 +548,44 @@ class ChatIdentityPopup(
     private fun positionPopup(content: View, popup: PopupWindow) {
         val screenWidth = rootView.rootView.width.takeIf { it > 0 }
             ?: context.resources.displayMetrics.widthPixels
-        val desiredWidth = min(context.dp(344), screenWidth - context.dp(16)).coerceAtLeast(context.dp(240))
-        val anchorLocation = IntArray(2)
-        anchor.getLocationOnScreen(anchorLocation)
         val rootInsets = ViewCompat.getRootWindowInsets(rootView)
-        val insetTop = rootInsets?.getInsets(WindowInsetsCompat.Type.systemBars())?.top ?: 0
-        val maxHeight = (anchorLocation[1] - insetTop - context.dp(8)).coerceAtLeast(context.dp(220))
+        val safeInsets = rootInsets?.getInsets(
+            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        ) ?: androidx.core.graphics.Insets.NONE
+        val screenHeight = rootView.rootView.height.takeIf { it > 0 }
+            ?: context.resources.displayMetrics.heightPixels
+        val geometry = PlayerUiGeometry.from(
+            Rect(0, 0, screenWidth, screenHeight),
+            Rect(safeInsets.left, safeInsets.top, safeInsets.right, safeInsets.bottom),
+            context.resources.displayMetrics.density,
+            edgePaddingDp = 12,
+        )
+        val popupBounds = geometry.paddedSafeBounds()
+        val safeLeft = popupBounds.left
+        val safeRight = popupBounds.right.coerceAtLeast(safeLeft)
+        val desiredWidth = min(context.dp(344), popupBounds.width().coerceAtLeast(1))
+        val anchorLocation = IntArray(2)
+        anchor.getLocationInWindow(anchorLocation)
+        val safeTop = popupBounds.top
+        val safeBottom = popupBounds.bottom.coerceAtLeast(safeTop)
+        val gap = context.dp(8)
+        val below = (safeBottom - anchorLocation[1] - anchor.height - gap).coerceAtLeast(1)
+        val above = (anchorLocation[1] - safeTop - gap).coerceAtLeast(1)
+        val maxHeight = max(below, above)
         content.measure(
             View.MeasureSpec.makeMeasureSpec(desiredWidth, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST),
         )
         val height = min(content.measuredHeight, maxHeight)
-        val left = anchorLocation[0].coerceIn(context.dp(8), screenWidth - desiredWidth - context.dp(8))
-        val top = max(insetTop + context.dp(8), anchorLocation[1] - height - context.dp(8))
+        val left = (anchorLocation[0] + anchor.width / 2 - desiredWidth / 2)
+            .coerceIn(safeLeft, (safeRight - desiredWidth).coerceAtLeast(safeLeft))
+        val belowTop = anchorLocation[1] + anchor.height + gap
+        val aboveTop = anchorLocation[1] - height - gap
+        val top = when {
+            belowTop + height <= safeBottom -> belowTop
+            aboveTop >= safeTop -> aboveTop
+            else -> belowTop.coerceIn(safeTop, (safeBottom - height).coerceAtLeast(safeTop))
+        }
         popup.update(left, top, desiredWidth, height)
     }
 
