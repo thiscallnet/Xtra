@@ -55,6 +55,7 @@ jobs:
           ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.util.DatabaseRestoreRecoveryTest
           ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCacheTest
           ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.view.CenteredImageSpanTest
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.chat.v2.ChatMessageTextViewTest
 
   build:
     runs-on: ubuntu-latest
