@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
+import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -57,5 +58,18 @@ class ChatRenderConfigurationTest {
 
         assertSame(catalogA, reverted.indexes)
         assertFalse(reverted.translateAllMessages)
+    }
+
+    @Test
+    fun genericChatBadgeLookupKeepsPredictionBadgeVersions() {
+        val blueThree = TwitchBadge("predictions", "blue-3", url4x = "https://example.invalid/3")
+        val blueTen = TwitchBadge("predictions", "blue-10", url4x = "https://example.invalid/10")
+        val indexes = ChatAdapterUtils.ChatCatalogIndexes.create(
+            emptyList(), emptyList(), listOf(blueThree, blueTen), emptyList(),
+            emptyList(), emptyList(), emptyList(), emptyMap(), emptyList(),
+        )
+
+        assertSame(blueThree, indexes.globalBadgesByKey["predictions:blue-3"])
+        assertSame(blueTen, indexes.globalBadgesByKey["predictions:blue-10"])
     }
 }

@@ -129,23 +129,30 @@ object PredictionState {
     ): List<Prediction.PredictionOutcome>? {
         if (current.isNullOrEmpty()) return incoming
         if (incoming.isNullOrEmpty()) return current
-        val currentByKey = current.associateBy { it.id ?: it.title }
-        val incomingKeys = incoming.map { it.id ?: it.title }.toSet()
-        val merged = incoming.map { outcome ->
-            val previous = currentByKey[outcome.id ?: outcome.title]
-            if (previous == null) {
-                outcome
-            } else {
-                outcome.copy(
-                    title = outcome.title ?: previous.title,
-                    totalPoints = max(previous.totalPoints, outcome.totalPoints),
-                    totalUsers = max(previous.totalUsers, outcome.totalUsers),
-                    color = outcome.color ?: previous.color,
-                )
-            }
+        fun key(outcome: Prediction.PredictionOutcome) = outcome.id ?: outcome.title
+
+        val incomingByKey = incoming.associateBy(::key)
+        val currentKeys = current.mapTo(mutableSetOf(), ::key)
+        val mergedExisting = current.map { previous ->
+            val update = incomingByKey[key(previous)] ?: return@map previous
+            mergePredictionOutcome(previous, update)
         }
-        return merged + current.filter { (it.id ?: it.title) !in incomingKeys }
+        val genuinelyNew = incoming.filter { key(it) !in currentKeys }
+        return mergedExisting + genuinelyNew
     }
+
+    private fun mergePredictionOutcome(
+        previous: Prediction.PredictionOutcome,
+        outcome: Prediction.PredictionOutcome,
+    ): Prediction.PredictionOutcome = outcome.copy(
+        title = outcome.title ?: previous.title,
+        totalPoints = max(previous.totalPoints, outcome.totalPoints),
+        totalUsers = max(previous.totalUsers, outcome.totalUsers),
+        color = outcome.color ?: previous.color,
+        badgeSetId = outcome.badgeSetId ?: previous.badgeSetId,
+        badgeVersion = outcome.badgeVersion ?: previous.badgeVersion,
+        badgeUrl = outcome.badgeUrl ?: previous.badgeUrl,
+    )
 
     private fun max(first: Long?, second: Long?): Long? = when {
         first == null -> second

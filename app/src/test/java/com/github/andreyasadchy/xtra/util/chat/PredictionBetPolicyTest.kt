@@ -19,6 +19,35 @@ class PredictionBetPolicyTest {
     }
 
     @Test
+    fun `third fourth and tenth outcome IDs stay candidate IDs`() {
+        val outcomeIds = (1..10).map { "outcome-$it" }
+
+        listOf("outcome-3", "outcome-4", "outcome-10").forEach { candidateId ->
+            assertTrue(
+                PredictionBetPolicy.canBetOutcome(
+                    selectedOutcomeId = null,
+                    candidateOutcomeId = candidateId,
+                    inFlight = false,
+                    confirmedAmount = 0,
+                    minimumPoints = 10,
+                    maximumPoints = 250_000,
+                ),
+            )
+            assertTrue(candidateId in outcomeIds)
+        }
+        assertFalse(
+            PredictionBetPolicy.canBetOutcome(
+                selectedOutcomeId = "outcome-3",
+                candidateOutcomeId = "outcome-4",
+                inFlight = false,
+                confirmedAmount = 10,
+                minimumPoints = 10,
+                maximumPoints = 250_000,
+            ),
+        )
+    }
+
+    @Test
     fun `invalid outcome sets are not wagerable`() {
         assertFalse(PredictionBetPolicy.isPredictionWagerable(listOf("a")))
         assertFalse(PredictionBetPolicy.isPredictionWagerable(listOf("a", null, "c")))

@@ -336,6 +336,93 @@ class PredictionStateTest {
         }
     }
 
+    @Test
+    fun partialFourOutcomeUpdateKeepsExistingOrderAndMetadata() {
+        val currentOutcomes = (1..4).map { index ->
+            Prediction.PredictionOutcome(
+                id = "o$index",
+                title = "Outcome $index",
+                totalPoints = index * 10,
+                totalUsers = index,
+                color = "BLUE",
+                badgeSetId = "predictions",
+                badgeVersion = "blue-$index",
+                badgeUrl = "https://example.invalid/$index",
+            )
+        }
+        val incoming = Prediction(
+            id = "p4",
+            createdAt = 1_000L,
+            outcomes = listOf(
+                Prediction.PredictionOutcome(
+                    id = "o3",
+                    title = null,
+                    totalPoints = 99,
+                    totalUsers = null,
+                    color = null,
+                ),
+            ),
+            predictionWindowSeconds = null,
+            status = "ACTIVE",
+            title = "Title",
+            winningOutcomeId = null,
+            observedAt = 2_000L,
+        )
+        val current = Prediction(
+            id = "p4",
+            createdAt = 1_000L,
+            outcomes = currentOutcomes,
+            predictionWindowSeconds = null,
+            status = "ACTIVE",
+            title = "Title",
+            winningOutcomeId = null,
+            observedAt = 1_000L,
+        )
+
+        val merged = PredictionState.merge(current, incoming)
+
+        assertEquals(listOf("o1", "o2", "o3", "o4"), merged?.outcomes?.map { it.id })
+        assertEquals(99, merged?.outcomes?.get(2)?.totalPoints)
+        assertEquals("predictions", merged?.outcomes?.get(2)?.badgeSetId)
+        assertEquals("blue-4", merged?.outcomes?.get(3)?.badgeVersion)
+        assertEquals("https://example.invalid/1", merged?.outcomes?.first()?.badgeUrl)
+    }
+
+    @Test
+    fun fullFourOutcomeProgressRetainsAllUpdatedOutcomesInOrder() {
+        val current = predictionWithOutcomes("p4", points = 10)
+        val progress = PubSubUtils.onPredictionUpdate(
+            JSONObject(
+                """
+                {
+                  "type":"event-updated",
+                  "event":{"id":"p4","title":"Title","status":"ACTIVE","outcomes":[
+                    {"id":"o1","title":"One","total_points":11},
+                    {"id":"o2","title":"Two","total_points":22},
+                    {"id":"o3","title":"Three","total_points":33},
+                    {"id":"o4","title":"Four","total_points":44}
+                  ]}
+                }
+                """.trimIndent(),
+            ),
+            observedAt = 2_000L,
+        )
+
+        val merged = PredictionState.merge(current, progress)
+
+        assertEquals(listOf("o1", "o2", "o3", "o4"), merged?.outcomes?.map { it.id })
+        assertEquals(listOf(11, 22, 33, 44), merged?.outcomes?.map { it.totalPoints })
+    }
+
+    @Test
+    fun cacheRoundTripRetainsFourOutcomeBadgeMetadata() {
+        val source = predictionWithOutcomes("p4", points = 100)
+
+        val restored = PredictionCache.decode(PredictionCache.encode(source))
+
+        assertEquals(source, restored)
+    }
+
     private fun prediction(id: String, status: String, observedAt: Long, points: Int) = Prediction(
         id = id,
         createdAt = observedAt,
@@ -348,5 +435,27 @@ class PredictionStateTest {
         title = "Title",
         winningOutcomeId = null,
         observedAt = observedAt,
+    )
+
+    private fun predictionWithOutcomes(id: String, points: Int) = Prediction(
+        id = id,
+        createdAt = 1_000L,
+        outcomes = (1..4).map { index ->
+            Prediction.PredictionOutcome(
+                id = "o$index",
+                title = listOf("One", "Two", "Three", "Four")[index - 1],
+                totalPoints = points + index,
+                totalUsers = index,
+                color = "BLUE",
+                badgeSetId = "predictions",
+                badgeVersion = "blue-$index",
+                badgeUrl = "https://example.invalid/$index",
+            )
+        },
+        predictionWindowSeconds = null,
+        status = "ACTIVE",
+        title = "Title",
+        winningOutcomeId = null,
+        observedAt = 1_000L,
     )
 }

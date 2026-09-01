@@ -22,5 +22,8 @@ data class Prediction(
         val totalPoints: Int?,
         val totalUsers: Int?,
         val color: String? = null,
+        val badgeSetId: String? = null,
+        val badgeVersion: String? = null,
+        val badgeUrl: String? = null,
     )
 }

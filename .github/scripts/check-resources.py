@@ -46,6 +46,7 @@ ARRAY_REFERENCE = re.compile(r"^@string/([A-Za-z0-9_]+)$")
 # prevents this policy from hiding missing translations elsewhere in the app.
 INTENTIONAL_FALLBACK_RESOURCES = {
     "automatic_updates",
+    "channel_points_prediction_outcome_description",
     "check_automatically",
     "copy_diagnostics",
     "diagnostics_copied",

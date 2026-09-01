@@ -927,6 +927,7 @@
     <string name="channel_points_prediction_closed">Prediction closed</string>
     <string name="channel_points_prediction_winner">Winner</string>
     <string name="channel_points_prediction_tie">Tie</string>
+    <string name="channel_points_prediction_outcome_description">Outcome %1$d of %2$d: %3$s</string>
     <string name="channel_points_prediction_total_points">%s points</string>
     <string name="channel_points_prediction_total_users">%s voters</string>
     <string name="channel_points_prediction_started">Started %s</string>

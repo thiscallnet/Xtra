@@ -9,6 +9,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.InputType
 import android.text.TextWatcher
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -32,6 +33,7 @@ import coil3.request.ImageRequest
 import coil3.request.CachePolicy
 import coil3.request.crossfade
 import coil3.request.target
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.DialogChannelPointsBinding
 import com.github.andreyasadchy.xtra.model.chat.Emote
@@ -832,6 +834,14 @@ class ChannelPointsDialog : DialogFragment() {
         } else {
             binding.predictionBetChoices.removeAllViews()
         }
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PredictionRender",
+                "[DEBUG-PREDICTION] id=${prediction.id} modelOutcomes=${outcomes.size} " +
+                    "resultRows=${binding.predictionOutcomes.childCount} " +
+                    "betButtons=${binding.predictionBetChoices.childCount}",
+            )
+        }
     }
 
     private fun renderPredictionBetChoices(
@@ -842,17 +852,24 @@ class ChannelPointsDialog : DialogFragment() {
         val container = binding.predictionBetChoices
         container.removeAllViews()
         val outcomes = prediction.outcomes.orEmpty()
-        outcomes.forEach { outcome ->
-            val outcomeId = outcome.id ?: return@forEach
-            val buttonColor = when {
-                outcome.color.equals("PINK", true) -> PINK_PREDICTION_COLOR
-                outcome.color.equals("BLUE", true) -> BLUE_PREDICTION_COLOR
-                else -> BLUE_PREDICTION_COLOR
+        outcomes.forEachIndexed { index, outcome ->
+            val outcomeId = outcome.id ?: return@forEachIndexed
+            val buttonColor = if (outcomes.size > 2) {
+                BLUE_PREDICTION_COLOR
+            } else {
+                when {
+                    outcome.color.equals("PINK", true) -> PINK_PREDICTION_COLOR
+                    outcome.color.equals("BLUE", true) -> BLUE_PREDICTION_COLOR
+                    else -> BLUE_PREDICTION_COLOR
+                }
             }
+            val label = predictionOutcomeLabel(outcome, index, outcomes.size)
             val button = MaterialButton(requireContext()).apply {
-                text = outcome.title
+                text = label
                 tag = outcomeId
                 isEnabled = enabled
+                minHeight = dp(48)
+                contentDescription = outcomeDescription(outcome, index, outcomes.size)
                 stylePredictionButton(this, buttonColor)
                 setOnClickListener {
                     placePredictionBet(
@@ -899,11 +916,15 @@ class ChannelPointsDialog : DialogFragment() {
         viewerSelected: Boolean,
         viewerAmount: Int?,
     ) {
-        val color = when {
-            outcome.color.equals("PINK", true) -> PINK_PREDICTION_COLOR
-            outcome.color.equals("BLUE", true) -> BLUE_PREDICTION_COLOR
-            outcomeCount == 2 && index == 1 -> PINK_PREDICTION_COLOR
-            else -> BLUE_PREDICTION_COLOR
+        val color = if (outcomeCount > 2) {
+            BLUE_PREDICTION_COLOR
+        } else {
+            when {
+                outcome.color.equals("PINK", true) -> PINK_PREDICTION_COLOR
+                outcome.color.equals("BLUE", true) -> BLUE_PREDICTION_COLOR
+                outcomeCount == 2 && index == 1 -> PINK_PREDICTION_COLOR
+                else -> BLUE_PREDICTION_COLOR
+            }
         }
         val percent = if (totalPoints != null && totalPoints > 0 && outcome.totalPoints != null) {
             ((outcome.totalPoints.toLong() * 100.0) / totalPoints).roundToInt().coerceIn(0, 100)
@@ -931,15 +952,47 @@ class ChannelPointsDialog : DialogFragment() {
                 bottomMargin = dp(4)
             }
         }
-        content.addView(TextView(requireContext()).apply {
-            text = outcome.title
+        content.contentDescription = outcomeDescription(outcome, index, outcomeCount)
+        val titleRow = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        if (outcomeCount > 2 && !outcome.badgeUrl.isNullOrBlank()) {
+            val badge = ImageView(requireContext()).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(24), dp(24)).apply {
+                    rightMargin = dp(4)
+                }
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            requireContext().imageLoader.enqueue(
+                ImageRequest.Builder(requireContext())
+                    .data(outcome.badgeUrl)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .crossfade(true)
+                    .target(badge)
+                    .build(),
+            )
+            titleRow.addView(badge)
+        }
+        titleRow.addView(TextView(requireContext()).apply {
+            text = predictionOutcomeLabel(outcome, index, outcomeCount)
             gravity = Gravity.CENTER
             maxLines = 2
-            ellipsize = android.text.TextUtils.TruncateAt.END
+            setHorizontallyScrolling(false)
             setTextColor(color)
             textSize = 16f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { weight = 1f }
         })
+        content.addView(titleRow)
         if (winner || tie) {
             content.addView(TextView(requireContext()).apply {
                 text = getString(if (winner) R.string.channel_points_prediction_winner else R.string.channel_points_prediction_tie)
@@ -1026,6 +1079,21 @@ class ChannelPointsDialog : DialogFragment() {
         button.isAllCaps = false
         button.maxLines = 2
         button.ellipsize = android.text.TextUtils.TruncateAt.END
+    }
+
+    private fun outcomeDescription(
+        outcome: Prediction.PredictionOutcome,
+        index: Int,
+        outcomeCount: Int,
+    ): String? = if (outcomeCount > 2) {
+        getString(
+            R.string.channel_points_prediction_outcome_description,
+            predictionOutcomeOrdinal(outcome, index),
+            outcomeCount,
+            outcome.title.orEmpty(),
+        )
+    } else {
+        null
     }
 
     private fun placePredictionBet(

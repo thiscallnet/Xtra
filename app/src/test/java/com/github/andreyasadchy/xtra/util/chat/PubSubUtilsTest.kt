@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.util.chat
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class PubSubUtilsTest {
@@ -107,5 +108,72 @@ class PubSubUtilsTest {
         assertEquals(2500, event?.absoluteBalance)
         assertEquals("CUSTOM_REWARD", event?.reasonCode)
         assertEquals("spend-1", event?.messageId)
+    }
+
+    @Test
+    fun parsesPrivatePredictionBadgesAndTopLevelEventType() {
+        val prediction = PubSubUtils.onPredictionUpdate(
+            JSONObject(
+                """
+                {
+                  "type": "event-created",
+                  "event": {
+                    "id": "p4",
+                    "title": "Which one?",
+                    "outcomes": [
+                      {"id":"o1","title":"One","color":"BLUE","total_points":100},
+                      {"id":"o2","title":"Two","color":"BLUE","total_points":200},
+                      {"id":"o3","title":"Three","color":"BLUE","total_points":300,
+                       "badge":{"version":"blue-3","set_id":"predictions"}},
+                      {"id":"o4","title":"Four","color":"BLUE","total_points":400}
+                    ]
+                  }
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("ACTIVE", prediction?.status)
+        assertEquals(listOf("o1", "o2", "o3", "o4"), prediction?.outcomes?.map { it.id })
+        assertEquals("predictions", prediction?.outcomes?.get(2)?.badgeSetId)
+        assertEquals("blue-3", prediction?.outcomes?.get(2)?.badgeVersion)
+    }
+
+    @Test
+    fun eventUpdatedUsesEmbeddedStatusAndDoesNotInferActive() {
+        val locked = PubSubUtils.onPredictionUpdate(
+            JSONObject(
+                """
+                {
+                  "type": "event-updated",
+                  "data": {
+                    "event": {
+                      "id": "p4",
+                      "title": "Which one?",
+                      "status": "LOCKED",
+                      "outcomes": [
+                        {"id":"o1","title":"One"},
+                        {"id":"o2","title":"Two"},
+                        {"id":"o3","title":"Three"},
+                        {"id":"o4","title":"Four"}
+                      ]
+                    }
+                  }
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("LOCKED", locked?.status)
+        assertEquals(4, locked?.outcomes?.size)
+    }
+
+    @Test
+    fun eventUpdatedWithoutEmbeddedStatusDoesNotGuessActive() {
+        val update = PubSubUtils.onPredictionUpdate(
+            JSONObject("""{"type":"event-updated","event":{"id":"p1","title":"Choose","outcomes":[]}}"""),
+        )
+
+        assertNull(update?.status)
     }
 }
