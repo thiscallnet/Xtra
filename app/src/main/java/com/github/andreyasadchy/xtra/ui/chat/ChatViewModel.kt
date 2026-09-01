@@ -14,6 +14,7 @@ import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.AP
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.chat.Badge
@@ -79,6 +80,8 @@ import com.github.andreyasadchy.xtra.util.chat.EventSubUtils
 import com.github.andreyasadchy.xtra.util.chat.EventSubWebSocket
 import com.github.andreyasadchy.xtra.util.chat.GqlPredictionParser
 import com.github.andreyasadchy.xtra.util.chat.GqlPredictionSnapshot
+import com.github.andreyasadchy.xtra.util.chat.chooseGqlPredictionSnapshot
+import com.github.andreyasadchy.xtra.util.chat.hasUsableOutcomeSet
 import com.github.andreyasadchy.xtra.util.chat.HermesWebSocket
 import com.github.andreyasadchy.xtra.util.chat.PollCache
 import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
@@ -88,6 +91,7 @@ import com.github.andreyasadchy.xtra.util.chat.PredictionCache
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.chat.PredictionStateStore
 import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
+import com.github.andreyasadchy.xtra.util.chat.shouldLoadAnonymousPredictionSnapshot
 import com.github.andreyasadchy.xtra.util.chat.STVEventApiUtils
 import com.github.andreyasadchy.xtra.util.chat.STVEventApiWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ViewerParticipationCache
@@ -3622,8 +3626,10 @@ class ChatViewModel(
                     ),
                     snapshotRequestedAt,
                 )
+                logPredictionSnapshot("gql-authenticated", authenticatedSnapshot)
                 var snapshot = authenticatedSnapshot
-                if ((authenticatedSnapshot == null || !authenticatedSnapshot.hasActiveOrLockedPrediction) &&
+                val shouldTryAnonymous = shouldLoadAnonymousPredictionSnapshot(authenticatedSnapshot)
+                if (shouldTryAnonymous &&
                     !authenticatedHeaders[C.HEADER_TOKEN].isNullOrBlank()
                 ) {
                     val anonymousSnapshot = GqlPredictionParser.parse(
@@ -3634,13 +3640,15 @@ class ChatViewModel(
                         ),
                         snapshotRequestedAt,
                     )
-                    snapshot = choosePredictionSnapshot(authenticatedSnapshot, anonymousSnapshot)
+                    logPredictionSnapshot("gql-anonymous", anonymousSnapshot)
+                    snapshot = chooseGqlPredictionSnapshot(authenticatedSnapshot, anonymousSnapshot)
                 }
+                logPredictionSnapshot("gql-selected", snapshot)
                 if (sessionToken != predictionSessionToken || activeChannelLogin != channelLogin || snapshot == null) {
                     return@launch
                 }
                 val prediction = snapshot.prediction
-                if (prediction != null) {
+                if (prediction != null && snapshot.hasUsableOutcomeSet()) {
                     updatePrediction(
                         prediction,
                         sourceChannelId = channelId,
@@ -3659,18 +3667,20 @@ class ChatViewModel(
         }
     }
 
-    private fun choosePredictionSnapshot(
-        authenticatedSnapshot: GqlPredictionSnapshot?,
-        anonymousSnapshot: GqlPredictionSnapshot?,
-    ): GqlPredictionSnapshot? = listOfNotNull(authenticatedSnapshot, anonymousSnapshot)
-        .maxByOrNull { snapshot ->
-            when {
-                snapshot.hasActiveOrLockedPrediction -> 3
-                snapshot.authoritative -> 2
-                snapshot.prediction != null -> 1
-                else -> 0
-            }
-        }
+    private fun logPredictionSnapshot(source: String, snapshot: GqlPredictionSnapshot?) {
+        if (!BuildConfig.DEBUG) return
+        val prediction = snapshot?.prediction
+        val outcomes = prediction?.outcomes
+        val outcomeDetails = outcomes?.joinToString(prefix = "[", postfix = "]") { outcome ->
+            "{id=${outcome.id},color=${outcome.color},badge=${outcome.badgeSetId}/${outcome.badgeVersion}}"
+        } ?: "unknown"
+        Log.d(
+            "PredictionSnapshot",
+            "[DEBUG-PREDICTION] source=$source id=${prediction?.id} status=${prediction?.status} " +
+                "outcomeCount=${outcomes?.size ?: "unknown"} authoritative=${snapshot?.authoritative} " +
+                "activeOrLocked=${snapshot?.hasActiveOrLockedPrediction} outcomes=$outcomeDetails",
+        )
+    }
 
     private fun clearStalePrediction(
         channelId: String?,
@@ -4014,6 +4024,13 @@ class ChatViewModel(
         override suspend fun onPredictionUpdate(message: JSONObject) {
             if (showPredictions && channelId == activeChannelId) {
                 PubSubUtils.onPredictionUpdate(message)?.let {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "PredictionHermes",
+                            "[DEBUG-PREDICTION] type=${message.optString("type")} id=${it.id} " +
+                                "status=${it.status} outcomeCount=${it.outcomes?.size ?: "unknown"}",
+                        )
+                    }
                     updatePrediction(
                         it,
                         sourceChannelId = channelId,

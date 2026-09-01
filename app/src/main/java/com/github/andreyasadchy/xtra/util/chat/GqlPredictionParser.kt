@@ -13,6 +13,35 @@ internal data class GqlPredictionSnapshot(
     val hasActiveOrLockedPrediction: Boolean,
 )
 
+internal fun GqlPredictionSnapshot.hasUsableOutcomeSet(): Boolean {
+    if (!hasActiveOrLockedPrediction) return true
+
+    val values = prediction?.outcomes ?: return false
+    return values.size in 2..10 && values.all { outcome ->
+        !outcome.id.isNullOrBlank() && !outcome.title.isNullOrBlank()
+    }
+}
+
+internal fun shouldLoadAnonymousPredictionSnapshot(
+    authenticatedSnapshot: GqlPredictionSnapshot?,
+): Boolean = authenticatedSnapshot == null ||
+    !authenticatedSnapshot.hasActiveOrLockedPrediction ||
+    !authenticatedSnapshot.hasUsableOutcomeSet()
+
+internal fun chooseGqlPredictionSnapshot(
+    authenticatedSnapshot: GqlPredictionSnapshot?,
+    anonymousSnapshot: GqlPredictionSnapshot?,
+): GqlPredictionSnapshot? = listOfNotNull(authenticatedSnapshot, anonymousSnapshot)
+    .maxByOrNull { snapshot ->
+        when {
+            snapshot.hasActiveOrLockedPrediction && snapshot.hasUsableOutcomeSet() -> 4
+            snapshot.hasActiveOrLockedPrediction -> 3
+            snapshot.authoritative -> 2
+            snapshot.prediction != null -> 1
+            else -> 0
+        }
+    }
+
 /**
  * Parser for the private ChannelPointsPredictionContext operation.
  *
@@ -23,21 +52,22 @@ internal data class GqlPredictionSnapshot(
 internal object GqlPredictionParser {
     fun parse(body: String, observedAt: Long = System.currentTimeMillis()): GqlPredictionSnapshot? {
         val root = runCatching { JSONObject(body) }.getOrNull() ?: return null
-        val channel = root.optJSONObject("data")
-            ?.optJSONObject("community")
+        val data = root.optJSONObject("data") ?: return null
+        val channel = data.optJSONObject("community")
             ?.optJSONObject("channel")
+            ?: data.optJSONObject("channel")
+            ?: data.optJSONObject("user")?.optJSONObject("channel")
             ?: return null
 
-        val activeEvents = channel.opt("activePredictionEvents")
-            .predictionObjects()
+        val activeObjects = channel.opt("activePredictionEvents").predictionObjectsOrNull()
+        val lockedObjects = channel.opt("lockedPredictionEvents").predictionObjectsOrNull()
+        val activeEvents = activeObjects.orEmpty()
             .mapNotNull { parsePrediction(it, "ACTIVE", observedAt) }
             .filter { prediction -> PredictionState.isOngoing(prediction) }
-        val lockedEvents = channel.opt("lockedPredictionEvents")
-            .predictionObjects()
+        val lockedEvents = lockedObjects.orEmpty()
             .mapNotNull { parsePrediction(it, "LOCKED", observedAt) }
             .filter { prediction -> PredictionState.isOngoing(prediction) }
-        val resolvedEvents = channel.opt("resolvedPredictionEvents")
-            .predictionObjects()
+        val resolvedEvents = channel.opt("resolvedPredictionEvents").predictionObjectsOrNull().orEmpty()
             .mapNotNull { parsePrediction(it, "RESOLVED", observedAt) }
             .filter { prediction ->
                 PredictionState.isFinal(prediction) && isRecentResolved(prediction, observedAt)
@@ -46,8 +76,7 @@ internal object GqlPredictionParser {
         return GqlPredictionSnapshot(
             prediction = (activeEvents + lockedEvents + resolvedEvents)
                 .firstOrNull { !it.id.isNullOrBlank() },
-            authoritative = channel.hasNonNullCollection("activePredictionEvents") &&
-                    channel.hasNonNullCollection("lockedPredictionEvents"),
+            authoritative = activeObjects != null && lockedObjects != null,
             hasActiveOrLockedPrediction = activeEvents.isNotEmpty() || lockedEvents.isNotEmpty(),
         )
     }
@@ -75,22 +104,7 @@ internal object GqlPredictionParser {
             null
         }
 
-        val outcomes = json.optJSONArray("outcomes")?.let { array ->
-            buildList {
-                for (index in 0 until array.length()) {
-                    val outcome = array.optJSONObject(index) ?: continue
-                    add(
-                        Prediction.PredictionOutcome(
-                            id = outcome.optionalString("id"),
-                            title = outcome.optionalString("title"),
-                            totalPoints = outcome.optionalInt("totalPoints", "total_points"),
-                            totalUsers = outcome.optionalInt("totalUsers", "total_users"),
-                            color = outcome.optionalString("color")?.uppercase(),
-                        ),
-                    )
-                }
-            }
-        }.orEmpty()
+        val outcomes = json.outcomeObjectsOrNull()?.map(::parseOutcome)
 
         val winningOutcomeId = json.optionalString("winning_outcome_id")
             ?: json.optJSONObject("winningOutcome")?.optionalString("id")
@@ -111,37 +125,64 @@ internal object GqlPredictionParser {
         )
     }
 
+    private fun parseOutcome(outcome: JSONObject): Prediction.PredictionOutcome {
+        val badge = outcome.optJSONObject("badge")
+        return Prediction.PredictionOutcome(
+            id = outcome.optionalString("id", "outcomeID", "outcomeId", "outcome_id"),
+            title = outcome.optionalString("title"),
+            totalPoints = outcome.optionalInt(
+                "totalPoints",
+                "total_points",
+                "channelPoints",
+                "channel_points",
+            ),
+            totalUsers = outcome.optionalInt("totalUsers", "total_users", "users"),
+            color = outcome.optionalString("color")?.uppercase(),
+            badgeSetId = badge?.optionalString("setID", "setId", "set_id"),
+            badgeVersion = badge?.optionalString("version"),
+            badgeUrl = badge?.optionalString("image4x", "image2x", "image1x"),
+        )
+    }
+
     private fun isRecentResolved(prediction: Prediction, observedAt: Long): Boolean {
         val endedAt = prediction.endedAt ?: return false
         val age = observedAt - endedAt
         return age in 0L..PredictionState.RESULT_DISPLAY_GRACE_MILLIS
     }
 
-    private fun Any?.predictionObjects(): List<JSONObject> = when (this) {
-        is JSONArray -> buildList {
-            for (index in 0 until length()) {
-                optJSONObject(index)?.let(::add)
-            }
+    private fun Any?.predictionObjectsOrNull(): List<JSONObject>? = when (this) {
+        null, JSONObject.NULL -> null
+        is JSONArray -> jsonObjects()
+        is JSONObject -> when {
+            optJSONArray("nodes") != null -> optJSONArray("nodes")!!.jsonObjects()
+            optJSONArray("edges") != null -> optJSONArray("edges")!!.jsonObjects()
+                .mapNotNull { it.optJSONObject("node") ?: it }
+            has("id") -> listOf(this)
+            else -> null
         }
-        is JSONObject -> {
-            val entries = optJSONArray("edges") ?: optJSONArray("nodes")
-            if (entries != null) {
-                buildList {
-                    for (index in 0 until entries.length()) {
-                        val entry = entries.optJSONObject(index) ?: continue
-                        (entry.optJSONObject("node") ?: entry).let(::add)
-                    }
-                }
-            } else if (has("id")) {
-                listOf(this)
-            } else {
-                emptyList()
-            }
-        }
-        else -> emptyList()
+        else -> null
     }
 
-    private fun JSONObject.hasNonNullCollection(key: String): Boolean = has(key) && !isNull(key)
+    private fun JSONObject.outcomeObjectsOrNull(key: String = "outcomes"): List<JSONObject>? {
+        if (!has(key) || isNull(key)) return null
+        val raw = opt(key)
+        return when {
+            raw is JSONArray -> raw.jsonObjects()
+            raw is JSONObject -> when {
+                raw.optJSONArray("nodes") != null -> raw.optJSONArray("nodes")!!.jsonObjects()
+                raw.optJSONArray("edges") != null -> raw.optJSONArray("edges")!!.jsonObjects()
+                    .mapNotNull { it.optJSONObject("node") ?: it }
+                else -> null
+            }
+            else -> null
+        }
+    }
+
+    private fun JSONArray.jsonObjects(): List<JSONObject> = buildList {
+        for (index in 0 until length()) {
+            optJSONObject(index)?.let(::add)
+        }
+    }
 
     private fun JSONObject.optionalString(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
         if (!has(key) || isNull(key)) null else optString(key).takeIf { it.isNotBlank() }

@@ -114,6 +114,9 @@ object PredictionCache {
                     putNullable("total_points", outcome.totalPoints)
                     putNullable("total_users", outcome.totalUsers)
                     putNullable("color", outcome.color)
+                    putNullable("badge_set_id", outcome.badgeSetId)
+                    putNullable("badge_version", outcome.badgeVersion)
+                    putNullable("badge_url", outcome.badgeUrl)
                 })
             }
         })
@@ -132,6 +135,9 @@ object PredictionCache {
                             totalPoints = outcome.optionalInt("total_points"),
                             totalUsers = outcome.optionalInt("total_users"),
                             color = outcome.optionalString("color"),
+                            badgeSetId = outcome.optionalString("badge_set_id"),
+                            badgeVersion = outcome.optionalString("badge_version"),
+                            badgeUrl = outcome.optionalString("badge_url"),
                         ),
                     )
                 }

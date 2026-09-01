@@ -438,21 +438,27 @@ object PubSubUtils {
         val outcomes = prediction?.optJSONArray("outcomes")
         if (outcomes != null) {
             for (i in 0 until outcomes.length()) {
-                val outcome = outcomes.optJSONObject(i)
-                val title = outcome?.optionalString("title")
-                if (!title.isNullOrBlank()) {
-                    outcomesList.add(
-                        Prediction.PredictionOutcome(
-                            id = outcome?.optionalString("id"),
-                            title = title,
-                            totalPoints = outcome?.optionalInt("total_points")
-                                ?: outcome?.optionalInt("channel_points"),
-                            totalUsers = outcome?.optionalInt("total_users")
-                                ?: outcome?.optionalInt("users"),
-                            color = outcome?.optionalString("color")?.uppercase(),
-                        )
+                val outcome = outcomes.optJSONObject(i) ?: continue
+                val title = outcome.optionalString("title") ?: continue
+                val badge = outcome.optJSONObject("badge")
+                outcomesList.add(
+                    Prediction.PredictionOutcome(
+                        id = outcome.optionalString("id"),
+                        title = title,
+                        totalPoints = outcome.optionalInt("total_points")
+                            ?: outcome.optionalInt("channel_points"),
+                        totalUsers = outcome.optionalInt("total_users")
+                            ?: outcome.optionalInt("users"),
+                        color = outcome.optionalString("color")?.uppercase(),
+                        badgeSetId = badge?.optionalString("set_id")
+                            ?: badge?.optionalString("setID")
+                            ?: badge?.optionalString("setId"),
+                        badgeVersion = badge?.optionalString("version"),
+                        badgeUrl = badge?.optionalString("image4x")
+                            ?: badge?.optionalString("image2x")
+                            ?: badge?.optionalString("image1x"),
                     )
-                }
+                )
             }
         }
         return if (prediction != null) {
@@ -461,11 +467,15 @@ object PubSubUtils {
             val locksAt = prediction.timestamp("locks_at")
             val lockedAt = prediction.timestamp("locked_at")
             val endedAt = prediction.timestamp("ended_at")
-            val eventStatus = prediction.optString("status").takeIf { it.isNotBlank() }?.uppercase()
+            val eventName = eventType ?: message.optionalString("type")
+            val eventStatus = prediction.optionalString("status")?.uppercase()
             ?: when {
-                eventType?.endsWith(".begin") == true || eventType?.endsWith(".progress") == true -> "ACTIVE"
-                eventType?.endsWith(".lock") == true -> "LOCKED"
-                eventType?.endsWith(".end") == true -> "RESOLVED"
+                eventName == "event-created" -> "ACTIVE"
+                eventName == "event-updated" -> null
+                eventName?.endsWith(".begin") == true || eventName?.endsWith("_begin") == true -> "ACTIVE"
+                eventName?.endsWith(".progress") == true || eventName?.endsWith("_progress") == true -> "ACTIVE"
+                eventName?.endsWith(".lock") == true || eventName?.endsWith("_lock") == true -> "LOCKED"
+                eventName?.endsWith(".end") == true || eventName?.endsWith("_end") == true -> "RESOLVED"
                 else -> null
             }
             val predictionWindowSeconds = prediction.optionalInt("prediction_window_seconds")
