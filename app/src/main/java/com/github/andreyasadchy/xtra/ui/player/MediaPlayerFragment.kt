@@ -442,6 +442,7 @@ class MediaPlayerFragment : PlayerFragment() {
     }
 
     override fun close(deleteStates: Boolean) {
+        releaseV2ChatSession()
         playbackService?.player?.pause()
         playbackService?.updatePlayingState()
         updatePlayingState()

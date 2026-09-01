@@ -25,6 +25,7 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
     private val drawables = HashMap<ChatAssetKey, Drawable>()
     private val drawableHandles = HashMap<ChatAssetKey, Any>()
     private val invalidator: () -> Unit = { postInvalidateOnAnimation() }
+    private var renderingActive = true
 
     fun bind(row: ChatRowUiModel) {
         keys.forEach { assets.removeObserver(it, invalidator) }
@@ -114,6 +115,24 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
         text = null
     }
 
+    /** Stops asset callbacks while the containing chat surface is hidden. */
+    fun setRenderingActive(active: Boolean) {
+        if (renderingActive == active) return
+        renderingActive = active
+        if (active) {
+            if (isAttachedToWindow) keys.forEach { assets.observe(it, invalidator) }
+            if (isAttachedToWindow) {
+                drawables.values.forEach { drawable ->
+                    drawable.callback = this
+                    drawable.startIfNeeded()
+                }
+            }
+        } else {
+            keys.forEach { assets.removeObserver(it, invalidator) }
+            drawables.values.forEach { drawable -> drawable.stopIfNeeded(); drawable.callback = null }
+        }
+    }
+
     override fun onDetachedFromWindow() {
         keys.forEach { assets.removeObserver(it, invalidator) }
         drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
@@ -122,8 +141,10 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        keys.forEach { assets.observe(it, invalidator) }
-        drawables.values.forEach { drawable -> drawable.callback = this; drawable.startIfNeeded() }
+        if (renderingActive) {
+            keys.forEach { assets.observe(it, invalidator) }
+            drawables.values.forEach { drawable -> drawable.callback = this; drawable.startIfNeeded() }
+        }
     }
 
     override fun verifyDrawable(who: Drawable): Boolean =

@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.session
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.ChatTransport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -17,6 +18,7 @@ class ChatSession(
     parentScope: CoroutineScope,
     private val transport: ChatTransport,
     maxTimelineSize: Int = 600,
+    private val onTransportDisconnected: suspend (ChatSessionKey, String?) -> Unit = { _, _ -> },
 ) {
     private val job = SupervisorJob(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + job)
@@ -28,6 +30,9 @@ class ChatSession(
     private var highestAcceptedGeneration = Long.MIN_VALUE
     private var highestAcceptedKey: ChatSessionKey? = null
     private var closed = false
+
+    val isActive: Boolean
+        get() = job.isActive && !closed
 
     suspend fun start(key: ChatSessionKey) {
         transitionMutex.withLock {
@@ -46,7 +51,19 @@ class ChatSession(
             processor.activate(key)
             if (desiredKey == key) {
                 transportJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                    transport.events(key).collect { processor.submit(key, it) }
+                    try {
+                        transport.events(key).collect { event ->
+                            if (event is ChatEvent.TransportDisconnected) {
+                                launch { onTransportDisconnected(key, event.reason) }
+                            } else {
+                                processor.submit(key, event)
+                            }
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        onTransportDisconnected(key, e.message)
+                    }
                 }
             }
         }
@@ -68,6 +85,9 @@ class ChatSession(
     fun attachUi() = ChatUiBatcher(timeline.versions, timeline::versionedSnapshot, VersionedTimelineSnapshot::version).flow()
 
     suspend fun reconcile(key: ChatSessionKey, recent: List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>) = processor.reconcile(key, recent)
+
+    /** Injects non-message session state through the same generation-aware writer. */
+    suspend fun submit(key: ChatSessionKey, event: ChatEvent) = processor.submit(key, event)
 
     suspend fun close() {
         transitionMutex.withLock {

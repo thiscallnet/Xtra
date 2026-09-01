@@ -1632,6 +1632,7 @@
     <string name="statistics_reset_done">Viewing statistics reset</string>
     <string name="statistics_multiview_note">Watch time counts every actively playing stream, including each Multiview tile.</string>
     <string name="use_eventsub_chat_experimental">Use EventSub chat (experimental)</string>
+    <string name="use_chat_v2_renderer" translatable="false">Use the new chat renderer</string>
     <string name="settings_section_support">Support</string>
     <string name="settings_download_wifi_only_summary">Only start downloads while connected to Wi-Fi.</string>
     <string name="settings_download_single_file_summary">Store downloaded videos as one media file instead of Xtra\'s segmented format.</string>

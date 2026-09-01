@@ -48,6 +48,7 @@ import coil3.request.target
 import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentChatBinding
 import com.github.andreyasadchy.xtra.model.chat.Badge
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
@@ -69,6 +70,10 @@ import com.github.andreyasadchy.xtra.model.ui.WatchStreakShareResult
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewModelFactory
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
+import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatV2RendererController
+import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatViewportState
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
@@ -113,6 +118,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private val binding get() = _binding!!
     private val viewModel: ChatViewModel by viewModels { ChatViewModelFactory }
     private var adapter: ChatAdapter? = null
+    private var chatV2Renderer: ChatV2RendererController? = null
+    private var chatV2ViewportState = ChatViewportState()
+    private var useChatV2 = false
+    private var chatV2RendererVisible = true
 
     var chatMessageListener: ((ChatMessage) -> Unit)? = null
     var chatHistoryListener: ((List<ChatMessage>) -> Unit)? = null
@@ -423,6 +432,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        chatV2ViewportState = restoreChatV2ViewportState(savedInstanceState)
+        useChatV2 = false
         seenPinnedMessageId = savedInstanceState?.getString(KEY_SEEN_PINNED_MESSAGE_ID)
         displayedPinnedMessageId = savedInstanceState?.getString(KEY_DISPLAYED_PINNED_MESSAGE_ID)
         pinnedMessageMinimized = savedInstanceState?.getBoolean(KEY_PINNED_MESSAGE_MINIMIZED) ?: false
@@ -448,7 +459,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.connectionState.collectLatest { state ->
-                    val showConnectionStatus = state == ChatViewModel.ConnectionState.RECONNECTING
+                    val showConnectionStatus = !useChatV2 && state == ChatViewModel.ConnectionState.RECONNECTING
                     binding.connectionStatus.isVisible = showConnectionStatus
                     if (showConnectionStatus) {
                         binding.connectionStatusText.setText(R.string.chat_reconnecting)
@@ -525,6 +536,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 val channelId = args.getString(KEY_CHANNEL_ID)
                 val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
                 val isLive = args.getBoolean(KEY_IS_LIVE)
+                useChatV2 = isLive &&
+                        !channelId.isNullOrBlank() &&
+                        !channelLogin.isNullOrBlank() &&
+                        parentFragment !is MultiviewFragment &&
+                        requireContext().prefs().getBoolean(C.CHAT_V2_ENABLED, true)
                 val accountLogin = requireContext().tokenPrefs().getString(C.USERNAME, null)
                 val isLoggedIn = !accountLogin.isNullOrBlank() &&
                         (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
@@ -536,8 +552,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             isLoggedIn
                     messagingEnabled = enableMessaging
                     val sizeModifier = (requireContext().prefs().getInt(C.CHAT_SIZE_MODIFIER, 100).toFloat() / 100f)
-                    val chatSnapshot = viewModel.chatSnapshot().also { chatMutationRevision = it.revision }
-                    val initialMessages = chatSnapshot.messages
+                    val initialMessages = if (useChatV2) {
+                        emptyList()
+                    } else {
+                        viewModel.chatSnapshot().also { chatMutationRevision = it.revision }.messages
+                    }
                     adapter = ChatAdapter(
                         // The initial snapshot is rendered off-main before the adapter is attached.
                         // This prevents RecyclerView from ever binding an uncached message.
@@ -618,12 +637,56 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         },
                     )
                     adapter?.onMessagesPublished = ::onChatMessagesPublished
+                    if (useChatV2) {
+                        val app = requireContext().applicationContext as XtraApp
+                        val chatBackground = MaterialColors.getColor(
+                            requireView(),
+                            com.google.android.material.R.attr.colorSurface,
+                        )
+                        val emoteHeight = TypedValue.applyDimension(
+                            TypedValue.COMPLEX_UNIT_DIP,
+                            (requireContext().prefs().getString(C.CHAT_EMOTE_SIZE, "29.5")?.toFloatOrNull() ?: 29.5f) * sizeModifier,
+                            resources.displayMetrics,
+                        ).toInt().coerceAtLeast(1)
+                        chatV2Renderer = ChatV2RendererController(
+                            recyclerView = recyclerView,
+                            manager = app.xtraModule.chatSessionManager,
+                            assets = app.xtraModule.chatAssetRepository,
+                            expectedChannelId = channelId!!,
+                            expectedChannelLogin = channelLogin!!,
+                            initialState = chatV2ViewportState,
+                            emoteHeightPx = emoteHeight,
+                            badgeHeightPx = TypedValue.applyDimension(
+                                TypedValue.COMPLEX_UNIT_DIP,
+                                chatBadgeSizeOrDefault(
+                                    requireContext().prefs().getString(
+                                        C.CHAT_BADGE_SIZE,
+                                        DEFAULT_CHAT_BADGE_SIZE_DP.toString(),
+                                    ),
+                                ) * sizeModifier,
+                                resources.displayMetrics,
+                            ).toInt().coerceAtLeast(1),
+                            showTimestamps = requireContext().prefs().getBoolean(C.CHAT_TIMESTAMPS, false),
+                            readableUsernameColors = requireContext().prefs().getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),
+                            backgroundColor = chatBackground,
+                            onStateChanged = { state ->
+                                btnDown.isVisible = state.followMode == com.github.andreyasadchy.xtra.ui.chat.v2.ui.FollowMode.USER_SCROLLED_UP
+                            },
+                        ).also {
+                            it.setVisible(chatV2RendererVisible)
+                            it.attach(viewLifecycleOwner)
+                        }
+                    }
                     recyclerView.let {
                         it.itemAnimator = null
                         it.layoutManager = LinearLayoutManager(context).apply { stackFromEnd = true }
                         it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
                             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                                 super.onScrollStateChanged(recyclerView, newState)
+                                if (useChatV2) {
+                                    chatV2Renderer?.onUserScroll()
+                                    return
+                                }
                                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                                     // Programmatic scrolls caused by publication enter SETTLING,
                                     // not DRAGGING. Only a real user drag invalidates a staged
@@ -664,7 +727,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     }
                     val chatAdapter = adapter
                     viewLifecycleOwner.lifecycleScope.launch {
-                        if (_binding?.recyclerView === recyclerView && chatAdapter === adapter) {
+                        if (!useChatV2 && _binding?.recyclerView === recyclerView && chatAdapter === adapter) {
                             recyclerView.adapter = chatAdapter
                             chatAdapterReady = true
                             pendingChatPublicationFollowBottom = !recyclerView.canScrollVertically(1)
@@ -686,8 +749,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     }
                     btnDown.setOnClickListener {
                         view.post {
-                            val lastIndex = adapter?.itemCount?.minus(1) ?: RecyclerView.NO_POSITION
-                            recyclerView.scrollToPosition(lastIndex)
+                            if (useChatV2) {
+                                chatV2Renderer?.jumpToNewest()
+                            } else {
+                                val lastIndex = adapter?.itemCount?.minus(1) ?: RecyclerView.NO_POSITION
+                                recyclerView.scrollToPosition(lastIndex)
+                            }
                             it.visibility = View.GONE
                         }
                     }
@@ -1043,55 +1110,59 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             }
                         }
                     }
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        repeatOnLifecycle(Lifecycle.State.STARTED) {
-                            synchronizeChatAdapterToSnapshot()
-                            viewModel.chatMutations.collect { mutation ->
-                                if (chatSnapshotSyncPending) {
-                                    dispatchChatMutationSideEffects(mutation)
-                                    return@collect
-                                }
-
-                                val expectedRevision = expectedChatMutationRevision()
-                                when (chatMutationAction(expectedRevision, mutation.revision)) {
-                                    ChatMutationAction.IGNORE -> return@collect
-                                    ChatMutationAction.SYNCHRONIZE_SNAPSHOT -> {
-                                        chatMutationGapCount++
-                                        Log.d(
-                                            "ChatPerf",
-                                            "mutation gap count=$chatMutationGapCount " +
-                                                "displayed=$chatMutationRevision " +
-                                                "expected=$expectedRevision " +
-                                                "incoming=${mutation.revision}",
-                                        )
-                                        pendingChatMutations.clear()
-                                        if (chatAdapterReady && !isChatTouched) {
-                                            synchronizeChatAdapterToSnapshot()
-                                        } else {
-                                            chatSnapshotSyncPending = true
-                                        }
+                    if (!useChatV2) {
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                                synchronizeChatAdapterToSnapshot()
+                                viewModel.chatMutations.collect { mutation ->
+                                    if (chatSnapshotSyncPending) {
+                                        dispatchChatMutationSideEffects(mutation)
                                         return@collect
                                     }
-                                    ChatMutationAction.APPLY_INCREMENTAL -> Unit
-                                }
-                                dispatchChatMutationSideEffects(mutation)
 
-                                if (isChatTouched) {
-                                    pendingChatMutations.clear()
-                                    chatSnapshotSyncPending = true
-                                    return@collect
-                                }
+                                    val expectedRevision = expectedChatMutationRevision()
+                                    when (chatMutationAction(expectedRevision, mutation.revision)) {
+                                        ChatMutationAction.IGNORE -> return@collect
+                                        ChatMutationAction.SYNCHRONIZE_SNAPSHOT -> {
+                                            chatMutationGapCount++
+                                            Log.d(
+                                                "ChatPerf",
+                                                "mutation gap count=$chatMutationGapCount " +
+                                                    "displayed=$chatMutationRevision " +
+                                                    "expected=$expectedRevision " +
+                                                    "incoming=${mutation.revision}",
+                                            )
+                                            pendingChatMutations.clear()
+                                            if (chatAdapterReady && !isChatTouched) {
+                                                synchronizeChatAdapterToSnapshot()
+                                            } else {
+                                                chatSnapshotSyncPending = true
+                                            }
+                                            return@collect
+                                        }
+                                        ChatMutationAction.APPLY_INCREMENTAL -> Unit
+                                    }
+                                    dispatchChatMutationSideEffects(mutation)
 
-                                pendingChatMutations.addLast(mutation)
-                                scheduleChatAdapterUpdate()
+                                    if (isChatTouched) {
+                                        pendingChatMutations.clear()
+                                        chatSnapshotSyncPending = true
+                                        return@collect
+                                    }
+
+                                    pendingChatMutations.addLast(mutation)
+                                    scheduleChatAdapterUpdate()
+                                }
                             }
                         }
                     }
                     viewLifecycleOwner.lifecycleScope.launch {
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
                             viewModel.updateUserMessages.collectLatest { userId ->
-                                adapter?.let { adapter ->
-                                    adapter.notifyUserMessages(userId)
+                                if (!useChatV2) {
+                                    adapter?.let { adapter ->
+                                        adapter.notifyUserMessages(userId)
+                                    }
                                 }
                                 messageDialog?.updateUserMessages(userId)
                                 replyDialog?.updateUserMessages(userId)
@@ -1252,6 +1323,24 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private fun currentLiveStreamId(): String? =
         resolveCurrentLiveStreamId(viewModel.streamId, requireArguments().getString(KEY_STREAM_ID))
 
+    /** Requests a process/playback-owned session; this Fragment never owns its lifetime. */
+    private fun startChatV2Session(channelId: String, channelLogin: String) {
+        val app = requireContext().applicationContext as XtraApp
+        app.applicationScope.launch {
+            runCatching {
+                app.xtraModule.chatSessionManager.start(
+                    LiveChatSessionSpec(
+                        channelId = channelId,
+                        channelLogin = channelLogin,
+                        recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+                    ),
+                )
+            }.onFailure { error ->
+                Log.e("ChatV2", "Unable to start live v2 chat", error)
+            }
+        }
+    }
+
     override fun initialize() {
         if (requireContext().prefs().isChatEnabled()) {
             val args = requireArguments()
@@ -1259,6 +1348,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
             when (val mode = viewModel.activeChatMode) {
                 ChatViewModel.ActiveChatMode.Live -> if (args.getBoolean(KEY_IS_LIVE)) {
+                    if (useChatV2 && channelId != null && channelLogin != null) {
+                        startChatV2Session(channelId, channelLogin)
+                    }
                     viewModel.startLive(
                         requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                         "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
@@ -1266,6 +1358,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         channelLogin,
                         args.getString(KEY_CHANNEL_NAME),
                         currentLiveStreamId(),
+                        useChatV2 = useChatV2,
                     )
                 }
                 is ChatViewModel.ActiveChatMode.VideoReplay -> {
@@ -1299,6 +1392,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onResume() {
         super.onResume()
+        if (useChatV2 && chatV2RendererVisible) chatV2Renderer?.setVisible(true)
         val args = requireArguments()
         val channelId = args.getString(KEY_CHANNEL_ID)
         val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
@@ -1348,11 +1442,42 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     fun isActive(): Boolean? {
+        if (useChatV2) {
+            val app = requireContext().applicationContext as XtraApp
+            return app.xtraModule.chatSessionManager.active.value?.let { active ->
+                active.spec.channelId == requireArguments().getString(KEY_CHANNEL_ID) && active.session.isActive
+            }
+        }
         return viewModel.isActive()
     }
 
     fun disconnect() {
-        viewModel.disconnect()
+        if (useChatV2) {
+            val app = requireContext().applicationContext as XtraApp
+            val active = app.xtraModule.chatSessionManager.active.value
+                ?.takeIf { it.spec.channelId == requireArguments().getString(KEY_CHANNEL_ID) }
+            active?.let { matching ->
+                app.applicationScope.launch {
+                    app.xtraModule.chatSessionManager.stop(matching.key)
+                    // v2 owns message ingress, but this ViewModel still owns ancillary live
+                    // features during the migration. Stop those only when playback explicitly
+                    // closes; Fragment/view disappearance must not reach this branch.
+                    viewModel.stopLiveChat()
+                }
+            }
+        } else {
+            viewModel.disconnect()
+        }
+    }
+
+    override fun onPause() {
+        if (useChatV2) chatV2Renderer?.setVisible(false)
+        super.onPause()
+    }
+
+    fun setV2RendererVisible(visible: Boolean) {
+        chatV2RendererVisible = visible
+        if (useChatV2) chatV2Renderer?.setVisible(visible)
     }
 
     fun reconnect() {
@@ -1371,23 +1496,34 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             return
         }
         if (channelLogin != null) {
-            viewModel.startLive(
-                networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
-                channelId = requireArguments().getString(KEY_CHANNEL_ID),
-                channelLogin = channelLogin,
-                channelName = requireArguments().getString(KEY_CHANNEL_NAME),
-                streamId = currentLiveStreamId(),
-            )
+            if (useChatV2) {
+                requireArguments().getString(KEY_CHANNEL_ID)?.let { channelId ->
+                    startChatV2Session(channelId, channelLogin)
+                }
+            } else {
+                viewModel.startLive(
+                    networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+                    channelId = requireArguments().getString(KEY_CHANNEL_ID),
+                    channelLogin = channelLogin,
+                    channelName = requireArguments().getString(KEY_CHANNEL_NAME),
+                    streamId = currentLiveStreamId(),
+                )
+            }
         }
         viewModel.autoReconnect = true
     }
 
     fun reloadEmotes() {
-        viewModel.reloadEmotes(
-            requireArguments().getString(KEY_CHANNEL_ID),
-            requireArguments().getString(KEY_CHANNEL_LOGIN)
-        )
+        if (useChatV2) {
+            val app = requireContext().applicationContext as XtraApp
+            app.xtraModule.chatSessionManager.active.value?.catalog?.refresh()
+        } else {
+            viewModel.reloadEmotes(
+                requireArguments().getString(KEY_CHANNEL_ID),
+                requireArguments().getString(KEY_CHANNEL_LOGIN)
+            )
+        }
     }
 
     fun startReplayChatLoad() {
@@ -2318,13 +2454,18 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     override fun onStop() {
         chatIdentityPopup?.dismiss()
         super.onStop()
-        if (!requireArguments().getBoolean(KEY_IS_LIVE) || !requireContext().prefs().getBoolean(C.PLAYER_KEEP_CHAT_OPEN, false)) {
+        if (!useChatV2 && (!requireArguments().getBoolean(KEY_IS_LIVE) || !requireContext().prefs().getBoolean(C.PLAYER_KEEP_CHAT_OPEN, false))) {
             viewModel.stopLiveChat()
             viewModel.stopReplayChat()
         }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        chatV2ViewportState = chatV2Renderer?.state ?: chatV2ViewportState
+        outState.putString(KEY_V2_FOLLOW_MODE, chatV2ViewportState.followMode.name)
+        outState.putInt(KEY_V2_NEW_MESSAGE_COUNT, chatV2ViewportState.newMessageCount)
+        outState.putString(KEY_V2_ANCHOR_ID, chatV2ViewportState.anchor?.messageId?.value)
+        outState.putInt(KEY_V2_ANCHOR_OFFSET, chatV2ViewportState.anchor?.topOffsetPx ?: 0)
         outState.putString(KEY_COMPOSER_DRAFT, _binding?.editText?.text?.toString())
         outState.putString(KEY_SEEN_PINNED_MESSAGE_ID, seenPinnedMessageId)
         outState.putString(KEY_DISPLAYED_PINNED_MESSAGE_ID, displayedPinnedMessageId)
@@ -2333,6 +2474,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onDestroyView() {
+        chatV2ViewportState = chatV2Renderer?.state ?: chatV2ViewportState
+        chatV2Renderer?.detach()
+        chatV2Renderer = null
         chatIdentityPopup?.dismiss()
         chatIdentityPopup = null
         chatIdentityBadgeRequest?.dispose()
@@ -2470,6 +2614,26 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
     }
 
+    private fun restoreChatV2ViewportState(savedState: Bundle?): ChatViewportState {
+        if (savedState == null) return ChatViewportState()
+        val followMode = runCatching {
+            com.github.andreyasadchy.xtra.ui.chat.v2.ui.FollowMode.valueOf(
+                savedState.getString(KEY_V2_FOLLOW_MODE).orEmpty(),
+            )
+        }.getOrDefault(com.github.andreyasadchy.xtra.ui.chat.v2.ui.FollowMode.FOLLOWING_BOTTOM)
+        val anchorId = savedState.getString(KEY_V2_ANCHOR_ID)?.takeIf { it.isNotBlank() }
+        return ChatViewportState(
+            followMode = followMode,
+            newMessageCount = savedState.getInt(KEY_V2_NEW_MESSAGE_COUNT, 0),
+            anchor = anchorId?.let {
+                com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatViewportAnchor(
+                    messageId = ChatMessageId(it),
+                    topOffsetPx = savedState.getInt(KEY_V2_ANCHOR_OFFSET, 0),
+                )
+            },
+        )
+    }
+
     companion object {
         private const val KEY_IS_LIVE = "isLive"
         private const val KEY_CHANNEL_ID = "channel_id"
@@ -2484,6 +2648,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         private const val KEY_SEEN_PINNED_MESSAGE_ID = "seenPinnedMessageId"
         private const val KEY_DISPLAYED_PINNED_MESSAGE_ID = "displayedPinnedMessageId"
         private const val KEY_PINNED_MESSAGE_MINIMIZED = "pinnedMessageMinimized"
+        private const val KEY_V2_FOLLOW_MODE = "chatV2FollowMode"
+        private const val KEY_V2_NEW_MESSAGE_COUNT = "chatV2NewMessageCount"
+        private const val KEY_V2_ANCHOR_ID = "chatV2AnchorId"
+        private const val KEY_V2_ANCHOR_OFFSET = "chatV2AnchorOffset"
 
         fun newInstance(
             channelId: String?,

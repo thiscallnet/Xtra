@@ -1504,9 +1504,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     gravity = Gravity.BOTTOM
                 }
                 if (isMaximized) {
-                    chatLayout.visibility = View.VISIBLE
+                    setChatLayoutVisibility(View.VISIBLE)
                 } else {
-                    chatLayout.visibility = View.GONE
+                    setChatLayoutVisibility(View.GONE)
                     val (minimizedScaleX, minimizedScaleY) = getScaleValues()
                     slidingLayout.scaleX = minimizedScaleX
                     slidingLayout.scaleY = minimizedScaleY
@@ -1577,14 +1577,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         }
                     }
                     if (isChatOpen) {
-                        chatLayout.visibility = View.VISIBLE
+                        setChatLayoutVisibility(View.VISIBLE)
                         if (requireView().findViewById<Button>(R.id.btnDown)?.isVisible == false) {
                             requireView().findViewById<RecyclerView>(R.id.recyclerView)?.let { recyclerView ->
                                 recyclerView.adapter?.itemCount?.let { recyclerView.scrollToPosition(it - 1) }
                             }
                         }
                     } else {
-                        chatLayout.visibility = View.GONE
+                        setChatLayoutVisibility(View.GONE)
                     }
                 } else {
                     showStatusBar()
@@ -1598,7 +1598,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         height = ViewGroup.LayoutParams.MATCH_PARENT
                         gravity = Gravity.END
                     }
-                    chatLayout.visibility = View.GONE
+                    setChatLayoutVisibility(View.GONE)
                     val (minimizedScaleX, minimizedScaleY) = getScaleValues()
                     slidingLayout.scaleX = minimizedScaleX
                     slidingLayout.scaleY = minimizedScaleY
@@ -1894,11 +1894,16 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             }
             (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(chatLayout.windowToken, 0)
             chatLayout.clearFocus()
-            chatLayout.visibility = View.GONE
+            setChatLayoutVisibility(View.GONE)
             if (requireContext().isTelevision()) {
                 applyTvChatPresentation(chatLayout, playerLayout, slidingLayout, false)
             }
         }
+    }
+
+    private fun setChatLayoutVisibility(visibility: Int) {
+        binding.chatLayout.visibility = visibility
+        chatFragment?.setV2RendererVisible(visibility == View.VISIBLE)
     }
 
     private fun showChatLayout() {
@@ -1914,7 +1919,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 height = ViewGroup.LayoutParams.MATCH_PARENT
                 gravity = Gravity.END
             }
-            chatLayout.visibility = View.VISIBLE
+            setChatLayoutVisibility(View.VISIBLE)
             if (requireContext().isTelevision()) {
                 applyTvChatPresentation(chatLayout, playerLayout, slidingLayout, true)
             }
@@ -2507,6 +2512,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     fun disconnect() = chatFragment?.disconnect()
 
+    /** Explicit playback end, distinct from the Fragment/view becoming hidden. */
+    protected fun releaseV2ChatSession() {
+        chatFragment?.disconnect()
+    }
+
     fun reconnect() = chatFragment?.reconnect()
 
     fun secondViewIsHidden() = !binding.chatLayout.isVisible && isMaximized
@@ -2595,7 +2605,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
         if (isInPIPMode) {
             if (isPortrait) {
-                binding.chatLayout.visibility = View.GONE
+                setChatLayoutVisibility(View.GONE)
             } else {
                 hideChatLayout()
             }
@@ -3269,7 +3279,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     slidingLayout.scaleY = 1f
                 }
                 if (isPortrait) {
-                    chatLayout.visibility = View.GONE
+                    setChatLayoutVisibility(View.GONE)
                 } else {
                     hideChatLayout()
                 }
@@ -3381,7 +3391,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 }
             }
             if (isPortrait) {
-                chatLayout.visibility = View.GONE
+                setChatLayoutVisibility(View.GONE)
                 slidingLayout.doOnLayout {
                     animate()
                 }
@@ -3417,7 +3427,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 updateProgress()
             }
             if (isPortrait) {
-                chatLayout.visibility = View.VISIBLE
+                setChatLayoutVisibility(View.VISIBLE)
             } else {
                 hideStatusBar()
                 if (isChatOpen) {

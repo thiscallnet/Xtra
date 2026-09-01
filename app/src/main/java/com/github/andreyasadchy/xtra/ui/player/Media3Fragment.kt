@@ -1382,6 +1382,7 @@ class Media3Fragment : Media3PlayerFragment() {
     }
 
     override fun close() {
+        releaseV2ChatSession()
         savePosition()
         val controller = player
         controller?.pause()

@@ -25,6 +25,11 @@ class ChatViewportController(
 
     fun restore(savedState: ChatViewportState) { state = savedState }
 
+    /** Channel/session changes start at the newest tail; an old anchor is not meaningful. */
+    fun resetForNewSession() {
+        state = ChatViewportState()
+    }
+
     fun captureAnchor(adapter: RecyclerView.Adapter<*>): ChatViewportAnchor? {
         val layout = recyclerView.layoutManager as? LinearLayoutManager ?: return null
         val position = layout.findFirstVisibleItemPosition()
