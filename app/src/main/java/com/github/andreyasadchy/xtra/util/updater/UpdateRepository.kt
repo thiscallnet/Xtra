@@ -225,7 +225,6 @@ class UpdateRepository(
                                         }
                                         else -> current
                                     }
-                                    _state.value = finalState
                                     if (automatic && finalState is UpdateState.Available &&
                                         finalState.release.id == selectedRelease.id
                                     ) {
@@ -233,6 +232,11 @@ class UpdateRepository(
                                         preferences.edit()
                                             .putString(C.UPDATE_AUTOMATIC_PROMPT_VERSION, selectedRelease.id)
                                             .commit()
+                                    }
+                                    _state.value = finalState
+                                    if (automatic && finalState is UpdateState.Available &&
+                                        finalState.release.id == selectedRelease.id
+                                    ) {
                                         _automaticPromptEvents.tryEmit(selectedRelease)
                                         if (!foregroundChecker()) {
                                             postUpdateAvailableNotification(selectedRelease)
