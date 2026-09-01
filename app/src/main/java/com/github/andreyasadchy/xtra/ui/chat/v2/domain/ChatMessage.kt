@@ -105,4 +105,6 @@ data class ChatMessage(
     val rewardId: String? = null,
     val bits: Int? = null,
     val twitchType: TwitchChatMessageType = TwitchChatMessageType.Text,
+    val systemText: String? = null,
+    val noticeType: String? = null,
 )

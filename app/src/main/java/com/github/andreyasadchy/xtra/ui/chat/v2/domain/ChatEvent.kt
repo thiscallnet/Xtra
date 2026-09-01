@@ -23,4 +23,10 @@ sealed interface ChatEvent {
         override val receivedAtMs: Long,
     ) : ChatEvent
     data class Notice(val message: ChatMessage, override val eventId: String?, override val receivedAtMs: Long) : ChatEvent
+    /** Transport lifecycle is not a timeline item. It lets the session reconcile after a gap. */
+    data class TransportDisconnected(
+        val reason: String? = null,
+        override val eventId: String? = null,
+        override val receivedAtMs: Long = System.currentTimeMillis(),
+    ) : ChatEvent
 }

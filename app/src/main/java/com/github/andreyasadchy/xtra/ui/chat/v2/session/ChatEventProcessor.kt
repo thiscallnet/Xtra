@@ -46,8 +46,8 @@ class ChatEventProcessor(scope: CoroutineScope, private val store: ChatTimelineS
                     is Command.Event -> {
                         if (command.value.key != activeKey) continue
                         val event = command.value.event
-                        val id = event.eventId
-                        if (id != null && !seen.add(id)) continue
+                        val dedupeKey = eventDedupeKey(event)
+                        if (dedupeKey != null && !seen.add(dedupeKey)) continue
                         if (seen.size > 4096) seen.remove(seen.first())
                         store.accept(event)
                     }
@@ -64,6 +64,22 @@ class ChatEventProcessor(scope: CoroutineScope, private val store: ChatTimelineS
         processorJob.invokeOnCompletion {
             events.close()
         }
+    }
+
+    /**
+     * Protocol event IDs are not one global namespace. A message ID can also be the target of
+     * its delete event, while a clear-user payload commonly contains only the user ID. Clear-user
+     * is idempotent, so it deliberately has no dedupe key until a transport supplies a distinct
+     * protocol delivery ID.
+     */
+    private fun eventDedupeKey(event: ChatEvent): String? = when (event) {
+        is ChatEvent.Message -> event.eventId?.let { "message:$it" }
+        is ChatEvent.Notice -> event.eventId?.let { "notice:$it" }
+        is ChatEvent.Delete -> "delete:${event.eventId ?: event.messageId.value}"
+        is ChatEvent.ClearUser -> null
+        is ChatEvent.Clear -> event.eventId?.let { "clear:$it" }
+        is ChatEvent.SettingsUpdated -> event.eventId?.let { "settings:$it" }
+        is ChatEvent.TransportDisconnected -> null
     }
 
     val isActive: Boolean

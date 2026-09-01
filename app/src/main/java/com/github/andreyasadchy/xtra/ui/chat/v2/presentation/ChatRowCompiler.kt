@@ -4,6 +4,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatBadgeRef
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
@@ -12,15 +13,25 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 class ChatRowCompiler(
     private val colors: ChatColorResolver = ChatColorResolver(),
     private val emoteHeightPx: Int = 28,
+    private val badgeHeightPx: Int = 18,
     private val timestampText: (Long) -> String? = { null },
     private val background: (ChatMessage) -> Int = { 0 },
 ) {
     fun compile(message: ChatMessage, catalog: ChatCatalogSnapshot = ChatCatalogSnapshot(0)): ChatRowUiModel {
         val targetHeight = emoteHeightPx * if (message.twitchType == TwitchChatMessageType.GigantifiedEmote) 2 else 1
         val rowBackground = background(message)
+        val hasSemanticBody = message.segments.any {
+            it !is ChatSegment.Text || it.text.isNotBlank()
+        }
+        val noticeBody = message.systemText?.takeIf { message.kind == ChatMessageKind.NOTICE && it.isNotBlank() }
+        val resolvedSegments = if (noticeBody != null && !hasSemanticBody) {
+            listOf(ChatSegment.Text(noticeBody))
+        } else {
+            resolveSegments(message.segments, catalog)
+        }
         val pieces = buildList {
             message.badges.forEach { badge -> add(ChatPiece.Badge(badgeSpec(badge, catalog))) }
-            message.user?.let { user ->
+            message.user?.takeIf { noticeBody == null || hasSemanticBody }?.let { user ->
                 val name = user.displayName ?: user.login
                 name?.let {
                     add(ChatPiece.Username(
@@ -29,7 +40,7 @@ class ChatRowCompiler(
                     ))
                 }
             }
-            resolveSegments(message.segments, catalog).forEach { segment ->
+            resolvedSegments.forEach { segment ->
                 when (segment) {
                     is ChatSegment.Text -> add(ChatPiece.Text(segment.text))
                     is ChatSegment.Mention -> add(ChatPiece.Mention(segment.text, segment.userId, segment.login))
@@ -50,8 +61,10 @@ class ChatRowCompiler(
             isAction = message.kind == com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind.ACTION,
             twitchType = message.twitchType,
             accessibilityText = buildString {
-                message.user?.let { user -> (user.displayName ?: user.login)?.let { append(it).append(": ") } }
-                message.segments.forEach { segment ->
+                message.user?.takeIf { noticeBody == null || hasSemanticBody }?.let { user ->
+                    (user.displayName ?: user.login)?.let { append(it).append(": ") }
+                }
+                resolvedSegments.forEach { segment ->
                     when (segment) {
                         is ChatSegment.Text -> append(segment.text)
                         is ChatSegment.Mention -> append(segment.text)
@@ -65,7 +78,7 @@ class ChatRowCompiler(
     }
 
     private fun badgeSpec(badge: ChatBadgeRef, catalog: ChatCatalogSnapshot): ChatAssetSpec =
-        catalog.badges[badge.catalogKey]?.asset ?: badge.asset
+        (catalog.badges[badge.catalogKey]?.asset ?: badge.asset).scaledTo(badgeHeightPx)
 
     private fun resolveSegments(segments: List<ChatSegment>, catalog: ChatCatalogSnapshot): List<ChatSegment> {
         val resolved = ArrayList<ChatSegment>()

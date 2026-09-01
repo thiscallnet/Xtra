@@ -81,7 +81,9 @@ class ChatAssetRepository(
                 loaded?.let(ChatAssetState::Ready)
                     ?: ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
             } catch (e: CancellationException) {
-                if (repositoryJob?.isActive != true) throw e
+                // A loader-local timeout is retryable while the repository is alive. Only
+                // cancellation of the repository's own scope should terminate the attempt.
+                if (repositoryJob?.isActive == false) throw e
                 completedAt = nowMs()
                 ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
             } catch (e: ChatAssetLoadException) {

@@ -1020,6 +1020,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
     }
 
     override fun close(deleteStates: Boolean) {
+        releaseV2ChatSession()
         detachVideoOutput()
         playbackService?.cancelLiveClipPreparation()
         playbackService?.clearVodClipSource()

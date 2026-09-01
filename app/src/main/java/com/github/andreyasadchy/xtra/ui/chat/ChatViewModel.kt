@@ -298,6 +298,10 @@ class ChatViewModel(
     private var liveChatInitialized = false
     private var activeChannelId: String? = null
     private var activeChannelLogin: String? = null
+    // v2 owns the message transport and canonical timeline. This marker keeps
+    // ancillary live-chat services from being restarted on every view reattach.
+    private var v2LiveChannelId: String? = null
+    private var v2LiveChannelLogin: String? = null
     private var loggedInUserId: String? = null
     private var loggedInUserLogin: String? = null
     private val chatIdentityCache = mutableMapOf<String, CachedChatIdentity>()
@@ -658,22 +662,30 @@ class ChatViewModel(
         channelName: String?,
         streamId: String?,
         readOnly: Boolean = false,
+        useChatV2: Boolean = false,
     ) {
         activeChatMode = ActiveChatMode.Live
         if (chatReadIRCSocket == null && chatReadWebSocket == null && eventSub == null && channelLogin != null) {
+            if (useChatV2 && channelId.isNullOrBlank()) return
+            if (useChatV2 && v2LiveChannelId == channelId && v2LiveChannelLogin == channelLogin && started) return
             messageLimit = 600
             this.streamId = streamId
-            startLiveChat(channelId, channelLogin, readOnly = readOnly)
-            addChatter(channelName)
-            loadEmotes(channelId, channelLogin)
-            if (applicationContext.prefs().getBoolean(C.CHAT_RECENT, true)) {
-                loadRecentMessages(networkLibrary, recentMessagesUrl, channelLogin)
-            }
-            val isLoggedIn = !applicationContext.tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
-                    (!TwitchApiHelper.getGQLHeaders(applicationContext, true)[C.HEADER_TOKEN].isNullOrBlank() ||
-                            !TwitchApiHelper.getHelixHeaders(applicationContext)[C.HEADER_TOKEN].isNullOrBlank())
-            if (isLoggedIn) {
-                loadUserEmotes(channelId)
+            startLiveChat(channelId, channelLogin, readOnly = readOnly, startMessageTransport = !useChatV2)
+            if (useChatV2) {
+                v2LiveChannelId = channelId
+                v2LiveChannelLogin = channelLogin
+            } else {
+                addChatter(channelName)
+                loadEmotes(channelId, channelLogin)
+                if (applicationContext.prefs().getBoolean(C.CHAT_RECENT, true)) {
+                    loadRecentMessages(networkLibrary, recentMessagesUrl, channelLogin)
+                }
+                val isLoggedIn = !applicationContext.tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
+                        (!TwitchApiHelper.getGQLHeaders(applicationContext, true)[C.HEADER_TOKEN].isNullOrBlank() ||
+                                !TwitchApiHelper.getHelixHeaders(applicationContext)[C.HEADER_TOKEN].isNullOrBlank())
+                if (isLoggedIn) {
+                    loadUserEmotes(channelId)
+                }
             }
         }
     }
@@ -693,12 +705,14 @@ class ChatViewModel(
 
     fun resumeLive(channelId: String?, channelLogin: String?) {
         val login = channelLogin ?: return
+        if (v2LiveChannelId == channelId && v2LiveChannelLogin == login) return
         if (shouldResumeLiveChat(liveChatInitialized, chatReadJob?.isActive, login, autoReconnect)) {
             startLiveChat(channelId, login, readOnly = liveChatReadOnly)
         }
     }
 
     fun retryLiveChat() {
+        if (v2LiveChannelId != null) return
         val channelId = activeChannelId
         val channelLogin = activeChannelLogin
         if (!channelLogin.isNullOrBlank()) {
@@ -2533,6 +2547,7 @@ class ChatViewModel(
         channelId: String?,
         channelLogin: String,
         readOnly: Boolean = liveChatReadOnly,
+        startMessageTransport: Boolean = true,
     ) {
         liveChatInitialized = true
         stopLiveChat()
@@ -2616,23 +2631,25 @@ class ChatViewModel(
             loadWatchStreak(networkLibrary, gqlHeaders, channelId)
             startWatchStreakRefresh(networkLibrary, gqlHeaders, channelId)
         }
-        if (applicationContext.prefs().getBoolean(C.DEBUG_EVENT_SUB_CHAT, false) && !helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-            eventSub = EventSubWebSocket(trustManager, EventSubListener(helixHeaders, gqlHeaders, channelLogin, showUserNotice, showClearChat, usePubSub, networkLibrary, isLoggedIn, accountId, channelId))
-            chatReadJob = eventSub?.connect(viewModelScope)
-        } else {
-            val gqlToken = gqlHeaders[C.HEADER_TOKEN]?.removePrefix("OAuth ")
-            val helixToken = helixHeaders[C.HEADER_TOKEN]?.removePrefix("Bearer ")
-            chatReadWebSocket = ChatReadWebSocket(channelLogin, trustManager, ChatReadListener(channelLogin, nameDisplay, showUserNotice, showClearMsg, showClearChat, usePubSub, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId))
-            chatReadJob = chatReadWebSocket?.connect(viewModelScope)
-            if (!readOnly && isLoggedIn && (!gqlToken.isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !useApiChatMessages)) {
-                chatWriteWebSocket = ChatWriteWebSocket(
-                    userLogin = accountLogin,
-                    userToken = gqlToken?.takeIf { it.isNotBlank() } ?: helixToken,
-                    channelLogin = channelLogin,
-                    trustManager = trustManager,
-                    listener = ChatWriteListener(channelId, showWebSocketDebugInfo)
-                )
-                chatWriteJob = chatWriteWebSocket?.connect(viewModelScope)
+        if (startMessageTransport) {
+            if (applicationContext.prefs().getBoolean(C.DEBUG_EVENT_SUB_CHAT, false) && !helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+                eventSub = EventSubWebSocket(trustManager, EventSubListener(helixHeaders, gqlHeaders, channelLogin, showUserNotice, showClearChat, usePubSub, networkLibrary, isLoggedIn, accountId, channelId))
+                chatReadJob = eventSub?.connect(viewModelScope)
+            } else {
+                val gqlToken = gqlHeaders[C.HEADER_TOKEN]?.removePrefix("OAuth ")
+                val helixToken = helixHeaders[C.HEADER_TOKEN]?.removePrefix("Bearer ")
+                chatReadWebSocket = ChatReadWebSocket(channelLogin, trustManager, ChatReadListener(channelLogin, nameDisplay, showUserNotice, showClearMsg, showClearChat, usePubSub, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId))
+                chatReadJob = chatReadWebSocket?.connect(viewModelScope)
+                if (!readOnly && isLoggedIn && (!gqlToken.isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !useApiChatMessages)) {
+                    chatWriteWebSocket = ChatWriteWebSocket(
+                        userLogin = accountLogin,
+                        userToken = gqlToken?.takeIf { it.isNotBlank() } ?: helixToken,
+                        channelLogin = channelLogin,
+                        trustManager = trustManager,
+                        listener = ChatWriteListener(channelId, showWebSocketDebugInfo)
+                    )
+                    chatWriteJob = chatWriteWebSocket?.connect(viewModelScope)
+                }
             }
         }
         if (usePubSub && !channelId.isNullOrBlank()) {
@@ -2902,6 +2919,8 @@ class ChatViewModel(
         lastWatchStreakReconciliationElapsedRealtime = null
         activeChannelId = null
         activeChannelLogin = null
+        v2LiveChannelId = null
+        v2LiveChannelLogin = null
         pinnedChatRefreshJob?.cancel()
         pinnedChatRefreshJob = null
         _pinnedChatMessage.value = null

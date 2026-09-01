@@ -89,8 +89,97 @@ class ChatTimelineArchitectureTest {
         val scope = CoroutineScope(Dispatchers.Default)
         val store = ChatTimelineStore(scope, maxSize = 600)
         store.apply(com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.Append(listOf(message(1, "u1"), message(2, "u2"), message(3, "u1"))))
-        store.apply(com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.Delete(ChatMessageId("2")))
-        store.apply(com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.ClearUser("u1"))
+        store.apply(com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.Delete(ChatMessageId("2"), atMs = 4))
+        store.apply(com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.ClearUser("u1", atMs = 4))
+        assertEquals(emptyList<String>(), store.snapshot().map { it.id.value })
+        scope.cancel()
+    }
+
+    @Test
+    fun deletingASeenMessageIsNotFilteredAsADuplicate() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 600)
+        val processor = ChatEventProcessor(scope, store)
+        val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", 1)
+        processor.activate(key)
+        processor.submit(key, ChatEvent.Message(message(1), eventId = "1", receivedAtMs = 1))
+        awaitSnapshot(store) { it.lastOrNull()?.id?.value == "1" }
+
+        processor.submit(key, ChatEvent.Delete(ChatMessageId("1"), eventId = "1", receivedAtMs = 2))
+        assertEquals(emptyList<String>(), awaitSnapshot(store) { it.isEmpty() }.map { it.id.value })
+        scope.cancel()
+    }
+
+    @Test
+    fun repeatedClearUserEventsAreBothApplied() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 600)
+        val processor = ChatEventProcessor(scope, store)
+        val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", 1)
+        processor.activate(key)
+        processor.submit(key, ChatEvent.Message(message(1, "u1"), receivedAtMs = 1))
+        awaitSnapshot(store) { it.lastOrNull()?.id?.value == "1" }
+
+        processor.submit(key, ChatEvent.ClearUser("u1", eventId = "u1", receivedAtMs = 2))
+        awaitSnapshot(store) { it.isEmpty() }
+        processor.submit(key, ChatEvent.Message(message(3, "u1"), receivedAtMs = 3))
+        awaitSnapshot(store) { it.lastOrNull()?.id?.value == "3" }
+
+        processor.submit(key, ChatEvent.ClearUser("u1", eventId = "u1", receivedAtMs = 4))
+        assertEquals(emptyList<String>(), awaitSnapshot(store) { it.isEmpty() }.map { it.id.value })
+        scope.cancel()
+    }
+
+    @Test
+    fun deletedMessageDoesNotReturnFromStaleReconciliation() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 600)
+        val processor = ChatEventProcessor(scope, store)
+        val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", 1)
+        processor.activate(key)
+        val deleted = message(1)
+        processor.submit(key, ChatEvent.Message(deleted, receivedAtMs = 1))
+        awaitSnapshot(store) { it.lastOrNull()?.id?.value == "1" }
+        processor.submit(key, ChatEvent.Delete(deleted.id, eventId = "1", receivedAtMs = 2))
+        awaitSnapshot(store) { it.isEmpty() }
+
+        processor.reconcile(key, listOf(deleted))
+        assertEquals(emptyList<String>(), store.snapshot().map { it.id.value })
+        scope.cancel()
+    }
+
+    @Test
+    fun clearedUserMessagesDoNotReturnFromStaleReconciliation() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 600)
+        val processor = ChatEventProcessor(scope, store)
+        val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", 1)
+        processor.activate(key)
+        val oldMessages = listOf(message(1, "u1"), message(2, "u1"))
+        oldMessages.forEach { processor.submit(key, ChatEvent.Message(it, receivedAtMs = it.timestampMs)) }
+        awaitSnapshot(store) { it.size == 2 }
+        processor.submit(key, ChatEvent.ClearUser("u1", eventId = "u1", receivedAtMs = 3))
+        awaitSnapshot(store) { it.isEmpty() }
+
+        processor.reconcile(key, oldMessages)
+        assertEquals(emptyList<String>(), store.snapshot().map { it.id.value })
+        scope.cancel()
+    }
+
+    @Test
+    fun messagesBeforeGlobalClearDoNotReturnFromStaleReconciliation() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 600)
+        val processor = ChatEventProcessor(scope, store)
+        val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", 1)
+        processor.activate(key)
+        val oldMessages = listOf(message(1), message(2))
+        oldMessages.forEach { processor.submit(key, ChatEvent.Message(it, receivedAtMs = it.timestampMs)) }
+        awaitSnapshot(store) { it.size == 2 }
+        processor.submit(key, ChatEvent.Clear(eventId = "clear", receivedAtMs = 3))
+        awaitSnapshot(store) { it.isEmpty() }
+
+        processor.reconcile(key, oldMessages)
         assertEquals(emptyList<String>(), store.snapshot().map { it.id.value })
         scope.cancel()
     }
@@ -149,5 +238,17 @@ class ChatTimelineArchitectureTest {
             }
             checkNotNull(result)
         }
+    }
+
+    private suspend fun awaitSnapshot(
+        store: ChatTimelineStore,
+        predicate: (List<ChatMessage>) -> Boolean,
+    ): List<ChatMessage> = withTimeout(5_000) {
+        var result: List<ChatMessage>? = null
+        while (result == null) {
+            val snapshot = store.snapshot()
+            if (predicate(snapshot)) result = snapshot else delay(1)
+        }
+        checkNotNull(result)
     }
 }

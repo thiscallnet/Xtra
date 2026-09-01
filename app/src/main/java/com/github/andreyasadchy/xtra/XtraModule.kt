@@ -49,6 +49,22 @@ import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedRefreshCoordina
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCoordinator
 import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
+import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetLoader
+import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
+import com.github.andreyasadchy.xtra.ui.chat.v2.assets.CoilChatAssetLoader
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogRepository
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.TwitchChatCatalogCache
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.TwitchChatCatalogSource
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
+import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
+import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransport
+import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransportConfig
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
 import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
 import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
@@ -638,5 +654,96 @@ class XtraModule(application: Application) {
 
     val viewingStatsRecorder by lazy {
         ViewingStatsRecorder(viewingStatsRepository)
+    }
+
+    val chatAssetLoader: ChatAssetLoader by lazy {
+        CoilChatAssetLoader(application.applicationContext)
+    }
+
+    /** Process-owned, bounded asset state shared by disposable chat renderers. */
+    val chatAssetRepository by lazy {
+        ChatAssetRepository(
+            scope = (application as XtraApp).applicationScope,
+            loader = chatAssetLoader,
+        )
+    }
+
+    /** Process-owned live chat entry point. ChatFragment only observes its active handle. */
+    val chatSessionManager by lazy {
+        val appContext = application.applicationContext
+        ChatSessionManager(
+            parentScope = (application as XtraApp).applicationScope,
+            transportFactory = { spec: LiveChatSessionSpec ->
+                val scopes = appContext.tokenPrefs().getString(C.TOKEN_SCOPES, null)
+                    .orEmpty().split(Regex("\\s+")).filter(String::isNotBlank).toSet()
+                val accountId = appContext.tokenPrefs().getString(C.USER_ID, null)
+                val helixHeaders = TwitchApiHelper.getHelixHeaders(appContext)
+                val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                TwitchChatTransport(
+                    config = TwitchChatTransportConfig(
+                        channelId = spec.channelId,
+                        channelLogin = spec.channelLogin,
+                        useEventSub = !accountId.isNullOrBlank() &&
+                                "user:read:chat" in scopes && "user:write:chat" in scopes &&
+                                !helixHeaders[C.HEADER_TOKEN].isNullOrBlank(),
+                        accountId = accountId,
+                        helixHeaders = helixHeaders,
+                        networkLibrary = network,
+                    ),
+                    trustManager = trustManager,
+                    createSubscription = { headers, userId, type, sessionId ->
+                        helixRepository.createEventSubSubscription(
+                            network, headers, userId, spec.channelId, type, sessionId,
+                        )?.let { error("EventSub $type rejected: $it") }
+                    },
+                )
+            },
+            catalogFactory = { spec, scope ->
+                ChatCatalogRepository(
+                    scope = scope,
+                    source = TwitchChatCatalogSource(appContext, playerRepository, spec.channelId, spec.channelLogin),
+                    cache = TwitchChatCatalogCache(appContext, spec.channelId),
+                )
+            },
+            recentHistory = { spec ->
+                val url = spec.recentMessagesUrl ?: return@ChatSessionManager emptyList()
+                val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                playerRepository.loadRecentMessages(network, url, spec.channelLogin, "100")
+                    .messages.asSequence()
+                    .mapNotNull { raw ->
+                        TwitchChatEventParser.fromIrc(
+                            com.github.andreyasadchy.xtra.util.chat.ChatUtils.parseIRCMessage(raw),
+                            spec.channelId,
+                        )
+                    }
+                    .mapNotNull { (it as? com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent.Message)?.message }
+                    .toList()
+            },
+            initialSettings = { spec ->
+                val userId = appContext.tokenPrefs().getString(C.USER_ID, null)
+                val headers = TwitchApiHelper.getHelixHeaders(appContext)
+                if (userId.isNullOrBlank() || headers[C.HEADER_TOKEN].isNullOrBlank()) {
+                    null
+                } else {
+                    helixRepository.getChatSettings(
+                        networkLibrary = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                        headers = headers,
+                        broadcasterId = spec.channelId,
+                        moderatorId = userId,
+                    )?.let { settings ->
+                        ChatEvent.SettingsUpdated(
+                            channelId = spec.channelId,
+                            slowModeSeconds = settings.slowModeWaitTime.takeIf { settings.slowMode },
+                            followerOnlyDurationMinutes = settings.followerModeDuration.takeIf { settings.followerMode },
+                            subscriberOnly = settings.subscriberMode,
+                            emoteOnly = settings.emoteMode,
+                            uniqueChatMode = settings.uniqueChatMode,
+                            eventId = null,
+                            receivedAtMs = System.currentTimeMillis(),
+                        )
+                    }
+                }
+            },
+        )
     }
 }
