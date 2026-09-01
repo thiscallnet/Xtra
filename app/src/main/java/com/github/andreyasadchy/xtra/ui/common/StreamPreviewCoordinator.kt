@@ -41,6 +41,7 @@ import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewSelectionPo
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.isTelevision
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -168,6 +169,12 @@ class StreamPreviewCoordinator(
     }
 
     fun updateViewport(viewportKey: String, candidates: Collection<StreamPreviewCandidate>, scrolling: Boolean) {
+        if (context.isTelevision()) {
+            candidates.forEach { clearPreviewSurface(it.surface) }
+            viewports.remove(viewportKey)
+            stopPreview()
+            return
+        }
         viewports[viewportKey] = Viewport(candidates.toList(), scrolling)
         scheduleSelection()
     }
@@ -297,6 +304,10 @@ class StreamPreviewCoordinator(
     }
 
     private fun scheduleSelection() {
+        if (context.isTelevision()) {
+            stopPreview()
+            return
+        }
         selectionPending = true
         if (selectionJob?.isActive == true) return
         selectionJob = scope.launch {

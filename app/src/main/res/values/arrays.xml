@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string-array name="tvChatModeEntries" translatable="false"><item>@string/settings_tv_chat_hidden</item><item>@string/settings_tv_chat_side_panel</item><item>@string/settings_tv_chat_overlay</item></string-array>
+    <string-array name="tvChatModeValues" translatable="false"><item>hidden</item><item>side_panel</item><item>overlay</item></string-array>
+    <string-array name="tvChatPresetEntries" translatable="false"><item>@string/settings_tv_chat_preset_auto</item><item>@string/settings_tv_chat_preset_compact</item><item>@string/settings_tv_chat_preset_standard</item><item>@string/settings_tv_chat_preset_large</item><item>@string/settings_tv_chat_preset_full_height</item><item>@string/settings_tv_chat_preset_custom</item></string-array>
+    <string-array name="tvChatPresetValues" translatable="false"><item>AUTO</item><item>COMPACT</item><item>STANDARD</item><item>LARGE</item><item>FULL_HEIGHT</item><item>CUSTOM</item></string-array>
+    <string-array name="tvChatAnchorEntries" translatable="false"><item>@string/settings_tv_chat_anchor_top_left</item><item>@string/settings_tv_chat_anchor_top_center</item><item>@string/settings_tv_chat_anchor_top_right</item><item>@string/settings_tv_chat_anchor_center_left</item><item>@string/settings_tv_chat_anchor_center</item><item>@string/settings_tv_chat_anchor_center_right</item><item>@string/settings_tv_chat_anchor_bottom_left</item><item>@string/settings_tv_chat_anchor_bottom_center</item><item>@string/settings_tv_chat_anchor_bottom_right</item></string-array>
+    <string-array name="tvChatAnchorValues" translatable="false"><item>TOP_LEFT</item><item>TOP_CENTER</item><item>TOP_RIGHT</item><item>CENTER_LEFT</item><item>CENTER</item><item>CENTER_RIGHT</item><item>BOTTOM_LEFT</item><item>BOTTOM_CENTER</item><item>BOTTOM_RIGHT</item></string-array>
     <string-array name="playerEntries" translatable="false">
         <item>@string/legacy_exoplayer_service</item>
         <item>@string/android_media_player</item>

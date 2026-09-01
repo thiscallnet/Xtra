@@ -24,6 +24,8 @@ import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
+import com.github.andreyasadchy.xtra.util.isTelevision
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -105,10 +107,11 @@ class ClipsAdapter(
             }
             binding.root.setOnLongClickListener {
                 boundClip?.let {
-                    showDownloadDialog(it)
+                    if (binding.root.context.isTelevision()) showOptions(binding.root) else showDownloadDialog(it)
                     true
                 } ?: false
             }
+            TvFocusHelper.install(binding.root)
             binding.userImage.setOnClickListener { boundClip?.let(::openChannel) }
             binding.username.setOnClickListener { boundClip?.let(::openChannel) }
             binding.gameName.setOnClickListener { boundClip?.let(::openGame) }

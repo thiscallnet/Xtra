@@ -51,6 +51,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.isTelevision
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -159,13 +160,13 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                     binding.playerControls.playPause.visibility = View.VISIBLE
                 } else {
                     binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
                         binding.playerControls.playPause.visibility = View.GONE
                     }
                 }
                 setPipActions(!showPlayButton)
                 updateProgress()
-                controllerAutoHide = !showPlayButton
+                controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
                 if (useController) {
                     showController(show = playbackService?.type != BasePlaybackService.STREAM && playbackState == Player.STATE_ENDED)
                 }
@@ -185,13 +186,13 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                     binding.playerControls.playPause.visibility = View.VISIBLE
                 } else {
                     binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
                         binding.playerControls.playPause.visibility = View.GONE
                     }
                 }
                 setPipActions(!showPlayButton)
                 updateProgress()
-                controllerAutoHide = !showPlayButton
+                controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
                 if (useController) {
                     showController(show = playbackService?.type != BasePlaybackService.STREAM && playbackService?.player?.playbackState == Player.STATE_ENDED)
                 }
@@ -207,7 +208,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                     binding.playerControls.playPause.visibility = View.VISIBLE
                 } else {
                     binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
                         binding.playerControls.playPause.visibility = View.GONE
                     }
                 }
@@ -479,7 +480,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
                                 binding.playerControls.playPause.visibility = View.VISIBLE
                             } else {
                                 binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                                if (connectedService.type == BasePlaybackService.STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                                if (connectedService.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
                                     binding.playerControls.playPause.visibility = View.GONE
                                 }
                             }

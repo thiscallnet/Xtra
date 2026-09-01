@@ -5,4 +5,5 @@
     <item name="stream_thumbnail_successful_fresh_key" type="id" />
     <item name="stream_thumbnail_display_state" type="id" />
     <item name="stream_profile_request_key" type="id" />
+    <item name="tv_focus_helper_installed" type="id" />
 </resources>

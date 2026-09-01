@@ -23,6 +23,7 @@ import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.common.thumbnailState
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 
 class UpcomingStreamShelfAdapter(
     private val onUpcomingClick: (UpcomingStream) -> Unit,
@@ -70,6 +71,7 @@ class UpcomingStreamShelfAdapter(
         private var boundItem: UpcomingStream? = null
 
         init {
+            TvFocusHelper.install(binding.root)
             binding.root.setOnClickListener { boundItem?.let(onUpcomingClick) }
         }
 

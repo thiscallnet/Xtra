@@ -44,4 +44,14 @@ class PlayerControlLayoutTest {
             PlayerControlLayout.serializeControlLayout(placements),
         )
     }
+
+    @Test
+    fun `TV primary action policy excludes secondary phone controls`() {
+        assertEquals(true, PlayerControlLayout.isTvPrimaryAction("quality"))
+        assertEquals(true, PlayerControlLayout.isTvPrimaryAction("chat"))
+        assertEquals(true, PlayerControlLayout.isTvPrimaryAction("volume"))
+        assertEquals(false, PlayerControlLayout.isTvPrimaryAction("speed"))
+        assertEquals(false, PlayerControlLayout.isTvPrimaryAction("clip"))
+        assertEquals(false, PlayerControlLayout.isTvPrimaryAction("fullscreen"))
+    }
 }

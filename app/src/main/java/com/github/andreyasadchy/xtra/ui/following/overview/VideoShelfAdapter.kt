@@ -23,6 +23,7 @@ import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.VideoHistoryCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.common.thumbnailState
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 
 class VideoShelfAdapter(
@@ -86,6 +87,7 @@ class VideoShelfAdapter(
 
         init {
             binding.root.setOnClickListener { boundItem?.let(onVideoClick) }
+            TvFocusHelper.install(binding.root)
         }
 
         private val streamPreviewCoordinator

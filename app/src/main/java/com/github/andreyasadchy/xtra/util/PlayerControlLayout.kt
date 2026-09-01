@@ -31,6 +31,18 @@ object PlayerControlLayout {
         ANCHOR_BOTTOM_END,
     )
 
+    /**
+     * The small set of actions that belongs on the primary TV control surface.
+     * Secondary actions remain available through the More menu where one exists.
+     */
+    private val tvPrimaryActions = setOf(
+        "follow",
+        "quality",
+        "volume",
+        "chat",
+        "live",
+    )
+
     data class ControlPlacement(
         val action: String,
         var group: String,
@@ -75,9 +87,10 @@ object PlayerControlLayout {
     )
 
     fun applyToPlayer(context: Context, binding: FragmentPlayerBinding) {
+        val focusedControl = binding.playerControls.root.findFocus()
         val placements = controlPlacements(
             context.prefs().getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
-            legacyControlLayout(context),
+            if (context.isTelevision()) tvControlLayout(context) else legacyControlLayout(context),
         )
         with(binding.playerControls) {
             val containers = mapOf(
@@ -104,11 +117,13 @@ object PlayerControlLayout {
                     (view.parent as? ViewGroup)?.removeView(view)
                     container.addView(view)
                 }
-                view.visibility = if (placement?.group == GROUP_QUICK && view.hasOnClickListeners()) {
+                val allowedOnTv = !context.isTelevision() || action in tvPrimaryActions
+                view.visibility = if (allowedOnTv && placement?.group == GROUP_QUICK && view.hasOnClickListeners()) {
                     View.VISIBLE
                 } else {
                     View.GONE
                 }
+                if (!allowedOnTv) view.isFocusable = false
             }
             containers.forEach { (anchor, container) ->
                 reorderChildren(
@@ -129,6 +144,27 @@ object PlayerControlLayout {
                     bottomRightLayout.addView(liveCaptions, fullscreenIndex)
                 } else {
                     bottomRightLayout.addView(liveCaptions)
+                }
+            }
+        }
+
+        hideSecondaryActionsOnTelevision(context, binding)
+
+        if (context.isTelevision() && focusedControl != null) {
+            // Reparenting a focused control clears focus on some Android TV builds. Restore
+            // the same control after the layout pass instead of letting focus escape into the
+            // hidden navigation destination behind the player.
+            focusedControl.post {
+                // A remote key may have moved focus to another player control while this
+                // deferred layout callback was waiting. In that case preserve the newer user
+                // choice; only restore when reparenting left the player controls without focus.
+                val currentControlFocus = binding.playerControls.root.findFocus()
+                if (currentControlFocus == null &&
+                    focusedControl.isShown &&
+                    focusedControl.isFocusable &&
+                    focusedControl.isEnabled
+                ) {
+                    focusedControl.requestFocus()
                 }
             }
         }
@@ -167,7 +203,21 @@ object PlayerControlLayout {
         playerControlViews(binding).values.forEach { view ->
             view.visibility = if (view.hasOnClickListeners()) View.VISIBLE else View.GONE
         }
+        hideSecondaryActionsOnTelevision(binding.root.context, binding)
     }
+
+    /** Keep phone quick-control preferences from crowding the TV player surface. */
+    fun hideSecondaryActionsOnTelevision(context: Context, binding: FragmentPlayerBinding) {
+        if (!context.isTelevision()) return
+        playerControlViews(binding).forEach { (action, view) ->
+            if (action !in tvPrimaryActions) {
+                view.visibility = View.GONE
+                view.isFocusable = false
+            }
+        }
+    }
+
+    internal fun isTvPrimaryAction(action: String): Boolean = action in tvPrimaryActions
 
     private fun playerControlViews(binding: FragmentPlayerBinding): Map<String, View> = with(binding.playerControls) {
         mapOf(
@@ -197,6 +247,23 @@ object PlayerControlLayout {
     private fun legacyControlLayout(context: Context): String = controlDefinitions.joinToString(",") { definition ->
         val quick = definition.canQuick && definition.quickKey?.let {
             context.prefs().getBoolean(it, definition.quickDefault)
+        } == true
+        val menu = definition.canMenu && definition.menuKey?.let {
+            context.prefs().getBoolean(it, definition.menuDefault)
+        } == true
+        val group = when {
+            quick -> GROUP_QUICK
+            menu -> GROUP_MENU
+            else -> GROUP_HIDDEN
+        }
+        "${definition.action}:$group"
+    }
+
+    private fun tvControlLayout(context: Context): String = controlDefinitions.joinToString(",") { definition ->
+        val quick = definition.action in tvPrimaryActions && definition.quickKey?.let {
+            // TV has its own defaults for the primary surface, while a stored
+            // preference still lets a user intentionally hide one of them.
+            context.prefs().getBoolean(it, true)
         } == true
         val menu = definition.canMenu && definition.menuKey?.let {
             context.prefs().getBoolean(it, definition.menuDefault)

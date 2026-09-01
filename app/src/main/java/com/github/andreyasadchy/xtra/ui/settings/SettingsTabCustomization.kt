@@ -12,7 +12,16 @@ internal const val EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE = "settings_highlight_pre
 internal const val SETTINGS_SCREEN_TABS = "tabs"
 internal const val SETTINGS_SCREEN_PLAYER_CONTROLS = "player_controls"
 internal const val SETTINGS_SCREEN_PLAYER = "player"
+internal const val SETTINGS_SCREEN_CHAT = "chat"
 internal const val MAX_NAVIGATION_VISIBLE_ITEMS = 6
+internal const val MAX_TV_NAVIGATION_VISIBLE_ITEMS = 8
+
+internal fun navigationTabDefaults(isTelevision: Boolean): String =
+    if (isTelevision) {
+        C.DEFAULT_NAVIGATION_TAB_LIST.replace("4:0:0", "4:0:1")
+    } else {
+        C.DEFAULT_NAVIGATION_TAB_LIST
+    }
 
 internal fun Context.openTabCustomization(preferenceKey: String) {
     startActivity(Intent(this, SettingsActivity::class.java).apply {
@@ -49,10 +58,15 @@ internal fun minimumVisibleItemsForPreference(preferenceKey: String): Int = when
 internal fun maximumVisibleItemsForPreference(preferenceKey: String): Int? =
     MAX_NAVIGATION_VISIBLE_ITEMS.takeIf { preferenceKey == C.UI_NAVIGATION_TAB_LIST }
 
-internal fun limitNavigationVisibleItems(items: List<String>): List<String> {
+internal fun limitNavigationVisibleItems(
+    items: List<String>,
+    maximumVisibleItems: Int = MAX_NAVIGATION_VISIBLE_ITEMS,
+): List<String> {
     val result = items.toMutableList()
-    while (result.count { it.split(':').getOrNull(2) != "0" } > MAX_NAVIGATION_VISIBLE_ITEMS) {
-        val index = result.indexOfLast { it.split(':').getOrNull(2) != "0" }
+    while (result.count { it.split(':').getOrNull(2) != "0" } > maximumVisibleItems) {
+        val index = result.indexOfLast { it.split(':').getOrNull(2) != "0" && !it.startsWith("4:") }
+            .takeIf { it >= 0 }
+            ?: result.indexOfLast { it.startsWith("4:") && it.split(':').getOrNull(2) != "0" }
         if (index < 0) break
         val parts = result[index].split(':')
         result[index] = "${parts[0]}:${parts.getOrElse(1) { "0" }}:0"

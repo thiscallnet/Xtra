@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.content.pm.ActivityInfo
 import android.text.Editable
 import android.text.InputFilter
 import android.text.InputType
@@ -44,10 +45,12 @@ import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
 import com.github.andreyasadchy.xtra.model.helix.user.User
 import com.github.andreyasadchy.xtra.repository.auth.AuthHealth
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.applyTheme
+import com.github.andreyasadchy.xtra.util.isTelevision
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.MaterialColors
@@ -101,6 +104,9 @@ class AccountActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivityAccountBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        if (isTelevision()) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
         setupWindowInsets()
         binding.toolbar.setNavigationOnClickListener { finish() }
         binding.viewChannel.setOnClickListener { openOwnProfile() }
@@ -516,6 +522,7 @@ class AccountActivity : AppCompatActivity() {
         row.root.alpha = if (enabled) 1f else 0.55f
         row.root.isClickable = onClick != null
         row.root.isFocusable = onClick != null
+        if (row.root.isFocusable) TvFocusHelper.install(row.root, focusedScale = 1.02f)
         row.arrow.isVisible = onClick != null
         color?.let { parseColor(it) }?.let { parsed ->
             row.colorSwatch.background = GradientDrawable().apply {

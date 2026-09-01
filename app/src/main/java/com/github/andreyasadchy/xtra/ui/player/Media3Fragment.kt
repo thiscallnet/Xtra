@@ -56,6 +56,7 @@ import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
+import com.github.andreyasadchy.xtra.util.isTelevision
 import com.google.android.material.snackbar.Snackbar
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -221,13 +222,13 @@ class Media3Fragment : Media3PlayerFragment() {
                         binding.playerControls.playPause.visibility = View.VISIBLE
                     } else {
                         binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                        if (videoType == STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                        if (videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
                             binding.playerControls.playPause.visibility = View.GONE
                         }
                     }
                     setPipActions(!showPlayButton)
                     updateProgress()
-                    controllerAutoHide = !showPlayButton
+                    controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
                     if (videoType != STREAM && useController) {
                         showController()
                     }
@@ -244,13 +245,13 @@ class Media3Fragment : Media3PlayerFragment() {
                         binding.playerControls.playPause.visibility = View.VISIBLE
                     } else {
                         binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                        if (videoType == STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                        if (videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
                             binding.playerControls.playPause.visibility = View.GONE
                         }
                     }
                     setPipActions(!showPlayButton)
                     updateProgress()
-                    controllerAutoHide = !showPlayButton
+                    controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
                     if (videoType != STREAM && useController) {
                         showController()
                     }
@@ -266,7 +267,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         binding.playerControls.playPause.visibility = View.VISIBLE
                     } else {
                         binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                        if (videoType == STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                        if (videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
                             binding.playerControls.playPause.visibility = View.GONE
                         }
                     }
@@ -589,7 +590,7 @@ class Media3Fragment : Media3PlayerFragment() {
                     binding.playerControls.playPause.visibility = View.VISIBLE
                 } else {
                     binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                    if (videoType == STREAM && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                    if (videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
                         binding.playerControls.playPause.visibility = View.GONE
                     }
                 }

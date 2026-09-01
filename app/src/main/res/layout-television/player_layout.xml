@@ -1,0 +1,698 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:alpha="0"
+    android:visibility="gone"
+    tools:alpha="1"
+    tools:visibility="visible">
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0.4"
+        android:background="@android:color/black" />
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/centerControls"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false">
+
+        <ImageButton
+            android:id="@+id/playPause"
+            android:layout_width="@dimen/tv_player_primary_button"
+            android:layout_height="@dimen/tv_player_primary_button"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_play"
+            android:src="@drawable/baseline_play_arrow_black_48"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:tint="@android:color/white" />
+
+        <Button
+            android:id="@+id/rewind"
+            android:layout_width="@dimen/tv_player_transport_button"
+            android:layout_height="@dimen/tv_player_transport_button"
+            android:layout_marginEnd="16dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_rewind"
+            android:foreground="@drawable/exo_styled_controls_rewind"
+            android:gravity="center|bottom"
+            android:insetBottom="0dp"
+            android:paddingLeft="0dp"
+            android:paddingRight="0dp"
+            android:paddingBottom="20dp"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            app:backgroundTint="@android:color/white"
+            app:layout_constraintBottom_toBottomOf="@id/playPause"
+            app:layout_constraintEnd_toStartOf="@id/playPause"
+            app:layout_constraintTop_toTopOf="@id/playPause"
+            app:tint="@android:color/white"
+            tools:text="10" />
+
+        <Button
+            android:id="@+id/fastForward"
+            android:layout_width="@dimen/tv_player_transport_button"
+            android:layout_height="@dimen/tv_player_transport_button"
+            android:layout_marginStart="16dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_fast_forward"
+            android:foreground="@drawable/exo_styled_controls_fastforward"
+            android:gravity="center|bottom"
+            android:insetBottom="0dp"
+            android:paddingLeft="0dp"
+            android:paddingRight="0dp"
+            android:paddingBottom="20dp"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            app:backgroundTint="@android:color/white"
+            app:layout_constraintBottom_toBottomOf="@id/playPause"
+            app:layout_constraintStart_toEndOf="@id/playPause"
+            app:layout_constraintTop_toTopOf="@id/playPause"
+            app:tint="@android:color/white"
+            tools:text="10" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <LinearLayout
+        android:id="@+id/topLeftLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_marginStart="@dimen/tv_safe_horizontal"
+        android:layout_marginTop="@dimen/tv_safe_vertical"
+        android:layout_marginEnd="@dimen/tv_safe_horizontal"
+        android:layout_toStartOf="@id/topRightLayout"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/channelAvatar"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_marginEnd="10dp"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <LinearLayout
+            android:id="@+id/infoLayout"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/metadataContentLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/channel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:gravity="center_vertical|start"
+                    android:maxLines="1"
+                    android:textColor="@android:color/white"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    tools:text="channel"
+                    tools:visibility="visible" />
+
+                <LinearLayout
+                    android:id="@+id/titleAndViewersLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:gravity="start"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/title"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:gravity="center_vertical|start"
+                        android:maxLines="2"
+                        android:textColor="@android:color/white"
+                        android:textSize="15sp"
+                        android:visibility="gone"
+                        tools:text="title"
+                        tools:visibility="visible" />
+
+                    <LinearLayout
+                        android:id="@+id/viewersLayout"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:gravity="center_vertical|start"
+                        android:minWidth="40dp"
+                        android:minHeight="40dp"
+                        android:orientation="horizontal"
+                        android:visibility="gone"
+                        android:foreground="?attr/selectableItemBackgroundBorderless"
+                        tools:visibility="visible">
+
+                        <ImageView
+                            android:id="@+id/viewersIcon"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:background="@android:color/transparent"
+                            android:importantForAccessibility="no"
+                            android:padding="0dp"
+                            android:src="@drawable/baseline_person_black_24"
+                            android:visibility="gone"
+                            app:tint="@android:color/white"
+                            tools:visibility="visible" />
+
+                        <TextView
+                            android:id="@+id/viewersText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:textColor="@android:color/white"
+                            tools:text="for 35 viewers" />
+
+                    </LinearLayout>
+
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/category"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:gravity="center_vertical|start"
+                    android:maxLines="1"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    tools:text="game"
+                    tools:visibility="visible" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/topStartLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_below="@id/topLeftLayout"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+
+        <ImageButton
+            android:id="@+id/minimize"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_minimize"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_expand_more_black_48"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/topRightLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_marginTop="@dimen/tv_safe_vertical"
+        android:layout_marginEnd="@dimen/tv_safe_horizontal">
+
+        <ImageButton
+            android:id="@+id/download"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_download"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/ic_file_download_black_24dp"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/follow"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_follow"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_favorite_border_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/sleepTimer"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_sleep_timer"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_alarm_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/aspectRatio"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_aspect_ratio"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_aspect_ratio_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/speed"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_playback_speed"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/exo_ic_speed"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/quality"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:ellipsize="end"
+            android:contentDescription="@string/player_quality"
+            android:gravity="center"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:maxLines="1"
+            android:maxWidth="120dp"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:textAllCaps="false"
+            android:text="@string/auto"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            app:backgroundTint="@color/chatStatusDark"
+            app:cornerRadius="8dp"
+            app:icon="@drawable/baseline_settings_black_24"
+            app:iconGravity="textStart"
+            app:iconPadding="4dp"
+            app:iconTint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/menu"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_more_options"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_more_vert_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/topCenterLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="@dimen/tv_safe_vertical" />
+
+    <LinearLayout
+        android:id="@+id/middleLeftLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_centerVertical="true"
+        android:layout_marginStart="@dimen/tv_safe_horizontal"
+        android:orientation="vertical">
+
+        <ImageButton
+            android:id="@+id/interactionLock"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_lock_controls"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_lock_black_24"
+            app:tint="@android:color/white" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/middleRightLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_centerVertical="true"
+        android:layout_marginEnd="@dimen/tv_safe_horizontal"
+        android:orientation="vertical" />
+
+    <View
+        android:id="@+id/quickControlsBottomAnchor"
+        android:layout_width="1dp"
+        android:layout_height="53dp"
+        android:layout_alignParentBottom="true"
+        android:importantForAccessibility="no"
+        android:visibility="invisible" />
+
+    <LinearLayout
+        android:id="@+id/bottomLeftLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/bottomLayout"
+        android:layout_alignParentStart="true"
+        android:layout_marginStart="@dimen/tv_safe_horizontal"
+        android:layout_marginBottom="@dimen/tv_player_bottom_spacing">
+
+        <ImageButton
+            android:id="@+id/restart"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_restart"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_replay_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/seekLive"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_seek_live"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/exo_icon_fastforward"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/clip"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_clip"
+            android:enabled="false"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/ic_movie_clip_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/vodGames"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_vod_games"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_format_list_bulleted_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/volume"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_volume"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_volume_up_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/audioCompressor"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_audio_compressor"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_audio_compressor_off_24dp"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/audioOnly"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_audio_only"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_audiotrack_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/bottomRightLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/bottomLayout"
+        android:layout_alignParentEnd="true"
+        android:layout_marginEnd="@dimen/tv_safe_horizontal"
+        android:layout_marginBottom="@dimen/tv_player_bottom_spacing">
+
+        <ImageButton
+            android:id="@+id/liveCaptions"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_live_captions"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/exo_ic_subtitle_off"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/subtitles"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_subtitles"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/exo_ic_subtitle_off"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/toggleChatInput"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_chat_input"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_keyboard_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/toggleChat"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_show_chat"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_speaker_notes_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/fullscreen"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_enter_fullscreen"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:src="@drawable/baseline_fullscreen_black_24"
+            android:visibility="gone"
+            app:tint="@android:color/white"
+            tools:visibility="visible" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/bottomCenterLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/streamInfoLayout"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="@dimen/tv_player_bottom_spacing" />
+
+    <LinearLayout
+        android:id="@+id/streamInfoLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/bottomLayout"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="@dimen/tv_player_bottom_spacing"
+        android:baselineAligned="false"
+        android:gravity="center_vertical">
+
+        <LinearLayout
+            android:id="@+id/uptimeLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:gravity="center"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <ImageView
+                android:id="@+id/uptimeIcon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_marginEnd="4dp"
+                android:background="@android:color/transparent"
+                android:importantForAccessibility="no"
+                android:padding="0dp"
+                android:src="@drawable/baseline_circle_24"
+                android:visibility="gone"
+                app:tint="@color/liveStreamRed"
+                tools:visibility="visible" />
+
+            <Chronometer
+                android:id="@+id/uptimeTimer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:layout_marginBottom="7dp"
+                android:textColor="@android:color/white" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/position"
+        android:layout_width="72dp"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_marginStart="@dimen/tv_safe_horizontal"
+        android:layout_marginBottom="@dimen/tv_safe_vertical"
+        android:background="@android:color/transparent"
+        android:gravity="center"
+        android:textColor="@android:color/white"
+        tools:text="12:16" />
+
+    <LinearLayout
+        android:id="@+id/bottomLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:layout_marginBottom="@dimen/tv_safe_vertical"
+        android:layout_toStartOf="@id/duration"
+        android:layout_toEndOf="@id/position">
+
+        <androidx.media3.ui.DefaultTimeBar
+            android:id="@+id/progressBar"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:layout_weight="1"
+            android:layout_marginEnd="5dp"
+            android:layout_marginBottom="5dp" />
+
+        <Button
+            android:id="@+id/liveButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginEnd="5dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_live"
+            android:minWidth="0dp"
+            android:minHeight="48dp"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:text="@string/player_live"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/duration"
+        android:layout_width="72dp"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentBottom="true"
+        android:layout_marginEnd="@dimen/tv_safe_horizontal"
+        android:layout_marginBottom="@dimen/tv_safe_vertical"
+        android:gravity="center"
+        android:textColor="@android:color/white"
+        tools:text="1:12:16" />
+
+</RelativeLayout>

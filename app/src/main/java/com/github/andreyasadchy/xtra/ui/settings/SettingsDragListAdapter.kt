@@ -12,6 +12,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.SettingsDragListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.SettingsDragListItem
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
+import com.github.andreyasadchy.xtra.util.isTelevision
 
 class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragListAdapter.ViewHolder>(
     object : DiffUtil.ItemCallback<SettingsDragListItem>() {
@@ -45,6 +47,16 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
         @SuppressLint("ClickableViewAccessibility")
         fun bind(item: SettingsDragListItem) {
             with(binding) {
+                val isTv = root.context.isTelevision()
+                if (isTv) {
+                    val density = root.resources.displayMetrics.density
+                    root.minimumHeight = (64f * density).toInt()
+                    root.isFocusable = true
+                    root.isFocusableInTouchMode = false
+                    setAsDefault.isFocusable = false
+                    checkBox.isFocusable = false
+                    TvFocusHelper.install(root, focusedScale = 1.02f)
+                }
                 image.setOnTouchListener { view, event ->
                     if (event.action == MotionEvent.ACTION_DOWN) {
                         itemTouchHelper?.startDrag(this@ViewHolder)
@@ -103,6 +115,26 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     checkBox.setOnCheckedChangeListener(null)
                     checkBox.isEnabled = true
                     checkBox.visibility = View.GONE
+                }
+                if (isTv) {
+                    val checkboxVisible = checkBox.visibility == View.VISIBLE
+                    root.setOnClickListener {
+                        if (checkboxVisible && checkBox.isEnabled) {
+                            checkBox.performClick()
+                        } else if (setAsDefault.visibility == View.VISIBLE && setAsDefault.isClickable) {
+                            setAsDefault.performClick()
+                        }
+                    }
+                    checkBox.scaleX = 1.35f
+                    checkBox.scaleY = 1.35f
+                    setAsDefault.scaleX = 1.25f
+                    setAsDefault.scaleY = 1.25f
+                } else {
+                    root.setOnClickListener(null)
+                    checkBox.scaleX = 1f
+                    checkBox.scaleY = 1f
+                    setAsDefault.scaleX = 1f
+                    setAsDefault.scaleY = 1f
                 }
             }
         }

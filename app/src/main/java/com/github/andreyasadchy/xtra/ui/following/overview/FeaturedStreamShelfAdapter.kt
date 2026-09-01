@@ -34,6 +34,7 @@ import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlin.math.abs
@@ -220,6 +221,7 @@ class FeaturedStreamShelfAdapter(
 
         init {
             binding.root.setOnClickListener { boundStream?.let(onStreamClick) }
+            TvFocusHelper.install(binding.root)
         }
 
         fun beginImageBind(stream: Stream?) {
