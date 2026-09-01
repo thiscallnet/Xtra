@@ -114,10 +114,38 @@ fun applyTvChatOverlayLayout(container: View, parent: ViewGroup, config: TvChatO
     }
     container.layoutParams = FrameLayout.LayoutParams(width, height).apply {
         this.gravity = gravity
-        leftMargin = safeHorizontal
-        rightMargin = safeHorizontal
-        topMargin = safeVertical
-        bottomMargin = safeVertical
+        when (config.anchor) {
+            TvChatOverlayAnchor.TOP_LEFT,
+            TvChatOverlayAnchor.CENTER_LEFT,
+            TvChatOverlayAnchor.BOTTOM_LEFT -> leftMargin = safeHorizontal
+
+            TvChatOverlayAnchor.TOP_RIGHT,
+            TvChatOverlayAnchor.CENTER_RIGHT,
+            TvChatOverlayAnchor.BOTTOM_RIGHT -> rightMargin = safeHorizontal
+
+            TvChatOverlayAnchor.TOP_CENTER,
+            TvChatOverlayAnchor.CENTER,
+            TvChatOverlayAnchor.BOTTOM_CENTER -> {
+                leftMargin = safeHorizontal
+                rightMargin = safeHorizontal
+            }
+        }
+        when (config.anchor) {
+            TvChatOverlayAnchor.TOP_LEFT,
+            TvChatOverlayAnchor.TOP_CENTER,
+            TvChatOverlayAnchor.TOP_RIGHT -> topMargin = safeVertical
+
+            TvChatOverlayAnchor.BOTTOM_LEFT,
+            TvChatOverlayAnchor.BOTTOM_CENTER,
+            TvChatOverlayAnchor.BOTTOM_RIGHT -> bottomMargin = safeVertical
+
+            TvChatOverlayAnchor.CENTER_LEFT,
+            TvChatOverlayAnchor.CENTER,
+            TvChatOverlayAnchor.CENTER_RIGHT -> {
+                topMargin = safeVertical
+                bottomMargin = safeVertical
+            }
+        }
     }
     container.alpha = 1f
     container.background?.alpha = (config.safeOpacityPercent * 255 / 100f).toInt()
@@ -176,6 +204,7 @@ fun applyTvChatPresentation(
             playerParams.marginEnd = 0
             player.layoutParams = playerParams
             chat.background = chat.context.getDrawable(R.drawable.tv_chat_overlay_background)
+            chat.alpha = 1f
             chat.visibility = View.VISIBLE
             chat.post { applyTvChatOverlayLayout(chat, parent, tvChatOverlayConfig(parent.context)) }
         }

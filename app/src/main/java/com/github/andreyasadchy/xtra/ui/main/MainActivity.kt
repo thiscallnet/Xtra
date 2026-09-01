@@ -1323,6 +1323,9 @@ class MainActivity : AppCompatActivity() {
         viewModel.sleepTimer?.cancel()
         viewModel.sleepTimerEndTime = 0L
         currentMultiviewFragment()?.resumeAfterExternalPlayer()
+        if (isTv) {
+            binding.root.post { restoreTvRootFocusIfNeeded() }
+        }
     }
 
     fun onPlayerReturnedToBrowsing(playerStillOpen: Boolean) {
@@ -1462,9 +1465,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (isTv) {
-            val player = playerFragment
+            // Fragment restoration can finish after the Activity has resumed. Resolve the
+            // player from its container before routing remote keys so an underlying SearchView
+            // or toolbar never receives an OK press while playback is still visible.
+            val player = activePlayerFragment()
             if (player is TvRemoteKeyHandler && player.handleTvKeyEvent(event)) return true
-            val focused = currentFocus
+            val focused = binding.tvNavigationContainer.findFocus() ?: currentFocus
             if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT &&
                 focused != null && isDescendantOf(focused, binding.tvNavigationContainer)) {
                 focused.focusSearch(View.FOCUS_RIGHT)?.takeIf {
@@ -1477,8 +1483,8 @@ class MainActivity : AppCompatActivity() {
             }
             if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT &&
                 focused != null && isDescendantOf(focused, binding.navHostFragment) &&
-                (focused.focusSearch(View.FOCUS_LEFT) == null ||
-                    focused.focusSearch(View.FOCUS_LEFT)?.let { isDescendantOf(it, binding.tvNavigationContainer) } == true) &&
+                focused.focusSearch(View.FOCUS_LEFT)
+                    ?.takeIf { isTvContentFocusCandidate(it) } == null &&
                 requestTvRootNavigationFocus()) {
                 return true
             }
@@ -1487,9 +1493,9 @@ class MainActivity : AppCompatActivity() {
                     KeyEvent.KEYCODE_DPAD_RIGHT,
                     KeyEvent.KEYCODE_DPAD_UP,
                     KeyEvent.KEYCODE_DPAD_DOWN,
-                )) {
+                ) && !hasActivePlayer()) {
                 binding.root.postDelayed({
-                    if (currentFocus == null && rootNavigationView().menu.size() > 0) {
+                    if (!hasActivePlayer() && currentFocus == null && rootNavigationView().menu.size() > 0) {
                         rootNavigationView().findViewById<View>(rootNavigationView().selectedItemId)?.requestFocus()
                     }
                 }, 50L)
@@ -1499,9 +1505,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun restoreTvRootFocusIfNeeded() {
-        if (!isTv || playerFragment != null || currentFocus != null) return
+        if (!isTv || hasActivePlayer()) return
+        val focused = currentFocus
+        if (focused != null && focused.isShown && focused.isEnabled && focused.isFocusable &&
+            (isDescendantOf(focused, binding.tvNavigationContainer) ||
+                isDescendantOf(focused, binding.navHostFragment))
+        ) return
         requestTvRootNavigationFocus()
     }
+
+    private fun activePlayerFragment(): Fragment? = playerFragment
+        ?: supportFragmentManager.findFragmentById(R.id.playerContainer)
+            ?.also { playerFragment = it }
+
+    private fun hasActivePlayer(): Boolean = activePlayerFragment() != null
 
     private fun requestTvRootNavigationFocus(): Boolean {
         val navigationView = rootNavigationView()
@@ -1539,7 +1556,16 @@ class MainActivity : AppCompatActivity() {
                 view.getGlobalVisibleRect(bounds)
                 bounds.left
             })
-        return candidate?.requestFocus() == true
+        return candidate?.let { view ->
+            if (view.requestFocus()) {
+                true
+            } else {
+                // Paging/shelf layouts can finish their focusability pass one frame after the
+                // rail receives the key. Keep the event in the TV shell and retry on that frame.
+                view.post { if (view.isShown && view.isFocusable) view.requestFocus() }
+                true
+            }
+        } ?: false
     }
 
     private fun isTvContentFocusCandidate(view: View, minimumLeft: Int = binding.tvNavigationContainer.right): Boolean {

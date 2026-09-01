@@ -30,6 +30,7 @@ import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 
 class StreamShelfAdapter(
     private val fragment: androidx.fragment.app.Fragment,
@@ -115,6 +116,7 @@ class StreamShelfAdapter(
 
         init {
             binding.root.setOnClickListener { boundStream?.let(onStreamClick) }
+            TvFocusHelper.install(binding.root)
         }
 
         fun beginImageBind(stream: Stream?) {

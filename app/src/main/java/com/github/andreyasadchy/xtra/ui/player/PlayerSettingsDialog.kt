@@ -18,14 +18,20 @@ import com.github.andreyasadchy.xtra.ui.settings.PlayerControlLayoutEditor
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER_CONTROLS
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER
+import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_CHAT
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.tv.TvChatMode
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
+import com.github.andreyasadchy.xtra.ui.tv.tvChatMode
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.isChatEnabled
+import com.github.andreyasadchy.xtra.util.isTelevision
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -64,10 +70,13 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
         val arguments = requireArguments()
         val type = arguments.getString(TYPE)
+        val isTv = requireContext().isTelevision()
         with(binding) {
-            menuCustomizeControls.visibility = View.VISIBLE
-            menuCustomizeControls.setOnClickListener {
-                showControlLayoutEditor()
+            menuCustomizeControls.isVisible = !isTv
+            if (menuCustomizeControls.isVisible) {
+                menuCustomizeControls.setOnClickListener {
+                    showControlLayoutEditor()
+                }
             }
             menuPlayerControlSettings.setOnClickListener {
                 dismiss()
@@ -77,7 +86,43 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
                     ?: startActivity(intent)
             }
-            if (type != BasePlaybackService.STREAM && requireContext().prefs().getBoolean(C.PLAYER_MENU_SPEED, false)) {
+            if (isTv && requireContext().prefs().isChatEnabled()) {
+                val modeValues = resources.getStringArray(R.array.tvChatModeValues)
+                val modeEntries = resources.getStringArray(R.array.tvChatModeEntries)
+                menuChatLayout.visibility = View.VISIBLE
+                menuChatLayout.text = getString(R.string.settings_tv_chat_layout) + ": " +
+                    modeEntries.getOrElse(modeValues.indexOf(tvChatMode(requireContext()).name.lowercase())) { modeEntries.first() }
+                menuChatLayout.setOnClickListener {
+                    val currentMode = tvChatMode(requireContext()).name.lowercase()
+                    requireContext().getAlertDialogBuilder()
+                        .setTitle(R.string.settings_tv_chat_layout)
+                        .setSingleChoiceItems(modeEntries, modeValues.indexOf(currentMode)) { dialog, which ->
+                            val selected = modeValues.getOrNull(which) ?: return@setSingleChoiceItems
+                            requireContext().prefs().edit { putString(C.TV_CHAT_MODE, selected) }
+                            menuChatLayout.text = getString(R.string.settings_tv_chat_layout) + ": " +
+                                modeEntries.getOrElse(which) { modeEntries.first() }
+                            when (selected) {
+                                "hidden" -> (parentFragment as? Media3PlayerFragment)?.hideChat() ?: (parentFragment as? PlayerFragment)?.hideChat()
+                                else -> (parentFragment as? Media3PlayerFragment)?.showChat() ?: (parentFragment as? PlayerFragment)?.showChat()
+                            }
+                            dialog.dismiss()
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show()
+                }
+                menuConfigureTvChat.visibility = View.VISIBLE
+                menuConfigureTvChat.setOnClickListener {
+                    dismiss()
+                    val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
+                        putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_CHAT)
+                    }
+                    (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
+                        ?: startActivity(intent)
+                }
+            }
+            if (type != BasePlaybackService.STREAM &&
+                (isTv || requireContext().prefs().getBoolean(C.PLAYER_MENU_SPEED, false))
+            ) {
                 menuSpeed.visibility = View.VISIBLE
                 menuSpeed.setOnClickListener {
                     (parentFragment as? Media3PlayerFragment)?.showSpeedDialog() ?:
@@ -125,7 +170,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                         dismiss()
                     }
                 }
-                if (requireContext().prefs().getBoolean(C.PLAYER_MENU_RESTART, false)) {
+                if (isTv || requireContext().prefs().getBoolean(C.PLAYER_MENU_RESTART, false)) {
                     menuRestart.visibility = View.VISIBLE
                     menuRestart.setOnClickListener {
                         (parentFragment as? Media3PlayerFragment)?.restartPlayer() ?:
@@ -218,7 +263,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 }
             }
             if (((parentFragment as? Media3PlayerFragment)?.getIsPortrait() ?: (parentFragment as? PlayerFragment)?.getIsPortrait()) == false) {
-                if (requireContext().prefs().getBoolean(C.PLAYER_MENU_ASPECT, false)) {
+                if (isTv || requireContext().prefs().getBoolean(C.PLAYER_MENU_ASPECT, false)) {
                     menuRatio.visibility = View.VISIBLE
                     menuRatio.setOnClickListener {
                         (parentFragment as? Media3PlayerFragment)?.setResizeMode() ?:
@@ -226,7 +271,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                         dismiss()
                     }
                 }
-                if (requireContext().prefs().getBoolean(C.PLAYER_MENU_CHAT_TOGGLE, false)) {
+                if (isTv || requireContext().prefs().getBoolean(C.PLAYER_MENU_CHAT_TOGGLE, false)) {
                     menuChatToggle.visibility = View.VISIBLE
                     if (requireContext().prefs().getBoolean(C.KEY_CHAT_OPENED, true)) {
                         menuChatToggle.text = getString(R.string.hide_chat)
@@ -245,7 +290,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                     }
                 }
             }
-            if (requireContext().prefs().getBoolean(C.PLAYER_MENU_VOLUME, false)) {
+            if (isTv || requireContext().prefs().getBoolean(C.PLAYER_MENU_VOLUME, false)) {
                 menuVolume.visibility = View.VISIBLE
                 menuVolume.setOnClickListener {
                     (parentFragment as? Media3PlayerFragment)?.showVolumeDialog() ?:
@@ -288,6 +333,17 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
         }
         reorderMenuItems()
         setMenuTextColor(view)
+
+        if (requireContext().isTelevision()) {
+            TvFocusHelper.installClickableDescendants(binding.menuContainer)
+            binding.menuContainer.post {
+                val firstAction = (0 until binding.menuContainer.childCount)
+                    .asSequence()
+                    .map(binding.menuContainer::getChildAt)
+                    .firstOrNull { it.isVisible && it.isFocusable && it.isEnabled }
+                firstAction?.requestFocus()
+            }
+        }
     }
 
     private fun showControlLayoutEditor() {
@@ -383,7 +439,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
 
     fun setVodGames() {
         with(binding) {
-            if (requireContext().prefs().getBoolean(C.PLAYER_MENU_GAMES, false)) {
+            if (requireContext().isTelevision() || requireContext().prefs().getBoolean(C.PLAYER_MENU_GAMES, false)) {
                 menuVodGames.visibility = View.VISIBLE
                 menuVodGames.setOnClickListener {
                     (parentFragment as? Media3PlayerFragment)?.showVodGames() ?:
@@ -408,7 +464,9 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
 
     fun setSubtitles(subtitles: Tracks.Group? = null) {
         with(binding) {
-            if (subtitles != null && requireContext().prefs().getBoolean(C.PLAYER_MENU_SUBTITLES, true)) {
+            if (subtitles != null &&
+                (requireContext().isTelevision() || requireContext().prefs().getBoolean(C.PLAYER_MENU_SUBTITLES, true))
+            ) {
                 menuSubtitles.visibility = View.VISIBLE
                 if (subtitles.isSelected) {
                     menuSubtitles.text = getString(R.string.hide_subtitles)

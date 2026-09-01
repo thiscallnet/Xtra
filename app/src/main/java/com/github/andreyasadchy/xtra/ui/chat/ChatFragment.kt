@@ -82,6 +82,7 @@ import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.isChatEnabled
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.isTelevision
 import com.github.andreyasadchy.xtra.util.reduceDragSensitivity
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.color.MaterialColors
@@ -1162,7 +1163,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
         if (message.id != displayedPinnedMessageId) {
             displayedPinnedMessageId = message.id
-            pinnedMessageMinimized = false
+            // The expanded pinned-message card is designed for touch-sized
+            // chat surfaces. Keep it compact on TV so it does not cover the
+            // chat feed or dominate the viewing area; the existing minimize
+            // action still allows expansion when deliberately selected.
+            pinnedMessageMinimized = requireContext().isTelevision()
         }
         currentBinding.pinnedMessageBy.text = message.pinnedBy
         currentBinding.pinnedMessageSender.text = message.sender ?: message.pinnedBy

@@ -181,6 +181,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var liveRewindPendingVodId: String? = null
     private var liveRewindPendingTargetMs: Long? = null
     private var lastTvFocusedControl: View? = null
+    private var pendingTvFocusRequest: Runnable? = null
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
@@ -199,6 +200,31 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     override fun handleTvKeyEvent(event: android.view.KeyEvent): Boolean {
         if (!requireContext().isTelevision()) return false
         if (binding.playerControls.root.isVisible) {
+            val isTvFocusRecoveryKey = event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
+                event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT ||
+                event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
+                event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN ||
+                event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+                event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
+                event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER
+            if (isTvFocusRecoveryKey && !hasTvFocusInside(binding.playerControls.root)) {
+                val preferred = lastTvFocusedControl
+                    ?.takeIf { it.isAttachedToWindow && it.visibility == View.VISIBLE && it.isEnabled }
+                    ?: binding.playerControls.playPause
+                if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    preferred.requestFocus()
+                    lastTvFocusedControl = preferred
+                }
+                if (event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
+                    event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT ||
+                    event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
+                    event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                ) {
+                    configureTvPlayerActionFocus()
+                    if (routeTvDirectionalKey(event, preferred)) return true
+                }
+                return true
+            }
             configureTvPlayerActionFocus()
             if (routeTvDirectionalKey(event)) return true
         }
@@ -220,16 +246,52 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (event.action != android.view.KeyEvent.ACTION_DOWN) return true
         if (event.repeatCount > 0) return true
         when (command) {
-            TvPlayerCommand.SeekBack -> { rewind(); showController(force = true); lastTvFocusedControl = binding.playerControls.rewind; binding.playerControls.rewind.post { binding.playerControls.rewind.requestFocus() } }
-            TvPlayerCommand.SeekForward -> { fastForward(); showController(force = true); lastTvFocusedControl = binding.playerControls.fastForward; binding.playerControls.fastForward.post { binding.playerControls.fastForward.requestFocus() } }
-            TvPlayerCommand.ShowControls -> { showController(force = true); lastTvFocusedControl = binding.playerControls.playPause; binding.playerControls.playPause.post { binding.playerControls.playPause.requestFocus() } }
+            TvPlayerCommand.SeekBack -> { rewind(); showController(force = true); requestTvControlFocus(binding.playerControls.rewind) }
+            TvPlayerCommand.SeekForward -> { fastForward(); showController(force = true); requestTvControlFocus(binding.playerControls.fastForward) }
+            TvPlayerCommand.ShowControls -> { showController(force = true); requestTvControlFocus(binding.playerControls.playPause) }
         }
         return true
     }
 
-    private fun routeTvDirectionalKey(event: android.view.KeyEvent): Boolean {
+    private fun requestTvControlFocus(control: View) {
+        lastTvFocusedControl = control
+        // The controller fades in asynchronously. Requesting focus in the same
+        // frame as showController() can be rejected while its root is still GONE.
+        val root = binding.playerControls.root
+        pendingTvFocusRequest?.let(root::removeCallbacks)
+        val request = object : Runnable {
+            override fun run() {
+                if (pendingTvFocusRequest !== this) return
+                pendingTvFocusRequest = null
+                if (!isAdded || _binding == null || !root.isVisible) return
+                // A newer remote navigation decision wins over this delayed
+                // controller-visibility workaround.
+                if (lastTvFocusedControl !== control) return
+                if (root.findFocus() != null && root.findFocus() !== control) return
+                if (control.isShown && control.isEnabled) {
+                    configureTvPlayerActionFocus()
+                    control.requestFocus()
+                }
+            }
+        }
+        pendingTvFocusRequest = request
+        root.postDelayed(request, 300L)
+    }
+
+    private fun hasTvFocusInside(root: ViewGroup): Boolean {
+        var current = requireActivity().currentFocus
+        while (current != null) {
+            if (current === root) return true
+            if (current.parent !is View) return false
+            current = current.parent as View
+        }
+        return false
+    }
+
+    private fun routeTvDirectionalKey(event: android.view.KeyEvent, focusOverride: View? = null): Boolean {
         val visible: (View) -> Boolean = { view ->
             if (view.visibility == View.VISIBLE && view.isEnabled) {
+                TvFocusHelper.install(view)
                 view.isFocusable = true
                 view.isFocusableInTouchMode = false
                 true
@@ -237,16 +299,36 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 false
             }
         }
-        val top = listOf(binding.playerControls.download, binding.playerControls.follow, binding.playerControls.sleepTimer, binding.playerControls.aspectRatio, binding.playerControls.speed, binding.playerControls.quality, binding.playerControls.menu).filter(visible)
-        val transport = listOf(binding.playerControls.rewind, binding.playerControls.playPause, binding.playerControls.fastForward).filter(visible)
-        val bottom = listOf(binding.playerControls.restart, binding.playerControls.seekLive, binding.playerControls.clip, binding.playerControls.vodGames, binding.playerControls.volume, binding.playerControls.audioCompressor, binding.playerControls.audioOnly, binding.playerControls.liveCaptions, binding.playerControls.subtitles, binding.playerControls.toggleChatInput, binding.playerControls.toggleChat, binding.playerControls.fullscreen).filter(visible)
+        val candidates = listOf(
+            binding.playerControls.rewind,
+            binding.playerControls.playPause,
+            binding.playerControls.fastForward,
+            binding.playerControls.download,
+            binding.playerControls.follow,
+            binding.playerControls.sleepTimer,
+            binding.playerControls.aspectRatio,
+            binding.playerControls.speed,
+            binding.playerControls.quality,
+            binding.playerControls.menu,
+            binding.playerControls.restart,
+            binding.playerControls.seekLive,
+            binding.playerControls.clip,
+            binding.playerControls.vodGames,
+            binding.playerControls.volume,
+            binding.playerControls.audioCompressor,
+            binding.playerControls.audioOnly,
+            binding.playerControls.liveCaptions,
+            binding.playerControls.subtitles,
+            binding.playerControls.toggleChatInput,
+            binding.playerControls.toggleChat,
+            binding.playerControls.fullscreen,
+            binding.playerControls.liveButton,
+        ).filter(visible)
         return TvFocusHelper.routeDirectionalFocus(
             event,
             binding.playerControls.root,
-            top,
-            transport,
-            bottom,
-            focusedOverride = requireActivity().currentFocus,
+            candidates,
+            focusedOverride = focusOverride ?: requireActivity().currentFocus,
             fallback = lastTvFocusedControl?.takeIf { it.isAttachedToWindow }
                 ?: binding.playerControls.playPause,
             onMoved = { lastTvFocusedControl = it },
@@ -360,13 +442,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             binding.dragView.isFocusableInTouchMode = false
             binding.playerControls.minimize.visibility = View.GONE
             binding.playerControls.interactionLock.visibility = View.GONE
-            binding.playerControls.topStartLayout.visibility = View.GONE
-            binding.playerControls.middleLeftLayout.visibility = View.GONE
             binding.playerControls.rewind.nextFocusRightId = binding.playerControls.playPause.id
             binding.playerControls.playPause.nextFocusLeftId = binding.playerControls.rewind.id
             binding.playerControls.playPause.nextFocusRightId = binding.playerControls.fastForward.id
             binding.playerControls.fastForward.nextFocusLeftId = binding.playerControls.playPause.id
-            TvFocusHelper.installClickableDescendants(binding.playerControls.root)
             binding.playerControls.root.post { configureTvPlayerActionFocus() }
             lastTvFocusedControl = binding.playerControls.playPause
             binding.dragView.requestFocus()
@@ -1377,6 +1456,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             }
             refreshPlayerControls()
             PlayerControlLayout.applyToPlayer(requireContext(), binding)
+            hideTvSecondaryActions()
             schedulePortraitControlScale()
             dismissPlayer.setOnClickListener {
                 close()
@@ -1390,6 +1470,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         initLayout()
         refreshPlayerControls()
         PlayerControlLayout.applyToPlayer(requireContext(), binding)
+        hideTvSecondaryActions()
         schedulePortraitControlScale()
         showController(force = true)
     }
@@ -1593,8 +1674,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun configureTvPlayerActionFocus() {
+        hideTvSecondaryActions()
         val visible: (View) -> Boolean = { view ->
             if (view.visibility == View.VISIBLE && view.isEnabled) {
+                TvFocusHelper.install(view)
                 view.isFocusable = true
                 view.isFocusableInTouchMode = false
                 true
@@ -1602,7 +1685,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 false
             }
         }
-        val top = listOf(
+        val candidates = listOf(
+            binding.playerControls.rewind,
+            binding.playerControls.playPause,
+            binding.playerControls.fastForward,
             binding.playerControls.download,
             binding.playerControls.follow,
             binding.playerControls.sleepTimer,
@@ -1610,8 +1696,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             binding.playerControls.speed,
             binding.playerControls.quality,
             binding.playerControls.menu,
-        ).filter(visible)
-        val bottom = listOf(
             binding.playerControls.restart,
             binding.playerControls.seekLive,
             binding.playerControls.clip,
@@ -1624,33 +1708,17 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             binding.playerControls.toggleChatInput,
             binding.playerControls.toggleChat,
             binding.playerControls.fullscreen,
+            binding.playerControls.liveButton,
         ).filter(visible)
-        TvFocusHelper.linkHorizontalFocus(top)
-        TvFocusHelper.linkHorizontalFocus(bottom)
-        top.firstOrNull()?.let { first ->
-            binding.playerControls.playPause.nextFocusUpId = first.id
-            first.nextFocusDownId = binding.playerControls.playPause.id
-        }
-        bottom.firstOrNull()?.let { first ->
-            binding.playerControls.playPause.nextFocusDownId = first.id
-            first.nextFocusUpId = binding.playerControls.playPause.id
-        }
-        bottom.forEach { it.nextFocusUpId = binding.playerControls.playPause.id }
-        top.forEach { it.nextFocusDownId = binding.playerControls.playPause.id }
-        top.forEach { it.nextFocusUpId = it.id }
-        bottom.forEach { it.nextFocusDownId = it.id }
-        listOf(
-            binding.playerControls.rewind,
-            binding.playerControls.playPause,
-            binding.playerControls.fastForward,
-        ).forEach { transport ->
-            transport.nextFocusUpId = top.firstOrNull()?.id ?: transport.id
-            transport.nextFocusDownId = bottom.firstOrNull()?.id ?: transport.id
-        }
+        TvFocusHelper.linkVisualFocus(binding.playerControls.root, candidates)
     }
 
     private fun schedulePortraitControlScale() {
         PortraitPlayerControls.schedule(binding, isPortrait)
+    }
+
+    private fun hideTvSecondaryActions() {
+        PlayerControlLayout.hideSecondaryActionsOnTelevision(requireContext(), binding)
     }
 
     fun setResizeMode() {
@@ -2333,6 +2401,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun hideController(force: Boolean = false) {
+        if (requireContext().isTelevision() && !force) return
         if (!controllerIsAnimating && binding.playerControls.root.isVisible) {
             controllerAnimation = binding.playerControls.root.animate().apply {
                 alpha(0f)
@@ -2516,6 +2585,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     override fun onResume() {
         super.onResume()
+        if (requireContext().isTelevision() && !isPortrait) {
+            applyTvChatPresentation(binding.chatLayout, binding.playerLayout, binding.slidingLayout, isChatOpen)
+        }
         val isInPIPMode = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> requireActivity().isInPictureInPictureMode
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> !useController && isMaximized
@@ -3175,6 +3247,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 initLayout()
                 refreshPlayerControls()
                 PlayerControlLayout.applyToPlayer(requireContext(), binding)
+                hideTvSecondaryActions()
                 schedulePortraitControlScale()
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.dismiss()
@@ -3566,6 +3639,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     override fun onDestroyView() {
+        _binding?.playerControls?.root?.let { root ->
+            pendingTvFocusRequest?.let(root::removeCallbacks)
+        }
+        pendingTvFocusRequest = null
         xtraModule.liveCaptionManager.resetForPlaybackTransition()
         loadedChannelAvatarUrl = null
         liveRewindDiscoveryJob?.cancel()

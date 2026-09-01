@@ -99,6 +99,7 @@ import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.Set
 import com.github.andreyasadchy.xtra.ui.tv.TvChatOverlayAnchor
 import com.github.andreyasadchy.xtra.ui.tv.TvChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.tv.TvChatOverlayPreset
+import com.github.andreyasadchy.xtra.ui.tv.TvChatMode
 import com.github.andreyasadchy.xtra.ui.tv.persistTvChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.tv.tvChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.tv.tvChatPreset
@@ -244,6 +245,7 @@ class SettingsActivity : AppCompatActivity() {
                 SETTINGS_SCREEN_TABS -> navController.navigate(R.id.browsingTabsFragment)
                 SETTINGS_SCREEN_PLAYER_CONTROLS -> navController.navigate(R.id.playerButtonSettingsFragment)
                 SETTINGS_SCREEN_PLAYER -> navController.navigate(R.id.playerSettingsFragment)
+                SETTINGS_SCREEN_CHAT -> navController.navigate(R.id.chatSettingsFragment)
             }
         }
         binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
@@ -2316,6 +2318,7 @@ class SettingsActivity : AppCompatActivity() {
             if (!category.isVisible) return
 
             val preset = findPreference<ListPreference>(C.TV_CHAT_OVERLAY_PRESET)
+            val mode = findPreference<ListPreference>(C.TV_CHAT_MODE)
             val anchor = findPreference<ListPreference>(C.TV_CHAT_OVERLAY_ANCHOR)
             val width = findPreference<SeekBarPreference>(C.TV_CHAT_OVERLAY_WIDTH_PERCENT)
             val height = findPreference<SeekBarPreference>(C.TV_CHAT_OVERLAY_HEIGHT_PERCENT)
@@ -2371,6 +2374,7 @@ class SettingsActivity : AppCompatActivity() {
                     putString(C.TV_CHAT_MODE, "side_panel")
                 }
                 persistTvChatOverlayConfig(requireContext(), config)
+                mode?.value = TvChatMode.SIDE_PANEL.name.lowercase()
                 preset?.value = TvChatOverlayPreset.AUTO.name
                 anchor?.value = config.anchor.name
                 width?.value = config.widthPercent
@@ -2514,7 +2518,12 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<Preference>("player_information")?.setOnPreferenceClickListener { findNavController().navigate(R.id.playerInformationFragment); true }
             findPreference<Preference>("clip_settings")?.setOnPreferenceClickListener { findNavController().navigate(R.id.clipSettingsFragment); true }
             findPreference<Preference>("player_speed_options")?.setOnPreferenceClickListener { showSpeedOptionsDialog(); true }
-            findPreference<Preference>("customize_controls")?.setOnPreferenceClickListener { showControlLayoutDialog(); true }
+            findPreference<Preference>("customize_controls")?.let { preference ->
+                preference.isVisible = !requireContext().isTelevision()
+                if (preference.isVisible) {
+                    preference.setOnPreferenceClickListener { showControlLayoutDialog(); true }
+                }
+            }
         }
 
         private fun showSpeedOptionsDialog() {

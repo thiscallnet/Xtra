@@ -4,13 +4,9 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:alpha="0"
     android:clipChildren="false"
     android:clipToPadding="false"
-    android:paddingStart="@dimen/tv_safe_horizontal"
-    android:paddingTop="@dimen/tv_safe_vertical"
-    android:paddingEnd="@dimen/tv_safe_horizontal"
-    android:paddingBottom="@dimen/tv_safe_vertical"
+    android:alpha="0"
     android:visibility="gone"
     tools:alpha="1"
     tools:visibility="visible">
@@ -18,70 +14,84 @@
     <View
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:alpha="0.26"
+        android:alpha="0.4"
         android:background="@android:color/black" />
 
-    <ImageButton
-        android:id="@+id/playPause"
-        android:layout_width="@dimen/tv_player_primary_button"
-        android:layout_height="@dimen/tv_player_primary_button"
-        android:layout_centerInParent="true"
-        android:background="@drawable/tv_player_control_background"
-        android:contentDescription="@string/player_play"
-        android:src="@drawable/baseline_play_arrow_black_48"
-        app:tint="@android:color/white" />
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/centerControls"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false">
 
-    <Button
-        android:id="@+id/rewind"
-        android:layout_width="@dimen/tv_player_transport_button"
-        android:layout_height="@dimen/tv_player_transport_button"
-        android:layout_centerVertical="true"
-        android:layout_marginStart="180dp"
-        android:background="@drawable/tv_player_control_background"
-        android:contentDescription="@string/player_rewind"
-        android:foreground="@drawable/exo_styled_controls_rewind"
-        android:gravity="center|bottom"
-        android:insetBottom="0dp"
-        android:paddingLeft="0dp"
-        android:paddingRight="0dp"
-        android:paddingBottom="20dp"
-        android:textColor="@android:color/white"
-        android:textSize="10sp"
-        android:textStyle="bold"
-        app:backgroundTint="@android:color/white"
-        app:tint="@android:color/white"
-        tools:text="10" />
+        <ImageButton
+            android:id="@+id/playPause"
+            android:layout_width="@dimen/tv_player_primary_button"
+            android:layout_height="@dimen/tv_player_primary_button"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_play"
+            android:src="@drawable/baseline_play_arrow_black_48"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:tint="@android:color/white" />
 
-    <Button
-        android:id="@+id/fastForward"
-        android:layout_width="@dimen/tv_player_transport_button"
-        android:layout_height="@dimen/tv_player_transport_button"
-        android:layout_alignParentEnd="true"
-        android:layout_centerVertical="true"
-        android:layout_marginEnd="180dp"
-        android:background="@drawable/tv_player_control_background"
-        android:contentDescription="@string/player_fast_forward"
-        android:foreground="@drawable/exo_styled_controls_fastforward"
-        android:gravity="center|bottom"
-        android:insetBottom="0dp"
-        android:paddingLeft="0dp"
-        android:paddingRight="0dp"
-        android:paddingBottom="20dp"
-        android:textColor="@android:color/white"
-        android:textSize="10sp"
-        android:textStyle="bold"
-        app:backgroundTint="@android:color/white"
-        app:tint="@android:color/white"
-        tools:text="10" />
+        <Button
+            android:id="@+id/rewind"
+            android:layout_width="@dimen/tv_player_transport_button"
+            android:layout_height="@dimen/tv_player_transport_button"
+            android:layout_marginEnd="16dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_rewind"
+            android:foreground="@drawable/exo_styled_controls_rewind"
+            android:gravity="center|bottom"
+            android:insetBottom="0dp"
+            android:paddingLeft="0dp"
+            android:paddingRight="0dp"
+            android:paddingBottom="20dp"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            app:backgroundTint="@android:color/white"
+            app:layout_constraintBottom_toBottomOf="@id/playPause"
+            app:layout_constraintEnd_toStartOf="@id/playPause"
+            app:layout_constraintTop_toTopOf="@id/playPause"
+            app:tint="@android:color/white"
+            tools:text="10" />
+
+        <Button
+            android:id="@+id/fastForward"
+            android:layout_width="@dimen/tv_player_transport_button"
+            android:layout_height="@dimen/tv_player_transport_button"
+            android:layout_marginStart="16dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_fast_forward"
+            android:foreground="@drawable/exo_styled_controls_fastforward"
+            android:gravity="center|bottom"
+            android:insetBottom="0dp"
+            android:paddingLeft="0dp"
+            android:paddingRight="0dp"
+            android:paddingBottom="20dp"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            app:backgroundTint="@android:color/white"
+            app:layout_constraintBottom_toBottomOf="@id/playPause"
+            app:layout_constraintStart_toEndOf="@id/playPause"
+            app:layout_constraintTop_toTopOf="@id/playPause"
+            app:tint="@android:color/white"
+            tools:text="10" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
     <LinearLayout
         android:id="@+id/topLeftLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentStart="true"
-        android:layout_marginStart="10dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="8dp"
+        android:layout_marginStart="@dimen/tv_safe_horizontal"
+        android:layout_marginTop="@dimen/tv_safe_vertical"
+        android:layout_marginEnd="@dimen/tv_safe_horizontal"
         android:layout_toStartOf="@id/topRightLayout"
         android:gravity="center_vertical"
         android:orientation="horizontal">
@@ -231,8 +241,8 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_alignParentEnd="true"
-        android:layout_marginTop="5dp"
-        android:layout_marginEnd="10dp">
+        android:layout_marginTop="@dimen/tv_safe_vertical"
+        android:layout_marginEnd="@dimen/tv_safe_horizontal">
 
         <ImageButton
             android:id="@+id/download"
@@ -349,7 +359,7 @@
         android:layout_height="wrap_content"
         android:layout_alignParentTop="true"
         android:layout_centerHorizontal="true"
-        android:layout_marginTop="5dp" />
+        android:layout_marginTop="@dimen/tv_safe_vertical" />
 
     <LinearLayout
         android:id="@+id/middleLeftLayout"
@@ -357,7 +367,7 @@
         android:layout_height="wrap_content"
         android:layout_alignParentStart="true"
         android:layout_centerVertical="true"
-        android:layout_marginStart="10dp"
+        android:layout_marginStart="@dimen/tv_safe_horizontal"
         android:orientation="vertical">
 
         <ImageButton
@@ -369,7 +379,6 @@
             android:minWidth="48dp"
             android:minHeight="48dp"
             android:src="@drawable/baseline_lock_black_24"
-            android:visibility="gone"
             app:tint="@android:color/white" />
 
     </LinearLayout>
@@ -380,7 +389,7 @@
         android:layout_height="wrap_content"
         android:layout_alignParentEnd="true"
         android:layout_centerVertical="true"
-        android:layout_marginEnd="10dp"
+        android:layout_marginEnd="@dimen/tv_safe_horizontal"
         android:orientation="vertical" />
 
     <View
@@ -397,8 +406,8 @@
         android:layout_height="wrap_content"
         android:layout_above="@id/bottomLayout"
         android:layout_alignParentStart="true"
-        android:layout_marginStart="10dp"
-        android:layout_marginBottom="5dp">
+        android:layout_marginStart="@dimen/tv_safe_horizontal"
+        android:layout_marginBottom="@dimen/tv_player_bottom_spacing">
 
         <ImageButton
             android:id="@+id/restart"
@@ -500,8 +509,8 @@
         android:layout_height="wrap_content"
         android:layout_above="@id/bottomLayout"
         android:layout_alignParentEnd="true"
-        android:layout_marginEnd="10dp"
-        android:layout_marginBottom="5dp">
+        android:layout_marginEnd="@dimen/tv_safe_horizontal"
+        android:layout_marginBottom="@dimen/tv_player_bottom_spacing">
 
         <ImageButton
             android:id="@+id/liveCaptions"
@@ -576,7 +585,7 @@
         android:layout_height="wrap_content"
         android:layout_above="@id/streamInfoLayout"
         android:layout_centerHorizontal="true"
-        android:layout_marginBottom="5dp" />
+        android:layout_marginBottom="@dimen/tv_player_bottom_spacing" />
 
     <LinearLayout
         android:id="@+id/streamInfoLayout"
@@ -584,7 +593,7 @@
         android:layout_height="wrap_content"
         android:layout_above="@id/bottomLayout"
         android:layout_centerHorizontal="true"
-        android:layout_marginBottom="8dp"
+        android:layout_marginBottom="@dimen/tv_player_bottom_spacing"
         android:baselineAligned="false"
         android:gravity="center_vertical">
 
@@ -629,8 +638,8 @@
         android:layout_width="72dp"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
-        android:layout_marginStart="7dp"
-        android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/tv_safe_horizontal"
+        android:layout_marginBottom="@dimen/tv_safe_vertical"
         android:background="@android:color/transparent"
         android:gravity="center"
         android:textColor="@android:color/white"
@@ -641,6 +650,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
+        android:layout_marginBottom="@dimen/tv_safe_vertical"
         android:layout_toStartOf="@id/duration"
         android:layout_toEndOf="@id/position">
 
@@ -679,8 +689,8 @@
         android:layout_height="wrap_content"
         android:layout_alignParentEnd="true"
         android:layout_alignParentBottom="true"
-        android:layout_marginEnd="10dp"
-        android:layout_marginBottom="10dp"
+        android:layout_marginEnd="@dimen/tv_safe_horizontal"
+        android:layout_marginBottom="@dimen/tv_safe_vertical"
         android:gravity="center"
         android:textColor="@android:color/white"
         tools:text="1:12:16" />

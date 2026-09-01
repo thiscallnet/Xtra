@@ -19,6 +19,7 @@ import com.github.andreyasadchy.xtra.ui.common.GameCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.thumbnailState
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 
 class GameShelfAdapter(
     private val onGameClick: (Game) -> Unit,
@@ -82,6 +83,7 @@ class GameShelfAdapter(
         private var boundGame: Game? = null
 
         init {
+            TvFocusHelper.install(binding.root)
             binding.root.setOnClickListener { boundGame?.let(onGameClick) }
         }
 
