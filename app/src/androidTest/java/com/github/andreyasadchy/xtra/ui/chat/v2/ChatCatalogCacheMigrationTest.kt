@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.chat.v2
 
 import androidx.test.platform.app.InstrumentationRegistry
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.TwitchChatCatalogCache
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -26,6 +27,7 @@ class ChatCatalogCacheMigrationTest {
         try {
             val snapshot = TwitchChatCatalogCache(context, channelId).read()
             assertEquals("PartyParrot", snapshot?.sevenTv?.get("PartyParrot")?.id)
+            assertEquals(ChatEmoteScope.LEGACY_COMBINED, snapshot?.sevenTv?.get("PartyParrot")?.scope)
         } finally {
             file.delete()
         }

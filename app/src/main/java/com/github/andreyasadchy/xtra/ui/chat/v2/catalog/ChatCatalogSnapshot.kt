@@ -4,7 +4,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 
 enum class ChatAssetProvider { TWITCH, SEVEN_TV, BTTV, FFZ }
 
-enum class ChatEmoteScope { GLOBAL, CHANNEL, PERSONAL }
+enum class ChatEmoteScope { GLOBAL, CHANNEL, PERSONAL, LEGACY_COMBINED }
 
 data class ChatCatalogEmote(
     val name: String,

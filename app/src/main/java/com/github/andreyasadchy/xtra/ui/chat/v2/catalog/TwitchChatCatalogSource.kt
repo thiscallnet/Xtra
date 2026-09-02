@@ -64,10 +64,19 @@ class TwitchChatCatalogSource(
             ).second
         }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.GLOBAL) }
         val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
-            val user = playerRepository.loadSTVUser(playerRepository.loadSTVUserResponse(network, channelId), useWebp)
+            val user = playerRepository.loadSTVUser(
+                playerRepository.loadSTVUserResponse(network, channelId, throwOnHttpError = true),
+                useWebp,
+            )
             user.second ?: if (!user.first.isNullOrBlank()) {
                 playerRepository.loadSTVEmoteSet(
-                    playerRepository.loadSTVEmoteSetResponse(network, user.first!!), useWebp, false,
+                    playerRepository.loadSTVEmoteSetResponse(
+                        network,
+                        user.first!!,
+                        throwOnHttpError = true,
+                    ),
+                    useWebp,
+                    false,
                 ).second
             } else emptyList()
         }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.CHANNEL) }
@@ -82,7 +91,12 @@ class TwitchChatCatalogSource(
         }.map { emoteMap(it, ChatAssetProvider.BTTV, ChatEmoteScope.GLOBAL) }
         val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
             playerRepository.loadBTTVEmotes(
-                playerRepository.loadBTTVEmotesResponse(network, channelId), useWebp,
+                playerRepository.loadBTTVEmotesResponse(
+                    network,
+                    channelId,
+                    throwOnHttpError = true,
+                ),
+                useWebp,
             )
         }.map { emoteMap(it, ChatAssetProvider.BTTV, ChatEmoteScope.CHANNEL) }
         return scopedProviderUpdate(global, channel)
@@ -96,7 +110,12 @@ class TwitchChatCatalogSource(
         }.map { emoteMap(it, ChatAssetProvider.FFZ, ChatEmoteScope.GLOBAL) }
         val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
             playerRepository.loadFFZEmotes(
-                playerRepository.loadFFZEmotesResponse(network, channelId), useWebp,
+                playerRepository.loadFFZEmotesResponse(
+                    network,
+                    channelId,
+                    throwOnHttpError = true,
+                ),
+                useWebp,
             )
         }.map { emoteMap(it, ChatAssetProvider.FFZ, ChatEmoteScope.CHANNEL) }
         return scopedProviderUpdate(global, channel)
@@ -283,6 +302,13 @@ class TwitchChatCatalogCache(
                     ?: emoteName.takeIf { schemaVersion == 1 }
                     ?: continue
                 val provider = runCatching { ChatAssetProvider.valueOf(item.optString("provider")) }.getOrNull() ?: continue
+                val storedScope = item.optString("scope").takeIf { it.isNotBlank() }
+                val scope = if (schemaVersion == 1 && storedScope == null) {
+                    ChatEmoteScope.LEGACY_COMBINED
+                } else {
+                    runCatching { ChatEmoteScope.valueOf(storedScope.orEmpty()) }
+                        .getOrDefault(ChatEmoteScope.GLOBAL)
+                }
                 put(emoteName, ChatCatalogEmote(
                     name = emoteName,
                     asset = decodeSpec(item.optJSONObject("asset")),
@@ -290,7 +316,7 @@ class TwitchChatCatalogCache(
                     animated = item.optBoolean("animated"),
                     zeroWidth = item.optBoolean("zeroWidth"),
                     id = id,
-                    scope = runCatching { ChatEmoteScope.valueOf(item.optString("scope")) }.getOrDefault(ChatEmoteScope.GLOBAL),
+                    scope = scope,
                 ))
             }
         }

@@ -255,6 +255,7 @@ class ChatViewModel(
                 ChatEmoteScope.PERSONAL -> Emote.PERSONAL_STV
                 ChatEmoteScope.CHANNEL -> Emote.CHANNEL_STV
                 ChatEmoteScope.GLOBAL -> Emote.GLOBAL_STV
+                ChatEmoteScope.LEGACY_COMBINED -> null
             }
             com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.BTTV ->
                 if (emote.scope == ChatEmoteScope.GLOBAL) Emote.GLOBAL_BTTV else Emote.CHANNEL_BTTV

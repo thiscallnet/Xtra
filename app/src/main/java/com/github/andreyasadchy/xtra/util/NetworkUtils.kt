@@ -91,6 +91,7 @@ object NetworkUtils {
         private val timeout: HttpEngineTimeout,
         private val progressListener: ProgressListener? = null,
         private val maxBodyBytes: Int = DEFAULT_MAX_BODY_BYTES,
+        private val throwOnHttpError: Boolean = false,
     ): UrlRequest.Callback {
         private lateinit var mResponseBodyStream: ByteArrayOutputStream
         private lateinit var mResponseBodyChannel: WritableByteChannel
@@ -100,7 +101,7 @@ object NetworkUtils {
         }
 
         override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
-            if (info.httpStatusCode !in 200..299) {
+            if (throwOnHttpError && info.httpStatusCode !in 200..299) {
                 request.cancel()
                 fail(HttpStatusException(info.httpStatusCode))
                 return
@@ -165,6 +166,7 @@ object NetworkUtils {
         private val output: OutputStream,
         private val progressListener: ProgressListener? = null,
         private val maxBytes: Long = MAX_STREAM_BYTES,
+        private val throwOnHttpError: Boolean = false,
     ): UrlRequest.Callback {
         private lateinit var channel: WritableByteChannel
         private var bytes = 0L
@@ -174,7 +176,7 @@ object NetworkUtils {
         }
 
         override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
-            if (info.httpStatusCode !in 200..299) {
+            if (throwOnHttpError && info.httpStatusCode !in 200..299) {
                 request.cancel()
                 fail(IOException("Request failed with HTTP ${info.httpStatusCode}"))
                 return
@@ -271,6 +273,7 @@ object NetworkUtils {
         private val timeout: CronetTimeout,
         private val progressListener: ProgressListener? = null,
         private val maxBodyBytes: Int = DEFAULT_MAX_BODY_BYTES,
+        private val throwOnHttpError: Boolean = false,
     ): org.chromium.net.UrlRequest.Callback() {
         private lateinit var mResponseBodyStream: ByteArrayOutputStream
         private lateinit var mResponseBodyChannel: WritableByteChannel
@@ -280,7 +283,7 @@ object NetworkUtils {
         }
 
         override fun onResponseStarted(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo) {
-            if (info.httpStatusCode !in 200..299) {
+            if (throwOnHttpError && info.httpStatusCode !in 200..299) {
                 request.cancel()
                 fail(HttpStatusException(info.httpStatusCode))
                 return
@@ -344,6 +347,7 @@ object NetworkUtils {
         private val output: OutputStream,
         private val progressListener: ProgressListener? = null,
         private val maxBytes: Long = MAX_STREAM_BYTES,
+        private val throwOnHttpError: Boolean = false,
     ): org.chromium.net.UrlRequest.Callback() {
         private lateinit var channel: WritableByteChannel
         private var bytes = 0L
@@ -353,7 +357,7 @@ object NetworkUtils {
         }
 
         override fun onResponseStarted(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo) {
-            if (info.httpStatusCode !in 200..299) {
+            if (throwOnHttpError && info.httpStatusCode !in 200..299) {
                 request.cancel()
                 fail(IOException("Request failed with HTTP ${info.httpStatusCode}"))
                 return
@@ -627,7 +631,7 @@ object NetworkUtils {
         return output.toByteArray()
     }
 
-    suspend fun Call.executeAsync(): Response =
+    suspend fun Call.executeAsync(throwOnHttpError: Boolean = false): Response =
         suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation {
                 this.cancel()
@@ -645,7 +649,7 @@ object NetworkUtils {
                         call: Call,
                         response: Response,
                     ) {
-                        if (!response.isSuccessful) {
+                        if (throwOnHttpError && !response.isSuccessful) {
                             response.close()
                             continuation.resumeWithException(HttpStatusException(response.code))
                         } else continuation.resume(response) { _, value, _ ->

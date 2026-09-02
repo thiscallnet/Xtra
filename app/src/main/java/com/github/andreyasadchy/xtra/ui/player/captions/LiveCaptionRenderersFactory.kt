@@ -20,13 +20,10 @@ class LiveCaptionRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioOutputPlaybackParams: Boolean,
     ): AudioSink {
-        // Use the no-context builder. Media3 ignores setAudioCapabilities when
+        // Caption-capable playback always uses decoded PCM. The no-context
+        // builder is required because Media3 ignores setAudioCapabilities when
         // the context builder is used and derives capabilities from the device.
         return DefaultAudioSink.Builder()
-            // This renderer owns the caption TeeAudioProcessor. The default TV
-            // audio capabilities may select encoded passthrough, which skips
-            // Media3 audio processors entirely. Caption playback therefore
-            // always asks the sink for decoded PCM.
             .setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
             // Keep integer PCM so the capture and bounded presentation-delay paths
             // have one predictable frame format.

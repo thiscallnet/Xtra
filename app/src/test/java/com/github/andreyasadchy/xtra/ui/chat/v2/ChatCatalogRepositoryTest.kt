@@ -78,6 +78,49 @@ class ChatCatalogRepositoryTest {
     }
 
     @Test
+    fun failedChannelScopeKeepsSchemaV1CombinedCacheEntries() = runBlocking {
+        val legacyChannel = emote("legacy-channel", ChatAssetProvider.SEVEN_TV)
+            .copy(scope = ChatEmoteScope.LEGACY_COMBINED)
+        val newGlobal = emote("new-global", ChatAssetProvider.SEVEN_TV)
+            .copy(scope = ChatEmoteScope.GLOBAL)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                ChatCatalogLoadResult(
+                    sevenTv = ChatCatalogProviderUpdate(
+                        value = emptyMap(),
+                        global = ScopeUpdate.Success(mapOf("new-global" to newGlobal)),
+                        channel = ScopeUpdate.Failed,
+                    ),
+                )
+            },
+            cache = object : ChatCatalogCache {
+                override suspend fun read() = ChatCatalogSnapshot(
+                    revision = 1,
+                    sevenTv = mapOf("legacy-channel" to legacyChannel),
+                )
+
+                override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
+            },
+            wait = { awaitCancellation() },
+        )
+
+        withTimeout(1_000) {
+            while (!repository.state.value.hydrated) delay(1)
+        }
+        repository.refresh()
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTv["new-global"] != newGlobal) delay(1)
+        }
+
+        assertEquals(legacyChannel, repository.state.value.snapshot.sevenTv["legacy-channel"])
+        assertEquals(newGlobal, repository.state.value.snapshot.sevenTv["new-global"])
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
     fun successfulEmptyChannelScopeClearsOnlyChannelEntries() = runBlocking {
         val oldGlobal = emote("global", ChatAssetProvider.BTTV).copy(scope = ChatEmoteScope.GLOBAL)
         val oldChannel = emote("channel", ChatAssetProvider.BTTV).copy(scope = ChatEmoteScope.CHANNEL)

@@ -10,7 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class LiveCaptionAudioPolicyInstrumentationTest {
+class LiveCaptionAudioSinkInstrumentationTest {
     @Test
     fun captionSinkRejectsEncodedDirectFormats() {
         val sink = DefaultAudioSink.Builder()

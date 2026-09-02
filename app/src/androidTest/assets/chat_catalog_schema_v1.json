@@ -5,7 +5,6 @@
   "sevenTv": [
     {
       "name": "PartyParrot",
-      "scope": "GLOBAL",
       "provider": "SEVEN_TV",
       "animated": true,
       "zeroWidth": false,
