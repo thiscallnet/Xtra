@@ -121,6 +121,59 @@ class ChatCatalogRepositoryTest {
     }
 
     @Test
+    fun successfulGlobalAndChannelRefreshRetiresLegacyCombinedEntries() = runBlocking {
+        val legacyGlobalAlias = emote("A", ChatAssetProvider.SEVEN_TV)
+            .copy(scope = ChatEmoteScope.LEGACY_COMBINED)
+        val legacyChannelAlias = emote("B", ChatAssetProvider.SEVEN_TV)
+            .copy(scope = ChatEmoteScope.LEGACY_COMBINED)
+        val staleLegacy = emote("RemovedOldEmote", ChatAssetProvider.SEVEN_TV)
+            .copy(scope = ChatEmoteScope.LEGACY_COMBINED)
+        val currentGlobal = emote("A", ChatAssetProvider.SEVEN_TV)
+            .copy(scope = ChatEmoteScope.GLOBAL)
+        val currentChannel = emote("B", ChatAssetProvider.SEVEN_TV)
+            .copy(scope = ChatEmoteScope.CHANNEL)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                ChatCatalogLoadResult(
+                    sevenTv = ChatCatalogProviderUpdate(
+                        value = mapOf("A" to currentGlobal, "B" to currentChannel),
+                        global = ScopeUpdate.Success(mapOf("A" to currentGlobal)),
+                        channel = ScopeUpdate.Success(mapOf("B" to currentChannel)),
+                    ),
+                )
+            },
+            cache = object : ChatCatalogCache {
+                override suspend fun read() = ChatCatalogSnapshot(
+                    revision = 1,
+                    sevenTv = mapOf(
+                        "A" to legacyGlobalAlias,
+                        "B" to legacyChannelAlias,
+                        "RemovedOldEmote" to staleLegacy,
+                    ),
+                )
+
+                override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
+            },
+        )
+
+        withTimeout(1_000) {
+            while (!repository.state.value.hydrated) delay(1)
+        }
+        repository.refresh()
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTv["A"] != currentGlobal) delay(1)
+        }
+
+        assertEquals(currentGlobal, repository.state.value.snapshot.sevenTv["A"])
+        assertEquals(currentChannel, repository.state.value.snapshot.sevenTv["B"])
+        assertTrue("RemovedOldEmote" !in repository.state.value.snapshot.sevenTv)
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
     fun successfulEmptyChannelScopeClearsOnlyChannelEntries() = runBlocking {
         val oldGlobal = emote("global", ChatAssetProvider.BTTV).copy(scope = ChatEmoteScope.GLOBAL)
         val oldChannel = emote("channel", ChatAssetProvider.BTTV).copy(scope = ChatEmoteScope.CHANNEL)

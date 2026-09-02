@@ -237,6 +237,11 @@ class ChatCatalogRepository(
     ): Map<String, ChatCatalogEmote> {
         if (update.global == null && update.channel == null) return update.value
         val merged = current.toMutableMap()
+        val completeScopedRefresh =
+            update.global is ScopeUpdate.Success && update.channel is ScopeUpdate.Success
+        if (completeScopedRefresh) {
+            merged.entries.removeAll { it.value.scope == ChatEmoteScope.LEGACY_COMBINED }
+        }
         fun apply(scope: ChatEmoteScope, result: ScopeUpdate<Map<String, ChatCatalogEmote>>?) {
             when (result) {
                 is ScopeUpdate.Success -> {
