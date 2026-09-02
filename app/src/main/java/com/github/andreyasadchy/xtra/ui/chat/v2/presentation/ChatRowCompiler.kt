@@ -14,6 +14,8 @@ class ChatRowCompiler(
     private val colors: ChatColorResolver = ChatColorResolver(),
     private val emoteHeightPx: Int = 28,
     private val badgeHeightPx: Int = 18,
+    private val showBadges: Boolean = true,
+    private val enableOverlayEmotes: Boolean = true,
     private val timestampText: (Long) -> String? = { null },
     private val background: (ChatMessage) -> Int = { 0 },
 ) {
@@ -30,7 +32,7 @@ class ChatRowCompiler(
             resolveSegments(message.segments, catalog)
         }
         val pieces = buildList {
-            message.badges.forEach { badge -> add(ChatPiece.Badge(badgeSpec(badge, catalog))) }
+            if (showBadges) message.badges.forEach { badge -> add(ChatPiece.Badge(badgeSpec(badge, catalog))) }
             message.user?.takeIf { noticeBody == null || hasSemanticBody }?.let { user ->
                 val name = user.displayName ?: user.login
                 name?.let {
@@ -44,7 +46,7 @@ class ChatRowCompiler(
                 when (segment) {
                     is ChatSegment.Text -> add(ChatPiece.Text(segment.text))
                     is ChatSegment.Mention -> add(ChatPiece.Mention(segment.text, segment.userId, segment.login))
-                    is ChatSegment.Emote -> add(ChatPiece.Emote(segment.asset.scaledTo(targetHeight), segment.fallbackText))
+                    is ChatSegment.Emote -> add(ChatPiece.Emote(segment.asset.scaledTo(targetHeight), segment.fallbackText, segment.animated))
                     is ChatSegment.Gif -> add(ChatPiece.Gif(ChatAssetSpec(ChatAssetKey(segment.url), 1, 1, targetHeight), segment.url, segment.fallbackText))
                     is ChatSegment.Cheermote -> add(ChatPiece.Cheermote(segment.asset.scaledTo(targetHeight), segment.text, segment.bits, segment.color))
                 }
@@ -104,7 +106,7 @@ class ChatRowCompiler(
                 output += ChatSegment.Text(token)
                 return@forEach
             }
-            if (definition.zeroWidth && composeOverlay(output, definition)) return@forEach
+            if (enableOverlayEmotes && definition.zeroWidth && composeOverlay(output, definition)) return@forEach
             output += ChatSegment.Emote(
                 asset = definition.asset,
                 fallbackText = token,

@@ -9,4 +9,6 @@ data class LiveCaptionMetrics(
     val inferenceCalls: Long = 0,
     val droppedAudioBuffers: Int = 0,
     val realTimeFactor: Double = 0.0,
+    val pcmBuffersReceived: Long = 0,
+    val acceptedAudioMs: Long = 0,
 )

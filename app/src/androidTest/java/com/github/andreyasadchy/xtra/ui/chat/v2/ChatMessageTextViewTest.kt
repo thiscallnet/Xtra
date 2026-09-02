@@ -22,6 +22,9 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
+import com.github.andreyasadchy.xtra.ui.chat.resolveChatSizing
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CoroutineScope
@@ -40,6 +43,41 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ChatMessageTextViewTest {
+    @Test
+    fun chatSizeModifierScalesTextEmoteAndBadgeDimensions() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.prefs()
+        val oldModifier = prefs.getInt(C.CHAT_SIZE_MODIFIER, 100)
+        val oldText = prefs.getString(C.CHAT_TEXT_SIZE, null)
+        val oldEmote = prefs.getString(C.CHAT_EMOTE_SIZE, null)
+        val oldBadge = prefs.getString(C.CHAT_BADGE_SIZE, null)
+        try {
+            prefs.edit()
+                .putString(C.CHAT_TEXT_SIZE, "14")
+                .putString(C.CHAT_EMOTE_SIZE, "20")
+                .putString(C.CHAT_BADGE_SIZE, "10")
+                .putInt(C.CHAT_SIZE_MODIFIER, 50)
+                .commit()
+            val half = resolveChatSizing(context)
+            prefs.edit().putInt(C.CHAT_SIZE_MODIFIER, 100).commit()
+            val normal = resolveChatSizing(context)
+            prefs.edit().putInt(C.CHAT_SIZE_MODIFIER, 200).commit()
+            val double = resolveChatSizing(context)
+            assertTrue(half.textSizeSp < normal.textSizeSp)
+            assertTrue(normal.textSizeSp < double.textSizeSp)
+            assertTrue(half.emoteHeightPx < normal.emoteHeightPx)
+            assertTrue(normal.emoteHeightPx < double.emoteHeightPx)
+            assertTrue(half.badgeHeightPx < normal.badgeHeightPx)
+            assertTrue(normal.badgeHeightPx < double.badgeHeightPx)
+        } finally {
+            val editor = prefs.edit().putInt(C.CHAT_SIZE_MODIFIER, oldModifier)
+            if (oldText == null) editor.remove(C.CHAT_TEXT_SIZE) else editor.putString(C.CHAT_TEXT_SIZE, oldText)
+            if (oldEmote == null) editor.remove(C.CHAT_EMOTE_SIZE) else editor.putString(C.CHAT_EMOTE_SIZE, oldEmote)
+            if (oldBadge == null) editor.remove(C.CHAT_BADGE_SIZE) else editor.putString(C.CHAT_BADGE_SIZE, oldBadge)
+            editor.apply()
+        }
+    }
+
     @Test
     fun usernameHasExplicitFallbackColorAndMissingAssetHasStableGeometry() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -90,6 +128,35 @@ class ChatMessageTextViewTest {
             val starts = animated.startCount
             view.attachedForTest()
             assertTrue(animated.startCount > starts)
+        }
+        scope.cancel()
+    }
+
+    @Test
+    fun animationPreferenceCanDisableAnAlreadyBoundRow() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        lateinit var animated: RecordingAnimatedDrawable
+        val repository = ChatAssetRepository(scope, ChatAssetLoader {
+            ChatImageHandle { RecordingAnimatedDrawable().also { animated = it } }
+        })
+        val view = TestTextView(context, repository)
+        val spec = ChatAssetSpec(ChatAssetKey("disabled-animation"), 20, 20, 28)
+        runOnMain {
+            view.bind(row(spec))
+            val spanned = view.text as Spanned
+            val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+            draw(span, spanned, Paint.FontMetricsInt())
+            view.attachedForTest()
+            assertTrue(animated.startCount > 0)
+            val startsBeforeDisable = animated.startCount
+            view.setAnimateGifs(false)
+            assertTrue(animated.stopCount > 0)
+            view.setRenderingActive(false)
+            view.setRenderingActive(true)
+            view.detachedForTest()
+            view.attachedForTest()
+            assertEquals(startsBeforeDisable, animated.startCount)
         }
         scope.cancel()
     }

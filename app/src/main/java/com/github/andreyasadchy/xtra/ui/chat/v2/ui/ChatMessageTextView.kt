@@ -12,6 +12,7 @@ import android.text.style.ReplacementSpan
 import android.text.style.StyleSpan
 import android.view.Gravity
 import android.widget.TextView
+import android.util.TypedValue
 import androidx.appcompat.widget.AppCompatTextView
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetState
@@ -26,6 +27,23 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
     private val drawableHandles = HashMap<ChatAssetKey, Any>()
     private val invalidator: () -> Unit = { postInvalidateOnAnimation() }
     private var renderingActive = true
+    private var animateGifs = true
+
+    fun setMessageTextSizeSp(value: Float) {
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, value)
+    }
+
+    fun setAnimateGifs(value: Boolean) {
+        animateGifs = value
+        if (!value) {
+            drawables.values.forEach { it.stopIfNeeded() }
+        } else if (renderingActive && isAttachedToWindow) {
+            drawables.values.forEach { drawable ->
+                drawable.callback = this
+                drawable.startIfNeeded()
+            }
+        }
+    }
 
     fun bind(row: ChatRowUiModel) {
         keys.forEach { assets.removeObserver(it, invalidator) }
@@ -88,9 +106,9 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
             drawables[key] ?: return null
         }
         drawable.setBounds(0, 0, spec.computedWidth, spec.targetHeight)
-        if (isAttachedToWindow) {
+        if (isAttachedToWindow && renderingActive) {
             drawable.callback = this
-            drawable.startIfNeeded()
+            if (animateGifs) drawable.startIfNeeded()
         }
         return drawable
     }
@@ -124,7 +142,7 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
             if (isAttachedToWindow) {
                 drawables.values.forEach { drawable ->
                     drawable.callback = this
-                    drawable.startIfNeeded()
+                    if (animateGifs) drawable.startIfNeeded()
                 }
             }
         } else {
@@ -143,7 +161,10 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
         super.onAttachedToWindow()
         if (renderingActive) {
             keys.forEach { assets.observe(it, invalidator) }
-            drawables.values.forEach { drawable -> drawable.callback = this; drawable.startIfNeeded() }
+            drawables.values.forEach { drawable ->
+                drawable.callback = this
+                if (animateGifs) drawable.startIfNeeded()
+            }
         }
     }
 

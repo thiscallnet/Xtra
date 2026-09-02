@@ -81,6 +81,7 @@ class LiveCaptionManager(
     private val nextAudioSinkId = AtomicLong(1L)
     private val activeAudioSinkId = AtomicLong(NO_AUDIO_SINK)
     private val droppedAudioBuffers = AtomicInteger(0)
+    private val pcmBuffersReceived = AtomicLong(0L)
     private val presentationDelayMs = AtomicInteger(0)
     private val captionTextOffsetMs = AtomicInteger(DEFAULT_CAPTION_TEXT_OFFSET_MS)
     private val captionSettingsGeneration = AtomicLong(0L)
@@ -164,6 +165,7 @@ class LiveCaptionManager(
                     channelCount: Int,
                     encoding: Int,
                 ) {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "audio_sink_flush mime=PCM ${sampleRateHz}Hz ${channelCount}ch encoding=$encoding")
                     if (!alwaysActive && activeAudioSinkId.get() != id) return
                     val generation = audioGeneration.incrementAndGet()
                     audioFormat = AudioFormatState(sampleRateHz, channelCount, encoding)
@@ -194,6 +196,8 @@ class LiveCaptionManager(
                         encoding = format.encoding,
                         generation = audioGeneration.get(),
                     )
+                    val bufferNumber = pcmBuffersReceived.incrementAndGet()
+                    if (BuildConfig.DEBUG && bufferNumber == 1L) Log.d(TAG, "pcm_buffer_received")
 
                     // Audio is not normally disposable. Drop only as a last resort during
                     // sustained overload, and never block the playback thread.
@@ -327,6 +331,12 @@ class LiveCaptionManager(
                 is CaptionRecognitionEvent.Final -> event.text
             }
             markFirstOutput(text)
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, when (event) {
+                    is CaptionRecognitionEvent.Partial -> "partial_result nonEmpty=${text.isNotBlank()}"
+                    is CaptionRecognitionEvent.Final -> "final_result nonEmpty=${text.isNotBlank()}"
+                })
+            }
             when (event) {
                 is CaptionRecognitionEvent.Partial -> publishPartial(event)
                 is CaptionRecognitionEvent.Final -> publishFinal(event)
@@ -462,7 +472,7 @@ class LiveCaptionManager(
                                 engineId = MOONSHINE_ENGINE_ID,
                                 engineInitMs = engineInitMs,
                             )
-                            Log.i(TAG, "ASR engine=$MOONSHINE_ENGINE_ID initialized in ${engineInitMs}ms")
+                            if (BuildConfig.DEBUG) Log.d(TAG, "engine_initialized id=$MOONSHINE_ENGINE_ID initMs=$engineInitMs abi=${android.os.Build.SUPPORTED_ABIS.joinToString()} cores=${Runtime.getRuntime().availableProcessors()}")
                             publishListening()
                         }
 
@@ -505,6 +515,8 @@ class LiveCaptionManager(
                                 } else {
                                     totalInferenceMs.toDouble() / acceptedAudioMs
                                 },
+                                pcmBuffersReceived = pcmBuffersReceived.get(),
+                                acceptedAudioMs = acceptedAudioMs,
                             ),
                         )
                         if (now >= nextMetricsLogMs) {
@@ -602,7 +614,7 @@ class LiveCaptionManager(
         )
         // Initialization/decode failures must remain diagnosable in release builds too.
         // Do not include recognition text in this log.
-        Log.e(TAG, "ASR failed", throwable)
+        Log.e(TAG, "ASR failed ${throwable::class.java.simpleName}: ${throwable.message}", throwable)
     }
 
     private fun publishMetrics(value: LiveCaptionMetrics) {

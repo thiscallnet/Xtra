@@ -1126,7 +1126,11 @@ class PlayerRepository(
         }
     }
 
-    suspend fun loadSTVEmoteSetResponse(networkLibrary: String?, setId: String): String = withContext(Dispatchers.IO) {
+    suspend fun loadSTVEmoteSetResponse(
+        networkLibrary: String?,
+        setId: String,
+        throwOnHttpError: Boolean = false,
+    ): String = withContext(Dispatchers.IO) {
         val url = "https://7tv.io/v3/emote-sets/${setId}"
         when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -1135,7 +1139,7 @@ class PlayerRepository(
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
                         cronetExecutor.value,
-                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
+                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout, throwOnHttpError = throwOnHttpError)
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -1153,7 +1157,7 @@ class PlayerRepository(
                     val timeout = NetworkUtils.CronetTimeout()
                     val request = cronetEngine.value!!.newUrlRequestBuilder(
                         url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
+                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout, throwOnHttpError = throwOnHttpError),
                         cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
@@ -1171,7 +1175,7 @@ class PlayerRepository(
                 okHttpClient.value.newCall(Request.Builder().apply {
                     url(url)
                     header("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                }.build()).executeAsync().use { response ->
+                }.build()).executeAsync(throwOnHttpError = throwOnHttpError).use { response ->
                     response.body.string()
                 }
             }
@@ -1183,7 +1187,11 @@ class PlayerRepository(
         Pair(response.id, parseSTVEmotes(response.emotes, useWebp, if (global) Emote.GLOBAL_STV else Emote.CHANNEL_STV))
     }
 
-    suspend fun loadSTVUserResponse(networkLibrary: String?, channelId: String): String = withContext(Dispatchers.IO) {
+    suspend fun loadSTVUserResponse(
+        networkLibrary: String?,
+        channelId: String,
+        throwOnHttpError: Boolean = false,
+    ): String = withContext(Dispatchers.IO) {
         val url = "https://7tv.io/v3/users/twitch/${channelId}"
         when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -1192,7 +1200,7 @@ class PlayerRepository(
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
                         cronetExecutor.value,
-                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
+                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout, throwOnHttpError = throwOnHttpError)
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -1210,7 +1218,7 @@ class PlayerRepository(
                     val timeout = NetworkUtils.CronetTimeout()
                     val request = cronetEngine.value!!.newUrlRequestBuilder(
                         url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
+                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout, throwOnHttpError = throwOnHttpError),
                         cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
@@ -1228,7 +1236,7 @@ class PlayerRepository(
                 okHttpClient.value.newCall(Request.Builder().apply {
                     url(url)
                     header("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                }.build()).executeAsync().use { response ->
+                }.build()).executeAsync(throwOnHttpError = throwOnHttpError).use { response ->
                     response.body.string()
                 }
             }
@@ -1453,7 +1461,11 @@ class PlayerRepository(
         parseBTTVEmotes(response, useWebp, Emote.GLOBAL_BTTV)
     }
 
-    suspend fun loadBTTVEmotesResponse(networkLibrary: String?, channelId: String): String = withContext(Dispatchers.IO) {
+    suspend fun loadBTTVEmotesResponse(
+        networkLibrary: String?,
+        channelId: String,
+        throwOnHttpError: Boolean = false,
+    ): String = withContext(Dispatchers.IO) {
         val url = "https://api.betterttv.net/3/cached/users/twitch/${channelId}"
         when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -1462,7 +1474,7 @@ class PlayerRepository(
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
                         cronetExecutor.value,
-                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
+                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout, throwOnHttpError = throwOnHttpError)
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -1480,7 +1492,7 @@ class PlayerRepository(
                     val timeout = NetworkUtils.CronetTimeout()
                     val request = cronetEngine.value!!.newUrlRequestBuilder(
                         url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
+                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout, throwOnHttpError = throwOnHttpError),
                         cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
@@ -1498,7 +1510,7 @@ class PlayerRepository(
                 okHttpClient.value.newCall(Request.Builder().apply {
                     url(url)
                     header("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                }.build()).executeAsync().use { response ->
+                }.build()).executeAsync(throwOnHttpError = throwOnHttpError).use { response ->
                     response.body.string()
                 }
             }
@@ -1597,7 +1609,11 @@ class PlayerRepository(
         }
     }
 
-    suspend fun loadFFZEmotesResponse(networkLibrary: String?, channelId: String): String = withContext(Dispatchers.IO) {
+    suspend fun loadFFZEmotesResponse(
+        networkLibrary: String?,
+        channelId: String,
+        throwOnHttpError: Boolean = false,
+    ): String = withContext(Dispatchers.IO) {
         val url = "https://api.frankerfacez.com/v1/room/id/${channelId}"
         when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -1606,7 +1622,7 @@ class PlayerRepository(
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
                         cronetExecutor.value,
-                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
+                        NetworkUtils.ByteArrayUrlCallback(continuation, timeout, throwOnHttpError = throwOnHttpError)
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -1624,7 +1640,7 @@ class PlayerRepository(
                     val timeout = NetworkUtils.CronetTimeout()
                     val request = cronetEngine.value!!.newUrlRequestBuilder(
                         url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
+                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout, throwOnHttpError = throwOnHttpError),
                         cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
@@ -1642,7 +1658,7 @@ class PlayerRepository(
                 okHttpClient.value.newCall(Request.Builder().apply {
                     url(url)
                     header("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                }.build()).executeAsync().use { response ->
+                }.build()).executeAsync(throwOnHttpError = throwOnHttpError).use { response ->
                     response.body.string()
                 }
             }

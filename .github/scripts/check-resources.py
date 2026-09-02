@@ -127,6 +127,7 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_tv_chat_overlay",
     "settings_tv_chat_preset",
     "settings_tv_chat_position",
+    "settings_tv_chat_side_width",
     "settings_tv_chat_width",
     "settings_tv_chat_height",
     "settings_tv_chat_opacity",
@@ -147,6 +148,9 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_tv_chat_anchor_bottom_left",
     "settings_tv_chat_anchor_bottom_center",
     "settings_tv_chat_anchor_bottom_right",
+    "third_party_emotes_loading",
+    "third_party_emotes_empty",
+    "third_party_emotes_error",
 }
 
 

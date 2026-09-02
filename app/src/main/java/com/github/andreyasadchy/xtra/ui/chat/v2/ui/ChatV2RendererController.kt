@@ -14,6 +14,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
+import com.github.andreyasadchy.xtra.ui.chat.ChatRenderStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
@@ -24,8 +25,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.DateFormat
-import java.util.Date
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 /**
@@ -45,33 +44,34 @@ class ChatV2RendererController(
     private val initialState: ChatViewportState = ChatViewportState(),
     emoteHeightPx: Int = 28,
     badgeHeightPx: Int = 18,
+    messageTextSizeSp: Float = 14f,
+    animateGifs: Boolean = true,
+    showBadges: Boolean = true,
+    enableOverlayEmotes: Boolean = true,
+    timestampFormat: String? = "0",
     showTimestamps: Boolean = false,
-    readableUsernameColors: Boolean = true,
-    backgroundColor: Int = 0xFF101010.toInt(),
+    private val readableUsernameColors: Boolean = true,
+    private val backgroundColor: Int = 0xFF101010.toInt(),
     private val onStateChanged: (ChatViewportState) -> Unit = {},
 ) {
-    private val adapter = ChatTimelineAdapter(assets)
-    private val viewport = ChatViewportController(recyclerView, initialState)
-    private val presentation = ChatPresentationResolver(
-        ChatRowCompiler(
-            colors = ChatColorResolver(
-                readable = readableUsernameColors,
-                background = backgroundColor,
-            ),
-            emoteHeightPx = emoteHeightPx,
-            badgeHeightPx = badgeHeightPx,
-            timestampText = if (showTimestamps) {
-                { timestamp -> DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestamp)) }
-            } else {
-                { null }
-            },
-            background = { backgroundColor },
-        ),
+    private var renderStyle = ChatRenderStyle(
+        textSizeSp = messageTextSizeSp,
+        emoteHeightPx = emoteHeightPx,
+        badgeHeightPx = badgeHeightPx,
+        animateGifs = animateGifs,
+        showBadges = showBadges,
+        enableOverlayEmotes = enableOverlayEmotes,
+        showTimestamps = showTimestamps,
+        timestampFormat = timestampFormat,
     )
+    private val adapter = ChatTimelineAdapter(assets, renderStyle.textSizeSp, renderStyle.animateGifs)
+    private val viewport = ChatViewportController(recyclerView, initialState)
+    private val presentation = createPresentation(readableUsernameColors, backgroundColor, renderStyle)
     private var collectionJob: Job? = null
     private var currentKey: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey? = null
     private var previousIds: Set<ChatMessageId>? = null
     private var latestRows: List<ChatRowUiModel> = emptyList()
+    private var latestPublication: PresentationPublication? = null
     private val rendererVisible = MutableStateFlow(true)
 
     init {
@@ -139,6 +139,17 @@ class ChatV2RendererController(
         onStateChanged(viewport.state)
     }
 
+    internal fun refreshStyle(style: ChatRenderStyle) {
+        renderStyle = style
+        presentation.replaceCompiler(createPresentationCompiler(style))
+        adapter.setMessageTextSizeSp(style.textSizeSp)
+        adapter.setAnimateGifs(style.animateGifs)
+        val publication = latestPublication ?: return
+        val rows = publication.messages.map { presentation.resolve(it, publication.catalog) }
+        latestRows = rows
+        adapter.submitList(rows.toList())
+    }
+
     fun jumpToNewest() {
         viewport.jumpToNewest(latestRows)
         onStateChanged(viewport.state)
@@ -156,6 +167,7 @@ class ChatV2RendererController(
                 currentKey = publication.key
                 previousIds = null
             }
+            latestPublication = publication
             val oldIds = previousIds
             val previousAnchor = if (oldIds == null) null else viewport.captureAnchor(adapter)
             val appendedCount = oldIds?.let { ids -> rows.count { it.id !in ids } } ?: 0
@@ -167,6 +179,24 @@ class ChatV2RendererController(
             }
         }
     }
+
+    private fun createPresentation(readable: Boolean, background: Int, style: ChatRenderStyle) =
+        ChatPresentationResolver(createPresentationCompiler(style, readable, background))
+
+    private fun createPresentationCompiler(style: ChatRenderStyle, readable: Boolean = readableUsernameColors, background: Int = backgroundColor) =
+        ChatRowCompiler(
+            colors = ChatColorResolver(readable = readable, background = background),
+            emoteHeightPx = style.emoteHeightPx,
+            badgeHeightPx = style.badgeHeightPx,
+            showBadges = style.showBadges,
+            enableOverlayEmotes = style.enableOverlayEmotes,
+            timestampText = if (style.showTimestamps) {
+                { timestamp -> com.github.andreyasadchy.xtra.util.TwitchApiHelper.getTimestamp(timestamp, style.timestampFormat) }
+            } else {
+                { null }
+            },
+            background = { background },
+        )
 
     private fun ActiveChatSession.presentationFlow() =
         combine(

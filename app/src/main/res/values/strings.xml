@@ -459,6 +459,7 @@
     <string name="settings_tv_chat_overlay">Floating overlay</string>
     <string name="settings_tv_chat_preset">Overlay preset</string>
     <string name="settings_tv_chat_position">Overlay position</string>
+    <string name="settings_tv_chat_side_width">Side-panel width</string>
     <string name="settings_tv_chat_width">Overlay width</string>
     <string name="settings_tv_chat_height">Overlay height</string>
     <string name="settings_tv_chat_opacity">Overlay opacity</string>
@@ -1366,6 +1367,9 @@
     <string name="removed_emote_from_favorites">Removed %1$s from favorites</string>
     <string name="favorite_emotes_empty">No favorite emotes here yet\nLong-press an emote to add it to Favorites.</string>
     <string name="favorite_emotes_unavailable">None of your favorite emotes are available in this channel.</string>
+    <string name="third_party_emotes_loading">Loading 7TV, BTTV and FFZ emotes…</string>
+    <string name="third_party_emotes_empty">No 7TV, BTTV or FFZ emotes available.</string>
+    <string name="third_party_emotes_error">Couldn’t load 7TV, BTTV or FFZ emotes. Tap Retry to try again.</string>
     <string name="reorder_favorite_emotes">Reorder</string>
     <string name="done_reordering_favorite_emotes">Done</string>
     <string name="reorder_favorite_emote">Reorder %1$s emote</string>

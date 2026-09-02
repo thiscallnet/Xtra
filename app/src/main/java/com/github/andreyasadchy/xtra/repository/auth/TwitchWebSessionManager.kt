@@ -691,7 +691,10 @@ class TwitchWebSessionManager(
     }
 
     private fun runtime(): GeckoRuntime = synchronized(sessionLock) {
-        runtime ?: GeckoRuntime.create(applicationContext).also { runtime = it }
+        runtime ?: GeckoRuntime.create(applicationContext).also {
+            runtime = it
+            it.warmUp()
+        }
     }
 
     private suspend fun <T> withContextNonCancellable(block: suspend () -> T): T =

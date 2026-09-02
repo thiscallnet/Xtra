@@ -5,6 +5,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import kotlin.math.roundToInt
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
@@ -27,8 +28,8 @@ data class TvChatOverlayConfig(
     val opacityPercent: Int = 85,
     val preset: TvChatOverlayPreset = TvChatOverlayPreset.AUTO,
 ) {
-    val safeWidthPercent get() = widthPercent.coerceIn(25, 65)
-    val safeHeightPercent get() = heightPercent.coerceIn(20, 80)
+    val safeWidthPercent get() = widthPercent.coerceIn(15, 70)
+    val safeHeightPercent get() = heightPercent.coerceIn(15, 90)
     val safeOpacityPercent get() = opacityPercent.coerceIn(40, 100)
 }
 
@@ -46,7 +47,7 @@ fun tvChatPreset(value: String?): TvChatOverlayPreset = runCatching {
 
 fun tvChatPresetConfig(preset: TvChatOverlayPreset): TvChatOverlayConfig = when (preset) {
     TvChatOverlayPreset.AUTO, TvChatOverlayPreset.STANDARD -> TvChatOverlayConfig()
-    TvChatOverlayPreset.COMPACT -> TvChatOverlayConfig(widthPercent = 27, heightPercent = 32)
+    TvChatOverlayPreset.COMPACT -> TvChatOverlayConfig(widthPercent = 21, heightPercent = 28)
     TvChatOverlayPreset.LARGE -> TvChatOverlayConfig(widthPercent = 42, heightPercent = 60, opacityPercent = 88)
     TvChatOverlayPreset.FULL_HEIGHT -> TvChatOverlayConfig(
         anchor = TvChatOverlayAnchor.CENTER_RIGHT,
@@ -55,6 +56,20 @@ fun tvChatPresetConfig(preset: TvChatOverlayPreset): TvChatOverlayConfig = when 
         opacityPercent = 90,
     )
     TvChatOverlayPreset.CUSTOM -> TvChatOverlayConfig(preset = TvChatOverlayPreset.CUSTOM)
+}
+
+internal fun tvSidePanelWidth(parentWidthPx: Int, configuredPercent: Int, minWidthPx: Int): Int {
+    if (parentWidthPx <= 0) return 0
+    val percent = configuredPercent.coerceIn(15, 50)
+    return (parentWidthPx * percent / 100f).roundToInt()
+        .coerceIn(minWidthPx.coerceAtMost(parentWidthPx), parentWidthPx)
+}
+
+internal fun tvChatSize(parentSizePx: Int, configuredPercent: Int, minSizePx: Int, maxPercent: Int): Int {
+    if (parentSizePx <= 0) return 0
+    val percent = configuredPercent.coerceIn(15, maxPercent)
+    return (parentSizePx * percent / 100f).roundToInt()
+        .coerceIn(minSizePx.coerceAtMost(parentSizePx), parentSizePx)
 }
 
 fun tvChatOverlayConfig(context: Context): TvChatOverlayConfig {
@@ -91,16 +106,10 @@ fun applyTvChatOverlayLayout(container: View, parent: ViewGroup, config: TvChatO
         parent.post { applyTvChatOverlayLayout(container, parent, config) }
         return
     }
-    val safeHorizontal = container.resources.getDimensionPixelSize(R.dimen.tv_safe_horizontal)
-    val safeVertical = container.resources.getDimensionPixelSize(R.dimen.tv_safe_vertical)
-    val availableWidth = (parent.width - safeHorizontal * 2).coerceAtLeast(1)
-    val availableHeight = (parent.height - safeVertical * 2).coerceAtLeast(1)
-    val width = (availableWidth * config.safeWidthPercent / 100f).toInt()
-        .coerceAtLeast(container.resources.getDimensionPixelSize(R.dimen.tv_chat_overlay_min_width))
-        .coerceAtMost(availableWidth)
-    val height = (availableHeight * config.safeHeightPercent / 100f).toInt()
-        .coerceAtLeast(container.resources.getDimensionPixelSize(R.dimen.tv_chat_overlay_min_height))
-        .coerceAtMost(availableHeight)
+    val width = tvChatSize(parent.width, config.safeWidthPercent,
+        container.resources.getDimensionPixelSize(R.dimen.tv_chat_overlay_min_width), 70)
+    val height = tvChatSize(parent.height, config.safeHeightPercent,
+        container.resources.getDimensionPixelSize(R.dimen.tv_chat_overlay_min_height), 90)
     val gravity = when (config.anchor) {
         TvChatOverlayAnchor.TOP_LEFT -> Gravity.TOP or Gravity.START
         TvChatOverlayAnchor.TOP_CENTER -> Gravity.TOP or Gravity.CENTER_HORIZONTAL
@@ -114,38 +123,6 @@ fun applyTvChatOverlayLayout(container: View, parent: ViewGroup, config: TvChatO
     }
     container.layoutParams = FrameLayout.LayoutParams(width, height).apply {
         this.gravity = gravity
-        when (config.anchor) {
-            TvChatOverlayAnchor.TOP_LEFT,
-            TvChatOverlayAnchor.CENTER_LEFT,
-            TvChatOverlayAnchor.BOTTOM_LEFT -> leftMargin = safeHorizontal
-
-            TvChatOverlayAnchor.TOP_RIGHT,
-            TvChatOverlayAnchor.CENTER_RIGHT,
-            TvChatOverlayAnchor.BOTTOM_RIGHT -> rightMargin = safeHorizontal
-
-            TvChatOverlayAnchor.TOP_CENTER,
-            TvChatOverlayAnchor.CENTER,
-            TvChatOverlayAnchor.BOTTOM_CENTER -> {
-                leftMargin = safeHorizontal
-                rightMargin = safeHorizontal
-            }
-        }
-        when (config.anchor) {
-            TvChatOverlayAnchor.TOP_LEFT,
-            TvChatOverlayAnchor.TOP_CENTER,
-            TvChatOverlayAnchor.TOP_RIGHT -> topMargin = safeVertical
-
-            TvChatOverlayAnchor.BOTTOM_LEFT,
-            TvChatOverlayAnchor.BOTTOM_CENTER,
-            TvChatOverlayAnchor.BOTTOM_RIGHT -> bottomMargin = safeVertical
-
-            TvChatOverlayAnchor.CENTER_LEFT,
-            TvChatOverlayAnchor.CENTER,
-            TvChatOverlayAnchor.CENTER_RIGHT -> {
-                topMargin = safeVertical
-                bottomMargin = safeVertical
-            }
-        }
     }
     container.alpha = 1f
     container.background?.alpha = (config.safeOpacityPercent * 255 / 100f).toInt()
@@ -164,10 +141,11 @@ fun applyTvChatPresentation(
         return
     }
     val mode = tvChatMode(parent.context)
-    val safeHorizontal = parent.resources.getDimensionPixelSize(R.dimen.tv_safe_horizontal)
-    val safeVertical = parent.resources.getDimensionPixelSize(R.dimen.tv_safe_vertical)
-    val sideWidth = parent.resources.getDimensionPixelSize(R.dimen.tv_chat_side_width)
-        .coerceAtMost((parent.width - safeHorizontal * 2).coerceAtLeast(1))
+    val sideWidth = tvSidePanelWidth(
+        parent.width,
+        parent.context.prefs().getInt(C.TV_CHAT_SIDE_PANEL_WIDTH_PERCENT, 25),
+        parent.resources.getDimensionPixelSize(R.dimen.tv_chat_side_min_width),
+    )
     val playerParams = player.layoutParams as? FrameLayout.LayoutParams ?: return
 
     if (!visible || mode == TvChatMode.HIDDEN) {
@@ -186,16 +164,13 @@ fun applyTvChatPresentation(
         TvChatMode.SIDE_PANEL -> {
             playerParams.width = ViewGroup.LayoutParams.MATCH_PARENT
             playerParams.height = ViewGroup.LayoutParams.MATCH_PARENT
-            playerParams.marginEnd = sideWidth + safeHorizontal
+            playerParams.marginEnd = sideWidth
             player.layoutParams = playerParams
             chat.background = chat.context.getDrawable(R.drawable.tv_chat_side_background)
             chat.alpha = 1f
             chat.visibility = View.VISIBLE
             chat.layoutParams = FrameLayout.LayoutParams(sideWidth, ViewGroup.LayoutParams.MATCH_PARENT).apply {
                 gravity = Gravity.END
-                topMargin = safeVertical
-                bottomMargin = safeVertical
-                rightMargin = safeHorizontal
             }
         }
         TvChatMode.OVERLAY -> {

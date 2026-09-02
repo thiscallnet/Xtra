@@ -13,6 +13,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
+import android.util.Log
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
@@ -136,6 +138,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
             lineShiftToken = lineShiftToken,
             style = LiveCaptionStyle.from(context),
         )
+        if (BuildConfig.DEBUG) Log.d("LiveCaptionOverlay", "caption_received attached=${windowToken != null} size=${width}x$height visible=$visibility nonEmpty=${normalizedLines.any(String::isNotBlank)} parent=${(parent as? View)?.width}x${(parent as? View)?.height}")
         if (positioning) {
             // Keep the visible phrase stable while the user drags it. Apply only
             // the newest worker result when the gesture ends.
@@ -204,6 +207,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         applyStyle(update.style)
         val fittedUpdate = update.copy(lines = fitCaptionLines(update.lines))
         visibility = View.VISIBLE
+        if (BuildConfig.DEBUG) Log.d("LiveCaptionOverlay", "overlay_rendered attached=${windowToken != null} size=${width}x$height visible=$visibility")
 
         val shouldRoll = fittedUpdate.lineShiftToken != currentLineShiftToken &&
             currentLines[1].isNotBlank() &&

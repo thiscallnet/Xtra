@@ -57,6 +57,7 @@ class EmotesFragment : Fragment() {
     private var favoriteDragActive = false
     private var favoriteEditMode = false
     private var pendingFavoriteItems: List<Emote>? = null
+    private var thirdPartyPickerState: ChatViewModel.ThirdPartyPickerState? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentEmotesBinding.inflate(inflater, container, false)
@@ -68,6 +69,12 @@ class EmotesFragment : Fragment() {
         val section = requireArguments().getString(KEY_SECTION)
             ?.let { runCatching { EmotePickerSection.valueOf(it) }.getOrNull() }
             ?: EmotePickerSection.THIRD_PARTY
+        val chatFragment = parentFragment as? ChatFragment
+        val expectedChannelId = chatFragment?.arguments?.getString(ChatFragment.KEY_CHANNEL_ID)
+        val expectedChannelLogin = chatFragment?.arguments?.getString(ChatFragment.KEY_CHANNEL_LOGIN)
+        binding.emptyState.setOnClickListener {
+            (thirdPartyPickerState as? ChatViewModel.ThirdPartyPickerState.Error)?.retry?.invoke()
+        }
         val adapter = EmotesAdapter(
             this,
             { (parentFragment as? ChatFragment)?.appendEmote(it) },
@@ -157,7 +164,8 @@ class EmotesFragment : Fragment() {
                     }
                 }
                 launch {
-                    viewModel.thirdPartyEmotesUpdated.collectLatest {
+                    viewModel.thirdPartyPickerStateFor(expectedChannelId, expectedChannelLogin).collectLatest {
+                        thirdPartyPickerState = it
                         updateList(section, adapter)
                     }
                 }
@@ -192,7 +200,11 @@ class EmotesFragment : Fragment() {
             EmotePickerSection.TWITCH -> synchronized(viewModel.userEmotes) {
                 viewModel.userEmotes.toList()
             }
-            EmotePickerSection.THIRD_PARTY -> viewModel.thirdPartyPickerEmotes()
+            EmotePickerSection.THIRD_PARTY -> when (val state = thirdPartyPickerState) {
+                is ChatViewModel.ThirdPartyPickerState.Ready -> state.emotes
+                null -> viewModel.thirdPartyPickerEmotes()
+                else -> emptyList()
+            }
         }
         if (section == EmotePickerSection.FAVORITES && favoriteDragActive) {
             pendingFavoriteItems = list.toList()
@@ -232,7 +244,20 @@ class EmotesFragment : Fragment() {
     }
 
     private fun updateEmptyState(section: EmotePickerSection, list: List<Emote>) {
-        if (section == EmotePickerSection.FAVORITES && list.isEmpty()) {
+        if (section == EmotePickerSection.THIRD_PARTY) {
+            if (thirdPartyPickerState == null) {
+                binding.emptyState.isVisible = false
+                return
+            }
+            binding.emptyState.text = when (thirdPartyPickerState) {
+                ChatViewModel.ThirdPartyPickerState.Loading -> getString(R.string.third_party_emotes_loading)
+                ChatViewModel.ThirdPartyPickerState.Empty -> getString(R.string.third_party_emotes_empty)
+                is ChatViewModel.ThirdPartyPickerState.Ready -> ""
+                is ChatViewModel.ThirdPartyPickerState.Error -> getString(R.string.third_party_emotes_error)
+                null -> ""
+            }
+            binding.emptyState.isVisible = thirdPartyPickerState !is ChatViewModel.ThirdPartyPickerState.Ready
+        } else if (section == EmotePickerSection.FAVORITES && list.isEmpty()) {
             binding.emptyState.setText(
                 if (viewModel.favoriteEmotes.value.isEmpty()) {
                     R.string.favorite_emotes_empty

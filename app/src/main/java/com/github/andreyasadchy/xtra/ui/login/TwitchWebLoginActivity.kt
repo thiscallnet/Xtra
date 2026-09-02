@@ -4,6 +4,9 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import android.view.KeyEvent
+import android.view.inputmethod.InputMethodManager
+import android.content.Context
+import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
@@ -13,6 +16,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.repository.auth.TwitchWebSessionManager
 import com.github.andreyasadchy.xtra.repository.auth.TwitchWebSessionState
@@ -52,7 +56,12 @@ class TwitchWebLoginActivity : AppCompatActivity() {
         if (isTelevision()) {
             binding.tvCursor.isVisible = true
             binding.tvRemoteHint.isVisible = true
-            tvPointerController = TvRemotePointerController(binding.root, geckoView, binding.tvCursor).also { it.initialize() }
+            tvPointerController = TvRemotePointerController(
+                binding.root,
+                geckoView,
+                binding.tvCursor,
+                onBeforeClick = ::focusGeckoView,
+            ).also { it.initialize() }
             binding.root.postDelayed({ binding.tvRemoteHint.isVisible = false }, 5_000L)
             ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
                 val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
@@ -64,7 +73,7 @@ class TwitchWebLoginActivity : AppCompatActivity() {
         session = sessionManager.openLoginSession(
             reauthorize = intent.getBooleanExtra(EXTRA_REAUTHORIZE, false),
         )
-        geckoView.setSession(session)
+        attachSession(session)
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -75,8 +84,7 @@ class TwitchWebLoginActivity : AppCompatActivity() {
                     sessionManager.loginSession
                         .filterNotNull()
                         .collect { replacementSession ->
-                            session = replacementSession
-                            geckoView.setSession(replacementSession)
+                            attachSession(replacementSession)
                         }
                 }
             }
@@ -98,10 +106,40 @@ class TwitchWebLoginActivity : AppCompatActivity() {
                 ?.isVisible(WindowInsetsCompat.Type.ime()) == true
             if (!imeVisible && tvPointerController?.handleKeyEvent(event) == true) return true
         }
+        if (BuildConfig.DEBUG && event.action == KeyEvent.ACTION_DOWN) {
+            Log.d(TAG, "key action=${event.action} keyCode=${event.keyCode} unicode=${event.unicodeChar}")
+        }
         return super.dispatchKeyEvent(event)
     }
 
+    private fun attachSession(value: GeckoSession) {
+        geckoView.isFocusable = true
+        geckoView.isFocusableInTouchMode = true
+        val current = geckoView.session
+        if (current !== value) {
+            current?.setPriorityHint(GeckoSession.PRIORITY_DEFAULT)
+            if (current != null) geckoView.releaseSession()
+            geckoView.setSession(value)
+        }
+        session = value
+        value.setPriorityHint(GeckoSession.PRIORITY_HIGH)
+        focusGeckoView()
+        if (BuildConfig.DEBUG) {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            val imeVisible = ViewCompat.getRootWindowInsets(binding.root)
+                ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            Log.d(TAG, "gecko focus=${geckoView.hasFocus()} current=${currentFocus?.javaClass?.simpleName} " +
+                "textInputView=${value.textInput.view === geckoView} active=${imm.isActive(geckoView)} ime=$imeVisible")
+        }
+    }
+
+    private fun focusGeckoView() {
+        geckoView.requestFocus()
+        session.setFocused(true)
+    }
+
     override fun onDestroy() {
+        if (::session.isInitialized) session.setPriorityHint(GeckoSession.PRIORITY_DEFAULT)
         if (::geckoView.isInitialized) geckoView.releaseSession()
         // Keep the process-wide Gecko profile, but never leave a finished Activity's
         // Twitch page running invisibly. Configuration changes keep the session alive so
@@ -153,6 +191,7 @@ class TwitchWebLoginActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val TAG = "TwitchWebLoginActivity"
         const val EXTRA_REAUTHORIZE = "com.github.andreyasadchy.xtra.REAUTHORIZE"
         const val EXTRA_ACCOUNT_CHANGED = "com.github.andreyasadchy.xtra.ACCOUNT_CHANGED"
         const val EXTRA_LOGOUT = "com.github.andreyasadchy.xtra.LOGOUT"

@@ -24,7 +24,7 @@ sealed interface ChatPiece {
     data class Username(val value: String, val color: Int) : ChatPiece
     data class Badge(val asset: ChatAssetSpec) : ChatPiece
     data class Mention(val value: String, val userId: String?, val login: String?) : ChatPiece
-    data class Emote(val asset: ChatAssetSpec, val fallback: String) : ChatPiece
+    data class Emote(val asset: ChatAssetSpec, val fallback: String, val animated: Boolean = true) : ChatPiece
     data class Gif(val asset: ChatAssetSpec, val url: String, val fallback: String) : ChatPiece
     data class Cheermote(val asset: ChatAssetSpec, val value: String, val bits: Int, val color: Int?) : ChatPiece
 }

@@ -18,10 +18,10 @@
     <dimen name="tv_player_action_spacing">12dp</dimen>
     <dimen name="tv_player_top_avatar">48dp</dimen>
     <dimen name="tv_player_bottom_spacing">16dp</dimen>
-    <dimen name="tv_chat_side_width">420dp</dimen>
+    <dimen name="tv_chat_side_min_width">160dp</dimen>
     <dimen name="tv_chat_overlay_default_width">440dp</dimen>
     <dimen name="tv_chat_overlay_default_height">420dp</dimen>
     <dimen name="tv_chat_overlay_margin">32dp</dimen>
-    <dimen name="tv_chat_overlay_min_width">280dp</dimen>
-    <dimen name="tv_chat_overlay_min_height">220dp</dimen>
+    <dimen name="tv_chat_overlay_min_width">160dp</dimen>
+    <dimen name="tv_chat_overlay_min_height">120dp</dimen>
 </resources>

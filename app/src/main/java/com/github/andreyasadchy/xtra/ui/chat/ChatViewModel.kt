@@ -99,6 +99,8 @@ import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.watch.WatchCreditTelemetry
 import kotlinx.coroutines.cancel
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -113,6 +115,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -155,6 +159,14 @@ internal fun shouldResumeLiveChat(
 internal fun resolveCurrentLiveStreamId(currentStreamId: String?, initialStreamId: String?): String? =
     currentStreamId ?: initialStreamId
 
+internal fun matchesV2PickerSession(
+    active: com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec?,
+    expectedChannelId: String?,
+    expectedChannelLogin: String?,
+): Boolean = active != null &&
+        active.channelId == expectedChannelId &&
+        active.channelLogin.equals(expectedChannelLogin, ignoreCase = true)
+
 data class DropsUiState(
     val drops: List<TwitchDrop> = emptyList(),
     val claimingDropId: String? = null,
@@ -188,6 +200,7 @@ internal fun appendChatMessageToHistory(
     return removeCount
 }
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ChatViewModel(
     private val applicationContext: Context,
     private val graphQLRepository: GraphQLRepository,
@@ -196,7 +209,71 @@ class ChatViewModel(
     private val playerRepository: PlayerRepository,
     private val trustManager: Lazy<X509TrustManager>,
     private val json: Json,
+    private val chatSessionManager: ChatSessionManager,
 ) : ViewModel() {
+
+    sealed interface ThirdPartyPickerState {
+        data object Loading : ThirdPartyPickerState
+        data class Ready(val emotes: List<Emote>) : ThirdPartyPickerState
+        data object Empty : ThirdPartyPickerState
+        data class Error(val retry: () -> Unit) : ThirdPartyPickerState
+    }
+
+    fun thirdPartyPickerStateFor(
+        expectedChannelId: String?,
+        expectedChannelLogin: String?,
+    ): Flow<ThirdPartyPickerState?> = chatSessionManager.active.flatMapLatest { active ->
+        val session = active ?: return@flatMapLatest flowOf(null)
+        if (!matchesV2PickerSession(session.spec, expectedChannelId, expectedChannelLogin)) {
+            flowOf(null)
+        } else {
+            session.catalog.state.map { state ->
+                if (!state.hydrated) ThirdPartyPickerState.Loading
+                else thirdPartyPickerStateFor(state.snapshot, state.refreshFailed) { session.catalog.refresh() }
+            }
+        }
+    }
+
+    private fun thirdPartyPickerStateFor(
+        snapshot: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot,
+        refreshFailed: Boolean,
+        retry: () -> Unit,
+    ): ThirdPartyPickerState {
+        val emotes = FavoriteEmoteCatalog.deduplicate(
+            snapshot.sevenTv.values.map(::toPickerEmote) +
+                    snapshot.bttv.values.map(::toPickerEmote) +
+                    snapshot.ffz.values.map(::toPickerEmote),
+        ).filter { it.name?.isNotBlank() == true }
+        return if (emotes.isEmpty() && refreshFailed) ThirdPartyPickerState.Error(retry)
+        else if (emotes.isEmpty()) ThirdPartyPickerState.Empty
+        else ThirdPartyPickerState.Ready(emotes.sortedBy { it.name.orEmpty().lowercase() })
+    }
+
+    private fun toPickerEmote(emote: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote): Emote {
+        val source = when (emote.provider) {
+            com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.SEVEN_TV -> when (emote.scope) {
+                ChatEmoteScope.PERSONAL -> Emote.PERSONAL_STV
+                ChatEmoteScope.CHANNEL -> Emote.CHANNEL_STV
+                ChatEmoteScope.GLOBAL -> Emote.GLOBAL_STV
+                ChatEmoteScope.LEGACY_COMBINED -> null
+            }
+            com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.BTTV ->
+                if (emote.scope == ChatEmoteScope.GLOBAL) Emote.GLOBAL_BTTV else Emote.CHANNEL_BTTV
+            com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.FFZ ->
+                if (emote.scope == ChatEmoteScope.GLOBAL) Emote.GLOBAL_FFZ else Emote.CHANNEL_FFZ
+            else -> null
+        }
+        return Emote(
+            name = emote.name,
+            url4x = emote.asset.key.value,
+            isAnimated = emote.animated,
+            isOverlayEmote = emote.zeroWidth,
+            source = source,
+            id = emote.id,
+            width = emote.asset.sourceWidth,
+            height = emote.asset.sourceHeight,
+        )
+    }
 
     sealed interface ActiveChatMode {
         data object Live : ActiveChatMode
@@ -6037,7 +6114,7 @@ class ChatViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                ChatViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.dropsRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.trustManager, xtraModule.json)
+                ChatViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.dropsRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.trustManager, xtraModule.json, xtraModule.chatSessionManager)
             }
         }
     }
