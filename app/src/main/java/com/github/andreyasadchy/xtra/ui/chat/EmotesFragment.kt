@@ -58,6 +58,7 @@ class EmotesFragment : Fragment() {
     private var favoriteEditMode = false
     private var pendingFavoriteItems: List<Emote>? = null
     private var thirdPartyPickerState: ChatViewModel.ThirdPartyPickerState? = null
+    private var pickerCatalog: ChatViewModel.PickerCatalog? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentEmotesBinding.inflate(inflater, container, false)
@@ -72,6 +73,7 @@ class EmotesFragment : Fragment() {
         val chatFragment = parentFragment as? ChatFragment
         val expectedChannelId = chatFragment?.arguments?.getString(ChatFragment.KEY_CHANNEL_ID)
         val expectedChannelLogin = chatFragment?.arguments?.getString(ChatFragment.KEY_CHANNEL_LOGIN)
+        val usesV2 = chatFragment?.isUsingChatV2 == true
         binding.emptyState.setOnClickListener {
             (thirdPartyPickerState as? ChatViewModel.ThirdPartyPickerState.Error)?.retry?.invoke()
         }
@@ -164,8 +166,14 @@ class EmotesFragment : Fragment() {
                     }
                 }
                 launch {
-                    viewModel.thirdPartyPickerStateFor(expectedChannelId, expectedChannelLogin).collectLatest {
+                    viewModel.thirdPartyPickerStateFor(expectedChannelId, expectedChannelLogin, usesV2).collectLatest {
                         thirdPartyPickerState = it
+                        updateList(section, adapter)
+                    }
+                }
+                launch {
+                    viewModel.pickerCatalogFor(expectedChannelId, expectedChannelLogin, usesV2).collectLatest {
+                        pickerCatalog = it
                         updateList(section, adapter)
                     }
                 }
@@ -192,14 +200,13 @@ class EmotesFragment : Fragment() {
 
     private fun updateList(section: EmotePickerSection, adapter: EmotesAdapter) {
         val list = when (section) {
-            EmotePickerSection.FAVORITES -> viewModel.availableFavoriteEmotes.value
+            EmotePickerSection.FAVORITES -> pickerCatalog?.let(viewModel::availableFavoriteEmotesFor)
+                ?: viewModel.availableFavoriteEmotes.value
             EmotePickerSection.RECENTS -> {
-                val current = viewModel.currentPickerEmotes()
+                val current = pickerCatalog?.all ?: viewModel.currentPickerEmotes()
                 recentEmotes.mapNotNull { recent -> current.find { it.name == recent.name } }
             }
-            EmotePickerSection.TWITCH -> synchronized(viewModel.userEmotes) {
-                viewModel.userEmotes.toList()
-            }
+            EmotePickerSection.TWITCH -> pickerCatalog?.twitch ?: viewModel.twitchPickerEmotes()
             EmotePickerSection.THIRD_PARTY -> when (val state = thirdPartyPickerState) {
                 is ChatViewModel.ThirdPartyPickerState.Ready -> state.emotes
                 null -> viewModel.thirdPartyPickerEmotes()

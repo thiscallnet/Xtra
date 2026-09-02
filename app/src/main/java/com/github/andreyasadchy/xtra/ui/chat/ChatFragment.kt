@@ -71,9 +71,16 @@ import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewModelFactory
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage as V2ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatV2RendererController
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatViewportState
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLabels
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
@@ -107,6 +114,89 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.max
 
+internal fun shouldShowChatComposer(
+    messagingEnabled: Boolean,
+    isSlidingPlayerLayout: Boolean,
+    chatBarVisible: Boolean,
+): Boolean = messagingEnabled && (!isSlidingPlayerLayout || chatBarVisible)
+
+internal fun matchesV2MessageUser(
+    message: V2ChatMessage,
+    selected: V2ChatMessage,
+): Boolean {
+    val selectedUser = selected.user ?: return false
+    fun matches(userId: String?, login: String?): Boolean {
+        val selectedId = selectedUser.id
+        return if (!selectedId.isNullOrBlank()) {
+            userId == selectedId
+        } else {
+            val selectedLogin = selectedUser.login
+            !selectedLogin.isNullOrBlank() && login.equals(selectedLogin, ignoreCase = true)
+        }
+    }
+    return matches(message.user?.id, message.user?.login) ||
+            message.reply?.let { reply -> matches(reply.parentUserId, reply.parentUserLogin) } == true
+}
+
+internal data class ComposerOverlaySnapshot<Overlay, RestoreState>(
+    val overlay: Overlay,
+    val input: String,
+    val restoreState: RestoreState,
+    val submissionPending: Boolean,
+)
+
+internal fun <Overlay, RestoreState> captureComposerOverlaySnapshot(
+    overlay: Overlay?,
+    existing: ComposerOverlaySnapshot<Overlay, RestoreState>?,
+    pendingRestoreState: RestoreState?,
+    pendingInput: String?,
+    currentInput: String?,
+    submissionPending: Boolean,
+): ComposerOverlaySnapshot<Overlay, RestoreState>? {
+    val retainedOverlay = overlay ?: existing?.overlay ?: return null
+    val restoreState = pendingRestoreState ?: existing?.restoreState ?: return null
+    val input = if (submissionPending) {
+        pendingInput ?: existing?.input.orEmpty()
+    } else {
+        currentInput ?: existing?.input.orEmpty()
+    }
+    return ComposerOverlaySnapshot(
+        overlay = retainedOverlay,
+        input = input,
+        restoreState = restoreState,
+        submissionPending = submissionPending,
+    )
+}
+
+internal class ComposerOverlayStateStore<Overlay, RestoreState> {
+    var active: ComposerOverlaySnapshot<Overlay, RestoreState>? = null
+        private set
+
+    fun open(overlay: Overlay, restoreState: RestoreState) {
+        active = ComposerOverlaySnapshot(overlay, "", restoreState, submissionPending = false)
+    }
+
+    fun submit(input: String): ComposerOverlaySnapshot<Overlay, RestoreState>? {
+        active = active?.copy(input = input, submissionPending = true)
+        return active
+    }
+
+    fun markFailed(input: String): ComposerOverlaySnapshot<Overlay, RestoreState>? {
+        active = active?.copy(input = input, submissionPending = false)
+        return active
+    }
+
+    fun set(snapshot: ComposerOverlaySnapshot<Overlay, RestoreState>) {
+        active = snapshot
+    }
+
+    fun clear(): RestoreState? {
+        val restoreState = active?.restoreState
+        active = null
+        return restoreState
+    }
+}
+
 class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickListener, ReplyClickedDialog.OnButtonClickListener, ChannelPointsDialog.Listener {
 
     private sealed interface ComposerOverlayState {
@@ -122,6 +212,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var chatV2ViewportState = ChatViewportState()
     private var useChatV2 = false
     private var chatV2RendererVisible = true
+    private var selectedV2Message: V2ChatMessage? = null
+
+    internal val isUsingChatV2: Boolean
+        get() = useChatV2
 
     var chatMessageListener: ((ChatMessage) -> Unit)? = null
     var chatHistoryListener: ((List<ChatMessage>) -> Unit)? = null
@@ -130,7 +224,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var showChatStatus = false
     private var messagingEnabled = false
     private var messageViewWasVisibleBeforeReplay: Boolean? = null
-    private var messagingEnabledBeforeReplay = false
     private var channelPointsIconUrl: String? = null
     private var channelPointsIconRequest: Disposable? = null
     private var channelPointsIconRequestGeneration = 0
@@ -143,9 +236,36 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var composerOverlayState: ComposerOverlayState? = null
     private var pendingComposerText: String? = null
     private var composerSubmissionInProgress = false
-    private var composerTextBeforeOverlay: String? = null
-    private var composerSelectionBeforeOverlay: Int? = null
-    private var messageViewWasVisibleBeforeOverlay: Boolean? = null
+    private var pendingChatSendResult: ChatSendResult? = null
+
+    private data class ComposerRestoreState(
+        val text: String,
+        val selection: Int?,
+        val reply: ReplyComposerState?,
+    )
+
+    private data class PendingOverlaySubmission(
+        val state: ComposerOverlayState,
+        val text: String,
+        val restoreState: ComposerRestoreState,
+    )
+
+    private data class PendingChatSubmission(
+        val text: String,
+        val replyId: String?,
+    )
+
+    private data class ReplyComposerState(
+        val replyId: String,
+        val userLogin: String?,
+        val userName: String?,
+        val message: String?,
+    )
+
+    private var pendingChatSubmission: PendingChatSubmission? = null
+    private var pendingOverlaySubmission: PendingOverlaySubmission? = null
+    private val overlayStateStore = ComposerOverlayStateStore<ComposerOverlayState, ComposerRestoreState>()
+    private var replyComposerState: ReplyComposerState? = null
     private var seenPinnedMessageId: String? = null
     private var displayedPinnedMessageId: String? = null
     private var pinnedMessageMinimized = false
@@ -548,9 +668,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank())
                 val chatUrl = args.getString(KEY_CHAT_URL)
                 if (isLive || (args.getString(KEY_VIDEO_ID) != null && args.getInt(KEY_START_TIME) != -1) || chatUrl != null) {
-                    val enableMessaging = isLive &&
-                            viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live &&
-                            isLoggedIn
+                    // The ViewModel is switched to Live by initialize(), which runs from
+                    // BaseNetworkFragment.onResume(). Set up the live composer before that
+                    // point as well; otherwise a v2 view can keep the XML-gone composer for
+                    // its entire lifetime.
+                    // Authentication controls capability, not structural setup. The
+                    // account can become available after this view is created.
+                    val enableMessaging = isLive && isLoggedIn &&
+                            viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live
                     messagingEnabled = enableMessaging
                     val chatStyle = resolveChatRenderStyle(requireContext())
                     val chatSizing = ChatSizing(
@@ -622,7 +747,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
                             editText.clearFocus()
                             MessageClickedDialog.newInstance(
-                                messagingEnabled = enableMessaging,
+                                messagingEnabled = messagingEnabled,
                                 channelId = channelId,
                                 channelLogin = channelLogin,
                             ).show(this@ChatFragment.childFragmentManager, "messageDialog")
@@ -630,7 +755,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         replyClickListener = {
                             (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
                             editText.clearFocus()
-                            ReplyClickedDialog.newInstance(enableMessaging).show(this@ChatFragment.childFragmentManager, "replyDialog")
+                            ReplyClickedDialog.newInstance(messagingEnabled).show(this@ChatFragment.childFragmentManager, "replyDialog")
                         },
                         imageClickListener = { url, name, format, isAnimated, source, thirdParty, emoteId ->
                             (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
@@ -658,13 +783,28 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             animateGifs = chatStyle.animateGifs,
                             showBadges = chatStyle.showBadges,
                             enableOverlayEmotes = chatStyle.enableOverlayEmotes,
+                            firstMessageVisibility = chatStyle.firstMessageVisibility,
+                            boldNames = chatStyle.boldNames,
                             timestampFormat = chatStyle.timestampFormat,
                             showTimestamps = chatStyle.showTimestamps,
                             readableUsernameColors = requireContext().prefs().getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),
                             backgroundColor = chatBackground,
+                            presentationLabels = ChatPresentationLabels(
+                                firstChatter = getString(R.string.chat_first),
+                                redeemed = { reward -> getString(R.string.redeemed, reward) },
+                                highlightTitle = getString(R.string.chat_highlight_title),
+                                highlightRedeemed = { title -> getString(R.string.chat_highlight_redeemed, title) },
+                                watchStreakReached = getString(R.string.chat_watch_streak_reached),
+                                watchStreakStatus = { user, count -> getString(R.string.chat_watch_streak_status, user, count) },
+                                reply = { user, message -> getString(R.string.replying_to_message, user, message) },
+                            ),
                             onStateChanged = { state ->
                                 btnDown.isVisible = state.followMode == com.github.andreyasadchy.xtra.ui.chat.v2.ui.FollowMode.USER_SCROLLED_UP
                             },
+                            onMessageLongClick = ::onV2MessageLongClick,
+                            onEmoteClick = ::onV2EmoteClick,
+                            onGifClick = ::onV2GifClick,
+                            onPublicationChanged = ::onV2PublicationChanged,
                         ).also {
                             it.setVisible(chatV2RendererVisible)
                             it.attach(viewLifecycleOwner)
@@ -757,7 +897,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             it.visibility = View.GONE
                         }
                     }
-                    if (enableMessaging) {
+                    if (isLive) {
                         val identityGqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true)
                         val chatIdentityEnabled = !channelId.isNullOrBlank() &&
                                 !channelLogin.isNullOrBlank() &&
@@ -829,6 +969,19 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 setNotifyOnChange(hasFocus)
                             }
                         }
+                        if (useChatV2) {
+                            viewLifecycleOwner.lifecycleScope.launch {
+                                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                                    viewModel.pickerCatalogFor(channelId, channelLogin, useV2 = true)
+                                        .collectLatest { catalog ->
+                                            if (catalog != null) {
+                                                viewModel.refreshV2AutoCompleteList(catalog)
+                                                autoCompleteAdapter?.notifyDataSetChanged()
+                                            }
+                                        }
+                                }
+                            }
+                        }
                         editText.addTextChangedListener(onTextChanged = { text, _, _, _ ->
                             updateComposerButtons()
                         })
@@ -862,11 +1015,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         }
                         replyView.visibility = View.GONE
                         send.setOnClickListener { sendMessage() }
-                        if ((view.parent?.parent?.parent?.parent as? View)?.id == R.id.slidingLayout && !requireContext().prefs().getBoolean(C.KEY_CHAT_BAR_VISIBLE, true)) {
-                            messageView.visibility = View.GONE
-                        } else {
-                            messageView.visibility = View.VISIBLE
-                        }
+                        messageView.isVisible = shouldShowChatComposer(
+                            messagingEnabled = messagingEnabled,
+                            isSlidingPlayerLayout = isInSlidingPlayerLayout(binding.root),
+                            chatBarVisible = requireContext().prefs().getBoolean(C.KEY_CHAT_BAR_VISIBLE, true),
+                        )
+                        editText.isEnabled = enableMessaging && !composerSubmissionInProgress
                         updateSlowModeIndicator(viewModel.slowModeState.value)
                         messageView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                             updateComposerDensity()
@@ -1206,11 +1360,52 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 }
             }
         }
-        savedInstanceState?.getString(KEY_COMPOSER_DRAFT)?.takeIf { it.isNotEmpty() }?.let { draft ->
-            binding.editText.setText(draft)
+        val pendingSubmission = pendingChatSubmission
+        val draft = if (overlayStateStore.active == null && pendingOverlaySubmission == null) {
+            pendingSubmission?.text ?: savedInstanceState?.getString(KEY_COMPOSER_DRAFT)
+        } else {
+            null
+        }
+        draft?.takeIf { it.isNotEmpty() }?.let {
+            binding.editText.setText(it)
             binding.editText.setSelection(binding.editText.length())
             updateComposerButtons()
         }
+        if (pendingSubmission != null) {
+            binding.editText.isEnabled = false
+            pendingChatSendResult?.let { result ->
+                pendingChatSendResult = null
+                handleChatSendResult(result, pendingSubmission.text, pendingSubmission.replyId)
+            }
+        }
+        val retainedOverlay = overlayStateStore.active ?: pendingOverlaySubmission?.let { pending ->
+            ComposerOverlaySnapshot(
+                overlay = pending.state,
+                input = pending.text,
+                restoreState = pending.restoreState,
+                submissionPending = true,
+            )
+        }
+        retainedOverlay?.let { overlay ->
+            composerOverlayState = overlay.overlay
+            if (overlayStateStore.active == null) {
+                overlayStateStore.set(overlay)
+            }
+            if (overlay.submissionPending) {
+                composerSubmissionInProgress = true
+                pendingOverlaySubmission = PendingOverlaySubmission(
+                    state = overlay.overlay,
+                    text = overlay.input,
+                    restoreState = overlay.restoreState,
+                )
+            }
+            renderComposerOverlay(overlay.overlay)
+            binding.editText.setText(overlay.input)
+            binding.editText.setSelection(binding.editText.length())
+            binding.editText.isEnabled = !overlay.submissionPending
+            updateComposerButtons()
+        }
+        replyComposerState?.let(::configureReplyComposer)
     }
 
     private fun isInsideInsetAwareContainer(view: View): Boolean {
@@ -1386,6 +1581,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     )
                 }
             }
+            // BaseNetworkFragment may invoke initialize() after this Fragment's onResume()
+            // when network state arrives asynchronously. Refresh here as well so the live
+            // composer is enabled once the ViewModel has actually entered Live mode.
+            if (_binding != null) refreshMessagingEnabled()
         }
     }
 
@@ -1426,6 +1625,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 getCurrentSpeed = if (parentFragment is Media3PlayerFragment) (parentFragment as Media3PlayerFragment)::getCurrentSpeed else (parentFragment as PlayerFragment)::getCurrentSpeed
             )
         }
+        refreshMessagingEnabled()
     }
 
     private fun currentPositionProvider(): () -> Long? = {
@@ -1502,6 +1702,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             if (useChatV2) {
                 requireArguments().getString(KEY_CHANNEL_ID)?.let { channelId ->
                     startChatV2Session(channelId, channelLogin)
+                    viewModel.startLive(
+                        networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                        recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+                        channelId = channelId,
+                        channelLogin = channelLogin,
+                        channelName = requireArguments().getString(KEY_CHANNEL_NAME),
+                        streamId = currentLiveStreamId(),
+                        useChatV2 = true,
+                    )
                 }
             } else {
                 viewModel.startLive(
@@ -1551,7 +1760,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         _binding?.let {
             if (!alreadyInReplay) {
                 messageViewWasVisibleBeforeReplay = it.messageView.isVisible
-                messagingEnabledBeforeReplay = messagingEnabled
             }
             it.messageView.isVisible = false
             it.editText.clearFocus()
@@ -1577,12 +1785,19 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             channelLogin = args.getString(KEY_CHANNEL_LOGIN),
             channelName = args.getString(KEY_CHANNEL_NAME),
             streamId = currentLiveStreamId(),
+            useChatV2 = useChatV2,
         )
+        if (useChatV2) {
+            val channelId = args.getString(KEY_CHANNEL_ID)
+            val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
+            if (!channelId.isNullOrBlank() && !channelLogin.isNullOrBlank()) {
+                startChatV2Session(channelId, channelLogin)
+            }
+        }
         _binding?.let {
-            messagingEnabled = messagingEnabledBeforeReplay
             messageViewWasVisibleBeforeReplay?.let { wasVisible -> it.messageView.isVisible = wasVisible }
             messageViewWasVisibleBeforeReplay = null
-            updateComposerButtons()
+            refreshMessagingEnabled()
         }
     }
 
@@ -1702,6 +1917,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     private fun resetMessageComposerAction() {
+        replyComposerState = null
         with(binding) {
             replyView.visibility = View.GONE
             send.setOnClickListener { sendMessage() }
@@ -1735,6 +1951,28 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         binding.send.isEnabled = !blockedBySlowMode
         binding.clear.isVisible = !composerSubmissionInProgress && hasText
     }
+
+    private fun refreshMessagingEnabled() {
+        val args = arguments ?: return
+        val accountLogin = requireContext().tokenPrefs().getString(C.USERNAME, null)
+        val isLoggedIn = !accountLogin.isNullOrBlank() &&
+                (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
+                        !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank())
+        messagingEnabled = args.getBoolean(KEY_IS_LIVE) &&
+                viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live &&
+                isLoggedIn
+        binding.messageView.isVisible = shouldShowChatComposer(
+            messagingEnabled = messagingEnabled,
+            isSlidingPlayerLayout = isInSlidingPlayerLayout(binding.root),
+            chatBarVisible = requireContext().prefs().getBoolean(C.KEY_CHAT_BAR_VISIBLE, true),
+        )
+        binding.editText.isEnabled = messagingEnabled && !composerSubmissionInProgress
+        updateComposerButtons()
+        updateSlowModeIndicator(viewModel.slowModeState.value)
+    }
+
+    private fun isInSlidingPlayerLayout(root: View): Boolean =
+        (root.parent?.parent?.parent?.parent as? View)?.id == R.id.slidingLayout
 
     private fun updateSlowModeIndicator(state: SlowModeState) {
         if (_binding == null) return
@@ -1872,7 +2110,25 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private fun updateComposerDensity() {
         if (_binding == null || binding.messageView.width <= 0) return
         val compactWidth = (320 * resources.displayMetrics.density).toInt()
-        binding.channelPointsText.isVisible = binding.channelPoints.isVisible && binding.messageView.width >= compactWidth
+        val compact = binding.messageView.width < compactWidth
+        val controlSize = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            if (compact) 40f else 48f,
+            resources.displayMetrics,
+        ).toInt()
+        listOf(binding.chatIdentity, binding.clear, binding.emotes, binding.send).forEach { control ->
+            control.updateLayoutParams<LinearLayout.LayoutParams> {
+                width = controlSize
+                height = ViewGroup.LayoutParams.MATCH_PARENT
+            }
+            control.minimumWidth = controlSize
+        }
+        binding.channelPointsText.isVisible = binding.channelPoints.isVisible && !compact
+        binding.channelPoints.updateLayoutParams<LinearLayout.LayoutParams> {
+            width = if (compact) controlSize else ViewGroup.LayoutParams.WRAP_CONTENT
+            height = ViewGroup.LayoutParams.MATCH_PARENT
+        }
+        binding.channelPoints.minimumWidth = controlSize
     }
 
     private fun setupEmotePickerSizing() {
@@ -1940,14 +2196,26 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     private fun showComposerOverlay(state: ComposerOverlayState) {
+        if (composerSubmissionInProgress) return
         if (composerOverlayState == null) {
-            composerTextBeforeOverlay = binding.editText.text.toString()
-            composerSelectionBeforeOverlay = binding.editText.selectionStart.takeIf { it >= 0 }
-            messageViewWasVisibleBeforeOverlay = binding.messageView.isVisible
+            val restoreState = ComposerRestoreState(
+                text = binding.editText.text.toString(),
+                selection = binding.editText.selectionStart.takeIf { it >= 0 },
+                reply = replyComposerState,
+            )
+            overlayStateStore.open(state, restoreState)
+        } else if (overlayStateStore.active == null) {
+            overlayStateStore.open(
+                overlay = state,
+                restoreState = ComposerRestoreState("", null, null),
+            )
         }
         composerOverlayState = state
         pendingComposerText = null
-        composerSubmissionInProgress = false
+        renderComposerOverlay(state)
+    }
+
+    private fun renderComposerOverlay(state: ComposerOverlayState) {
         with(binding) {
             resetMessageComposerAction()
             toggleEmoteMenu(false)
@@ -2001,42 +2269,70 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
     }
 
-    private fun cancelComposerOverlay() {
-        val textBeforeOverlay = composerTextBeforeOverlay
-        val selectionBeforeOverlay = composerSelectionBeforeOverlay
-        val messageViewWasVisible = messageViewWasVisibleBeforeOverlay
+    private fun cancelComposerOverlay(force: Boolean = false) {
+        if (composerSubmissionInProgress && !force) return
+        val restoreState = pendingOverlaySubmission?.restoreState ?: overlayStateStore.active?.restoreState
         composerOverlayState = null
         pendingComposerText = null
+        pendingOverlaySubmission = null
         composerSubmissionInProgress = false
-        composerTextBeforeOverlay = null
-        composerSelectionBeforeOverlay = null
-        messageViewWasVisibleBeforeOverlay = null
+        overlayStateStore.clear()
         binding.channelPointRewardOverlay.isGone = true
-        textBeforeOverlay?.let { text ->
-            binding.editText.setText(text)
-            binding.editText.setSelection(
-                (selectionBeforeOverlay ?: binding.editText.length()).coerceIn(0, binding.editText.length()),
-            )
-        }
-        messageViewWasVisible?.let { binding.messageView.isVisible = it }
+        refreshMessagingEnabled()
+        restoreState?.let(::restoreComposerState)
         updateComposerButtons()
     }
 
     private fun restorePendingComposerText() {
-        pendingComposerText?.let { text ->
+        val pending = pendingOverlaySubmission
+        pending?.let {
+            composerOverlayState = pending.state
+            overlayStateStore.markFailed(pending.text)
+            renderComposerOverlay(pending.state)
+        }
+        (pending?.text ?: pendingComposerText)?.let { text ->
             binding.editText.setText(text)
             binding.editText.setSelection(binding.editText.length())
         }
         pendingComposerText = null
+        pendingOverlaySubmission = null
         composerSubmissionInProgress = false
+        binding.editText.isEnabled = messagingEnabled && !composerSubmissionInProgress
         updateComposerButtons()
     }
 
+    private fun restoreComposerState(state: ComposerRestoreState) {
+        replyComposerState = state.reply
+        state.reply?.let(::configureReplyComposer)
+        binding.editText.setText(state.text)
+        binding.editText.setSelection(
+            (state.selection ?: binding.editText.length()).coerceIn(0, binding.editText.length()),
+        )
+    }
+
+    private fun captureActiveOverlayState() {
+        val existing = overlayStateStore.active
+        val overlay = composerOverlayState ?: existing?.overlay ?: return
+        val pending = pendingOverlaySubmission
+        captureComposerOverlaySnapshot(
+            overlay = overlay,
+            existing = existing,
+            pendingRestoreState = pending?.restoreState,
+            pendingInput = pending?.text,
+            currentInput = _binding?.editText?.text?.toString(),
+            submissionPending = composerSubmissionInProgress || pending != null,
+        )?.let(overlayStateStore::set)
+    }
+
     private fun handleChannelPointRedemption(result: ChannelPointRedemptionResult) {
-        val overlay = composerOverlayState
-        if (overlay is ComposerOverlayState.Reward && overlay.reward.id == result.rewardId) {
+        val pending = pendingOverlaySubmission
+        val overlay = pending?.state
+        val matchesSubmission = overlay is ComposerOverlayState.Reward &&
+            (overlay.reward.id == result.rewardId ||
+                (result.rewardId == null && overlay.reward.title == result.rewardTitle))
+        if (matchesSubmission) {
             if (result.success) {
-                cancelComposerOverlay()
+                cancelComposerOverlay(force = true)
             } else {
                 restorePendingComposerText()
             }
@@ -2050,10 +2346,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     private fun handleWatchStreakShare(result: WatchStreakShareResult) {
-        val overlay = composerOverlayState
-        if (overlay is ComposerOverlayState.StreakShare && overlay.streak.milestoneId == result.milestoneId) {
+        val pending = pendingOverlaySubmission
+        val overlay = pending?.state
+        val matchesSubmission = overlay is ComposerOverlayState.StreakShare &&
+            (overlay.streak.milestoneId == result.milestoneId ||
+                (result.milestoneId == null && overlay.streak.milestoneId == null))
+        if (matchesSubmission) {
             if (result.success) {
-                cancelComposerOverlay()
+                cancelComposerOverlay(force = true)
             } else {
                 restorePendingComposerText()
             }
@@ -2176,19 +2476,29 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         "${drop.id}:${drop.isClaimable}"
 
     private fun sendMessage(replyId: String? = null): Boolean {
-        if (!messagingEnabled) return false
+        if (!messagingEnabled || composerSubmissionInProgress) return false
         with(binding) {
             val overlay = composerOverlayState
             if (overlay != null) {
-                if (composerSubmissionInProgress) {
-                    return false
-                }
                 val text = editText.text.trim().toString()
                 if (overlay is ComposerOverlayState.Reward && text.isBlank()) {
                     return false
                 }
                 pendingComposerText = text
+                val restoreState = overlayStateStore.active?.restoreState ?: ComposerRestoreState(
+                    text = "",
+                    selection = null,
+                    reply = null,
+                )
+                overlayStateStore.open(overlay, restoreState)
+                overlayStateStore.submit(text)
+                pendingOverlaySubmission = PendingOverlaySubmission(
+                    state = overlay,
+                    text = text,
+                    restoreState = restoreState,
+                )
                 composerSubmissionInProgress = true
+                editText.isEnabled = false
                 editText.text.clear()
                 (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
                     .hideSoftInputFromWindow(editText.windowToken, 0)
@@ -2207,10 +2517,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
             editText.clearFocus()
             toggleEmoteMenu(false)
-            resetMessageComposerAction()
-            val text = editText.text.trim()
-            editText.text.clear()
+            val text = editText.text.trim().toString()
             return if (text.isNotEmpty()) {
+                pendingChatSubmission = PendingChatSubmission(text = text, replyId = replyId)
+                composerSubmissionInProgress = true
+                editText.isEnabled = false
                 viewModel.send(
                     message = text,
                     replyId = replyId,
@@ -2222,11 +2533,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
                     useApiCommands = requireContext().prefs().getBoolean(C.DEBUG_API_COMMANDS, true),
                     useApiChatMessages = requireContext().prefs().getBoolean(C.DEBUG_API_CHAT_MESSAGES, true),
+                    onResult = { result -> handleChatSendResult(result, text, replyId) },
                 )
-                val lastIndex = synchronized(viewModel.chatMessages) {
-                    viewModel.chatMessages.lastIndex
-                }
-                recyclerView.scrollToPosition(lastIndex)
+                updateComposerButtons()
                 true
             } else {
                 false
@@ -2234,8 +2543,190 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
     }
 
+    private fun hideChatInputForDialog() {
+        (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+            .hideSoftInputFromWindow(binding.editText.windowToken, 0)
+        binding.editText.clearFocus()
+    }
+
+    private fun onV2MessageLongClick(message: V2ChatMessage) {
+        selectedV2Message = message
+        hideChatInputForDialog()
+        MessageClickedDialog.newInstance(
+            messagingEnabled = messagingEnabled,
+            channelId = message.channelId,
+            channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+        ).show(childFragmentManager, "messageDialog")
+    }
+
+    private fun onV2PublicationChanged(
+        messages: List<V2ChatMessage>,
+        rows: List<ChatRowUiModel>,
+    ) {
+        if (selectedV2Message != null) {
+            messageDialog?.updateV2Messages(messages.map(::v2MessageToLegacy), rows)
+        }
+    }
+
+    private fun handleChatSendResult(result: ChatSendResult, submittedText: String, submittedReplyId: String?) {
+        val pending = pendingChatSubmission
+        if (pending == null || pending.text != submittedText || pending.replyId != submittedReplyId) return
+        val currentBinding = _binding
+        if (currentBinding == null) {
+            pendingChatSendResult = result
+            return
+        }
+        pendingChatSubmission = null
+        composerSubmissionInProgress = false
+        when (result) {
+            is ChatSendResult.Success -> {
+                currentBinding.editText.text.clear()
+                currentBinding.editText.isEnabled = messagingEnabled
+                resetMessageComposerAction()
+                (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                    .hideSoftInputFromWindow(currentBinding.editText.windowToken, 0)
+                currentBinding.editText.clearFocus()
+                toggleEmoteMenu(false)
+                if (useChatV2) {
+                    chatV2Renderer?.jumpToNewest()
+                } else {
+                    val lastIndex = synchronized(viewModel.chatMessages) { viewModel.chatMessages.lastIndex }
+                    if (lastIndex >= 0) currentBinding.recyclerView.scrollToPosition(lastIndex)
+                }
+            }
+            is ChatSendResult.Failure -> {
+                if (currentBinding.editText.text.isBlank()) {
+                    currentBinding.editText.setText(submittedText)
+                    currentBinding.editText.setSelection(currentBinding.editText.length())
+                }
+                currentBinding.editText.isEnabled = messagingEnabled
+                if (messagingEnabled) currentBinding.editText.requestFocus()
+                val safeMessage = result.message
+                    .takeIf { it.length <= 120 }
+                    ?.takeUnless {
+                        it.contains('{') || it.contains('}') ||
+                                it.contains("OAuth", ignoreCase = true) ||
+                                it.contains("Bearer", ignoreCase = true)
+                    }
+                    ?: getString(R.string.connection_error)
+                Snackbar.make(currentBinding.root, getString(R.string.chat_send_msg_error, safeMessage), Snackbar.LENGTH_LONG).show()
+            }
+        }
+        updateComposerButtons()
+    }
+
+    private fun onV2EmoteClick(interaction: ChatEmoteInteraction) {
+        hideChatInputForDialog()
+        val source = when (interaction.provider) {
+            ChatAssetProvider.TWITCH -> null
+            ChatAssetProvider.SEVEN_TV -> when (interaction.scope) {
+                ChatEmoteScope.PERSONAL -> Emote.PERSONAL_STV
+                ChatEmoteScope.CHANNEL -> Emote.CHANNEL_STV
+                ChatEmoteScope.GLOBAL -> Emote.GLOBAL_STV
+                ChatEmoteScope.LEGACY_COMBINED, null -> null
+            }
+            ChatAssetProvider.BTTV -> when (interaction.scope) {
+                ChatEmoteScope.CHANNEL -> Emote.CHANNEL_BTTV
+                ChatEmoteScope.GLOBAL -> Emote.GLOBAL_BTTV
+                ChatEmoteScope.PERSONAL, ChatEmoteScope.LEGACY_COMBINED, null -> null
+            }
+            ChatAssetProvider.FFZ -> when (interaction.scope) {
+                ChatEmoteScope.CHANNEL -> Emote.CHANNEL_FFZ
+                ChatEmoteScope.GLOBAL -> Emote.GLOBAL_FFZ
+                ChatEmoteScope.PERSONAL, ChatEmoteScope.LEGACY_COMBINED, null -> null
+            }
+        }
+        val url = interaction.url
+        ImageClickedDialog.newInstance(
+            url = url,
+            name = interaction.name,
+            format = url?.substringAfterLast('.', "webp"),
+            isAnimated = interaction.animated,
+            source = source,
+            thirdParty = interaction.provider != ChatAssetProvider.TWITCH,
+            emoteId = interaction.id.takeIf { interaction.provider == ChatAssetProvider.TWITCH },
+        ).show(childFragmentManager, "imageDialog")
+    }
+
+    private fun onV2GifClick(interaction: ChatGifInteraction) {
+        hideChatInputForDialog()
+        ImageClickedDialog.newGifInstance(
+            url = interaction.url,
+            description = interaction.description,
+        ).show(childFragmentManager, "imageDialog")
+    }
+
+    private fun v2MessageToLegacy(message: V2ChatMessage): ChatMessage {
+        val text = message.rawText ?: message.segments.joinToString(separator = "") { segment ->
+            when (segment) {
+                is com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment.Text -> segment.text
+                is com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment.Mention -> segment.text
+                is com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment.Emote -> segment.fallbackText
+                is com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment.Gif -> segment.fallbackText
+                is com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment.Cheermote -> segment.text
+            }
+        }
+        val reply = message.reply?.let {
+            com.github.andreyasadchy.xtra.model.chat.Reply(
+                threadParentId = it.parentMessageId.value,
+                userLogin = it.parentUserLogin,
+                userName = it.parentUserName,
+                message = it.parentMessageBody,
+            )
+        }
+        val replyParent = message.reply?.let {
+            ChatMessage(
+                type = ChatMessage.USER_MESSAGE,
+                id = it.parentMessageId.value,
+                userId = it.parentUserId,
+                userLogin = it.parentUserLogin,
+                userName = it.parentUserName,
+                message = it.parentMessageBody,
+            )
+        }
+        return ChatMessage(
+            type = if (message.user != null) ChatMessage.USER_MESSAGE else ChatMessage.SYSTEM_MESSAGE,
+            id = message.id.value,
+            userId = message.user?.id,
+            userLogin = message.user?.login,
+            userName = message.user?.displayName,
+            message = text.takeIf { it.isNotEmpty() },
+            isAction = message.kind == com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind.ACTION,
+            bits = message.bits,
+            badges = message.badges.map { badge ->
+                com.github.andreyasadchy.xtra.model.chat.Badge(badge.setId, badge.versionId)
+            },
+            systemMsg = message.systemText,
+            msgId = message.noticeType,
+            sourceMsgId = message.source?.messageId?.value,
+            reply = reply,
+            replyParent = replyParent,
+            timestamp = message.timestampMs,
+        )
+    }
+
     override fun onCreateMessageClickedChatAdapter(): MessageClickedChatAdapter? {
-        return adapter?.createMessageClickedChatAdapter()
+        val clicked = selectedV2Message
+        if (!useChatV2 || clicked == null) return adapter?.createMessageClickedChatAdapter()
+        val canonicalMessages = chatV2Renderer?.currentMessages().orEmpty()
+        val history = if (clicked.user != null) {
+            canonicalMessages.filter { matchesV2MessageUser(it, clicked) }
+        } else {
+            canonicalMessages
+        }
+        val messages = history.map(::v2MessageToLegacy)
+        val selected = messages.firstOrNull { it.id == clicked.id.value } ?: v2MessageToLegacy(clicked)
+        val historyIds = history.mapTo(HashSet()) { it.id }
+        val rows = chatV2Renderer?.currentRows().orEmpty().filter { it.id in historyIds }
+        val app = requireContext().applicationContext as XtraApp
+        return adapter?.createMessageClickedChatAdapter(
+            sourceMessages = messages,
+            selectedMessageOverride = selected,
+            v2Rows = rows,
+            v2Assets = app.xtraModule.chatAssetRepository,
+            v2EmoteClick = ::onV2EmoteClick,
+            v2GifClick = ::onV2GifClick,
+        )
     }
 
     override fun onCreateReplyClickedChatAdapter(): ReplyClickedChatAdapter? {
@@ -2243,50 +2734,53 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onReplyClicked(replyId: String?, userLogin: String?, userName: String?, message: String?) {
+        if (replyId.isNullOrBlank()) return
+        cancelComposerOverlay()
+        messageDialog?.dismiss()
+        replyComposerState = ReplyComposerState(replyId, userLogin, userName, message)
+        configureReplyComposer(replyComposerState!!)
+    }
+
+    private fun configureReplyComposer(state: ReplyComposerState) {
         with(binding) {
-            if (!replyId.isNullOrBlank()) {
-                cancelComposerOverlay()
-                messageDialog?.dismiss()
-                replyView.visibility = View.VISIBLE
-                replyText.text = message?.let {
-                    val name = if (userName != null && userLogin != null && !userLogin.equals(userName, true)) {
-                        when (requireContext().prefs().getString(C.UI_NAME_DISPLAY, "0")) {
-                            "0" -> "${userName}(${userLogin})"
-                            "1" -> userName
-                            else -> userLogin
-                        }
-                    } else {
-                        userName ?: userLogin
+            replyView.visibility = View.VISIBLE
+            replyText.text = state.message?.let { message ->
+                val name = if (state.userName != null && state.userLogin != null &&
+                    !state.userLogin.equals(state.userName, true)
+                ) {
+                    when (requireContext().prefs().getString(C.UI_NAME_DISPLAY, "0")) {
+                        "0" -> "${state.userName}(${state.userLogin})"
+                        "1" -> state.userName
+                        else -> state.userLogin
                     }
-                    getString(R.string.replying_to_message, name, message)
+                } else {
+                    state.userName ?: state.userLogin
                 }
-                replyClose.setOnClickListener {
-                    resetMessageComposerAction()
-                }
-                send.setOnClickListener { sendMessage(replyId) }
-                editText.setOnKeyListener { _, keyCode, event ->
-                    if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
-                        val sent = sendMessage(replyId)
-                        sent || viewModel.isSlowModeBlocked()
-                    } else {
-                        false
-                    }
-                }
-                editText.setOnEditorActionListener { _, actionId, event ->
-                    if (actionId == EditorInfo.IME_ACTION_SEND ||
-                        event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
-                    ) {
-                        val sent = sendMessage(replyId)
-                        sent || viewModel.isSlowModeBlocked()
-                    } else {
-                        false
-                    }
+                getString(R.string.replying_to_message, name, message)
+            }
+            replyClose.setOnClickListener { resetMessageComposerAction() }
+            send.setOnClickListener { sendMessage(state.replyId) }
+            editText.setOnKeyListener { _, keyCode, event ->
+                if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
+                    val sent = sendMessage(state.replyId)
+                    sent || viewModel.isSlowModeBlocked()
+                } else {
+                    false
                 }
             }
-            editText.apply {
-                requestFocus()
-                WindowCompat.getInsetsController(this@ChatFragment.requireActivity().window, this).show(WindowInsetsCompat.Type.ime())
+            editText.setOnEditorActionListener { _, actionId, event ->
+                if (actionId == EditorInfo.IME_ACTION_SEND ||
+                    event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
+                ) {
+                    val sent = sendMessage(state.replyId)
+                    sent || viewModel.isSlowModeBlocked()
+                } else {
+                    false
+                }
             }
+            editText.requestFocus()
+            WindowCompat.getInsetsController(this@ChatFragment.requireActivity().window, editText)
+                .show(WindowInsetsCompat.Type.ime())
         }
     }
 
@@ -2464,12 +2958,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        captureActiveOverlayState()
         chatV2ViewportState = chatV2Renderer?.state ?: chatV2ViewportState
         outState.putString(KEY_V2_FOLLOW_MODE, chatV2ViewportState.followMode.name)
         outState.putInt(KEY_V2_NEW_MESSAGE_COUNT, chatV2ViewportState.newMessageCount)
         outState.putString(KEY_V2_ANCHOR_ID, chatV2ViewportState.anchor?.messageId?.value)
         outState.putInt(KEY_V2_ANCHOR_OFFSET, chatV2ViewportState.anchor?.topOffsetPx ?: 0)
-        outState.putString(KEY_COMPOSER_DRAFT, _binding?.editText?.text?.toString())
+        if (overlayStateStore.active == null) {
+            outState.putString(KEY_COMPOSER_DRAFT, _binding?.editText?.text?.toString())
+        }
         outState.putString(KEY_SEEN_PINNED_MESSAGE_ID, seenPinnedMessageId)
         outState.putString(KEY_DISPLAYED_PINNED_MESSAGE_ID, displayedPinnedMessageId)
         outState.putBoolean(KEY_PINNED_MESSAGE_MINIMIZED, pinnedMessageMinimized)
@@ -2477,6 +2974,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onDestroyView() {
+        captureActiveOverlayState()
         chatV2ViewportState = chatV2Renderer?.state ?: chatV2ViewportState
         chatV2Renderer?.detach()
         chatV2Renderer = null
@@ -2499,10 +2997,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         channelPointsIconForeground = null
         composerOverlayState = null
         pendingComposerText = null
-        composerSubmissionInProgress = false
-        composerTextBeforeOverlay = null
-        composerSelectionBeforeOverlay = null
-        messageViewWasVisibleBeforeOverlay = null
         lastSlowModeUiState = SlowModeState()
         dropCalloutView = null
         dropImageView = null

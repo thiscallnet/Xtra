@@ -32,7 +32,7 @@ object ChatUtils {
                 index = next
                 buildMap {
                     message.substring(start, index).split(';').forEach { tag ->
-                        val split = tag.split('=')
+                        val split = tag.split('=', limit = 2)
                         val key = split.getOrNull(0)
                         val value = split.getOrNull(1)
                         if (key != null && !value.isNullOrEmpty()) {

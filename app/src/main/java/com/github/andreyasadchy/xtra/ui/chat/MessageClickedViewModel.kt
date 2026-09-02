@@ -31,7 +31,7 @@ class MessageClickedViewModel(
     val followResult = MutableStateFlow<FollowResult?>(null)
     private var isLoading = false
 
-    fun loadUser(channelId: String?, channelLogin: String?, targetId: String?, targetLogin: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>) {
+    fun loadUser(channelId: String?, channelLogin: String?, targetId: String?, targetLogin: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, isSubscribedHint: Boolean = false) {
         if (user.value == null && !isLoading) {
             isLoading = true
             viewModelScope.launch {
@@ -56,7 +56,7 @@ class MessageClickedViewModel(
                                     imageUrl = badge.imageURL,
                                 )
                             }
-                            mapUser(user = clickedUser, earnedBadges = earnedBadges)
+                            mapUser(user = clickedUser, earnedBadges = earnedBadges, isSubscribedHint = isSubscribedHint)
                         }
                     } catch (e: Exception) {
                         null
@@ -73,7 +73,7 @@ class MessageClickedViewModel(
                             targetId,
                         ).data
                         data?.user?.userMessageClickedUser?.let { clickedUser ->
-                            mapUser(clickedUser)
+                            mapUser(clickedUser, isSubscribedHint = isSubscribedHint)
                         }
                     } catch (e: Exception) {
                         null
@@ -94,6 +94,7 @@ class MessageClickedViewModel(
                                 type = it.type,
                                 broadcasterType = it.broadcasterType,
                                 createdAt = it.createdAt,
+                                isSubscribed = isSubscribedHint,
                             )
                         }
                     } catch (e: Exception) {
@@ -109,6 +110,7 @@ class MessageClickedViewModel(
     private fun mapUser(
         user: com.github.andreyasadchy.xtra.graphql.fragment.UserMessageClickedUser,
         earnedBadges: List<UserCardBadge> = emptyList(),
+        isSubscribedHint: Boolean = false,
     ): User {
         return mapUser(
             id = user.id,
@@ -124,7 +126,7 @@ class MessageClickedViewModel(
                 }
             },
             subscriptionMonths = user.relationship?.subscriptionTenure?.months,
-            isSubscribed = user.relationship?.subscriptionBenefit != null,
+            isSubscribed = user.relationship?.subscriptionBenefit != null || isSubscribedHint,
             viewerFollowsUser = user.self?.follower != null,
             viewerCanFollowUser = user.self?.canFollow == true,
         )

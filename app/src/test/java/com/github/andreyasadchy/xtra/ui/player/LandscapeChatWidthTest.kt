@@ -30,4 +30,11 @@ class LandscapeChatWidthTest {
     fun `chat width is capped when it exceeds the available width`() {
         assertEquals(800, clampLandscapeChatWidth(1000, 800))
     }
+
+    @Test
+    fun `chat width follows the available width on narrow layouts`() {
+        assertEquals(384, landscapeChatWidthForAvailableWidth(1280, 30))
+        assertEquals(96, landscapeChatWidthForAvailableWidth(320, 30))
+        assertEquals(1, landscapeChatWidthForAvailableWidth(1, 70))
+    }
 }

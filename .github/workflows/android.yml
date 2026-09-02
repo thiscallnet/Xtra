@@ -56,6 +56,8 @@ jobs:
           ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCacheTest
           ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.view.CenteredImageSpanTest
           ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.chat.v2.ChatMessageTextViewTest
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.chat.v2.TwitchChatCatalogCacheTest
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.chat.v2.ChatCatalogCacheMigrationTest
 
   build:
     runs-on: ubuntu-latest

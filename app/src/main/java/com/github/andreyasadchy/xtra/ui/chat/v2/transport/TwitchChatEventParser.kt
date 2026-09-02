@@ -7,6 +7,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatBadgeRef
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
@@ -15,6 +16,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.SharedChatSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
 import org.json.JSONArray
 import org.json.JSONObject
@@ -29,7 +31,11 @@ import kotlin.time.Instant
  */
 object TwitchChatEventParser {
     fun fromIrc(message: ChatUtils.IRCMessage, channelId: String): ChatEvent? = when (message.command) {
-        "PRIVMSG", "USERNOTICE" -> ChatEvent.Message(fromLegacy(ChatUtils.parseChatMessage(message), channelId))
+        "PRIVMSG" -> {
+            val legacy = ChatUtils.parseChatMessage(message)
+            ChatEvent.Message(fromLegacy(legacy, channelId, gifTag = message.tags["gifs"]))
+        }
+        "USERNOTICE" -> ChatEvent.Message(fromLegacy(ChatUtils.parseChatMessage(message), channelId, forceNotice = true))
         "CLEARMSG" -> ChatEvent.Delete(
             messageId = ChatMessageId(message.tags["target-msg-id"] ?: return null),
             eventId = message.tags["target-msg-id"],
@@ -97,6 +103,7 @@ object TwitchChatEventParser {
         )
         val rawType = event.optString("message_type").takeIf { it.isNotBlank() } ?: "text"
         val type = parseMessageType(rawType)
+        val noticeType = event.optString("notice_type").takeIf { it.isNotBlank() }
         val fullText = segments.joinToString(separator = "") { segment ->
             when (segment) {
                 is ChatSegment.Text -> segment.text
@@ -122,7 +129,10 @@ object TwitchChatEventParser {
             ),
             badges = parseBadges(event.optJSONArray("badges")),
             segments = segments,
+            rawText = messageObject?.optString("text")?.takeIf { it.isNotEmpty() },
             kind = when {
+                noticeType.equals("raid", ignoreCase = true) || noticeType.equals("unraid", ignoreCase = true) -> ChatMessageKind.RAID
+                noticeType.equals("announcement", ignoreCase = true) || noticeType.equals("shared_chat_announcement", ignoreCase = true) -> ChatMessageKind.ANNOUNCEMENT
                 notice -> ChatMessageKind.NOTICE
                 fullText.startsWith(ChatUtils.ACTION) -> ChatMessageKind.ACTION
                 type == TwitchChatMessageType.Highlighted -> ChatMessageKind.REWARD
@@ -131,10 +141,15 @@ object TwitchChatEventParser {
             reply = parseReply(event.optJSONObject("reply")),
             source = parseSource(event),
             rewardId = event.optString("channel_points_custom_reward_id").takeIf { it.isNotBlank() },
+            isFirst = type == TwitchChatMessageType.UserIntro ||
+                noticeType.equals("first_message", ignoreCase = true) ||
+                noticeType.equals("first_message_highlight", ignoreCase = true),
             bits = event.optJSONObject("cheer")?.optInt("bits")?.takeIf { it > 0 },
+            watchStreakCount = event.optJSONObject("watch_streak")?.optInt("streak_count")?.takeIf { it > 0 },
+            watchStreakPoints = event.optJSONObject("watch_streak")?.optInt("channel_points_awarded")?.takeIf { it > 0 },
             twitchType = type,
             systemText = event.optString("system_message").takeIf { it.isNotBlank() },
-            noticeType = event.optString("notice_type").takeIf { it.isNotBlank() },
+            noticeType = noticeType,
         )
     }
 
@@ -153,6 +168,16 @@ object TwitchChatEventParser {
                             animated = emote.optJSONArray("format")?.let { formats ->
                                 (0 until formats.length()).any { formats.optString(it) == "animated" }
                             } == true,
+                            interaction = ChatEmoteInteraction(
+                                id = id,
+                                name = text,
+                                url = "https://static-cdn.jtvnw.net/emoticons/v2/$id/default/dark/3.0",
+                                animated = emote.optJSONArray("format")?.let { formats ->
+                                    (0 until formats.length()).any { formats.optString(it) == "animated" }
+                                } == true,
+                                provider = ChatAssetProvider.TWITCH,
+                                scope = null,
+                            ),
                         ),
                     )
                 }
@@ -173,7 +198,10 @@ object TwitchChatEventParser {
                 }
                 "gif" -> {
                     val gif = fragment.optJSONObject("gif")
-                    val gifId = gif?.optString("id")?.takeIf { it.isNotBlank() }
+                    // EventSub calls this field gif_id. Accept the older id spelling
+                    // as well so cached/test payloads remain readable.
+                    val gifId = gif?.optString("gif_id")?.takeIf { it.isNotBlank() }
+                        ?: gif?.optString("id")?.takeIf { it.isNotBlank() }
                     val url = gif?.optString("url")?.takeIf { it.isNotBlank() }
                     if (gifId == null || url == null) add(ChatSegment.Text(text)) else add(ChatSegment.Gif(gifId, url, text))
                 }
@@ -220,10 +248,19 @@ object TwitchChatEventParser {
         )
     }
 
-    private fun fromLegacy(message: LegacyChatMessage, channelId: String): ChatMessage {
+    private fun fromLegacy(
+        message: LegacyChatMessage,
+        channelId: String,
+        forceNotice: Boolean = false,
+        gifTag: String? = null,
+    ): ChatMessage {
         val raw = message.message.orEmpty()
-        val segments = legacySegments(raw, message.emotes.orEmpty())
+        val segments = ircSegments(raw, message.emotes.orEmpty(), gifTag)
         val legacyReply = message.reply
+        // Twitch uses source-msg-id for some notification variants (including the
+        // watch-streak viewermilestone). Keep the effective notice ID so the v2
+        // presentation does not silently downgrade those events to ordinary chat.
+        val legacyNoticeType = (message.sourceMsgId ?: message.msgId)?.lowercase()
         return ChatMessage(
             id = ChatMessageId(message.id ?: "irc-${message.hashCode()}-${message.timestamp ?: System.currentTimeMillis()}"),
             channelId = channelId,
@@ -232,36 +269,126 @@ object TwitchChatEventParser {
             badges = message.badges.orEmpty().map { ChatBadgeRef(it.setId, it.version) },
             segments = segments,
             kind = when {
+                legacyNoticeType == "raid" || legacyNoticeType == "unraid" -> ChatMessageKind.RAID
+                legacyNoticeType == "announcement" || legacyNoticeType == "shared_chat_announcement" -> ChatMessageKind.ANNOUNCEMENT
                 message.isAction -> ChatMessageKind.ACTION
-                message.type == LegacyChatMessage.NOTICE_MESSAGE -> ChatMessageKind.NOTICE
+                forceNotice || message.type == LegacyChatMessage.NOTICE_MESSAGE -> ChatMessageKind.NOTICE
                 else -> ChatMessageKind.CHAT
             },
             reply = legacyReply?.toChatReply(),
             source = message.sourceMsgId?.let { SharedChatSource(channelId, null, null, ChatMessageId(it), emptyList(), false) },
             rewardId = message.reward?.id,
+            isFirst = message.isFirst,
             bits = message.bits,
+            watchStreakCount = message.watchStreakCount,
+            watchStreakPoints = message.watchStreakPoints,
             twitchType = message.msgId?.let(::parseMessageType) ?: TwitchChatMessageType.Text,
             systemText = message.systemMsg,
-            noticeType = message.msgId,
+            noticeType = legacyNoticeType,
         )
     }
 
-    private fun legacySegments(text: String, emotes: List<TwitchEmote>): List<ChatSegment> {
-        if (text.isEmpty() || emotes.isEmpty()) return listOf(ChatSegment.Text(text))
-        val byStart = emotes.filter { it.id != null && it.begin >= 0 && it.end >= it.begin }
-            .sortedBy { it.begin }
+    private sealed interface IrcInlineAsset {
+        val start: Int
+        val endInclusive: Int
+
+        data class Emote(val value: TwitchEmote) : IrcInlineAsset {
+            override val start: Int get() = value.begin
+            override val endInclusive: Int get() = value.end
+        }
+
+        data class Gif(val value: IrcGif) : IrcInlineAsset {
+            override val start: Int get() = value.start
+            override val endInclusive: Int get() = value.endInclusive
+        }
+    }
+
+    private data class IrcGif(
+        val start: Int,
+        val endInclusive: Int,
+        val id: String,
+        val url: String,
+    )
+
+    private fun ircSegments(
+        text: String,
+        emotes: List<TwitchEmote>,
+        gifTag: String?,
+    ): List<ChatSegment> {
+        if (text.isEmpty()) return listOf(ChatSegment.Text(text))
+
+        val assets = buildList {
+            emotes.forEach { emote ->
+                if (emote.id != null && isValidRange(emote.begin, emote.end, text.length)) {
+                    add(IrcInlineAsset.Emote(emote))
+                }
+            }
+            parseIrcGifs(gifTag).forEach { gif ->
+                if (isValidRange(gif.start, gif.endInclusive, text.length)) {
+                    add(IrcInlineAsset.Gif(gif))
+                }
+            }
+        }.sortedWith(compareBy<IrcInlineAsset> { it.start }.thenBy { it.endInclusive })
+
+        if (assets.isEmpty()) return listOf(ChatSegment.Text(text))
+
         val result = ArrayList<ChatSegment>()
         var cursor = 0
-        byStart.forEach { emote ->
-            val start = emote.begin.coerceIn(cursor, text.length)
-            val endExclusive = (emote.end + 1).coerceIn(start, text.length)
+        assets.forEach { asset ->
+            if (asset.start < cursor) return@forEach
+            val start = asset.start
+            val endExclusive = asset.endInclusive + 1
             if (start > cursor) result += ChatSegment.Text(text.substring(cursor, start))
             val token = text.substring(start, endExclusive)
-            result += ChatSegment.Emote(nativeSpec("twitch-emote:${emote.id}", 56, 56), token, emote.isAnimated)
+            when (asset) {
+                is IrcInlineAsset.Emote -> {
+                    val emote = asset.value
+                    result += ChatSegment.Emote(
+                        nativeSpec("twitch-emote:${emote.id}", 56, 56),
+                        token,
+                        emote.isAnimated,
+                        ChatEmoteInteraction(
+                            id = emote.id,
+                            name = token,
+                            url = "https://static-cdn.jtvnw.net/emoticons/v2/${emote.id}/default/dark/3.0",
+                            animated = emote.isAnimated,
+                            provider = ChatAssetProvider.TWITCH,
+                            scope = null,
+                        ),
+                    )
+                }
+                is IrcInlineAsset.Gif -> {
+                    val gif = asset.value
+                    result += ChatSegment.Gif(gif.id, gif.url, token)
+                }
+            }
             cursor = endExclusive
         }
         if (cursor < text.length) result += ChatSegment.Text(text.substring(cursor))
         return result
+    }
+
+    private fun isValidRange(start: Int, endInclusive: Int, textLength: Int): Boolean =
+        start >= 0 && endInclusive >= start && endInclusive < textLength
+
+    private fun parseIrcGifs(value: String?): List<IrcGif> {
+        if (value.isNullOrBlank()) return emptyList()
+
+        return value.split(',').mapNotNull { entry ->
+            val parts = entry.split('|', limit = 3)
+            if (parts.size != 3) return@mapNotNull null
+
+            val range = parts[0].split('-', limit = 2)
+            if (range.size != 2) return@mapNotNull null
+
+            val start = range[0].toIntOrNull() ?: return@mapNotNull null
+            val endInclusive = range[1].toIntOrNull() ?: return@mapNotNull null
+            val id = parts[1].takeIf(String::isNotBlank) ?: return@mapNotNull null
+            val url = parts[2].takeIf(String::isNotBlank) ?: return@mapNotNull null
+            if (start < 0 || endInclusive < start) return@mapNotNull null
+
+            IrcGif(start, endInclusive, id, url)
+        }
     }
 
     private fun LegacyReply.toChatReply(): ChatReply? {

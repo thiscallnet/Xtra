@@ -21,6 +21,8 @@ internal data class ChatRenderStyle(
     val animateGifs: Boolean,
     val showBadges: Boolean,
     val enableOverlayEmotes: Boolean,
+    val firstMessageVisibility: Int,
+    val boldNames: Boolean,
     val showTimestamps: Boolean,
     val timestampFormat: String?,
 )
@@ -51,6 +53,8 @@ internal fun resolveChatRenderStyle(context: Context): ChatRenderStyle {
         animateGifs = prefs.getBoolean(C.ANIMATED_EMOTES, true),
         showBadges = prefs.getBoolean(C.CHAT_SHOW_BADGES, true),
         enableOverlayEmotes = prefs.getBoolean(C.CHAT_ZERO_WIDTH, true),
+        firstMessageVisibility = prefs.getString(C.CHAT_FIRST_MSG_VISIBILITY, "0")?.toIntOrNull() ?: 0,
+        boldNames = prefs.getBoolean(C.CHAT_BOLD_NAMES, false),
         showTimestamps = prefs.getBoolean(C.CHAT_TIMESTAMPS, false),
         timestampFormat = prefs.getString(C.CHAT_TIMESTAMP_FORMAT, "0"),
     )
