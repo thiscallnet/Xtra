@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.player.captions.engine
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.ui.player.captions.resampleTo16k
 import com.github.andreyasadchy.xtra.ui.player.captions.liveCaptionPartialIntervalMs
@@ -92,6 +93,7 @@ class SherpaMoonshineEngine(
         audioPositionSamples += pendingWindow.size
 
         if (!wasSpeechActive && vad.isSpeechDetected()) {
+            if (BuildConfig.DEBUG) Log.d(TAG, "speech_detected")
             speechActive = true
             utterance.clear()
             utterance.append(preRoll.toArray())
@@ -170,7 +172,11 @@ class SherpaMoonshineEngine(
         val modelConfig = OfflineModelConfig().apply {
             this.moonshine = moonshine
             tokens = "$base/tokens.txt"
-            numThreads = 2
+            numThreads = when {
+                Runtime.getRuntime().availableProcessors() >= 8 -> 3
+                Runtime.getRuntime().availableProcessors() >= 4 -> 2
+                else -> 1
+            }
             debug = BuildConfig.DEBUG
             provider = "cpu"
             modelType = "moonshine"
@@ -206,6 +212,7 @@ class SherpaMoonshineEngine(
     private fun audioPositionMs(): Long = audioPositionSamples * 1_000L / TARGET_SAMPLE_RATE
 
     private companion object {
+        const val TAG = "SherpaMoonshineEngine"
         const val TARGET_SAMPLE_RATE = 16_000
         const val VAD_WINDOW_SAMPLES = 512
         const val VAD_THRESHOLD = 0.5f
