@@ -10,6 +10,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogState
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopeUpdate
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopedEmoteCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
@@ -33,16 +34,81 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class ChatCatalogRepositoryTest {
     @Test
-    fun failedChannelScopeKeepsLastGoodChannelEmotesAndRetries() = runBlocking {
-        val oldGlobal = emote("old-global", ChatAssetProvider.SEVEN_TV).copy(scope = ChatEmoteScope.GLOBAL)
-        val oldChannel = emote("old-channel", ChatAssetProvider.SEVEN_TV).copy(scope = ChatEmoteScope.CHANNEL)
-        val newGlobal = emote("new-global", ChatAssetProvider.SEVEN_TV).copy(scope = ChatEmoteScope.GLOBAL)
-        val retryStarted = CompletableDeferred<Unit>()
+    fun thirdPartyFailureRecoveryIsPublishedWhenBadgesKeepFailing() = runBlocking {
+        val attempts = AtomicInteger()
+        val firstWait = CompletableDeferred<Unit>()
+        val releaseRetry = CompletableDeferred<Unit>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val repository = ChatCatalogRepository(
             scope = scope,
             source = ChatCatalogSource {
-                retryStarted.complete(Unit)
+                if (attempts.incrementAndGet() == 1) {
+                    ChatCatalogLoadResult(
+                        twitch = ChatCatalogProviderUpdate(emptyMap()),
+                        badges = null,
+                    )
+                } else {
+                    ChatCatalogLoadResult(
+                        twitch = ChatCatalogProviderUpdate(emptyMap()),
+                        sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                        bttv = ChatCatalogProviderUpdate(emptyMap()),
+                        ffz = ChatCatalogProviderUpdate(emptyMap()),
+                        badges = null,
+                    )
+                }
+            },
+            wait = { delayMs ->
+                if (delayMs == 1_000L) {
+                    firstWait.complete(Unit)
+                    releaseRetry.await()
+                } else {
+                    awaitCancellation()
+                }
+            },
+        )
+        repository.refresh()
+        withTimeout(1_000) { firstWait.await() }
+        assertTrue(repository.state.value.thirdPartyRefreshFailed)
+        releaseRetry.complete(Unit)
+        withTimeout(1_000) {
+            while (attempts.get() < 2 || repository.state.value.thirdPartyRefreshFailed) delay(1)
+        }
+
+        assertTrue(repository.state.value.refreshFailed)
+        assertFalse(repository.state.value.thirdPartyRefreshFailed)
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun badgeFailureDoesNotMarkThirdPartyPickerAsFailed() {
+        val result = ChatCatalogLoadResult(
+            sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+            bttv = ChatCatalogProviderUpdate(emptyMap()),
+            ffz = ChatCatalogProviderUpdate(emptyMap()),
+            // Badges are unrelated to the third-party emote picker.
+            badges = null,
+        )
+
+        assertFalse(result.hasFailedThirdPartyProvider)
+        assertTrue(result.hasFailedProvider)
+    }
+
+    @Test
+    fun failedChannelScopeKeepsLastGoodChannelEmotesAndRetries() = runBlocking {
+        val oldGlobal = emote("old-global", ChatAssetProvider.SEVEN_TV).copy(scope = ChatEmoteScope.GLOBAL)
+        val oldChannel = emote("old-channel", ChatAssetProvider.SEVEN_TV).copy(scope = ChatEmoteScope.CHANNEL)
+        val newGlobal = emote("new-global", ChatAssetProvider.SEVEN_TV).copy(scope = ChatEmoteScope.GLOBAL)
+        val attempts = AtomicInteger()
+        val waitStarted = CompletableDeferred<Unit>()
+        val releaseRetry = CompletableDeferred<Unit>()
+        val retryInvocation = CompletableDeferred<Unit>()
+        val waits = CopyOnWriteArrayList<Long>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                if (attempts.incrementAndGet() == 2) retryInvocation.complete(Unit)
                 ChatCatalogLoadResult(
                     sevenTv = ChatCatalogProviderUpdate(
                         value = emptyMap(),
@@ -54,18 +120,26 @@ class ChatCatalogRepositoryTest {
             cache = object : ChatCatalogCache {
                 override suspend fun read() = ChatCatalogSnapshot(
                     revision = 1,
-                    sevenTv = mapOf("old-global" to oldGlobal, "old-channel" to oldChannel),
+                    sevenTv = ScopedEmoteCatalog(global = mapOf("old-global" to oldGlobal), channel = mapOf("old-channel" to oldChannel)),
                 )
                 override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
             },
-            wait = { awaitCancellation() },
+            wait = { delayMs ->
+                if (waits.isEmpty()) {
+                    waits += delayMs
+                    waitStarted.complete(Unit)
+                    releaseRetry.await()
+                } else {
+                    awaitCancellation()
+                }
+            },
         )
 
         withTimeout(1_000) {
             while (!repository.state.value.hydrated) delay(1)
         }
         repository.refresh()
-        withTimeout(1_000) { retryStarted.await() }
+        withTimeout(1_000) { waitStarted.await() }
         withTimeout(1_000) {
             while (repository.state.value.snapshot.sevenTv["new-global"] != newGlobal) delay(1)
         }
@@ -73,102 +147,139 @@ class ChatCatalogRepositoryTest {
         assertEquals(newGlobal, repository.state.value.snapshot.sevenTv["new-global"])
         assertEquals(oldChannel, repository.state.value.snapshot.sevenTv["old-channel"])
         assertTrue(repository.state.value.refreshFailed)
+        assertEquals(1, attempts.get())
+        releaseRetry.complete(Unit)
+        withTimeout(1_000) { retryInvocation.await() }
+        assertEquals(2, attempts.get())
+        assertEquals(listOf(1_000L), waits)
         repository.close()
         scope.cancel()
     }
 
     @Test
-    fun failedChannelScopeKeepsSchemaV1CombinedCacheEntries() = runBlocking {
-        val legacyChannel = emote("legacy-channel", ChatAssetProvider.SEVEN_TV)
-            .copy(scope = ChatEmoteScope.LEGACY_COMBINED)
-        val newGlobal = emote("new-global", ChatAssetProvider.SEVEN_TV)
-            .copy(scope = ChatEmoteScope.GLOBAL)
+    fun sameAliasKeepsLastGoodChannelWhenGlobalRefreshSucceeds() = runBlocking {
+        val oldChannel = emote("same-channel", ChatAssetProvider.SEVEN_TV).copy(
+            name = "same",
+            scope = ChatEmoteScope.CHANNEL,
+        )
+        val newGlobal = emote("same-global", ChatAssetProvider.SEVEN_TV).copy(
+            name = "same",
+            scope = ChatEmoteScope.GLOBAL,
+        )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val repository = ChatCatalogRepository(
             scope = scope,
             source = ChatCatalogSource {
                 ChatCatalogLoadResult(
+                    twitch = ChatCatalogProviderUpdate(emptyMap()),
                     sevenTv = ChatCatalogProviderUpdate(
-                        value = emptyMap(),
-                        global = ScopeUpdate.Success(mapOf("new-global" to newGlobal)),
+                        value = mapOf("same" to newGlobal),
+                        global = ScopeUpdate.Success(mapOf("same" to newGlobal)),
                         channel = ScopeUpdate.Failed,
                     ),
+                    bttv = ChatCatalogProviderUpdate(emptyMap()),
+                    ffz = ChatCatalogProviderUpdate(emptyMap()),
+                    badges = ChatCatalogProviderUpdate(emptyMap()),
                 )
             },
             cache = object : ChatCatalogCache {
                 override suspend fun read() = ChatCatalogSnapshot(
                     revision = 1,
-                    sevenTv = mapOf("legacy-channel" to legacyChannel),
+                    sevenTv = ScopedEmoteCatalog(
+                        global = mapOf("same" to emote("same-global-old", ChatAssetProvider.SEVEN_TV).copy(name = "same", scope = ChatEmoteScope.GLOBAL)),
+                        channel = mapOf("same" to oldChannel),
+                    ),
                 )
-
                 override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
             },
             wait = { awaitCancellation() },
         )
 
-        withTimeout(1_000) {
-            while (!repository.state.value.hydrated) delay(1)
-        }
+        withTimeout(1_000) { while (!repository.state.value.hydrated) delay(1) }
         repository.refresh()
         withTimeout(1_000) {
-            while (repository.state.value.snapshot.sevenTv["new-global"] != newGlobal) delay(1)
+            while (repository.state.value.snapshot.sevenTv.global["same"] != newGlobal) delay(1)
         }
 
-        assertEquals(legacyChannel, repository.state.value.snapshot.sevenTv["legacy-channel"])
-        assertEquals(newGlobal, repository.state.value.snapshot.sevenTv["new-global"])
+        assertEquals(oldChannel, repository.state.value.snapshot.sevenTv.channel["same"])
+        assertEquals(oldChannel, repository.state.value.snapshot.sevenTv["same"])
         repository.close()
         scope.cancel()
     }
 
     @Test
-    fun successfulGlobalAndChannelRefreshRetiresLegacyCombinedEntries() = runBlocking {
-        val legacyGlobalAlias = emote("A", ChatAssetProvider.SEVEN_TV)
-            .copy(scope = ChatEmoteScope.LEGACY_COMBINED)
-        val legacyChannelAlias = emote("B", ChatAssetProvider.SEVEN_TV)
-            .copy(scope = ChatEmoteScope.LEGACY_COMBINED)
-        val staleLegacy = emote("RemovedOldEmote", ChatAssetProvider.SEVEN_TV)
-            .copy(scope = ChatEmoteScope.LEGACY_COMBINED)
-        val currentGlobal = emote("A", ChatAssetProvider.SEVEN_TV)
-            .copy(scope = ChatEmoteScope.GLOBAL)
-        val currentChannel = emote("B", ChatAssetProvider.SEVEN_TV)
-            .copy(scope = ChatEmoteScope.CHANNEL)
+    fun sameAliasKeepsLastGoodGlobalWhenChannelBecomesEmpty() = runBlocking {
+        val oldGlobal = emote("same-global", ChatAssetProvider.BTTV).copy(
+            name = "same",
+            scope = ChatEmoteScope.GLOBAL,
+        )
+        val oldChannel = emote("same-channel", ChatAssetProvider.BTTV).copy(
+            name = "same",
+            scope = ChatEmoteScope.CHANNEL,
+        )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val repository = ChatCatalogRepository(
             scope = scope,
             source = ChatCatalogSource {
                 ChatCatalogLoadResult(
-                    sevenTv = ChatCatalogProviderUpdate(
-                        value = mapOf("A" to currentGlobal, "B" to currentChannel),
-                        global = ScopeUpdate.Success(mapOf("A" to currentGlobal)),
-                        channel = ScopeUpdate.Success(mapOf("B" to currentChannel)),
+                    twitch = ChatCatalogProviderUpdate(emptyMap()),
+                    sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                    bttv = ChatCatalogProviderUpdate(
+                        value = mapOf("same" to oldGlobal),
+                        global = ScopeUpdate.Failed,
+                        channel = ScopeUpdate.Success(emptyMap()),
                     ),
+                    ffz = ChatCatalogProviderUpdate(emptyMap()),
+                    badges = ChatCatalogProviderUpdate(emptyMap()),
                 )
             },
             cache = object : ChatCatalogCache {
                 override suspend fun read() = ChatCatalogSnapshot(
                     revision = 1,
-                    sevenTv = mapOf(
-                        "A" to legacyGlobalAlias,
-                        "B" to legacyChannelAlias,
-                        "RemovedOldEmote" to staleLegacy,
+                    bttv = ScopedEmoteCatalog(
+                        global = mapOf("same" to oldGlobal),
+                        channel = mapOf("same" to oldChannel),
                     ),
                 )
+                override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
+            },
+            wait = { awaitCancellation() },
+        )
 
+        withTimeout(1_000) { while (!repository.state.value.hydrated) delay(1) }
+        repository.refresh()
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.bttv.channel.isNotEmpty()) delay(1)
+        }
+
+        assertEquals(oldGlobal, repository.state.value.snapshot.bttv.global["same"])
+        assertEquals(oldGlobal, repository.state.value.snapshot.bttv["same"])
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun scopedCacheRestoresShadowedAliasesAfterRestart() = runBlocking {
+        val global = emote("global", ChatAssetProvider.FFZ).copy(name = "same", scope = ChatEmoteScope.GLOBAL)
+        val channel = emote("channel", ChatAssetProvider.FFZ).copy(name = "same", scope = ChatEmoteScope.CHANNEL)
+        val cached = ChatCatalogSnapshot(
+            revision = 5,
+            ffz = ScopedEmoteCatalog(global = mapOf("same" to global), channel = mapOf("same" to channel)),
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource { ChatCatalogLoadResult() },
+            cache = object : ChatCatalogCache {
+                override suspend fun read() = cached
                 override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
             },
         )
 
-        withTimeout(1_000) {
-            while (!repository.state.value.hydrated) delay(1)
-        }
-        repository.refresh()
-        withTimeout(1_000) {
-            while (repository.state.value.snapshot.sevenTv["A"] != currentGlobal) delay(1)
-        }
-
-        assertEquals(currentGlobal, repository.state.value.snapshot.sevenTv["A"])
-        assertEquals(currentChannel, repository.state.value.snapshot.sevenTv["B"])
-        assertTrue("RemovedOldEmote" !in repository.state.value.snapshot.sevenTv)
+        withTimeout(1_000) { while (!repository.state.value.hydrated) delay(1) }
+        assertEquals(global, repository.state.value.snapshot.ffz.global["same"])
+        assertEquals(channel, repository.state.value.snapshot.ffz.channel["same"])
+        assertEquals(channel, repository.state.value.snapshot.ffz["same"])
         repository.close()
         scope.cancel()
     }
@@ -196,7 +307,7 @@ class ChatCatalogRepositoryTest {
             cache = object : ChatCatalogCache {
                 override suspend fun read() = ChatCatalogSnapshot(
                     revision = 1,
-                    bttv = mapOf("global" to oldGlobal, "channel" to oldChannel),
+                    bttv = ScopedEmoteCatalog(global = mapOf("global" to oldGlobal), channel = mapOf("channel" to oldChannel)),
                 )
                 override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
             },
@@ -206,7 +317,7 @@ class ChatCatalogRepositoryTest {
         withTimeout(1_000) { while (repository.state.value.snapshot.revision < 2) delay(1) }
 
         assertEquals(oldGlobal, repository.state.value.snapshot.bttv["global"])
-        assertTrue("channel" !in repository.state.value.snapshot.bttv)
+        assertTrue("channel" !in repository.state.value.snapshot.bttv.effective)
         assertTrue(!repository.state.value.refreshFailed)
         repository.close()
         scope.cancel()
@@ -218,7 +329,7 @@ class ChatCatalogRepositoryTest {
         val releaseRead = CompletableDeferred<Unit>()
         val cached = ChatCatalogSnapshot(
             revision = 3,
-            sevenTv = mapOf("Party" to emote("party", ChatAssetProvider.SEVEN_TV)),
+            sevenTv = ScopedEmoteCatalog(global = mapOf("Party" to emote("party", ChatAssetProvider.SEVEN_TV))),
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val repository = ChatCatalogRepository(
@@ -267,7 +378,7 @@ class ChatCatalogRepositoryTest {
         val releaseNetwork = CompletableDeferred<Unit>()
         val cached = ChatCatalogSnapshot(
             revision = 7,
-            sevenTv = mapOf("cached" to emote("cached", ChatAssetProvider.SEVEN_TV)),
+            sevenTv = ScopedEmoteCatalog(global = mapOf("cached" to emote("cached", ChatAssetProvider.SEVEN_TV))),
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val repository = ChatCatalogRepository(
@@ -328,8 +439,8 @@ class ChatCatalogRepositoryTest {
                     releaseCacheRead.await()
                     return ChatCatalogSnapshot(
                         revision = 4,
-                        sevenTv = mapOf("cached" to emote("cached-seven", ChatAssetProvider.SEVEN_TV)),
-                        bttv = mapOf("cached" to cachedBttv),
+                        sevenTv = ScopedEmoteCatalog(global = mapOf("cached" to emote("cached-seven", ChatAssetProvider.SEVEN_TV))),
+                        bttv = ScopedEmoteCatalog(global = mapOf("cached" to cachedBttv)),
                     )
                 }
 
@@ -365,7 +476,11 @@ class ChatCatalogRepositoryTest {
             source = ChatCatalogSource {
                 val result = ChatCatalogLoadResult(
                     twitch = ChatCatalogProviderUpdate(emptyMap()),
-                    sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                    sevenTv = ChatCatalogProviderUpdate(
+                        value = emptyMap(),
+                        global = ScopeUpdate.Success(emptyMap()),
+                        channel = ScopeUpdate.Success(emptyMap()),
+                    ),
                     bttv = ChatCatalogProviderUpdate(emptyMap()),
                     ffz = ChatCatalogProviderUpdate(emptyMap()),
                     badges = ChatCatalogProviderUpdate(emptyMap()),
@@ -379,7 +494,12 @@ class ChatCatalogRepositoryTest {
                     releaseCacheRead.await()
                     return ChatCatalogSnapshot(
                         revision = 4,
-                        sevenTv = mapOf("stale" to emote("stale", ChatAssetProvider.SEVEN_TV)),
+                        sevenTv = ScopedEmoteCatalog(
+                            legacyCombined = mapOf(
+                                "stale" to emote("stale", ChatAssetProvider.SEVEN_TV)
+                                    .copy(scope = ChatEmoteScope.LEGACY_COMBINED),
+                            ),
+                        ),
                     )
                 }
 
@@ -393,7 +513,10 @@ class ChatCatalogRepositoryTest {
         releaseCacheRead.complete(Unit)
         delay(50)
 
-        assertTrue(repository.state.value.snapshot.sevenTv.isEmpty())
+        assertTrue(repository.state.value.snapshot.sevenTv.global.isEmpty())
+        assertTrue(repository.state.value.snapshot.sevenTv.channel.isEmpty())
+        assertTrue(repository.state.value.snapshot.sevenTv.legacyCombined.isEmpty())
+        assertTrue("stale" !in repository.state.value.snapshot.sevenTv)
         repository.close()
         scope.cancel()
     }
@@ -414,8 +537,8 @@ class ChatCatalogRepositoryTest {
             cache = object : ChatCatalogCache {
                 override suspend fun read() = ChatCatalogSnapshot(
                     revision = 7,
-                    sevenTv = mapOf("old" to oldSevenTv),
-                    bttv = mapOf("old-bttv" to oldBttv),
+                    sevenTv = ScopedEmoteCatalog(global = mapOf("old" to oldSevenTv)),
+                    bttv = ScopedEmoteCatalog(global = mapOf("old-bttv" to oldBttv)),
                 )
 
                 override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit

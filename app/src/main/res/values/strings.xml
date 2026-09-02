@@ -732,6 +732,7 @@
     <string name="chat_timeout">%1$s has been timed out for %2$s.</string>
     <string name="chat_ban">%s has been permanently banned.</string>
     <string name="chat_clearmsg">Message deleted from %1$s\: %2$s</string>
+    <string name="chat_message_deleted" translatable="false">Message deleted.</string>
     <string name="chat_first">First Time Chatter</string>
     <string name="always">Always</string>
     <string name="local">Local</string>
@@ -747,6 +748,7 @@
     <string name="created_at">Created at %s</string>
     <string name="user_card_created">Account created %1$s</string>
     <string name="user_card_following_since">Following since %1$s</string>
+    <string name="user_card_subscribed">Subscribed</string>
     <string name="user_card_badges">Badges</string>
     <string name="user_card_view_all">View all (%1$d)</string>
     <string name="user_card_show_less">Show less</string>

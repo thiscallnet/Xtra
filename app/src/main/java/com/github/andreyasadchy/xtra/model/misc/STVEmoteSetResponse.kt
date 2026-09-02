@@ -19,6 +19,7 @@ class STVEmoteSetResponse(
     class Data(
         val host: Host? = null,
         val animated: Boolean? = null,
+        val state: List<String> = emptyList(),
     )
 
     @Serializable

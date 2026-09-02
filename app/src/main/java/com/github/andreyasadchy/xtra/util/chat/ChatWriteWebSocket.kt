@@ -57,9 +57,10 @@ class ChatWriteWebSocket(
         }
     }
 
-    suspend fun send(message: CharSequence, replyId: String?) = withContext(Dispatchers.IO) {
+    suspend fun send(message: CharSequence, replyId: String?): Boolean = withContext(Dispatchers.IO) {
         val reply = replyId?.let { "@reply-parent-msg-id=${it} " } ?: ""
         webSocket?.write("${reply}PRIVMSG #$channelLogin :$message")
+        webSocket != null
     }
 
     private inner class WebSocketListener : WebSocket.Listener {

@@ -242,14 +242,14 @@ class TwitchChatCatalogCache(
     }
 
     private fun encode(snapshot: ChatCatalogSnapshot): JSONObject = JSONObject().apply {
-        put("schemaVersion", 2)
+        put("schemaVersion", 3)
         put("revision", snapshot.revision)
         put("provider", "combined")
         put("fetchedAt", System.currentTimeMillis())
         put("twitch", encodeEmotes(snapshot.twitch))
-        put("sevenTv", encodeEmotes(snapshot.sevenTv))
-        put("bttv", encodeEmotes(snapshot.bttv))
-        put("ffz", encodeEmotes(snapshot.ffz))
+        put("sevenTv", encodeScopedEmotes(snapshot.sevenTv))
+        put("bttv", encodeScopedEmotes(snapshot.bttv))
+        put("ffz", encodeScopedEmotes(snapshot.ffz))
         put("badges", encodeBadges(snapshot.badges))
     }
 
@@ -265,6 +265,13 @@ class TwitchChatCatalogCache(
                 put("asset", encodeSpec(emote.asset))
             })
         }
+    }
+
+    private fun encodeScopedEmotes(scoped: ScopedEmoteCatalog) = JSONObject().apply {
+        put("global", encodeEmotes(scoped.global))
+        put("channel", encodeEmotes(scoped.channel))
+        put("personal", encodeEmotes(scoped.personal))
+        put("legacyCombined", encodeEmotes(scoped.legacyCombined))
     }
 
     private fun encodeBadges(map: Map<String, ChatCatalogBadge>) = JSONArray().apply {
@@ -292,9 +299,12 @@ class TwitchChatCatalogCache(
 
     private fun decode(root: JSONObject): ChatCatalogSnapshot {
         val schemaVersion = root.optInt("schemaVersion")
-        check(schemaVersion in 1..2)
-        fun emotes(name: String): Map<String, ChatCatalogEmote> = buildMap {
-            val array = root.optJSONArray(name) ?: return@buildMap
+        check(schemaVersion in 1..3)
+        fun emoteArray(
+            array: JSONArray?,
+            legacyCombined: Boolean = false,
+        ): Map<String, ChatCatalogEmote> = buildMap {
+            array ?: return@buildMap
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
                 val emoteName = item.optString("name").takeIf { it.isNotBlank() } ?: continue
@@ -303,12 +313,6 @@ class TwitchChatCatalogCache(
                     ?: continue
                 val provider = runCatching { ChatAssetProvider.valueOf(item.optString("provider")) }.getOrNull() ?: continue
                 val storedScope = item.optString("scope").takeIf { it.isNotBlank() }
-                val scope = if (schemaVersion == 1 && storedScope == null) {
-                    ChatEmoteScope.LEGACY_COMBINED
-                } else {
-                    runCatching { ChatEmoteScope.valueOf(storedScope.orEmpty()) }
-                        .getOrDefault(ChatEmoteScope.GLOBAL)
-                }
                 put(emoteName, ChatCatalogEmote(
                     name = emoteName,
                     asset = decodeSpec(item.optJSONObject("asset")),
@@ -316,8 +320,34 @@ class TwitchChatCatalogCache(
                     animated = item.optBoolean("animated"),
                     zeroWidth = item.optBoolean("zeroWidth"),
                     id = id,
-                    scope = scope,
+                    scope = if (legacyCombined || schemaVersion == 1 && storedScope == null) {
+                        ChatEmoteScope.LEGACY_COMBINED
+                    } else {
+                        runCatching { ChatEmoteScope.valueOf(storedScope.orEmpty()) }
+                            .getOrDefault(ChatEmoteScope.GLOBAL)
+                    },
                 ))
+            }
+        }
+        fun emotes(name: String): ScopedEmoteCatalog {
+            val value = root.opt(name)
+            if (value is JSONObject) {
+                return ScopedEmoteCatalog(
+                    global = emoteArray(value.optJSONArray("global")),
+                    channel = emoteArray(value.optJSONArray("channel")),
+                    personal = emoteArray(value.optJSONArray("personal")),
+                    legacyCombined = emoteArray(value.optJSONArray("legacyCombined")),
+                )
+            }
+            // Schema 1/2 used one array per provider. Schema 1 had no stable provider
+            // identity, so retain those records as legacy combined entries and synthesize
+            // the emote name as their only available identity.
+            return if (schemaVersion == 1) {
+                ScopedEmoteCatalog(
+                    legacyCombined = emoteArray(root.optJSONArray(name), legacyCombined = true),
+                )
+            } else {
+                ScopedEmoteCatalog.fromEffective(emoteArray(root.optJSONArray(name)))
             }
         }
         val badges = buildMap {
@@ -337,7 +367,7 @@ class TwitchChatCatalogCache(
         }
         return ChatCatalogSnapshot(
             revision = root.optLong("revision", 0L),
-            twitch = emotes("twitch"),
+            twitch = emoteArray(root.optJSONArray("twitch"), legacyCombined = schemaVersion == 1),
             sevenTv = emotes("sevenTv"),
             bttv = emotes("bttv"),
             ffz = emotes("ffz"),

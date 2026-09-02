@@ -2541,10 +2541,10 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
 
     private fun effectiveLandscapeChatWidth(): Int {
         if (chatWidthLandscape <= 0) return 0
-        if (!isMaximized || resizeMode != AspectRatioFrameLayout.RESIZE_MODE_FIT) return chatWidthLandscape
-
         val availableWidth = binding.slidingLayout.width - binding.slidingLayout.paddingLeft - binding.slidingLayout.paddingRight
-        return clampLandscapeChatWidth(chatWidthLandscape, availableWidth)
+        if (availableWidth <= 0) return chatWidthLandscape
+        val percentage = requireContext().prefs().getInt(C.CHAT_WIDTH_PERCENT, 30)
+        return landscapeChatWidthForAvailableWidth(availableWidth, percentage)
     }
 
     protected fun setQualityButtonColor(color: Int) {

@@ -35,6 +35,10 @@ import com.github.andreyasadchy.xtra.model.chat.STVUser
 import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
+import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
 import com.github.andreyasadchy.xtra.util.chat.displayName
 import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
@@ -729,16 +733,24 @@ class ChatAdapter(
         }
     }
 
-    fun createMessageClickedChatAdapter(): MessageClickedChatAdapter {
+    fun createMessageClickedChatAdapter(
+        sourceMessages: List<ChatMessage>? = null,
+        selectedMessageOverride: ChatMessage? = selectedMessage,
+        v2Rows: List<ChatRowUiModel>? = null,
+        v2Assets: ChatAssetRepository? = null,
+        v2EmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
+        v2GifClick: ((ChatGifInteraction) -> Unit)? = null,
+    ): MessageClickedChatAdapter {
         return MessageClickedChatAdapter(
-            messages, localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes, namePaints, stvBadges, personalEmoteSets,
+            sourceMessages ?: messages, localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes, namePaints, stvBadges, personalEmoteSets,
             stvUsers, enableTimestamps, timestampFormat, firstMsgVisibility, firstChatMsg, redeemedChatMsg, redeemedNoMsg, replyMessage,
             { chatMessage -> selectedMessage = chatMessage; replyClickListener?.invoke() },
             { url, name, format, isAnimated, source, thirdParty, emoteId -> imageClickListener?.invoke(url, name, format, isAnimated, source, thirdParty, emoteId) },
             useRandomColors, useReadableColors, isLightTheme, nameDisplay, useBoldNames, showNamePaints, showBadges, showSTVBadges, showPersonalEmotes,
             showSystemMessageEmotes, chatUrl, fragment, dialogBackgroundColor, imageLibrary, messageTextSize, emoteSize, badgeSize, inlineIconSize,
             emoteQuality, animateGifs, enableOverlayEmotes, translateAllMessages, translateMessage, showLanguageDownloadDialog, random, userColors,
-            savedColors, savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes, loggedInUser, selectedMessage
+            savedColors, savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes, loggedInUser, selectedMessageOverride,
+            v2Rows, v2Assets, v2EmoteClick, v2GifClick,
         )
     }
 

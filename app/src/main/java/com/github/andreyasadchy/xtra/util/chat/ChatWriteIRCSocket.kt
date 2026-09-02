@@ -93,10 +93,12 @@ class ChatWriteIRCSocket(
         writer?.write(message + System.lineSeparator())
     }
 
-    suspend fun send(message: CharSequence, replyId: String?) = withContext(Dispatchers.IO) {
+    suspend fun send(message: CharSequence, replyId: String?): Boolean = withContext(Dispatchers.IO) {
+        if (writer == null) return@withContext false
         val reply = replyId?.let { "@reply-parent-msg-id=${it} " } ?: ""
         write("${reply}PRIVMSG #$channelLogin :$message")
-        writer?.flush()
+        writer!!.flush()
+        true
     }
 
     suspend fun disconnect(job: Job?) = withContext(Dispatchers.IO) {

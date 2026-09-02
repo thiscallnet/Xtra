@@ -41,6 +41,10 @@ data class ChatCatalogLoadResult(
     val hasSuccessfulProvider: Boolean
         get() = twitch != null || sevenTv != null || bttv != null || ffz != null || badges != null
 
+    val hasFailedThirdPartyProvider: Boolean
+        get() = sevenTv == null || sevenTv.hasFailedScope ||
+                bttv == null || bttv.hasFailedScope || ffz == null || ffz.hasFailedScope
+
     /** Sources must return an explicit empty update for a provider that successfully has no entries. */
     val hasFailedProvider: Boolean
         get() = twitch == null || sevenTv == null || sevenTv.hasFailedScope ||
@@ -99,7 +103,12 @@ class ChatCatalogRepository(
                             if (networkProvidersObserved.isEmpty() && networkEmoteScopesObserved.isEmpty()) {
                                 // A refresh may already be in flight while disk hydration is pending.
                                 // Publish the last-good cache before that refresh completes.
-                                _state.value = ChatCatalogState(cached, hydrated = true)
+                                _state.value = ChatCatalogState(
+                                    cached,
+                                    hydrated = true,
+                                    refreshFailed = currentState.refreshFailed,
+                                    thirdPartyRefreshFailed = currentState.thirdPartyRefreshFailed,
+                                )
                             } else {
                                 // Hydrate only providers that have not produced a network result yet.
                                 // A partial refresh must not erase cached data for providers that are
@@ -116,6 +125,7 @@ class ChatCatalogRepository(
                                         merged.copy(revision = current.revision + 1),
                                         hydrated = true,
                                         refreshFailed = currentState.refreshFailed,
+                                        thirdPartyRefreshFailed = currentState.thirdPartyRefreshFailed,
                                     )
                                 } else {
                                     _state.value = currentState.copy(hydrated = true)
@@ -157,8 +167,11 @@ class ChatCatalogRepository(
         synchronized(this@ChatCatalogRepository) {
             if (closed || requestGeneration != generation) return@synchronized
             if (result == null || !result.hasSuccessfulProvider) {
-                if (!_state.value.refreshFailed) {
-                    _state.value = _state.value.copy(refreshFailed = true)
+                if (!_state.value.refreshFailed || !_state.value.thirdPartyRefreshFailed) {
+                    _state.value = _state.value.copy(
+                        refreshFailed = true,
+                        thirdPartyRefreshFailed = true,
+                    )
                 }
                 refreshJob = launchRefresh(requestGeneration, attempt + 1, retryDelay(attempt))
                 return@synchronized
@@ -189,11 +202,15 @@ class ChatCatalogRepository(
                 next,
                 hydrated = currentState.hydrated,
                 refreshFailed = result.hasFailedProvider,
+                thirdPartyRefreshFailed = result.hasFailedThirdPartyProvider,
             )
             if (changed) {
                 _state.value = nextState
                 enqueuePersistence(next)
-            } else if (currentState.refreshFailed != nextState.refreshFailed) {
+            } else if (
+                currentState.refreshFailed != nextState.refreshFailed ||
+                currentState.thirdPartyRefreshFailed != nextState.thirdPartyRefreshFailed
+            ) {
                 _state.value = nextState
             }
             refreshJob = if (result.hasFailedProvider) {
@@ -232,28 +249,33 @@ class ChatCatalogRepository(
     }
 
     private fun mergeEmoteScopes(
-        current: Map<String, ChatCatalogEmote>,
+        current: ScopedEmoteCatalog,
         update: ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>>,
-    ): Map<String, ChatCatalogEmote> {
-        if (update.global == null && update.channel == null) return update.value
-        val merged = current.toMutableMap()
-        val completeScopedRefresh =
-            update.global is ScopeUpdate.Success && update.channel is ScopeUpdate.Success
-        if (completeScopedRefresh) {
-            merged.entries.removeAll { it.value.scope == ChatEmoteScope.LEGACY_COMBINED }
-        }
+    ): ScopedEmoteCatalog {
+        if (update.global == null && update.channel == null) return ScopedEmoteCatalog.fromEffective(update.value)
+        var global = current.global
+        var channel = current.channel
+        var personal = current.personal
+        var legacyCombined = current.legacyCombined
         fun apply(scope: ChatEmoteScope, result: ScopeUpdate<Map<String, ChatCatalogEmote>>?) {
             when (result) {
                 is ScopeUpdate.Success -> {
-                    merged.entries.removeAll { it.value.scope == scope }
-                    merged.putAll(result.value)
+                    when (scope) {
+                        ChatEmoteScope.GLOBAL -> global = result.value
+                        ChatEmoteScope.CHANNEL -> channel = result.value
+                        ChatEmoteScope.PERSONAL -> personal = result.value
+                        ChatEmoteScope.LEGACY_COMBINED -> legacyCombined = result.value
+                    }
                 }
                 ScopeUpdate.Failed, null -> Unit
             }
         }
         apply(ChatEmoteScope.GLOBAL, update.global)
         apply(ChatEmoteScope.CHANNEL, update.channel)
-        return merged
+        if (update.global is ScopeUpdate.Success && update.channel is ScopeUpdate.Success) {
+            legacyCombined = emptyMap()
+        }
+        return ScopedEmoteCatalog(global, channel, personal, legacyCombined)
     }
 
     private fun observeEmoteScopes(
@@ -268,18 +290,23 @@ class ChatCatalogRepository(
     }
 
     private fun hydrateUnobservedScopes(
-        current: Map<String, ChatCatalogEmote>,
-        cached: Map<String, ChatCatalogEmote>,
+        current: ScopedEmoteCatalog,
+        cached: ScopedEmoteCatalog,
         provider: Provider,
-    ): Map<String, ChatCatalogEmote> {
+    ): ScopedEmoteCatalog {
         if (provider in networkProvidersObserved) return current
         val observed = networkEmoteScopesObserved[provider].orEmpty()
-        val merged = current.toMutableMap()
-        for (scope in ChatEmoteScope.entries) {
-            if (scope in observed) continue
-            merged.entries.removeAll { it.value.scope == scope }
-            merged.putAll(cached.filterValues { it.scope == scope })
-        }
-        return merged
+        val realScopesAuthoritative =
+            ChatEmoteScope.GLOBAL in observed && ChatEmoteScope.CHANNEL in observed
+        return current.copy(
+            global = if (ChatEmoteScope.GLOBAL in observed) current.global else cached.global,
+            channel = if (ChatEmoteScope.CHANNEL in observed) current.channel else cached.channel,
+            personal = if (ChatEmoteScope.PERSONAL in observed) current.personal else cached.personal,
+            legacyCombined = when {
+                realScopesAuthoritative -> emptyMap()
+                current.legacyCombined.isNotEmpty() -> current.legacyCombined
+                else -> cached.legacyCombined
+            },
+        )
     }
 }

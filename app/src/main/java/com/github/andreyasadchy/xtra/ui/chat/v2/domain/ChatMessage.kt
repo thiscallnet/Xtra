@@ -1,5 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.domain
 
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
+
 data class ChatUser(
     val id: String?,
     val login: String?,
@@ -44,6 +47,21 @@ data class ChatAssetSpec(
     fun scaledTo(height: Int): ChatAssetSpec = copy(targetHeight = height, overlays = overlays.map { it.scaledTo(height) })
 }
 
+data class ChatEmoteInteraction(
+    val id: String?,
+    val name: String,
+    val url: String?,
+    val animated: Boolean,
+    val provider: ChatAssetProvider,
+    val scope: ChatEmoteScope?,
+)
+
+data class ChatGifInteraction(
+    val id: String,
+    val description: String,
+    val url: String,
+)
+
 data class ChatReply(
     val parentMessageId: ChatMessageId,
     val parentMessageBody: String?,
@@ -75,8 +93,14 @@ sealed interface ChatSegment {
         val asset: ChatAssetSpec,
         val fallbackText: String,
         val animated: Boolean,
+        val interaction: ChatEmoteInteraction? = null,
     ) : ChatSegment
-    data class Gif(val gifId: String, val url: String, val fallbackText: String) : ChatSegment
+    data class Gif(
+        val gifId: String,
+        val url: String,
+        val fallbackText: String,
+        val interaction: ChatGifInteraction = ChatGifInteraction(gifId, fallbackText, url),
+    ) : ChatSegment
     data class Cheermote(val asset: ChatAssetSpec, val text: String, val bits: Int, val color: Int?) : ChatSegment
 }
 
@@ -99,11 +123,16 @@ data class ChatMessage(
     val user: ChatUser?,
     val badges: List<ChatBadgeRef>,
     val segments: List<ChatSegment>,
+    /** The exact plain-text body supplied by Twitch, including GIF message text. */
+    val rawText: String? = null,
     val kind: ChatMessageKind,
     val reply: ChatReply? = null,
     val source: SharedChatSource? = null,
     val rewardId: String? = null,
+    val isFirst: Boolean = false,
     val bits: Int? = null,
+    val watchStreakCount: Int? = null,
+    val watchStreakPoints: Int? = null,
     val twitchType: TwitchChatMessageType = TwitchChatMessageType.Text,
     val systemText: String? = null,
     val noticeType: String? = null,

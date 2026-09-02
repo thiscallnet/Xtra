@@ -118,6 +118,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -159,6 +161,11 @@ internal fun shouldResumeLiveChat(
 internal fun resolveCurrentLiveStreamId(currentStreamId: String?, initialStreamId: String?): String? =
     currentStreamId ?: initialStreamId
 
+sealed interface ChatSendResult {
+    data class Success(val messageId: String? = null) : ChatSendResult
+    data class Failure(val message: String) : ChatSendResult
+}
+
 internal fun matchesV2PickerSession(
     active: com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec?,
     expectedChannelId: String?,
@@ -166,6 +173,32 @@ internal fun matchesV2PickerSession(
 ): Boolean = active != null &&
         active.channelId == expectedChannelId &&
         active.channelLogin.equals(expectedChannelLogin, ignoreCase = true)
+
+internal fun mergePickerThirdPartyEmotes(
+    personalEmotes: List<Emote>,
+    catalogEmotes: List<Emote>,
+): List<Emote> = FavoriteEmoteCatalog.deduplicate(personalEmotes + catalogEmotes)
+
+internal fun personalSevenTvEmotesForPicker(
+    setId: String?,
+    emotes: List<Emote>?,
+): List<Emote> = if (setId.isNullOrBlank()) emptyList() else emotes.orEmpty().map { emote ->
+    Emote(
+        name = emote.name,
+        localData = emote.localData,
+        url1x = emote.url1x,
+        url2x = emote.url2x,
+        url3x = emote.url3x,
+        url4x = emote.url4x,
+        format = emote.format,
+        isAnimated = emote.isAnimated,
+        isOverlayEmote = emote.isOverlayEmote,
+        source = Emote.PERSONAL_STV,
+        id = emote.id,
+        width = emote.width,
+        height = emote.height,
+    )
+}
 
 data class DropsUiState(
     val drops: List<TwitchDrop> = emptyList(),
@@ -200,6 +233,21 @@ internal fun appendChatMessageToHistory(
     return removeCount
 }
 
+internal fun shouldStartLegacyChatWriteTransport(
+    startMessageTransport: Boolean,
+    startWriteTransport: Boolean,
+    readOnly: Boolean,
+    isLoggedIn: Boolean,
+    useEventSubChat: Boolean,
+    hasGqlToken: Boolean,
+    hasHelixToken: Boolean,
+    useApiChatMessages: Boolean,
+): Boolean = startWriteTransport &&
+        !readOnly &&
+        isLoggedIn &&
+        !(startMessageTransport && useEventSubChat) &&
+        (hasGqlToken || hasHelixToken && !useApiChatMessages)
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ChatViewModel(
     private val applicationContext: Context,
@@ -219,17 +267,54 @@ class ChatViewModel(
         data class Error(val retry: () -> Unit) : ThirdPartyPickerState
     }
 
+    data class PickerCatalog(
+        val twitch: List<Emote>,
+        val thirdParty: List<Emote>,
+    ) {
+        val all: List<Emote> by lazy {
+            FavoriteEmoteCatalog.deduplicate(twitch + thirdParty)
+                .filter { !it.name.isNullOrBlank() }
+        }
+    }
+
+    fun pickerCatalogFor(
+        expectedChannelId: String?,
+        expectedChannelLogin: String?,
+        useV2: Boolean = true,
+    ): Flow<PickerCatalog?> = if (!useV2) {
+        flowOf(null)
+    } else {
+        chatSessionManager.active.flatMapLatest { active ->
+            val session = active ?: return@flatMapLatest flowOf(null)
+            if (!matchesV2PickerSession(session.spec, expectedChannelId, expectedChannelLogin)) {
+                flowOf(null)
+            } else {
+                combine(
+                    session.catalog.state,
+                    merge(userEmotesUpdated, thirdPartyEmotesUpdated).onStart { emit(Unit) },
+                ) { state, _ ->
+                    if (!state.hydrated) PickerCatalog(emptyList(), emptyList())
+                    else pickerCatalogFor(state.snapshot)
+                }
+            }
+        }
+    }
+
     fun thirdPartyPickerStateFor(
         expectedChannelId: String?,
         expectedChannelLogin: String?,
-    ): Flow<ThirdPartyPickerState?> = chatSessionManager.active.flatMapLatest { active ->
+        useV2: Boolean = true,
+    ): Flow<ThirdPartyPickerState?> = if (!useV2) flowOf(null) else chatSessionManager.active.flatMapLatest { active ->
         val session = active ?: return@flatMapLatest flowOf(null)
         if (!matchesV2PickerSession(session.spec, expectedChannelId, expectedChannelLogin)) {
             flowOf(null)
         } else {
-            session.catalog.state.map { state ->
+            combine(
+                session.catalog.state,
+                thirdPartyEmotesUpdated.onStart { emit(Unit) },
+            ) { state, _ ->
                 if (!state.hydrated) ThirdPartyPickerState.Loading
-                else thirdPartyPickerStateFor(state.snapshot, state.refreshFailed) { session.catalog.refresh() }
+                else thirdPartyPickerStateFor(state.snapshot, state.thirdPartyRefreshFailed) { session.catalog.refresh() }
             }
         }
     }
@@ -239,11 +324,12 @@ class ChatViewModel(
         refreshFailed: Boolean,
         retry: () -> Unit,
     ): ThirdPartyPickerState {
-        val emotes = FavoriteEmoteCatalog.deduplicate(
-            snapshot.sevenTv.values.map(::toPickerEmote) +
-                    snapshot.bttv.values.map(::toPickerEmote) +
-                    snapshot.ffz.values.map(::toPickerEmote),
-        ).filter { it.name?.isNotBlank() == true }
+        val emotes = mergePickerThirdPartyEmotes(
+            personalPickerEmotes(),
+            snapshot.sevenTv.effectiveValues().map(::toPickerEmote) +
+                    snapshot.bttv.effectiveValues().map(::toPickerEmote) +
+                    snapshot.ffz.effectiveValues().map(::toPickerEmote),
+        ).filter { it.name?.isNotBlank() == true && isPickerProviderEnabled(it) }
         return if (emotes.isEmpty() && refreshFailed) ThirdPartyPickerState.Error(retry)
         else if (emotes.isEmpty()) ThirdPartyPickerState.Empty
         else ThirdPartyPickerState.Ready(emotes.sortedBy { it.name.orEmpty().lowercase() })
@@ -457,8 +543,15 @@ class ChatViewModel(
     val stvUsers = mutableListOf<STVUser>()
     var channelSTVEmoteSetId: String? = null
     var userSTVEmoteSetId: String? = null
+    private val personalSTVEmoteSetIds = mutableSetOf<String>()
 
     private val pickerCatalogRevision = MutableStateFlow(0L)
+    private val pickerCatalogUpdates: Flow<Unit> = merge(
+        pickerCatalogRevision.map { Unit },
+        chatSessionManager.active.flatMapLatest { active ->
+            active?.catalog?.state?.map { Unit } ?: flowOf(Unit)
+        },
+    )
     val recentEmotes: StateFlow<List<RecentEmote>> = playerRepository.loadRecentEmotesFlow().stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
@@ -481,7 +574,7 @@ class ChatViewModel(
         SharingStarted.Eagerly,
         emptySet(),
     )
-    val availableFavoriteEmotes: StateFlow<List<Emote>> = combine(favoriteEmotes, pickerCatalogRevision) { favorites, _ ->
+    val availableFavoriteEmotes: StateFlow<List<Emote>> = combine(favoriteEmotes, pickerCatalogUpdates.onStart { emit(Unit) }) { favorites, _ ->
         FavoriteEmoteCatalog.availableFavorites(favorites, currentPickerEmotes())
     }.stateIn(
         viewModelScope,
@@ -751,21 +844,31 @@ class ChatViewModel(
             if (useChatV2 && v2LiveChannelId == channelId && v2LiveChannelLogin == channelLogin && started) return
             messageLimit = 600
             this.streamId = streamId
-            startLiveChat(channelId, channelLogin, readOnly = readOnly, startMessageTransport = !useChatV2)
+            val useApiChatMessages = applicationContext.prefs().getBoolean(C.DEBUG_API_CHAT_MESSAGES, true)
+            startLiveChat(
+                channelId,
+                channelLogin,
+                readOnly = readOnly,
+                startMessageTransport = !useChatV2,
+                startWriteTransport = !useChatV2 || !useApiChatMessages,
+            )
+            val isLoggedIn = !applicationContext.tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
+                    (!TwitchApiHelper.getGQLHeaders(applicationContext, true)[C.HEADER_TOKEN].isNullOrBlank() ||
+                            !TwitchApiHelper.getHelixHeaders(applicationContext)[C.HEADER_TOKEN].isNullOrBlank())
+            if (isLoggedIn) {
+                // v2 owns third-party loading, but Twitch subscriber/user emotes are still
+                // needed by the Twitch picker and autocomplete.
+                loadUserEmotes(channelId)
+            }
             if (useChatV2) {
                 v2LiveChannelId = channelId
                 v2LiveChannelLogin = channelLogin
+                markPickerCatalogChanged()
             } else {
                 addChatter(channelName)
                 loadEmotes(channelId, channelLogin)
                 if (applicationContext.prefs().getBoolean(C.CHAT_RECENT, true)) {
                     loadRecentMessages(networkLibrary, recentMessagesUrl, channelLogin)
-                }
-                val isLoggedIn = !applicationContext.tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
-                        (!TwitchApiHelper.getGQLHeaders(applicationContext, true)[C.HEADER_TOKEN].isNullOrBlank() ||
-                                !TwitchApiHelper.getHelixHeaders(applicationContext)[C.HEADER_TOKEN].isNullOrBlank())
-                if (isLoggedIn) {
-                    loadUserEmotes(channelId)
                 }
             }
         }
@@ -2557,18 +2660,109 @@ class ChatViewModel(
     }
 
     fun thirdPartyPickerEmotes(): List<Emote> {
-        val personalEmotes = userSTVEmoteSetId?.let { setId ->
-            synchronized(personalEmoteSets) { personalEmoteSets[setId].orEmpty() }
-        }.orEmpty()
+        currentV2PickerCatalog()?.let { return it.thirdParty }
+        val personalEmotes = personalPickerEmotes()
         return FavoriteEmoteCatalog.deduplicate(personalEmotes +
                 synchronized(thirdPartyEmotes) { thirdPartyEmotes.toList() })
             .filter { !it.name.isNullOrBlank() && isPickerProviderEnabled(it) }
     }
 
     fun currentPickerEmotes(): List<Emote> {
+        currentV2PickerCatalog()?.let { return it.all }
         return FavoriteEmoteCatalog.deduplicate(synchronized(userEmotes) { userEmotes.toList() } +
                 thirdPartyPickerEmotes())
             .filter { !it.name.isNullOrBlank() && isPickerProviderEnabled(it) }
+    }
+
+    fun twitchPickerEmotes(): List<Emote> = synchronized(userEmotes) {
+        userEmotes.toList()
+    }.filter { !it.name.isNullOrBlank() }
+
+    fun availableFavoriteEmotesFor(catalog: PickerCatalog?): List<Emote> =
+        FavoriteEmoteCatalog.availableFavorites(
+            favoriteEmotes.value,
+            catalog?.all ?: currentPickerEmotes(),
+        )
+
+    fun refreshV2AutoCompleteList(catalog: PickerCatalog) {
+        synchronized(autoCompleteList) {
+            val nonEmotes = autoCompleteList.filterNot { it is Emote }
+            autoCompleteList.clear()
+            autoCompleteList.addAll(nonEmotes)
+            autoCompleteList.addAll(catalog.all)
+        }
+    }
+
+    private fun currentV2PickerCatalog(): PickerCatalog? {
+        val session = chatSessionManager.active.value ?: return null
+        if (v2LiveChannelId != session.spec.channelId ||
+            !v2LiveChannelLogin.equals(session.spec.channelLogin, ignoreCase = true)
+        ) return null
+        val state = session.catalog.state.value
+        return state.snapshot.takeIf { state.hydrated }?.let(::pickerCatalogFor)
+    }
+
+    private fun pickerCatalogFor(
+        snapshot: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot,
+    ): PickerCatalog {
+        val thirdParty = mergePickerThirdPartyEmotes(
+            personalPickerEmotes(),
+            snapshot.sevenTv.effectiveValues().map(::toPickerEmote) +
+                    snapshot.bttv.effectiveValues().map(::toPickerEmote) +
+                    snapshot.ffz.effectiveValues().map(::toPickerEmote),
+        ).filter { it.name?.isNotBlank() == true && isPickerProviderEnabled(it) }
+            .sortedBy { it.name.orEmpty().lowercase() }
+        return PickerCatalog(
+            twitch = twitchPickerEmotes(),
+            thirdParty = thirdParty,
+        )
+    }
+
+    private fun personalPickerEmotes(): List<Emote> {
+        val setIds = synchronized(personalSTVEmoteSetIds) {
+            personalSTVEmoteSetIds.toList()
+        }.ifEmpty { listOfNotNull(userSTVEmoteSetId) }
+        return synchronized(personalEmoteSets) {
+            setIds.flatMap { personalEmoteSets[it].orEmpty() }
+        }
+    }
+
+    private fun hydratePersonalSevenTvEmotes(networkLibrary: String?, accountId: String) {
+        viewModelScope.launch {
+            try {
+                val entitledSetIds = playerRepository.loadSTVEntitledEmoteSetIds(networkLibrary, accountId)
+                val hydratedSets = entitledSetIds.mapNotNull { setId ->
+                    try {
+                        val response = playerRepository.loadSTVEmoteSetResponse(
+                            networkLibrary,
+                            setId,
+                            throwOnHttpError = true,
+                        )
+                        setId to playerRepository.loadSTVPersonalEmotes(response, true).second
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                if (hydratedSets.isEmpty()) return@launch
+                synchronized(personalSTVEmoteSetIds) {
+                    personalSTVEmoteSetIds.clear()
+                    personalSTVEmoteSetIds.addAll(hydratedSets.map { it.first })
+                }
+                userSTVEmoteSetId = hydratedSets.first().first
+                synchronized(personalEmoteSets) {
+                    hydratedSets.forEach { (setId, emotes) ->
+                        personalEmoteSets[setId] = personalSevenTvEmotesForPicker(setId, emotes)
+                    }
+                }
+                emitThirdPartyEmotesUpdated()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Personal emotes are optional; the EventAPI can hydrate them later.
+            }
+        }
     }
 
     private fun isPickerProviderEnabled(emote: Emote): Boolean {
@@ -2629,9 +2823,17 @@ class ChatViewModel(
         channelLogin: String,
         readOnly: Boolean = liveChatReadOnly,
         startMessageTransport: Boolean = true,
+        startWriteTransport: Boolean = startMessageTransport,
     ) {
         liveChatInitialized = true
+        val channelChanged = activeChannelId != channelId ||
+                !activeChannelLogin.equals(channelLogin, ignoreCase = true)
         stopLiveChat()
+        if (channelChanged) {
+            synchronized(userEmotes) { userEmotes.clear() }
+            loadedUserEmotes = false
+            viewModelScope.launch { emitUserEmotesUpdated() }
+        }
         liveChatReadOnly = readOnly
         val sessionToken = predictionSessionToken
         started = true
@@ -2712,26 +2914,38 @@ class ChatViewModel(
             loadWatchStreak(networkLibrary, gqlHeaders, channelId)
             startWatchStreakRefresh(networkLibrary, gqlHeaders, channelId)
         }
+        val gqlToken = gqlHeaders[C.HEADER_TOKEN]?.removePrefix("OAuth ")
+        val helixToken = helixHeaders[C.HEADER_TOKEN]?.removePrefix("Bearer ")
+        val useEventSubChat = applicationContext.prefs().getBoolean(C.DEBUG_EVENT_SUB_CHAT, false) &&
+                !helixHeaders[C.HEADER_TOKEN].isNullOrBlank()
         if (startMessageTransport) {
-            if (applicationContext.prefs().getBoolean(C.DEBUG_EVENT_SUB_CHAT, false) && !helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+            if (useEventSubChat) {
                 eventSub = EventSubWebSocket(trustManager, EventSubListener(helixHeaders, gqlHeaders, channelLogin, showUserNotice, showClearChat, usePubSub, networkLibrary, isLoggedIn, accountId, channelId))
                 chatReadJob = eventSub?.connect(viewModelScope)
             } else {
-                val gqlToken = gqlHeaders[C.HEADER_TOKEN]?.removePrefix("OAuth ")
-                val helixToken = helixHeaders[C.HEADER_TOKEN]?.removePrefix("Bearer ")
                 chatReadWebSocket = ChatReadWebSocket(channelLogin, trustManager, ChatReadListener(channelLogin, nameDisplay, showUserNotice, showClearMsg, showClearChat, usePubSub, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId))
                 chatReadJob = chatReadWebSocket?.connect(viewModelScope)
-                if (!readOnly && isLoggedIn && (!gqlToken.isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !useApiChatMessages)) {
-                    chatWriteWebSocket = ChatWriteWebSocket(
-                        userLogin = accountLogin,
-                        userToken = gqlToken?.takeIf { it.isNotBlank() } ?: helixToken,
-                        channelLogin = channelLogin,
-                        trustManager = trustManager,
-                        listener = ChatWriteListener(channelId, showWebSocketDebugInfo)
-                    )
-                    chatWriteJob = chatWriteWebSocket?.connect(viewModelScope)
-                }
             }
+        }
+        if (shouldStartLegacyChatWriteTransport(
+                startMessageTransport = startMessageTransport,
+                startWriteTransport = startWriteTransport,
+                readOnly = readOnly,
+                isLoggedIn = isLoggedIn,
+                useEventSubChat = useEventSubChat,
+                hasGqlToken = !gqlToken.isNullOrBlank(),
+                hasHelixToken = !helixHeaders[C.HEADER_TOKEN].isNullOrBlank(),
+                useApiChatMessages = useApiChatMessages,
+            )
+        ) {
+            chatWriteWebSocket = ChatWriteWebSocket(
+                userLogin = accountLogin,
+                userToken = gqlToken?.takeIf { it.isNotBlank() } ?: helixToken,
+                channelLogin = channelLogin,
+                trustManager = trustManager,
+                listener = ChatWriteListener(channelId, showWebSocketDebugInfo)
+            )
+            chatWriteJob = chatWriteWebSocket?.connect(viewModelScope)
         }
         if (usePubSub && !channelId.isNullOrBlank()) {
             val collectPoints = applicationContext.prefs().getBoolean(C.CHAT_POINTS_COLLECT, true)
@@ -2786,9 +3000,14 @@ class ChatViewModel(
                 viewModelScope.launch {
                     try {
                         stvUserId = playerRepository.getSTVUser(networkLibrary, accountId).takeIf { !it.isNullOrBlank() }
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
 
                     }
+                }
+                if (showPersonalEmotes) {
+                    hydratePersonalSevenTvEmotes(networkLibrary, accountId)
                 }
             }
         }
@@ -4295,6 +4514,9 @@ class ChatViewModel(
                                 }
                             }
                             if (isLoggedIn && !accountId.isNullOrBlank() && result.userId == accountId) {
+                                synchronized(personalSTVEmoteSetIds) {
+                                    personalSTVEmoteSetIds.add(result.setId)
+                                }
                                 userSTVEmoteSetId = result.setId
                                 viewModelScope.launch {
                                     emitThirdPartyEmotesUpdated()
@@ -4712,74 +4934,143 @@ class ChatViewModel(
         clearPollPresentation()
     }
 
-    fun send(message: CharSequence, replyId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, accountId: String?, channelId: String?, channelLogin: String?, useApiCommands: Boolean, useApiChatMessages: Boolean) {
+    fun send(
+        message: CharSequence,
+        replyId: String?,
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+        accountId: String?,
+        channelId: String?,
+        channelLogin: String?,
+        useApiCommands: Boolean,
+        useApiChatMessages: Boolean,
+        onResult: (ChatSendResult) -> Unit = {},
+    ) {
         if (replyId != null) {
-            sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, replyId = replyId)
+            sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, replyId = replyId, onResult = onResult)
         } else {
             if (useApiCommands) {
                 if (message.toString().startsWith("/")) {
-                    try {
-                        sendCommand(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, channelLogin, useApiChatMessages)
-                    } catch (e: Exception) {
-
+                    viewModelScope.launch {
+                        try {
+                            onResult(
+                                sendCommand(
+                                    message,
+                                    networkLibrary,
+                                    gqlHeaders,
+                                    helixHeaders,
+                                    accountId,
+                                    channelId,
+                                    channelLogin,
+                                    useApiChatMessages,
+                                ),
+                            )
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            onResult(ChatSendResult.Failure(e.message ?: "Unable to send command"))
+                        }
                     }
                 } else {
-                    sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages)
+                    sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = onResult)
                 }
             } else {
                 if (message.toString() == "/dc" || message.toString() == "/disconnect") {
                     disconnect()
+                    onResult(ChatSendResult.Success())
                 } else {
-                    sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages)
+                    sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = onResult)
                 }
             }
         }
     }
 
-    private fun sendMessage(message: CharSequence, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, accountId: String?, channelId: String?, useApiChatMessages: Boolean, replyId: String? = null) {
-        try {
-            viewModelScope.launch {
+    private fun sendMessage(
+        message: CharSequence,
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+        accountId: String?,
+        channelId: String?,
+        useApiChatMessages: Boolean,
+        replyId: String? = null,
+        onResult: (ChatSendResult) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            val result = try {
                 if (useApiChatMessages) {
-                    if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        val response = graphQLRepository.sendMessage(networkLibrary, gqlHeaders, channelId, message.toString(), replyId).also { response ->
-                        }
-                        if (response.errors.isNullOrEmpty()) {
-                            onAcceptedOwnChatMessage(
-                                SlowModeMessageIdentity(message = message.toString(), replyId = replyId),
+                    when {
+                        !gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() -> {
+                            val response = graphQLRepository.sendMessage(
+                                networkLibrary,
+                                gqlHeaders,
+                                channelId,
+                                message.toString(),
+                                replyId,
                             )
-                            null
-                        } else {
-                            response.toString()
+                            if (response.errors.isNullOrEmpty()) {
+                                onAcceptedOwnChatMessage(
+                                    SlowModeMessageIdentity(message = message.toString(), replyId = replyId),
+                                )
+                                ChatSendResult.Success()
+                            } else {
+                                ChatSendResult.Failure(
+                                    response.errors?.firstOrNull()?.message ?: "Twitch rejected the message",
+                                )
+                            }
                         }
-                    } else {
-                        if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                            helixRepository.sendMessage(networkLibrary, helixHeaders, accountId, channelId, message.toString(), replyId).also { response ->
-                                if (response.isSent) {
-                                    onAcceptedOwnChatMessage(
-                                        SlowModeMessageIdentity(
-                                            messageId = response.messageId,
-                                            message = message.toString(),
-                                            replyId = replyId,
-                                        ),
-                                    )
-                                }
-                            }.errorMessage
-                        } else null
-                    }?.let {
-                        onMessage(ChatMessage(systemMsg = it))
+                        !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() -> {
+                            val response = helixRepository.sendMessage(
+                                networkLibrary,
+                                helixHeaders,
+                                accountId,
+                                channelId,
+                                message.toString(),
+                                replyId,
+                            )
+                            if (response.isSent) {
+                                onAcceptedOwnChatMessage(
+                                    SlowModeMessageIdentity(
+                                        messageId = response.messageId,
+                                        message = message.toString(),
+                                        replyId = replyId,
+                                    ),
+                                )
+                                ChatSendResult.Success(response.messageId)
+                            } else {
+                                ChatSendResult.Failure(response.errorMessage ?: "Twitch rejected the message")
+                            }
+                        }
+                        else -> ChatSendResult.Failure("Login required to send chat messages")
                     }
                 } else {
-                    chatWriteIRCSocket?.send(message, replyId) ?: chatWriteWebSocket?.send(message, replyId)
+                    val sent = when {
+                        chatWriteIRCSocket != null -> chatWriteIRCSocket!!.send(message, replyId)
+                        chatWriteWebSocket != null -> chatWriteWebSocket!!.send(message, replyId)
+                        else -> false
+                    }
+                    if (sent) ChatSendResult.Success() else ChatSendResult.Failure("Chat write transport is unavailable")
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ChatSendResult.Failure(e.message ?: "Unable to send chat message")
             }
-        } catch (e: Exception) {
-
+            if (result is ChatSendResult.Success) recordRecentEmotes(message)
+            onResult(result)
         }
+    }
+
+    private fun recordRecentEmotes(message: CharSequence) {
         val usedEmotes = hashSetOf<RecentEmote>()
         val currentTime = System.currentTimeMillis()
+        val pickerEmoteNames = currentPickerEmotes().mapNotNull { it.name }.toSet()
         synchronized(allEmotes) {
             message.split(' ').forEach { word ->
-                allEmotes.find { it == word }?.let { usedEmotes.add(RecentEmote(word, currentTime)) }
+                if (word in pickerEmoteNames || allEmotes.any { it == word }) {
+                    usedEmotes.add(RecentEmote(word, currentTime))
+                }
             }
         }
         if (usedEmotes.isNotEmpty()) {
@@ -4789,8 +5080,84 @@ class ChatViewModel(
         }
     }
 
-    private fun sendCommand(message: CharSequence, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>, accountId: String?, channelId: String?, channelLogin: String?, useApiChatMessages: Boolean) {
+    private suspend fun sendCommand(
+        message: CharSequence,
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+        accountId: String?,
+        channelId: String?,
+        channelLogin: String?,
+        useApiChatMessages: Boolean,
+    ): ChatSendResult {
+        val result = kotlinx.coroutines.CompletableDeferred<ChatSendResult>()
+        sendCommandAsync(
+            message,
+            networkLibrary,
+            gqlHeaders,
+            helixHeaders,
+            accountId,
+            channelId,
+            channelLogin,
+            useApiChatMessages,
+        ) { result.complete(it) }
+        return result.await()
+    }
+
+    private fun sendCommandAsync(
+        message: CharSequence,
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+        accountId: String?,
+        channelId: String?,
+        channelLogin: String?,
+        useApiChatMessages: Boolean,
+        onResult: (ChatSendResult) -> Unit,
+    ) {
         val command = message.toString().substringBefore(" ")
+        var completed = false
+        fun complete(result: ChatSendResult) {
+            if (!completed) {
+                completed = true
+                onResult(result)
+            }
+        }
+        suspend fun onMessage(chatMessage: ChatMessage) {
+            this@ChatViewModel.onMessage(chatMessage)
+            chatMessage.systemMsg?.let { complete(ChatSendResult.Failure(it)) }
+        }
+        var started = false
+        val viewModelScope = object {
+            fun launch(block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit) {
+                started = true
+                this@ChatViewModel.viewModelScope.launch {
+                    try {
+                        block(this)
+                        complete(ChatSendResult.Success())
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        complete(ChatSendResult.Failure(e.message ?: "Unable to send command"))
+                    }
+                }
+            }
+        }
+        val trimmedMessage = message.toString().trim()
+        val commandsRequiringArgument = setOf(
+            "/announce", "/ban", "/unban", "/commercial", "/delete", "/mod", "/unmod",
+            "/raid", "/timeout", "/untimeout", "/vip", "/unvip", "/w", "/me",
+        )
+        if (command.lowercase() in commandsRequiringArgument && trimmedMessage == command) {
+            complete(ChatSendResult.Failure("Command requires an argument"))
+            return
+        }
+        if (command.equals("/color", true) && trimmedMessage == command &&
+            helixHeaders[C.HEADER_TOKEN].isNullOrBlank()
+        ) {
+            complete(ChatSendResult.Failure("Checking chat color requires a Helix token"))
+            return
+        }
         when {
             command.startsWith("/announce", true) -> {
                 val splits = message.split(" ", limit = 2)
@@ -4866,30 +5233,40 @@ class ChatViewModel(
                     }
                 } else {
                     if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages)
+                        started = true
+                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = ::complete)
                     }
                 }
             }
             command.equals("/color", true) -> {
                 val splits = message.split(" ")
+                started = true
                 viewModelScope.launch {
                     if (splits.size >= 2) {
-                        if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+                        val error = if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                             graphQLRepository.updateChatColor(networkLibrary, gqlHeaders, splits[1]).also { response ->
                             }.takeIf { !it.errors.isNullOrEmpty() }?.toString()
+                        } else if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+                            helixRepository.updateChatColor(networkLibrary, helixHeaders, accountId, splits[1])
+                            null
                         } else {
-                            if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                                helixRepository.updateChatColor(networkLibrary, helixHeaders, accountId, splits[1])
-                            } else null
+                            "Setting chat color requires a usable token"
+                        }
+                        if (error.isNullOrBlank()) {
+                            complete(ChatSendResult.Success())
+                        } else {
+                            complete(ChatSendResult.Failure(error))
                         }
                     } else {
                         if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                            runCatching {
-                                helixRepository.getChatColor(networkLibrary, helixHeaders, accountId)
-                            }.getOrElse { it.message }
-                        } else null
-                    }?.let {
-                        onMessage(ChatMessage(systemMsg = it))
+                            val color = helixRepository.getChatColor(networkLibrary, helixHeaders, accountId)
+                            color?.let { value ->
+                                this@ChatViewModel.onMessage(ChatMessage(systemMsg = value))
+                            }
+                            complete(ChatSendResult.Success())
+                        } else {
+                            complete(ChatSendResult.Failure("Checking chat color requires a Helix token"))
+                        }
                     }
                 }
             }
@@ -4905,7 +5282,8 @@ class ChatViewModel(
                     }
                 } else {
                     if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages)
+                        started = true
+                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = ::complete)
                     }
                 }
             }
@@ -4921,11 +5299,15 @@ class ChatViewModel(
                     }
                 } else {
                     if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages)
+                        started = true
+                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = ::complete)
                     }
                 }
             }
-            command.equals("/disconnect", true) -> disconnect()
+            command.equals("/disconnect", true) -> {
+                disconnect()
+                complete(ChatSendResult.Success())
+            }
             command.equals("/emoteonly", true) -> {
                 viewModelScope.launch {
                     if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
@@ -5050,7 +5432,7 @@ class ChatViewModel(
                 viewModelScope.launch {
                     graphQLRepository.getModerators(networkLibrary, gqlHeaders, channelLogin).also { response ->
                     }.let {
-                        onMessage(ChatMessage(systemMsg = it.data?.user?.mods?.edges?.map { it.node.login }?.toString() ?: it.toString()))
+                        this@ChatViewModel.onMessage(ChatMessage(systemMsg = it.data?.user?.mods?.edges?.map { it.node.login }?.toString() ?: it.toString()))
                     }
                 }
             }
@@ -5142,7 +5524,8 @@ class ChatViewModel(
                     }
                 } else {
                     if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages)
+                        started = true
+                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = ::complete)
                     }
                 }
             }
@@ -5155,7 +5538,8 @@ class ChatViewModel(
                     }
                 } else {
                     if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages)
+                        started = true
+                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = ::complete)
                     }
                 }
             }
@@ -5218,7 +5602,8 @@ class ChatViewModel(
                     }
                 } else {
                     if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages)
+                        started = true
+                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = ::complete)
                     }
                 }
             }
@@ -5231,7 +5616,8 @@ class ChatViewModel(
                     }
                 } else {
                     if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages)
+                        started = true
+                        sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = ::complete)
                     }
                 }
             }
@@ -5283,7 +5669,7 @@ class ChatViewModel(
                 viewModelScope.launch {
                     graphQLRepository.getVips(networkLibrary, gqlHeaders, channelLogin).also { response ->
                     }.let {
-                        onMessage(ChatMessage(systemMsg = it.data?.user?.vips?.edges?.map { it.node.login }?.toString() ?: it.toString()))
+                        this@ChatViewModel.onMessage(ChatMessage(systemMsg = it.data?.user?.vips?.edges?.map { it.node.login }?.toString() ?: it.toString()))
                     }
                 }
             }
@@ -5304,7 +5690,15 @@ class ChatViewModel(
                     }
                 }
             }
-            else -> sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages)
+            else -> if (command.equals("/me", true)) {
+                started = true
+                sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = ::complete)
+            } else {
+                complete(ChatSendResult.Failure("Unknown chat command"))
+            }
+        }
+        if (!completed && !started) {
+            complete(ChatSendResult.Failure("No usable transport for chat command"))
         }
     }
 
@@ -5372,6 +5766,7 @@ class ChatViewModel(
         channelLogin: String?,
         channelName: String?,
         streamId: String?,
+        useChatV2: Boolean = false,
     ) {
         activeChatMode = ActiveChatMode.Live
         stopReplayChat()
@@ -5384,6 +5779,7 @@ class ChatViewModel(
             channelName = channelName,
             streamId = streamId,
             readOnly = liveChatReadOnly,
+            useChatV2 = useChatV2,
         )
     }
 

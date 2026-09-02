@@ -151,6 +151,7 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "third_party_emotes_loading",
     "third_party_emotes_empty",
     "third_party_emotes_error",
+    "user_card_subscribed",
 }
 
 

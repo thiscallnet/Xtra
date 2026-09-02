@@ -1,10 +1,17 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
+import com.github.andreyasadchy.xtra.repository.parseSTVEntitledEmoteSetIds
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage as V2ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReply
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
 
 class ChatViewModelTest {
@@ -140,4 +147,70 @@ class ChatViewModelTest {
         assertFalse(shouldSynchronizeChatSnapshot(displayedRevision = 20, snapshotRevision = 20))
         assertFalse(shouldSynchronizeChatSnapshot(displayedRevision = 21, snapshotRevision = 20))
     }
+
+    @Test
+    fun v2UserHistoryUsesIdAndIncludesReplyParents() {
+        val selected = v2Message("selected", ChatUser("user-1", "alice", "Alice", null))
+        val sameUser = v2Message("same", ChatUser("user-1", "different-login", "Alice", null))
+        val otherUser = v2Message("other", ChatUser("user-2", "alice", "Alice", null))
+        val replyToUser = v2Message(
+            "reply",
+            ChatUser("user-2", "bob", "Bob", null),
+            ChatReply(
+                parentMessageId = ChatMessageId("selected"),
+                parentMessageBody = "hello",
+                parentUserId = "user-1",
+                parentUserName = "Alice",
+                parentUserLogin = "alice",
+                threadMessageId = null,
+                threadUserId = null,
+                threadUserName = null,
+                threadUserLogin = null,
+            ),
+        )
+
+        val history = listOf(selected, sameUser, otherUser, replyToUser)
+        assertEquals(
+            listOf("selected", "same", "reply"),
+            history.filter { matchesV2MessageUser(it, selected) }.map { it.id.value },
+        )
+    }
+
+    @Test
+    fun v2UserHistoryFallsBackToLoginWhenSelectedIdIsMissing() {
+        val selected = v2Message("selected", ChatUser(null, "Alice", "Alice", null))
+        val sameLogin = v2Message("same", ChatUser("user-1", "alice", "Alice", null))
+        val other = v2Message("other", ChatUser("user-2", "bob", "Bob", null))
+
+        assertEquals(
+            listOf("selected", "same"),
+            listOf(selected, sameLogin, other)
+                .filter { matchesV2MessageUser(it, selected) }
+                .map { it.id.value },
+        )
+    }
+
+    @Test
+    fun personalSevenTvHydrationUsesEntitledSetIds() {
+        val response = JSONObject(
+            """
+            {"data":{"userByConnection":{"emote_sets":[
+              {"id":"personal-set"},{"id":"special-set"}
+            ]}}}
+            """.trimIndent(),
+        ).toString()
+
+        assertEquals(listOf("personal-set", "special-set"), parseSTVEntitledEmoteSetIds(response))
+    }
+
+    private fun v2Message(id: String, user: ChatUser, reply: ChatReply? = null) = V2ChatMessage(
+        id = ChatMessageId(id),
+        channelId = "channel",
+        timestampMs = 1,
+        user = user,
+        badges = emptyList(),
+        segments = emptyList(),
+        kind = ChatMessageKind.CHAT,
+        reply = reply,
+    )
 }

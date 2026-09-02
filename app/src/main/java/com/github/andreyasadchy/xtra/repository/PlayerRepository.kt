@@ -70,6 +70,7 @@ import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
 import okio.buffer
 import okio.source
 import org.chromium.net.CronetEngine
@@ -89,6 +90,23 @@ import kotlin.uuid.Uuid
 
 private const val MAX_VIDEO_HISTORY_ITEMS = 100
 private const val AD_TAG = "XtraAd"
+
+internal fun parseSTVEntitledEmoteSetIds(response: String): List<String> {
+    val root = JSONObject(response)
+    check(!root.has("errors")) { "7TV entitlement query failed" }
+    val sets = root.optJSONObject("data")
+        ?.optJSONObject("userByConnection")
+        ?.optJSONArray("emote_sets")
+        ?: return emptyList()
+    return buildList {
+        for (index in 0 until sets.length()) {
+            sets.optJSONObject(index)
+                ?.optString("id")
+                ?.takeIf { it.isNotBlank() }
+                ?.let(::add)
+        }
+    }
+}
 
 @OptIn(UnstableApi::class)
 class PlayerRepository(
@@ -1185,6 +1203,40 @@ class PlayerRepository(
     suspend fun loadSTVEmoteSet(response: String, useWebp: Boolean, global: Boolean): Pair<String?, List<Emote>> = withContext(Dispatchers.IO) {
         val response = json.decodeFromString<STVEmoteSetResponse>(response)
         Pair(response.id, parseSTVEmotes(response.emotes, useWebp, if (global) Emote.GLOBAL_STV else Emote.CHANNEL_STV))
+    }
+
+    suspend fun loadSTVPersonalEmotes(response: String, useWebp: Boolean): Pair<String?, List<Emote>> = withContext(Dispatchers.IO) {
+        val response = json.decodeFromString<STVEmoteSetResponse>(response)
+        Pair(
+            response.id,
+            parseSTVEmotes(
+                response.emotes.filter { emote -> "PERSONAL" in emote.data?.state.orEmpty() },
+                useWebp,
+                Emote.PERSONAL_STV,
+            ),
+        )
+    }
+
+    suspend fun loadSTVEntitledEmoteSetIds(networkLibrary: String?, userId: String): List<String> = withContext(Dispatchers.IO) {
+        val query = """
+            query {
+              userByConnection(id: ${JSONObject.quote(userId)}, platform: TWITCH) {
+                emote_sets(entitled: true) { id }
+              }
+            }
+        """.trimIndent()
+        val body = JSONObject()
+            .put("query", query)
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("https://7tv.io/v3/gql")
+            .header("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
+            .post(body)
+            .build()
+        okHttpClient.value.newCall(request).executeAsync(throwOnHttpError = true).use { response ->
+            parseSTVEntitledEmoteSetIds(response.body.string())
+        }
     }
 
     suspend fun loadSTVUserResponse(

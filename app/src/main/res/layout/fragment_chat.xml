@@ -324,8 +324,8 @@
         <LinearLayout
             android:id="@+id/messageView"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:animateLayoutChanges="true"
+            android:layout_height="48dp"
+            android:baselineAligned="false"
             android:orientation="horizontal"
             android:visibility="gone"
             app:layout_constraintBottom_toTopOf="@id/emoteMenu"

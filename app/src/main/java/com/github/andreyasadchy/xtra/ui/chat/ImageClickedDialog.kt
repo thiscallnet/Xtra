@@ -1,7 +1,9 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
+import android.content.Intent
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -44,6 +46,7 @@ class ImageClickedDialog : BottomSheetDialogFragment() {
         private const val IMAGE_SOURCE = "image_source"
         private const val IMAGE_THIRD_PARTY = "image_third_party"
         private const val EMOTE_ID = "emote_id"
+        private const val IMAGE_LINK = "image_link"
 
         fun newInstance(url: String?, name: String?, format: String?, isAnimated: Boolean?, source: Int?, thirdParty: Boolean?, emoteId: String?): ImageClickedDialog {
             return ImageClickedDialog().apply {
@@ -58,6 +61,19 @@ class ImageClickedDialog : BottomSheetDialogFragment() {
                 }
             }
         }
+
+        fun newGifInstance(url: String, description: String): ImageClickedDialog =
+            newInstance(
+                url = url,
+                name = description,
+                format = "gif",
+                isAnimated = true,
+                source = null,
+                thirdParty = true,
+                emoteId = null,
+            ).apply {
+                arguments?.putString(IMAGE_LINK, url)
+            }
     }
 
     private var _binding: DialogChatImageClickBinding? = null
@@ -132,6 +148,13 @@ class ImageClickedDialog : BottomSheetDialogFragment() {
                     Emote.GLOBAL_BTTV -> getString(R.string.global_bttv_emote)
                     Emote.GLOBAL_FFZ -> getString(R.string.global_ffz_emote)
                     else -> null
+                }
+            }
+            args.getString(IMAGE_LINK)?.let { url ->
+                imageSource.visibility = View.VISIBLE
+                imageSource.text = getString(R.string.open_url)
+                imageSource.setOnClickListener {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                 }
             }
             args.getString(EMOTE_ID)?.let {

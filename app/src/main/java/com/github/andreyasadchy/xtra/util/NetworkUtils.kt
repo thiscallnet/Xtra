@@ -659,4 +659,12 @@ object NetworkUtils {
                 },
             )
         }
+
+    suspend fun Call.executeAsyncChecked(): Response {
+        val response = executeAsync()
+        if (response.isSuccessful) return response
+        val statusCode = response.code
+        response.close()
+        throw HttpStatusException(statusCode)
+    }
 }

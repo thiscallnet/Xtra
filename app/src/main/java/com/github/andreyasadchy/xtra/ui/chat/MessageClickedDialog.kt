@@ -141,7 +141,9 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                     updateButtons(selectedMessage)
                     previousSelectedMessage?.let {
                         synchronized(adapter.messages) {
-                            adapter.messages.indexOf(it).takeIf { it != -1 }
+                            adapter.messages.indexOfFirst { message ->
+                                if (!it.id.isNullOrBlank()) message.id == it.id else message === it
+                            }.takeIf { it != -1 }
                         }?.let {
                             (recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
                                 adapter.updateBackground(previousSelectedMessage, it)
@@ -202,6 +204,9 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                                 networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                                 gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true),
                                 helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
+                                isSubscribedHint = selectedMessage.badges.orEmpty().any {
+                                    it.setId.equals("subscriber", ignoreCase = true)
+                                },
                             )
                             viewLifecycleOwner.lifecycleScope.launch {
                                 repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -270,6 +275,9 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
             id = message.userId,
             login = message.userLogin,
             name = message.userName,
+            isSubscribed = message.badges.orEmpty().any {
+                it.setId.equals("subscriber", ignoreCase = true)
+            },
         )
     }
 
@@ -396,7 +404,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
             }
 
             val months = user.subscriptionMonths ?: 0
-            userSubscription.isVisible = months > 0
+            userSubscription.isVisible = months > 0 || user.isSubscribed
             if (months > 0) {
                 userSubscription.text = resources.getQuantityString(
                     if (user.isSubscribed) {
@@ -407,6 +415,8 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                     months,
                     months,
                 )
+            } else if (user.isSubscribed) {
+                userSubscription.setText(R.string.user_card_subscribed)
             }
 
             val badges = user.displayBadges
@@ -587,6 +597,13 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                 }
             }
         }
+    }
+
+    fun updateV2Messages(
+        messages: List<ChatMessage>,
+        rows: List<com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel>,
+    ) {
+        adapter?.updateV2Messages(messages, rows)
     }
 
     fun addMessages(messages: List<ChatMessage>) {

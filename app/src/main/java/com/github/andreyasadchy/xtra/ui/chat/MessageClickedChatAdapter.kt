@@ -29,11 +29,22 @@ import com.github.andreyasadchy.xtra.model.chat.STVUser
 import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
+import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
+import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
 import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
 import com.github.andreyasadchy.xtra.util.chat.isWatchStreakNotice
 import java.util.Random
 import kotlin.math.roundToInt
+
+internal fun isChatPopupMessageSelected(
+    message: ChatMessage,
+    selectedMessageId: String?,
+    selectedMessage: ChatMessage?,
+): Boolean = selectedMessageId?.takeIf { it.isNotBlank() }?.let { message.id == it } ?: (message === selectedMessage)
 
 class MessageClickedChatAdapter(
     messages: List<ChatMessage>,
@@ -88,7 +99,16 @@ class MessageClickedChatAdapter(
     private val savedLocalEmotes: MutableMap<String, ByteArray>,
     private val loggedInUser: String?,
     var selectedMessage: ChatMessage?,
+    private var v2Rows: List<ChatRowUiModel>? = null,
+    private val v2Assets: ChatAssetRepository? = null,
+    private val v2EmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
+    private val v2GifClick: ((ChatGifInteraction) -> Unit)? = null,
 ) : RecyclerView.Adapter<MessageClickedChatAdapter.ViewHolder>() {
+
+    private var selectedMessageId: String? = selectedMessage?.id?.takeIf { it.isNotBlank() }
+
+    private fun isSelected(message: ChatMessage): Boolean =
+        isChatPopupMessageSelected(message, selectedMessageId, selectedMessage)
 
     val type = selectedMessage?.type
     val userId = selectedMessage?.userId
@@ -111,13 +131,29 @@ class MessageClickedChatAdapter(
     var messageClickListener: ((ChatMessage, ChatMessage?) -> Unit)? = null
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        return ViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.chat_list_item, parent, false))
+        val itemView = v2Assets?.let {
+            ChatMessageTextView(parent.context, it).apply {
+                setMessageTextSizeSp(messageTextSize)
+                setAnimateGifs(animateGifs)
+                layoutParams = RecyclerView.LayoutParams(-1, -2)
+            }
+        } ?: LayoutInflater.from(parent.context).inflate(R.layout.chat_list_item, parent, false)
+        return ViewHolder(itemView)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val chatMessage = synchronized(messages) {
             messages.getOrNull(position)
         } ?: return
+        val v2Row = v2Rows?.getOrNull(position)
+        if (v2Row != null && holder.textView is ChatMessageTextView) {
+            val v2View = holder.textView as ChatMessageTextView
+            v2View.setInteractionCallbacks(null, v2EmoteClick, v2GifClick)
+            v2View.bind(v2Row)
+            bindSelectionClick(holder.textView, chatMessage)
+            if (isSelected(chatMessage)) holder.textView.setBackgroundResource(R.color.chatMessageSelected)
+            return
+        }
         val result = ChatAdapterUtils.prepareChatMessage(
             chatMessage, fragment.requireContext(), holder.textView, enableTimestamps, timestampFormat, firstMsgVisibility, firstChatMsg,
             redeemedChatMsg, redeemedNoMsg, replyMessage, { url, name, format, isAnimated, source, thirdParty, emoteId -> imageClick(url, name, format, isAnimated, source, thirdParty, emoteId) },
@@ -126,7 +162,7 @@ class MessageClickedChatAdapter(
             userColors, savedColors, translateAllMessages, translateMessage, showLanguageDownloadDialog, false, localTwitchEmotes,
             thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes, savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes
         )
-        if (chatMessage == selectedMessage) {
+        if (isSelected(chatMessage)) {
             holder.textView.setBackgroundResource(R.color.chatMessageSelected)
         }
         ChatAdapterUtils.installImagePlaceholders(
@@ -197,6 +233,44 @@ class MessageClickedChatAdapter(
 
     override fun getItemCount(): Int = synchronized(messages) {
         messages.size
+    }
+
+    /** Replaces the popup's rows from the canonical v2 publication. */
+    fun updateV2Messages(sourceMessages: List<ChatMessage>, rows: List<ChatRowUiModel>) {
+        if (v2Assets == null) return
+        val filteredMessages = sourceMessages.filter(::belongsToSelectedUser)
+        val ids: Set<String?> = filteredMessages.mapTo(HashSet()) { it.id }
+        val filteredRows = rows.filter { it.id.value in ids }
+        synchronized(messages) {
+            messages.clear()
+            messages.addAll(filteredMessages)
+        }
+        selectedMessage = selectedMessageId?.let { id ->
+            filteredMessages.firstOrNull { it.id == id }
+        } ?: selectedMessage?.let { selected ->
+            filteredMessages.firstOrNull { it === selected } ?: selected
+        }
+        v2Rows = filteredRows
+        notifyDataSetChanged()
+    }
+
+    private fun belongsToSelectedUser(message: ChatMessage): Boolean {
+        if (type != ChatMessage.USER_MESSAGE) return message.type == type
+        if (!userId.isNullOrBlank() && (message.userId == userId || message.replyParent?.userId == userId)) return true
+        return !userLogin.isNullOrBlank() &&
+            (message.userLogin.equals(userLogin, true) || message.replyParent?.userLogin.equals(userLogin, true))
+    }
+
+    private fun bindSelectionClick(view: TextView, chatMessage: ChatMessage) {
+        view.setOnClickListener {
+            if (view.selectionStart == -1 && view.selectionEnd == -1 && !isSelected(chatMessage)) {
+                val previous = selectedMessage
+                messageClickListener?.invoke(chatMessage, previous)
+                selectedMessage = chatMessage
+                selectedMessageId = chatMessage.id?.takeIf { it.isNotBlank() }
+                view.setBackgroundResource(R.color.chatMessageSelected)
+            }
+        }
     }
 
     override fun onViewAttachedToWindow(holder: ViewHolder) {
@@ -300,9 +374,10 @@ class MessageClickedChatAdapter(
                     ellipsize = null
                     TooltipCompat.setTooltipText(this, chatMessage.message ?: chatMessage.systemMsg)
                     setOnClickListener {
-                        if (selectionStart == -1 && selectionEnd == -1 && chatMessage != selectedMessage) {
+                        if (selectionStart == -1 && selectionEnd == -1 && !isSelected(chatMessage)) {
                             messageClickListener?.invoke(chatMessage, selectedMessage)
                             selectedMessage = chatMessage
+                            selectedMessageId = chatMessage.id?.takeIf { it.isNotBlank() }
                             setBackgroundResource(R.color.chatMessageSelected)
                             (text as? Spannable)?.let { view ->
                                 view.getSpans<NamePaintImageSpan>().forEach {

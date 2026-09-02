@@ -9,19 +9,29 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.Drawable
 import android.text.Spanned
+import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.ReplacementSpan
 import android.view.View
+import android.view.ViewGroup
+import android.view.MotionEvent
+import android.view.ViewConfiguration
+import android.widget.FrameLayout
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetLoader
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetState
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatImageHandle
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
+import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatTimelineAdapter
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatSizing
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
@@ -34,6 +44,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
@@ -133,7 +145,7 @@ class ChatMessageTextViewTest {
     }
 
     @Test
-    fun animationPreferenceCanDisableAnAlreadyBoundRow() {
+    fun disabledAnimationStaysStoppedAcrossHideAndWindowLifecycle() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         lateinit var animated: RecordingAnimatedDrawable
@@ -143,21 +155,218 @@ class ChatMessageTextViewTest {
         val view = TestTextView(context, repository)
         val spec = ChatAssetSpec(ChatAssetKey("disabled-animation"), 20, 20, 28)
         runOnMain {
+            view.setAnimateGifs(false)
             view.bind(row(spec))
             val spanned = view.text as Spanned
             val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
             draw(span, spanned, Paint.FontMetricsInt())
             view.attachedForTest()
-            assertTrue(animated.startCount > 0)
-            val startsBeforeDisable = animated.startCount
-            view.setAnimateGifs(false)
-            assertTrue(animated.stopCount > 0)
             view.setRenderingActive(false)
             view.setRenderingActive(true)
             view.detachedForTest()
             view.attachedForTest()
-            assertEquals(startsBeforeDisable, animated.startCount)
+            assertEquals(0, animated.startCount)
         }
+        scope.cancel()
+    }
+
+    @Test
+    fun adapterAppliesRuntimeAnimationSettingToReboundRows() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val adapter = ChatTimelineAdapter(repository, textSizeSp = 14f, animateGifs = true)
+        val row = row(ChatAssetSpec(ChatAssetKey("plain"), 16, 16, 24))
+        lateinit var holder: ChatTimelineAdapter.Holder
+        val submitted = CountDownLatch(1)
+
+        runOnMain {
+            holder = adapter.onCreateViewHolder(FrameLayout(context), 0)
+            adapter.submitList(listOf(row)) { submitted.countDown() }
+        }
+        assertTrue(submitted.await(1, TimeUnit.SECONDS))
+
+        fun boundAnimationState(): Boolean {
+            runOnMain { adapter.onBindViewHolder(holder, 0) }
+            val field = ChatMessageTextView::class.java.getDeclaredField("animateGifs")
+            field.isAccessible = true
+            return field.getBoolean(holder.view)
+        }
+
+        assertTrue(boundAnimationState())
+        runOnMain { adapter.setAnimateGifs(false) }
+        assertTrue(!boundAnimationState())
+        runOnMain { adapter.setAnimateGifs(true) }
+        assertTrue(boundAnimationState())
+        scope.cancel()
+    }
+
+    @Test
+    fun emoteSpanInvokesOnlyEmoteCallbackAndLongPressInvokesMessageCallback() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        val interaction = ChatEmoteInteraction(
+            id = "emote-id",
+            name = "Party",
+            url = "https://cdn.example.test/party.webp",
+            animated = false,
+            provider = ChatAssetProvider.BTTV,
+            scope = ChatEmoteScope.CHANNEL,
+        )
+        var messageClicks = 0
+        var emoteClicks = 0
+        var clickedInteraction: ChatEmoteInteraction? = null
+
+        runOnMain {
+            view.setInteractionCallbacks(
+                onMessageLongClick = { messageClicks++ },
+                onEmoteClick = {
+                    emoteClicks++
+                    clickedInteraction = it
+                },
+            )
+            view.bind(row(ChatAssetSpec(ChatAssetKey("party"), 16, 16, 24), interaction = interaction))
+            val spanned = view.text as Spanned
+            val clickables = spanned.getSpans(0, spanned.length, ClickableSpan::class.java)
+            assertEquals(1, clickables.size)
+            clickables.single().onClick(view)
+            assertEquals(1, emoteClicks)
+            assertEquals(interaction, clickedInteraction)
+            assertEquals(0, messageClicks)
+
+            assertTrue(view.performLongClick())
+            assertEquals(1, messageClicks)
+            assertEquals(1, emoteClicks)
+        }
+        scope.cancel()
+    }
+
+    @Test
+    fun realLongPressOnEmoteSuppressesSpanActionUp() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        val interaction = ChatEmoteInteraction(
+            id = "gesture-emote",
+            name = "Gesture",
+            url = "https://cdn.example.test/gesture.webp",
+            animated = false,
+            provider = ChatAssetProvider.SEVEN_TV,
+            scope = ChatEmoteScope.CHANNEL,
+        )
+        var messageClicks = 0
+        var emoteClicks = 0
+        runOnMain {
+            view.layoutParams = ViewGroup.LayoutParams(200, 80)
+            view.setInteractionCallbacks({ messageClicks++ }, { emoteClicks++ })
+            view.bind(row(ChatAssetSpec(ChatAssetKey("gesture"), 16, 16, 24), interaction = interaction))
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(80, View.MeasureSpec.EXACTLY),
+            )
+            view.layout(0, 0, 200, 80)
+            val now = android.os.SystemClock.uptimeMillis()
+            view.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, 8f, 40f, 0))
+        }
+        Thread.sleep((ViewConfiguration.getLongPressTimeout() + 150).toLong())
+        runOnMain {
+            val now = android.os.SystemClock.uptimeMillis()
+            view.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_UP, 8f, 40f, 0))
+        }
+        assertEquals(1, messageClicks)
+        assertEquals(0, emoteClicks)
+        scope.cancel()
+    }
+
+    @Test
+    fun ordinaryTextHasNoEmoteHitTarget() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        var emoteClicks = 0
+
+        runOnMain {
+            view.setInteractionCallbacks(null, { emoteClicks++ })
+            view.bind(textRow("ordinary text"))
+            val spanned = view.text as Spanned
+            assertEquals(0, spanned.getSpans(0, spanned.length, ClickableSpan::class.java).size)
+            assertEquals(0, emoteClicks)
+        }
+        scope.cancel()
+    }
+
+    @Test
+    fun gifSpanInvokesGifCallbackWithItsDescriptionAndUrl() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        val interaction = ChatGifInteraction(
+            id = "gif-id",
+            description = "Joe Biden Vote GIF by Creative Courage",
+            url = "https://media.example.test/joe.gif?token=a%26b&format=gif",
+        )
+        var clicked: ChatGifInteraction? = null
+
+        runOnMain {
+            view.setInteractionCallbacks(null, null) { clicked = it }
+            view.bind(
+                ChatRowUiModel(
+                    id = ChatMessageId("gif-row"), channelId = "channel", timestampText = null,
+                    pieces = listOf(
+                        ChatPiece.Gif(
+                            asset = ChatAssetSpec(ChatAssetKey("gif"), 16, 9, 180),
+                            url = interaction.url,
+                            fallback = interaction.description,
+                            interaction = interaction,
+                        ),
+                    ),
+                    background = 0xff101010.toInt(), accessibilityText = interaction.description,
+                    reply = null, source = null, isAction = false,
+                ),
+            )
+            val spanned = view.text as Spanned
+            val clickable = spanned.getSpans(0, spanned.length, ClickableSpan::class.java).single()
+            clickable.onClick(view)
+        }
+
+        assertEquals(interaction, clicked)
+        scope.cancel()
+    }
+
+    @Test
+    fun recycledHolderCallbacksUseTheNewlyBoundMessageId() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val clickedIds = mutableListOf<ChatMessageId>()
+        val adapter = ChatTimelineAdapter(
+            repository,
+            textSizeSp = 14f,
+            animateGifs = true,
+            onMessageLongClick = { clickedIds += it },
+        )
+        lateinit var holder: ChatTimelineAdapter.Holder
+        runOnMain {
+            holder = adapter.onCreateViewHolder(FrameLayout(context), 0)
+            adapter.submitList(listOf(textRow("first", ChatMessageId("first"))))
+            adapter.onBindViewHolder(holder, 0)
+            assertTrue(holder.view.performLongClick())
+        }
+        val committed = CountDownLatch(1)
+        runOnMain {
+            adapter.submitList(listOf(textRow("second", ChatMessageId("second")))) { committed.countDown() }
+        }
+        assertTrue(committed.await(1, TimeUnit.SECONDS))
+        runOnMain {
+            adapter.onBindViewHolder(holder, 0)
+            assertTrue(holder.view.performLongClick())
+        }
+        assertEquals(listOf(ChatMessageId("first"), ChatMessageId("second")), clickedIds)
         scope.cancel()
     }
 
@@ -241,13 +450,24 @@ class ChatMessageTextViewTest {
         scope.cancel()
     }
 
-    private fun row(spec: ChatAssetSpec, username: String? = null) = ChatRowUiModel(
+    private fun row(
+        spec: ChatAssetSpec,
+        username: String? = null,
+        interaction: ChatEmoteInteraction? = null,
+    ) = ChatRowUiModel(
         id = ChatMessageId("row"), channelId = "channel", timestampText = null,
         pieces = buildList {
             username?.let { add(ChatPiece.Username(it, 0xffff8a80.toInt())) }
-            add(ChatPiece.Emote(spec, ":asset:"))
+            add(ChatPiece.Emote(spec, ":asset:", interaction = interaction))
         },
         background = 0xff101010.toInt(), accessibilityText = "row", reply = null,
+        source = null, isAction = false,
+    )
+
+    private fun textRow(value: String, id: ChatMessageId = ChatMessageId("text")) = ChatRowUiModel(
+        id = id, channelId = "channel", timestampText = null,
+        pieces = listOf(ChatPiece.Text(value)),
+        background = 0xff101010.toInt(), accessibilityText = value, reply = null,
         source = null, isAction = false,
     )
 

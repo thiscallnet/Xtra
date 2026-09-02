@@ -5,17 +5,24 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 
 class ChatTimelineAdapter(
     private val assets: ChatAssetRepository,
     private var textSizeSp: Float,
     private var animateGifs: Boolean,
+    private val onMessageLongClick: ((ChatMessageId) -> Unit)? = null,
+    private val onEmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
+    private val onGifClick: ((ChatGifInteraction) -> Unit)? = null,
 ) : ListAdapter<ChatRowUiModel, ChatTimelineAdapter.Holder>(DIFF) {
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder = Holder(
         ChatMessageTextView(parent.context, assets).also {
             it.setMessageTextSizeSp(textSizeSp)
             it.setAnimateGifs(animateGifs)
+            it.setInteractionCallbacks(onMessageLongClick, onEmoteClick, onGifClick)
             it.layoutParams = ViewGroup.LayoutParams(-1, -2)
         },
     )

@@ -1,6 +1,9 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.transport
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import com.github.andreyasadchy.xtra.util.chat.ChatReadWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
@@ -22,6 +25,12 @@ data class TwitchChatTransportConfig(
     val accountId: String? = null,
     val helixHeaders: Map<String, String> = emptyMap(),
     val networkLibrary: String? = null,
+    val showUserNotices: Boolean = true,
+    val showClearMessages: Boolean = true,
+    val showClearChat: Boolean = true,
+    val joinedMessage: String? = null,
+    val messageDeletedMessage: String? = null,
+    val chatClearedMessage: String? = null,
 )
 
 /**
@@ -52,16 +61,35 @@ class TwitchChatTransport(
             channelLogin = config.channelLogin,
             trustManager = trustManager,
             listener = object : ChatReadWebSocket.Listener {
+                override suspend fun onConnect() {
+                    systemMessage(session, "join", config.joinedMessage)?.let { flowScope.send(it) }
+                }
+
                 override suspend fun onChatMessage(message: ChatUtils.IRCMessage, userNotice: Boolean) {
+                    if (userNotice && !config.showUserNotices) return
                     TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event -> send(event) }
                 }
 
                 override suspend fun onClearMessage(message: ChatUtils.IRCMessage) {
-                    TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event -> send(event) }
+                    TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event ->
+                        send(event)
+                        if (config.showClearMessages) {
+                            val eventKey = message.tags["target-msg-id"]
+                                ?: message.tags["tmi-sent-ts"]
+                                ?: System.nanoTime().toString()
+                            systemMessage(session, "delete-$eventKey", config.messageDeletedMessage)?.let { flowScope.send(it) }
+                        }
+                    }
                 }
 
                 override suspend fun onClearChat(message: ChatUtils.IRCMessage) {
-                    TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event -> send(event) }
+                    TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event ->
+                        send(event)
+                        if (config.showClearChat) {
+                            val eventKey = message.tags["tmi-sent-ts"] ?: System.nanoTime().toString()
+                            systemMessage(session, "clear-$eventKey", config.chatClearedMessage)?.let { flowScope.send(it) }
+                        }
+                    }
                 }
 
                 override suspend fun onNotice(message: ChatUtils.IRCMessage) {
@@ -88,6 +116,10 @@ class TwitchChatTransport(
         val socket = EventSubWebSocket(
             trustManager = trustManager,
             listener = object : EventSubWebSocket.Listener {
+                override suspend fun onConnect() {
+                    systemMessage(session, "join", config.joinedMessage)?.let { flowScope.send(it) }
+                }
+
                 override suspend fun onWelcomeMessage(sessionId: String) {
                     flowScope.launch {
                         EVENTSUB_CHAT_SUBSCRIPTIONS.forEach { type ->
@@ -101,19 +133,32 @@ class TwitchChatTransport(
                 }
 
                 override suspend fun onUserNotice(event: org.json.JSONObject, timestamp: String?) {
+                    if (!config.showUserNotices) return
                     flowScope.send(TwitchChatEventParser.fromEventSub(event, timestamp, notice = true))
                 }
 
                 override suspend fun onClearChat(event: org.json.JSONObject, timestamp: String?) {
-                    flowScope.send(TwitchChatEventParser.fromEventSubClear(event, timestamp))
+                    val clearEvent = TwitchChatEventParser.fromEventSubClear(event, timestamp)
+                    flowScope.send(clearEvent)
+                    if (config.showClearChat) {
+                        systemMessage(session, "clear-${clearEvent.eventId ?: timestamp ?: System.nanoTime()}", config.chatClearedMessage)?.let { flowScope.send(it) }
+                    }
                 }
 
                 override suspend fun onClearUserMessages(event: org.json.JSONObject, timestamp: String?) {
-                    flowScope.send(TwitchChatEventParser.fromEventSubClear(event, timestamp))
+                    val clearEvent = TwitchChatEventParser.fromEventSubClear(event, timestamp)
+                    flowScope.send(clearEvent)
+                    if (config.showClearChat) {
+                        systemMessage(session, "clear-user-${clearEvent.eventId ?: timestamp ?: System.nanoTime()}", config.chatClearedMessage)?.let { flowScope.send(it) }
+                    }
                 }
 
                 override suspend fun onMessageDelete(event: org.json.JSONObject, timestamp: String?) {
-                    flowScope.send(TwitchChatEventParser.fromEventSubClear(event, timestamp))
+                    val deleteEvent = TwitchChatEventParser.fromEventSubClear(event, timestamp)
+                    flowScope.send(deleteEvent)
+                    if (config.showClearMessages) {
+                        systemMessage(session, "delete-${deleteEvent.eventId ?: timestamp ?: System.nanoTime()}", config.messageDeletedMessage)?.let { flowScope.send(it) }
+                    }
                 }
 
                 override suspend fun onRoomState(event: org.json.JSONObject, timestamp: String?) {
@@ -130,6 +175,22 @@ class TwitchChatTransport(
             flowScope.launch { socket.disconnect(connectionJob) }
         }
     }.buffer(4096, kotlinx.coroutines.channels.BufferOverflow.SUSPEND)
+
+    private fun systemMessage(session: ChatSessionKey, suffix: String, text: String?): ChatEvent.Message? =
+        text?.takeIf { it.isNotBlank() }?.let {
+            ChatEvent.Message(
+                message = ChatMessage(
+                    id = ChatMessageId("system-$suffix-${session.generation}"),
+                    channelId = config.channelId,
+                    timestampMs = System.currentTimeMillis(),
+                    user = null,
+                    badges = emptyList(),
+                    segments = emptyList(),
+                    kind = ChatMessageKind.SYSTEM,
+                    systemText = it,
+                ),
+            )
+        }
 
     private companion object {
         val EVENTSUB_CHAT_SUBSCRIPTIONS = listOf(

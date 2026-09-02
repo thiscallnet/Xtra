@@ -683,12 +683,22 @@ class XtraModule(application: Application) {
                     config = TwitchChatTransportConfig(
                         channelId = spec.channelId,
                         channelLogin = spec.channelLogin,
-                        useEventSub = !accountId.isNullOrBlank() &&
-                                "user:read:chat" in scopes && "user:write:chat" in scopes &&
-                                !helixHeaders[C.HEADER_TOKEN].isNullOrBlank(),
+                        // EventSub is required for structured Twitch chat fragments such as
+                        // GIFs. Keep the developer switch useful for v2 as well; a failed
+                        // subscription still falls back to IRC in TwitchChatTransport.
+                        useEventSub = !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() &&
+                                (appContext.prefs().getBoolean(C.DEBUG_EVENT_SUB_CHAT, false) ||
+                                        (!accountId.isNullOrBlank() &&
+                                                "user:read:chat" in scopes)),
                         accountId = accountId,
                         helixHeaders = helixHeaders,
                         networkLibrary = network,
+                        showUserNotices = appContext.prefs().getBoolean(C.CHAT_SHOW_USER_NOTICE, true),
+                        showClearMessages = appContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_MSG, true),
+                        showClearChat = appContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_CHAT, true),
+                        joinedMessage = appContext.getString(R.string.chat_join).format(spec.channelLogin),
+                        messageDeletedMessage = appContext.getString(R.string.chat_message_deleted),
+                        chatClearedMessage = appContext.getString(R.string.chat_clear),
                     ),
                     trustManager = trustManager,
                     createSubscription = { headers, userId, type, sessionId ->
