@@ -459,6 +459,7 @@
     <string name="settings_tv_chat_overlay">Floating overlay</string>
     <string name="settings_tv_chat_preset">Overlay preset</string>
     <string name="settings_tv_chat_position">Overlay position</string>
+    <string name="settings_tv_chat_side_width">Side-panel width</string>
     <string name="settings_tv_chat_width">Overlay width</string>
     <string name="settings_tv_chat_height">Overlay height</string>
     <string name="settings_tv_chat_opacity">Overlay opacity</string>

@@ -141,6 +141,7 @@ object C {
     const val UI_THEME_COMPACT_TEXT = "ui_theme_compact_text"
     const val UI_THEME_FOLLOW_SYSTEM = "ui_theme_follow_system"
     const val TV_CHAT_MODE = "tv_chat_mode"
+    const val TV_CHAT_SIDE_PANEL_WIDTH_PERCENT = "tv_chat_side_panel_width_percent"
     const val TV_CHAT_OVERLAY_ANCHOR = "tv_chat_overlay_anchor"
     const val TV_CHAT_OVERLAY_WIDTH_PERCENT = "tv_chat_overlay_width_percent"
     const val TV_CHAT_OVERLAY_HEIGHT_PERCENT = "tv_chat_overlay_height_percent"

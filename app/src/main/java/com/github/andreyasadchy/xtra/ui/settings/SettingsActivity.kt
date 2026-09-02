@@ -2320,6 +2320,7 @@ class SettingsActivity : AppCompatActivity() {
             val preset = findPreference<ListPreference>(C.TV_CHAT_OVERLAY_PRESET)
             val mode = findPreference<ListPreference>(C.TV_CHAT_MODE)
             val anchor = findPreference<ListPreference>(C.TV_CHAT_OVERLAY_ANCHOR)
+            val sideWidth = findPreference<SeekBarPreference>(C.TV_CHAT_SIDE_PANEL_WIDTH_PERCENT)
             val width = findPreference<SeekBarPreference>(C.TV_CHAT_OVERLAY_WIDTH_PERCENT)
             val height = findPreference<SeekBarPreference>(C.TV_CHAT_OVERLAY_HEIGHT_PERCENT)
             val opacity = findPreference<SeekBarPreference>(C.TV_CHAT_OVERLAY_OPACITY)
@@ -2352,6 +2353,13 @@ class SettingsActivity : AppCompatActivity() {
                 return true
             }
 
+            sideWidth?.setOnPreferenceChangeListener { _, value ->
+                requireContext().prefs().edit {
+                    putInt(C.TV_CHAT_SIDE_PANEL_WIDTH_PERCENT, (value as Int).coerceIn(15, 50))
+                }
+                true
+            }
+
             anchor?.setOnPreferenceChangeListener { _, value ->
                 val current = tvChatOverlayConfig(requireContext())
                 persistTvChatOverlayConfig(
@@ -2372,9 +2380,11 @@ class SettingsActivity : AppCompatActivity() {
                 val config = TvChatOverlayConfig()
                 requireContext().prefs().edit {
                     putString(C.TV_CHAT_MODE, "side_panel")
+                    putInt(C.TV_CHAT_SIDE_PANEL_WIDTH_PERCENT, 25)
                 }
                 persistTvChatOverlayConfig(requireContext(), config)
                 mode?.value = TvChatMode.SIDE_PANEL.name.lowercase()
+                sideWidth?.value = 25
                 preset?.value = TvChatOverlayPreset.AUTO.name
                 anchor?.value = config.anchor.name
                 width?.value = config.widthPercent
