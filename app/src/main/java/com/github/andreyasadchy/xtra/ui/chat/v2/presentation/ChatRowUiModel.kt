@@ -13,6 +13,7 @@ data class ChatRowUiModel(
     val id: ChatMessageId,
     val channelId: String,
     val timestampText: String?,
+    val timestampColor: Int = 0xFF999999.toInt(),
     val pieces: List<ChatPiece>,
     val background: Int,
     val backgroundStyle: ChatRowBackground = ChatRowBackground.NORMAL,

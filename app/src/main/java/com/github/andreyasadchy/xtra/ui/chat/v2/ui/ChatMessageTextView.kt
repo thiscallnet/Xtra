@@ -147,7 +147,15 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
                 }
             }
         }
-        if (row.timestampText != null) output.insert(0, "${row.timestampText} ")
+        row.timestampText?.let { timestamp ->
+            output.insert(0, "$timestamp ")
+            output.setSpan(
+                ForegroundColorSpan(row.timestampColor),
+                0,
+                timestamp.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
         if (row.isAction) output.setSpan(StyleSpan(android.graphics.Typeface.ITALIC), 0, output.length, 0)
         contentDescription = row.accessibilityText
         text = output

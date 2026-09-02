@@ -165,6 +165,7 @@ class ChatRowCompiler(
             id = message.id,
             channelId = message.channelId,
             timestampText = timestampText(message.timestampMs),
+            timestampColor = colors.resolve("#999999", rowBackground = rowBackground),
             pieces = pieces,
             background = rowBackground,
             backgroundStyle = when {
