@@ -72,7 +72,7 @@ class SettingsActivityTest {
     }
 
     @Test
-    fun navigationLimitKeepsConfiguredItemsInOrder() {
+    fun navigationResolutionKeepsAllConfiguredVisibleItems() {
         val items = listOf(
             "0:0:1",
             "4:0:1",
@@ -83,11 +83,11 @@ class SettingsActivityTest {
             "6:0:1",
         )
 
-        val limited = limitNavigationVisibleItems(items)
+        val resolved = resolveNavigationTabList(items.joinToString(","), isTelevision = false)
 
-        assertEquals(6, limited.count { it.endsWith(":1") })
-        assertTrue(limited.first { it.startsWith("4:") }.endsWith(":1"))
-        assertTrue(limited.last { it.startsWith("6:") }.endsWith(":0"))
+        assertEquals(7, resolved.count { it.endsWith(":1") })
+        assertTrue(resolved.first { it.startsWith("4:") }.endsWith(":1"))
+        assertTrue(resolved.last { it.startsWith("6:") }.endsWith(":1"))
     }
 
     @Test
@@ -114,26 +114,26 @@ class SettingsActivityTest {
     }
 
     @Test
-    fun legacyMaxedNavigationLayoutGivesDiscoverSlotToDrops() {
+    fun legacyMaxedNavigationLayoutKeepsDiscoverAndAddsDrops() {
         val resolved = resolveNavigationTabList(
             "0:0:1,4:0:1,1:1:1,2:0:1,3:0:1,5:0:1",
             isTelevision = false,
         )
 
-        assertEquals(6, resolved.count { it.endsWith(":1") })
-        assertEquals("4:0:0", resolved.first { it.startsWith("4:") })
+        assertEquals(7, resolved.count { it.endsWith(":1") })
+        assertEquals("4:0:1", resolved.first { it.startsWith("4:") })
         assertEquals("6:0:1", resolved.first { it.startsWith("6:") })
     }
 
     @Test
-    fun legacyMaxedNavigationLayoutMovesDefaultFromDiscoverToDrops() {
+    fun legacyMaxedNavigationLayoutKeepsDiscoverAsDefault() {
         val resolved = resolveNavigationTabList(
             "0:0:1,4:1:1,1:0:1,2:0:1,3:0:1,5:0:1",
             isTelevision = false,
         )
 
-        assertEquals("4:0:0", resolved.first { it.startsWith("4:") })
-        assertEquals("6:1:1", resolved.first { it.startsWith("6:") })
-        assertEquals(listOf("6"), resolved.filter { it.split(':')[1] == "1" }.map { it.substringBefore(':') })
+        assertEquals("4:1:1", resolved.first { it.startsWith("4:") })
+        assertEquals("6:0:1", resolved.first { it.startsWith("6:") })
+        assertEquals(listOf("4"), resolved.filter { it.split(':')[1] == "1" }.map { it.substringBefore(':') })
     }
 }

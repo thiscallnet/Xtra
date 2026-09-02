@@ -82,7 +82,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
-        <com.google.android.material.bottomnavigation.BottomNavigationView
+        <com.github.andreyasadchy.xtra.ui.main.UnlimitedBottomNavigationView
             android:id="@+id/navBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

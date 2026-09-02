@@ -34,7 +34,6 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
     var cycleGroup: ((SettingsDragListItem) -> Unit)? = null
     var showVisibilityToggle = true
     var minimumVisibleItems = 0
-    var maximumVisibleItems: Int? = null
     var onItemChanged: (() -> Unit)? = null
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -105,7 +104,7 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                         itemEnabled = item.enabled,
                         visibleItemCount = visibleItemCount,
                         minimumVisibleItems = minimumVisibleItems,
-                    ) && (item.enabled || maximumVisibleItems == null || visibleItemCount < maximumVisibleItems!!)
+                    )
                     checkBox.setOnCheckedChangeListener { _, isChecked ->
                         item.enabled = isChecked
                         onItemChanged?.invoke()

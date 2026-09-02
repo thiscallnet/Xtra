@@ -93,8 +93,6 @@ import com.github.andreyasadchy.xtra.ui.saved.SavedMediaFragment
 import com.github.andreyasadchy.xtra.ui.saved.SavedPagerFragment
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.settings.openTabCustomization
-import com.github.andreyasadchy.xtra.ui.settings.limitNavigationVisibleItems
-import com.github.andreyasadchy.xtra.ui.settings.MAX_TV_NAVIGATION_VISIBLE_ITEMS
 import com.github.andreyasadchy.xtra.ui.settings.resolveNavigationTabList
 import com.github.andreyasadchy.xtra.ui.tv.applyTvSafePadding
 import com.github.andreyasadchy.xtra.ui.tv.disableTvClippingUpTree
@@ -1590,12 +1588,7 @@ class MainActivity : AppCompatActivity() {
         val tabList = resolveNavigationTabList(
             prefs.getString(C.UI_NAVIGATION_TAB_LIST, null),
             isTv,
-        ).let {
-            limitNavigationVisibleItems(
-                it,
-                if (isTv) MAX_TV_NAVIGATION_VISIBLE_ITEMS else 6,
-            )
-        }
+        )
         navController.setGraph(navController.navInflater.inflate(R.navigation.nav_graph).also {
             val defaultItem = tabList.find { it.split(':')[1] != "0" }?.split(':')[0] ?: "1"
             when {

@@ -291,11 +291,6 @@ class SettingsActivity : AppCompatActivity() {
     ) {
         val listAdapter = SettingsDragListAdapter()
         listAdapter.minimumVisibleItems = minimumVisibleItemsForPreference(prefKey)
-        listAdapter.maximumVisibleItems = if (isTelevision() && prefKey == C.UI_NAVIGATION_TAB_LIST) {
-            MAX_TV_NAVIGATION_VISIBLE_ITEMS
-        } else {
-            maximumVisibleItemsForPreference(prefKey)
-        }
         ensureMinimumVisibleItems(list, listAdapter.minimumVisibleItems)
         if (showDefaultSelector) promoteDefaultToVisible(list)
         val preview = when (prefKey) {
@@ -2099,7 +2094,7 @@ class SettingsActivity : AppCompatActivity() {
                                 list.add(index, item)
                             }
                         }
-                        limitNavigationVisibleItems(list)
+                        list
                     } else defaultTabs
                 }
                 val tabs = tabList.map {

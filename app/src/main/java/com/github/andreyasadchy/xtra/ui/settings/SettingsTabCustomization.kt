@@ -13,8 +13,6 @@ internal const val SETTINGS_SCREEN_TABS = "tabs"
 internal const val SETTINGS_SCREEN_PLAYER_CONTROLS = "player_controls"
 internal const val SETTINGS_SCREEN_PLAYER = "player"
 internal const val SETTINGS_SCREEN_CHAT = "chat"
-internal const val MAX_NAVIGATION_VISIBLE_ITEMS = 6
-internal const val MAX_TV_NAVIGATION_VISIBLE_ITEMS = 8
 
 internal fun navigationTabDefaults(isTelevision: Boolean): String =
     if (isTelevision) {
@@ -37,33 +35,13 @@ internal fun resolveNavigationTabList(stored: String?, isTelevision: Boolean): L
         }
         .distinctBy { it.substringBefore(':') }
         .toMutableList()
-    val storedHasDrops = result.any { it.substringBefore(':') == "6" }
-
     defaults.forEach { defaultEntry ->
         if (result.none { it.substringBefore(':') == defaultEntry.substringBefore(':') }) {
             result += defaultEntry
         }
     }
 
-    if (!isTelevision && !storedHasDrops && result.count { it.split(':').getOrNull(2) == "1" } > MAX_NAVIGATION_VISIBLE_ITEMS) {
-        val discoverIndex = result.indexOfFirst { it.substringBefore(':') == "4" }
-        val dropsIndex = result.indexOfFirst { it.substringBefore(':') == "6" }
-        if (discoverIndex >= 0 && dropsIndex >= 0 && result[discoverIndex].split(':').getOrNull(2) == "1") {
-            val discoverParts = result[discoverIndex].split(':')
-            val dropsParts = result.removeAt(dropsIndex).split(':')
-            result[discoverIndex] = discoverParts.let { parts ->
-                "${parts[0]}:0:0"
-            }
-            result.add(
-                discoverIndex,
-                "${dropsParts[0]}:${if (discoverParts[1] == "1") "1" else dropsParts[1]}:${dropsParts[2]}",
-            )
-        }
-    }
-    return limitNavigationVisibleItems(
-        result,
-        if (isTelevision) MAX_TV_NAVIGATION_VISIBLE_ITEMS else MAX_NAVIGATION_VISIBLE_ITEMS,
-    )
+    return result
 }
 
 internal fun Context.openTabCustomization(preferenceKey: String) {
@@ -96,25 +74,6 @@ internal fun minimumVisibleItemsForPreference(preferenceKey: String): Int = when
     C.UI_SEARCH_TABS,
     -> 1
     else -> 0
-}
-
-internal fun maximumVisibleItemsForPreference(preferenceKey: String): Int? =
-    MAX_NAVIGATION_VISIBLE_ITEMS.takeIf { preferenceKey == C.UI_NAVIGATION_TAB_LIST }
-
-internal fun limitNavigationVisibleItems(
-    items: List<String>,
-    maximumVisibleItems: Int = MAX_NAVIGATION_VISIBLE_ITEMS,
-): List<String> {
-    val result = items.toMutableList()
-    while (result.count { it.split(':').getOrNull(2) != "0" } > maximumVisibleItems) {
-        val index = result.indexOfLast { it.split(':').getOrNull(2) != "0" && !it.startsWith("4:") }
-            .takeIf { it >= 0 }
-            ?: result.indexOfLast { it.startsWith("4:") && it.split(':').getOrNull(2) != "0" }
-        if (index < 0) break
-        val parts = result[index].split(':')
-        result[index] = "${parts[0]}:${parts.getOrElse(1) { "0" }}:0"
-    }
-    return result
 }
 
 internal fun canDisableVisibleItem(
