@@ -10,6 +10,7 @@ internal class TvRemotePointerController(
     private val root: ViewGroup,
     private val target: View,
     private val cursor: View,
+    private val onBeforeClick: () -> Unit = {},
 ) {
     private var x = 0f
     private var y = 0f
@@ -64,6 +65,8 @@ internal class TvRemotePointerController(
     }
 
     private fun tap() {
+        // The cursor is only a visual aid. Keep GeckoView as the Android focus owner.
+        onBeforeClick()
         val location = IntArray(2)
         root.getLocationOnScreen(location)
         val targetLocation = IntArray(2)
