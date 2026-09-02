@@ -127,6 +127,7 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_tv_chat_overlay",
     "settings_tv_chat_preset",
     "settings_tv_chat_position",
+    "settings_tv_chat_side_width",
     "settings_tv_chat_width",
     "settings_tv_chat_height",
     "settings_tv_chat_opacity",

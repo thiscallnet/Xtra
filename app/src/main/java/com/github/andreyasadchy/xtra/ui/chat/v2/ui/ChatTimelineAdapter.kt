@@ -21,6 +21,7 @@ class ChatTimelineAdapter(
     )
     override fun onBindViewHolder(holder: Holder, position: Int) {
         holder.view.setMessageTextSizeSp(textSizeSp)
+        holder.view.setAnimateGifs(animateGifs)
         holder.bind(getItem(position))
     }
     fun setMessageTextSizeSp(value: Float) {

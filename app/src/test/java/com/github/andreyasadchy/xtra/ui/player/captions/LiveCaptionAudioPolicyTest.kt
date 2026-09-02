@@ -11,5 +11,5 @@ class LiveCaptionAudioPolicyTest {
         assertFalse(liveCaptionsRequirePcm(false))
         assertEquals(LiveCaptionAudioOutputMode.PCM, liveCaptionOutputMode(true))
         assertEquals(LiveCaptionAudioOutputMode.DIRECT, liveCaptionOutputMode(false))
-    }
+}
 }

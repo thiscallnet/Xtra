@@ -20,7 +20,9 @@ class LiveCaptionRenderersFactory(
         enableFloatOutput: Boolean,
         enableAudioOutputPlaybackParams: Boolean,
     ): AudioSink {
-        return DefaultAudioSink.Builder(context)
+        // Use the no-context builder. Media3 ignores setAudioCapabilities when
+        // the context builder is used and derives capabilities from the device.
+        return DefaultAudioSink.Builder()
             // This renderer owns the caption TeeAudioProcessor. The default TV
             // audio capabilities may select encoded passthrough, which skips
             // Media3 audio processors entirely. Caption playback therefore

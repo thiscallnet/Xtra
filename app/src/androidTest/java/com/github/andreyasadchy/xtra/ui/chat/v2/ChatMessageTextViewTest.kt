@@ -133,7 +133,7 @@ class ChatMessageTextViewTest {
     }
 
     @Test
-    fun disabledAnimationStaysStoppedAcrossHideAndWindowLifecycle() {
+    fun animationPreferenceCanDisableAnAlreadyBoundRow() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         lateinit var animated: RecordingAnimatedDrawable
@@ -143,17 +143,20 @@ class ChatMessageTextViewTest {
         val view = TestTextView(context, repository)
         val spec = ChatAssetSpec(ChatAssetKey("disabled-animation"), 20, 20, 28)
         runOnMain {
-            view.setAnimateGifs(false)
             view.bind(row(spec))
             val spanned = view.text as Spanned
             val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
             draw(span, spanned, Paint.FontMetricsInt())
             view.attachedForTest()
+            assertTrue(animated.startCount > 0)
+            val startsBeforeDisable = animated.startCount
+            view.setAnimateGifs(false)
+            assertTrue(animated.stopCount > 0)
             view.setRenderingActive(false)
             view.setRenderingActive(true)
             view.detachedForTest()
             view.attachedForTest()
-            assertEquals(0, animated.startCount)
+            assertEquals(startsBeforeDisable, animated.startCount)
         }
         scope.cancel()
     }

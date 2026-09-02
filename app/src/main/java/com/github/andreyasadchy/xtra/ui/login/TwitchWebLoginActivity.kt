@@ -84,7 +84,6 @@ class TwitchWebLoginActivity : AppCompatActivity() {
                     sessionManager.loginSession
                         .filterNotNull()
                         .collect { replacementSession ->
-                            session = replacementSession
                             attachSession(replacementSession)
                         }
                 }
@@ -116,7 +115,13 @@ class TwitchWebLoginActivity : AppCompatActivity() {
     private fun attachSession(value: GeckoSession) {
         geckoView.isFocusable = true
         geckoView.isFocusableInTouchMode = true
-        geckoView.setSession(value)
+        val current = geckoView.session
+        if (current !== value) {
+            current?.setPriorityHint(GeckoSession.PRIORITY_DEFAULT)
+            if (current != null) geckoView.releaseSession()
+            geckoView.setSession(value)
+        }
+        session = value
         value.setPriorityHint(GeckoSession.PRIORITY_HIGH)
         focusGeckoView()
         if (BuildConfig.DEBUG) {

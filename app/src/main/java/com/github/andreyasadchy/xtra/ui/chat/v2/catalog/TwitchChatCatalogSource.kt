@@ -272,13 +272,16 @@ class TwitchChatCatalogCache(
     }
 
     private fun decode(root: JSONObject): ChatCatalogSnapshot {
-        check(root.optInt("schemaVersion") in 1..2)
+        val schemaVersion = root.optInt("schemaVersion")
+        check(schemaVersion in 1..2)
         fun emotes(name: String): Map<String, ChatCatalogEmote> = buildMap {
             val array = root.optJSONArray(name) ?: return@buildMap
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
                 val emoteName = item.optString("name").takeIf { it.isNotBlank() } ?: continue
-                val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
+                val id = item.optString("id").takeIf { it.isNotBlank() }
+                    ?: emoteName.takeIf { schemaVersion == 1 }
+                    ?: continue
                 val provider = runCatching { ChatAssetProvider.valueOf(item.optString("provider")) }.getOrNull() ?: continue
                 put(emoteName, ChatCatalogEmote(
                     name = emoteName,

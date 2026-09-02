@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "revision": 7,
+  "provider": "combined",
+  "sevenTv": [
+    {
+      "name": "PartyParrot",
+      "scope": "GLOBAL",
+      "provider": "SEVEN_TV",
+      "animated": true,
+      "zeroWidth": false,
+      "asset": {
+        "key": "https://cdn.example.test/party-parrot.webp",
+        "sourceWidth": 56,
+        "sourceHeight": 56,
+        "targetHeight": 28,
+        "overlays": []
+      }
+    }
+  ],
+  "badges": []
+}
