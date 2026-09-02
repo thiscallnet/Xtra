@@ -8,6 +8,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.CancellationException
@@ -16,6 +17,8 @@ import org.json.JSONObject
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.supervisorScope
 
 /**
  * Bridges the already-used catalog endpoints into the immutable v2 catalog.
@@ -35,55 +38,71 @@ class TwitchChatCatalogSource(
         val helix = TwitchApiHelper.getHelixHeaders(context)
         val gql = TwitchApiHelper.getGQLHeaders(context, true)
         val useWebp = true
-        ChatCatalogLoadResult(
-            twitch = ChatCatalogProviderUpdate(emptyMap()),
-            sevenTv = provider { loadSevenTv(network, useWebp) },
-            bttv = provider { loadBttv(network, useWebp) },
-            ffz = provider { loadFfz(network, useWebp) },
-            badges = provider {
+        supervisorScope {
+            val sevenTv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_STV, true)) loadSevenTv(network, useWebp) else emptyProviderUpdate() }
+            val bttv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_BTTV, true)) loadBttv(network, useWebp) else emptyProviderUpdate() }
+            val ffz = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_FFZ, true)) loadFfz(network, useWebp) else emptyProviderUpdate() }
+            val badges = async { provider {
                 val global = playerRepository.loadGlobalBadges(network, helix, gql, "4")
                 val channel = playerRepository.loadChannelBadges(network, helix, gql, channelId, channelLogin, "4")
                 (global + channel).associateBy { "${it.setId}:${it.version}" }.mapValues { (_, badge) -> badge.toCatalog() }
-            },
-        )
+            } }
+            ChatCatalogLoadResult(
+                twitch = ChatCatalogProviderUpdate(emptyMap()),
+                sevenTv = sevenTv.await(),
+                bttv = bttv.await(),
+                ffz = ffz.await(),
+                badges = badges.await(),
+            )
+        }
     }
 
-    private suspend fun loadSevenTv(network: String?, useWebp: Boolean): Map<String, ChatCatalogEmote> {
-        val global = playerRepository.loadSTVEmoteSet(
-            playerRepository.loadGlobalSTVEmoteSetResponse(network), useWebp, true,
-        ).second
-        // A channel failure must fail the provider as a whole. Returning only the global set
-        // would silently erase the last-good channel aliases on the next refresh.
-        val user = playerRepository.loadSTVUser(playerRepository.loadSTVUserResponse(network, channelId), useWebp)
-        val channel = user.second ?: if (!user.first.isNullOrBlank()) {
+    private suspend fun loadSevenTv(network: String?, useWebp: Boolean): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
+        val global = scopeUpdate(channel = false) {
             playerRepository.loadSTVEmoteSet(
-                playerRepository.loadSTVEmoteSetResponse(network, user.first!!), useWebp, false,
+                playerRepository.loadGlobalSTVEmoteSetResponse(network), useWebp, true,
             ).second
-        } else emptyList()
-        return emoteMap(global + channel, ChatAssetProvider.SEVEN_TV)
+        }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.GLOBAL) }
+        val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
+            val user = playerRepository.loadSTVUser(playerRepository.loadSTVUserResponse(network, channelId), useWebp)
+            user.second ?: if (!user.first.isNullOrBlank()) {
+                playerRepository.loadSTVEmoteSet(
+                    playerRepository.loadSTVEmoteSetResponse(network, user.first!!), useWebp, false,
+                ).second
+            } else emptyList()
+        }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.CHANNEL) }
+        return scopedProviderUpdate(global, channel)
     }
 
-    private suspend fun loadBttv(network: String?, useWebp: Boolean): Map<String, ChatCatalogEmote> {
-        val global = playerRepository.loadBTTVEmotes(
-            playerRepository.loadGlobalBTTVEmotesResponse(network), useWebp,
-        )
-        val channel = playerRepository.loadBTTVEmotes(
-            playerRepository.loadBTTVEmotesResponse(network, channelId), useWebp,
-        )
-        return emoteMap(global + channel, ChatAssetProvider.BTTV)
+    private suspend fun loadBttv(network: String?, useWebp: Boolean): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
+        val global = scopeUpdate(channel = false) {
+            playerRepository.loadBTTVEmotes(
+                playerRepository.loadGlobalBTTVEmotesResponse(network), useWebp,
+            )
+        }.map { emoteMap(it, ChatAssetProvider.BTTV, ChatEmoteScope.GLOBAL) }
+        val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
+            playerRepository.loadBTTVEmotes(
+                playerRepository.loadBTTVEmotesResponse(network, channelId), useWebp,
+            )
+        }.map { emoteMap(it, ChatAssetProvider.BTTV, ChatEmoteScope.CHANNEL) }
+        return scopedProviderUpdate(global, channel)
     }
 
-    private suspend fun loadFfz(network: String?, useWebp: Boolean): Map<String, ChatCatalogEmote> {
-        val global = playerRepository.loadGlobalFFZEmotes(
-            playerRepository.loadGlobalFFZEmotesResponse(network), useWebp,
-        )
-        val channel = playerRepository.loadFFZEmotes(
-            playerRepository.loadFFZEmotesResponse(network, channelId), useWebp,
-        )
-        return emoteMap(global + channel, ChatAssetProvider.FFZ)
+    private suspend fun loadFfz(network: String?, useWebp: Boolean): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
+        val global = scopeUpdate(channel = false) {
+            playerRepository.loadGlobalFFZEmotes(
+                playerRepository.loadGlobalFFZEmotesResponse(network), useWebp,
+            )
+        }.map { emoteMap(it, ChatAssetProvider.FFZ, ChatEmoteScope.GLOBAL) }
+        val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
+            playerRepository.loadFFZEmotes(
+                playerRepository.loadFFZEmotesResponse(network, channelId), useWebp,
+            )
+        }.map { emoteMap(it, ChatAssetProvider.FFZ, ChatEmoteScope.CHANNEL) }
+        return scopedProviderUpdate(global, channel)
     }
 
-    private fun emoteMap(emotes: List<Emote>, provider: ChatAssetProvider): Map<String, ChatCatalogEmote> = buildMap {
+    private fun emoteMap(emotes: List<Emote>, provider: ChatAssetProvider, scope: ChatEmoteScope): Map<String, ChatCatalogEmote> = buildMap {
         // Provider response order is stable; first alias wins within a provider.
         emotes.forEach { emote ->
             val name = emote.name?.takeIf { it.isNotBlank() } ?: return@forEach
@@ -92,6 +111,7 @@ class TwitchChatCatalogSource(
             val width = emote.width?.takeIf { it > 0 } ?: 56
             val height = emote.height?.takeIf { it > 0 } ?: 56
             put(name, ChatCatalogEmote(
+                id = emote.id?.takeIf { it.isNotBlank() } ?: return@forEach,
                 name = name,
                 asset = ChatAssetSpec(
                     key = ChatAssetKey(url),
@@ -101,6 +121,7 @@ class TwitchChatCatalogSource(
                 ),
                 provider = provider,
                 animated = emote.isAnimated,
+                scope = scope,
                 zeroWidth = emote.isOverlayEmote,
             ))
         }
@@ -122,6 +143,50 @@ class TwitchChatCatalogSource(
             info = title,
         )
     }
+
+    private suspend fun <T> scopeUpdate(
+        channel: Boolean,
+        emptyValue: T? = null,
+        block: suspend () -> T,
+    ): ScopeUpdate<T> = try {
+        ScopeUpdate.Success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        if (channel && isExpectedMissingChannel(e) && emptyValue != null) {
+            ScopeUpdate.Success(emptyValue)
+        } else {
+            ScopeUpdate.Failed
+        }
+    }
+
+    private fun <T, R> ScopeUpdate<T>.map(transform: (T) -> R): ScopeUpdate<R> = when (this) {
+        is ScopeUpdate.Success -> ScopeUpdate.Success(transform(value))
+        ScopeUpdate.Failed -> ScopeUpdate.Failed
+    }
+
+    private fun scopedProviderUpdate(
+        global: ScopeUpdate<Map<String, ChatCatalogEmote>>,
+        channel: ScopeUpdate<Map<String, ChatCatalogEmote>>,
+    ): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
+        val value = buildMap {
+            if (global is ScopeUpdate.Success) putAll(global.value)
+            if (channel is ScopeUpdate.Success) putAll(channel.value)
+        }
+        return ChatCatalogProviderUpdate(value = value, global = global, channel = channel)
+    }
+
+    private fun emptyProviderUpdate(): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> =
+        ChatCatalogProviderUpdate(
+            value = emptyMap(),
+            global = ScopeUpdate.Success(emptyMap()),
+            channel = ScopeUpdate.Success(emptyMap()),
+        )
+
+    private fun isExpectedMissingChannel(error: Throwable): Boolean =
+        generateSequence(error) { it.cause }.any {
+            (it as? NetworkUtils.HttpStatusException)?.statusCode == 404
+        }
 
     private suspend fun <T> provider(block: suspend () -> T): ChatCatalogProviderUpdate<T>? = try {
         ChatCatalogProviderUpdate(block())
@@ -158,7 +223,7 @@ class TwitchChatCatalogCache(
     }
 
     private fun encode(snapshot: ChatCatalogSnapshot): JSONObject = JSONObject().apply {
-        put("schemaVersion", 1)
+        put("schemaVersion", 2)
         put("revision", snapshot.revision)
         put("provider", "combined")
         put("fetchedAt", System.currentTimeMillis())
@@ -173,6 +238,8 @@ class TwitchChatCatalogCache(
         map.values.forEach { emote ->
             put(JSONObject().apply {
                 put("name", emote.name)
+                put("id", emote.id)
+                put("scope", emote.scope.name)
                 put("provider", emote.provider.name)
                 put("animated", emote.animated)
                 put("zeroWidth", emote.zeroWidth)
@@ -205,19 +272,22 @@ class TwitchChatCatalogCache(
     }
 
     private fun decode(root: JSONObject): ChatCatalogSnapshot {
-        check(root.optInt("schemaVersion") == 1)
+        check(root.optInt("schemaVersion") in 1..2)
         fun emotes(name: String): Map<String, ChatCatalogEmote> = buildMap {
             val array = root.optJSONArray(name) ?: return@buildMap
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
                 val emoteName = item.optString("name").takeIf { it.isNotBlank() } ?: continue
+                val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
                 val provider = runCatching { ChatAssetProvider.valueOf(item.optString("provider")) }.getOrNull() ?: continue
                 put(emoteName, ChatCatalogEmote(
-                    emoteName,
-                    decodeSpec(item.optJSONObject("asset")),
-                    provider,
-                    item.optBoolean("animated"),
-                    item.optBoolean("zeroWidth"),
+                    name = emoteName,
+                    asset = decodeSpec(item.optJSONObject("asset")),
+                    provider = provider,
+                    animated = item.optBoolean("animated"),
+                    zeroWidth = item.optBoolean("zeroWidth"),
+                    id = id,
+                    scope = runCatching { ChatEmoteScope.valueOf(item.optString("scope")) }.getOrDefault(ChatEmoteScope.GLOBAL),
                 ))
             }
         }

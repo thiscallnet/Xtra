@@ -168,6 +168,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var pendingChatPublicationAnchor: ChatViewportAnchor? = null
     private var pendingChatPublicationFollowBottom = false
     private var userScrollGeneration = 0L
+    private var userGestureActive = false
     private var pendingChatPublicationScrollGeneration = 0L
 
     private val chatAdapterUpdateRunnable = Runnable {
@@ -551,7 +552,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live &&
                             isLoggedIn
                     messagingEnabled = enableMessaging
-                    val sizeModifier = (requireContext().prefs().getInt(C.CHAT_SIZE_MODIFIER, 100).toFloat() / 100f)
+                    val chatStyle = resolveChatRenderStyle(requireContext())
+                    val chatSizing = ChatSizing(
+                        textSizeSp = chatStyle.textSizeSp,
+                        emoteHeightPx = chatStyle.emoteHeightPx,
+                        badgeHeightPx = chatStyle.badgeHeightPx,
+                    )
                     val initialMessages = if (useChatV2) {
                         emptyList()
                     } else {
@@ -597,16 +603,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             com.google.android.material.R.attr.colorSurfaceContainerLow
                         ),
                         imageLibrary = "0",
-                        messageTextSize = (requireContext().prefs().getString(C.CHAT_TEXT_SIZE, "14")?.toFloatOrNull() ?: 14f) * sizeModifier,
-                        emoteSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, (requireContext().prefs().getString(C.CHAT_EMOTE_SIZE, "29.5")?.toFloatOrNull() ?: 29.5f) * sizeModifier, resources.displayMetrics).toInt(),
-                        badgeSize = TypedValue.applyDimension(
-                            TypedValue.COMPLEX_UNIT_DIP,
-                            chatBadgeSizeOrDefault(requireContext().prefs().getString(C.CHAT_BADGE_SIZE, DEFAULT_CHAT_BADGE_SIZE_DP.toString())) * sizeModifier,
-                            resources.displayMetrics,
-                        ).toInt(),
+                        messageTextSize = chatSizing.textSizeSp,
+                        emoteSize = chatSizing.emoteHeightPx,
+                        badgeSize = chatSizing.badgeHeightPx,
                         inlineIconSize = TypedValue.applyDimension(
                             TypedValue.COMPLEX_UNIT_DIP,
-                            DEFAULT_CHAT_BADGE_SIZE_DP * sizeModifier,
+                            DEFAULT_CHAT_BADGE_SIZE_DP * requireContext().prefs().getInt(C.CHAT_SIZE_MODIFIER, 100) / 100f,
                             resources.displayMetrics,
                         ).toInt(),
                         emoteQuality = "4",
@@ -643,11 +645,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             requireView(),
                             com.google.android.material.R.attr.colorSurface,
                         )
-                        val emoteHeight = TypedValue.applyDimension(
-                            TypedValue.COMPLEX_UNIT_DIP,
-                            (requireContext().prefs().getString(C.CHAT_EMOTE_SIZE, "29.5")?.toFloatOrNull() ?: 29.5f) * sizeModifier,
-                            resources.displayMetrics,
-                        ).toInt().coerceAtLeast(1)
                         chatV2Renderer = ChatV2RendererController(
                             recyclerView = recyclerView,
                             manager = app.xtraModule.chatSessionManager,
@@ -655,18 +652,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             expectedChannelId = channelId!!,
                             expectedChannelLogin = channelLogin!!,
                             initialState = chatV2ViewportState,
-                            emoteHeightPx = emoteHeight,
-                            badgeHeightPx = TypedValue.applyDimension(
-                                TypedValue.COMPLEX_UNIT_DIP,
-                                chatBadgeSizeOrDefault(
-                                    requireContext().prefs().getString(
-                                        C.CHAT_BADGE_SIZE,
-                                        DEFAULT_CHAT_BADGE_SIZE_DP.toString(),
-                                    ),
-                                ) * sizeModifier,
-                                resources.displayMetrics,
-                            ).toInt().coerceAtLeast(1),
-                            showTimestamps = requireContext().prefs().getBoolean(C.CHAT_TIMESTAMPS, false),
+                            emoteHeightPx = chatStyle.emoteHeightPx,
+                            badgeHeightPx = chatStyle.badgeHeightPx,
+                            messageTextSizeSp = chatStyle.textSizeSp,
+                            animateGifs = chatStyle.animateGifs,
+                            showBadges = chatStyle.showBadges,
+                            enableOverlayEmotes = chatStyle.enableOverlayEmotes,
+                            timestampFormat = chatStyle.timestampFormat,
+                            showTimestamps = chatStyle.showTimestamps,
                             readableUsernameColors = requireContext().prefs().getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),
                             backgroundColor = chatBackground,
                             onStateChanged = { state ->
@@ -684,7 +677,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                                 super.onScrollStateChanged(recyclerView, newState)
                                 if (useChatV2) {
-                                    chatV2Renderer?.onUserScroll()
+                                    if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                                        userGestureActive = true
+                                        chatV2Renderer?.onUserScroll()
+                                    } else if (newState == RecyclerView.SCROLL_STATE_IDLE && userGestureActive) {
+                                        chatV2Renderer?.onUserScroll()
+                                        userGestureActive = false
+                                    }
                                     return
                                 }
                                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
@@ -1392,6 +1391,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onResume() {
         super.onResume()
+        if (useChatV2) {
+            chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext()))
+            (requireContext().applicationContext as XtraApp).xtraModule.chatSessionManager.active.value?.catalog?.refresh()
+        }
         if (useChatV2 && chatV2RendererVisible) chatV2Renderer?.setVisible(true)
         val args = requireArguments()
         val channelId = args.getString(KEY_CHANNEL_ID)
@@ -2636,8 +2639,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     companion object {
         private const val KEY_IS_LIVE = "isLive"
-        private const val KEY_CHANNEL_ID = "channel_id"
-        private const val KEY_CHANNEL_LOGIN = "channel_login"
+        internal const val KEY_CHANNEL_ID = "channel_id"
+        internal const val KEY_CHANNEL_LOGIN = "channel_login"
         private const val KEY_CHANNEL_NAME = "channel_name"
         private const val KEY_STREAM_ID = "streamId"
         private const val KEY_VIDEO_ID = "videoId"

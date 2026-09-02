@@ -37,6 +37,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 object NetworkUtils {
+    class HttpStatusException(val statusCode: Int) : IOException("Request failed with HTTP $statusCode")
     /** Preserve the legacy direct retry by default, with an explicit strict-proxy option. */
     fun proxyCandidates(proxy: Proxy, allowDirectFallback: Boolean): List<Proxy> =
         if (allowDirectFallback) listOf(proxy, Proxy.NO_PROXY) else listOf(proxy)
@@ -99,6 +100,11 @@ object NetworkUtils {
         }
 
         override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
+            if (info.httpStatusCode !in 200..299) {
+                request.cancel()
+                fail(HttpStatusException(info.httpStatusCode))
+                return
+            }
             val bodyLength = info.headers.asMap[CONTENT_LENGTH_HEADER_NAME]?.takeIf { it.size == 1 }?.getOrNull(0)?.toLongOrNull() ?: -1
             if (bodyLength > maxBodyBytes || bodyLength > MAX_ARRAY_SIZE) {
                 request.cancel()
@@ -274,6 +280,11 @@ object NetworkUtils {
         }
 
         override fun onResponseStarted(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo) {
+            if (info.httpStatusCode !in 200..299) {
+                request.cancel()
+                fail(HttpStatusException(info.httpStatusCode))
+                return
+            }
             val bodyLength = info.allHeaders[CONTENT_LENGTH_HEADER_NAME]?.takeIf { it.size == 1 }?.getOrNull(0)?.toLongOrNull() ?: -1
             if (bodyLength > maxBodyBytes || bodyLength > MAX_ARRAY_SIZE) {
                 request.cancel()
@@ -634,7 +645,10 @@ object NetworkUtils {
                         call: Call,
                         response: Response,
                     ) {
-                        continuation.resume(response) { _, value, _ ->
+                        if (!response.isSuccessful) {
+                            response.close()
+                            continuation.resumeWithException(HttpStatusException(response.code))
+                        } else continuation.resume(response) { _, value, _ ->
                             value.closeQuietly()
                         }
                     }

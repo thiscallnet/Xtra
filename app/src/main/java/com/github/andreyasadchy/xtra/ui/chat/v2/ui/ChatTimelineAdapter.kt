@@ -7,11 +7,30 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 
-class ChatTimelineAdapter(private val assets: ChatAssetRepository) : ListAdapter<ChatRowUiModel, ChatTimelineAdapter.Holder>(DIFF) {
+class ChatTimelineAdapter(
+    private val assets: ChatAssetRepository,
+    private var textSizeSp: Float,
+    private var animateGifs: Boolean,
+) : ListAdapter<ChatRowUiModel, ChatTimelineAdapter.Holder>(DIFF) {
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder = Holder(
-        ChatMessageTextView(parent.context, assets).also { it.layoutParams = ViewGroup.LayoutParams(-1, -2) },
+        ChatMessageTextView(parent.context, assets).also {
+            it.setMessageTextSizeSp(textSizeSp)
+            it.setAnimateGifs(animateGifs)
+            it.layoutParams = ViewGroup.LayoutParams(-1, -2)
+        },
     )
-    override fun onBindViewHolder(holder: Holder, position: Int) = holder.bind(getItem(position))
+    override fun onBindViewHolder(holder: Holder, position: Int) {
+        holder.view.setMessageTextSizeSp(textSizeSp)
+        holder.bind(getItem(position))
+    }
+    fun setMessageTextSizeSp(value: Float) {
+        textSizeSp = value
+        for (index in 0 until itemCount) notifyItemChanged(index)
+    }
+    fun setAnimateGifs(value: Boolean) {
+        animateGifs = value
+        for (index in 0 until itemCount) notifyItemChanged(index)
+    }
     override fun onViewRecycled(holder: Holder) { holder.view.recycle(); super.onViewRecycled(holder) }
 
     class Holder(val view: ChatMessageTextView) : RecyclerView.ViewHolder(view) {

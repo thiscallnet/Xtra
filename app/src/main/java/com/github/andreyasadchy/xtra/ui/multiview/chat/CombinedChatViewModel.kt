@@ -290,6 +290,7 @@ class CombinedChatViewModel(
                             module.playerRepository,
                             module.trustManager,
                             module.json,
+                            module.chatSessionManager,
                         )
                     },
                 )

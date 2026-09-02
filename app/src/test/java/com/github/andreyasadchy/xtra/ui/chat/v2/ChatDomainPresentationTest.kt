@@ -90,6 +90,22 @@ class ChatDomainPresentationTest {
     }
 
     @Test
+    fun replacingPresentationStyleRecompilesEmoteAndBadgeGeometryTogether() {
+        val message = message(ChatSegment.Emote(base, "Kappa", false)).copy(
+            badges = listOf(ChatBadgeRef("subscriber", "1", "Subscriber")),
+        )
+        val resolver = ChatPresentationResolver(ChatRowCompiler(emoteHeightPx = 14, badgeHeightPx = 9))
+        val compact = resolver.resolve(message, ChatCatalogSnapshot(1))
+        resolver.replaceCompiler(ChatRowCompiler(emoteHeightPx = 56, badgeHeightPx = 36))
+        val large = resolver.resolve(message, ChatCatalogSnapshot(1))
+
+        assertEquals(14, compact.pieces.filterIsInstance<ChatPiece.Emote>().single().asset.targetHeight)
+        assertEquals(9, compact.pieces.filterIsInstance<ChatPiece.Badge>().single().asset.targetHeight)
+        assertEquals(56, large.pieces.filterIsInstance<ChatPiece.Emote>().single().asset.targetHeight)
+        assertEquals(36, large.pieces.filterIsInstance<ChatPiece.Badge>().single().asset.targetHeight)
+    }
+
+    @Test
     fun zeroWidthModifierComposesAfterNativeOrThirdPartyEmote() {
         val modifier = emote("modifier", ChatAssetProvider.SEVEN_TV).copy(zeroWidth = true)
         val catalog = ChatCatalogSnapshot(

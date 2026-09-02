@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
 
 class ChatViewModelTest {
 
@@ -36,6 +37,14 @@ class ChatViewModelTest {
     fun currentStreamIdWinsOverInitialLaunchArgument() {
         assertEquals("stream-b", resolveCurrentLiveStreamId("stream-b", "stream-a"))
         assertEquals("stream-a", resolveCurrentLiveStreamId(null, "stream-a"))
+    }
+
+    @Test
+    fun pickerOnlyUsesTheMatchingV2ChannelSession() {
+        val active = LiveChatSessionSpec("channel-a", "StreamerA")
+        assertTrue(matchesV2PickerSession(active, "channel-a", "streamera"))
+        assertFalse(matchesV2PickerSession(active, "channel-b", "streamerb"))
+        assertFalse(matchesV2PickerSession(null, "channel-a", "streamera"))
     }
 
     @Test
