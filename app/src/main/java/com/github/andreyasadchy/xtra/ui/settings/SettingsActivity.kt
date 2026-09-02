@@ -2048,20 +2048,10 @@ class SettingsActivity : AppCompatActivity() {
                 true
             }
             findPreference<Preference>("ui_navigation_tab_list_dialog")?.setOnPreferenceClickListener { preference ->
-                val tabList = requireContext().prefs().getString(C.UI_NAVIGATION_TAB_LIST, null).let { tabPref ->
-                    val defaultTabs = C.DEFAULT_NAVIGATION_TAB_LIST.split(',')
-                    if (tabPref != null) {
-                        val list = tabPref.split(',').filter { item ->
-                            defaultTabs.find { it.first() == item.first() } != null
-                        }.toMutableList()
-                        defaultTabs.forEachIndexed { index, item ->
-                            if (list.find { it.first() == item.first() } == null) {
-                                list.add(index, item)
-                            }
-                        }
-                        list
-                    } else defaultTabs
-                }
+                val tabList = resolveNavigationTabList(
+                    requireContext().prefs().getString(C.UI_NAVIGATION_TAB_LIST, null),
+                    requireActivity().isTelevision(),
+                )
                 val tabs = tabList.map {
                     val split = it.split(':')
                     SettingsDragListItem(

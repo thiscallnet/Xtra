@@ -95,7 +95,7 @@ import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.settings.openTabCustomization
 import com.github.andreyasadchy.xtra.ui.settings.limitNavigationVisibleItems
 import com.github.andreyasadchy.xtra.ui.settings.MAX_TV_NAVIGATION_VISIBLE_ITEMS
-import com.github.andreyasadchy.xtra.ui.settings.navigationTabDefaults
+import com.github.andreyasadchy.xtra.ui.settings.resolveNavigationTabList
 import com.github.andreyasadchy.xtra.ui.tv.applyTvSafePadding
 import com.github.andreyasadchy.xtra.ui.tv.disableTvClippingUpTree
 import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
@@ -1587,20 +1587,10 @@ class MainActivity : AppCompatActivity() {
     private fun initNavigation() {
         navController = (supportFragmentManager.findFragmentById(R.id.navHostFragment) as NavHostFragment).navController
         navController.setOnBackPressedDispatcher(onBackPressedDispatcher)
-        val tabList = prefs.getString(C.UI_NAVIGATION_TAB_LIST, null).let { tabPref ->
-            val defaultTabs = navigationTabDefaults(isTv).split(',')
-            if (tabPref != null) {
-                val list = tabPref.split(',').filter { item ->
-                    defaultTabs.find { it.first() == item.first() } != null
-                }.toMutableList()
-                defaultTabs.forEachIndexed { index, item ->
-                    if (list.find { it.first() == item.first() } == null) {
-                        list.add(index, item)
-                    }
-                }
-                list
-            } else defaultTabs
-        }.let {
+        val tabList = resolveNavigationTabList(
+            prefs.getString(C.UI_NAVIGATION_TAB_LIST, null),
+            isTv,
+        ).let {
             limitNavigationVisibleItems(
                 it,
                 if (isTv) MAX_TV_NAVIGATION_VISIBLE_ITEMS else 6,

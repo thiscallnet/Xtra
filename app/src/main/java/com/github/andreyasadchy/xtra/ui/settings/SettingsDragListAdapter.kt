@@ -22,7 +22,10 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
         }
 
         override fun areContentsTheSame(oldItem: SettingsDragListItem, newItem: SettingsDragListItem): Boolean {
-            return true
+            return oldItem.text == newItem.text &&
+                oldItem.default == newItem.default &&
+                oldItem.enabled == newItem.enabled &&
+                oldItem.group == newItem.group
         }
     }
 ) {
@@ -116,21 +119,19 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     checkBox.isEnabled = true
                     checkBox.visibility = View.GONE
                 }
-                if (isTv) {
-                    val checkboxVisible = checkBox.visibility == View.VISIBLE
-                    root.setOnClickListener {
-                        if (checkboxVisible && checkBox.isEnabled) {
-                            checkBox.performClick()
-                        } else if (setAsDefault.visibility == View.VISIBLE && setAsDefault.isClickable) {
-                            setAsDefault.performClick()
-                        }
+                root.setOnClickListener {
+                    if (checkBox.visibility == View.VISIBLE && checkBox.isEnabled) {
+                        checkBox.performClick()
+                    } else if (setAsDefault.visibility == View.VISIBLE && setAsDefault.isClickable) {
+                        setAsDefault.performClick()
                     }
+                }
+                if (isTv) {
                     checkBox.scaleX = 1.35f
                     checkBox.scaleY = 1.35f
                     setAsDefault.scaleX = 1.25f
                     setAsDefault.scaleY = 1.25f
                 } else {
-                    root.setOnClickListener(null)
                     checkBox.scaleX = 1f
                     checkBox.scaleY = 1f
                     setAsDefault.scaleX = 1f

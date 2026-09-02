@@ -23,6 +23,49 @@ internal fun navigationTabDefaults(isTelevision: Boolean): String =
         C.DEFAULT_NAVIGATION_TAB_LIST
     }
 
+internal fun resolveNavigationTabList(stored: String?, isTelevision: Boolean): List<String> {
+    val defaults = navigationTabDefaults(isTelevision).split(',')
+    val knownKeys = defaults.mapTo(hashSetOf()) { it.substringBefore(':') }
+    val result = stored.orEmpty().split(',')
+        .mapNotNull { entry ->
+            val parts = entry.split(':')
+            if (parts.size == 3 && parts[0] in knownKeys && parts[1] in setOf("0", "1") && parts[2] in setOf("0", "1")) {
+                parts.joinToString(":")
+            } else {
+                null
+            }
+        }
+        .distinctBy { it.substringBefore(':') }
+        .toMutableList()
+    val storedHasDrops = result.any { it.substringBefore(':') == "6" }
+
+    defaults.forEach { defaultEntry ->
+        if (result.none { it.substringBefore(':') == defaultEntry.substringBefore(':') }) {
+            result += defaultEntry
+        }
+    }
+
+    if (!isTelevision && !storedHasDrops && result.count { it.split(':').getOrNull(2) == "1" } > MAX_NAVIGATION_VISIBLE_ITEMS) {
+        val discoverIndex = result.indexOfFirst { it.substringBefore(':') == "4" }
+        val dropsIndex = result.indexOfFirst { it.substringBefore(':') == "6" }
+        if (discoverIndex >= 0 && dropsIndex >= 0 && result[discoverIndex].split(':').getOrNull(2) == "1") {
+            val discoverParts = result[discoverIndex].split(':')
+            val dropsParts = result.removeAt(dropsIndex).split(':')
+            result[discoverIndex] = discoverParts.let { parts ->
+                "${parts[0]}:0:0"
+            }
+            result.add(
+                discoverIndex,
+                "${dropsParts[0]}:${if (discoverParts[1] == "1") "1" else dropsParts[1]}:${dropsParts[2]}",
+            )
+        }
+    }
+    return limitNavigationVisibleItems(
+        result,
+        if (isTelevision) MAX_TV_NAVIGATION_VISIBLE_ITEMS else MAX_NAVIGATION_VISIBLE_ITEMS,
+    )
+}
+
 internal fun Context.openTabCustomization(preferenceKey: String) {
     startActivity(Intent(this, SettingsActivity::class.java).apply {
         putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_TABS)

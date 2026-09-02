@@ -89,4 +89,51 @@ class SettingsActivityTest {
         assertTrue(limited.first { it.startsWith("4:") }.endsWith(":1"))
         assertTrue(limited.last { it.startsWith("6:") }.endsWith(":0"))
     }
+
+    @Test
+    fun navigationResolutionRestoresMissingDropsWithoutChangingSavedTabs() {
+        val resolved = resolveNavigationTabList(
+            "0:0:1,1:1:1,2:0:1,3:0:1,5:0:1",
+            isTelevision = false,
+        )
+
+        assertEquals(listOf("0", "1", "2", "3", "5", "4", "6"), resolved.map { it.substringBefore(':') })
+        assertEquals("6:0:1", resolved.last())
+    }
+
+    @Test
+    fun navigationResolutionDropsMalformedAndDuplicateEntries() {
+        val resolved = resolveNavigationTabList(
+            "6:0:0,6:1:1,bad,0:0:2",
+            isTelevision = false,
+        )
+
+        assertEquals("6:0:0", resolved.first())
+        assertEquals(1, resolved.count { it.startsWith("6:") })
+        assertTrue(resolved.none { it.contains("bad") || it.endsWith(":2") })
+    }
+
+    @Test
+    fun legacyMaxedNavigationLayoutGivesDiscoverSlotToDrops() {
+        val resolved = resolveNavigationTabList(
+            "0:0:1,4:0:1,1:1:1,2:0:1,3:0:1,5:0:1",
+            isTelevision = false,
+        )
+
+        assertEquals(6, resolved.count { it.endsWith(":1") })
+        assertEquals("4:0:0", resolved.first { it.startsWith("4:") })
+        assertEquals("6:0:1", resolved.first { it.startsWith("6:") })
+    }
+
+    @Test
+    fun legacyMaxedNavigationLayoutMovesDefaultFromDiscoverToDrops() {
+        val resolved = resolveNavigationTabList(
+            "0:0:1,4:1:1,1:0:1,2:0:1,3:0:1,5:0:1",
+            isTelevision = false,
+        )
+
+        assertEquals("4:0:0", resolved.first { it.startsWith("4:") })
+        assertEquals("6:1:1", resolved.first { it.startsWith("6:") })
+        assertEquals(listOf("6"), resolved.filter { it.split(':')[1] == "1" }.map { it.substringBefore(':') })
+    }
 }
