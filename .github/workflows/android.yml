@@ -146,11 +146,22 @@ jobs:
         # The release build runs its own JVM; free the shared daemon first.
         ./gradlew --stop
 
+    - name: Download and verify pinned R1 GeckoView
+      if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.XTRA_GECKOVIEW_R1_RELEASE_TAG != ''
+      env:
+        GH_TOKEN: ${{ github.token }}
+        R1_RELEASE_TAG: ${{ vars.XTRA_GECKOVIEW_R1_RELEASE_TAG }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        ./geckoview/scripts/download-r1-universal-aar.sh "$R1_RELEASE_TAG" "$RUNNER_TEMP/r1-gecko"
+
     - name: Build with Gradle
       id: build
       env:
         TWITCH_PUBLIC_CLIENT_ID: ${{ vars.TWITCH_PUBLIC_CLIENT_ID }}
         CI_GRADLE_JVM_ARGS: '-Xmx6g -Dfile.encoding=UTF-8'
+        R1_RELEASE_TAG: ${{ vars.XTRA_GECKOVIEW_R1_RELEASE_TAG }}
       shell: bash
       run: |
         set -euo pipefail
@@ -163,6 +174,11 @@ jobs:
           "-PciBuildNumber=${{ steps.version.outputs.build }}"
           "-PtwitchPublicClientId=${TWITCH_PUBLIC_CLIENT_ID}"
         )
+        if [[ "$GITHUB_REF" == refs/heads/master && ( "$GITHUB_EVENT_NAME" == push || "$GITHUB_EVENT_NAME" == workflow_dispatch ) && -n "$R1_RELEASE_TAG" ]]; then
+          r1_aar="$RUNNER_TEMP/r1-gecko/xtra-geckoview-twitch-auth-r1-universal.aar"
+          [[ -f "$r1_aar" ]] || { echo 'Pinned R1 AAR is missing' >&2; exit 1; }
+          build_args+=("-PxtraGeckoViewAar=$r1_aar")
+        fi
         bash .github/scripts/run-gradle-build.sh release 15 \
           :app:assembleRelease "${build_args[@]}"
 
