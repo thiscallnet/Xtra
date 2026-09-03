@@ -1,0 +1,10 @@
+# Aggressive x86_64 authentication candidate. These are non-auth subsystems
+# observed in the pinned Gecko 150 build; qualify the resulting artifact before
+# considering any of these removals for release.
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-xtra-x86_64-minimal
+ac_add_options --target=x86_64
+ac_add_options --disable-webrtc
+ac_add_options --disable-webspeech
+ac_add_options --disable-webdriver
+ac_add_options --disable-parental-controls
+ac_add_options --disable-zipwriter
