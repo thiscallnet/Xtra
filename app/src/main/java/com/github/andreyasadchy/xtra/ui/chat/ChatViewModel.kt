@@ -88,6 +88,7 @@ import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
 import com.github.andreyasadchy.xtra.util.chat.PollState
 import com.github.andreyasadchy.xtra.util.chat.PredictionBetPolicy
 import com.github.andreyasadchy.xtra.util.chat.PredictionCache
+import com.github.andreyasadchy.xtra.util.chat.PredictionDismissalPolicy
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.chat.PredictionStateStore
 import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
@@ -3633,13 +3634,6 @@ class ChatViewModel(
         ongoingPrediction.value = value.takeIf { PredictionState.isOngoing(it) }
         bettablePrediction.value = value.takeIf { PredictionState.isBettingOpen(it) }
         updatePredictionTimer(value)
-        if (PredictionState.isFinal(value)) {
-            schedulePredictionDismissal(value)
-        } else {
-            predictionTimeoutJob?.cancel()
-            predictionTimeoutJob = null
-            predictionTimeoutPredictionId = null
-        }
         activeChannelId?.let { channelId ->
             PredictionCache.save(
                 preferences = applicationContext.prefs(),
@@ -3647,6 +3641,13 @@ class ChatViewModel(
                 prediction = value,
                 broadcastId = streamId,
             )
+        }
+        if (PredictionState.isFinal(value)) {
+            schedulePredictionDismissal(value)
+        } else {
+            predictionTimeoutJob?.cancel()
+            predictionTimeoutJob = null
+            predictionTimeoutPredictionId = null
         }
     }
 
@@ -3672,17 +3673,11 @@ class ChatViewModel(
         if (predictionTimeoutPredictionId == predictionId && predictionTimeoutJob?.isActive == true) return
         predictionTimeoutJob?.cancel()
         predictionTimeoutPredictionId = predictionId
-        val now = System.currentTimeMillis()
-        val endedAt = value.endedAt
-        val remaining = if (endedAt != null) {
-            (PredictionState.RESULT_DISPLAY_GRACE_MILLIS - (now - endedAt)).coerceAtLeast(0L)
-        } else {
-            PredictionState.RESULT_DISPLAY_GRACE_MILLIS
-        }
+        val remaining = PredictionDismissalPolicy.dismissalDelayMillis(value.endedAt)
         predictionTimeoutJob = viewModelScope.launch {
             delay(remaining)
             val cleared = predictionStateStore.clearIf(
-                { current -> current.id == predictionId && PredictionState.isFinal(current) },
+                { current -> PredictionDismissalPolicy.shouldDismiss(current, predictionId) },
                 ::clearPredictionState,
             )
             if (cleared) {
