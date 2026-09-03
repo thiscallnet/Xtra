@@ -546,7 +546,7 @@ private class CombinedChatAdapter(
         private val active: com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession,
         private val identity: String,
         val assets: ChatAssetRepository,
-        private val rewards: (String) -> Map<String, com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward>,
+        private val rewards: (String) -> com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog,
         private val profileGesture: ChatProfilePopoutGesture,
     ) {
         private val context = fragment.requireContext()
@@ -601,10 +601,11 @@ private class CombinedChatAdapter(
             presentationRevision = fragment.translationFor(message)?.hashCode()?.toLong() ?: 0L,
         )
 
-        private fun catalog() = rewards(identity).let { rewardMap ->
+        private fun catalog() = rewards(identity).let { rewardCatalog ->
             active.catalog.state.value.snapshot.copy(
-                channelPointRewards = rewardMap,
-                channelPointRewardsRevision = rewardMap.hashCode(),
+                channelPointRewards = rewardCatalog.byId,
+                automaticChannelPointRewards = rewardCatalog.automaticByType,
+                channelPointRewardsRevision = rewardCatalog.hashCode(),
             )
         }
 
@@ -638,7 +639,8 @@ private class CombinedChatAdapter(
                     message = it.parentMessageBody,
                 )
             }
-            val reward = message.rewardId?.let(rewards(identity)::get)?.let {
+            val rewardCatalog = rewards(identity)
+            val reward = rewardCatalog.rewardFor(message)?.let {
                 com.github.andreyasadchy.xtra.model.chat.ChannelPointReward(
                     id = message.rewardId,
                     title = it.title,

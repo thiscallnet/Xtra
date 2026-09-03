@@ -876,13 +876,25 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             },
                             profilePopoutGesture = profilePopoutGesture,
                             rewardCatalog = viewModel.channelPoints.map { points ->
-                                points?.rewards.orEmpty().associate { reward ->
-                                    reward.id to ChatReward(
-                                        title = reward.title,
-                                        cost = reward.cost,
-                                        imageUrl = reward.imageUrl,
-                                    )
-                                }
+                                val rewards = points?.rewards.orEmpty()
+                                com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog(
+                                    byId = rewards.associate { reward ->
+                                        reward.id to ChatReward(
+                                            title = reward.title,
+                                            cost = reward.cost,
+                                            imageUrl = reward.imageUrl,
+                                        )
+                                    },
+                                    automaticByType = rewards
+                                        .filter { it.redemptionType == com.github.andreyasadchy.xtra.model.ui.ChannelPointRewardRedemption.HIGHLIGHTED_MESSAGE }
+                                        .associate { reward ->
+                                            com.github.andreyasadchy.xtra.ui.chat.v2.domain.HIGHLIGHTED_MESSAGE_REWARD_TYPE to ChatReward(
+                                                title = reward.title,
+                                                cost = reward.cost,
+                                                imageUrl = reward.imageUrl,
+                                            )
+                                        },
+                                )
                             },
                             decorationCatalog = merge(
                                 viewModel.thirdPartyEmotesUpdated,

@@ -1,8 +1,15 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2
 
+import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.HIGHLIGHTED_MESSAGE_REWARD_TYPE
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
 import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
@@ -224,6 +231,95 @@ class TwitchChatEventParserTest {
         assertEquals(com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind.NOTICE, event.message.kind)
         assertEquals("Prime", event.message.subscriptionPlan)
         assertEquals(true, event.message.isPrimeSubscription)
+    }
+
+    @Test
+    fun ircHighlightedMessageKeepsItsHighlightedType() {
+        val message = ChatUtils.IRCMessage(
+            tags = mapOf(
+                "msg-id" to "highlighted-message",
+                "display-name" to "Viewer",
+            ),
+            prefix = "viewer!viewer@viewer.tmi.twitch.tv",
+            command = "PRIVMSG",
+            params = listOf("#channel", "Lock them up!"),
+            fullMessage = "PRIVMSG #channel :Lock them up!",
+        )
+
+        val event = TwitchChatEventParser.fromIrc(message, "channel-id") as ChatEvent.Message
+
+        assertEquals(TwitchChatMessageType.Highlighted, event.message.twitchType)
+        assertEquals(null, event.message.rewardId)
+    }
+
+    @Test
+    fun eventSubHighlightedMessageHasNoCustomRewardId() {
+        val event = JSONObject(
+            """
+            {
+              "broadcaster_user_id":"broadcaster",
+              "chatter_user_id":"chatter",
+              "chatter_user_login":"viewer",
+              "chatter_user_name":"Viewer",
+              "message_id":"highlight-1",
+              "message_type":"channel_points_highlighted",
+              "message":{"text":"Lock them up!","fragments":[{"type":"text","text":"Lock them up!"}]}
+            }
+            """.trimIndent(),
+        )
+
+        val message = (TwitchChatEventParser.fromEventSub(event, "2026-09-01T12:00:00Z") as ChatEvent.Message).message
+
+        assertEquals(TwitchChatMessageType.Highlighted, message.twitchType)
+        assertEquals(null, message.rewardId)
+    }
+
+    @Test
+    fun highlightedWireFormatsRenderConfiguredAutomaticReward() {
+        val irc = (TwitchChatEventParser.fromIrc(
+            ChatUtils.IRCMessage(
+                tags = mapOf(
+                    "msg-id" to "highlighted-message",
+                    "display-name" to "Viewer",
+                ),
+                prefix = "viewer!viewer@viewer.tmi.twitch.tv",
+                command = "PRIVMSG",
+                params = listOf("#channel", "Lock them up!"),
+                fullMessage = "PRIVMSG #channel :Lock them up!",
+            ),
+            "channel-id",
+        ) as ChatEvent.Message).message
+        val eventSub = (TwitchChatEventParser.fromEventSub(
+            JSONObject(
+                """
+                {
+                  "broadcaster_user_id":"broadcaster",
+                  "chatter_user_id":"chatter",
+                  "chatter_user_login":"viewer",
+                  "chatter_user_name":"Viewer",
+                  "message_id":"highlight-1",
+                  "message_type":"channel_points_highlighted",
+                  "message":{"text":"Lock them up!","fragments":[{"type":"text","text":"Lock them up!"}]}
+                }
+                """.trimIndent(),
+            ),
+            "2026-09-01T12:00:00Z",
+        ) as ChatEvent.Message).message
+        val catalog = ChatCatalogSnapshot(
+            0,
+            automaticChannelPointRewards = mapOf(
+                HIGHLIGHTED_MESSAGE_REWARD_TYPE to ChatReward("Highlight My Message", 2_000, null),
+            ),
+        )
+        listOf(irc, eventSub).forEach { message ->
+            val row = ChatRowCompiler().compile(message, catalog)
+            val text = row.pieces.filterIsInstance<ChatPiece.Text>().joinToString("") { it.value }
+            assertTrue(row.pieces.any { it is ChatPiece.Text && it.value == "Highlight My Message" && it.bold })
+            assertTrue(row.pieces.any { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_channel_points })
+            assertTrue(text.filter(Char::isDigit).contains("2000"))
+            assertTrue(text.contains("Lock them up!"))
+            assertEquals(ChatRowBackground.HIGHLIGHT, row.backgroundStyle)
+        }
     }
 
     @Test

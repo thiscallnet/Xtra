@@ -57,6 +57,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.TwitchChatCatalogCache
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.TwitchChatCatalogSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.RecentChatHistoryRepository
@@ -860,7 +861,7 @@ class XtraModule(application: Application) {
                 }
             },
             rewardCatalogFactory = { spec, scope ->
-                val rewards = MutableStateFlow<Map<String, ChatReward>>(emptyMap())
+                val rewards = MutableStateFlow(ChatRewardCatalog())
                 scope.launch {
                     val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
                     val headers = TwitchApiHelper.getGQLHeaders(appContext, true)
@@ -868,7 +869,7 @@ class XtraModule(application: Application) {
                         graphQLRepository.loadChannelPointsContext(network, headers, spec.channelLogin)
                             .data?.community?.channel?.communityPointsSettings
                     }.getOrNull() ?: return@launch
-                    rewards.value = buildMap {
+                    val byId = buildMap {
                         settings.customRewards.forEach { reward ->
                             val id = reward.id?.takeIf { it.isNotBlank() }
                             val title = reward.title?.takeIf { it.isNotBlank() }
@@ -884,10 +885,50 @@ class XtraModule(application: Application) {
                                 )
                             }
                         }
+                        settings.automaticRewards.forEach { reward ->
+                            val id = reward.id?.takeIf { it.isNotBlank() }
+                            val automatic = automaticChatReward(reward.type, reward.cost ?: reward.defaultCost, reward.image, reward.defaultImage)
+                            if (id != null && automatic != null) {
+                                put(id, automatic)
+                            }
+                        }
                     }
+                    val automaticByType = buildMap {
+                        settings.automaticRewards.forEach { reward ->
+                            val type = reward.type?.uppercase()?.takeIf { it.isNotBlank() } ?: return@forEach
+                            val automatic = automaticChatReward(reward.type, reward.cost ?: reward.defaultCost, reward.image, reward.defaultImage)
+                            if (automatic != null) {
+                                put(type, automatic)
+                            }
+                        }
+                    }
+                    rewards.value = ChatRewardCatalog(byId = byId, automaticByType = automaticByType)
                 }
                 rewards
             },
+        )
+    }
+
+    private fun automaticChatReward(
+        type: String?,
+        cost: Int?,
+        image: com.github.andreyasadchy.xtra.model.gql.chat.ChannelPointContextResponse.RewardImage?,
+        defaultImage: com.github.andreyasadchy.xtra.model.gql.chat.ChannelPointContextResponse.RewardImage?,
+    ): ChatReward? {
+        val title = when (type?.uppercase()) {
+            "RANDOM_SUB_EMOTE_UNLOCK" -> "Unlock a Random Sub Emote"
+            "SINGLE_MESSAGE_BYPASS_SUB_MODE" -> "Send a Message in Sub-Only Mode"
+            "CHOSEN_SUB_EMOTE_UNLOCK" -> "Choose an Emote to Unlock"
+            "CHOSEN_MODIFIED_SUB_EMOTE_UNLOCK" -> "Modify a Single Emote"
+            "SEND_HIGHLIGHTED_MESSAGE" -> "Highlight My Message"
+            else -> null
+        } ?: return null
+        if (cost == null || cost <= 0) return null
+        return ChatReward(
+            title = title,
+            cost = cost,
+            imageUrl = image?.url4x ?: image?.url2x ?: image?.url1x
+                ?: defaultImage?.url4x ?: defaultImage?.url2x ?: defaultImage?.url1x,
         )
     }
 }

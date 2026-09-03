@@ -199,8 +199,8 @@ class CombinedChatViewModel(
 
     fun channelId(identity: String): String? = sessions[identity]?.stream?.channelId
 
-    fun rewardCatalog(identity: String): Map<String, com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward> =
-        sessions[identity]?.rewardCatalog.orEmpty()
+    fun rewardCatalog(identity: String): com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog =
+        sessions[identity]?.rewardCatalog ?: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog()
 
     fun invalidateRendering(identity: String?) {
         if (identity == null || sessions[identity] == null) return
@@ -230,7 +230,8 @@ class CombinedChatViewModel(
         var renderGeneration: Long = 0L
         var networkActive = false
         var controlJob: Job? = null
-        var rewardCatalog: Map<String, com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward> = emptyMap()
+        var rewardCatalog: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog =
+            com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog()
         val renderedMessages = linkedMapOf<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId, CombinedChatMessage>()
 
         fun pause(scope: kotlinx.coroutines.CoroutineScope) {
