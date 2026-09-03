@@ -24,6 +24,7 @@ import androidx.core.text.getSpans
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
@@ -35,6 +36,8 @@ import com.github.andreyasadchy.xtra.model.chat.STVUser
 import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreview
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
@@ -202,6 +205,7 @@ class ChatAdapter(
         val translatedMessage: String?,
         val translationFailed: Boolean,
         val messageLanguage: String?,
+        val clipPreviews: List<ChatClipPreview?> = emptyList(),
     ) {
         // ChatMessage translation/moderation fields are mutable. Cache by object identity so a
         // mutation cannot change the hash of an entry that is already in the LRU map.
@@ -211,7 +215,8 @@ class ChatAdapter(
             translateAllMessages == other.translateAllMessages &&
             translatedMessage == other.translatedMessage &&
             translationFailed == other.translationFailed &&
-            messageLanguage == other.messageLanguage
+            messageLanguage == other.messageLanguage &&
+            clipPreviews == other.clipPreviews
 
         override fun hashCode(): Int {
             var result = System.identityHashCode(message)
@@ -220,6 +225,7 @@ class ChatAdapter(
             result = 31 * result + (translatedMessage?.hashCode() ?: 0)
             result = 31 * result + translationFailed.hashCode()
             result = 31 * result + (messageLanguage?.hashCode() ?: 0)
+            result = 31 * result + clipPreviews.hashCode()
             return result
         }
     }
@@ -364,6 +370,8 @@ class ChatAdapter(
             emoteSize, badgeSize, inlineIconSize,
         )
         holder.bind(chatMessage, cacheKey, result)
+        // A failed clip request stays retryable: revisiting the row re-arms observation.
+        clipLinksOf(chatMessage.message).forEach { ensureClipSlugObserved(it.slug) }
         if (animateGifs && holder.canAnimate(bindGeneration)) {
             setAnimations(holder.textView, start = true)
         }
@@ -1587,7 +1595,34 @@ class ChatAdapter(
         translatedMessage = message.translatedMessage,
         translationFailed = message.translationFailed,
         messageLanguage = message.messageLanguage,
+        clipPreviews = clipLinksOf(message.message).map { link -> clipPreviewRepository()?.peek(link.slug) },
     )
+
+    private fun clipPreviewRepository(): ChatClipPreviewRepository? =
+        (fragment.context?.applicationContext as? XtraApp)?.xtraModule?.chatClipPreviewRepository
+
+    /** One shared observer per clip slug; loaded metadata re-renders every row linking it. */
+    private val observedClipSlugs = HashSet<String>()
+
+    private fun ensureClipSlugObserved(slug: String) {
+        val repository = clipPreviewRepository() ?: return
+        synchronized(observedClipSlugs) {
+            if (!observedClipSlugs.add(slug)) return
+        }
+        repository.observe(slug) {
+            if (repository.peek(slug) == null) return@observe
+            mainHandler.post { refreshClipPreviewRenders(slug) }
+        }
+    }
+
+    private fun refreshClipPreviewRenders(slug: String) {
+        if (!fragment.isAdded) return
+        messages.toList().forEach { message ->
+            if (clipLinksOf(message.message).any { it.slug.equals(slug, ignoreCase = true) }) {
+                updateMessageContent(message)
+            }
+        }
+    }
 
     private fun isActiveConfiguration(configuration: ChatRenderConfiguration): Boolean =
         configuration.revision == activeConfiguration.revision &&
@@ -1641,6 +1676,19 @@ class ChatAdapter(
             savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes,
             catalogIndexes = indexes, includeAccessibilityDescription = true,
         )
+        val clipLinks = clipLinksOf(chatMessage.message)
+        if (clipLinks.isNotEmpty()) {
+            installLegacyClipLinkClicks(result.builder)
+            val repository = clipPreviewRepository()
+            appendLegacyClipEmbeds(
+                context,
+                result.builder,
+                result.images,
+                clipLinks,
+                clipLinks.map { repository?.peek(it.slug) },
+            )
+            clipLinks.forEach { ensureClipSlugObserved(it.slug) }
+        }
         val (resolvedImages, resolvedImagePaint) = ChatAdapterUtils.resolveChatImages(
             context, result.images, result.imagePaint, imageLibrary, emoteQuality,
             emoteSize, badgeSize, inlineIconSize,

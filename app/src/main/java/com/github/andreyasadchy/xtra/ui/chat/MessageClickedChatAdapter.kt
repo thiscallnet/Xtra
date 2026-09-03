@@ -20,6 +20,7 @@ import androidx.core.text.getSpans
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
@@ -164,6 +165,19 @@ class MessageClickedChatAdapter(
         )
         if (isSelected(chatMessage)) {
             holder.textView.setBackgroundResource(R.color.chatMessageSelected)
+        }
+        // Peek-only: the main list owns clip loading through the shared repository,
+        // so a dialog opened after the row loaded shows the same unfurl.
+        installLegacyClipLinkClicks(result.builder)
+        clipLinksOf(chatMessage.message).takeIf { it.isNotEmpty() }?.let { clipLinks ->
+            val repository = (fragment.context?.applicationContext as? XtraApp)?.xtraModule?.chatClipPreviewRepository
+            appendLegacyClipEmbeds(
+                fragment.requireContext(),
+                result.builder,
+                result.images,
+                clipLinks,
+                clipLinks.map { repository?.peek(it.slug) },
+            )
         }
         ChatAdapterUtils.installImagePlaceholders(
             result.builder,

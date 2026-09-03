@@ -100,7 +100,7 @@ type CheermoteTier {
 type Clip {
     assets: [ClipAsset]
     broadcaster: User
-    creator: User
+    curator: User
     createdAt: Time
     durationSeconds: Int
     game: Game

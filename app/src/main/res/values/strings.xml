@@ -895,6 +895,8 @@
     <string name="chat_highlight_title">Highlight My Message</string>
     <string name="chat_watch_streak_reached">Watch Streak Reached</string>
     <string name="chat_watch_streak_status">%1$s is currently on a %2$s-stream streak!</string>
+    <string name="chat_clip_playing">%1$s playing %2$s</string>
+    <string name="chat_clip_clipped_by">Clipped by %1$s</string>
     <string name="channel_points_rewards">Rewards</string>
     <string name="channel_points_rewards_for">%s\'s rewards</string>
     <string name="channel_points_reward">%1$s — %2$s points</string>

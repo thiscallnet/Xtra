@@ -16,6 +16,7 @@ import android.text.TextPaint
 import android.text.TextUtils
 import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
+import android.text.style.URLSpan
 import android.text.style.CharacterStyle
 import android.text.style.ForegroundColorSpan
 import android.text.style.ReplacementSpan
@@ -23,6 +24,7 @@ import android.text.style.StyleSpan
 import android.text.util.Linkify
 import android.content.Intent
 import android.net.Uri
+import android.text.format.DateUtils
 import android.graphics.Typeface
 import android.view.Gravity
 import android.os.Handler
@@ -49,6 +51,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreview
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewRepository
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.formatClipDuration
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.parseClipTimestamp
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
 import com.github.andreyasadchy.xtra.ui.view.CenteredImageSpan
 import kotlin.math.roundToInt
@@ -260,6 +264,7 @@ open class ChatMessageTextView private constructor(
         // URL spans must be added after all pieces are assembled so offsets remain correct
         // around badges, emotes, GIFs, and timestamp text.
         Linkify.addLinks(output, Linkify.WEB_URLS)
+        redirectClipUrlSpans(output)
         if (row.isAction) output.setSpan(StyleSpan(android.graphics.Typeface.ITALIC), 0, output.length, 0)
         contentDescription = row.accessibilityText
         text = output
@@ -346,8 +351,28 @@ open class ChatMessageTextView private constructor(
             textSize = paint.textSize
         }
         drawClipLine(canvas, preview.title?.takeIf { it.isNotBlank() } ?: link.slug, titlePaint, textLeft, textRight, top + 18 * density)
-        drawClipLine(canvas, "Post by ${preview.broadcasterName ?: "Twitch"}", secondaryPaint, textLeft, textRight, top + 36 * density)
-        drawClipLine(canvas, "Clipped by ${preview.creatorName ?: "unknown"}", secondaryPaint, textLeft, textRight, top + 54 * density)
+        drawClipLine(canvas, clipSubtitle(preview), secondaryPaint, textLeft, textRight, top + 36 * density)
+        drawClipLine(canvas, clipAttribution(preview), secondaryPaint, textLeft, textRight, top + 54 * density)
+    }
+
+    private fun clipSubtitle(preview: ChatClipPreview): String {
+        val broadcaster = preview.broadcasterName?.takeIf { it.isNotBlank() } ?: "Twitch"
+        val base = preview.gameName?.takeIf { it.isNotBlank() }?.let { game ->
+            context.getString(R.string.chat_clip_playing, broadcaster, game)
+        } ?: broadcaster
+        return formatClipDuration(preview.durationSeconds)?.let { "$base — $it" } ?: base
+    }
+
+    private fun clipAttribution(preview: ChatClipPreview): String {
+        val creator = preview.creatorName?.takeIf { it.isNotBlank() } ?: "unknown"
+        val base = context.getString(R.string.chat_clip_clipped_by, creator)
+        return clipRelativeTime(preview.createdAt)?.let { "$base — $it" } ?: base
+    }
+
+    private fun clipRelativeTime(createdAt: String?): String? {
+        val epochMs = parseClipTimestamp(createdAt) ?: return null
+        if (epochMs > System.currentTimeMillis()) return null
+        return DateUtils.getRelativeTimeSpanString(epochMs, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
     }
 
     private fun drawClipLine(canvas: Canvas, value: String, paint: TextPaint, left: Float, right: Float, baseline: Float) {
@@ -366,6 +391,50 @@ open class ChatMessageTextView private constructor(
         if (index !in previews.indices) return null
         val top = start + index * (clipPreviewBlockHeight() + clipPreviewGap())
         return previews[index].first.url.takeIf { event.y >= top && event.y <= top + clipPreviewBlockHeight() && event.x >= totalPaddingLeft && event.x <= width - totalPaddingRight }
+    }
+
+    /**
+     * Twitch clip links open inside Xtra (player with chat and controls) instead of a
+     * browser. The embedded preview card below uses the same entry point.
+     */
+    private fun redirectClipUrlSpans(output: SpannableStringBuilder) {
+        output.getSpans(0, output.length, URLSpan::class.java).forEach { span ->
+            val url = span.url ?: return@forEach
+            if (!ChatClipPreviewLink.isClipUrl(url)) return@forEach
+            val start = output.getSpanStart(span)
+            val end = output.getSpanEnd(span)
+            val flags = output.getSpanFlags(span)
+            output.removeSpan(span)
+            output.setSpan(object : ClickableSpan() {
+                override fun onClick(widget: android.view.View) {
+                    openClipUrl(url)
+                }
+            }, start, end, flags)
+        }
+    }
+
+    private fun openClipUrl(url: String) {
+        val normalizedUrl = if (url.startsWith("http://", ignoreCase = true) ||
+            url.startsWith("https://", ignoreCase = true)
+        ) url else "https://$url"
+        (onClipPreviewClick ?: ::openTwitchUrlInApp)(normalizedUrl)
+    }
+
+    private fun openTwitchUrlInApp(url: String) {
+        // MainActivity declares a browsable twitch.tv filter and loads the clip in-app,
+        // so pin the intent to our own package with a browser fallback.
+        val inApp = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            setPackage(context.packageName)
+            if (context !is android.app.Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (runCatching { context.startActivity(inApp) }.isSuccess) return
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    if (context !is android.app.Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+            )
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -428,10 +497,7 @@ open class ChatMessageTextView private constructor(
             MotionEvent.ACTION_UP -> {
                 hasClipPreviewAt(event)?.let { url ->
                     if (!touchMoved && !longPressConsumed) {
-                        val normalizedUrl = if (url.startsWith("http://", ignoreCase = true) ||
-                            url.startsWith("https://", ignoreCase = true)
-                        ) url else "https://$url"
-                        (onClipPreviewClick ?: { value -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(value))) } })(normalizedUrl)
+                        openClipUrl(url)
                         longPressRunnable?.let(mainHandler::removeCallbacks)
                         longPressRunnable = null
                         return true
