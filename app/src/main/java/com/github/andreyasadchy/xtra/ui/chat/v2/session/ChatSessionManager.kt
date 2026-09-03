@@ -3,7 +3,7 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.session
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
-import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.ChatTransport
 import kotlinx.coroutines.CoroutineScope
@@ -37,7 +37,7 @@ data class ActiveChatSession(
     val key: ChatSessionKey,
     val session: ChatSession,
     val catalog: ChatCatalogRepository,
-    val rewardCatalog: Flow<Map<String, ChatReward>> = flowOf(emptyMap()),
+    val rewardCatalog: Flow<ChatRewardCatalog> = flowOf(ChatRewardCatalog()),
 )
 
 /** Creates independent live sessions. The player and Multiview use separate handles. */
@@ -47,7 +47,7 @@ class ChatSessionFactory(
     private val catalogFactory: (LiveChatSessionSpec, CoroutineScope) -> ChatCatalogRepository,
     private val recentHistory: suspend (LiveChatSessionSpec) -> List<ChatMessage> = { emptyList() },
     private val initialSettings: suspend (LiveChatSessionSpec) -> ChatEvent.SettingsUpdated? = { null },
-    private val rewardCatalogFactory: (LiveChatSessionSpec, CoroutineScope) -> Flow<Map<String, ChatReward>> = { _, _ -> flowOf(emptyMap()) },
+    private val rewardCatalogFactory: (LiveChatSessionSpec, CoroutineScope) -> Flow<ChatRewardCatalog> = { _, _ -> flowOf(ChatRewardCatalog()) },
     private val maxTimelineSize: Int = 600,
 ) {
     private var generation = 0L
@@ -76,7 +76,7 @@ class ChatSessionFactory(
         )
         // Keep the public flow stable for renderers, but defer the actual provider construction
         // until the owner explicitly starts this handle.
-        val rewardCatalog = MutableStateFlow<Map<String, ChatReward>>(emptyMap())
+        val rewardCatalog = MutableStateFlow(ChatRewardCatalog())
         val active = ActiveChatSession(spec, key, session, catalog, rewardCatalog)
         return ChatSessionHandle(
             active = active,
@@ -93,9 +93,9 @@ class ChatSessionHandle internal constructor(
     val active: ActiveChatSession,
     private val scope: CoroutineScope,
     private val reconcileRecent: suspend () -> Unit,
-    private val startRewardCatalog: (CoroutineScope) -> Flow<Map<String, ChatReward>>,
+    private val startRewardCatalog: (CoroutineScope) -> Flow<ChatRewardCatalog>,
     private val initialSettings: suspend () -> ChatEvent.SettingsUpdated?,
-    private val rewardCatalogState: MutableStateFlow<Map<String, ChatReward>>,
+    private val rewardCatalogState: MutableStateFlow<ChatRewardCatalog>,
 ) {
     private val lifecycleMutex = Mutex()
     private var started = false
@@ -177,7 +177,7 @@ class ChatSessionManager(
     private val catalogFactory: (LiveChatSessionSpec, CoroutineScope) -> ChatCatalogRepository,
     private val recentHistory: suspend (LiveChatSessionSpec) -> List<ChatMessage> = { emptyList() },
     private val initialSettings: suspend (LiveChatSessionSpec) -> ChatEvent.SettingsUpdated? = { null },
-    private val rewardCatalogFactory: (LiveChatSessionSpec, CoroutineScope) -> Flow<Map<String, ChatReward>> = { _, _ -> flowOf(emptyMap()) },
+    private val rewardCatalogFactory: (LiveChatSessionSpec, CoroutineScope) -> Flow<ChatRewardCatalog> = { _, _ -> flowOf(ChatRewardCatalog()) },
     private val maxTimelineSize: Int = 600,
 ) {
     private val managerJob = SupervisorJob(parentScope.coroutineContext[Job])

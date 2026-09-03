@@ -9,7 +9,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
-import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationSnapshot
@@ -90,7 +90,7 @@ class ChatV2RendererController(
     private val onStateChanged: (ChatViewportState) -> Unit = {},
     private val onMessageLongClick: (ChatMessage) -> Unit = {},
     private val profilePopoutGesture: ChatProfilePopoutGesture = ChatProfilePopoutGesture.HOLD,
-    private val rewardCatalog: Flow<Map<String, ChatReward>> = flowOf(emptyMap()),
+    private val rewardCatalog: Flow<ChatRewardCatalog> = flowOf(ChatRewardCatalog()),
     private val decorationCatalog: Flow<ChatDecorationSnapshot> = flowOf(ChatDecorationSnapshot()),
     private val onEmoteClick: (ChatEmoteInteraction) -> Unit = {},
     private val onGifClick: (ChatGifInteraction) -> Unit = {},
@@ -355,7 +355,8 @@ class ChatV2RendererController(
                     key,
                     snapshot.messages,
                     catalogState.snapshot.copy(
-                        channelPointRewards = rewards,
+                        channelPointRewards = rewards.byId,
+                        automaticChannelPointRewards = rewards.automaticByType,
                         channelPointRewardsRevision = rewards.hashCode(),
                         // The v2 catalog owns live 7TV updates. Keep the legacy snapshot as a
                         // compatibility fallback without allowing it to erase newer v2 data.

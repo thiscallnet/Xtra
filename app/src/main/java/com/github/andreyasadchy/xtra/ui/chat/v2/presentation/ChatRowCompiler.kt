@@ -12,7 +12,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopedEmoteCatalog
-import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
 import com.github.andreyasadchy.xtra.ui.chat.ChatGifDisplayMode
 import java.text.NumberFormat
@@ -66,10 +66,10 @@ class ChatRowCompiler(
             message.isPrimeSubscription == true ||
                 message.subscriptionPlan?.contains("prime", ignoreCase = true) == true
             )
-        val reward = message.rewardId?.let { rewardId ->
-            catalog.channelPointRewards[rewardId]
-                ?: message.rewardTitle?.let { title -> ChatReward(title, message.rewardCost, message.rewardImageUrl) }
-        }
+        val reward = ChatRewardCatalog(
+            byId = catalog.channelPointRewards,
+            automaticByType = catalog.automaticChannelPointRewards,
+        ).rewardFor(message)
         val hasSemanticBody = message.segments.any {
             it !is ChatSegment.Text || it.text.isNotBlank()
         }

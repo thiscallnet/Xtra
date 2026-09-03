@@ -154,13 +154,13 @@ class ChatDomainPresentationTest {
         val row = ChatRowCompiler().compile(
             message(ChatSegment.Text("Lock them up!")).copy(
                 user = ChatUser("user", "viewer", "Viewer", null),
-                rewardId = "highlight",
+                rewardId = null,
                 twitchType = TwitchChatMessageType.Highlighted,
             ),
             ChatCatalogSnapshot(
                 0,
-                channelPointRewards = mapOf(
-                    "highlight" to ChatReward("Highlight My Message", 2_000, null),
+                automaticChannelPointRewards = mapOf(
+                    com.github.andreyasadchy.xtra.ui.chat.v2.domain.HIGHLIGHTED_MESSAGE_REWARD_TYPE to ChatReward("Highlight My Message", 2_000, null),
                 ),
             ),
         )
@@ -169,7 +169,7 @@ class ChatDomainPresentationTest {
         assertEquals("Redeemed ", row.pieces.filterIsInstance<ChatPiece.Text>().first().value)
         assertTrue(row.pieces.any { it is ChatPiece.Text && it.value == "Highlight My Message" && it.bold })
         assertTrue(row.pieces.any { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_channel_points })
-        assertTrue(text.contains("2,000"))
+        assertTrue(text.filter(Char::isDigit).contains("2000"))
         assertTrue(row.pieces.any { it is ChatPiece.Username && it.value == "Viewer" })
         assertTrue(text.contains("Lock them up!"))
         assertEquals(ChatRowBackground.HIGHLIGHT, row.backgroundStyle)

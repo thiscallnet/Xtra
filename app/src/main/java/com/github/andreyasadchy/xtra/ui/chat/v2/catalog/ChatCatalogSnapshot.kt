@@ -152,6 +152,8 @@ data class ChatCatalogSnapshot(
     val sevenTvBadges: Map<String, ChatCatalogBadge> = emptyMap(),
     /** Runtime channel-point metadata; intentionally not persisted with emote catalogs. */
     val channelPointRewards: Map<String, ChatReward> = emptyMap(),
+    /** Built-in rewards keyed by upper-cased GQL type (e.g. SEND_HIGHLIGHTED_MESSAGE). */
+    val automaticChannelPointRewards: Map<String, ChatReward> = emptyMap(),
     /** Changes when runtime reward metadata changes without a provider catalog refresh. */
     val channelPointRewardsRevision: Int = 0,
 )
