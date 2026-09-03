@@ -23,7 +23,14 @@ def main():
 
     config_path = Path(sys.argv[1])
     profile = sys.argv[2]
-    if profile not in {"safe", "nowebrtc"}:
+    if profile not in {
+        "safe",
+        "nowebrtc",
+        "nowebspeech",
+        "auth",
+        "minimal",
+        "twitch-auth-radical-r1",
+    }:
         print(f"unsupported profile: {profile}", file=sys.stderr)
         return 2
     if not config_path.is_file():
@@ -40,8 +47,38 @@ def main():
     expected_booleans = {
         "MOZ_ANDROID_GECKOVIEW_LITE": True,
         "MOZ_ANDROID_HLS_SUPPORT": False,
-        "MOZ_WEBRTC": profile == "safe",
+        "MOZ_WEBRTC": profile not in {
+            "nowebrtc",
+            "nowebspeech",
+            "minimal",
+            "twitch-auth-radical-r1",
+        },
     }
+    if profile in {"nowebspeech", "minimal"}:
+        expected_booleans["MOZ_WEBSPEECH"] = False
+    if profile == "twitch-auth-radical-r1":
+        expected_booleans.update(
+            {
+                "MOZ_TWITCH_AUTH_LITE": True,
+                # Android widget sources unconditionally use this exported API.
+                "ACCESSIBILITY": True,
+                "ENABLE_WEBDRIVER": False,
+                "MOZ_DISABLE_PARENTAL_CONTROLS": True,
+                "MOZ_PROFILING": False,
+                "MOZ_EXECUTION_TRACING": False,
+                "ENABLE_SPIDERMONKEY_TELEMETRY": False,
+                "MOZ_UNIVERSALCHARDET": False,
+                "MOZ_ZIPWRITER": False,
+            }
+        )
+    if profile == "minimal":
+        expected_booleans.update(
+            {
+                "ENABLE_WEBDRIVER": False,
+                "MOZ_DISABLE_PARENTAL_CONTROLS": True,
+                "MOZ_ZIPWRITER": False,
+            }
+        )
     for name, expected in expected_booleans.items():
         if name not in substitutions:
             if not expected:
@@ -57,17 +94,17 @@ def main():
             return 1
 
     count = substitutions.get("MOZ_ANDROID_CONTENT_SERVICE_COUNT")
-    if str(count) != "1":
+    if str(count) != "40":
         print(
             "unexpected MOZ_ANDROID_CONTENT_SERVICE_COUNT: "
-            f"expected '1', got {count!r}",
+            f"expected Gecko's default '40', got {count!r}",
             file=sys.stderr,
         )
         return 1
 
     print(
         f"verified profile={profile} lite=true hls=false "
-        f"webrtc={str(expected_booleans['MOZ_WEBRTC']).lower()} content_services=1"
+        f"webrtc={str(expected_booleans['MOZ_WEBRTC']).lower()} content_services=40"
     )
     return 0
 

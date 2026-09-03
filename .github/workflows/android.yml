@@ -123,10 +123,21 @@ jobs:
     - name: Check resource localization hygiene
       run: python3 .github/scripts/check-resources.py
 
+    - name: Download and verify pinned R1 GeckoView
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master' && vars.XTRA_GECKOVIEW_R1_RELEASE_TAG != ''
+      env:
+        GH_TOKEN: ${{ github.token }}
+        R1_RELEASE_TAG: ${{ vars.XTRA_GECKOVIEW_R1_RELEASE_TAG }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        ./geckoview/scripts/download-r1-universal-aar.sh "$R1_RELEASE_TAG" "$RUNNER_TEMP/r1-gecko"
+
     - name: Build with Gradle
       id: build
       env:
         TWITCH_PUBLIC_CLIENT_ID: ${{ vars.TWITCH_PUBLIC_CLIENT_ID }}
+        R1_RELEASE_TAG: ${{ vars.XTRA_GECKOVIEW_R1_RELEASE_TAG }}
       shell: bash
       run: |
         set -euo pipefail
@@ -138,6 +149,9 @@ jobs:
           "-PciVersionCode=${{ steps.version.outputs.code }}"
           "-PtwitchPublicClientId=${TWITCH_PUBLIC_CLIENT_ID}"
         )
+        if [[ -f "$RUNNER_TEMP/r1-gecko/xtra-geckoview-twitch-auth-r1-universal.aar" ]]; then
+          build_args+=("-PxtraGeckoViewAar=$RUNNER_TEMP/r1-gecko/xtra-geckoview-twitch-auth-r1-universal.aar")
+        fi
         # Release and perf share almost all sources. Build them in separate
         # Gradle invocations so Kotlin does not compile both variants at the
         # same time and exhaust the GitHub runner heap.
