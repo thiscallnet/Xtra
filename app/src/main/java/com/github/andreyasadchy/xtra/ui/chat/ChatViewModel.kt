@@ -459,6 +459,8 @@ class ChatViewModel(
     private var pollVoteJob: Job? = null
     private var predictionBetJob: Job? = null
     private var predictionSnapshotJob: Job? = null
+    private var predictionTimeoutJob: Job? = null
+    private var predictionTimeoutPredictionId: String? = null
     private var predictionSessionToken = 0L
     private var predictionSubscriptionSessionToken: Long? = null
     private var started = false
@@ -3631,6 +3633,13 @@ class ChatViewModel(
         ongoingPrediction.value = value.takeIf { PredictionState.isOngoing(it) }
         bettablePrediction.value = value.takeIf { PredictionState.isBettingOpen(it) }
         updatePredictionTimer(value)
+        if (PredictionState.isFinal(value)) {
+            schedulePredictionDismissal(value)
+        } else {
+            predictionTimeoutJob?.cancel()
+            predictionTimeoutJob = null
+            predictionTimeoutPredictionId = null
+        }
         activeChannelId?.let { channelId ->
             PredictionCache.save(
                 preferences = applicationContext.prefs(),
@@ -3652,6 +3661,37 @@ class ChatViewModel(
         predictionDeadlineJob?.cancel()
         predictionDeadlineJob = null
         predictionDeadlineToken = null
+        predictionTimeoutJob?.cancel()
+        predictionTimeoutJob = null
+        predictionTimeoutPredictionId = null
+    }
+
+    private fun schedulePredictionDismissal(value: Prediction) {
+        val predictionId = value.id
+        if (predictionId.isNullOrBlank()) return
+        if (predictionTimeoutPredictionId == predictionId && predictionTimeoutJob?.isActive == true) return
+        predictionTimeoutJob?.cancel()
+        predictionTimeoutPredictionId = predictionId
+        val now = System.currentTimeMillis()
+        val endedAt = value.endedAt
+        val remaining = if (endedAt != null) {
+            (PredictionState.RESULT_DISPLAY_GRACE_MILLIS - (now - endedAt)).coerceAtLeast(0L)
+        } else {
+            PredictionState.RESULT_DISPLAY_GRACE_MILLIS
+        }
+        predictionTimeoutJob = viewModelScope.launch {
+            delay(remaining)
+            val cleared = predictionStateStore.clearIf(
+                { current -> current.id == predictionId && PredictionState.isFinal(current) },
+                ::clearPredictionState,
+            )
+            if (cleared) {
+                val channelId = activeChannelId
+                if (!channelId.isNullOrBlank()) {
+                    PredictionCache.clear(applicationContext.prefs(), channelId)
+                }
+            }
+        }
     }
 
     private fun restorePredictionBetState(prediction: Prediction) {
