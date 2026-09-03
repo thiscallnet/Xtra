@@ -101,6 +101,7 @@ import kotlinx.coroutines.cancel
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
+import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -851,6 +852,7 @@ class ChatViewModel(
                 readOnly = readOnly,
                 startMessageTransport = !useChatV2,
                 startWriteTransport = !useChatV2 || !useApiChatMessages,
+                useChatV2 = useChatV2,
             )
             val isLoggedIn = !applicationContext.tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
                     (!TwitchApiHelper.getGQLHeaders(applicationContext, true)[C.HEADER_TOKEN].isNullOrBlank() ||
@@ -2824,6 +2826,7 @@ class ChatViewModel(
         readOnly: Boolean = liveChatReadOnly,
         startMessageTransport: Boolean = true,
         startWriteTransport: Boolean = startMessageTransport,
+        useChatV2: Boolean = false,
     ) {
         liveChatInitialized = true
         val channelChanged = activeChannelId != channelId ||
@@ -2988,7 +2991,7 @@ class ChatViewModel(
         val showSTVBadges = applicationContext.prefs().getBoolean(C.CHAT_SHOW_STV_BADGES, true)
         val showPersonalEmotes = applicationContext.prefs().getBoolean(C.CHAT_SHOW_PERSONAL_EMOTES, true)
         val stvLiveUpdates = true
-        if ((showNamePaints || showSTVBadges || showPersonalEmotes || stvLiveUpdates) && !channelId.isNullOrBlank()) {
+        if (!useChatV2 && (showNamePaints || showSTVBadges || showPersonalEmotes || stvLiveUpdates) && !channelId.isNullOrBlank()) {
             val useWebp = true
             stvEventApi = STVEventApiWebSocket(
                 channelId = channelId,
@@ -4080,6 +4083,7 @@ class ChatViewModel(
 
         override suspend fun onRewardMessage(message: JSONObject) {
             val chatMessage = PubSubUtils.parseRewardMessage(message)
+            forwardLegacyRewardToV2(chatMessage, channelId)
             if (!chatMessage.message.isNullOrBlank()) {
                 onRewardMessage(chatMessage, networkLibrary, isLoggedIn, accountId, channelId)
             } else {
@@ -4439,6 +4443,7 @@ class ChatViewModel(
                         }
                     }
                 }
+                emitThirdPartyEmotesUpdated()
             }
         }
 
@@ -4633,6 +4638,23 @@ class ChatViewModel(
             }
         } else {
             onChatMessage(message, networkLibrary, isLoggedIn, accountId, channelId)
+        }
+    }
+
+    /** The legacy player keeps Hermes for polls/predictions/raids; v2 receives its reward events. */
+    private suspend fun forwardLegacyRewardToV2(message: ChatMessage, channelId: String?) {
+        val targetChannelId = channelId ?: return
+        val active = chatSessionManager.active.value ?: return
+        if (!active.spec.legacySupplementalSockets || active.spec.channelId != targetChannelId) return
+        try {
+            active.session.submit(
+                active.key,
+                TwitchChatEventParser.fromPubSubReward(message, targetChannelId),
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            // The legacy chat path remains authoritative if v2 is stopping concurrently.
         }
     }
 

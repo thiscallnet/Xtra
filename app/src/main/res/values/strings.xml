@@ -743,6 +743,14 @@
     <string name="chatFirstMsgEntries2">Change background color</string>
     <string name="chatFirstMsgEntries3">Show as normal messages</string>
     <string name="chat_firstmsg_visibility">First messages and redemptions with text</string>
+    <string name="chat_profile_popout_gesture">Open profile popout with</string>
+    <string name="chat_profile_popout_gesture_tap">Tap</string>
+    <string name="chat_profile_popout_gesture_hold">Hold</string>
+    <string name="chat_profile_popout_gesture_both">Tap or hold</string>
+    <string name="chat_gif_display">GIF messages</string>
+    <string name="chat_gif_display_large">Large images</string>
+    <string name="chat_gif_display_emote">Emote size</string>
+    <string name="chat_gif_display_link">Links only</string>
     <string name="timestamps">Show timestamps</string>
     <string name="timestamp_format">Timestamp format</string>
     <string name="created_at">Created at %s</string>

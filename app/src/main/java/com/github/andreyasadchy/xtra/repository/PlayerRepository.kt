@@ -108,6 +108,38 @@ internal fun parseSTVEntitledEmoteSetIds(response: String): List<String> {
     }
 }
 
+internal fun parseGlobalBTTVEmotes(response: String, useWebp: Boolean, json: Json): List<Emote> {
+    return parseBTTVEmotes(
+        json.decodeFromString<List<BTTVResponse>>(response),
+        useWebp,
+        Emote.GLOBAL_BTTV,
+    )
+}
+
+internal fun parseBTTVEmotes(response: List<BTTVResponse>, useWebp: Boolean, source: Int): List<Emote> {
+    val legacyModifierNames = setOf("IceCold", "SoSnowy", "SantaHat", "TopHat", "CandyCane", "ReinDeer", "cvHazmat", "cvMask")
+    return response.mapNotNull { emote ->
+        emote.code?.takeIf { it.isNotBlank() }?.let { name ->
+            emote.id?.takeIf { it.isNotBlank() }?.let { id ->
+                Emote(
+                    name = name,
+                    id = id,
+                    url1x = if (useWebp) "https://cdn.betterttv.net/emote/$id/1x.webp" else "https://cdn.betterttv.net/emote/$id/1x",
+                    url2x = if (useWebp) "https://cdn.betterttv.net/emote/$id/2x.webp" else "https://cdn.betterttv.net/emote/$id/2x",
+                    url3x = if (useWebp) "https://cdn.betterttv.net/emote/$id/2x.webp" else "https://cdn.betterttv.net/emote/$id/2x",
+                    url4x = if (useWebp) "https://cdn.betterttv.net/emote/$id/3x.webp" else "https://cdn.betterttv.net/emote/$id/3x",
+                    format = if (useWebp) "webp" else null,
+                    isAnimated = emote.animated != false,
+                    isOverlayEmote = emote.modifier == true || name in legacyModifierNames,
+                    source = source,
+                    width = emote.width,
+                    height = emote.height,
+                )
+            }
+        }
+    }
+}
+
 @OptIn(UnstableApi::class)
 class PlayerRepository(
     private val httpEngine: Lazy<HttpEngine?>,
@@ -1509,8 +1541,7 @@ class PlayerRepository(
     }
 
     suspend fun loadGlobalBTTVEmotes(response: String, useWebp: Boolean): List<Emote> = withContext(Dispatchers.IO) {
-        val response = json.decodeFromString<List<BTTVResponse>>(response)
-        parseBTTVEmotes(response, useWebp, Emote.GLOBAL_BTTV)
+        parseGlobalBTTVEmotes(response, useWebp, json)
     }
 
     suspend fun loadBTTVEmotesResponse(
@@ -1578,28 +1609,6 @@ class PlayerRepository(
             useWebp,
             Emote.CHANNEL_BTTV
         )
-    }
-
-    private fun parseBTTVEmotes(response: List<BTTVResponse>, useWebp: Boolean, source: Int): List<Emote> {
-        val list = listOf("IceCold", "SoSnowy", "SantaHat", "TopHat", "CandyCane", "ReinDeer", "cvHazmat", "cvMask")
-        return response.mapNotNull { emote ->
-            emote.code?.takeIf { it.isNotBlank() }?.let { name ->
-                emote.id?.takeIf { it.isNotBlank() }?.let { id ->
-                    Emote(
-                        name = name,
-                        id = id,
-                        url1x = if (useWebp) "https://cdn.betterttv.net/emote/$id/1x.webp" else "https://cdn.betterttv.net/emote/$id/1x",
-                        url2x = if (useWebp) "https://cdn.betterttv.net/emote/$id/2x.webp" else "https://cdn.betterttv.net/emote/$id/2x",
-                        url3x = if (useWebp) "https://cdn.betterttv.net/emote/$id/2x.webp" else "https://cdn.betterttv.net/emote/$id/2x",
-                        url4x = if (useWebp) "https://cdn.betterttv.net/emote/$id/3x.webp" else "https://cdn.betterttv.net/emote/$id/3x",
-                        format = if (useWebp) "webp" else null,
-                        isAnimated = emote.animated != false,
-                        isOverlayEmote = list.contains(name),
-                        source = source,
-                    )
-                }
-            }
-        }
     }
 
     suspend fun loadGlobalFFZEmotesResponse(networkLibrary: String?): String = withContext(Dispatchers.IO) {

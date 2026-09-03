@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.session
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.ChatTransport
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationUpdate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -19,6 +20,7 @@ class ChatSession(
     private val transport: ChatTransport,
     maxTimelineSize: Int = 600,
     private val onTransportDisconnected: suspend (ChatSessionKey, String?) -> Unit = { _, _ -> },
+    private val onDecorationUpdated: suspend (ChatDecorationUpdate) -> Unit = {},
 ) {
     private val job = SupervisorJob(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + job)
@@ -55,6 +57,8 @@ class ChatSession(
                         transport.events(key).collect { event ->
                             if (event is ChatEvent.TransportDisconnected) {
                                 launch { onTransportDisconnected(key, event.reason) }
+                            } else if (event is ChatEvent.DecorationUpdated) {
+                                onDecorationUpdated(event.update)
                             } else {
                                 processor.submit(key, event)
                             }

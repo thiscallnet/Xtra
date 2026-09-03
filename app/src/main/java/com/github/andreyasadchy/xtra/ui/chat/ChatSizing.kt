@@ -14,6 +14,21 @@ internal data class ChatSizing(
     val badgeHeightPx: Int,
 )
 
+enum class ChatGifDisplayMode {
+    LARGE,
+    EMOTE,
+    LINK,
+    ;
+
+    companion object {
+        fun fromPreference(value: String?): ChatGifDisplayMode = when (value) {
+            "emote" -> EMOTE
+            "link" -> LINK
+            else -> LARGE
+        }
+    }
+}
+
 internal data class ChatRenderStyle(
     val textSizeSp: Float,
     val emoteHeightPx: Int,
@@ -25,6 +40,7 @@ internal data class ChatRenderStyle(
     val boldNames: Boolean,
     val showTimestamps: Boolean,
     val timestampFormat: String?,
+    val gifDisplayMode: ChatGifDisplayMode = ChatGifDisplayMode.LARGE,
 )
 
 internal fun resolveChatSizing(context: Context): ChatSizing {
@@ -57,5 +73,8 @@ internal fun resolveChatRenderStyle(context: Context): ChatRenderStyle {
         boldNames = prefs.getBoolean(C.CHAT_BOLD_NAMES, false),
         showTimestamps = prefs.getBoolean(C.CHAT_TIMESTAMPS, false),
         timestampFormat = prefs.getString(C.CHAT_TIMESTAMP_FORMAT, "0"),
+        gifDisplayMode = ChatGifDisplayMode.fromPreference(
+            prefs.getString(C.CHAT_GIF_DISPLAY, "large"),
+        ),
     )
 }

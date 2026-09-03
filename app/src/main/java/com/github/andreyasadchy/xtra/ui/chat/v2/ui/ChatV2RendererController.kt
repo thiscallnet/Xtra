@@ -9,8 +9,10 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatColorResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
@@ -19,6 +21,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLab
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
 import com.github.andreyasadchy.xtra.ui.chat.ChatRenderStyle
+import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
@@ -27,6 +30,8 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -63,10 +68,20 @@ class ChatV2RendererController(
     badgeHeightPx: Int = 18,
     messageTextSizeSp: Float = 14f,
     animateGifs: Boolean = true,
+    gifDisplayMode: com.github.andreyasadchy.xtra.ui.chat.ChatGifDisplayMode = com.github.andreyasadchy.xtra.ui.chat.ChatGifDisplayMode.LARGE,
     showBadges: Boolean = true,
     enableOverlayEmotes: Boolean = true,
     firstMessageVisibility: Int = 0,
     boldNames: Boolean = false,
+    private val nameDisplay: String = "0",
+    private val randomUsernameColors: Boolean = false,
+    private val showSystemMessageEmotes: Boolean = true,
+    private val showNamePaints: Boolean = true,
+    private val showThirdPartyBadges: Boolean = true,
+    private val showPersonalEmotes: Boolean = true,
+    private val translation: (ChatMessage) -> String? = { null },
+    private val onTranslateMessage: (ChatMessage) -> Unit = {},
+    translateAllMessages: Boolean = false,
     timestampFormat: String? = "0",
     showTimestamps: Boolean = false,
     private val readableUsernameColors: Boolean = true,
@@ -74,6 +89,9 @@ class ChatV2RendererController(
     private val presentationLabels: ChatPresentationLabels = ChatPresentationLabels(),
     private val onStateChanged: (ChatViewportState) -> Unit = {},
     private val onMessageLongClick: (ChatMessage) -> Unit = {},
+    private val profilePopoutGesture: ChatProfilePopoutGesture = ChatProfilePopoutGesture.HOLD,
+    private val rewardCatalog: Flow<Map<String, ChatReward>> = flowOf(emptyMap()),
+    private val decorationCatalog: Flow<ChatDecorationSnapshot> = flowOf(ChatDecorationSnapshot()),
     private val onEmoteClick: (ChatEmoteInteraction) -> Unit = {},
     private val onGifClick: (ChatGifInteraction) -> Unit = {},
     private val onPublicationChanged: (List<ChatMessage>, List<ChatRowUiModel>) -> Unit = { _, _ -> },
@@ -88,17 +106,21 @@ class ChatV2RendererController(
         firstMessageVisibility = firstMessageVisibility,
         boldNames = boldNames,
         showTimestamps = showTimestamps,
-        timestampFormat = timestampFormat,
+            timestampFormat = timestampFormat,
+            gifDisplayMode = gifDisplayMode,
     )
     private val adapter = ChatTimelineAdapter(
         assets,
         renderStyle.textSizeSp,
         renderStyle.animateGifs,
-        onMessageLongClick = { id ->
-            latestPublication?.messages?.firstOrNull { it.id == id }?.let(onMessageLongClick)
-        },
+        onMessageLongClick = if (profilePopoutGesture.allowsHold) {
+            { id -> latestPublication?.messages?.firstOrNull { it.id == id }?.let(onMessageLongClick) }
+        } else null,
         onEmoteClick = onEmoteClick,
         onGifClick = onGifClick,
+        onMessageClick = if (profilePopoutGesture.allowsTap) {
+            { id -> latestPublication?.messages?.firstOrNull { it.id == id }?.let(onMessageLongClick) }
+        } else null,
     )
     private val viewport = ChatViewportController(recyclerView, initialState)
     private val presentation = createPresentation(readableUsernameColors, backgroundColor, renderStyle)
@@ -111,6 +133,8 @@ class ChatV2RendererController(
     private var latestRows: List<ChatRowUiModel> = emptyList()
     private var latestPublication: PresentationPublication? = null
     private val rendererVisible = MutableStateFlow(true)
+    private var translateAllMessages = translateAllMessages
+    private val requestedTranslationIds = HashSet<ChatMessageId>()
 
     init {
         recyclerView.itemAnimator = null
@@ -178,6 +202,7 @@ class ChatV2RendererController(
         previousIds = null
         previousTailId = null
         currentKey = null
+        requestedTranslationIds.clear()
     }
 
     fun onUserScroll() {
@@ -197,8 +222,21 @@ class ChatV2RendererController(
                 setAnimateGifs(style.animateGifs)
             }
         }
+        if (latestPublication == null || lifecycleOwner == null) return
+        invalidatePresentation()
+    }
+
+    fun setTranslateAllMessages(enabled: Boolean) {
+        if (translateAllMessages == enabled) return
+        translateAllMessages = enabled
+        if (enabled) latestPublication?.let { requestTranslations(it.messages) }
+    }
+
+    /** Recompiles the current snapshot after an external presentation-only update. */
+    fun invalidatePresentation() {
         val publication = latestPublication ?: return
         val owner = lifecycleOwner ?: return
+        presentation.invalidate()
         styleRefreshJob?.cancel()
         styleRefreshJob = owner.lifecycleScope.launch {
             val rows = compileCurrent(publication)
@@ -234,6 +272,7 @@ class ChatV2RendererController(
                 previousTailId = null
             }
             latestPublication = publication
+            requestTranslations(publication.messages)
             val oldIds = previousIds
             val previousAnchor = if (oldIds == null) null else viewport.captureAnchor(adapter)
             // Reconciliation can insert older messages into the middle/front of the timeline.
@@ -260,18 +299,38 @@ class ChatV2RendererController(
         }
     }
 
+    private fun requestTranslations(messages: List<ChatMessage>) {
+        if (!translateAllMessages) return
+        messages.forEach { message ->
+            if (translation(message).isNullOrBlank() && requestedTranslationIds.add(message.id)) {
+                onTranslateMessage(message)
+            }
+        }
+    }
+
     private fun createPresentation(readable: Boolean, background: Int, style: ChatRenderStyle) =
         ChatPresentationResolver(createPresentationCompiler(style, readable, background))
 
     private fun createPresentationCompiler(style: ChatRenderStyle, readable: Boolean = readableUsernameColors, background: Int = backgroundColor) =
         ChatRowCompiler(
-            colors = ChatColorResolver(readable = readable, background = background),
+            colors = ChatColorResolver(
+                readable = readable,
+                randomFallback = randomUsernameColors,
+                neutralFallback = !randomUsernameColors,
+                background = background,
+            ),
             emoteHeightPx = style.emoteHeightPx,
             badgeHeightPx = style.badgeHeightPx,
             showBadges = style.showBadges,
             enableOverlayEmotes = style.enableOverlayEmotes,
             firstMessageVisibility = style.firstMessageVisibility,
             boldNames = style.boldNames,
+            nameDisplay = nameDisplay,
+            showSystemMessageEmotes = showSystemMessageEmotes,
+            showNamePaints = showNamePaints,
+            showThirdPartyBadges = showThirdPartyBadges,
+            showPersonalEmotes = showPersonalEmotes,
+            translation = translation,
             timestampText = if (style.showTimestamps) {
                 { timestamp -> com.github.andreyasadchy.xtra.util.TwitchApiHelper.getTimestamp(timestamp, style.timestampFormat) }
             } else {
@@ -279,14 +338,33 @@ class ChatV2RendererController(
             },
             background = { background },
             labels = presentationLabels,
+            gifDisplayMode = style.gifDisplayMode,
         )
 
     private fun ActiveChatSession.presentationFlow() =
         combine(
             session.attachUi(),
             catalog.state,
-        ) { snapshot, catalogState ->
-            if (!catalogState.hydrated) null else PresentationPublication(key, snapshot.messages, catalogState.snapshot)
+            rewardCatalog,
+            decorationCatalog,
+        ) { snapshot, catalogState, rewards, decorations ->
+            if (!catalogState.hydrated) {
+                null
+            } else {
+                PresentationPublication(
+                    key,
+                    snapshot.messages,
+                    catalogState.snapshot.copy(
+                        channelPointRewards = rewards,
+                        channelPointRewardsRevision = rewards.hashCode(),
+                        // The v2 catalog owns live 7TV updates. Keep the legacy snapshot as a
+                        // compatibility fallback without allowing it to erase newer v2 data.
+                        userDecorations = decorations.users + catalogState.snapshot.userDecorations,
+                        namePaints = decorations.paints + catalogState.snapshot.namePaints,
+                        sevenTvBadges = decorations.badges + catalogState.snapshot.sevenTvBadges,
+                    ),
+                )
+            }
         }.filter { it != null }.map { it!! }
 
     private data class PresentationPublication(

@@ -35,7 +35,18 @@ object TwitchChatEventParser {
             val legacy = ChatUtils.parseChatMessage(message)
             ChatEvent.Message(fromLegacy(legacy, channelId, gifTag = message.tags["gifs"]))
         }
-        "USERNOTICE" -> ChatEvent.Message(fromLegacy(ChatUtils.parseChatMessage(message), channelId, forceNotice = true))
+        "USERNOTICE" -> ChatEvent.Message(
+            fromLegacy(
+                ChatUtils.parseChatMessage(message),
+                channelId,
+                forceNotice = true,
+                subscriptionPlan = message.tags["msg-param-sub-plan"]
+                    ?: message.tags["msg-param-sub-plan-name"],
+                subscriptionTier = message.tags["msg-param-sub-plan"],
+                isPrimeSubscription = message.tags["msg-param-sub-plan"]
+                    ?.equals("Prime", ignoreCase = true),
+            ),
+        )
         "CLEARMSG" -> ChatEvent.Delete(
             messageId = ChatMessageId(message.tags["target-msg-id"] ?: return null),
             eventId = message.tags["target-msg-id"],
@@ -72,6 +83,67 @@ object TwitchChatEventParser {
         return ChatEvent.Message(message, eventId = message.id.value, receivedAtMs = System.currentTimeMillis())
     }
 
+    fun fromEventSubRewardRedemption(event: JSONObject, timestamp: String?): ChatEvent.Message {
+        val reward = event.optJSONObject("reward")
+        val userInput = event.optString("user_input")
+        val redeemedAt = timestamp ?: event.optString("redeemed_at").takeIf { it.isNotBlank() }
+        val message = ChatMessage(
+            id = ChatMessageId(event.optString("id").takeIf { it.isNotBlank() } ?: "redemption-${event.hashCode()}"),
+            channelId = event.optString("broadcaster_user_id").takeIf { it.isNotBlank() }.orEmpty(),
+            timestampMs = parseTimestamp(redeemedAt),
+            user = ChatUser(
+                id = event.optString("user_id").takeIf { it.isNotBlank() },
+                login = event.optString("user_login").takeIf { it.isNotBlank() },
+                displayName = event.optString("user_name").takeIf { it.isNotBlank() },
+                color = null,
+            ),
+            badges = emptyList(),
+            segments = userInput.takeIf { it.isNotEmpty() }?.let { listOf(ChatSegment.Text(it)) }.orEmpty(),
+            rawText = userInput.takeIf { it.isNotEmpty() },
+            kind = ChatMessageKind.REWARD,
+            rewardId = reward?.optString("id")?.takeIf { it.isNotBlank() },
+            rewardTitle = reward?.optString("title")?.takeIf { it.isNotBlank() },
+            rewardCost = reward?.optInt("cost")?.takeIf { it > 0 },
+            rewardImageUrl = reward?.optJSONObject("image")?.optString("url_1x")?.takeIf { it.isNotBlank() }
+                ?: reward?.optString("image")?.takeIf { it.startsWith("http") },
+            rewardRedemptionId = event.optString("id").takeIf { it.isNotBlank() },
+            systemText = reward?.optString("title")?.takeIf { it.isNotBlank() },
+            noticeType = "channel_points_custom_reward_redemption",
+        )
+        return ChatEvent.Message(message, eventId = message.id.value, receivedAtMs = System.currentTimeMillis())
+    }
+
+    /** Normalizes the legacy unrestricted Hermes redemption event for v2 sessions. */
+    fun fromPubSubReward(message: LegacyChatMessage, channelId: String): ChatEvent.Message {
+        val base = fromLegacy(message, channelId)
+        val reward = message.reward
+        val redemptionId = message.fullMsg?.let { raw ->
+            runCatching {
+                JSONObject(raw).optJSONObject("data")?.optJSONObject("redemption")
+                    ?.optString("id")?.takeIf { it.isNotBlank() }
+            }.getOrNull()
+        }
+        val id = redemptionId?.let { "reward-$it" }
+            ?: message.id?.let { "reward-$it" }
+            ?: "reward-${message.userId}-${message.timestamp ?: System.currentTimeMillis()}"
+        return ChatEvent.Message(
+            base.copy(
+                id = ChatMessageId(id),
+                kind = ChatMessageKind.REWARD,
+                segments = if (message.message.isNullOrBlank()) emptyList() else base.segments,
+                rawText = message.message?.takeIf { it.isNotEmpty() },
+                rewardTitle = reward?.title,
+                rewardCost = reward?.cost,
+                rewardImageUrl = reward?.url4x ?: reward?.url2x ?: reward?.url1x,
+                rewardRedemptionId = redemptionId,
+                systemText = reward?.title,
+                noticeType = "channel_points_custom_reward_redemption",
+            ),
+            eventId = redemptionId ?: id,
+            receivedAtMs = System.currentTimeMillis(),
+        )
+    }
+
     fun fromEventSubClear(event: JSONObject, timestamp: String?): ChatEvent {
         val receivedAt = parseTimestamp(timestamp)
         val messageId = event.optString("message_id").takeIf { it.isNotBlank() }
@@ -104,6 +176,10 @@ object TwitchChatEventParser {
         val rawType = event.optString("message_type").takeIf { it.isNotBlank() } ?: "text"
         val type = parseMessageType(rawType)
         val noticeType = event.optString("notice_type").takeIf { it.isNotBlank() }
+        val subscriptionPlan = event.optString("sub_tier").takeIf { it.isNotBlank() }
+            ?: event.optJSONObject("sub")?.optString("sub_tier")?.takeIf { it.isNotBlank() }
+        val isPrimeSubscription = event.optBooleanOrNull("is_prime")
+            ?: event.optJSONObject("sub")?.optBooleanOrNull("is_prime")
         val fullText = segments.joinToString(separator = "") { segment ->
             when (segment) {
                 is ChatSegment.Text -> segment.text
@@ -150,6 +226,9 @@ object TwitchChatEventParser {
             twitchType = type,
             systemText = event.optString("system_message").takeIf { it.isNotBlank() },
             noticeType = noticeType,
+            subscriptionPlan = subscriptionPlan,
+            subscriptionTier = subscriptionPlan,
+            isPrimeSubscription = isPrimeSubscription,
         )
     }
 
@@ -253,6 +332,9 @@ object TwitchChatEventParser {
         channelId: String,
         forceNotice: Boolean = false,
         gifTag: String? = null,
+        subscriptionPlan: String? = null,
+        subscriptionTier: String? = null,
+        isPrimeSubscription: Boolean? = null,
     ): ChatMessage {
         val raw = message.message.orEmpty()
         val segments = ircSegments(raw, message.emotes.orEmpty(), gifTag)
@@ -285,6 +367,9 @@ object TwitchChatEventParser {
             twitchType = message.msgId?.let(::parseMessageType) ?: TwitchChatMessageType.Text,
             systemText = message.systemMsg,
             noticeType = legacyNoticeType,
+            subscriptionPlan = subscriptionPlan,
+            subscriptionTier = subscriptionTier,
+            isPrimeSubscription = isPrimeSubscription,
         )
     }
 
@@ -441,4 +526,5 @@ object TwitchChatEventParser {
         ?: System.currentTimeMillis()
     private fun timestamp(raw: String?): Long = raw?.toLongOrNull() ?: System.currentTimeMillis()
     private fun JSONObject.optIntOrNull(name: String): Int? = if (isNull(name)) null else optInt(name).takeIf { it >= 0 }
+    private fun JSONObject.optBooleanOrNull(name: String): Boolean? = if (isNull(name)) null else optBoolean(name)
 }

@@ -10,6 +10,8 @@ import kotlin.math.pow
 class ChatColorResolver(
     @ColorInt private val fallback: Int = 0xFF919191.toInt(),
     private val readable: Boolean = false,
+    private val randomFallback: Boolean = true,
+    private val neutralFallback: Boolean = false,
     private val maxEntries: Int = 128,
     @ColorInt private val background: Int = 0xFF101010.toInt(),
 ) {
@@ -25,7 +27,7 @@ class ChatColorResolver(
     @ColorInt
     @Synchronized
     fun resolve(raw: String?, identity: String? = null, @ColorInt rowBackground: Int = background): Int {
-        val key = "${raw.orEmpty()}|${identity.orEmpty()}|$readable|$rowBackground"
+        val key = "${raw.orEmpty()}|${identity.orEmpty()}|$readable|$randomFallback|$neutralFallback|$rowBackground"
         return cache.getOrPut(key) {
             val parsed = parseColor(raw)
             val identityFallback = fallbackColor(identity, rowBackground)
@@ -47,6 +49,11 @@ class ChatColorResolver(
                 if (isLight(rowBackground)) 0xFF555555.toInt() else 0xFFBDBDBD.toInt()
             }
         }
+        if (neutralFallback) {
+            return fallback.takeUnless(::isNearWhite)
+                ?.takeIf { hasContrast(it, rowBackground) }
+                ?: if (isLight(rowBackground)) 0xFF555555.toInt() else 0xFFBDBDBD.toInt()
+        }
         return identityColor(identity, rowBackground)
     }
 
@@ -57,7 +64,12 @@ class ChatColorResolver(
             intArrayOf(0xFFFF8A80.toInt(), 0xFFFFD180.toInt(), 0xFFFFFF8A.toInt(), 0xFFB9F6CA.toInt(), 0xFF80D8FF.toInt(), 0xFFB388FF.toInt(), 0xFFFF80AB.toInt())
         }
         val hash = identity.orEmpty().fold(0) { result, character -> result * 31 + character.code }
-        val start = (hash and Int.MAX_VALUE) % palette.size
+        val start = if (randomFallback) {
+            // Keep each user's fallback stable while honoring the random-color preference.
+            (hash and Int.MAX_VALUE) % palette.size
+        } else {
+            0
+        }
         return (0 until palette.size)
             .asSequence()
             .map { palette[(start + it) % palette.size] }

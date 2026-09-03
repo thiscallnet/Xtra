@@ -43,6 +43,7 @@ import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
 import com.github.andreyasadchy.xtra.util.chat.displayName
 import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
 import com.github.andreyasadchy.xtra.util.chat.isWatchStreakNotice
+import com.github.andreyasadchy.xtra.util.chat.isSubscriptionNotice
 import com.github.andreyasadchy.xtra.util.chat.chatMessageBackgroundResource
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import kotlinx.coroutines.CancellationException
@@ -176,6 +177,7 @@ class ChatAdapter(
     private val messageClickListener: ((String?) -> Unit)?,
     private val replyClickListener: (() -> Unit)?,
     private val imageClickListener: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?,
+    private val profilePopoutGesture: ChatProfilePopoutGesture = ChatProfilePopoutGesture.TAP,
 ) : RecyclerView.Adapter<ChatAdapter.ViewHolder>() {
 
     internal var onMessagesPublished: ((ChatPublicationKind, Boolean) -> Unit)? = null
@@ -1031,13 +1033,23 @@ class ChatAdapter(
 
         init {
             textView.textSize = messageTextSize
-            textView.setOnClickListener {
-                if (textView.selectionStart == -1 && textView.selectionEnd == -1) {
-                    val message = boundMessage ?: return@setOnClickListener
+            textView.setOnClickListener(if (profilePopoutGesture.allowsTap) {
+                View.OnClickListener {
+                    if (textView.selectionStart == -1 && textView.selectionEnd == -1) {
+                        val message = boundMessage ?: return@OnClickListener
+                        selectedMessage = if (message.type == ChatMessage.REPLY_MESSAGE) message.replyParent else message
+                        messageClickListener?.invoke(channelId)
+                    }
+                }
+            } else null)
+            textView.setOnLongClickListener(if (profilePopoutGesture.allowsHold) {
+                View.OnLongClickListener {
+                    val message = boundMessage ?: return@OnLongClickListener false
                     selectedMessage = if (message.type == ChatMessage.REPLY_MESSAGE) message.replyParent else message
                     messageClickListener?.invoke(channelId)
+                    true
                 }
-            }
+            } else null)
         }
         private val catalogRefreshRunnable = Runnable {
             catalogRefreshPosted = false
@@ -1082,10 +1094,17 @@ class ChatAdapter(
         internal fun bind(chatMessage: ChatMessage, cacheKey: RenderCacheKey, result: ChatAdapterUtils.MessageResult) {
             itemView.setBackgroundResource(result.backgroundResource)
             applyNamePaintBackground(result.builder, itemView.background)
-            val specialPadding = if (chatMessage.isHighlightedMessage() || chatMessage.isWatchStreakNotice()) {
+            val specialPadding = if (chatMessage.isHighlightedMessage() ||
+                chatMessage.isWatchStreakNotice() ||
+                chatMessage.isFirst ||
+                chatMessage.isSubscriptionNotice()
+            ) {
                 (6f * textView.resources.displayMetrics.density).roundToInt()
             } else 0
-            textView.setPadding(0, specialPadding, 0, specialPadding)
+            val specialStartPadding = if (chatMessage.isFirst || chatMessage.isSubscriptionNotice()) {
+                (6f * textView.resources.displayMetrics.density).roundToInt()
+            } else 0
+            textView.setPadding(specialStartPadding, specialPadding, 0, specialPadding)
             boundRenderKey = cacheKey
             bindContent(chatMessage, result.builder, result.accessibilityDescription)
             attachDrawables(result.builder)
@@ -1127,7 +1146,7 @@ class ChatAdapter(
                     boundReplyMessage = isReply
                     if (isReply) {
                         movementMethod = null
-                        maxLines = 2
+                        maxLines = 1
                         ellipsize = TextUtils.TruncateAt.END
                     } else {
                         movementMethod = LinkMovementMethod.getInstance()

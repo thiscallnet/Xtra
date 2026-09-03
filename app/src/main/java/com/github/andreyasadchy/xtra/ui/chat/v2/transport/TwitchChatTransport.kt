@@ -8,6 +8,17 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import com.github.andreyasadchy.xtra.util.chat.ChatReadWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
 import com.github.andreyasadchy.xtra.util.chat.EventSubWebSocket
+import com.github.andreyasadchy.xtra.util.chat.HermesWebSocket
+import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
+import com.github.andreyasadchy.xtra.util.chat.STVEventApiUtils
+import com.github.andreyasadchy.xtra.util.chat.STVEventApiWebSocket
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogBadge
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationUpdate
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaintShadow
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
+import com.github.andreyasadchy.xtra.model.chat.Emote as LegacyEmote
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -15,14 +26,36 @@ import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.net.ssl.X509TrustManager
+
+internal fun eventSubSubscriptionTypes(enableRewardRedemptions: Boolean): List<String> = buildList {
+    add("channel.chat.message")
+    add("channel.chat.notification")
+    add("channel.chat.clear")
+    add("channel.chat.clear_user_messages")
+    add("channel.chat.message_delete")
+    add("channel.chat_settings.update")
+    if (enableRewardRedemptions) add("channel.channel_points_custom_reward_redemption.add")
+}
 
 data class TwitchChatTransportConfig(
     val channelId: String,
     val channelLogin: String,
     val useEventSub: Boolean,
     val accountId: String? = null,
+    val gqlClientId: String? = null,
+    val gqlToken: String? = null,
+    /** Hermes channel rewards preserve the unrestricted legacy no-input path. */
+    val enableHermesRewards: Boolean = true,
+    /** EventSub redemption events require broadcaster/moderator redemption scopes. */
+    val enableRewardRedemptions: Boolean = false,
+    val enableSevenTv: Boolean = true,
+    /** Reports this channel's presence through the v2-owned 7TV socket. */
+    val updateSevenTvPresence: (suspend (sessionId: String?, self: Boolean) -> Unit)? = null,
     val helixHeaders: Map<String, String> = emptyMap(),
     val networkLibrary: String? = null,
     val showUserNotices: Boolean = true,
@@ -67,7 +100,10 @@ class TwitchChatTransport(
 
                 override suspend fun onChatMessage(message: ChatUtils.IRCMessage, userNotice: Boolean) {
                     if (userNotice && !config.showUserNotices) return
-                    TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event -> send(event) }
+                    TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event ->
+                        send(event)
+                        notifySevenTvPresence(flowScope, event)
+                    }
                 }
 
                 override suspend fun onClearMessage(message: ChatUtils.IRCMessage) {
@@ -105,9 +141,15 @@ class TwitchChatTransport(
                 }
             },
         )
+        val sevenTv = attachSevenTv(this) { event -> send(event) }
+        val hermes = attachHermesRewards(this) { event -> send(event) }
         val connectionJob = socket.connect(this)
         awaitClose {
-            flowScope.launch { socket.disconnect(connectionJob) }
+            flowScope.launch {
+                socket.disconnect(connectionJob)
+                sevenTv?.let { (stv, job) -> stv.disconnect(job) }
+                hermes?.let { (hermesSocket, job) -> hermesSocket.disconnect(job) }
+            }
         }
     }.buffer(4096, kotlinx.coroutines.channels.BufferOverflow.SUSPEND)
 
@@ -122,14 +164,28 @@ class TwitchChatTransport(
 
                 override suspend fun onWelcomeMessage(sessionId: String) {
                     flowScope.launch {
-                        EVENTSUB_CHAT_SUBSCRIPTIONS.forEach { type ->
-                            createSubscription(config.helixHeaders, config.accountId, type, sessionId)
+                        eventSubSubscriptionTypes(config.enableRewardRedemptions).forEach { type ->
+                            try {
+                                createSubscription(config.helixHeaders, config.accountId, type, sessionId)
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (error: Throwable) {
+                                if (type !in REWARD_REDEMPTION_SUBSCRIPTION) throw error
+                                // This optional capability must not tear down otherwise valid
+                                // EventSub chat subscriptions. Hermes remains the fallback.
+                            }
                         }
                     }
                 }
 
                 override suspend fun onChatMessage(event: org.json.JSONObject, timestamp: String?) {
-                    flowScope.send(TwitchChatEventParser.fromEventSub(event, timestamp))
+                    val chatEvent = TwitchChatEventParser.fromEventSub(event, timestamp)
+                    flowScope.send(chatEvent)
+                    notifySevenTvPresence(flowScope, chatEvent)
+                }
+
+                override suspend fun onChannelPointsRewardRedemption(event: org.json.JSONObject, timestamp: String?) {
+                    flowScope.send(TwitchChatEventParser.fromEventSubRewardRedemption(event, timestamp))
                 }
 
                 override suspend fun onUserNotice(event: org.json.JSONObject, timestamp: String?) {
@@ -170,11 +226,182 @@ class TwitchChatTransport(
                 }
             },
         )
+        val sevenTv = attachSevenTv(this) { event -> send(event) }
+        val hermes = attachHermesRewards(this) { event -> send(event) }
         val connectionJob = socket.connect(this)
         awaitClose {
-            flowScope.launch { socket.disconnect(connectionJob) }
+            flowScope.launch {
+                socket.disconnect(connectionJob)
+                sevenTv?.let { (stv, job) -> stv.disconnect(job) }
+                hermes?.let { (hermesSocket, job) -> hermesSocket.disconnect(job) }
+            }
         }
     }.buffer(4096, kotlinx.coroutines.channels.BufferOverflow.SUSPEND)
+
+    private fun attachSevenTv(
+        scope: kotlinx.coroutines.CoroutineScope,
+        sendEvent: suspend (ChatEvent) -> Unit,
+    ): Pair<STVEventApiWebSocket, Job>? {
+        if (!config.enableSevenTv) return null
+        val socket = STVEventApiWebSocket(
+            channelId = config.channelId,
+            trustManager = trustManager,
+            listener = object : STVEventApiWebSocket.Listener {
+                override suspend fun onUpdatePresence(sessionId: String) {
+                    notifySevenTvPresence(scope, sessionId, self = true)
+                }
+
+                override suspend fun onEmoteSetUpdate(body: org.json.JSONObject) {
+                    val result = STVEventApiUtils.parseEmoteSetUpdate(body, useWebp = true, channelSTVEmoteSetId = null)
+                        ?: return
+                    // The event payload alone does not establish ownership. The catalog
+                    // repository routes the set using the actual channel set ID and keeps
+                    // unknown sets isolated until an entitlement identifies them.
+                    val added = (result.added + result.updated.map { it.second }).mapNotNull {
+                        it.toV2Emote(com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope.PERSONAL)
+                    }
+                        .associateBy { it.name }
+                    val removed = (result.removed + result.updated.map { it.first }).mapNotNull { it.name }.toSet()
+                    sendEvent(
+                        ChatEvent.DecorationUpdated(
+                            ChatDecorationUpdate.EmoteSet(
+                                setId = result.setId,
+                                added = added,
+                                removedNames = removed,
+                            ),
+                        ),
+                    )
+                }
+
+                override suspend fun onCosmetic(body: org.json.JSONObject) {
+                    when (val cosmetic = STVEventApiUtils.parseCosmetic(body, useWebp = true)) {
+                        is STVEventApiUtils.Cosmetic.Paint -> sendEvent(
+                            ChatEvent.DecorationUpdated(
+                                ChatDecorationUpdate.Paint(cosmetic.paint.id ?: return, cosmetic.paint.toChatPaint()),
+                            ),
+                        )
+                        is STVEventApiUtils.Cosmetic.Badge -> sendEvent(
+                            cosmetic.badge.toChatBadge()?.let {
+                                ChatEvent.DecorationUpdated(ChatDecorationUpdate.Badge(cosmetic.badge.id, it))
+                            } ?: return,
+                        )
+                        null -> Unit
+                    }
+                }
+
+                override suspend fun onEntitlement(body: org.json.JSONObject) {
+                    when (val entitlement = STVEventApiUtils.parseEntitlement(body)) {
+                        is STVEventApiUtils.Entitlement.Paint -> sendEvent(
+                            ChatEvent.DecorationUpdated(ChatDecorationUpdate.User(entitlement.userId, paintId = entitlement.paintId)),
+                        )
+                        is STVEventApiUtils.Entitlement.Badge -> sendEvent(
+                            ChatEvent.DecorationUpdated(ChatDecorationUpdate.User(entitlement.userId, badgeId = entitlement.badgeId)),
+                        )
+                        is STVEventApiUtils.Entitlement.EmoteSet -> sendEvent(
+                            ChatEvent.DecorationUpdated(ChatDecorationUpdate.User(entitlement.userId, personalEmoteSetId = entitlement.setId)),
+                        )
+                        null -> Unit
+                    }
+                }
+            },
+        )
+        return socket to socket.connect(scope)
+    }
+
+    private fun notifySevenTvPresence(scope: kotlinx.coroutines.CoroutineScope, event: ChatEvent) {
+        val message = (event as? ChatEvent.Message)?.message ?: return
+        val accountId = config.accountId ?: return
+        if (message.user?.id != accountId) return
+        notifySevenTvPresence(scope, sessionId = null, self = false)
+    }
+
+    private fun notifySevenTvPresence(
+        scope: kotlinx.coroutines.CoroutineScope,
+        sessionId: String?,
+        self: Boolean,
+    ) {
+        val update = config.updateSevenTvPresence ?: return
+        scope.launch {
+            try {
+                update(sessionId, self)
+            } catch (_: Throwable) {
+                // Presence is advisory and must not affect chat transport health.
+            }
+        }
+    }
+
+    private fun LegacyEmote.toV2Emote(scope: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope): com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote? {
+        val emoteName = name?.takeIf { it.isNotBlank() } ?: return null
+        val url = url4x ?: url3x ?: url2x ?: url1x ?: return null
+        return com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote(
+            name = emoteName,
+            id = id?.takeIf { it.isNotBlank() } ?: emoteName,
+            asset = ChatAssetSpec(
+                key = ChatAssetKey(url),
+                sourceWidth = width?.takeIf { it > 0 } ?: 56,
+                sourceHeight = height?.takeIf { it > 0 } ?: 56,
+                targetHeight = 28,
+            ),
+            provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.SEVEN_TV,
+            animated = isAnimated,
+            zeroWidth = isOverlayEmote,
+            scope = scope,
+        )
+    }
+
+    private fun attachHermesRewards(
+        scope: kotlinx.coroutines.CoroutineScope,
+        sendEvent: suspend (ChatEvent) -> Unit,
+    ): Pair<HermesWebSocket, Job>? {
+        if (!config.enableHermesRewards || config.channelId.isBlank()) return null
+        val authenticated = !config.accountId.isNullOrBlank() && !config.gqlToken.isNullOrBlank()
+        val socket = HermesWebSocket(
+            channelId = config.channelId,
+            userId = config.accountId,
+            gqlClientId = config.gqlClientId,
+            gqlToken = config.gqlToken,
+            collectPoints = false,
+            listenForPoints = authenticated,
+            showRaids = false,
+            showPolls = false,
+            showPredictions = false,
+            includeChannelTopics = true,
+            trustManager = trustManager,
+            listener = object : HermesWebSocket.Listener {
+                override suspend fun onRewardMessage(message: org.json.JSONObject) {
+                    sendEvent(
+                        TwitchChatEventParser.fromPubSubReward(
+                            PubSubUtils.parseRewardMessage(message),
+                            config.channelId,
+                        ),
+                    )
+                }
+            },
+        )
+        return socket to socket.connect(scope)
+    }
+
+    private fun com.github.andreyasadchy.xtra.model.chat.NamePaint.toChatPaint() = ChatNamePaint(
+        colors = colors?.toList().orEmpty(),
+        imageUrl = imageUrl,
+        colorPositions = colorPositions?.toList().orEmpty(),
+        type = type,
+        angle = angle,
+        repeat = repeat == true,
+        shadows = shadows.orEmpty().map { ChatNamePaintShadow(it.xOffset, it.yOffset, it.radius, it.color) },
+    )
+
+    private fun com.github.andreyasadchy.xtra.model.chat.STVBadge.toChatBadge(): ChatCatalogBadge? {
+        val url = url4x ?: url3x ?: url2x ?: url1x ?: return null
+        return ChatCatalogBadge(
+            name = id,
+            asset = ChatAssetSpec(ChatAssetKey(url), 18, 18, 18),
+            provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.SEVEN_TV,
+            setId = id,
+            versionId = "default",
+            info = name,
+        )
+    }
 
     private fun systemMessage(session: ChatSessionKey, suffix: String, text: String?): ChatEvent.Message? =
         text?.takeIf { it.isNotBlank() }?.let {
@@ -193,13 +420,37 @@ class TwitchChatTransport(
         }
 
     private companion object {
-        val EVENTSUB_CHAT_SUBSCRIPTIONS = listOf(
-            "channel.chat.message",
-            "channel.chat.notification",
-            "channel.chat.clear",
-            "channel.chat.clear_user_messages",
-            "channel.chat.message_delete",
-            "channel.chat_settings.update",
-        )
+        val REWARD_REDEMPTION_SUBSCRIPTION = listOf("channel.channel_points_custom_reward_redemption.add")
+    }
+}
+
+/** Preserves legacy 7TV presence semantics without creating a second Event API socket. */
+internal class SevenTvPresenceReporter(
+    private val channelId: String,
+    private val resolveStvUserId: suspend () -> String?,
+    private val sendPresence: suspend (stvUserId: String, channelId: String, sessionId: String?, self: Boolean) -> Unit,
+    private val now: () -> Long = System::currentTimeMillis,
+) {
+    private val mutex = Mutex()
+    private var stvUserId: String? = null
+    private var lastPresenceUpdate: Long? = null
+
+    suspend fun update(sessionId: String?, self: Boolean) {
+        if (channelId.isBlank() || (self && sessionId.isNullOrBlank())) return
+        val timestamp = now()
+        val allowed = mutex.withLock {
+            if (lastPresenceUpdate?.let { timestamp - it > 10_000L } != false) {
+                lastPresenceUpdate = timestamp
+                true
+            } else {
+                false
+            }
+        }
+        if (!allowed) return
+
+        val userId = mutex.withLock { stvUserId } ?: runCatching { resolveStvUserId() }.getOrNull()
+        if (userId.isNullOrBlank()) return
+        mutex.withLock { if (stvUserId == null) stvUserId = userId }
+        sendPresence(userId, channelId, sessionId, self)
     }
 }

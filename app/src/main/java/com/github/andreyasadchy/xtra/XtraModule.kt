@@ -56,11 +56,19 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.TwitchChatCatalogCache
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.TwitchChatCatalogSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.RecentChatHistoryRepository
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.RecentChatHistoryPage
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.RecentChatHistorySource
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.paginateRecentChatPages
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.toV2
+import com.github.andreyasadchy.xtra.ui.player.findCurrentRecordingVod
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransport
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransportConfig
+import com.github.andreyasadchy.xtra.ui.chat.v2.transport.SevenTvPresenceReporter
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
@@ -70,6 +78,8 @@ import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
 import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
 import com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.chromium.net.CronetEngine
@@ -82,6 +92,8 @@ import java.util.concurrent.Executors
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
+
+private const val RECENT_HISTORY_WINDOW_SECONDS = 10 * 60
 
 @OptIn(UnstableApi::class)
 class XtraModule(application: Application) {
@@ -679,6 +691,15 @@ class XtraModule(application: Application) {
                 val accountId = appContext.tokenPrefs().getString(C.USER_ID, null)
                 val helixHeaders = TwitchApiHelper.getHelixHeaders(appContext)
                 val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                val sevenTvPresence = accountId?.takeIf(String::isNotBlank)?.let { userId ->
+                    SevenTvPresenceReporter(
+                        channelId = spec.channelId,
+                        resolveStvUserId = { playerRepository.getSTVUser(network, userId) },
+                        sendPresence = { stvUserId, channelId, sessionId, self ->
+                            playerRepository.sendSTVPresence(network, stvUserId, channelId, sessionId, self)
+                        },
+                    )
+                }
                 TwitchChatTransport(
                     config = TwitchChatTransportConfig(
                         channelId = spec.channelId,
@@ -691,6 +712,17 @@ class XtraModule(application: Application) {
                                         (!accountId.isNullOrBlank() &&
                                                 "user:read:chat" in scopes)),
                         accountId = accountId,
+                        gqlClientId = appContext.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB),
+                        gqlToken = appContext.tokenPrefs().getString(C.GQL_TOKEN_WEB, null),
+                        enableHermesRewards = !spec.legacySupplementalSockets,
+                        enableRewardRedemptions = !spec.legacySupplementalSockets &&
+                                !accountId.isNullOrBlank() && (
+                            "channel:read:redemptions" in scopes || "channel:manage:redemptions" in scopes
+                        ),
+                        enableSevenTv = appContext.prefs().getBoolean(C.CHAT_ENABLE_STV, true),
+                        updateSevenTvPresence = sevenTvPresence?.let { reporter ->
+                            { sessionId, self -> reporter.update(sessionId, self) }
+                        },
                         helixHeaders = helixHeaders,
                         networkLibrary = network,
                         showUserNotices = appContext.prefs().getBoolean(C.CHAT_SHOW_USER_NOTICE, true),
@@ -709,25 +741,75 @@ class XtraModule(application: Application) {
                 )
             },
             catalogFactory = { spec, scope ->
+                val source = TwitchChatCatalogSource(appContext, playerRepository, spec.channelId, spec.channelLogin)
                 ChatCatalogRepository(
                     scope = scope,
-                    source = TwitchChatCatalogSource(appContext, playerRepository, spec.channelId, spec.channelLogin),
+                    source = source,
                     cache = TwitchChatCatalogCache(appContext, spec.channelId),
+                    personalEmoteSetLoader = source::loadPersonalEmoteSet,
                 )
             },
             recentHistory = { spec ->
-                val url = spec.recentMessagesUrl ?: return@ChatSessionManager emptyList()
-                val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-                playerRepository.loadRecentMessages(network, url, spec.channelLogin, "100")
-                    .messages.asSequence()
-                    .mapNotNull { raw ->
-                        TwitchChatEventParser.fromIrc(
-                            com.github.andreyasadchy.xtra.util.chat.ChatUtils.parseIRCMessage(raw),
-                            spec.channelId,
+                RecentChatHistoryRepository(
+                    twitch = RecentChatHistorySource { liveSpec ->
+                        val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                        val headers = TwitchApiHelper.getGQLHeaders(appContext, true)
+                        val channelPage = graphQLRepository.loadQueryUserChannelPage(
+                            network, headers, id = liveSpec.channelId,
+                            login = liveSpec.channelLogin.takeIf { liveSpec.channelId.isBlank() },
+                        ).data?.user ?: return@RecentChatHistorySource emptyList()
+                        val stream = channelPage.stream ?: return@RecentChatHistorySource emptyList()
+                        if (liveSpec.streamId != null && liveSpec.streamId != stream.id) {
+                            return@RecentChatHistorySource emptyList()
+                        }
+                        val vod = graphQLRepository.findCurrentRecordingVod(
+                            networkLibrary = network,
+                            headers = headers,
+                            channelId = channelPage.id ?: liveSpec.channelId,
+                            channelLogin = channelPage.login ?: liveSpec.channelLogin,
+                            streamCreatedAt = stream.createdAt?.toString(),
+                        ) ?: return@RecentChatHistorySource emptyList()
+                        val vodStartMs = runCatching { kotlin.time.Instant.parse(vod.createdAt).toEpochMilliseconds() }.getOrNull()
+                        val currentOffset = vodStartMs?.let {
+                            ((System.currentTimeMillis() - it).coerceAtLeast(0L) / 1000L).toInt()
+                        } ?: 0
+                        val offset = (currentOffset - RECENT_HISTORY_WINDOW_SECONDS).coerceAtLeast(0)
+                        val pagination = paginateRecentChatPages(
+                            initialOffsetSeconds = offset,
+                            load = { pageOffset, cursor ->
+                                val comments = graphQLRepository.loadVideoMessages(
+                                    network, headers, vod.id,
+                                    offset = pageOffset,
+                                    cursor = cursor,
+                                ).data?.video?.comments
+                                RecentChatHistoryPage(
+                                    items = comments?.edges.orEmpty(),
+                                    hasNextPage = comments?.pageInfo?.hasNextPage == true,
+                                    nextCursor = comments?.edges?.lastOrNull()?.cursor,
+                                )
+                            },
+                            isAtLiveEdge = { comment ->
+                                comment.node.contentOffsetSeconds?.let { it >= currentOffset } == true
+                            },
                         )
-                    }
-                    .mapNotNull { (it as? com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent.Message)?.message }
-                    .toList()
+                        if (!pagination.reachedLiveEdge) return@RecentChatHistorySource emptyList()
+                        pagination.items.mapNotNull { it.node.toV2(liveSpec.channelId, vodStartTimestampMs = vodStartMs) }
+                            .filter { it.timestampMs <= System.currentTimeMillis() }
+                            .sortedBy { it.timestampMs }
+                            .takeLast(100)
+                    },
+                    robotty = RecentChatHistorySource { liveSpec ->
+                        val url = liveSpec.recentMessagesUrl
+                            ?: "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel"
+                        val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                        playerRepository.loadRecentMessages(network, url, liveSpec.channelLogin, "100")
+                            .messages.asSequence()
+                            .mapNotNull { raw -> TwitchChatEventParser.fromIrc(com.github.andreyasadchy.xtra.util.chat.ChatUtils.parseIRCMessage(raw), liveSpec.channelId) }
+                            .mapNotNull { (it as? com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent.Message)?.message }
+                            .toList()
+                    },
+                    enabled = { appContext.prefs().getBoolean(C.CHAT_RECENT, true) },
+                ).load(spec)
             },
             initialSettings = { spec ->
                 val userId = appContext.tokenPrefs().getString(C.USER_ID, null)
@@ -753,6 +835,35 @@ class XtraModule(application: Application) {
                         )
                     }
                 }
+            },
+            rewardCatalogFactory = { spec, scope ->
+                val rewards = MutableStateFlow<Map<String, ChatReward>>(emptyMap())
+                scope.launch {
+                    val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                    val headers = TwitchApiHelper.getGQLHeaders(appContext, true)
+                    val settings = runCatching {
+                        graphQLRepository.loadChannelPointsContext(network, headers, spec.channelLogin)
+                            .data?.community?.channel?.communityPointsSettings
+                    }.getOrNull() ?: return@launch
+                    rewards.value = buildMap {
+                        settings.customRewards.forEach { reward ->
+                            val id = reward.id?.takeIf { it.isNotBlank() }
+                            val title = reward.title?.takeIf { it.isNotBlank() }
+                            if (id != null && title != null) {
+                                put(
+                                    id,
+                                    ChatReward(
+                                        title = title,
+                                        cost = reward.cost,
+                                        imageUrl = reward.image?.url4x ?: reward.image?.url2x ?: reward.image?.url1x
+                                            ?: reward.defaultImage?.url4x ?: reward.defaultImage?.url2x ?: reward.defaultImage?.url1x,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+                rewards
             },
         )
     }

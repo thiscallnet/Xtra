@@ -19,11 +19,14 @@
         android:textAppearance="?attr/textAppearanceLabelSmall"
         app:chipMinHeight="28dp" />
 
-    <TextView
+    <com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
         android:id="@+id/messageText"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
+        android:clickable="true"
+        android:focusable="true"
+        android:linksClickable="true"
         android:textAppearance="?attr/textAppearanceBodyMedium"
         android:textDirection="ltr" />
 </LinearLayout>

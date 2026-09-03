@@ -23,12 +23,16 @@ data class ChatCatalogProviderUpdate<T>(
     val value: T,
     val global: ScopeUpdate<T>? = null,
     val channel: ScopeUpdate<T>? = null,
+    /** Only emote providers use this; each entry is keyed by a sender-owned 7TV set ID. */
+    val personal: ScopeUpdate<Map<String, Map<String, ChatCatalogEmote>>>? = null,
+    /** The channel's actual 7TV emote-set ID, when this is the 7TV provider update. */
+    val channelSetId: String? = null,
 ) {
     val isScoped: Boolean
-        get() = global != null || channel != null
+        get() = global != null || channel != null || personal != null
 
     val hasFailedScope: Boolean
-        get() = global is ScopeUpdate.Failed || channel is ScopeUpdate.Failed
+        get() = global is ScopeUpdate.Failed || channel is ScopeUpdate.Failed || personal is ScopeUpdate.Failed
 }
 
 data class ChatCatalogLoadResult(
@@ -37,9 +41,10 @@ data class ChatCatalogLoadResult(
     val bttv: ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>>? = null,
     val ffz: ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>>? = null,
     val badges: ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>>? = null,
+    val cheermotes: ChatCatalogProviderUpdate<Map<String, ChatCatalogCheermote>>? = null,
 ) {
     val hasSuccessfulProvider: Boolean
-        get() = twitch != null || sevenTv != null || bttv != null || ffz != null || badges != null
+        get() = twitch != null || sevenTv != null || bttv != null || ffz != null || badges != null || cheermotes != null
 
     val hasFailedThirdPartyProvider: Boolean
         get() = sevenTv == null || sevenTv.hasFailedScope ||
@@ -48,7 +53,8 @@ data class ChatCatalogLoadResult(
     /** Sources must return an explicit empty update for a provider that successfully has no entries. */
     val hasFailedProvider: Boolean
         get() = twitch == null || sevenTv == null || sevenTv.hasFailedScope ||
-                bttv == null || bttv.hasFailedScope || ffz == null || ffz.hasFailedScope || badges == null
+                bttv == null || bttv.hasFailedScope || ffz == null || ffz.hasFailedScope ||
+                badges == null || cheermotes == null
 }
 
 fun interface ChatCatalogSource { suspend fun load(): ChatCatalogLoadResult }
@@ -65,8 +71,9 @@ class ChatCatalogRepository(
     private val source: ChatCatalogSource,
     private val cache: ChatCatalogCache? = null,
     private val wait: suspend (Long) -> Unit = { delay(it) },
+    private val personalEmoteSetLoader: (suspend (String) -> Map<String, ChatCatalogEmote>)? = null,
 ) {
-    private enum class Provider { TWITCH, SEVEN_TV, BTTV, FFZ, BADGES }
+    private enum class Provider { TWITCH, SEVEN_TV, BTTV, FFZ, BADGES, CHEERMOTES }
 
     private val _state = MutableStateFlow(
         ChatCatalogState(
@@ -82,8 +89,149 @@ class ChatCatalogRepository(
     private var closed = false
     private var cacheJob: Job? = null
     private var persistenceJob: Job? = null
+    private val personalEmoteSetJobs = mutableMapOf<String, Job>()
+    private val loadedPersonalEmoteSets = mutableSetOf<String>()
     private var networkProvidersObserved = emptySet<Provider>()
     private val networkEmoteScopesObserved = mutableMapOf<Provider, MutableSet<ChatEmoteScope>>()
+    private var runtimeDecorations = ChatDecorationSnapshot()
+
+    /** Applies live 7TV cosmetics without replacing the provider-loaded emote catalog. */
+    @Synchronized
+    fun applyDecorationUpdate(update: ChatDecorationUpdate) {
+        if (closed) return
+        if (update is ChatDecorationUpdate.EmoteSet) {
+            applyEmoteSetUpdate(update)
+            return
+        }
+        runtimeDecorations = runtimeDecorations.apply(update)
+        val currentState = _state.value
+        val current = currentState.snapshot
+        val next = current.withRuntimeDecorations(runtimeDecorations)
+        if (next != current) {
+            _state.value = currentState.copy(snapshot = next.copy(revision = current.revision + 1))
+        }
+        update.userPersonalEmoteSetId()?.let { setId ->
+            promotePendingPersonalSet(setId)
+            loadPersonalEmoteSet(setId)
+        }
+    }
+
+    private fun applyEmoteSetUpdate(update: ChatDecorationUpdate.EmoteSet) {
+        val currentState = _state.value
+        val current = currentState.snapshot
+        val sevenTv = current.sevenTv
+        val channelSet = !current.sevenTvChannelSetId.isNullOrBlank() &&
+                update.setId == current.sevenTvChannelSetId
+        val personalSet = !channelSet && (
+                update.setId in sevenTv.personal ||
+                        current.userDecorations.values.any { it.personalEmoteSetId == update.setId }
+                )
+        val pending = sevenTv.pending[update.setId].orEmpty()
+        val addedFor = { scope: ChatEmoteScope ->
+            update.added.mapValues { (_, emote) -> emote.copy(scope = scope) }
+        }
+        val nextSevenTv = when {
+            channelSet -> sevenTv.copy(
+                channel = (sevenTv.channel + pending.mapValues { (_, emote) -> emote.copy(scope = ChatEmoteScope.CHANNEL) } +
+                        addedFor(ChatEmoteScope.CHANNEL)) - update.removedNames,
+                pending = sevenTv.pending - update.setId,
+            )
+            personalSet -> sevenTv.copy(
+                personal = sevenTv.personal + (update.setId to (
+                        sevenTv.personal[update.setId].orEmpty() +
+                                pending.mapValues { (_, emote) -> emote.copy(scope = ChatEmoteScope.PERSONAL) } +
+                                addedFor(ChatEmoteScope.PERSONAL) - update.removedNames
+                        )),
+                pending = sevenTv.pending - update.setId,
+            )
+            else -> sevenTv.copy(
+                // Never guess that an unknown set is channel-wide. It can only be
+                // promoted after the channel set ID or a sender entitlement arrives.
+                pending = sevenTv.pending + (update.setId to (
+                        (pending + addedFor(ChatEmoteScope.PERSONAL)) - update.removedNames
+                        )),
+            )
+        }
+        if (nextSevenTv == sevenTv) return
+        val next = current.copy(revision = current.revision + 1, sevenTv = nextSevenTv)
+        _state.value = currentState.copy(snapshot = next)
+        enqueuePersistence(next)
+    }
+
+    private fun promotePendingPersonalSet(setId: String) {
+        if (setId.isBlank()) return
+        val currentState = _state.value
+        val current = currentState.snapshot
+        val pending = current.sevenTv.pending[setId].orEmpty()
+        if (pending.isEmpty()) return
+        val personal = current.sevenTv.personal[setId].orEmpty()
+        val next = current.copy(
+            revision = current.revision + 1,
+            sevenTv = current.sevenTv.copy(
+                personal = current.sevenTv.personal + (setId to (personal + pending.mapValues { (_, emote) ->
+                    emote.copy(scope = ChatEmoteScope.PERSONAL)
+                })),
+                pending = current.sevenTv.pending - setId,
+            ),
+        )
+        _state.value = currentState.copy(snapshot = next)
+        enqueuePersistence(next)
+    }
+
+    /** Loads a sender's 7TV set once when the live decoration stream reveals it. */
+    @Synchronized
+    private fun loadPersonalEmoteSet(setId: String) {
+        val loader = personalEmoteSetLoader ?: return
+        if (setId.isBlank() || setId in loadedPersonalEmoteSets || setId in personalEmoteSetJobs) return
+        personalEmoteSetJobs[setId] = scope.launch {
+            val emotes = try {
+                loader(setId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                emptyMap()
+            }
+            synchronized(this@ChatCatalogRepository) {
+                personalEmoteSetJobs.remove(setId)
+                if (closed || emotes.isEmpty()) return@synchronized
+                loadedPersonalEmoteSets += setId
+                val currentState = _state.value
+                val current = currentState.snapshot
+                val existing = current.sevenTv.personal[setId].orEmpty()
+                val next = current.copy(
+                    revision = current.revision + 1,
+                    sevenTv = current.sevenTv.copy(
+                        personal = current.sevenTv.personal + (setId to (emotes + existing)),
+                    ),
+                )
+                _state.value = currentState.copy(snapshot = next)
+                enqueuePersistence(next)
+            }
+        }
+    }
+
+    private fun ChatDecorationUpdate.userPersonalEmoteSetId(): String? =
+        (this as? ChatDecorationUpdate.User)?.personalEmoteSetId
+
+    private fun ChatCatalogSnapshot.withRuntimeDecorations(value: ChatDecorationSnapshot): ChatCatalogSnapshot = copy(
+        userDecorations = userDecorations + value.users,
+        namePaints = namePaints + value.paints,
+        sevenTvBadges = sevenTvBadges + value.badges,
+    )
+
+    private fun ChatDecorationSnapshot.apply(update: ChatDecorationUpdate): ChatDecorationSnapshot = when (update) {
+        is ChatDecorationUpdate.EmoteSet -> this
+        is ChatDecorationUpdate.Paint -> copy(paints = paints + (update.id to update.paint))
+        is ChatDecorationUpdate.Badge -> copy(badges = badges + (update.id to update.badge))
+        is ChatDecorationUpdate.User -> {
+            val previous = users[update.userId] ?: ChatUserDecoration()
+            copy(users = users + (update.userId to previous.copy(
+                paintId = update.paintId ?: previous.paintId,
+                badgeId = update.badgeId ?: previous.badgeId,
+                personalEmoteSetId = update.personalEmoteSetId ?: previous.personalEmoteSetId,
+            )))
+        }
+    }
 
     init {
         cache?.let { persistence ->
@@ -104,7 +252,7 @@ class ChatCatalogRepository(
                                 // A refresh may already be in flight while disk hydration is pending.
                                 // Publish the last-good cache before that refresh completes.
                                 _state.value = ChatCatalogState(
-                                    cached,
+                                    cached.withRuntimeDecorations(runtimeDecorations),
                                     hydrated = true,
                                     refreshFailed = currentState.refreshFailed,
                                     thirdPartyRefreshFailed = currentState.thirdPartyRefreshFailed,
@@ -116,9 +264,13 @@ class ChatCatalogRepository(
                                 val merged = current.copy(
                                     twitch = if (Provider.TWITCH in networkProvidersObserved) current.twitch else cached.twitch,
                                     sevenTv = hydrateUnobservedScopes(current.sevenTv, cached.sevenTv, Provider.SEVEN_TV),
+                                    sevenTvChannelSetId = if (
+                                        ChatEmoteScope.CHANNEL in networkEmoteScopesObserved[Provider.SEVEN_TV].orEmpty()
+                                    ) current.sevenTvChannelSetId else cached.sevenTvChannelSetId,
                                     bttv = hydrateUnobservedScopes(current.bttv, cached.bttv, Provider.BTTV),
                                     ffz = hydrateUnobservedScopes(current.ffz, cached.ffz, Provider.FFZ),
                                     badges = if (Provider.BADGES in networkProvidersObserved) current.badges else cached.badges,
+                                    cheermotes = if (Provider.CHEERMOTES in networkProvidersObserved) current.cheermotes else cached.cheermotes,
                                 )
                                 if (merged != current) {
                                     _state.value = ChatCatalogState(
@@ -147,12 +299,22 @@ class ChatCatalogRepository(
         refreshJob = launchRefresh(requestGeneration, attempt = 1, delayMs = 0L)
     }
 
+    /** Stops provider refresh/retry work while an owning session is paused. */
+    @Synchronized fun pause() {
+        refreshJob?.cancel()
+        refreshJob = null
+        personalEmoteSetJobs.values.forEach(Job::cancel)
+        personalEmoteSetJobs.clear()
+    }
+
     @Synchronized fun close() {
         closed = true
         cacheJob?.cancel()
         cacheJob = null
         refreshJob?.cancel()
         refreshJob = null
+        personalEmoteSetJobs.values.forEach(Job::cancel)
+        personalEmoteSetJobs.clear()
     }
 
     private fun launchRefresh(requestGeneration: Long, attempt: Int, delayMs: Long): Job = scope.launch {
@@ -183,6 +345,7 @@ class ChatCatalogRepository(
                 if (result.bttv?.isScoped != true && result.bttv != null) add(Provider.BTTV)
                 if (result.ffz?.isScoped != true && result.ffz != null) add(Provider.FFZ)
                 if (result.badges != null) add(Provider.BADGES)
+                if (result.cheermotes != null) add(Provider.CHEERMOTES)
             }
             observeEmoteScopes(Provider.SEVEN_TV, result.sevenTv)
             observeEmoteScopes(Provider.BTTV, result.bttv)
@@ -192,12 +355,18 @@ class ChatCatalogRepository(
             val merged = current.copy(
                 twitch = result.twitch?.value ?: current.twitch,
                 sevenTv = result.sevenTv?.let { mergeEmoteScopes(current.sevenTv, it) } ?: current.sevenTv,
+                sevenTvChannelSetId = result.sevenTv?.let { update ->
+                    if (update.channel is ScopeUpdate.Success) update.channelSetId
+                    else current.sevenTvChannelSetId
+                } ?: current.sevenTvChannelSetId,
                 bttv = result.bttv?.let { mergeEmoteScopes(current.bttv, it) } ?: current.bttv,
                 ffz = result.ffz?.let { mergeEmoteScopes(current.ffz, it) } ?: current.ffz,
                 badges = result.badges?.value ?: current.badges,
+                cheermotes = result.cheermotes?.value ?: current.cheermotes,
             )
-            val changed = merged != current
-            val next = if (changed) merged.copy(revision = current.revision + 1) else current
+            val resolved = resolveSevenTvPendingChannelSet(merged)
+            val changed = resolved != current
+            val next = if (changed) resolved.copy(revision = current.revision + 1) else current
             val nextState = ChatCatalogState(
                 next,
                 hydrated = currentState.hydrated,
@@ -252,10 +421,13 @@ class ChatCatalogRepository(
         current: ScopedEmoteCatalog,
         update: ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>>,
     ): ScopedEmoteCatalog {
-        if (update.global == null && update.channel == null) return ScopedEmoteCatalog.fromEffective(update.value)
+        if (update.global == null && update.channel == null && update.personal == null) {
+            return ScopedEmoteCatalog.fromEffective(update.value).copy(pending = current.pending)
+        }
         var global = current.global
         var channel = current.channel
         var personal = current.personal
+        var pending = current.pending
         var legacyCombined = current.legacyCombined
         fun apply(scope: ChatEmoteScope, result: ScopeUpdate<Map<String, ChatCatalogEmote>>?) {
             when (result) {
@@ -263,7 +435,7 @@ class ChatCatalogRepository(
                     when (scope) {
                         ChatEmoteScope.GLOBAL -> global = result.value
                         ChatEmoteScope.CHANNEL -> channel = result.value
-                        ChatEmoteScope.PERSONAL -> personal = result.value
+                        ChatEmoteScope.PERSONAL -> Unit
                         ChatEmoteScope.LEGACY_COMBINED -> legacyCombined = result.value
                     }
                 }
@@ -272,10 +444,30 @@ class ChatCatalogRepository(
         }
         apply(ChatEmoteScope.GLOBAL, update.global)
         apply(ChatEmoteScope.CHANNEL, update.channel)
+        when (val result = update.personal) {
+            // Keep sender sets discovered through the live decoration stream; a later account
+            // entitlement refresh only knows about the logged-in viewer's sets.
+            is ScopeUpdate.Success -> personal = personal + result.value
+            ScopeUpdate.Failed, null -> Unit
+        }
         if (update.global is ScopeUpdate.Success && update.channel is ScopeUpdate.Success) {
             legacyCombined = emptyMap()
         }
-        return ScopedEmoteCatalog(global, channel, personal, legacyCombined)
+        return ScopedEmoteCatalog(global, channel, personal, pending, legacyCombined)
+    }
+
+    private fun resolveSevenTvPendingChannelSet(snapshot: ChatCatalogSnapshot): ChatCatalogSnapshot {
+        val channelSetId = snapshot.sevenTvChannelSetId?.takeIf { it.isNotBlank() } ?: return snapshot
+        val pending = snapshot.sevenTv.pending[channelSetId].orEmpty()
+        if (pending.isEmpty()) return snapshot
+        return snapshot.copy(
+            sevenTv = snapshot.sevenTv.copy(
+                channel = snapshot.sevenTv.channel + pending.mapValues { (_, emote) ->
+                    emote.copy(scope = ChatEmoteScope.CHANNEL)
+                },
+                pending = snapshot.sevenTv.pending - channelSetId,
+            ),
+        )
     }
 
     private fun observeEmoteScopes(
@@ -286,6 +478,7 @@ class ChatCatalogRepository(
         val observed = networkEmoteScopesObserved.getOrPut(provider) { mutableSetOf() }
         if (update.global is ScopeUpdate.Success) observed += ChatEmoteScope.GLOBAL
         if (update.channel is ScopeUpdate.Success) observed += ChatEmoteScope.CHANNEL
+        if (update.personal is ScopeUpdate.Success) observed += ChatEmoteScope.PERSONAL
         if (observed.isEmpty()) networkEmoteScopesObserved.remove(provider)
     }
 
@@ -307,6 +500,7 @@ class ChatCatalogRepository(
                 current.legacyCombined.isNotEmpty() -> current.legacyCombined
                 else -> cached.legacyCombined
             },
+            pending = current.pending,
         )
     }
 }

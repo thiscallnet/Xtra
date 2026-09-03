@@ -8,7 +8,9 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogState
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationUpdate
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ExpiringSingleFlightCache
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopeUpdate
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopedEmoteCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
@@ -18,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -33,6 +36,162 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 class ChatCatalogRepositoryTest {
+    @Test
+    fun singleFlightCacheKeepsDifferentProviderKeysParallelAndJoinsDuplicates() = runBlocking {
+        val cache = ExpiringSingleFlightCache<String>()
+        val firstStarted = CompletableDeferred<Unit>()
+        val secondStarted = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val calls = AtomicInteger()
+
+        val first = async(Dispatchers.Default) {
+            cache.get("seven-tv") {
+                calls.incrementAndGet()
+                firstStarted.complete(Unit)
+                release.await()
+                "seven-tv-value"
+            }
+        }
+        val second = async(Dispatchers.Default) {
+            cache.get("bttv") {
+                calls.incrementAndGet()
+                secondStarted.complete(Unit)
+                release.await()
+                "bttv-value"
+            }
+        }
+        withTimeout(1_000) {
+            firstStarted.await()
+            secondStarted.await()
+        }
+        assertEquals(2, calls.get())
+        release.complete(Unit)
+        assertEquals("seven-tv-value", first.await())
+        assertEquals("bttv-value", second.await())
+
+        val duplicateCalls = AtomicInteger()
+        val duplicateRelease = CompletableDeferred<Unit>()
+        val duplicateFirst = async(Dispatchers.Default) {
+            cache.get("ffz") {
+                duplicateCalls.incrementAndGet()
+                duplicateRelease.await()
+                "ffz-value"
+            }
+        }
+        val duplicateSecond = async(Dispatchers.Default) {
+            cache.get("ffz") {
+                duplicateCalls.incrementAndGet()
+                "unexpected"
+            }
+        }
+        withTimeout(1_000) {
+            while (duplicateCalls.get() < 1) delay(1)
+        }
+        assertEquals(1, duplicateCalls.get())
+        duplicateRelease.complete(Unit)
+        assertEquals("ffz-value", duplicateFirst.await())
+        assertEquals("ffz-value", duplicateSecond.await())
+    }
+
+    @Test
+    fun newlyObservedPersonalSetIsLoadedOnceAndAttachedToItsSetId() = runBlocking {
+        val calls = AtomicInteger()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val personal = ChatCatalogEmote(
+            name = "VIPWave",
+            asset = ChatAssetSpec(ChatAssetKey("vip"), 28, 28, 28),
+            provider = ChatAssetProvider.SEVEN_TV,
+            animated = false,
+            scope = ChatEmoteScope.PERSONAL,
+        )
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                ChatCatalogLoadResult(
+                    twitch = ChatCatalogProviderUpdate(emptyMap()),
+                    sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                    bttv = ChatCatalogProviderUpdate(emptyMap()),
+                    ffz = ChatCatalogProviderUpdate(emptyMap()),
+                    badges = ChatCatalogProviderUpdate(emptyMap()),
+                    cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                )
+            },
+            personalEmoteSetLoader = { setId ->
+                calls.incrementAndGet()
+                delay(50)
+                mapOf(personal.name to personal)
+            },
+        )
+
+        repository.applyDecorationUpdate(ChatDecorationUpdate.User("user", personalEmoteSetId = "set-a"))
+        repository.applyDecorationUpdate(ChatDecorationUpdate.User("another", personalEmoteSetId = "set-a"))
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTv.personal["set-a"].isNullOrEmpty()) delay(1)
+        }
+
+        assertEquals(1, calls.get())
+        assertEquals(personal, repository.state.value.snapshot.sevenTv.personal["set-a"]?.get("VIPWave"))
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun liveSevenTvSetUpdatesUseChannelIdentityAndKeepUnknownSetsIsolated() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                ChatCatalogLoadResult(
+                    twitch = ChatCatalogProviderUpdate(emptyMap()),
+                    sevenTv = ChatCatalogProviderUpdate(
+                        value = emptyMap(),
+                        global = ScopeUpdate.Success(emptyMap()),
+                        channel = ScopeUpdate.Success(emptyMap()),
+                        personal = ScopeUpdate.Success(emptyMap()),
+                        channelSetId = "channel-set",
+                    ),
+                    bttv = ChatCatalogProviderUpdate(emptyMap()),
+                    ffz = ChatCatalogProviderUpdate(emptyMap()),
+                    badges = ChatCatalogProviderUpdate(emptyMap()),
+                    cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                )
+            },
+        )
+        repository.refresh()
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTvChannelSetId != "channel-set") delay(1)
+        }
+
+        repository.applyDecorationUpdate(ChatDecorationUpdate.EmoteSet(
+            setId = "channel-set",
+            added = mapOf("ChannelLive" to emote("ChannelLive", ChatAssetProvider.SEVEN_TV)),
+        ))
+        assertEquals(ChatEmoteScope.CHANNEL, repository.state.value.snapshot.sevenTv.channel["ChannelLive"]?.scope)
+        assertTrue(repository.state.value.snapshot.sevenTv.pending.isEmpty())
+
+        repository.applyDecorationUpdate(ChatDecorationUpdate.User("user", personalEmoteSetId = "personal-set"))
+        repository.applyDecorationUpdate(ChatDecorationUpdate.EmoteSet(
+            setId = "personal-set",
+            added = mapOf("PersonalLive" to emote("PersonalLive", ChatAssetProvider.SEVEN_TV)),
+        ))
+        assertEquals(ChatEmoteScope.PERSONAL, repository.state.value.snapshot.sevenTv.personal["personal-set"]?.get("PersonalLive")?.scope)
+        assertTrue(repository.state.value.snapshot.sevenTv.channel["PersonalLive"] == null)
+
+        repository.applyDecorationUpdate(ChatDecorationUpdate.EmoteSet(
+            setId = "unseen-personal-set",
+            added = mapOf("PendingLive" to emote("PendingLive", ChatAssetProvider.SEVEN_TV)),
+        ))
+        assertTrue(repository.state.value.snapshot.sevenTv.channel["PendingLive"] == null)
+        assertTrue(repository.state.value.snapshot.sevenTv.pending["unseen-personal-set"]?.containsKey("PendingLive") == true)
+
+        repository.applyDecorationUpdate(ChatDecorationUpdate.User("other-user", personalEmoteSetId = "unseen-personal-set"))
+        assertEquals(ChatEmoteScope.PERSONAL, repository.state.value.snapshot.sevenTv.personal["unseen-personal-set"]?.get("PendingLive")?.scope)
+        assertTrue(repository.state.value.snapshot.sevenTv.pending["unseen-personal-set"].isNullOrEmpty())
+
+        repository.close()
+        scope.cancel()
+    }
+
     @Test
     fun thirdPartyFailureRecoveryIsPublishedWhenBadgesKeepFailing() = runBlocking {
         val attempts = AtomicInteger()
@@ -302,6 +461,7 @@ class ChatCatalogRepositoryTest {
                     sevenTv = ChatCatalogProviderUpdate(emptyMap()),
                     ffz = ChatCatalogProviderUpdate(emptyMap()),
                     badges = ChatCatalogProviderUpdate(emptyMap()),
+                    cheermotes = ChatCatalogProviderUpdate(emptyMap()),
                 )
             },
             cache = object : ChatCatalogCache {
@@ -572,6 +732,7 @@ class ChatCatalogRepositoryTest {
                         bttv = ChatCatalogProviderUpdate(emptyMap()),
                         ffz = ChatCatalogProviderUpdate(emptyMap()),
                         badges = ChatCatalogProviderUpdate(emptyMap()),
+                        cheermotes = ChatCatalogProviderUpdate(emptyMap()),
                     )
                 }
             },

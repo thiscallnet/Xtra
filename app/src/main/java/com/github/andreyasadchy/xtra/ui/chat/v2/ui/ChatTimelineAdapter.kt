@@ -17,12 +17,14 @@ class ChatTimelineAdapter(
     private val onMessageLongClick: ((ChatMessageId) -> Unit)? = null,
     private val onEmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
     private val onGifClick: ((ChatGifInteraction) -> Unit)? = null,
+    private val onMessageClick: ((ChatMessageId) -> Unit)? = null,
 ) : ListAdapter<ChatRowUiModel, ChatTimelineAdapter.Holder>(DIFF) {
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder = Holder(
         ChatMessageTextView(parent.context, assets).also {
             it.setMessageTextSizeSp(textSizeSp)
             it.setAnimateGifs(animateGifs)
             it.setInteractionCallbacks(onMessageLongClick, onEmoteClick, onGifClick)
+            it.setMessageClickCallback(onMessageClick)
             it.layoutParams = ViewGroup.LayoutParams(-1, -2)
         },
     )

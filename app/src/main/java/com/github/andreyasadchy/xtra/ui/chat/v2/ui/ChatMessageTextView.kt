@@ -3,18 +3,24 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.ui
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.drawable.Animatable
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextPaint
+import android.text.TextUtils
 import android.text.method.LinkMovementMethod
 import android.text.style.ClickableSpan
+import android.text.style.CharacterStyle
 import android.text.style.ForegroundColorSpan
 import android.text.style.ReplacementSpan
 import android.text.style.StyleSpan
+import android.text.util.Linkify
 import android.graphics.Typeface
 import android.view.Gravity
 import android.os.Handler
@@ -23,9 +29,11 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.widget.TextView
 import android.util.TypedValue
+import android.util.AttributeSet
 import androidx.core.content.ContextCompat
 import androidx.appcompat.widget.AppCompatTextView
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetState
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
@@ -36,10 +44,24 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
 import com.github.andreyasadchy.xtra.ui.view.CenteredImageSpan
 import kotlin.math.roundToInt
 
-open class ChatMessageTextView(context: Context, private val assets: ChatAssetRepository) : AppCompatTextView(context) {
+open class ChatMessageTextView private constructor(
+    context: Context,
+    private val assets: ChatAssetRepository,
+    attrs: AttributeSet?,
+) : AppCompatTextView(context, attrs) {
+    constructor(context: Context, assets: ChatAssetRepository) : this(context, assets, null)
+
+    constructor(context: Context, attrs: AttributeSet?) : this(
+        context,
+        (context.applicationContext as? XtraApp)?.xtraModule?.chatAssetRepository
+            ?: error("ChatMessageTextView requires an Xtra application context"),
+        attrs,
+    )
+
     private val initialPaddingStart = paddingStart
     private val initialPaddingTop = paddingTop
     private val initialPaddingEnd = paddingEnd
@@ -57,8 +79,12 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
     private var longPressRunnable: Runnable? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var onMessageLongClick: ((ChatMessageId) -> Unit)? = null
+    private var onMessageClick: ((ChatMessageId) -> Unit)? = null
     private var onEmoteClick: ((ChatEmoteInteraction) -> Unit)? = null
     private var onGifClick: ((ChatGifInteraction) -> Unit)? = null
+    private var boundRow: ChatRowUiModel? = null
+    private var bindingRow = false
+    private var touchMoved = false
 
     fun setInteractionCallbacks(
         onMessageLongClick: ((ChatMessageId) -> Unit)?,
@@ -68,6 +94,11 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
         this.onMessageLongClick = onMessageLongClick
         this.onEmoteClick = onEmoteClick
         this.onGifClick = onGifClick
+    }
+
+    fun setMessageClickCallback(callback: ((ChatMessageId) -> Unit)?) {
+        onMessageClick = callback
+        isClickable = onMessageClick != null
     }
 
     fun setMessageTextSizeSp(value: Float) {
@@ -87,6 +118,16 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
     }
 
     fun bind(row: ChatRowUiModel) {
+        boundRow = row
+        bindingRow = true
+        try {
+            bindRow(row)
+        } finally {
+            bindingRow = false
+        }
+    }
+
+    private fun bindRow(row: ChatRowUiModel) {
         boundMessageId = row.id
         longPressConsumed = false
         longPressRunnable?.let(mainHandler::removeCallbacks)
@@ -97,14 +138,20 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
         drawables.clear()
         drawableHandles.clear()
         keys = row.pieces.flatMap { piece ->
-            val spec = when (piece) {
-                is ChatPiece.Badge -> piece.asset
-                is ChatPiece.Emote -> piece.asset
-                is ChatPiece.Cheermote -> piece.asset
-                is ChatPiece.Gif -> piece.asset
-                else -> null
+            buildList {
+                val spec = when (piece) {
+                    is ChatPiece.Badge -> piece.asset
+                    is ChatPiece.RewardIcon -> piece.asset
+                    is ChatPiece.Emote -> piece.asset
+                    is ChatPiece.Cheermote -> piece.asset
+                    is ChatPiece.Gif -> piece.asset
+                    else -> null
+                }
+                spec?.let { addAll(it.allKeys()) }
+                if (piece is ChatPiece.Username) {
+                    piece.paint?.imageUrl?.takeIf { it.isNotBlank() }?.let { add(ChatAssetKey(it)) }
+                }
             }
-            spec?.let { it.allKeys() }.orEmpty()
         }.toSet()
         keys.forEach { assets.observe(it, invalidator) }
         when (row.backgroundStyle) {
@@ -112,20 +159,30 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
             ChatRowBackground.HIGHLIGHT -> setBackgroundResource(R.drawable.bg_chat_highlight)
             ChatRowBackground.FIRST_CHATTER -> setBackgroundResource(R.drawable.bg_chat_first_chatter)
             ChatRowBackground.FIRST_CHATTER_TINT -> setBackgroundColor(ContextCompat.getColor(context, R.color.chatMessageFirst))
+            ChatRowBackground.SUBSCRIPTION -> setBackgroundResource(R.drawable.bg_chat_subscription)
             ChatRowBackground.WATCH_STREAK -> setBackgroundResource(R.drawable.bg_chat_watch_streak)
             ChatRowBackground.REWARD -> setBackgroundColor(ContextCompat.getColor(context, R.color.chatMessageReward))
             ChatRowBackground.NOTICE -> setBackgroundColor(ContextCompat.getColor(context, R.color.chatMessageNotice))
         }
-        val extraStartPadding = if (row.backgroundStyle == ChatRowBackground.WATCH_STREAK) {
-            (30 * resources.displayMetrics.density).roundToInt()
-        } else {
-            0
+        val density = resources.displayMetrics.density
+        val extraStartPadding = when (row.backgroundStyle) {
+            ChatRowBackground.WATCH_STREAK -> (30 * density).roundToInt()
+            ChatRowBackground.FIRST_CHATTER,
+            ChatRowBackground.SUBSCRIPTION,
+            -> (6 * density).roundToInt()
+            else -> 0
+        }
+        val extraVerticalPadding = when (row.backgroundStyle) {
+            ChatRowBackground.FIRST_CHATTER,
+            ChatRowBackground.SUBSCRIPTION,
+            -> (4 * density).roundToInt()
+            else -> 0
         }
         setPaddingRelative(
             initialPaddingStart + extraStartPadding,
-            initialPaddingTop,
+            initialPaddingTop + extraVerticalPadding,
             initialPaddingEnd,
-            initialPaddingBottom,
+            initialPaddingBottom + extraVerticalPadding,
         )
         gravity = Gravity.CENTER_VERTICAL
         movementMethod = LinkMovementMethod.getInstance()
@@ -135,14 +192,17 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
         row.pieces.forEach { piece ->
             when (piece) {
                 is ChatPiece.Text -> appendStyled(output, piece.value, piece.color, piece.bold)
-                is ChatPiece.Username -> appendStyled(output, piece.value + ": ", piece.color, piece.bold)
+                is ChatPiece.Reply -> appendReply(output, piece, row.timestampText)
+                is ChatPiece.Username -> appendUsername(output, piece)
+                is ChatPiece.Source -> appendStyled(output, "[${piece.value}] ", piece.color)
                 is ChatPiece.Icon -> appendIcon(output, piece)
                 is ChatPiece.Mention -> appendStyled(output, piece.value, null)
-                is ChatPiece.Badge -> appendAsset(output, piece.asset, "badge")
+                is ChatPiece.Badge -> appendAsset(output, piece.asset, "badge", piece.interaction)
+                is ChatPiece.RewardIcon -> appendAsset(output, piece.asset, piece.fallback)
                 is ChatPiece.Emote -> appendAsset(output, piece.asset, piece.fallback, piece.interaction)
                 is ChatPiece.Gif -> appendAsset(output, piece.asset, piece.fallback, gifInteraction = piece.interaction)
                 is ChatPiece.Cheermote -> {
-                    appendAsset(output, piece.asset, piece.bits.toString())
+                    appendAsset(output, piece.asset, piece.bits.toString(), piece.interaction)
                     appendStyled(output, " ${piece.bits}", piece.color)
                 }
             }
@@ -156,9 +216,19 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
             )
         }
+        // URL spans must be added after all pieces are assembled so offsets remain correct
+        // around badges, emotes, GIFs, and timestamp text.
+        Linkify.addLinks(output, Linkify.WEB_URLS)
         if (row.isAction) output.setSpan(StyleSpan(android.graphics.Typeface.ITALIC), 0, output.length, 0)
         contentDescription = row.accessibilityText
         text = output
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w != oldw && !bindingRow && boundRow?.pieces?.any { it is ChatPiece.Reply } == true) {
+            boundRow?.let(::bind)
+        }
     }
 
     /**
@@ -183,6 +253,7 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 longPressConsumed = false
+                touchMoved = false
                 touchDownX = event.x
                 touchDownY = event.y
                 longPressRunnable?.let(mainHandler::removeCallbacks)
@@ -198,21 +269,33 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
                 if (kotlin.math.abs(event.x - touchDownX) > slop ||
                     kotlin.math.abs(event.y - touchDownY) > slop
                 ) {
+                    touchMoved = true
                     longPressRunnable?.let(mainHandler::removeCallbacks)
                     longPressRunnable = null
                 }
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                touchMoved = true
                 longPressRunnable?.let(mainHandler::removeCallbacks)
                 longPressRunnable = null
             }
 
             MotionEvent.ACTION_UP -> {
+                val messageId = boundMessageId
+                val shouldOpenProfile = messageId != null &&
+                    onMessageClick != null &&
+                    !touchMoved &&
+                    !longPressConsumed &&
+                    !hasClickableSpanAt(event)
                 longPressRunnable?.let(mainHandler::removeCallbacks)
                 longPressRunnable = null
                 if (longPressConsumed) {
                     longPressConsumed = false
+                    return true
+                }
+                if (shouldOpenProfile) {
+                    onMessageClick?.invoke(messageId)
                     return true
                 }
             }
@@ -235,6 +318,45 @@ open class ChatMessageTextView(context: Context, private val assets: ChatAssetRe
         output.append(value)
         if (color != null) output.setSpan(ForegroundColorSpan(color), start, output.length, 0)
         if (bold) output.setSpan(StyleSpan(Typeface.BOLD), start, output.length, 0)
+    }
+
+    private fun appendUsername(output: SpannableStringBuilder, piece: ChatPiece.Username) {
+        val start = output.length
+        appendStyled(output, piece.value + piece.separator, piece.color, piece.bold)
+        piece.paint?.let { paintSpec ->
+            output.setSpan(ChatNamePaintSpan(paintSpec, assets), start, start + piece.value.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+    }
+
+    private fun appendReply(output: SpannableStringBuilder, piece: ChatPiece.Reply, timestampText: String?) {
+        val availableWidth = if (width > 0) {
+            val lineStart = output.lastIndexOf('\n') + 1
+            val prefix = output.substring(lineStart)
+            val iconCorrection = (18 * resources.displayMetrics.density).roundToInt() - paint.measureText(".")
+            val timestampWidth = timestampText?.let { paint.measureText("$it ") } ?: 0f
+            (width - totalPaddingLeft - totalPaddingRight - timestampWidth - paint.measureText(prefix) - iconCorrection)
+                .coerceAtLeast(paint.measureText("…"))
+        } else {
+            Float.POSITIVE_INFINITY
+        }
+        val value = if (availableWidth.isFinite()) {
+            TextUtils.ellipsize(piece.value, paint, availableWidth, TextUtils.TruncateAt.END).toString()
+        } else {
+            piece.value
+        }
+        appendStyled(output, value, piece.color)
+    }
+
+    private fun hasClickableSpanAt(event: MotionEvent): Boolean {
+        val content = text as? Spanned ?: return false
+        val textLayout = layout ?: return false
+        if (content.isEmpty()) return false
+        val x = (event.x - totalPaddingLeft + scrollX).coerceAtLeast(0f)
+        val y = (event.y - totalPaddingTop + scrollY).coerceAtLeast(0f)
+        val line = textLayout.getLineForVertical(y.toInt())
+        val offset = textLayout.getOffsetForHorizontal(line, x)
+        val end = (offset + 1).coerceAtMost(content.length)
+        return content.getSpans(offset.coerceAtMost(content.length - 1), end, ClickableSpan::class.java).isNotEmpty()
     }
 
     private fun appendIcon(output: SpannableStringBuilder, piece: ChatPiece.Icon) {
@@ -375,6 +497,73 @@ private fun ChatAssetSpec.flatten(): List<ChatAssetSpec> = buildList {
 }
 
 private data class DrawableLayer(val spec: ChatAssetSpec, val drawable: Drawable)
+
+private class ChatNamePaintSpan(
+    private val paintSpec: ChatNamePaint,
+    private val assets: ChatAssetRepository,
+) : CharacterStyle() {
+    private var imageHandle: Any? = null
+    private var imageShader: Shader? = null
+
+    override fun updateDrawState(textPaint: TextPaint) {
+        textPaint.clearShadowLayer()
+        val imageUrl = paintSpec.imageUrl?.takeIf { it.isNotBlank() }
+        if (imageUrl != null) {
+            val handle = (assets.peek(ChatAssetKey(imageUrl)) as? ChatAssetState.Ready)?.image
+            if (handle !== imageHandle) {
+                imageHandle = handle
+                imageShader = (handle?.newDrawable() as? BitmapDrawable)?.bitmap?.let { bitmap ->
+                    android.graphics.BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+                }
+            }
+            imageShader?.let {
+                textPaint.shader = it
+                applyShadow(textPaint)
+                return
+            }
+        }
+        textPaint.shader = when {
+            paintSpec.colors.size >= 2 -> {
+                val shader = if (paintSpec.type == "RADIAL_GRADIENT") {
+                    android.graphics.RadialGradient(
+                        140f,
+                        14f,
+                        140f,
+                        paintSpec.colors.toIntArray(),
+                        paintSpec.colorPositions.takeIf { it.size == paintSpec.colors.size }?.toFloatArray(),
+                        if (paintSpec.repeat) Shader.TileMode.REPEAT else Shader.TileMode.CLAMP,
+                    )
+                } else {
+                    LinearGradient(
+                        0f,
+                        0f,
+                        280f,
+                        0f,
+                        paintSpec.colors.toIntArray(),
+                        paintSpec.colorPositions.takeIf { it.size == paintSpec.colors.size }?.toFloatArray(),
+                        if (paintSpec.repeat) Shader.TileMode.REPEAT else Shader.TileMode.CLAMP,
+                    ).also { value ->
+                        paintSpec.angle?.let { angle ->
+                            value.setLocalMatrix(android.graphics.Matrix().apply {
+                                setRotate((angle - 90).toFloat(), 140f, 14f)
+                            })
+                        }
+                    }
+                }
+                shader
+            }
+            else -> null
+        }
+        if (paintSpec.colors.size == 1) textPaint.color = paintSpec.colors.single()
+        applyShadow(textPaint)
+    }
+
+    private fun applyShadow(textPaint: TextPaint) {
+        paintSpec.shadows.lastOrNull()?.let { shadow ->
+            textPaint.setShadowLayer(shadow.radius, shadow.xOffset, shadow.yOffset, shadow.color)
+        }
+    }
+}
 
 private class ChatAssetSpan(
     private val spec: ChatAssetSpec,

@@ -3,5 +3,7 @@
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_clearmsg" android:title="@string/show_clearmsg" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_clearchat" android:title="@string/show_clearchat" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="0" android:entries="@array/chatFirstMsgEntries" android:entryValues="@array/miscValues" android:key="chat_firstmsg_visibility" android:summary="%s" android:title="@string/chat_firstmsg_visibility" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="tap" android:entries="@array/chatProfilePopoutGestureEntries" android:entryValues="@array/chatProfilePopoutGestureValues" android:key="chat_profile_popout_gesture" android:summary="%s" android:title="@string/chat_profile_popout_gesture" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="large" android:entries="@array/chatGifDisplayEntries" android:entryValues="@array/chatGifDisplayValues" android:key="chat_gif_display" android:summary="%s" android:title="@string/chat_gif_display" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_system_message_emotes" android:title="@string/show_system_message_emotes" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2
 
+import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatBadgeRef
@@ -8,6 +9,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReply
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
@@ -18,10 +20,15 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationRes
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatColorResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogBadge
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatUserDecoration
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopedEmoteCatalog
+import com.github.andreyasadchy.xtra.ui.chat.ChatGifDisplayMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,6 +49,23 @@ class ChatDomainPresentationTest {
     }
 
     @Test
+    fun gifDisplayModeCanBeCompactOrLinkOnly() {
+        val url = "https://cdn.example.test/gifs/a.gif"
+        val message = message(ChatSegment.Gif("gif-1", url, "party"))
+        val compact = ChatRowCompiler(gifDisplayMode = ChatGifDisplayMode.EMOTE)
+            .compile(message)
+        .pieces.filterIsInstance<ChatPiece.Gif>().single()
+        assertEquals(28, compact.asset.targetHeight)
+        assertTrue(ChatRowCompiler(gifDisplayMode = ChatGifDisplayMode.EMOTE)
+            .compile(message)
+            .pieces.none { it is ChatPiece.Text && it.value.contains('\n') })
+
+        val link = ChatRowCompiler(gifDisplayMode = ChatGifDisplayMode.LINK).compile(message)
+        assertTrue(link.pieces.none { it is ChatPiece.Gif })
+        assertTrue(link.pieces.filterIsInstance<ChatPiece.Text>().any { it.value == url })
+    }
+
+    @Test
     fun nativeTypeAndCompleteReplySurviveCompilation() {
         val reply = ChatReply(
             parentMessageId = ChatMessageId("parent"), parentMessageBody = "hello",
@@ -56,7 +80,7 @@ class ChatDomainPresentationTest {
         val row = ChatRowCompiler().compile(message)
         assertEquals(TwitchChatMessageType.GigantifiedEmote, row.twitchType)
         assertEquals(reply, row.reply)
-        assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value.contains("Replying to") })
+        assertTrue(row.pieces.filterIsInstance<ChatPiece.Reply>().any { it.value.contains("Replying to") })
     }
 
     @Test
@@ -81,6 +105,93 @@ class ChatDomainPresentationTest {
     }
 
     @Test
+    fun redemptionUsesRewardMetadataAndMatchesLegacyOrdering() {
+        val reward = ChatReward(
+            title = "Hydrate",
+            cost = 420,
+            imageUrl = "https://cdn.example.test/rewards/hydrate.png",
+        )
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Text("drink up")).copy(
+                rewardId = "reward",
+                user = ChatUser("user", "viewer", "Viewer", null),
+            ),
+            ChatCatalogSnapshot(0, channelPointRewards = mapOf("reward" to reward)),
+        )
+
+        val rewardText = row.pieces.filterIsInstance<ChatPiece.Text>().joinToString("") { it.value }
+        assertTrue(rewardText.contains("Redeemed Hydrate"))
+        assertTrue(rewardText.contains("420"))
+        assertEquals(reward.imageUrl, row.pieces.filterIsInstance<ChatPiece.RewardIcon>().single().asset.key.value)
+        assertTrue(row.pieces.indexOfFirst { it is ChatPiece.Text && it.value.contains("Redeemed Hydrate") } < row.pieces.indexOfFirst { it is ChatPiece.Username })
+    }
+
+    @Test
+    fun redemptionWithoutUserTextStillShowsRewardMetadata() {
+        val reward = ChatReward(
+            title = "Sound Alert",
+            cost = 1_000,
+            imageUrl = "https://cdn.example.test/rewards/sound.png",
+        )
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Text("")).copy(
+                segments = emptyList(),
+                rewardId = "reward",
+                user = ChatUser("user", "viewer", "Viewer", null),
+            ),
+            ChatCatalogSnapshot(0, channelPointRewards = mapOf("reward" to reward)),
+        )
+
+        val text = row.pieces.filterIsInstance<ChatPiece.Text>().joinToString("") { it.value }
+        assertEquals("Viewer", row.pieces.filterIsInstance<ChatPiece.Username>().single().value)
+        assertTrue(text.contains("redeemed Sound Alert"))
+        assertTrue(text.filter(Char::isDigit).contains("1000"))
+        assertEquals(reward.imageUrl, row.pieces.filterIsInstance<ChatPiece.RewardIcon>().single().asset.key.value)
+    }
+
+    @Test
+    fun translationIsRenderedAsASeparateMutedLine() {
+        val row = ChatRowCompiler(
+            translation = { "Translated: hello" },
+        ).compile(message(ChatSegment.Text("hello")))
+
+        assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value == "\nTranslated: hello" })
+    }
+
+    @Test
+    fun subscriptionNoticeUsesTheSpaciousRailTreatment() {
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Text("They've been subscribed for 6 months!")).copy(
+                kind = ChatMessageKind.NOTICE,
+                noticeType = "resub",
+                systemText = "Daaaaale subscribed with Prime Gaming.",
+                subscriptionPlan = "Prime",
+            ),
+        )
+
+        assertEquals(ChatRowBackground.SUBSCRIPTION, row.backgroundStyle)
+        assertTrue(row.pieces.any { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_subscription })
+        assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value.contains("Daaaaale") && it.bold })
+        assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value.contains("Prime Gaming") && it.color != null })
+    }
+
+    @Test
+    fun paidSubscriptionNoticeDoesNotUseThePrimeRail() {
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Text("They've been subscribed for 6 months!")).copy(
+                kind = ChatMessageKind.NOTICE,
+                noticeType = "resub",
+                subscriptionPlan = "1000",
+                systemText = "Viewer subscribed with Tier 1.",
+            ),
+        )
+
+        assertEquals(ChatRowBackground.NOTICE, row.backgroundStyle)
+        assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value.contains("Viewer subscribed") })
+        assertTrue(row.pieces.none { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_subscription })
+    }
+
+    @Test
     fun sharedChatAndWatchStreakRemainVisibleWhenSystemBodyIsUsed() {
         val message = message(ChatSegment.Text("hello")).copy(
             kind = ChatMessageKind.NOTICE,
@@ -102,7 +213,7 @@ class ChatDomainPresentationTest {
         assertTrue(text.contains("Watch Streak Reached"))
         assertTrue(text.contains("7-stream streak"))
         assertTrue(text.contains("+700"))
-        assertTrue(text.contains("Shared chat from Source"))
+        assertTrue(row.pieces.any { it is ChatPiece.Source && it.value == "Source" })
         assertEquals(ChatRowBackground.WATCH_STREAK, row.backgroundStyle)
     }
 
@@ -111,6 +222,7 @@ class ChatDomainPresentationTest {
         val row = ChatRowCompiler().compile(message(ChatSegment.Cheermote(base, "Cheer100", 100, 0xffff0000.toInt())))
         val cheer = row.pieces.filterIsInstance<ChatPiece.Cheermote>().single()
         assertEquals(100, cheer.bits)
+        assertEquals(ChatAssetProvider.TWITCH, cheer.interaction?.provider)
         assertTrue(row.accessibilityText.contains("100 Bits"))
         assertTrue(!row.accessibilityText.contains("Cheer100 100"))
     }
@@ -171,6 +283,69 @@ class ChatDomainPresentationTest {
             ),
             interaction,
         )
+    }
+
+    @Test
+    fun globalBttvEmoteResolvesFromTheGlobalCatalog() {
+        val definition = emote("haHAA", ChatAssetProvider.BTTV).copy(
+            id = "555981336ba1901877765555",
+            scope = ChatEmoteScope.GLOBAL,
+        )
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Text("hello haHAA")),
+            ChatCatalogSnapshot(
+                1,
+                bttv = ScopedEmoteCatalog(global = mapOf("haHAA" to definition)),
+            ),
+        )
+
+        val piece = row.pieces.filterIsInstance<ChatPiece.Emote>().single()
+        assertEquals("haHAA", piece.fallback)
+        assertEquals(ChatAssetProvider.BTTV, piece.interaction?.provider)
+        assertEquals(ChatEmoteScope.GLOBAL, piece.interaction?.scope)
+    }
+
+    @Test
+    fun personalEmotesRespectTheVisibilityPreference() {
+        val personal = emote("VIPWave", ChatAssetProvider.SEVEN_TV).copy(scope = ChatEmoteScope.PERSONAL)
+        val message = message(ChatSegment.Text("VIPWave")).copy(
+            user = ChatUser("sender", "sender", "Sender", null),
+        )
+        val catalog = ChatCatalogSnapshot(
+            1,
+            sevenTv = ScopedEmoteCatalog(personal = mapOf("set-a" to mapOf("VIPWave" to personal))),
+            userDecorations = mapOf("sender" to ChatUserDecoration(personalEmoteSetId = "set-a")),
+        )
+
+        assertTrue(ChatRowCompiler().compile(message, catalog).pieces.any { it is ChatPiece.Emote })
+        assertTrue(ChatRowCompiler(showPersonalEmotes = false).compile(message, catalog).pieces.none { it is ChatPiece.Emote })
+        assertTrue(ChatRowCompiler().compile(message.copy(user = ChatUser("other", "other", "Other", null)), catalog).pieces.none { it is ChatPiece.Emote })
+    }
+
+    @Test
+    fun userPaintAndSevenTvBadgeAreIncludedInV2Presentation() {
+        val badge = ChatCatalogBadge(
+            name = "badge",
+            asset = base,
+            provider = ChatAssetProvider.SEVEN_TV,
+            setId = "badge",
+            versionId = "1",
+        )
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Text("hello")).copy(user = ChatUser("user", "login", "Viewer", null)),
+            ChatCatalogSnapshot(
+                1,
+                userDecorations = mapOf("user" to ChatUserDecoration(paintId = "paint", badgeId = "badge")),
+                namePaints = mapOf("paint" to ChatNamePaint(colors = listOf(0xffff00ff.toInt(), 0xff9146ff.toInt()))),
+                sevenTvBadges = mapOf("badge" to badge),
+            ),
+        )
+
+        assertEquals(
+            listOf(0xffff00ff.toInt(), 0xff9146ff.toInt()),
+            row.pieces.filterIsInstance<ChatPiece.Username>().single().paint?.colors,
+        )
+        assertEquals(ChatAssetProvider.SEVEN_TV, row.pieces.filterIsInstance<ChatPiece.Badge>().single().interaction?.provider)
     }
 
     @Test
@@ -273,6 +448,40 @@ class ChatDomainPresentationTest {
         val piece = row.pieces.filterIsInstance<ChatPiece.Badge>().single()
         assertEquals("twitch-badge:subscriber:12", piece.asset.key.value)
         assertEquals(18, piece.asset.targetHeight)
+        assertEquals(ChatAssetProvider.TWITCH, piece.interaction?.provider)
+    }
+
+    @Test
+    fun usernameDisplayModeAndRandomFallbackRemainConfigurable() {
+        val message = message(ChatSegment.Text("hello")).copy(
+            user = ChatUser("user", "login", "Display", null),
+        )
+        val display = ChatRowCompiler(
+            colors = ChatColorResolver(randomFallback = true),
+            nameDisplay = "1",
+        ).compile(message)
+        val login = ChatRowCompiler(nameDisplay = "2").compile(message)
+        assertTrue(display.pieces.filterIsInstance<ChatPiece.Username>().single().value == "Display")
+        assertTrue(login.pieces.filterIsInstance<ChatPiece.Username>().single().value == "login")
+        assertTrue(ChatColorResolver(randomFallback = true).resolve(null, "user") != 0xFF919191.toInt())
+    }
+
+    @Test
+    fun presentationResolverCachesUnchangedRows() {
+        val resolver = ChatPresentationResolver()
+        val message = message(ChatSegment.Text("hello"))
+        val first = resolver.resolve(message, ChatCatalogSnapshot(1))
+        val second = resolver.resolve(message, ChatCatalogSnapshot(1))
+        assertSame(first, second)
+    }
+
+    @Test
+    fun presentationOnlyRevisionRecompilesAChangedRow() {
+        val resolver = ChatPresentationResolver(ChatRowCompiler(translation = { "initial" }))
+        val message = message(ChatSegment.Text("hello"))
+        val first = resolver.resolve(message, ChatCatalogSnapshot(1), presentationRevision = 1L)
+        val second = resolver.resolve(message, ChatCatalogSnapshot(1), presentationRevision = 2L)
+        assertTrue(first !== second)
     }
 
     @Test
