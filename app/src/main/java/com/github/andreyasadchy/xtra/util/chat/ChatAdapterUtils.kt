@@ -366,7 +366,7 @@ object ChatAdapterUtils {
                 }
                 if (chatMessage.systemMsg != null) {
                     if (chatMessage.isSubscriptionNotice()) {
-                        appendSpecialIcon(builder, context, R.drawable.ic_chat_subscription, getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme))
+                        appendSpecialIcon(builder, context, chatMessage.subscriptionIcon(), getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme))
                         builder.append(' ')
                         builderIndex = builder.length
                     }
@@ -375,8 +375,10 @@ object ChatAdapterUtils {
                         appendSubscriptionSystemMessage(
                             builder,
                             chatMessage.systemMsg,
-                            getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme),
                             getSavedColor("#C4BEC9", savedColors, useReadableColors, isLightTheme),
+                            chatMessage.color?.let { getSavedColor(it, savedColors, useReadableColors, isLightTheme) }
+                                ?: getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme),
+                            chatMessage.userName ?: chatMessage.userLogin,
                         )
                     } else {
                         builder.append(chatMessage.systemMsg)
@@ -459,7 +461,7 @@ object ChatAdapterUtils {
                     builderIndex = builder.length
                 } else if (chatMessage.systemMsg != null) {
                     if (chatMessage.isSubscriptionNotice()) {
-                        appendSpecialIcon(builder, context, R.drawable.ic_chat_subscription, getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme))
+                        appendSpecialIcon(builder, context, chatMessage.subscriptionIcon(), getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme))
                         builder.append(' ')
                         builderIndex = builder.length
                     }
@@ -468,8 +470,10 @@ object ChatAdapterUtils {
                         appendSubscriptionSystemMessage(
                             builder,
                             chatMessage.systemMsg,
-                            getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme),
                             getSavedColor("#C4BEC9", savedColors, useReadableColors, isLightTheme),
+                            chatMessage.color?.let { getSavedColor(it, savedColors, useReadableColors, isLightTheme) }
+                                ?: getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme),
+                            chatMessage.userName ?: chatMessage.userLogin,
                         )
                     } else {
                         builder.append(chatMessage.systemMsg)
@@ -1811,7 +1815,22 @@ internal fun ChatMessage.isSubscriptionNotice(): Boolean = effectiveNoticeId()?.
     "shared_chat_resub",
     "shared_chat_sub_gift",
     "shared_chat_community_sub_gift",
+    "pay_it_forward",
+    "shared_chat_gift_paid_upgrade",
+    "shared_chat_prime_paid_upgrade",
+    "shared_chat_pay_it_forward",
 )
+
+internal fun ChatMessage.isPrimeSubscriptionNotice(): Boolean = isSubscriptionNotice() && (
+    isPrimeSubscription == true ||
+        subscriptionPlan?.contains("prime", ignoreCase = true) == true
+    )
+
+internal fun ChatMessage.subscriptionIcon(): Int = if (isPrimeSubscriptionNotice()) {
+    R.drawable.ic_chat_subscription
+} else {
+    R.drawable.ic_chat_subscription_gift
+}
 
 internal fun ChatMessage.displayName(nameDisplay: String?): String? = when {
     userName.isNullOrBlank() -> userLogin
@@ -1857,13 +1876,19 @@ private fun appendSpecialText(
 private fun appendSubscriptionSystemMessage(
     builder: SpannableStringBuilder,
     message: String,
-    headingColor: Int,
     mutedColor: Int,
+    userColor: Int,
+    userName: String?,
 ) {
-    val nameEnd = message.indexOf(' ').takeIf { it > 0 } ?: message.length
-    appendSpecialText(builder, message.substring(0, nameEnd), headingColor, bold = true)
-    if (nameEnd < message.length) {
+    val actor = userName ?: message.substringBefore(' ').takeIf { !it.equals("An", ignoreCase = true) }
+    val nameEnd = actor
+        ?.takeIf { message.startsWith(it, ignoreCase = true) }
+        ?.length
+    if (nameEnd != null) {
+        appendSpecialText(builder, message.substring(0, nameEnd), userColor, bold = true)
         appendSpecialText(builder, message.substring(nameEnd), mutedColor)
+    } else {
+        appendSpecialText(builder, message, mutedColor)
     }
 }
 

@@ -176,10 +176,14 @@ object TwitchChatEventParser {
         val rawType = event.optString("message_type").takeIf { it.isNotBlank() } ?: "text"
         val type = parseMessageType(rawType)
         val noticeType = event.optString("notice_type").takeIf { it.isNotBlank() }
+        val subscription = event.optJSONObject("sub")
+            ?: event.optJSONObject("resub")
+            ?: event.optJSONObject("shared_chat_sub")
+            ?: event.optJSONObject("shared_chat_resub")
         val subscriptionPlan = event.optString("sub_tier").takeIf { it.isNotBlank() }
-            ?: event.optJSONObject("sub")?.optString("sub_tier")?.takeIf { it.isNotBlank() }
+            ?: subscription?.optString("sub_tier")?.takeIf { it.isNotBlank() }
         val isPrimeSubscription = event.optBooleanOrNull("is_prime")
-            ?: event.optJSONObject("sub")?.optBooleanOrNull("is_prime")
+            ?: subscription?.optBooleanOrNull("is_prime")
         val fullText = segments.joinToString(separator = "") { segment ->
             when (segment) {
                 is ChatSegment.Text -> segment.text

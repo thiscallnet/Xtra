@@ -28,6 +28,8 @@ class ChatMessage(
     var translatedMessage: String? = null,
     var translationFailed: Boolean = false,
     var messageLanguage: String? = null,
+    val subscriptionPlan: String? = null,
+    val isPrimeSubscription: Boolean? = null,
 ) {
     companion object {
         const val SYSTEM_MESSAGE = 0

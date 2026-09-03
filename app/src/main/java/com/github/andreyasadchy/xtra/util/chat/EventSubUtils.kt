@@ -78,6 +78,14 @@ object EventSubUtils {
         val messageText = if (messageObj?.isNull("text") == false) messageObj.optString("text").takeIf { it.isNotBlank() } else null
         val systemMsg = if (!json.isNull("system_message")) json.optString("system_message").takeIf { it.isNotBlank() } else null
         val noticeType = json.optString("notice_type")
+        val subscription = json.optJSONObject("sub")
+            ?: json.optJSONObject("resub")
+            ?: json.optJSONObject("shared_chat_sub")
+            ?: json.optJSONObject("shared_chat_resub")
+        val subscriptionPlan = subscription?.optString("sub_tier")?.takeIf { it.isNotBlank() }
+        val isPrimeSubscription = subscription
+            ?.takeIf { !it.isNull("is_prime") }
+            ?.optBoolean("is_prime")
         val watchStreak = json.optJSONObject("watch_streak")
         val watchStreakCount = if (noticeType == "watch_streak") {
             watchStreak?.optInt("streak_count")?.takeIf { it > 0 }
@@ -139,6 +147,8 @@ object EventSubUtils {
                 timestamp = timestamp?.let { Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } },
                 watchStreakCount = watchStreakCount,
                 watchStreakPoints = watchStreakPoints,
+                subscriptionPlan = subscriptionPlan,
+                isPrimeSubscription = isPrimeSubscription,
                 fullMsg = json.toString()
             )
         } else {
@@ -147,11 +157,14 @@ object EventSubUtils {
                 userId = if (!json.isNull("chatter_user_id")) json.optString("chatter_user_id").takeIf { it.isNotBlank() } else null,
                 userLogin = if (!json.isNull("chatter_user_login")) json.optString("chatter_user_login").takeIf { it.isNotBlank() } else null,
                 userName = if (!json.isNull("chatter_user_name")) json.optString("chatter_user_name").takeIf { it.isNotBlank() } else null,
+                color = if (!json.isNull("color")) json.optString("color").takeIf { it.isNotBlank() } else null,
                 systemMsg = systemMsg,
                 timestamp = timestamp?.let { Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } },
                 msgId = noticeType.takeIf { it.isNotBlank() },
                 watchStreakCount = watchStreakCount,
                 watchStreakPoints = watchStreakPoints,
+                subscriptionPlan = subscriptionPlan,
+                isPrimeSubscription = isPrimeSubscription,
                 fullMsg = json.toString()
             )
         }

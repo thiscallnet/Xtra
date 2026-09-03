@@ -77,6 +77,51 @@ class SpecialChatMessageParsingTest {
     }
 
     @Test
+    fun eventSubSystemOnlySubscriptionKeepsChatterColor() {
+        val message = EventSubUtils.parseUserNotice(
+            JSONObject(
+                """
+                {
+                  "chatter_user_id": "gifter-id",
+                  "chatter_user_login": "renagade45",
+                  "chatter_user_name": "renagade45",
+                  "color": "#9147ff",
+                  "notice_type": "sub_gift",
+                  "system_message": "renagade45 gifted a Tier 1 Sub to posty's community!",
+                  "message": {"text": "", "fragments": []}
+                }
+                """.trimIndent(),
+            ),
+            null,
+        )
+
+        assertEquals("#9147ff", message.color)
+        assertEquals("sub_gift", message.msgId)
+    }
+
+    @Test
+    fun legacyEventSubReadsPrimeMetadataFromSharedChatSubscriptionObjects() {
+        listOf("resub", "shared_chat_sub", "shared_chat_resub").forEach { objectName ->
+            val message = EventSubUtils.parseUserNotice(
+                JSONObject(
+                    """
+                    {
+                      "notice_type": "$objectName",
+                      "$objectName": {"sub_tier": "1000", "is_prime": true},
+                      "system_message": "Viewer subscribed with Prime Gaming.",
+                      "message": {"text": "", "fragments": []}
+                    }
+                    """.trimIndent(),
+                ),
+                null,
+            )
+
+            assertEquals("1000", message.subscriptionPlan)
+            assertTrue(message.isPrimeSubscription == true)
+        }
+    }
+
+    @Test
     fun sharedChatSubscriptionUsesOriginalNoticeId() {
         val message = ChatUtils.parseChatMessage(
             ChatUtils.parseIRCMessage(
