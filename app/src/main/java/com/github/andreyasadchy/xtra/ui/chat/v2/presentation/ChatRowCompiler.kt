@@ -199,7 +199,11 @@ class ChatRowCompiler(
             }
             if (message.twitchType == TwitchChatMessageType.Highlighted) {
                 val headingColor = 0xFFE8E4EC.toInt()
-                val highlightTitle = reward?.title?.takeIf { it.isNotBlank() } ?: labels.highlightTitle
+                // The displayed highlight title is always the localized
+                // presentation label. The catalog only provides the configured
+                // cost/image metadata, whose built-in titles are hardcoded
+                // English and must not override the label.
+                val highlightTitle = labels.highlightTitle
                 val heading = labels.highlightRedeemed(highlightTitle)
                 val titleStart = heading.indexOf(highlightTitle).coerceAtLeast(0)
                 add(ChatPiece.Text(heading.substring(0, titleStart), color = headingColor))

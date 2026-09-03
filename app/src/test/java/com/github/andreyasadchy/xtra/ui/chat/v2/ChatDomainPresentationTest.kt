@@ -176,6 +176,35 @@ class ChatDomainPresentationTest {
     }
 
     @Test
+    fun highlightedRedemptionPrefersLocalizedTitleOverCatalogTitle() {
+        val row = ChatRowCompiler(
+            labels = com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLabels(
+                highlightTitle = "Zvýrazniť moju správu",
+                highlightRedeemed = { "Uplatnené: $it" },
+            ),
+        ).compile(
+            message(ChatSegment.Text("Lock them up!")).copy(
+                user = ChatUser("user", "viewer", "Viewer", null),
+                rewardId = null,
+                twitchType = TwitchChatMessageType.Highlighted,
+            ),
+            ChatCatalogSnapshot(
+                0,
+                automaticChannelPointRewards = mapOf(
+                    com.github.andreyasadchy.xtra.ui.chat.v2.domain.HIGHLIGHTED_MESSAGE_REWARD_TYPE to ChatReward("Highlight My Message", 2_000, null),
+                ),
+            ),
+        )
+
+        val text = row.pieces.filterIsInstance<ChatPiece.Text>().joinToString("") { it.value }
+        assertTrue(row.pieces.any { it is ChatPiece.Text && it.value == "Zvýrazniť moju správu" && it.bold })
+        assertTrue(row.pieces.none { it is ChatPiece.Text && it.value == "Highlight My Message" })
+        assertTrue(row.pieces.any { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_channel_points })
+        assertTrue(text.filter(Char::isDigit).contains("2000"))
+        assertEquals(ChatRowBackground.HIGHLIGHT, row.backgroundStyle)
+    }
+
+    @Test
     fun translationIsRenderedAsASeparateMutedLine() {
         val row = ChatRowCompiler(
             translation = { "Translated: hello" },
