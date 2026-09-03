@@ -65,6 +65,10 @@ class EmotesAdapter(
      */
     fun submitList(newItems: List<Emote>) {
         if (reorderable) {
+            // The favorites tab rebinds every item on notifyDataSetChanged,
+            // which reloads all visible images. Skip redundant submissions
+            // from coincident flows so the grid does not flicker.
+            if (items == newItems) return
             items.clear()
             items.addAll(newItems)
             notifyDataSetChanged()
@@ -97,7 +101,10 @@ class EmotesAdapter(
     fun setFavoriteKeys(keys: Set<FavoriteEmoteKey>) {
         if (favoriteKeys != keys) {
             favoriteKeys = keys
-            if (itemCount > 0) {
+            // The reorderable favorites grid does not render anything from
+            // these keys (only the long-press label of other tabs does), so
+            // skip the full rebind that would reload every visible image.
+            if (!reorderable && itemCount > 0) {
                 notifyItemRangeChanged(0, itemCount)
             }
         }
@@ -179,17 +186,23 @@ class EmotesAdapter(
                         item.name,
                     )
                     emote.isFocusable = true
-                    if (imageLibrary == "0" || (imageLibrary == "1" && !item.format.equals("webp", true))) {
+                    val imageUrl = when (emoteQuality) {
+                        "4" -> item.url4x ?: item.url3x ?: item.url2x ?: item.url1x
+                        "3" -> item.url3x ?: item.url2x ?: item.url1x
+                        "2" -> item.url2x ?: item.url1x
+                        else -> item.url1x
+                    }
+                    // Rebinds (scroll, list resubmission) must not reload an
+                    // image that is already displayed: the crossfade would
+                    // blink even when fading from the image onto itself.
+                    val alreadyLoaded = emote.getTag(R.id.emote_image_url_key) == imageUrl && emote.drawable != null
+                    if (alreadyLoaded) {
+                        // Keep the current drawable; fall through to listeners.
+                    } else if (imageLibrary == "0" || (imageLibrary == "1" && !item.format.equals("webp", true))) {
+                        emote.setTag(R.id.emote_image_url_key, imageUrl)
                         fragment.requireContext().imageLoader.enqueue(
                             ImageRequest.Builder(fragment.requireContext()).apply {
-                                data(
-                                    when (emoteQuality) {
-                                        "4" -> item.url4x ?: item.url3x ?: item.url2x ?: item.url1x
-                                        "3" -> item.url3x ?: item.url2x ?: item.url1x
-                                        "2" -> item.url2x ?: item.url1x
-                                        else -> item.url1x
-                                    }
-                                )
+                                data(imageUrl)
                                 if (item.thirdParty) {
                                     httpHeaders(NetworkHeaders.Builder().apply {
                                         add("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
@@ -200,14 +213,10 @@ class EmotesAdapter(
                             }.build()
                         )
                     } else {
+                        emote.setTag(R.id.emote_image_url_key, imageUrl)
                         Glide.with(fragment)
                             .load(
-                                when (emoteQuality) {
-                                    "4" -> item.url4x ?: item.url3x ?: item.url2x ?: item.url1x
-                                    "3" -> item.url3x ?: item.url2x ?: item.url1x
-                                    "2" -> item.url2x ?: item.url1x
-                                    else -> item.url1x
-                                }.let {
+                                imageUrl.let {
                                     if (item.thirdParty) {
                                         GlideUrl(it) { mapOf("User-Agent" to "Xtra/" + BuildConfig.VERSION_NAME) }
                                     } else it

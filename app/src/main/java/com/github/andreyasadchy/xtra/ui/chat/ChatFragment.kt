@@ -2626,6 +2626,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 pendingChatSubmission = PendingChatSubmission(text = text, replyId = replyId)
                 composerSubmissionInProgress = true
                 editText.isEnabled = false
+                // Clear immediately so the message does not linger in the box
+                // while the send completes. Failures restore it from the
+                // pending submission in handleChatSendResult.
+                editText.text.clear()
                 viewModel.send(
                     message = text,
                     replyId = replyId,
