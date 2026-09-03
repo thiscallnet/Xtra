@@ -817,6 +817,7 @@ class ChatAdapter(
         prewarmJob = null
         recyclerView.removeCallbacks(prewarmRunnable)
         prewarmPosted = false
+        clearClipPreviewObservers()
         visibleRenderQueue.close()
         prewarmRenderQueue.close()
         renderSignal.close()
@@ -1602,17 +1603,44 @@ class ChatAdapter(
         (fragment.context?.applicationContext as? XtraApp)?.xtraModule?.chatClipPreviewRepository
 
     /** One shared observer per clip slug; loaded metadata re-renders every row linking it. */
-    private val observedClipSlugs = HashSet<String>()
+    private val clipPreviewObservers = HashMap<String, () -> Unit>()
 
     private fun ensureClipSlugObserved(slug: String) {
         val repository = clipPreviewRepository() ?: return
-        synchronized(observedClipSlugs) {
-            if (!observedClipSlugs.add(slug)) return
+        val listener: () -> Unit = { onClipSlugLoaded(slug) }
+        val registered = synchronized(clipPreviewObservers) {
+            if (clipPreviewObservers.containsKey(slug)) {
+                false
+            } else {
+                clipPreviewObservers[slug] = listener
+                true
+            }
         }
-        repository.observe(slug) {
-            if (repository.peek(slug) == null) return@observe
-            mainHandler.post { refreshClipPreviewRenders(slug) }
+        if (registered) repository.observe(slug, listener)
+    }
+
+    private fun onClipSlugLoaded(slug: String) {
+        // One-shot: the shared listener is done whether the load succeeded or not.
+        // A failed load stays retryable because the next ensureClipSlugObserved()
+        // registers a fresh listener, which the repository loads again.
+        removeClipSlugObserver(slug)
+        if (clipPreviewRepository()?.peek(slug) == null) return
+        mainHandler.post { refreshClipPreviewRenders(slug) }
+    }
+
+    private fun removeClipSlugObserver(slug: String) {
+        val listener = synchronized(clipPreviewObservers) {
+            clipPreviewObservers.remove(slug)
+        } ?: return
+        clipPreviewRepository()?.removeObserver(slug, listener)
+    }
+
+    private fun clearClipPreviewObservers() {
+        val repository = clipPreviewRepository()
+        val entries = synchronized(clipPreviewObservers) {
+            clipPreviewObservers.entries.toList().also { clipPreviewObservers.clear() }
         }
+        entries.forEach { (entrySlug, listener) -> repository?.removeObserver(entrySlug, listener) }
     }
 
     private fun refreshClipPreviewRenders(slug: String) {

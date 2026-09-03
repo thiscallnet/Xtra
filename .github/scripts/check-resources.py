@@ -152,6 +152,10 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "third_party_emotes_empty",
     "third_party_emotes_error",
     "user_card_subscribed",
+    # Chat clip unfurls ship with the default English resources until their
+    # translations are reviewed by native speakers.
+    "chat_clip_playing",
+    "chat_clip_clipped_by",
 }
 
 
