@@ -6,6 +6,10 @@ query Clip($slug: ID!) {
             login
             profileImageURL(width: 300)
         }
+        creator {
+            displayName
+            login
+        }
         createdAt
         durationSeconds
         game {
