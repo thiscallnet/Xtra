@@ -17,6 +17,11 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
 import com.github.andreyasadchy.xtra.ui.chat.ChatGifDisplayMode
 import java.text.NumberFormat
 
+private val TWITCH_CLIP_LINK = Regex(
+    "(?i)(https?://)?(?:www\\.)?twitch\\.tv/(?:[^/\\s]+/)?clip/([A-Za-z0-9_-]+)|" +
+        "(?i)(https?://)?clips\\.twitch\\.tv/([A-Za-z0-9_-]+)",
+)
+
 data class ChatPresentationLabels(
     val firstChatter: String = "First Time Chatter",
     val redeemed: (String) -> String = { "Redeemed $it" },
@@ -86,6 +91,7 @@ class ChatRowCompiler(
         } else {
             resolveSegments(message.segments, catalog, personalEmoteSetId = messagePersonalEmoteSetId(message, catalog))
         }
+        val clipPreviews = extractClipPreviews(message)
         val isFirstChatter = (message.isFirst || message.twitchType == TwitchChatMessageType.UserIntro) &&
             firstMessageVisibility == 0
         val isRewardOnly = message.rewardId != null &&
@@ -312,6 +318,7 @@ class ChatRowCompiler(
             source = message.source,
             isAction = message.kind == com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind.ACTION,
             twitchType = message.twitchType,
+            clipPreviews = clipPreviews,
             accessibilityText = buildString {
                 message.user?.takeIf { noticeBody == null || hasSemanticBody }?.let { user ->
                     user.displayName(nameDisplay)?.let { append(it).append(": ") }
@@ -412,6 +419,26 @@ class ChatRowCompiler(
     }
 
     private fun colorToHex(color: Int): String = "#%06X".format(color and 0xFFFFFF)
+
+    private fun extractClipPreviews(message: ChatMessage): List<com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink> {
+        val body = message.rawText ?: message.segments.joinToString("") { segment ->
+            when (segment) {
+                is ChatSegment.Text -> segment.text
+                is ChatSegment.Mention -> segment.text
+                is ChatSegment.Emote -> segment.fallbackText
+                is ChatSegment.Gif -> segment.fallbackText
+                is ChatSegment.Cheermote -> segment.text
+            }
+        }
+        return TWITCH_CLIP_LINK.findAll(body).mapNotNull { match ->
+            val slug = match.groups[2]?.value ?: match.groups[4]?.value ?: return@mapNotNull null
+            val matchedUrl = match.value.trimEnd('.', ',', '!', '?', ':', ';', ')', ']', '}')
+            val url = if (matchedUrl.startsWith("http://", ignoreCase = true) ||
+                matchedUrl.startsWith("https://", ignoreCase = true)
+            ) matchedUrl else "https://$matchedUrl"
+            com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink(slug, url)
+        }.distinctBy { it.slug.lowercase() }.toList()
+    }
 
     private companion object {
         val SUBSCRIPTION_NOTICE_TYPES = setOf(

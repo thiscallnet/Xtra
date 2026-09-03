@@ -64,6 +64,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.session.RecentChatHistoryPage
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.RecentChatHistorySource
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.paginateRecentChatPages
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.toV2
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreview
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewRepository
 import com.github.andreyasadchy.xtra.ui.player.findCurrentRecordingVod
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransport
@@ -677,6 +679,27 @@ class XtraModule(application: Application) {
         ChatAssetRepository(
             scope = (application as XtraApp).applicationScope,
             loader = chatAssetLoader,
+        )
+    }
+
+    val chatClipPreviewRepository by lazy {
+        val appContext = application.applicationContext
+        ChatClipPreviewRepository(
+            scope = (application as XtraApp).applicationScope,
+            loader = { slug ->
+                val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                val clip = graphQLRepository.loadQueryClip(
+                    network,
+                    TwitchApiHelper.getGQLHeaders(appContext, true),
+                    slug,
+                ).data?.clip ?: return@ChatClipPreviewRepository null
+                ChatClipPreview(
+                    title = clip.title,
+                    broadcasterName = clip.broadcaster?.displayName ?: clip.broadcaster?.login,
+                    creatorName = clip.creator?.displayName ?: clip.creator?.login,
+                    thumbnailUrl = TwitchApiHelper.getClipThumbnail(clip.thumbnailURL),
+                )
+            },
         )
     }
 

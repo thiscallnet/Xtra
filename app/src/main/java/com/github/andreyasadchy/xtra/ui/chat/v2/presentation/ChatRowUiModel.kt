@@ -9,6 +9,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReply
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.SharedChatSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink
 
 data class ChatRowUiModel(
     val id: ChatMessageId,
@@ -23,6 +24,7 @@ data class ChatRowUiModel(
     val source: SharedChatSource?,
     val isAction: Boolean,
     val twitchType: TwitchChatMessageType = TwitchChatMessageType.Text,
+    val clipPreviews: List<ChatClipPreviewLink> = emptyList(),
 )
 
 enum class ChatRowBackground {

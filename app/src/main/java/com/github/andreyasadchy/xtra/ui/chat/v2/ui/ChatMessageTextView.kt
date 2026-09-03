@@ -21,6 +21,8 @@ import android.text.style.ForegroundColorSpan
 import android.text.style.ReplacementSpan
 import android.text.style.StyleSpan
 import android.text.util.Linkify
+import android.content.Intent
+import android.net.Uri
 import android.graphics.Typeface
 import android.view.Gravity
 import android.os.Handler
@@ -44,6 +46,9 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreview
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
 import com.github.andreyasadchy.xtra.ui.view.CenteredImageSpan
 import kotlin.math.roundToInt
@@ -51,14 +56,28 @@ import kotlin.math.roundToInt
 open class ChatMessageTextView private constructor(
     context: Context,
     private val assets: ChatAssetRepository,
+    private val clipPreviews: ChatClipPreviewRepository?,
     attrs: AttributeSet?,
 ) : AppCompatTextView(context, attrs) {
-    constructor(context: Context, assets: ChatAssetRepository) : this(context, assets, null)
+    constructor(context: Context, assets: ChatAssetRepository) : this(
+        context,
+        assets,
+        (context.applicationContext as? XtraApp)?.xtraModule?.chatClipPreviewRepository,
+        null,
+    )
+
+    constructor(context: Context, assets: ChatAssetRepository, clipPreviews: ChatClipPreviewRepository?) : this(
+        context,
+        assets,
+        clipPreviews,
+        null,
+    )
 
     constructor(context: Context, attrs: AttributeSet?) : this(
         context,
         (context.applicationContext as? XtraApp)?.xtraModule?.chatAssetRepository
             ?: error("ChatMessageTextView requires an Xtra application context"),
+        (context.applicationContext as? XtraApp)?.xtraModule?.chatClipPreviewRepository,
         attrs,
     )
 
@@ -69,7 +88,15 @@ open class ChatMessageTextView private constructor(
     private var keys = emptySet<ChatAssetKey>()
     private val drawables = HashMap<ChatAssetKey, Drawable>()
     private val drawableHandles = HashMap<ChatAssetKey, Any>()
-    private val invalidator: () -> Unit = { postInvalidateOnAnimation() }
+    private val assetInvalidator: () -> Unit = { postInvalidateOnAnimation() }
+    private val clipMetadataInvalidator: () -> Unit = {
+        post {
+            refreshClipPreviewAssets()
+            requestLayout()
+            postInvalidateOnAnimation()
+        }
+    }
+    private val clipThumbnailInvalidator: () -> Unit = { postInvalidateOnAnimation() }
     private var renderingActive = true
     private var animateGifs = true
     private var boundMessageId: ChatMessageId? = null
@@ -82,9 +109,12 @@ open class ChatMessageTextView private constructor(
     private var onMessageClick: ((ChatMessageId) -> Unit)? = null
     private var onEmoteClick: ((ChatEmoteInteraction) -> Unit)? = null
     private var onGifClick: ((ChatGifInteraction) -> Unit)? = null
+    private var onClipPreviewClick: ((String) -> Unit)? = null
     private var boundRow: ChatRowUiModel? = null
     private var bindingRow = false
     private var touchMoved = false
+    private var clipPreviewSlugs = emptySet<String>()
+    private var clipPreviewAssetKeys = emptySet<ChatAssetKey>()
 
     fun setInteractionCallbacks(
         onMessageLongClick: ((ChatMessageId) -> Unit)?,
@@ -99,6 +129,10 @@ open class ChatMessageTextView private constructor(
     fun setMessageClickCallback(callback: ((ChatMessageId) -> Unit)?) {
         onMessageClick = callback
         isClickable = onMessageClick != null
+    }
+
+    fun setClipPreviewClickCallback(callback: ((String) -> Unit)?) {
+        onClipPreviewClick = callback
     }
 
     fun setMessageTextSizeSp(value: Float) {
@@ -133,7 +167,11 @@ open class ChatMessageTextView private constructor(
         longPressRunnable?.let(mainHandler::removeCallbacks)
         longPressRunnable = null
         isLongClickable = onMessageLongClick != null
-        keys.forEach { assets.removeObserver(it, invalidator) }
+        keys.forEach { assets.removeObserver(it, assetInvalidator) }
+        clipPreviewSlugs.forEach { slug -> clipPreviews?.removeObserver(slug, clipMetadataInvalidator) }
+        clipPreviewAssetKeys.forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
+        clipPreviewSlugs = emptySet()
+        clipPreviewAssetKeys = emptySet()
         drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
         drawables.clear()
         drawableHandles.clear()
@@ -153,7 +191,10 @@ open class ChatMessageTextView private constructor(
                 }
             }
         }.toSet()
-        keys.forEach { assets.observe(it, invalidator) }
+        keys.forEach { assets.observe(it, assetInvalidator) }
+        clipPreviewSlugs = row.clipPreviews.map { it.slug }.toSet()
+        clipPreviewSlugs.forEach { slug -> clipPreviews?.observe(slug, clipMetadataInvalidator) }
+        refreshClipPreviewAssets()
         when (row.backgroundStyle) {
             ChatRowBackground.NORMAL -> setBackgroundColor(row.background)
             ChatRowBackground.HIGHLIGHT -> setBackgroundResource(R.drawable.bg_chat_highlight)
@@ -184,7 +225,7 @@ open class ChatMessageTextView private constructor(
             initialPaddingEnd,
             initialPaddingBottom + extraVerticalPadding,
         )
-        gravity = Gravity.CENTER_VERTICAL
+        gravity = Gravity.TOP or Gravity.START
         movementMethod = LinkMovementMethod.getInstance()
         linksClickable = true
         highlightColor = Color.TRANSPARENT
@@ -222,6 +263,109 @@ open class ChatMessageTextView private constructor(
         if (row.isAction) output.setSpan(StyleSpan(android.graphics.Typeface.ITALIC), 0, output.length, 0)
         contentDescription = row.accessibilityText
         text = output
+    }
+
+    private fun refreshClipPreviewAssets() {
+        val nextKeys = boundRow?.clipPreviews.orEmpty().mapNotNull { link ->
+            clipPreviews?.peek(link.slug)?.thumbnailUrl?.takeIf { it.isNotBlank() }?.let(::ChatAssetKey)
+        }.toSet()
+        clipPreviewAssetKeys.filterNot(nextKeys::contains).forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
+        if (isAttachedToWindow && renderingActive) {
+            nextKeys.filterNot(clipPreviewAssetKeys::contains).forEach { assets.observe(it, clipThumbnailInvalidator) }
+        }
+        clipPreviewAssetKeys = nextKeys
+    }
+
+    private fun resolvedClipPreviews(): List<Pair<ChatClipPreviewLink, ChatClipPreview>> =
+        boundRow?.clipPreviews.orEmpty().mapNotNull { link ->
+            clipPreviews?.peek(link.slug)?.let { preview -> link to preview }
+        }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        val count = resolvedClipPreviews().size
+        if (count == 0) return
+        val extra = count * clipPreviewBlockHeight() + count * clipPreviewGap()
+        setMeasuredDimension(measuredWidth, measuredHeight + extra)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val previews = resolvedClipPreviews()
+        if (previews.isEmpty()) return
+        val left = totalPaddingLeft.toFloat()
+        val right = (width - totalPaddingRight).toFloat()
+        var top = (paddingTop + layout?.height.orZero() + clipPreviewGap()).toFloat()
+        previews.forEach { (link, preview) ->
+            drawClipPreview(canvas, left, top, right, link, preview)
+            top += clipPreviewBlockHeight() + clipPreviewGap()
+        }
+    }
+
+    private fun drawClipPreview(
+        canvas: Canvas,
+        left: Float,
+        top: Float,
+        right: Float,
+        link: ChatClipPreviewLink,
+        preview: ChatClipPreview,
+    ) {
+        val density = resources.displayMetrics.density
+        val height = clipPreviewCardHeight().toFloat()
+        val radius = (3 * density)
+        val card = RectF(left, top, right, top + height)
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(35, 34, 39) }
+        canvas.drawRoundRect(card, radius, radius, fill)
+        fill.color = Color.rgb(145, 71, 255)
+        canvas.drawRoundRect(RectF(right - 4 * density, top, right, top + height), radius, radius, fill)
+
+        val imageUrl = preview.thumbnailUrl?.takeIf { it.isNotBlank() }
+        val thumbLeft = left + 6 * density
+        val thumbTop = top + 6 * density
+        val thumbRight = thumbLeft + 72 * density
+        val thumbBottom = top + height - 6 * density
+        if (imageUrl != null) {
+            val spec = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec(
+                ChatAssetKey(imageUrl), 16, 9, (thumbBottom - thumbTop).toInt(),
+            )
+            drawableFor(ChatAssetKey(imageUrl), spec)?.let { drawable ->
+                drawable.setBounds(thumbLeft.toInt(), thumbTop.toInt(), thumbRight.toInt(), thumbBottom.toInt())
+                drawable.draw(canvas)
+            }
+        }
+
+        val textLeft = thumbRight + 6 * density
+        val textRight = right - 9 * density
+        val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(235, 232, 239)
+            textSize = paint.textSize
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val secondaryPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(194, 189, 201)
+            textSize = paint.textSize
+        }
+        drawClipLine(canvas, preview.title?.takeIf { it.isNotBlank() } ?: link.slug, titlePaint, textLeft, textRight, top + 18 * density)
+        drawClipLine(canvas, "Post by ${preview.broadcasterName ?: "Twitch"}", secondaryPaint, textLeft, textRight, top + 36 * density)
+        drawClipLine(canvas, "Clipped by ${preview.creatorName ?: "unknown"}", secondaryPaint, textLeft, textRight, top + 54 * density)
+    }
+
+    private fun drawClipLine(canvas: Canvas, value: String, paint: TextPaint, left: Float, right: Float, baseline: Float) {
+        canvas.drawText(TextUtils.ellipsize(value, paint, (right - left).coerceAtLeast(0f), TextUtils.TruncateAt.END).toString(), left, baseline, paint)
+    }
+
+    private fun clipPreviewCardHeight() = (68 * resources.displayMetrics.density).roundToInt()
+    private fun clipPreviewGap() = (4 * resources.displayMetrics.density).roundToInt()
+    private fun clipPreviewBlockHeight() = clipPreviewCardHeight()
+
+    private fun hasClipPreviewAt(event: MotionEvent): String? {
+        val previews = resolvedClipPreviews()
+        if (previews.isEmpty()) return null
+        val start = paddingTop + layout?.height.orZero() + clipPreviewGap()
+        val index = ((event.y - start) / (clipPreviewBlockHeight() + clipPreviewGap())).toInt()
+        if (index !in previews.indices) return null
+        val top = start + index * (clipPreviewBlockHeight() + clipPreviewGap())
+        return previews[index].first.url.takeIf { event.y >= top && event.y <= top + clipPreviewBlockHeight() && event.x >= totalPaddingLeft && event.x <= width - totalPaddingRight }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -282,6 +426,17 @@ open class ChatMessageTextView private constructor(
             }
 
             MotionEvent.ACTION_UP -> {
+                hasClipPreviewAt(event)?.let { url ->
+                    if (!touchMoved && !longPressConsumed) {
+                        val normalizedUrl = if (url.startsWith("http://", ignoreCase = true) ||
+                            url.startsWith("https://", ignoreCase = true)
+                        ) url else "https://$url"
+                        (onClipPreviewClick ?: { value -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(value))) } })(normalizedUrl)
+                        longPressRunnable?.let(mainHandler::removeCallbacks)
+                        longPressRunnable = null
+                        return true
+                    }
+                }
                 val messageId = boundMessageId
                 val shouldOpenProfile = messageId != null &&
                     onMessageClick != null &&
@@ -432,11 +587,15 @@ open class ChatMessageTextView private constructor(
     fun recycle() {
         longPressRunnable?.let(mainHandler::removeCallbacks)
         longPressRunnable = null
-        keys.forEach { assets.removeObserver(it, invalidator) }
+        keys.forEach { assets.removeObserver(it, assetInvalidator) }
+        clipPreviewSlugs.forEach { slug -> clipPreviews?.removeObserver(slug, clipMetadataInvalidator) }
+        clipPreviewAssetKeys.forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
         drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
         drawables.clear()
         drawableHandles.clear()
         keys = emptySet()
+        clipPreviewSlugs = emptySet()
+        clipPreviewAssetKeys = emptySet()
         text = null
     }
 
@@ -445,7 +604,9 @@ open class ChatMessageTextView private constructor(
         if (renderingActive == active) return
         renderingActive = active
         if (active) {
-            if (isAttachedToWindow) keys.forEach { assets.observe(it, invalidator) }
+            if (isAttachedToWindow) keys.forEach { assets.observe(it, assetInvalidator) }
+            if (isAttachedToWindow) clipPreviewSlugs.forEach { slug -> clipPreviews?.observe(slug, clipMetadataInvalidator) }
+            if (isAttachedToWindow) clipPreviewAssetKeys.forEach { assets.observe(it, clipThumbnailInvalidator) }
             if (isAttachedToWindow) {
                 drawables.values.forEach { drawable ->
                     drawable.callback = this
@@ -453,7 +614,9 @@ open class ChatMessageTextView private constructor(
                 }
             }
         } else {
-            keys.forEach { assets.removeObserver(it, invalidator) }
+            keys.forEach { assets.removeObserver(it, assetInvalidator) }
+            clipPreviewSlugs.forEach { slug -> clipPreviews?.removeObserver(slug, clipMetadataInvalidator) }
+            clipPreviewAssetKeys.forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
             drawables.values.forEach { drawable -> drawable.stopIfNeeded(); drawable.callback = null }
         }
     }
@@ -461,7 +624,9 @@ open class ChatMessageTextView private constructor(
     override fun onDetachedFromWindow() {
         longPressRunnable?.let(mainHandler::removeCallbacks)
         longPressRunnable = null
-        keys.forEach { assets.removeObserver(it, invalidator) }
+        keys.forEach { assets.removeObserver(it, assetInvalidator) }
+        clipPreviewSlugs.forEach { slug -> clipPreviews?.removeObserver(slug, clipMetadataInvalidator) }
+        clipPreviewAssetKeys.forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
         drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
         super.onDetachedFromWindow()
     }
@@ -469,7 +634,9 @@ open class ChatMessageTextView private constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         if (renderingActive) {
-            keys.forEach { assets.observe(it, invalidator) }
+            keys.forEach { assets.observe(it, assetInvalidator) }
+            clipPreviewSlugs.forEach { slug -> clipPreviews?.observe(slug, clipMetadataInvalidator) }
+            clipPreviewAssetKeys.forEach { assets.observe(it, clipThumbnailInvalidator) }
             drawables.values.forEach { drawable ->
                 drawable.callback = this
                 if (animateGifs) drawable.startIfNeeded()
@@ -480,6 +647,8 @@ open class ChatMessageTextView private constructor(
     override fun verifyDrawable(who: Drawable): Boolean =
         super.verifyDrawable(who) || drawables.values.any { it === who }
 }
+
+private fun Int?.orZero(): Int = this ?: 0
 
 private fun Drawable.stopIfNeeded() { (this as? Animatable)?.stop() }
 private fun Drawable.startIfNeeded() {
