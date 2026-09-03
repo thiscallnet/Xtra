@@ -884,6 +884,30 @@ class XtraModule(application: Application) {
                                 )
                             }
                         }
+                        settings.automaticRewards.forEach { reward ->
+                            val id = reward.id?.takeIf { it.isNotBlank() }
+                            val type = reward.type?.uppercase()
+                            val title = when (type) {
+                                "RANDOM_SUB_EMOTE_UNLOCK" -> "Unlock a Random Sub Emote"
+                                "SINGLE_MESSAGE_BYPASS_SUB_MODE" -> "Send a Message in Sub-Only Mode"
+                                "CHOSEN_SUB_EMOTE_UNLOCK" -> "Choose an Emote to Unlock"
+                                "CHOSEN_MODIFIED_SUB_EMOTE_UNLOCK" -> "Modify a Single Emote"
+                                "SEND_HIGHLIGHTED_MESSAGE" -> "Highlight My Message"
+                                else -> null
+                            }
+                            val cost = reward.cost ?: reward.defaultCost
+                            if (id != null && title != null && cost != null && cost > 0) {
+                                put(
+                                    id,
+                                    ChatReward(
+                                        title = title,
+                                        cost = cost,
+                                        imageUrl = reward.image?.url4x ?: reward.image?.url2x ?: reward.image?.url1x
+                                            ?: reward.defaultImage?.url4x ?: reward.defaultImage?.url2x ?: reward.defaultImage?.url1x,
+                                    ),
+                                )
+                            }
+                        }
                     }
                 }
                 rewards

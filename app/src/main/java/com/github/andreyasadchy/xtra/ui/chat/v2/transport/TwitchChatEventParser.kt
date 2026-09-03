@@ -512,7 +512,7 @@ object TwitchChatEventParser {
 
     private fun parseMessageType(raw: String): TwitchChatMessageType = when (raw.lowercase()) {
         "text" -> TwitchChatMessageType.Text
-        "channel_points_highlighted" -> TwitchChatMessageType.Highlighted
+        "channel_points_highlighted", "highlighted-message" -> TwitchChatMessageType.Highlighted
         "channel_points_sub_only" -> TwitchChatMessageType.SubscriberOnly
         "user_intro" -> TwitchChatMessageType.UserIntro
         "power_ups_message_effect" -> TwitchChatMessageType.MessageEffect

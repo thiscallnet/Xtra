@@ -198,7 +198,19 @@ class ChatRowCompiler(
                 add(ChatPiece.Text("${labels.announcement}\n", bold = true))
             }
             if (message.twitchType == TwitchChatMessageType.Highlighted) {
-                add(ChatPiece.Text("${labels.highlightRedeemed(labels.highlightTitle)}\n", bold = true))
+                val headingColor = 0xFFE8E4EC.toInt()
+                val highlightTitle = reward?.title?.takeIf { it.isNotBlank() } ?: labels.highlightTitle
+                val heading = labels.highlightRedeemed(highlightTitle)
+                val titleStart = heading.indexOf(highlightTitle).coerceAtLeast(0)
+                add(ChatPiece.Text(heading.substring(0, titleStart), color = headingColor))
+                add(ChatPiece.Text(heading.substring(titleStart), color = headingColor, bold = true))
+                add(ChatPiece.Text("\n", color = headingColor))
+                reward?.cost?.let { cost ->
+                    add(ChatPiece.Icon(R.drawable.ic_chat_channel_points, tint = headingColor, sizeDp = 22))
+                    add(ChatPiece.Text(" ", color = headingColor))
+                    add(ChatPiece.Text(NumberFormat.getInstance().format(cost), color = headingColor, bold = true))
+                    add(ChatPiece.Text("\n", color = headingColor))
+                }
             }
             if (message.rewardId != null && message.twitchType != TwitchChatMessageType.Highlighted) {
                 if (isRewardOnly) {

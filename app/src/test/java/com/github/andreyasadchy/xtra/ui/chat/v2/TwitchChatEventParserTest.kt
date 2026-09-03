@@ -227,6 +227,26 @@ class TwitchChatEventParserTest {
     }
 
     @Test
+    fun ircHighlightedMessageKeepsItsHighlightedType() {
+        val message = ChatUtils.IRCMessage(
+            tags = mapOf(
+                "msg-id" to "highlighted-message",
+                "custom-reward-id" to "highlight",
+                "display-name" to "Viewer",
+            ),
+            prefix = "viewer!viewer@viewer.tmi.twitch.tv",
+            command = "USERNOTICE",
+            params = listOf("#channel", "Lock them up!"),
+            fullMessage = "USERNOTICE #channel :Lock them up!",
+        )
+
+        val event = TwitchChatEventParser.fromIrc(message, "channel-id") as ChatEvent.Message
+
+        assertEquals(TwitchChatMessageType.Highlighted, event.message.twitchType)
+        assertEquals("highlight", event.message.rewardId)
+    }
+
+    @Test
     fun eventSubUsesTypedPrimeFlagInsteadOfSubscriptionTierText() {
         val event = JSONObject(
             """
