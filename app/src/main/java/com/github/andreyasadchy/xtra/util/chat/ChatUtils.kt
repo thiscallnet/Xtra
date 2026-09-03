@@ -165,6 +165,9 @@ object ChatUtils {
             watchStreakPoints = if (effectiveNoticeId.equals("viewermilestone", true) && message.tags["msg-param-category"] == "watch-streak") {
                 message.tags["msg-param-copoReward"]?.toIntOrNull()?.takeIf { it > 0 }
             } else null,
+            subscriptionPlan = message.tags["msg-param-sub-plan"]
+                ?: message.tags["msg-param-sub-plan-name"],
+            isPrimeSubscription = message.tags["msg-param-sub-plan"]?.equals("Prime", true),
             fullMsg = message.fullMessage
         )
     }

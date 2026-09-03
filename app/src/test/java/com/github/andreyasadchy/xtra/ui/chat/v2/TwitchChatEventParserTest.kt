@@ -249,6 +249,42 @@ class TwitchChatEventParserTest {
     }
 
     @Test
+    fun eventSubReadsPrimeMetadataFromAllSubscriptionObjects() {
+        listOf("resub", "shared_chat_sub", "shared_chat_resub").forEach { objectName ->
+            val event = JSONObject(
+                """
+                {
+                  "notice_type":"$objectName",
+                  "$objectName":{"sub_tier":"1000","is_prime":true},
+                  "system_message":"Viewer subscribed with Prime Gaming."
+                }
+                """.trimIndent(),
+            )
+
+            val message = (TwitchChatEventParser.fromEventSub(event, null, notice = true) as ChatEvent.Message).message
+            assertEquals("1000", message.subscriptionPlan)
+            assertEquals(true, message.isPrimeSubscription)
+        }
+    }
+
+    @Test
+    fun eventSubPaidSubscriptionMetadataRemainsNonPrime() {
+        val event = JSONObject(
+            """
+            {
+              "notice_type":"shared_chat_resub",
+              "shared_chat_resub":{"sub_tier":"1000","is_prime":false},
+              "system_message":"Viewer subscribed with Tier 1."
+            }
+            """.trimIndent(),
+        )
+
+        val message = (TwitchChatEventParser.fromEventSub(event, null, notice = true) as ChatEvent.Message).message
+        assertEquals("1000", message.subscriptionPlan)
+        assertEquals(false, message.isPrimeSubscription)
+    }
+
+    @Test
     fun ircGifOnlyMessageUsesTheProvidedUrlAndFallbackText() {
         val text = "[Dog Eat GIF by Respective]"
         val url = "https://media4.giphy.com/media/gif/giphy.gif?token=a=b&format=webp"

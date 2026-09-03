@@ -55,10 +55,12 @@ class ChatRowCompiler(
         val rowBackground = background(message)
         val isWatchStreak = message.noticeType.equals("watch_streak", ignoreCase = true) ||
             (message.noticeType.equals("viewermilestone", ignoreCase = true) && message.watchStreakCount != null)
-        val isSubscription = message.noticeType?.lowercase() in SUBSCRIPTION_NOTICE_TYPES &&
-            (message.isPrimeSubscription == true ||
-                message.subscriptionPlan?.contains("prime", ignoreCase = true) == true ||
-                message.noticeType.equals("prime_paid_upgrade", ignoreCase = true))
+        val noticeType = message.noticeType?.lowercase()
+        val isSubscription = noticeType in SUBSCRIPTION_NOTICE_TYPES
+        val isPrimeSubscription = isSubscription && (
+            message.isPrimeSubscription == true ||
+                message.subscriptionPlan?.contains("prime", ignoreCase = true) == true
+            )
         val reward = message.rewardId?.let { rewardId ->
             catalog.channelPointRewards[rewardId]
                 ?: message.rewardTitle?.let { title -> ChatReward(title, message.rewardCost, message.rewardImageUrl) }
@@ -130,12 +132,28 @@ class ChatRowCompiler(
             }
             if (subscriptionBody != null) {
                 val headingColor = 0xFFE8E4EC.toInt()
-                add(ChatPiece.Icon(R.drawable.ic_chat_subscription, tint = headingColor))
+                val icon = if (isPrimeSubscription) {
+                    R.drawable.ic_chat_subscription
+                } else {
+                    R.drawable.ic_chat_subscription_gift
+                }
+                add(ChatPiece.Icon(icon, tint = headingColor))
                 add(ChatPiece.Text(" "))
-                val nameEnd = subscriptionBody.indexOf(' ').takeIf { it > 0 } ?: subscriptionBody.length
-                add(ChatPiece.Text(subscriptionBody.substring(0, nameEnd), color = headingColor, bold = true))
-                if (nameEnd < subscriptionBody.length) {
+                val systemUser = message.user?.displayName ?: message.user?.login
+                val actor = systemUser ?: subscriptionBody.substringBefore(' ').takeIf { !it.equals("An", ignoreCase = true) }
+                val nameEnd = actor
+                    ?.takeIf { subscriptionBody.startsWith(it, ignoreCase = true) }
+                    ?.length
+                if (nameEnd != null) {
+                    val userColor = if (systemUser == null) headingColor else colors.resolve(
+                        message.user?.color?.let(::colorToHex),
+                        message.user?.id ?: message.user?.login ?: systemUser,
+                        rowBackground,
+                    )
+                    add(ChatPiece.Text(subscriptionBody.substring(0, nameEnd), color = userColor, bold = true))
                     add(ChatPiece.Text(subscriptionBody.substring(nameEnd), color = mutedColor))
+                } else {
+                    add(ChatPiece.Text(subscriptionBody, color = mutedColor))
                 }
                 if (hasSemanticBody) add(ChatPiece.Text("\n"))
             }
@@ -216,7 +234,9 @@ class ChatRowCompiler(
                 }
                 if (!isRewardOnly) add(ChatPiece.Text("\n", color = mutedColor))
             }
-            message.user?.takeIf { !isRewardOnly && (noticeBody == null || hasSemanticBody) }?.let { user ->
+            message.user?.takeIf {
+                !isRewardOnly && ((noticeBody == null && !isSubscription) || hasSemanticBody)
+            }?.let { user ->
                 val name = user.displayName(nameDisplay)
                 name?.let {
                     add(ChatPiece.Username(
@@ -429,6 +449,10 @@ class ChatRowCompiler(
             "shared_chat_resub",
             "shared_chat_sub_gift",
             "shared_chat_community_sub_gift",
+            "pay_it_forward",
+            "shared_chat_gift_paid_upgrade",
+            "shared_chat_prime_paid_upgrade",
+            "shared_chat_pay_it_forward",
         )
     }
 }

@@ -176,19 +176,79 @@ class ChatDomainPresentationTest {
     }
 
     @Test
-    fun paidSubscriptionNoticeDoesNotUseThePrimeRail() {
+    fun paidSubscriptionNoticeUsesTheGiftRailAndKeepsTheActorColored() {
         val row = ChatRowCompiler().compile(
             message(ChatSegment.Text("They've been subscribed for 6 months!")).copy(
+                user = ChatUser("user", "viewer", "Viewer", 0xff9147ff.toInt()),
                 kind = ChatMessageKind.NOTICE,
                 noticeType = "resub",
                 subscriptionPlan = "1000",
+                isPrimeSubscription = false,
                 systemText = "Viewer subscribed with Tier 1.",
             ),
         )
 
-        assertEquals(ChatRowBackground.NOTICE, row.backgroundStyle)
-        assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value.contains("Viewer subscribed") })
-        assertTrue(row.pieces.none { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_subscription })
+        assertEquals(ChatRowBackground.SUBSCRIPTION, row.backgroundStyle)
+        assertTrue(row.pieces.any { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_subscription_gift })
+        assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value == "Viewer" && it.bold && it.color == 0xff9147ff.toInt() })
+        assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value == " subscribed with Tier 1." && it.color == 0xffc4bec9.toInt() })
+    }
+
+    @Test
+    fun giftedSubscriptionNoticeUsesTheSameInlineEventTreatment() {
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Text("")).copy(
+                user = ChatUser("gifter", "renagade45", "renagade45", 0xff9147ff.toInt()),
+                kind = ChatMessageKind.NOTICE,
+                noticeType = "sub_gift",
+                systemText = "renagade45 gifted a Tier 1 Sub to posty's community!",
+                segments = emptyList(),
+            ),
+        )
+
+        assertEquals(ChatRowBackground.SUBSCRIPTION, row.backgroundStyle)
+        assertTrue(row.pieces.any { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_subscription_gift })
+        assertTrue(row.pieces.none { it is ChatPiece.Username })
+        assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value == "renagade45" && it.bold })
+    }
+
+    @Test
+    fun primePaidUpgradeUsesThePaidSubscriptionIcon() {
+        listOf("prime_paid_upgrade", "shared_chat_prime_paid_upgrade").forEach { noticeType ->
+            val row = ChatRowCompiler().compile(
+                message(ChatSegment.Text("")).copy(
+                    user = ChatUser("user", "viewer", "Viewer", null),
+                    kind = ChatMessageKind.NOTICE,
+                    noticeType = noticeType,
+                    subscriptionPlan = "1000",
+                    systemText = "Viewer upgraded to a paid Tier 1 Sub.",
+                    segments = emptyList(),
+                ),
+            )
+
+            assertTrue(row.pieces.any { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_subscription_gift })
+            assertTrue(row.pieces.none { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_subscription })
+        }
+    }
+
+    @Test
+    fun primeSubscriptionMetadataUsesTheCrownAcrossSharedChatVariants() {
+        listOf("resub", "shared_chat_sub", "shared_chat_resub").forEach { noticeType ->
+            val row = ChatRowCompiler().compile(
+                message(ChatSegment.Text("")).copy(
+                    user = ChatUser("user", "viewer", "Viewer", null),
+                    kind = ChatMessageKind.NOTICE,
+                    noticeType = noticeType,
+                    subscriptionPlan = "1000",
+                    isPrimeSubscription = true,
+                    systemText = "Viewer subscribed with Prime Gaming.",
+                    segments = emptyList(),
+                ),
+            )
+
+            assertTrue(row.pieces.any { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_subscription })
+            assertTrue(row.pieces.none { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_subscription_gift })
+        }
     }
 
     @Test
