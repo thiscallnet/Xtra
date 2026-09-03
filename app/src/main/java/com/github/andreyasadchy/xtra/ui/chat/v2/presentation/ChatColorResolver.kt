@@ -1,8 +1,11 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.presentation
 
+import android.graphics.Color
 import androidx.annotation.ColorInt
-import kotlin.math.pow
+import androidx.core.graphics.ColorUtils
 import java.util.LinkedHashMap
+import kotlin.math.abs
+import kotlin.math.pow
 
 class ChatColorResolver(
     @ColorInt private val fallback: Int = 0xFF919191.toInt(),
@@ -10,6 +13,11 @@ class ChatColorResolver(
     private val maxEntries: Int = 128,
     @ColorInt private val background: Int = 0xFF101010.toInt(),
 ) {
+    private data class LightnessCandidate(
+        @ColorInt val color: Int,
+        val lightness: Float,
+    )
+
     private val cache = object : LinkedHashMap<String, Int>(maxEntries, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>?): Boolean = size > maxEntries
     }
@@ -21,11 +29,8 @@ class ChatColorResolver(
         return cache.getOrPut(key) {
             val parsed = parseColor(raw)
             val identityFallback = fallbackColor(identity, rowBackground)
-            val color = parsed ?: identityFallback
-            val adjusted = if (parsed == null || isNearWhite(color) || !hasContrast(color, rowBackground)) {
-                identityFallback
-            } else color
-            val readableColor = if (readable) makeReadable(adjusted) else adjusted
+            val color = parsed?.takeUnless(::isNearWhite) ?: identityFallback
+            val readableColor = if (readable) makeReadable(color, rowBackground) else color
             if (hasContrast(readableColor, rowBackground) && !isNearWhite(readableColor)) {
                 readableColor
             } else {
@@ -81,13 +86,68 @@ class ChatColorResolver(
     private fun isNearWhite(@ColorInt color: Int): Boolean =
         red(color) >= 245 && green(color) >= 245 && blue(color) >= 245
 
-    private fun makeReadable(@ColorInt color: Int): Int {
-        val luminance = (0.299 * red(color) + 0.587 * green(color) + 0.114 * blue(color)) / 255
-        return if (luminance < 0.35) rgb(
-            (red(color) + 255) / 2,
-            (green(color) + 255) / 2,
-            (blue(color) + 255) / 2,
-        ) else color
+    private fun makeReadable(@ColorInt color: Int, @ColorInt rowBackground: Int): Int {
+        if (hasContrast(color, rowBackground)) return color
+
+        // Raise or lower lightness while retaining the Twitch-selected hue and saturation.
+        // Blending toward white makes reds and blues look pastel, which is unlike Twitch chat.
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        val originalLightness = hsl[2]
+        val canDarken = hasContrast(Color.BLACK, rowBackground)
+        val canLighten = hasContrast(Color.WHITE, rowBackground)
+        val darkened = if (canDarken) {
+            findReadableCandidate(hsl, originalLightness, rowBackground, towardBlack = true)
+        } else {
+            null
+        }
+        val lightened = if (canLighten) {
+            findReadableCandidate(hsl, originalLightness, rowBackground, towardBlack = false)
+        } else {
+            null
+        }
+
+        return when {
+            darkened == null -> lightened?.color ?: color
+            lightened == null -> darkened.color
+            abs(darkened.lightness - originalLightness) <= abs(lightened.lightness - originalLightness) -> darkened.color
+            else -> lightened.color
+        }
+    }
+
+    private fun findReadableCandidate(
+        hsl: FloatArray,
+        originalLightness: Float,
+        @ColorInt rowBackground: Int,
+        towardBlack: Boolean,
+    ): LightnessCandidate? {
+        val searchHsl = hsl.copyOf()
+        val endpointLightness = if (towardBlack) 0f else 1f
+        searchHsl[2] = endpointLightness
+        val endpoint = ColorUtils.HSLToColor(searchHsl)
+        if (!hasContrast(endpoint, rowBackground)) return null
+
+        var low = if (towardBlack) 0f else originalLightness
+        var high = if (towardBlack) originalLightness else 1f
+        var best = LightnessCandidate(endpoint, endpointLightness)
+        repeat(12) {
+            val lightness = (low + high) / 2f
+            searchHsl[2] = lightness
+            val candidate = ColorUtils.HSLToColor(searchHsl)
+            if (hasContrast(candidate, rowBackground)) {
+                best = LightnessCandidate(candidate, lightness)
+                if (towardBlack) {
+                    low = lightness
+                } else {
+                    high = lightness
+                }
+            } else if (towardBlack) {
+                high = lightness
+            } else {
+                low = lightness
+            }
+        }
+        return best
     }
 
     @ColorInt
@@ -99,6 +159,4 @@ class ChatColorResolver(
     private fun red(@ColorInt color: Int): Int = color ushr 16 and 0xff
     private fun green(@ColorInt color: Int): Int = color ushr 8 and 0xff
     private fun blue(@ColorInt color: Int): Int = color and 0xff
-    private fun rgb(red: Int, green: Int, blue: Int): Int =
-        0xFF000000.toInt() or (red shl 16) or (green shl 8) or blue
 }
