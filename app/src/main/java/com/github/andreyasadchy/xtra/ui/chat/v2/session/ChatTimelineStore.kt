@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
+import kotlin.math.abs
 
 sealed interface TimelineOperation {
     data class Append(val items: List<ChatMessage>) : TimelineOperation
@@ -55,10 +56,12 @@ class ChatTimelineStore(
                     }
                     is TimelineOperation.Append -> operation.items.forEach { item ->
                         if (isSuppressed(item, deletedMessageIds, clearedUsersAt, globallyClearedAt)) continue
+                        if (isDuplicateReward(item, items)) continue
                         if (ids.add(item.id)) items.addLast(item)
                     }
                     is TimelineOperation.Prepend -> operation.items.asReversed().forEach { item ->
                         if (isSuppressed(item, deletedMessageIds, clearedUsersAt, globallyClearedAt)) continue
+                        if (isDuplicateReward(item, items)) continue
                         if (ids.add(item.id)) items.addFirst(item)
                     }
                     is TimelineOperation.Delete -> {
@@ -99,7 +102,10 @@ class ChatTimelineStore(
                             .distinctBy { it.id }
                             .sortedBy { it.timestampMs }
                         items.clear(); ids.clear()
-                        merged.takeLast(maxSize).forEach { if (ids.add(it.id)) items.addLast(it) }
+                        merged.fold(ArrayList<ChatMessage>()) { result, item ->
+                            if (!isDuplicateReward(item, result)) result += item
+                            result
+                        }.takeLast(maxSize).forEach { if (ids.add(it.id)) items.addLast(it) }
                     }
                 }
                 while (items.size > maxSize) items.removeFirst().also { ids.remove(it.id) }
@@ -120,6 +126,27 @@ class ChatTimelineStore(
         return clearedUsersAt[userId]?.let { message.timestampMs <= it } == true
     }
 
+    /** Hermes and chat.message can describe the same redemption without sharing an ID. */
+    private fun isDuplicateReward(message: ChatMessage, existing: Collection<ChatMessage>): Boolean {
+        val rewardId = message.rewardId ?: return false
+        val userId = message.user?.id ?: return false
+        return existing.any { other ->
+            other.rewardId == rewardId &&
+                other.user?.id == userId &&
+                abs(other.timestampMs - message.timestampMs) <= REWARD_DUPLICATE_WINDOW_MS &&
+                other.rawText.orEmpty() == message.rawText.orEmpty() &&
+                when {
+                    other.rewardRedemptionId != null && message.rewardRedemptionId != null ->
+                        other.rewardRedemptionId == message.rewardRedemptionId
+                    // Only correlate in the normal delivery direction: chat.message first,
+                    // followed by the Hermes redemption event. If Hermes arrives first, keep a
+                    // later ID-less reward because it may be a separate rapid redemption.
+                    other.rewardRedemptionId == null && message.rewardRedemptionId != null -> true
+                    else -> false
+                }
+        }
+    }
+
     private fun trimModerationTombstones(
         deletedMessageIds: LinkedHashSet<ChatMessageId>,
         clearedUsersAt: LinkedHashMap<String, Long>,
@@ -134,6 +161,7 @@ class ChatTimelineStore(
 
     private companion object {
         const val MODERATION_TOMBSTONE_LIMIT = 4096
+        const val REWARD_DUPLICATE_WINDOW_MS = 3_000L
     }
 
     suspend fun apply(operation: TimelineOperation) = operations.send(operation)
@@ -158,6 +186,7 @@ class ChatTimelineStore(
             is ChatEvent.ClearUser -> apply(TimelineOperation.ClearUser(event.userId, event.receivedAtMs))
             is ChatEvent.Clear -> apply(TimelineOperation.Clear(event.receivedAtMs))
             is ChatEvent.SettingsUpdated -> Unit
+            is ChatEvent.DecorationUpdated -> Unit
             is ChatEvent.TransportDisconnected -> Unit
         }
     }

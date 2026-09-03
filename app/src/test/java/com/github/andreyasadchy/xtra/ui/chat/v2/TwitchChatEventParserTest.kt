@@ -5,6 +5,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
+import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -156,9 +157,63 @@ class TwitchChatEventParserTest {
     }
 
     @Test
+    fun rewardRedemptionWithoutUserInputRemainsAChatEvent() {
+        val event = JSONObject(
+            """
+            {
+              "id":"redemption-1",
+              "broadcaster_user_id":"broadcaster",
+              "user_id":"user",
+              "user_login":"viewer",
+              "user_name":"Viewer",
+              "user_input":"",
+              "redeemed_at":"2026-09-01T12:00:00Z",
+              "reward":{"id":"reward-1","title":"Sound Alert","cost":1000}
+            }
+            """.trimIndent(),
+        )
+
+        val message = TwitchChatEventParser.fromEventSubRewardRedemption(event, null).message
+        assertEquals("redemption-1", message.id.value)
+        assertEquals(com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind.REWARD, message.kind)
+        assertEquals("reward-1", message.rewardId)
+        assertTrue(message.segments.all { it is ChatSegment.Text && it.text.isBlank() })
+    }
+
+    @Test
+    fun unrestrictedHermesRewardKeepsNoInputRedemptionMetadata() {
+        val event = JSONObject(
+            """
+            {
+              "data": {
+                "timestamp":"2026-09-01T12:00:00Z",
+                "redemption": {
+                  "id":"redemption-hermes-1",
+                  "user":{"id":"user","login":"viewer","display_name":"Viewer"},
+                  "user_input":"",
+                  "reward":{"id":"reward-1","title":"Sound Alert","cost":1000,
+                    "default_image":{"url_1x":"https://example.test/reward.png"}}
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val message = TwitchChatEventParser.fromPubSubReward(
+            PubSubUtils.parseRewardMessage(event),
+            "broadcaster",
+        ).message
+        assertEquals("reward-redemption-hermes-1", message.id.value)
+        assertEquals("redemption-hermes-1", message.rewardRedemptionId)
+        assertEquals("reward-1", message.rewardId)
+        assertEquals("Sound Alert", message.rewardTitle)
+        assertTrue(message.segments.isEmpty())
+    }
+
+    @Test
     fun ircUserNoticeIsNormalizedAsNotice() {
         val message = ChatUtils.IRCMessage(
-            tags = mapOf("msg-id" to "sub", "system-msg" to "Viewer subscribed"),
+            tags = mapOf("msg-id" to "sub", "system-msg" to "Viewer subscribed", "msg-param-sub-plan" to "Prime"),
             prefix = "user!user@user.tmi.twitch.tv",
             command = "USERNOTICE",
             params = listOf("#channel", "hello"),
@@ -167,6 +222,30 @@ class TwitchChatEventParserTest {
         val event = TwitchChatEventParser.fromIrc(message, "channel-id") as ChatEvent.Message
 
         assertEquals(com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind.NOTICE, event.message.kind)
+        assertEquals("Prime", event.message.subscriptionPlan)
+        assertEquals(true, event.message.isPrimeSubscription)
+    }
+
+    @Test
+    fun eventSubUsesTypedPrimeFlagInsteadOfSubscriptionTierText() {
+        val event = JSONObject(
+            """
+            {
+              "broadcaster_user_id":"broadcaster",
+              "chatter_user_id":"viewer",
+              "chatter_user_name":"Viewer",
+              "message_id":"sub-1",
+              "notice_type":"sub",
+              "sub_tier":"1000",
+              "is_prime":true,
+              "system_message":"Viewer subscribed with Prime Gaming."
+            }
+            """.trimIndent(),
+        )
+
+        val message = (TwitchChatEventParser.fromEventSub(event, null, notice = true) as ChatEvent.Message).message
+        assertEquals("1000", message.subscriptionTier)
+        assertEquals(true, message.isPrimeSubscription)
     }
 
     @Test

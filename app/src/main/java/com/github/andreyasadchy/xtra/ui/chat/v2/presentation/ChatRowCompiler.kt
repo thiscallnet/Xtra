@@ -11,7 +11,10 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopedEmoteCatalog
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
+import com.github.andreyasadchy.xtra.ui.chat.ChatGifDisplayMode
 import java.text.NumberFormat
 
 data class ChatPresentationLabels(
@@ -25,6 +28,7 @@ data class ChatPresentationLabels(
     val sharedChat: (String) -> String = { "Shared chat from $it" },
     val announcement: String = "Announcement",
     val reward: String = "Channel points reward",
+    val userRedeemed: (String) -> String = { "redeemed $it" },
 )
 
 class ChatRowCompiler(
@@ -35,15 +39,30 @@ class ChatRowCompiler(
     private val enableOverlayEmotes: Boolean = true,
     private val firstMessageVisibility: Int = 0,
     private val boldNames: Boolean = false,
+    private val nameDisplay: String = "0",
+    private val showSystemMessageEmotes: Boolean = true,
+    private val showNamePaints: Boolean = true,
+    private val showThirdPartyBadges: Boolean = true,
+    private val showPersonalEmotes: Boolean = true,
+    private val translation: (ChatMessage) -> String? = { null },
     private val timestampText: (Long) -> String? = { null },
     private val background: (ChatMessage) -> Int = { 0 },
     private val labels: ChatPresentationLabels = ChatPresentationLabels(),
+    private val gifDisplayMode: ChatGifDisplayMode = ChatGifDisplayMode.LARGE,
 ) {
     fun compile(message: ChatMessage, catalog: ChatCatalogSnapshot = ChatCatalogSnapshot(0)): ChatRowUiModel {
         val targetHeight = emoteHeightPx * if (message.twitchType == TwitchChatMessageType.GigantifiedEmote) 2 else 1
         val rowBackground = background(message)
         val isWatchStreak = message.noticeType.equals("watch_streak", ignoreCase = true) ||
             (message.noticeType.equals("viewermilestone", ignoreCase = true) && message.watchStreakCount != null)
+        val isSubscription = message.noticeType?.lowercase() in SUBSCRIPTION_NOTICE_TYPES &&
+            (message.isPrimeSubscription == true ||
+                message.subscriptionPlan?.contains("prime", ignoreCase = true) == true ||
+                message.noticeType.equals("prime_paid_upgrade", ignoreCase = true))
+        val reward = message.rewardId?.let { rewardId ->
+            catalog.channelPointRewards[rewardId]
+                ?: message.rewardTitle?.let { title -> ChatReward(title, message.rewardCost, message.rewardImageUrl) }
+        }
         val hasSemanticBody = message.segments.any {
             it !is ChatSegment.Text || it.text.isNotBlank()
         }
@@ -53,27 +72,72 @@ class ChatRowCompiler(
                     message.kind == ChatMessageKind.SYSTEM ||
                     message.kind == ChatMessageKind.RAID ||
                     message.kind == ChatMessageKind.ANNOUNCEMENT) &&
-                !(isWatchStreak && message.watchStreakCount != null)
+                !(isWatchStreak && message.watchStreakCount != null) &&
+                !isSubscription
         }
+        val subscriptionBody = message.systemText?.takeIf { isSubscription && it.isNotBlank() }
         val resolvedSegments = if (noticeBody != null) {
-            val body = resolveSegments(message.segments, catalog)
+            val body = resolveSegments(message.segments, catalog, showSystemMessageEmotes, messagePersonalEmoteSetId(message, catalog))
             if (hasSemanticBody) {
                 listOf(ChatSegment.Text("$noticeBody\n")) + body
             } else {
                 listOf(ChatSegment.Text(noticeBody))
             }
         } else {
-            resolveSegments(message.segments, catalog)
+            resolveSegments(message.segments, catalog, personalEmoteSetId = messagePersonalEmoteSetId(message, catalog))
         }
         val isFirstChatter = (message.isFirst || message.twitchType == TwitchChatMessageType.UserIntro) &&
             firstMessageVisibility == 0
+        val isRewardOnly = message.rewardId != null &&
+            message.twitchType != TwitchChatMessageType.Highlighted &&
+            !hasSemanticBody
         val mutedColor = 0xFFC4BEC9.toInt()
         val pieces = buildList {
-            val specialNotice = isFirstChatter || isWatchStreak
-            if (showBadges && !specialNotice) message.badges.forEach { badge -> add(ChatPiece.Badge(badgeSpec(badge, catalog))) }
+            val specialNotice = isFirstChatter || isWatchStreak || isSubscription
+            message.reply?.let { reply ->
+                val user = reply.parentUserName ?: reply.parentUserLogin ?: ""
+                val body = reply.parentMessageBody.orEmpty()
+                add(ChatPiece.Icon(R.drawable.ic_chat_reply, tint = mutedColor, sizeDp = 18))
+                val replyUser = user.takeIf { it.startsWith("@") }?.let { it } ?: "@$user"
+                add(ChatPiece.Reply(" ${labels.reply(replyUser, body)}", color = mutedColor))
+                add(ChatPiece.Text("\n", color = mutedColor))
+            }
+            if (showBadges && !specialNotice) message.badges.forEach { badge ->
+                add(ChatPiece.Badge(badgeSpec(badge, catalog), badgeInteraction(badge, catalog)))
+            }
+            if (showThirdPartyBadges && !specialNotice) {
+                message.user?.id?.let(catalog.userDecorations::get)?.badgeId?.let { badgeId ->
+                    catalog.sevenTvBadges[badgeId]?.let { badge ->
+                        add(
+                            ChatPiece.Badge(
+                                badge.asset.scaledTo(badgeHeightPx),
+                                ChatEmoteInteraction(
+                                    id = badgeId,
+                                    name = badge.info ?: badge.name,
+                                    url = badge.asset.key.value,
+                                    animated = true,
+                                    provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.SEVEN_TV,
+                                    scope = null,
+                                ),
+                            ),
+                        )
+                    }
+                }
+            }
             if (isFirstChatter) {
                 add(ChatPiece.Icon(R.drawable.ic_chat_first_chatter))
                 add(ChatPiece.Text(" ${labels.firstChatter}\n", bold = true))
+            }
+            if (subscriptionBody != null) {
+                val headingColor = 0xFFE8E4EC.toInt()
+                add(ChatPiece.Icon(R.drawable.ic_chat_subscription, tint = headingColor))
+                add(ChatPiece.Text(" "))
+                val nameEnd = subscriptionBody.indexOf(' ').takeIf { it > 0 } ?: subscriptionBody.length
+                add(ChatPiece.Text(subscriptionBody.substring(0, nameEnd), color = headingColor, bold = true))
+                if (nameEnd < subscriptionBody.length) {
+                    add(ChatPiece.Text(subscriptionBody.substring(nameEnd), color = mutedColor))
+                }
+                if (hasSemanticBody) add(ChatPiece.Text("\n"))
             }
             if (isWatchStreak) {
                 add(ChatPiece.Icon(R.drawable.ic_watch_streak, sizeDp = 22))
@@ -101,16 +165,10 @@ class ChatRowCompiler(
                     add(ChatPiece.Text(" "))
                 }
             }
-            message.reply?.let { reply ->
-                val user = reply.parentUserName ?: reply.parentUserLogin ?: ""
-                val body = reply.parentMessageBody.orEmpty()
-                add(ChatPiece.Icon(R.drawable.ic_chat_reply, tint = mutedColor, sizeDp = 18))
-                val replyUser = user.takeIf { it.startsWith("@") }?.let { it } ?: "@$user"
-                add(ChatPiece.Text(" ${labels.reply(replyUser, body)}\n", color = mutedColor))
-            }
             message.source?.let { source ->
                 val sourceName = source.broadcasterName ?: source.broadcasterLogin ?: source.broadcasterId
-                add(ChatPiece.Text("${labels.sharedChat(sourceName)}\n"))
+                add(ChatPiece.Source(sourceName))
+                add(ChatPiece.Text(" "))
             }
             if (message.kind == ChatMessageKind.ANNOUNCEMENT) {
                 add(ChatPiece.Text("${labels.announcement}\n", bold = true))
@@ -118,18 +176,58 @@ class ChatRowCompiler(
             if (message.twitchType == TwitchChatMessageType.Highlighted) {
                 add(ChatPiece.Text("${labels.highlightRedeemed(labels.highlightTitle)}\n", bold = true))
             }
-            message.user?.takeIf { noticeBody == null || hasSemanticBody }?.let { user ->
-                val name = user.displayName ?: user.login
+            if (message.rewardId != null && message.twitchType != TwitchChatMessageType.Highlighted) {
+                if (isRewardOnly) {
+                    message.user?.let { user ->
+                        user.displayName(nameDisplay)?.let { name ->
+                            add(
+                                ChatPiece.Username(
+                                    value = name,
+                                    color = colors.resolve(user.color?.let(::colorToHex), user.id ?: user.login ?: name, rowBackground),
+                                    bold = true,
+                                    paint = if (showNamePaints) {
+                                        user.id?.let(catalog.userDecorations::get)?.paintId?.let(catalog.namePaints::get)
+                                    } else null,
+                                    separator = "",
+                                ),
+                            )
+                        }
+                    }
+                    add(ChatPiece.Text(" ${labels.userRedeemed(reward?.title ?: labels.reward)} ", color = mutedColor))
+                } else {
+                    add(ChatPiece.Text("${labels.redeemed(reward?.title ?: labels.reward)} ", color = mutedColor))
+                }
+                reward?.imageUrl?.takeIf { it.isNotBlank() }?.let { imageUrl ->
+                    add(
+                        ChatPiece.RewardIcon(
+                            asset = ChatAssetSpec(
+                                key = ChatAssetKey(imageUrl),
+                                sourceWidth = 1,
+                                sourceHeight = 1,
+                                targetHeight = badgeHeightPx,
+                            ),
+                            fallback = reward.title,
+                        ),
+                    )
+                    add(ChatPiece.Text(" ", color = mutedColor))
+                }
+                reward?.cost?.let { cost ->
+                    add(ChatPiece.Text(NumberFormat.getInstance().format(cost), color = mutedColor))
+                }
+                if (!isRewardOnly) add(ChatPiece.Text("\n", color = mutedColor))
+            }
+            message.user?.takeIf { !isRewardOnly && (noticeBody == null || hasSemanticBody) }?.let { user ->
+                val name = user.displayName(nameDisplay)
                 name?.let {
                     add(ChatPiece.Username(
                         it,
                         colors.resolve(user.color?.let(::colorToHex), user.id ?: user.login ?: it, rowBackground),
                         bold = boldNames || specialNotice,
+                        paint = if (showNamePaints) {
+                            user.id?.let(catalog.userDecorations::get)?.paintId?.let(catalog.namePaints::get)
+                        } else null,
                     ))
                 }
-            }
-            if (message.rewardId != null && message.twitchType != TwitchChatMessageType.Highlighted) {
-                add(ChatPiece.Text("${labels.redeemed(labels.reward)}\n"))
             }
             resolvedSegments.forEach { segment ->
                 when (segment) {
@@ -144,21 +242,53 @@ class ChatRowCompiler(
                         ),
                     )
                     is ChatSegment.Gif -> {
-                        // Twitch's EventSub GIF fragment carries an id and URL, but no
-                        // dimensions. Keep the same large, 16:9 presentation as Twitch chat.
-                        if (lastOrNull() !is ChatPiece.Text || !(last() as ChatPiece.Text).value.endsWith("\n")) {
-                            add(ChatPiece.Text("\n"))
+                        when (gifDisplayMode) {
+                            ChatGifDisplayMode.LINK -> add(ChatPiece.Text(segment.url))
+                            ChatGifDisplayMode.EMOTE -> add(ChatPiece.Gif(
+                                ChatAssetSpec(ChatAssetKey(segment.url), 16, 9, emoteHeightPx),
+                                segment.url,
+                                segment.fallbackText,
+                                segment.interaction,
+                            ))
+                            ChatGifDisplayMode.LARGE -> {
+                                // EventSub GIF fragments do not carry dimensions. Keep the
+                                // existing large presentation on its own line.
+                                if (lastOrNull() !is ChatPiece.Text || !(last() as ChatPiece.Text).value.endsWith("\n")) {
+                                    add(ChatPiece.Text("\n"))
+                                }
+                                add(ChatPiece.Gif(
+                                    ChatAssetSpec(ChatAssetKey(segment.url), 16, 9, 180),
+                                    segment.url,
+                                    segment.fallbackText,
+                                    segment.interaction,
+                                ))
+                                add(ChatPiece.Text("\n"))
+                            }
                         }
-                        add(ChatPiece.Gif(
-                            ChatAssetSpec(ChatAssetKey(segment.url), 16, 9, 180),
-                            segment.url,
-                            segment.fallbackText,
-                            segment.interaction,
-                        ))
-                        add(ChatPiece.Text("\n"))
                     }
-                    is ChatSegment.Cheermote -> add(ChatPiece.Cheermote(segment.asset.scaledTo(targetHeight), segment.text, segment.bits, segment.color))
+                    is ChatSegment.Cheermote -> {
+                        val catalogCheermote = catalog.cheermotes[segment.asset.key.value]
+                        add(
+                            ChatPiece.Cheermote(
+                                asset = (catalogCheermote?.asset ?: segment.asset).scaledTo(targetHeight),
+                                value = segment.text,
+                                bits = segment.bits,
+                                color = segment.color ?: catalogCheermote?.color,
+                                interaction = ChatEmoteInteraction(
+                                    id = segment.asset.key.value,
+                                    name = segment.text,
+                                    url = catalogCheermote?.asset?.key?.value ?: segment.asset.key.value,
+                                    animated = false,
+                                    provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.TWITCH,
+                                    scope = null,
+                                ),
+                            ),
+                        )
+                    }
                 }
+            }
+            translation(message)?.takeIf { it.isNotBlank() }?.let {
+                add(ChatPiece.Text("\n$it", color = mutedColor))
             }
         }
         return ChatRowUiModel(
@@ -171,8 +301,9 @@ class ChatRowCompiler(
             backgroundStyle = when {
                 message.twitchType == TwitchChatMessageType.Highlighted -> ChatRowBackground.HIGHLIGHT
                 isWatchStreak -> ChatRowBackground.WATCH_STREAK
-                message.isFirst && firstMessageVisibility == 0 -> ChatRowBackground.FIRST_CHATTER
-                message.isFirst && firstMessageVisibility == 1 -> ChatRowBackground.FIRST_CHATTER_TINT
+                isSubscription -> ChatRowBackground.SUBSCRIPTION
+                (message.isFirst || message.twitchType == TwitchChatMessageType.UserIntro) && firstMessageVisibility == 0 -> ChatRowBackground.FIRST_CHATTER
+                (message.isFirst || message.twitchType == TwitchChatMessageType.UserIntro) && firstMessageVisibility == 1 -> ChatRowBackground.FIRST_CHATTER_TINT
                 message.rewardId != null && firstMessageVisibility < 2 -> ChatRowBackground.REWARD
                 message.kind != ChatMessageKind.CHAT || !message.noticeType.isNullOrBlank() || !message.systemText.isNullOrBlank() -> ChatRowBackground.NOTICE
                 else -> ChatRowBackground.NORMAL
@@ -183,7 +314,7 @@ class ChatRowCompiler(
             twitchType = message.twitchType,
             accessibilityText = buildString {
                 message.user?.takeIf { noticeBody == null || hasSemanticBody }?.let { user ->
-                    (user.displayName ?: user.login)?.let { append(it).append(": ") }
+                    user.displayName(nameDisplay)?.let { append(it).append(": ") }
                 }
                 resolvedSegments.forEach { segment ->
                     when (segment) {
@@ -194,6 +325,10 @@ class ChatRowCompiler(
                         is ChatSegment.Cheermote -> append(segment.bits).append(" Bits")
                     }
                 }
+                if (isRewardOnly) {
+                    append(message.user?.displayName(nameDisplay).orEmpty())
+                    append(" ").append(labels.userRedeemed(reward?.title ?: labels.reward))
+                }
             },
         )
     }
@@ -201,11 +336,29 @@ class ChatRowCompiler(
     private fun badgeSpec(badge: ChatBadgeRef, catalog: ChatCatalogSnapshot): ChatAssetSpec =
         (catalog.badges[badge.catalogKey]?.asset ?: badge.asset).scaledTo(badgeHeightPx)
 
-    private fun resolveSegments(segments: List<ChatSegment>, catalog: ChatCatalogSnapshot): List<ChatSegment> {
+    private fun badgeInteraction(badge: ChatBadgeRef, catalog: ChatCatalogSnapshot): ChatEmoteInteraction {
+        val definition = catalog.badges[badge.catalogKey]
+        return ChatEmoteInteraction(
+            id = badge.versionId,
+            name = definition?.info ?: badge.info ?: badge.setId,
+            url = definition?.asset?.key?.value ?: badge.asset.key.value,
+            animated = false,
+            provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.TWITCH,
+            scope = null,
+        )
+    }
+
+    private fun resolveSegments(
+        segments: List<ChatSegment>,
+        catalog: ChatCatalogSnapshot,
+        resolveThirdParty: Boolean = true,
+        personalEmoteSetId: String? = null,
+    ): List<ChatSegment> {
         val resolved = ArrayList<ChatSegment>()
         segments.forEach { segment ->
             if (segment is ChatSegment.Text) {
-                tokenizeThirdPartyText(segment.text, catalog, resolved)
+                if (resolveThirdParty) tokenizeThirdPartyText(segment.text, catalog, resolved, personalEmoteSetId)
+                else resolved += segment
             } else {
                 resolved += segment
             }
@@ -213,14 +366,19 @@ class ChatRowCompiler(
         return resolved
     }
 
-    private fun tokenizeThirdPartyText(text: String, catalog: ChatCatalogSnapshot, output: MutableList<ChatSegment>) {
+    private fun tokenizeThirdPartyText(
+        text: String,
+        catalog: ChatCatalogSnapshot,
+        output: MutableList<ChatSegment>,
+        personalEmoteSetId: String?,
+    ) {
         Regex("\\s+|\\S+").findAll(text).forEach { match ->
             val token = match.value
             if (token.firstOrNull()?.isWhitespace() == true) {
                 output += ChatSegment.Text(token)
                 return@forEach
             }
-            val definition = catalog.lookupThirdParty(token)
+            val definition = catalog.lookupThirdParty(token, showPersonalEmotes, personalEmoteSetId)
             if (definition == null) {
                 output += ChatSegment.Text(token)
                 return@forEach
@@ -254,7 +412,50 @@ class ChatRowCompiler(
     }
 
     private fun colorToHex(color: Int): String = "#%06X".format(color and 0xFFFFFF)
+
+    private companion object {
+        val SUBSCRIPTION_NOTICE_TYPES = setOf(
+            "sub",
+            "resub",
+            "subgift",
+            "submysterygift",
+            "giftpaidupgrade",
+            "anongiftpaidupgrade",
+            "prime_paid_upgrade",
+            "gift_paid_upgrade",
+            "sub_gift",
+            "community_sub_gift",
+            "shared_chat_sub",
+            "shared_chat_resub",
+            "shared_chat_sub_gift",
+            "shared_chat_community_sub_gift",
+        )
+    }
 }
 
-private fun ChatCatalogSnapshot.lookupThirdParty(token: String): ChatCatalogEmote? =
-    sevenTv[token] ?: bttv[token] ?: ffz[token]
+private fun ChatCatalogSnapshot.lookupThirdParty(
+    token: String,
+    includePersonal: Boolean,
+    personalEmoteSetId: String?,
+): ChatCatalogEmote? {
+    fun ScopedEmoteCatalog.lookup(): ChatCatalogEmote? =
+        lookup(token, personalEmoteSetId.takeIf { includePersonal })
+    return sevenTv.lookup() ?: bttv.lookup() ?: ffz.lookup()
+}
+
+private fun messagePersonalEmoteSetId(
+    message: ChatMessage,
+    catalog: ChatCatalogSnapshot,
+): String? = message.user?.id?.let(catalog.userDecorations::get)?.personalEmoteSetId
+
+private fun com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser.displayName(mode: String): String? {
+    val display = displayName?.takeIf { it.isNotBlank() }
+    val loginName = login?.takeIf { it.isNotBlank() }
+    return when {
+        display == null -> loginName
+        loginName == null || display.equals(loginName, ignoreCase = true) -> display
+        mode == "0" -> "$display($loginName)"
+        mode == "1" -> display
+        else -> loginName
+    }
+}

@@ -285,14 +285,16 @@ object ChatAdapterUtils {
                 } else {
                     chatMessage.reply?.userName ?: chatMessage.reply?.userLogin
                 }
+                val mutedColor = getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)
+                appendSpecialIcon(builder, context, R.drawable.ic_chat_reply, mutedColor, sizeDp = 18)
+                builder.append(' ')
                 val string = replyMessage.format(userName, "")
-                builder.append(string)
-                builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), 0, string.length, SPAN_EXCLUSIVE_EXCLUSIVE)
-                builderIndex += string.length
+                appendSpecialText(builder, string, mutedColor)
+                builderIndex = builder.length
                 val message = chatMessage.reply?.message
                 if (message != null) {
                     builder.append(message)
-                    builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), builderIndex, builderIndex + message.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(ForegroundColorSpan(mutedColor), builderIndex, builder.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                     prepareEmotes(chatMessage, message, builder, builderIndex, images, null, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes)
                     builderIndex = builder.length
                 }
@@ -431,7 +433,11 @@ object ChatAdapterUtils {
                         }
                     }
                 }
-                backgroundResource = 0
+                backgroundResource = if (chatMessage.isSubscriptionNotice()) {
+                    R.drawable.bg_chat_subscription
+                } else {
+                    0
+                }
             }
             else -> {
                 val reward = chatMessage.reward
@@ -1825,6 +1831,7 @@ internal fun chatMessageBackgroundResource(
 ): Int = when {
     chatMessage.isHighlightedMessage() -> R.drawable.bg_chat_highlight
     chatMessage.isFirst && firstMsgVisibility == 0 -> R.drawable.bg_chat_first_chatter
+    chatMessage.isSubscriptionNotice() -> R.drawable.bg_chat_subscription
     chatMessage.isFirst && firstMsgVisibility == 1 -> R.color.chatMessageFirst
     chatMessage.reward?.id != null && firstMsgVisibility < 2 -> R.color.chatMessageReward
     chatMessage.systemMsg != null || chatMessage.msgId != null -> R.color.chatMessageNotice
@@ -1865,10 +1872,11 @@ private fun appendSpecialIcon(
     context: Context,
     drawableId: Int,
     tint: Int,
+    sizeDp: Int = 22,
 ) {
     val start = builder.length
     builder.append('.')
-    val size = dp(context, 22)
+    val size = dp(context, sizeDp)
     val drawable = ContextCompat.getDrawable(context, drawableId)?.mutate() ?: return
     drawable.setTint(tint)
     drawable.setBounds(0, 0, size, size)

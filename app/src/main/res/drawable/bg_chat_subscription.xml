@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@color/chatMessageFirstChatter" />
+    <item android:drawable="@android:color/transparent" />
     <item
-        android:width="4dp"
+        android:width="3dp"
         android:gravity="start"
-        android:drawable="@color/chatMessageSpecialAccent" />
+        android:drawable="@color/chatMessageSubscriptionAccent" />
 </layer-list>

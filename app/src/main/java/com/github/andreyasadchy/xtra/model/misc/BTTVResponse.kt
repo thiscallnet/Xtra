@@ -7,4 +7,7 @@ class BTTVResponse(
     val id: String? = null,
     val code: String? = null,
     val animated: Boolean? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val modifier: Boolean? = null,
 )

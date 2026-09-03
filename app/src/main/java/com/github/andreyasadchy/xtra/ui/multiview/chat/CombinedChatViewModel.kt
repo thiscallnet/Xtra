@@ -7,13 +7,15 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.andreyasadchy.xtra.XtraApp
-import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.ui.Stream
-import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel
 import com.github.andreyasadchy.xtra.ui.multiview.CombinedChatPresentationPolicy
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionHandle
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
-import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
@@ -21,15 +23,23 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.TreeSet
 
 class CombinedChatViewModel(
     private val applicationContext: Context,
-    private val chatViewModelFactory: () -> ChatViewModel,
+    private val createSession: (LiveChatSessionSpec) -> ChatSessionHandle,
+    private val keepChatOpen: () -> Boolean = {
+        applicationContext.prefs().getBoolean(C.PLAYER_KEEP_CHAT_OPEN, false)
+    },
+    private val sessionScope: CoroutineScope? = null,
 ) : ViewModel() {
     private val sessions = linkedMapOf<String, ChannelSession>()
-    private val messages = mutableListOf<CombinedChatMessage>()
+    private val messages = TreeSet<CombinedChatMessage>(
+        compareBy<CombinedChatMessage> { it.message.timestampMs }.thenBy { it.sequence },
+    )
     private var sequence = 0L
     private var lifecycleStarted = false
     private val _updates = MutableSharedFlow<Unit>(
@@ -39,6 +49,8 @@ class CombinedChatViewModel(
     val updates: SharedFlow<Unit> = _updates
     private val _streamInfoUpdates = MutableStateFlow<Map<String, CombinedChatStreamInfo>>(emptyMap())
     val streamInfoUpdates: StateFlow<Map<String, CombinedChatStreamInfo>> = _streamInfoUpdates
+    private val ownerScope: CoroutineScope
+        get() = sessionScope ?: viewModelScope
 
     fun ensureStreams(streams: List<Stream>) {
         val desired = streams.mapNotNull { stream ->
@@ -54,12 +66,34 @@ class CombinedChatViewModel(
         desired.forEach { (identity, stream) ->
             val session = sessions[identity]
             if (session == null) {
-                val created = ChannelSession(identity, stream, chatViewModelFactory())
+                val channelId = stream.channelId?.trim()?.takeIf { it.isNotBlank() } ?: return@forEach
+                val channelLogin = stream.channelLogin?.trim()?.takeIf { it.isNotBlank() } ?: return@forEach
+                val created = ChannelSession(
+                    identity = identity,
+                    stream = stream,
+                    handle = createSession(
+                        LiveChatSessionSpec(
+                            channelId = channelId,
+                            channelLogin = channelLogin,
+                            streamId = stream.id?.takeIf { it.isNotBlank() },
+                        ),
+                    ),
+                )
                 sessions[identity] = created
                 observe(created)
                 if (lifecycleStarted) start(created)
             } else {
                 session.stream = stream
+            }
+        }
+        _streamInfoUpdates.update {
+            desired.mapValues { (identity, stream) ->
+                CombinedChatStreamInfo(
+                    identity = identity,
+                    title = stream.title,
+                    categoryId = stream.gameId,
+                    categoryName = stream.gameName,
+                )
             }
         }
         _updates.tryEmit(Unit)
@@ -72,8 +106,8 @@ class CombinedChatViewModel(
 
     fun onStop() {
         lifecycleStarted = false
-        if (applicationContext.prefs().getBoolean(C.PLAYER_KEEP_CHAT_OPEN, false)) return
-        sessions.values.forEach(ChannelSession::pause)
+        if (keepChatOpen()) return
+        sessions.values.forEach { it.pause(ownerScope) }
     }
 
     fun snapshot(filterIdentity: String? = null): List<CombinedChatMessage> {
@@ -92,142 +126,81 @@ class CombinedChatViewModel(
     }
 
     private fun observe(session: ChannelSession) {
-        // Keep combined-chat mutation handling off Main, but subscribe before startLive
-        // so the channel's ordered mutation stream is consumed from its first event.
-        session.jobs += viewModelScope.launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
-            session.viewModel.chatMutations.collect { mutation ->
-                when (mutation) {
-                    is ChatViewModel.ChatMutation.Append -> {
-                        append(session, mutation.messages, mutation.trimCount)
-                    }
-                    is ChatViewModel.ChatMutation.Prepend -> prependHistory(session, mutation.messages)
-                    is ChatViewModel.ChatMutation.Clear -> removeSessionMessages(session, Int.MAX_VALUE)
-                }
+        session.jobs += ownerScope.launch {
+            // The v2 batcher publishes a complete, ordered snapshot. Keeping one collector per
+            // handle means a second Multiview channel cannot stop or overwrite the first one.
+            session.handle.active.session.attachUi().collect { snapshot ->
+                replaceSession(session, snapshot.messages)
             }
         }
-        session.jobs += viewModelScope.launch {
-            session.viewModel.reloadMessages.collect { reload ->
-                if (reload) {
-                    session.renderGeneration = CombinedChatPresentationPolicy.nextRenderGeneration(session.renderGeneration)
-                    session.viewModel.reloadMessages.value = false
-                    _updates.tryEmit(Unit)
-                }
-            }
-        }
-        session.jobs += viewModelScope.launch {
-            session.viewModel.thirdPartyEmotesUpdated.collect {
+        session.jobs += ownerScope.launch {
+            combine(session.handle.active.catalog.state, session.handle.active.rewardCatalog) { catalog, rewards ->
+                catalog.hydrated to rewards
+            }.collect { (hydrated, rewards) ->
+                session.rewardCatalog = rewards
+                if (!hydrated) return@collect
                 session.renderGeneration = CombinedChatPresentationPolicy.nextRenderGeneration(session.renderGeneration)
                 _updates.tryEmit(Unit)
-            }
-        }
-        session.jobs += viewModelScope.launch {
-            session.viewModel.userEmotesUpdated.collect {
-                session.renderGeneration = CombinedChatPresentationPolicy.nextRenderGeneration(session.renderGeneration)
-                _updates.tryEmit(Unit)
-            }
-        }
-        session.jobs += viewModelScope.launch {
-            session.viewModel.streamInfo.collect { info ->
-                info?.let {
-                    _streamInfoUpdates.update { updates ->
-                        updates + (session.identity to CombinedChatStreamInfo(
-                            identity = session.identity,
-                            title = it.title,
-                            categoryId = it.gameId,
-                            categoryName = it.gameName,
-                        ))
-                    }
-                }
             }
         }
     }
 
     private fun start(session: ChannelSession) {
-        val stream = session.stream
-        val channelLogin = stream.channelLogin?.trim()?.takeIf { it.isNotBlank() } ?: return
-        val preferences = applicationContext.prefs()
-        if (!session.hasStarted) {
-            session.viewModel.startLive(
-                networkLibrary = preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
-                channelId = stream.channelId,
-                channelLogin = channelLogin,
-                channelName = stream.channelName,
-                streamId = stream.id,
-                readOnly = true,
-            )
-            session.hasStarted = true
-        } else {
-            // Match ChatFragment.reconnect(): restart the live transport and
-            // rehydrate recent messages without recreating the ViewModel.
-            session.viewModel.startLiveChat(
-                stream.channelId,
-                channelLogin,
-                readOnly = true,
-            )
-            if (preferences.getBoolean(C.CHAT_RECENT, true)) {
-                session.viewModel.loadRecentMessages(
-                    preferences.getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
-                    channelLogin,
-                )
-            }
-        }
+        if (session.networkActive) return
         session.networkActive = true
-    }
-
-    private fun append(session: ChannelSession, incoming: List<ChatMessage>, trimCount: Int) {
-        if (incoming.isEmpty() && trimCount <= 0) return
-        synchronized(messages) {
-            var remaining = trimCount
-            val iterator = messages.listIterator()
-            while (iterator.hasNext() && remaining > 0) {
-                if (iterator.next().identity == session.identity) {
-                    iterator.remove()
-                    remaining--
-                }
-            }
-            incoming.forEach { message ->
-                if (message.id == null || messages.none { it.identity == session.identity && it.message.id == message.id }) {
-                    messages += CombinedChatMessage(session.identity, displayName(session.stream), message, sequence++)
-                }
-            }
-            while (messages.size > MAX_MESSAGES) messages.removeAt(0)
+        session.controlJob?.cancel()
+        session.controlJob = ownerScope.launch(Dispatchers.Default) {
+            runCatching { session.handle.start() }
+                .onFailure { session.networkActive = false }
         }
-        _updates.tryEmit(Unit)
     }
 
-    private fun prependHistory(session: ChannelSession, history: List<ChatMessage>) {
+    private fun replaceSession(session: ChannelSession, incoming: List<ChatMessage>) {
         synchronized(messages) {
-            history.forEach { message ->
-                if (message.id == null || messages.none { it.identity == session.identity && it.message.id == message.id }) {
-                    messages += CombinedChatMessage(session.identity, displayName(session.stream), message, sequence++)
+            // Session snapshots are complete, but most publications are a one-message append.
+            // Keep the channel index and mutate only IDs that changed so Multiview does not
+            // remove/reinsert and globally sort every retained row on each message.
+            val incomingById = incoming.associateBy { it.id }
+            val previous = session.renderedMessages
+            previous.keys.toList().filterNot(incomingById::containsKey).forEach { id ->
+                messages.remove(previous.remove(id))
+            }
+            incomingById.forEach { (id, message) ->
+                val old = previous[id]
+                if (old == null) {
+                    val added = CombinedChatMessage(
+                        identity = session.identity,
+                        channelName = displayName(session.stream),
+                        message = message,
+                        sequence = sequence++,
+                    )
+                    previous[id] = added
+                    messages.add(added)
+                } else if (old.message != message) {
+                    val wasVisible = messages.remove(old)
+                    val updated = old.copy(message = message, channelName = displayName(session.stream))
+                    previous[id] = updated
+                    if (wasVisible) messages.add(updated)
                 }
             }
-            messages.sortWith(compareBy<CombinedChatMessage> { it.message.timestamp ?: Long.MAX_VALUE }.thenBy { it.sequence })
-            while (messages.size > MAX_MESSAGES) messages.removeAt(0)
-        }
-        _updates.tryEmit(Unit)
-    }
-
-    private fun removeSessionMessages(session: ChannelSession, count: Int) {
-        if (count <= 0) return
-        synchronized(messages) {
-            var remaining = count
-            val iterator = messages.listIterator()
-            while (iterator.hasNext() && remaining > 0) {
-                if (iterator.next().identity == session.identity) {
-                    iterator.remove()
-                    remaining--
-                }
+            while (messages.size > MAX_MESSAGES) {
+                // Keep the complete per-channel snapshot indexed. The row may still be present
+                // in that session's 600-message timeline and must not be rediscovered as new on
+                // every subsequent publication.
+                messages.pollFirst()
             }
         }
         _updates.tryEmit(Unit)
     }
 
-    fun session(identity: String): ChatViewModel? = sessions[identity]?.viewModel
+    private fun sessionFor(identity: String): ChannelSession? = sessions[identity]
+
+    fun session(identity: String): ActiveChatSession? = sessions[identity]?.handle?.active
 
     fun channelId(identity: String): String? = sessions[identity]?.stream?.channelId
+
+    fun rewardCatalog(identity: String): Map<String, com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward> =
+        sessions[identity]?.rewardCatalog.orEmpty()
 
     fun invalidateRendering(identity: String?) {
         if (identity == null || sessions[identity] == null) return
@@ -251,25 +224,34 @@ class CombinedChatViewModel(
     private class ChannelSession(
         val identity: String,
         @Volatile var stream: Stream,
-        val viewModel: ChatViewModel,
+        val handle: ChatSessionHandle,
     ) {
         val jobs = mutableListOf<Job>()
         var renderGeneration: Long = 0L
-        var hasStarted = false
         var networkActive = false
+        var controlJob: Job? = null
+        var rewardCatalog: Map<String, com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward> = emptyMap()
+        val renderedMessages = linkedMapOf<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId, CombinedChatMessage>()
 
-        fun pause() {
+        fun pause(scope: kotlinx.coroutines.CoroutineScope) {
             if (!networkActive) return
-            viewModel.stopLiveChat()
-            viewModel.stopReplayChat()
             networkActive = false
+            controlJob?.cancel()
+            controlJob = null
+            controlJob = scope.launch(Dispatchers.Default) {
+                runCatching { handle.stop() }
+            }
         }
 
         fun release() {
             jobs.forEach(Job::cancel)
             jobs.clear()
-            viewModel.releaseForMultiview()
+            controlJob?.cancel()
+            controlJob = null
+            renderedMessages.clear()
+            handle.closeAsync()
         }
+
     }
 
     companion object {
@@ -281,18 +263,7 @@ class CombinedChatViewModel(
                 val module = application.xtraModule
                 CombinedChatViewModel(
                     applicationContext = application.applicationContext,
-                    chatViewModelFactory = {
-                        ChatViewModel(
-                            application.applicationContext,
-                            module.graphQLRepository,
-                            module.dropsRepository,
-                            module.helixRepository,
-                            module.playerRepository,
-                            module.trustManager,
-                            module.json,
-                            module.chatSessionManager,
-                        )
-                    },
+                    createSession = module.chatSessionManager::createLive,
                 )
             }
         }

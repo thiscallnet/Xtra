@@ -50,9 +50,12 @@ import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentChatBinding
+import com.github.andreyasadchy.xtra.databinding.ViewPinnedChatMessageBinding
 import com.github.andreyasadchy.xtra.model.chat.Badge
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityState
+import com.github.andreyasadchy.xtra.model.chat.NamePaint
+import com.github.andreyasadchy.xtra.model.chat.STVBadge
 import com.github.andreyasadchy.xtra.model.chat.effectiveBadge
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.Poll
@@ -74,9 +77,17 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage as V2ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogBadge
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaintShadow
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatUserDecoration
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatV2RendererController
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatViewportState
@@ -110,6 +121,9 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.max
@@ -136,6 +150,44 @@ internal fun matchesV2MessageUser(
     }
     return matches(message.user?.id, message.user?.login) ||
             message.reply?.let { reply -> matches(reply.parentUserId, reply.parentUserLogin) } == true
+}
+
+internal fun ChatViewModel.v2DecorationSnapshot(): ChatDecorationSnapshot {
+    val paints = synchronized(namePaints) {
+        namePaints.mapNotNull { paint -> paint.id?.let { it to paint.toV2() } }.toMap()
+    }
+    val badges = synchronized(stvBadges) {
+        stvBadges.mapNotNull { badge -> badge.toV2() }.toMap()
+    }
+    val users = synchronized(stvUsers) {
+        stvUsers.associate { user ->
+            user.userId to ChatUserDecoration(user.paintId, user.badgeId, user.emoteSetId)
+        }
+    }
+    return ChatDecorationSnapshot(users = users, paints = paints, badges = badges)
+}
+
+private fun NamePaint.toV2() = ChatNamePaint(
+    colors = colors?.toList().orEmpty(),
+    imageUrl = imageUrl,
+    colorPositions = colorPositions?.toList().orEmpty(),
+    type = type,
+    angle = angle,
+    repeat = repeat == true,
+    shadows = shadows.orEmpty().map { ChatNamePaintShadow(it.xOffset, it.yOffset, it.radius, it.color) },
+)
+
+private fun STVBadge.toV2(): Pair<String, ChatCatalogBadge>? {
+    val key = id.takeIf { it.isNotBlank() } ?: return null
+    val url = url4x ?: url3x ?: url2x ?: url1x ?: return null
+    return key to ChatCatalogBadge(
+        name = key,
+        asset = ChatAssetSpec(ChatAssetKey(url), 18, 18, 18),
+        provider = ChatAssetProvider.SEVEN_TV,
+        setId = key,
+        versionId = "default",
+        info = name,
+    )
 }
 
 internal data class ComposerOverlaySnapshot<Overlay, RestoreState>(
@@ -205,6 +257,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     private var _binding: FragmentChatBinding? = null
+    private var pinnedMessageBinding: ViewPinnedChatMessageBinding? = null
     private val binding get() = _binding!!
     private val viewModel: ChatViewModel by viewModels { ChatViewModelFactory }
     private var adapter: ChatAdapter? = null
@@ -213,6 +266,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var useChatV2 = false
     private var chatV2RendererVisible = true
     private var selectedV2Message: V2ChatMessage? = null
+    private val v2Translations = mutableMapOf<String, String>()
 
     internal val isUsingChatV2: Boolean
         get() = useChatV2
@@ -548,6 +602,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentChatBinding.inflate(inflater, container, false)
+        pinnedMessageBinding = ViewPinnedChatMessageBinding.bind(
+            _binding!!.root.findViewById(R.id.pinnedMessageOverlay),
+        )
         return binding.root
     }
 
@@ -564,11 +621,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             updatePinnedMessageOverlayWidth()
         }
         updatePinnedMessageOverlayWidth()
-        binding.pinnedMessageSeen.setOnClickListener {
+        val pinnedBinding = pinnedMessageBinding ?: return
+        pinnedBinding.pinnedMessageSeen.setOnClickListener {
             seenPinnedMessageId = displayedPinnedMessageId
-            binding.pinnedMessageOverlay.isGone = true
+            pinnedBinding.pinnedMessageOverlay.isGone = true
         }
-        binding.pinnedMessageMinimize.setOnClickListener {
+        pinnedBinding.pinnedMessageMinimize.setOnClickListener {
             pinnedMessageMinimized = !pinnedMessageMinimized
             updatePinnedMessage(viewModel.pinnedChatMessage.value)
         }
@@ -678,6 +736,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live
                     messagingEnabled = enableMessaging
                     val chatStyle = resolveChatRenderStyle(requireContext())
+                    val profilePopoutGesture = ChatProfilePopoutGesture.fromPreference(
+                        requireContext().prefs().getString(C.CHAT_PROFILE_POPOUT_GESTURE, "tap"),
+                    )
                     val chatSizing = ChatSizing(
                         textSizeSp = chatStyle.textSizeSp,
                         emoteHeightPx = chatStyle.emoteHeightPx,
@@ -762,6 +823,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             editText.clearFocus()
                             ImageClickedDialog.newInstance(url, name, format, isAnimated, source, thirdParty, emoteId).show(this@ChatFragment.childFragmentManager, "imageDialog")
                         },
+                        profilePopoutGesture = profilePopoutGesture,
                     )
                     adapter?.onMessagesPublished = ::onChatMessagesPublished
                     if (useChatV2) {
@@ -781,10 +843,20 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             badgeHeightPx = chatStyle.badgeHeightPx,
                             messageTextSizeSp = chatStyle.textSizeSp,
                             animateGifs = chatStyle.animateGifs,
+                            gifDisplayMode = chatStyle.gifDisplayMode,
                             showBadges = chatStyle.showBadges,
                             enableOverlayEmotes = chatStyle.enableOverlayEmotes,
                             firstMessageVisibility = chatStyle.firstMessageVisibility,
                             boldNames = chatStyle.boldNames,
+                            nameDisplay = requireContext().prefs().getString(C.UI_NAME_DISPLAY, "0") ?: "0",
+                            randomUsernameColors = requireContext().prefs().getBoolean(C.CHAT_RANDOM_COLOR, true),
+                            showSystemMessageEmotes = requireContext().prefs().getBoolean(C.CHAT_SYSTEM_MESSAGE_EMOTES, true),
+                            showNamePaints = requireContext().prefs().getBoolean(C.CHAT_SHOW_PAINTS, true),
+                            showThirdPartyBadges = requireContext().prefs().getBoolean(C.CHAT_SHOW_STV_BADGES, true),
+                            showPersonalEmotes = requireContext().prefs().getBoolean(C.CHAT_SHOW_PERSONAL_EMOTES, true),
+                            translation = { message -> v2Translations[message.id.value] },
+                            onTranslateMessage = ::requestV2Translation,
+                            translateAllMessages = viewModel.translateAllMessages.value == true,
                             timestampFormat = chatStyle.timestampFormat,
                             showTimestamps = chatStyle.showTimestamps,
                             readableUsernameColors = requireContext().prefs().getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),
@@ -792,6 +864,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             presentationLabels = ChatPresentationLabels(
                                 firstChatter = getString(R.string.chat_first),
                                 redeemed = { reward -> getString(R.string.redeemed, reward) },
+                                userRedeemed = { reward -> getString(R.string.user_redeemed, "", reward).trimStart() },
                                 highlightTitle = getString(R.string.chat_highlight_title),
                                 highlightRedeemed = { title -> getString(R.string.chat_highlight_redeemed, title) },
                                 watchStreakReached = getString(R.string.chat_watch_streak_reached),
@@ -801,6 +874,20 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             onStateChanged = { state ->
                                 btnDown.isVisible = state.followMode == com.github.andreyasadchy.xtra.ui.chat.v2.ui.FollowMode.USER_SCROLLED_UP
                             },
+                            profilePopoutGesture = profilePopoutGesture,
+                            rewardCatalog = viewModel.channelPoints.map { points ->
+                                points?.rewards.orEmpty().associate { reward ->
+                                    reward.id to ChatReward(
+                                        title = reward.title,
+                                        cost = reward.cost,
+                                        imageUrl = reward.imageUrl,
+                                    )
+                                }
+                            },
+                            decorationCatalog = merge(
+                                viewModel.thirdPartyEmotesUpdated,
+                                viewModel.updateUserMessages.map { Unit },
+                            ).onStart { emit(Unit) }.map { viewModel.v2DecorationSnapshot() },
                             onMessageLongClick = ::onV2MessageLongClick,
                             onEmoteClick = ::onV2EmoteClick,
                             onGifClick = ::onV2GifClick,
@@ -1328,6 +1415,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 viewModel.translateAllMessages.collectLatest {
                                     if (it != null) {
                                         adapter?.translateAllMessages = it
+                                        chatV2Renderer?.setTranslateAllMessages(it)
                                     }
                                 }
                             }
@@ -1421,7 +1509,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private fun updatePinnedMessage(message: PinnedChatMessage?) {
         val currentBinding = _binding ?: return
-        val overlay = currentBinding.pinnedMessageOverlay
+        val pinnedBinding = pinnedMessageBinding ?: return
+        val overlay = pinnedBinding.pinnedMessageOverlay
         if (message == null || message.id == seenPinnedMessageId) {
             overlay.isGone = true
             return
@@ -1434,26 +1523,28 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             // action still allows expansion when deliberately selected.
             pinnedMessageMinimized = requireContext().isTelevision()
         }
-        currentBinding.pinnedMessageBy.text = message.pinnedBy
-        currentBinding.pinnedMessageSender.text = message.sender ?: message.pinnedBy
+        pinnedBinding.pinnedMessageBy.text = message.pinnedBy
+        pinnedBinding.pinnedMessageSender.text = message.sender ?: message.pinnedBy
         val senderColor = message.senderColor?.let { color ->
             runCatching { Color.parseColor(color) }.getOrNull()
         }
-        currentBinding.pinnedMessageSender.setTextColor(
-            senderColor ?: MaterialColors.getColor(currentBinding.pinnedMessageSender, androidx.appcompat.R.attr.colorPrimary),
+        pinnedBinding.pinnedMessageSender.setTextColor(
+            senderColor ?: MaterialColors.getColor(pinnedBinding.pinnedMessageSender, androidx.appcompat.R.attr.colorPrimary),
         )
         val sentAt = message.sentAt?.let { TwitchApiHelper.getTimestamp(it, "2") }
-        currentBinding.pinnedMessageSentAt.text = sentAt?.let { getString(R.string.pinned_message_sent_at, it) }.orEmpty()
-        currentBinding.pinnedMessageSentAt.isVisible = sentAt != null
-        currentBinding.pinnedMessageText.text = message.text
-        currentBinding.pinnedMessageText.isVisible = !pinnedMessageMinimized
-        currentBinding.pinnedMessageFooter.isVisible = !pinnedMessageMinimized
-        renderPinnedMessageBadges(currentBinding.pinnedMessagePinnedByBadges, message.pinnedByBadges)
-        renderPinnedMessageBadges(currentBinding.pinnedMessageSenderBadges, message.senderBadges)
-        currentBinding.pinnedMessageMinimize.setImageResource(
+        pinnedBinding.pinnedMessageSentAt.text = sentAt?.let { getString(R.string.pinned_message_sent_at, it) }.orEmpty()
+        pinnedBinding.pinnedMessageSentAt.isVisible = sentAt != null
+        pinnedBinding.pinnedMessageText.text = message.text
+        pinnedBinding.pinnedMessageText.isVisible = !pinnedMessageMinimized
+        pinnedBinding.pinnedMessageCollapsedPreview.text = message.text
+        pinnedBinding.pinnedMessageCollapsedPreview.isVisible = pinnedMessageMinimized
+        pinnedBinding.pinnedMessageFooter.isVisible = !pinnedMessageMinimized
+        renderPinnedMessageBadges(pinnedBinding.pinnedMessagePinnedByBadges, message.pinnedByBadges)
+        renderPinnedMessageBadges(pinnedBinding.pinnedMessageSenderBadges, message.senderBadges)
+        pinnedBinding.pinnedMessageMinimize.setImageResource(
             if (pinnedMessageMinimized) R.drawable.baseline_expand_more_black_24 else R.drawable.ic_expand_less,
         )
-        currentBinding.pinnedMessageMinimize.contentDescription = getString(
+        pinnedBinding.pinnedMessageMinimize.contentDescription = getString(
             if (pinnedMessageMinimized) R.string.pinned_message_expand else R.string.pinned_message_minimize,
         )
         overlay.isVisible = true
@@ -1501,14 +1592,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private fun updatePinnedMessageOverlayWidth() {
         val currentBinding = _binding ?: return
+        val pinnedBinding = pinnedMessageBinding ?: return
         val container = currentBinding.chatTopOverlays
         val availableWidth = container.width - container.paddingLeft - container.paddingRight
         if (availableWidth <= 0) return
-        val maxWidth = (360 * resources.displayMetrics.density).toInt()
-        val width = minOf(maxWidth, availableWidth)
-        val layoutParams = currentBinding.pinnedMessageOverlay.layoutParams ?: return
+        val width = availableWidth
+        val layoutParams = pinnedBinding.pinnedMessageOverlay.layoutParams ?: return
         if (layoutParams.width != width) {
-            currentBinding.pinnedMessageOverlay.updateLayoutParams<ViewGroup.LayoutParams> {
+            pinnedBinding.pinnedMessageOverlay.updateLayoutParams<ViewGroup.LayoutParams> {
                 this.width = width
             }
         }
@@ -1526,7 +1617,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     LiveChatSessionSpec(
                         channelId = channelId,
                         channelLogin = channelLogin,
-                        recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+                        streamId = currentLiveStreamId(),
+                        legacySupplementalSockets = true,
                     ),
                 )
             }.onFailure { error ->
@@ -1547,7 +1639,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     }
                     viewModel.startLive(
                         requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+                        if (useChatV2) null else "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
                         channelId,
                         channelLogin,
                         args.getString(KEY_CHANNEL_NAME),
@@ -1704,7 +1796,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     startChatV2Session(channelId, channelLogin)
                     viewModel.startLive(
                         networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
+                        recentMessagesUrl = null,
                         channelId = channelId,
                         channelLogin = channelLogin,
                         channelName = requireArguments().getString(KEY_CHANNEL_NAME),
@@ -2702,7 +2794,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             reply = reply,
             replyParent = replyParent,
             timestamp = message.timestampMs,
-        )
+        ).apply {
+            v2Translations[message.id.value]?.let {
+                translatedMessage = it
+                translationFailed = it.contains(getString(R.string.translate_failed_id), ignoreCase = true)
+            }
+        }
     }
 
     override fun onCreateMessageClickedChatAdapter(): MessageClickedChatAdapter? {
@@ -2826,6 +2923,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         chatMessage.translatedMessage = getString(R.string.translate_failed_id)
                         chatMessage.translationFailed = true
                         chatMessage.messageLanguage = null
+                        syncV2Translation(chatMessage)
                         adapter?.updateMessageContent(chatMessage)
                         messageDialog?.updateTranslation(chatMessage, previousTranslation)
                         replyDialog?.updateTranslation(chatMessage, previousTranslation)
@@ -2858,6 +2956,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         chatMessage.translatedMessage = getString(R.string.translated_message, languageName, text)
                         chatMessage.translationFailed = false
                         chatMessage.messageLanguage = null
+                        syncV2Translation(chatMessage)
                         adapter?.updateMessageContent(chatMessage)
                         messageDialog?.updateTranslation(chatMessage, previousTranslation)
                         replyDialog?.updateTranslation(chatMessage, previousTranslation)
@@ -2868,6 +2967,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         chatMessage.translatedMessage = getString(R.string.translate_failed, languageName)
                         chatMessage.translationFailed = true
                         chatMessage.messageLanguage = sourceLanguage
+                        syncV2Translation(chatMessage)
                         adapter?.updateMessageContent(chatMessage)
                         messageDialog?.updateTranslation(chatMessage, previousTranslation)
                         replyDialog?.updateTranslation(chatMessage, previousTranslation)
@@ -2878,10 +2978,22 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             chatMessage.translatedMessage = getString(R.string.translate_failed_id)
             chatMessage.translationFailed = true
             chatMessage.messageLanguage = null
+            syncV2Translation(chatMessage)
             adapter?.updateMessageContent(chatMessage)
             messageDialog?.updateTranslation(chatMessage, previousTranslation)
             replyDialog?.updateTranslation(chatMessage, previousTranslation)
         }
+    }
+
+    private fun syncV2Translation(chatMessage: ChatMessage) {
+        if (!useChatV2 || chatMessage.id.isNullOrBlank()) return
+        chatMessage.translatedMessage?.let { v2Translations[chatMessage.id!!] = it }
+            ?: v2Translations.remove(chatMessage.id!!)
+        chatV2Renderer?.invalidatePresentation()
+    }
+
+    private fun requestV2Translation(message: V2ChatMessage) {
+        onTranslateMessageClicked(v2MessageToLegacy(message), null)
     }
 
     private fun showLanguageDownloadDialog(chatMessage: ChatMessage, sourceLanguage: String) {
@@ -2915,6 +3027,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                     chatMessage.translatedMessage = getString(R.string.translated_message, languageName, text)
                                     chatMessage.translationFailed = false
                                     chatMessage.messageLanguage = null
+                                    syncV2Translation(chatMessage)
                                     adapter?.updateMessageContent(chatMessage)
                                     messageDialog?.updateTranslation(chatMessage, previousTranslation)
                                     replyDialog?.updateTranslation(chatMessage, previousTranslation)
@@ -2974,6 +3087,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onDestroyView() {
+        pinnedMessageBinding = null
         captureActiveOverlayState()
         chatV2ViewportState = chatV2Renderer?.state ?: chatV2ViewportState
         chatV2Renderer?.detach()

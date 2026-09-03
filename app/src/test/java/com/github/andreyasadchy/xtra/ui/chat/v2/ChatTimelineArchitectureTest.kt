@@ -35,6 +35,53 @@ class ChatTimelineArchitectureTest {
     }
 
     @Test
+    fun distinctRewardRedemptionIdsAreNeverCollapsedByTheTimeHeuristic() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 10)
+        val processor = ChatEventProcessor(scope, store)
+        val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", 1)
+        processor.activate(key)
+        val first = message(1, "user").copy(
+            rewardId = "sound-alert",
+            rewardRedemptionId = "redemption-1",
+            rawText = "",
+        )
+        val second = message(2, "user").copy(
+            rewardId = "sound-alert",
+            rewardRedemptionId = "redemption-2",
+            rawText = "",
+        )
+        processor.submit(key, ChatEvent.Message(first, eventId = "redemption-1"))
+        processor.submit(key, ChatEvent.Message(second, eventId = "redemption-2"))
+
+        assertEquals(listOf("1", "2"), snapshotAfter(store, "2").map { it.id.value })
+        scope.cancel()
+    }
+
+    @Test
+    fun idLessRewardAfterAnIdBearingRewardIsRetained() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 10)
+        val processor = ChatEventProcessor(scope, store)
+        val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", 1)
+        processor.activate(key)
+        val hermesFirst = message(1, "user").copy(
+            rewardId = "sound-alert",
+            rewardRedemptionId = "redemption-1",
+            rawText = "",
+        )
+        val delayedSecond = message(2, "user").copy(
+            rewardId = "sound-alert",
+            rawText = "",
+        )
+        processor.submit(key, ChatEvent.Message(hermesFirst, eventId = "redemption-1"))
+        processor.submit(key, ChatEvent.Message(delayedSecond, eventId = "chat-2"))
+
+        assertEquals(listOf("1", "2"), snapshotAfter(store, "2").map { it.id.value })
+        scope.cancel()
+    }
+
+    @Test
     fun semanticMessageDoesNotContainAssetReadiness() {
         val message = message(1)
         assertEquals(ChatMessageKind.CHAT, message.kind)

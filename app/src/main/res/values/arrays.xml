@@ -470,6 +470,30 @@
         <item>@string/chatFirstMsgEntries3</item>
     </string-array>
 
+    <string-array name="chatProfilePopoutGestureEntries" translatable="false">
+        <item>@string/chat_profile_popout_gesture_tap</item>
+        <item>@string/chat_profile_popout_gesture_hold</item>
+        <item>@string/chat_profile_popout_gesture_both</item>
+    </string-array>
+
+    <string-array name="chatProfilePopoutGestureValues" translatable="false">
+        <item>tap</item>
+        <item>hold</item>
+        <item>both</item>
+    </string-array>
+
+    <string-array name="chatGifDisplayEntries" translatable="false">
+        <item>@string/chat_gif_display_large</item>
+        <item>@string/chat_gif_display_emote</item>
+        <item>@string/chat_gif_display_link</item>
+    </string-array>
+
+    <string-array name="chatGifDisplayValues" translatable="false">
+        <item>large</item>
+        <item>emote</item>
+        <item>link</item>
+    </string-array>
+
     <string-array name="timestampEntries" translatable="false">
         <item>@string/timestamp_format_0</item>
         <item>@string/timestamp_format_1</item>

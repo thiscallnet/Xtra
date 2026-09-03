@@ -330,6 +330,7 @@ class EventSubWebSocket(
         /** Called after a Twitch reconnect handoff; subscriptions were transferred. */
         suspend fun onReconnectWelcome(sessionId: String) {}
         suspend fun onChatMessage(event: JSONObject, timestamp: String?) {}
+        suspend fun onChannelPointsRewardRedemption(event: JSONObject, timestamp: String?) {}
         suspend fun onUserNotice(event: JSONObject, timestamp: String?) {}
         suspend fun onClearChat(event: JSONObject, timestamp: String?) {}
         suspend fun onClearUserMessages(event: JSONObject, timestamp: String?) {}
@@ -375,6 +376,7 @@ class EventSubWebSocket(
                             if (event != null) {
                                 when (metadata.optString("subscription_type")) {
                                     "channel.chat.message" -> listener.onChatMessage(event, timestamp)
+                                    "channel.channel_points_custom_reward_redemption.add" -> listener.onChannelPointsRewardRedemption(event, timestamp)
                                     "channel.chat.notification" -> listener.onUserNotice(event, timestamp)
                                     "channel.chat.clear" -> listener.onClearChat(event, timestamp)
                                     "channel.chat.clear_user_messages" -> listener.onClearUserMessages(event, timestamp)

@@ -73,12 +73,14 @@ class ChatEventProcessor(scope: CoroutineScope, private val store: ChatTimelineS
      * protocol delivery ID.
      */
     private fun eventDedupeKey(event: ChatEvent): String? = when (event) {
-        is ChatEvent.Message -> event.eventId?.let { "message:$it" }
+        is ChatEvent.Message -> event.message.rewardRedemptionId?.let { "reward:$it" }
+            ?: event.eventId?.let { "message:$it" }
         is ChatEvent.Notice -> event.eventId?.let { "notice:$it" }
         is ChatEvent.Delete -> "delete:${event.eventId ?: event.messageId.value}"
         is ChatEvent.ClearUser -> null
         is ChatEvent.Clear -> event.eventId?.let { "clear:$it" }
         is ChatEvent.SettingsUpdated -> event.eventId?.let { "settings:$it" }
+        is ChatEvent.DecorationUpdated -> null
         is ChatEvent.TransportDisconnected -> null
     }
 

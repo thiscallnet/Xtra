@@ -129,6 +129,11 @@ data class ChatMessage(
     val reply: ChatReply? = null,
     val source: SharedChatSource? = null,
     val rewardId: String? = null,
+    val rewardTitle: String? = null,
+    val rewardCost: Int? = null,
+    val rewardImageUrl: String? = null,
+    /** Redemption identity from PubSub/EventSub when the message is synthetic. */
+    val rewardRedemptionId: String? = null,
     val isFirst: Boolean = false,
     val bits: Int? = null,
     val watchStreakCount: Int? = null,
@@ -136,4 +141,8 @@ data class ChatMessage(
     val twitchType: TwitchChatMessageType = TwitchChatMessageType.Text,
     val systemText: String? = null,
     val noticeType: String? = null,
+    /** Twitch reports Prime and paid subscription notices differently. */
+    val subscriptionPlan: String? = null,
+    val subscriptionTier: String? = null,
+    val isPrimeSubscription: Boolean? = null,
 )

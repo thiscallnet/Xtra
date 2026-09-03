@@ -11,7 +11,9 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionFactory
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.ChatTransport
 import kotlinx.coroutines.CoroutineScope
@@ -191,6 +193,117 @@ class ChatSessionManagerIntegrationTest {
         parent.cancel()
     }
 
+    @Test
+    fun factorySessionReconcilesHistoryAgainAfterTransportDisconnect() = runBlocking {
+        val parent = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val transport = FakeTransport()
+        val historyCalls = AtomicInteger()
+        val factory = ChatSessionFactory(
+            parentScope = parent,
+            transportFactory = { transport },
+            catalogFactory = { _, scope -> ChatCatalogRepository(scope, EMPTY_CATALOG_SOURCE) },
+            recentHistory = {
+                historyCalls.incrementAndGet()
+                listOf(message(7))
+            },
+        )
+
+        val handle = factory.createLive(LiveChatSessionSpec("channel-id", "channel-login"))
+        delay(50)
+        assertEquals(0, transport.activeCollectors)
+        assertEquals(0, historyCalls.get())
+        handle.start()
+        withTimeout(1_000) { while (transport.activeCollectors != 1) delay(1) }
+        withTimeout(1_000) { while (historyCalls.get() < 1) delay(1) }
+        transport.sendDisconnect(handle.active.key)
+        withTimeout(1_000) { while (historyCalls.get() < 2) delay(1) }
+        assertEquals(listOf("7"), handle.active.session.snapshot().map { it.id.value })
+
+        handle.close()
+        withTimeout(1_000) { while (transport.activeCollectors != 0) delay(1) }
+        parent.cancel()
+    }
+
+    @Test
+    fun factoryHandlesRemainDormantUntilStartedAndStopIndependently() = runBlocking {
+        val parent = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val transport = FakeTransport()
+        val factory = ChatSessionFactory(
+            parentScope = parent,
+            transportFactory = { transport },
+            catalogFactory = { _, scope -> ChatCatalogRepository(scope, EMPTY_CATALOG_SOURCE) },
+        )
+        val first = factory.createLive(LiveChatSessionSpec("a", "a"))
+        val second = factory.createLive(LiveChatSessionSpec("b", "b"))
+
+        delay(50)
+        assertEquals(0, transport.activeCollectors)
+        first.start()
+        second.start()
+        withTimeout(1_000) { while (transport.activeCollectors != 2) delay(1) }
+        second.stop()
+        withTimeout(1_000) { while (transport.activeCollectors != 1) delay(1) }
+        first.stop()
+        withTimeout(1_000) { while (transport.activeCollectors != 0) delay(1) }
+
+        first.close()
+        second.close()
+        parent.cancel()
+    }
+
+    @Test
+    fun factoryStartStopRaceCannotReopenTransport() = runBlocking {
+        val parent = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val transport = FakeTransport()
+        val factory = ChatSessionFactory(
+            parentScope = parent,
+            transportFactory = { transport },
+            catalogFactory = { _, scope -> ChatCatalogRepository(scope, EMPTY_CATALOG_SOURCE) },
+        )
+        val handle = factory.createLive(LiveChatSessionSpec("race", "race"))
+        repeat(10) {
+            handle.start()
+            handle.stop()
+        }
+        withTimeout(1_000) { while (transport.activeCollectors != 0) delay(1) }
+        handle.close()
+        parent.cancel()
+    }
+
+    @Test
+    fun chatMessageAndHermesRedemptionAreCorrelatedIntoOneRow() = runBlocking {
+        val parent = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val transport = FakeTransport()
+        val manager = ChatSessionManager(
+            parentScope = parent,
+            transportFactory = { transport },
+            catalogFactory = { _, scope -> ChatCatalogRepository(scope, EMPTY_CATALOG_SOURCE) },
+        )
+        val active = manager.start(LiveChatSessionSpec("channel-id", "channel-login"))
+        withTimeout(1_000) { while (transport.activeCollectors != 1) delay(1) }
+        val user = ChatUser("user", "viewer", "Viewer", null)
+        val normal = message(1).copy(
+            id = ChatMessageId("chat-message"),
+            timestampMs = 10_000L,
+            user = user,
+            rawText = null,
+            rewardId = "reward-1",
+        )
+        val hermes = normal.copy(
+            id = ChatMessageId("reward-redemption"),
+            rewardRedemptionId = "redemption-1",
+        )
+        transport.send(active.key, normal)
+        transport.send(active.key, hermes)
+        withTimeout(1_000) {
+            while (active.session.snapshot().size < 1) delay(1)
+        }
+        delay(50)
+        assertEquals(listOf("chat-message"), active.session.snapshot().map { it.id.value })
+        manager.close()
+        parent.cancel()
+    }
+
     private suspend fun awaitLast(session: com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSession, id: String): List<ChatMessage> =
         withTimeout(2_000) {
             var result: List<ChatMessage>? = null
@@ -235,6 +348,11 @@ class ChatSessionManagerIntegrationTest {
         suspend fun send(key: ChatSessionKey, message: ChatMessage) {
             feeds.computeIfAbsent(key) { MutableSharedFlow(extraBufferCapacity = 1_024) }
                 .emit(ChatEvent.Message(message))
+        }
+
+        suspend fun sendDisconnect(key: ChatSessionKey) {
+            feeds.computeIfAbsent(key) { MutableSharedFlow(extraBufferCapacity = 1_024) }
+                .emit(ChatEvent.TransportDisconnected("test"))
         }
     }
 

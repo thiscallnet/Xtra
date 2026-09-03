@@ -10,8 +10,6 @@ import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
-import androidx.core.content.withStyledAttributes
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
@@ -26,10 +24,10 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.CombinedChatListItemBinding
 import com.github.andreyasadchy.xtra.databinding.FragmentCombinedChatBinding
-import com.github.andreyasadchy.xtra.model.chat.ChatMessage
+import com.github.andreyasadchy.xtra.model.chat.ChatMessage as LegacyChatMessage
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.chat.ChatAdapter
-import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel
+import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
 import com.github.andreyasadchy.xtra.ui.chat.ImageClickedDialog
 import com.github.andreyasadchy.xtra.ui.chat.MessageClickedChatAdapter
 import com.github.andreyasadchy.xtra.ui.chat.MessageClickedDialog
@@ -37,6 +35,17 @@ import com.github.andreyasadchy.xtra.ui.chat.ReplyClickedChatAdapter
 import com.github.andreyasadchy.xtra.ui.chat.ReplyClickedDialog
 import com.github.andreyasadchy.xtra.ui.multiview.chat.CombinedChatMessage
 import com.github.andreyasadchy.xtra.ui.multiview.chat.CombinedChatViewModel
+import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage as V2ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatColorResolver
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLabels
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationResolver
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
+import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.DEFAULT_CHAT_BADGE_SIZE_DP
 import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
@@ -52,9 +61,6 @@ import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -69,8 +75,10 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
     private var currentStreams: List<Stream> = emptyList()
     private var interactionAdapter: ChatAdapter? = null
     private var interactionIdentity: String? = null
+    private var selectedV2Message: V2ChatMessage? = null
     private var languageIdentifier: LanguageIdentifier? = null
     private val translators = mutableMapOf<String, Translator>()
+    private val v2Translations = mutableMapOf<String, String>()
     private var renderPosted = false
     private var submitJob: Job? = null
     private data class PendingSubmission(val items: List<CombinedChatMessage>, val forceScroll: Boolean)
@@ -198,9 +206,6 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
             while (true) {
                 val nextSubmission = pendingSubmission ?: break
                 pendingSubmission = null
-                val previousBySequence = adapter.currentList.associateBy(CombinedChatMessage::sequence)
-                val changedItems = nextSubmission.items.filter { previousBySequence[it.sequence] != it }
-                adapter.prepareForDisplay(changedItems)
                 if (pendingSubmission != null) continue
                 if (_binding == null) return@launch
                 adapter.submitList(nextSubmission.items) {
@@ -227,14 +232,13 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
             layoutManager.findLastCompletelyVisibleItemPosition() >= adapter.itemCount - 1
     }
 
-    fun openMessageInteraction(chatAdapter: ChatAdapter, channelId: String?) {
-        interactionAdapter = chatAdapter
-        interactionIdentity = currentStreams.firstOrNull { it.channelId == channelId }
-            ?.let { stableIdentity(it) }
+    fun openMessageInteraction(identity: String, message: V2ChatMessage) {
+        interactionIdentity = identity
+        selectedV2Message = message
+        interactionAdapter = adapter.createInteractionAdapter(identity, viewModel.snapshot(identity).map { it.message })
         if (childFragmentManager.findFragmentByTag(COMBINED_MESSAGE_DIALOG_TAG) == null) {
-            val channelLogin = channelId?.let { id ->
-                currentStreams.firstOrNull { it.channelId == id }?.channelLogin
-            }
+            val channelId = viewModel.channelId(identity)
+            val channelLogin = currentStreams.firstOrNull { stableIdentity(it) == identity }?.channelLogin
             MessageClickedDialog.newInstance(
                 messagingEnabled = false,
                 channelId = channelId,
@@ -271,8 +275,47 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
             ?: stream.id?.takeIf { it.isNotBlank() }?.let { "stream:${it.lowercase()}" }
     }
 
+    private fun matchesV2MessageUser(message: V2ChatMessage, selected: V2ChatMessage): Boolean {
+        val selectedUser = selected.user ?: return false
+        val user = message.user ?: return false
+        return (!selectedUser.id.isNullOrBlank() && user.id == selectedUser.id) ||
+            (!selectedUser.login.isNullOrBlank() && user.login.equals(selectedUser.login, true))
+    }
+
     override fun onCreateMessageClickedChatAdapter(): MessageClickedChatAdapter? {
-        return interactionAdapter?.createMessageClickedChatAdapter()
+        val identity = interactionIdentity ?: return null
+        val selected = selectedV2Message ?: return null
+        val renderer = adapter.renderer(identity) ?: return null
+        val canonical = viewModel.snapshot(identity).map { it.message }
+        val history = if (selected.user != null) {
+            canonical.filter { matchesV2MessageUser(it, selected) }
+        } else {
+            canonical
+        }
+        val legacyMessages = history.map(renderer::toLegacy)
+        val selectedLegacy = legacyMessages.firstOrNull { it.id == selected.id.value } ?: renderer.toLegacy(selected)
+        val rows = history.map(renderer::compile)
+        return interactionAdapter?.createMessageClickedChatAdapter(
+            sourceMessages = legacyMessages,
+            selectedMessageOverride = selectedLegacy,
+            v2Rows = rows,
+            v2Assets = renderer.assets,
+            v2EmoteClick = { interaction ->
+                openImageInteraction(
+                    interaction.url,
+                    interaction.name,
+                    interaction.url?.substringAfterLast('.', "webp"),
+                    interaction.animated,
+                    null,
+                    interaction.provider != ChatAssetProvider.TWITCH,
+                    interaction.id.takeIf { interaction.provider == ChatAssetProvider.TWITCH },
+                )
+            },
+            v2GifClick = { interaction ->
+                ImageClickedDialog.newGifInstance(interaction.url, interaction.description)
+                    .show(childFragmentManager, COMBINED_IMAGE_DIALOG_TAG)
+            },
+        )
     }
 
     override fun onCreateReplyClickedChatAdapter(): ReplyClickedChatAdapter? {
@@ -307,16 +350,16 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
         }
     }
 
-    override fun onTranslateMessageClicked(chatMessage: ChatMessage, languageTag: String?) {
+    override fun onTranslateMessageClicked(chatMessage: LegacyChatMessage, languageTag: String?) {
         translateMessage(chatMessage, languageTag, interactionIdentity)
     }
 
-    fun onRendererTranslateMessage(chatMessage: ChatMessage, languageTag: String?, identity: String) {
+    fun onRendererTranslateMessage(chatMessage: LegacyChatMessage, languageTag: String?, identity: String) {
         interactionIdentity = identity
         translateMessage(chatMessage, languageTag, identity)
     }
 
-    private fun translateMessage(chatMessage: ChatMessage, languageTag: String?, identity: String?) {
+    private fun translateMessage(chatMessage: LegacyChatMessage, languageTag: String?, identity: String?) {
         val message = chatMessage.message ?: chatMessage.systemMsg ?: return
         val targetLanguage = requireContext().prefs().getString(C.CHAT_TRANSLATE_TARGET, "en") ?: "en"
         if (languageTag == null) {
@@ -324,7 +367,9 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
             identifier.identifyLanguage(message)
                 .addOnSuccessListener { detected -> translateMessage(chatMessage, detected, identity) }
                 .addOnFailureListener {
+                    chatMessage.translatedMessage = getString(R.string.translate_failed_id)
                     chatMessage.translationFailed = true
+                    syncV2Translation(chatMessage)
                     viewModel.invalidateRendering(identity)
                 }
             return
@@ -351,6 +396,7 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
                 chatMessage.translatedMessage = getString(R.string.translated_message, languageName, translated)
                 chatMessage.translationFailed = false
                 chatMessage.messageLanguage = null
+                syncV2Translation(chatMessage)
                 viewModel.invalidateRendering(identity)
                 (childFragmentManager.findFragmentByTag(COMBINED_MESSAGE_DIALOG_TAG) as? MessageClickedDialog)
                     ?.updateTranslation(chatMessage, previousTranslation)
@@ -358,10 +404,20 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
                     ?.updateTranslation(chatMessage, previousTranslation)
             }
             .addOnFailureListener {
+                chatMessage.translatedMessage = getString(R.string.translate_failed, Locale.forLanguageTag(sourceLanguage).displayLanguage)
                 chatMessage.translationFailed = true
+                syncV2Translation(chatMessage)
                 viewModel.invalidateRendering(identity)
             }
     }
+
+    private fun syncV2Translation(chatMessage: LegacyChatMessage) {
+        val id = chatMessage.id?.takeIf { it.isNotBlank() } ?: return
+        chatMessage.translatedMessage?.let { v2Translations[id] = it }
+            ?: v2Translations.remove(id)
+    }
+
+    internal fun translationFor(message: V2ChatMessage): String? = v2Translations[message.id.value]
 
     override fun onDestroyView() {
         _binding?.combinedChatRecyclerView?.removeCallbacks(renderRunnable)
@@ -396,24 +452,38 @@ private class CombinedChatAdapter(
     private val fragment: CombinedChatFragment,
     private val viewModel: CombinedChatViewModel,
 ) : ListAdapter<CombinedChatMessage, CombinedChatAdapter.ViewHolder>(DIFF_CALLBACK) {
+    private val assets = (fragment.requireContext().applicationContext as com.github.andreyasadchy.xtra.XtraApp)
+        .xtraModule.chatAssetRepository
+    private val profilePopoutGesture = ChatProfilePopoutGesture.fromPreference(
+        fragment.requireContext().prefs().getString(C.CHAT_PROFILE_POPOUT_GESTURE, "tap"),
+    )
     private val renderers = mutableMapOf<String, SessionRenderer>()
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        return ViewHolder(CombinedChatListItemBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+    fun renderer(identity: String): SessionRenderer? {
+        val active = viewModel.session(identity) ?: return null
+        return renderers[identity]
+            ?.takeIf { it.isFor(active) }
+            ?: SessionRenderer(fragment, active, identity, assets, viewModel::rewardCatalog, profilePopoutGesture).also {
+                renderers[identity] = it
+            }
     }
+
+    fun createInteractionAdapter(identity: String, messages: List<V2ChatMessage>): ChatAdapter? {
+        val renderer = renderer(identity) ?: return null
+        return renderer.createInteractionAdapter(messages.map(renderer::toLegacy))
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder = ViewHolder(
+        CombinedChatListItemBinding.inflate(LayoutInflater.from(parent.context), parent, false),
+    )
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = getItem(position)
         holder.binding.channelChip.text = item.channelName
         holder.binding.channelChip.contentDescription = item.channelName
-        viewModel.session(item.identity)?.let { session ->
-            val renderer = renderers[item.identity]
-                ?.takeIf { it.isFor(session) }
-                ?: SessionRenderer(fragment, session, viewModel.channelId(item.identity), item.identity).also {
-                    renderers[item.identity] = it
-                }
-            holder.bind(renderer, item.message)
-        }
+        renderer(item.identity)?.let { renderer ->
+            holder.bind(item, renderer, profilePopoutGesture)
+        } ?: holder.clear()
         holder.binding.root.contentDescription = fragment.getString(
             R.string.multiview_combined_message_description,
             item.channelName,
@@ -428,101 +498,201 @@ private class CombinedChatAdapter(
 
     override fun onViewAttachedToWindow(holder: ViewHolder) {
         super.onViewAttachedToWindow(holder)
-        holder.attach()
+        holder.binding.messageText.setRenderingActive(true)
     }
 
     override fun onViewDetachedFromWindow(holder: ViewHolder) {
-        holder.detach()
+        holder.binding.messageText.setRenderingActive(false)
         super.onViewDetachedFromWindow(holder)
     }
 
-    suspend fun prepareForDisplay(items: List<CombinedChatMessage>) {
-        val batches = linkedMapOf<SessionRenderer, MutableList<ChatMessage>>()
-        items.forEach { item ->
-            viewModel.session(item.identity)?.let { session ->
-                val renderer = renderers[item.identity]
-                    ?.takeIf { it.isFor(session) }
-                    ?: SessionRenderer(fragment, session, viewModel.channelId(item.identity), item.identity).also {
-                        renderers[item.identity] = it
-                    }
-                batches.getOrPut(renderer) { ArrayList() }.add(item.message)
-            }
-        }
-        coroutineScope {
-            batches.map { (renderer, messages) ->
-                async { renderer.prepareForDisplay(messages) }
-            }.awaitAll()
-        }
-    }
-
     class ViewHolder(val binding: CombinedChatListItemBinding) : RecyclerView.ViewHolder(binding.root) {
-        private var renderer: SessionRenderer? = null
-        private var directViewHolder: ChatAdapter.ViewHolder? = null
-
-        fun bind(nextRenderer: SessionRenderer, message: ChatMessage) {
-            val sameRenderer = renderer === nextRenderer
-            renderer?.let { previousRenderer ->
-                directViewHolder?.let(previousRenderer::release)
+        fun bind(item: CombinedChatMessage, renderer: SessionRenderer, gesture: ChatProfilePopoutGesture) {
+            val openProfile = { _: ChatMessageId ->
+                renderer.fragment.openMessageInteraction(item.identity, item.message)
             }
-            renderer = nextRenderer
-            directViewHolder = nextRenderer.bind(
-                binding.messageText,
-                message,
-                directViewHolder.takeIf { sameRenderer },
+            binding.messageText.setInteractionCallbacks(
+                onMessageLongClick = openProfile.takeIf { gesture.allowsHold },
+                onEmoteClick = { interaction ->
+                    renderer.fragment.openImageInteraction(
+                        interaction.url,
+                        interaction.name,
+                        interaction.url?.substringAfterLast('.', "webp"),
+                        interaction.animated,
+                        null,
+                        interaction.provider != ChatAssetProvider.TWITCH,
+                        interaction.id.takeIf { interaction.provider == ChatAssetProvider.TWITCH },
+                    )
+                },
+                onGifClick = { interaction ->
+                    ImageClickedDialog.newGifInstance(interaction.url, interaction.description)
+                        .show(renderer.fragment.childFragmentManager, "combinedImageDialog")
+                },
             )
+            binding.messageText.setMessageClickCallback(openProfile.takeIf { gesture.allowsTap })
+            binding.messageText.bind(renderer.compile(item.message))
         }
 
-        fun release() {
-            renderer?.let { currentRenderer ->
-                directViewHolder?.let(currentRenderer::release)
-            }
-            renderer = null
-            directViewHolder = null
+        fun clear() {
+            binding.messageText.recycle()
+            binding.messageText.setMessageClickCallback(null)
         }
 
-        fun attach() {
-            renderer?.let { currentRenderer ->
-                directViewHolder?.let(currentRenderer::attach)
-            }
-        }
-
-        fun detach() {
-            renderer?.let { currentRenderer ->
-                directViewHolder?.let(currentRenderer::detach)
-            }
-        }
+        fun release() = clear()
     }
 
     class SessionRenderer(
-        fragment: CombinedChatFragment,
-        private val session: ChatViewModel,
-        channelId: String?,
+        val fragment: CombinedChatFragment,
+        private val active: com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession,
         private val identity: String,
+        val assets: ChatAssetRepository,
+        private val rewards: (String) -> Map<String, com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward>,
+        private val profileGesture: ChatProfilePopoutGesture,
     ) {
-        private val adapter: ChatAdapter
+        private val context = fragment.requireContext()
+        private val preferences = context.prefs()
+        private val style = com.github.andreyasadchy.xtra.ui.chat.resolveChatRenderStyle(context)
+        private val surface = MaterialColors.getColor(fragment.requireView(), com.google.android.material.R.attr.colorSurface)
+        private val compiler = ChatRowCompiler(
+            colors = ChatColorResolver(
+                    readable = preferences.getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),
+                    randomFallback = preferences.getBoolean(C.CHAT_RANDOM_COLOR, true),
+                    neutralFallback = !preferences.getBoolean(C.CHAT_RANDOM_COLOR, true),
+                    background = surface,
+            ),
+            emoteHeightPx = style.emoteHeightPx,
+            badgeHeightPx = style.badgeHeightPx,
+            showBadges = style.showBadges,
+            enableOverlayEmotes = style.enableOverlayEmotes,
+            firstMessageVisibility = style.firstMessageVisibility,
+            boldNames = style.boldNames,
+            nameDisplay = preferences.getString(C.UI_NAME_DISPLAY, "0") ?: "0",
+            showSystemMessageEmotes = preferences.getBoolean(C.CHAT_SYSTEM_MESSAGE_EMOTES, true),
+            showNamePaints = preferences.getBoolean(C.CHAT_SHOW_PAINTS, true),
+            showThirdPartyBadges = preferences.getBoolean(C.CHAT_SHOW_STV_BADGES, true),
+            showPersonalEmotes = preferences.getBoolean(C.CHAT_SHOW_PERSONAL_EMOTES, true),
+            timestampText = if (style.showTimestamps) {
+                { timestamp -> com.github.andreyasadchy.xtra.util.TwitchApiHelper.getTimestamp(timestamp, style.timestampFormat) }
+            } else {
+                { null }
+            },
+            translation = fragment::translationFor,
+            background = { surface },
+            labels = ChatPresentationLabels(
+                firstChatter = fragment.getString(R.string.chat_first),
+                redeemed = { reward -> fragment.getString(R.string.redeemed, reward) },
+                userRedeemed = { reward -> fragment.getString(R.string.user_redeemed, "", reward).trimStart() },
+                highlightTitle = fragment.getString(R.string.chat_highlight_title),
+                highlightRedeemed = { title -> fragment.getString(R.string.chat_highlight_redeemed, title) },
+                watchStreakReached = fragment.getString(R.string.chat_watch_streak_reached),
+                watchStreakStatus = { user, count -> fragment.getString(R.string.chat_watch_streak_status, user, count) },
+                reply = { user, message -> fragment.getString(R.string.replying_to_message, user, message) },
+            ),
+            gifDisplayMode = style.gifDisplayMode,
+        )
+        private val presentation = ChatPresentationResolver(compiler)
 
-        init {
-            val context = fragment.requireContext()
-            val preferences = context.prefs()
-            val sizeModifier = (preferences.getInt(C.CHAT_SIZE_MODIFIER, 100).toFloat() / 100f)
-            var isLightTheme = false
-            context.withStyledAttributes(attrs = intArrayOf(androidx.appcompat.R.attr.isLightTheme)) {
-                isLightTheme = getBoolean(0, false)
+        fun compile(message: V2ChatMessage): ChatRowUiModel = presentation.resolve(
+            message = message,
+            catalog = catalog(),
+            // Translation state lives in the Fragment compatibility bridge while the
+            // Multiview rows are being migrated. Include it in the row key so a completed
+            // translation invalidates only that message's cached presentation.
+            presentationRevision = fragment.translationFor(message)?.hashCode()?.toLong() ?: 0L,
+        )
+
+        private fun catalog() = rewards(identity).let { rewardMap ->
+            active.catalog.state.value.snapshot.copy(
+                channelPointRewards = rewardMap,
+                channelPointRewardsRevision = rewardMap.hashCode(),
+            )
+        }
+
+        fun isFor(other: com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession): Boolean = active === other
+
+        fun toLegacy(message: V2ChatMessage): LegacyChatMessage {
+            val text = message.rawText ?: message.segments.joinToString(separator = "") { segment ->
+                when (segment) {
+                    is com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment.Text -> segment.text
+                    is com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment.Mention -> segment.text
+                    is com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment.Emote -> segment.fallbackText
+                    is com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment.Gif -> segment.fallbackText
+                    is com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment.Cheermote -> segment.text
+                }
             }
-            adapter = ChatAdapter(
-                initialMessages = emptyList(),
-                localTwitchEmotes = session.localTwitchEmotes,
-                thirdPartyEmotes = session.thirdPartyEmotes,
-                globalBadges = session.globalBadges,
-                channelBadges = session.channelBadges,
-                cheerEmotes = session.cheerEmotes,
-                namePaints = session.namePaints,
-                stvBadges = session.stvBadges,
-                personalEmoteSets = session.personalEmoteSets,
-                stvUsers = session.stvUsers,
+            val reply = message.reply?.let {
+                com.github.andreyasadchy.xtra.model.chat.Reply(
+                    threadParentId = it.parentMessageId.value,
+                    userLogin = it.parentUserLogin,
+                    userName = it.parentUserName,
+                    message = it.parentMessageBody,
+                )
+            }
+            val replyParent = message.reply?.let {
+                LegacyChatMessage(
+                    type = LegacyChatMessage.USER_MESSAGE,
+                    id = it.parentMessageId.value,
+                    userId = it.parentUserId,
+                    userLogin = it.parentUserLogin,
+                    userName = it.parentUserName,
+                    message = it.parentMessageBody,
+                )
+            }
+            val reward = message.rewardId?.let(rewards(identity)::get)?.let {
+                com.github.andreyasadchy.xtra.model.chat.ChannelPointReward(
+                    id = message.rewardId,
+                    title = it.title,
+                    cost = it.cost,
+                    url1x = it.imageUrl,
+                    url2x = it.imageUrl,
+                    url4x = it.imageUrl,
+                )
+            }
+            return LegacyChatMessage(
+                type = if (message.user != null) LegacyChatMessage.USER_MESSAGE else LegacyChatMessage.SYSTEM_MESSAGE,
+                id = message.id.value,
+                userId = message.user?.id,
+                userLogin = message.user?.login,
+                userName = message.user?.displayName,
+                message = text.takeIf { it.isNotEmpty() },
+                isAction = message.kind == com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind.ACTION,
+                isFirst = message.isFirst,
+                bits = message.bits,
+                badges = message.badges.map { badge -> com.github.andreyasadchy.xtra.model.chat.Badge(badge.setId, badge.versionId) },
+                systemMsg = message.systemText,
+                msgId = message.noticeType,
+                sourceMsgId = message.source?.messageId?.value,
+                reward = reward,
+                reply = reply,
+                replyParent = replyParent,
+                timestamp = message.timestampMs,
+            ).apply {
+                fragment.translationFor(message)?.let {
+                    translatedMessage = it
+                    translationFailed = it.contains(fragment.getString(R.string.translate_failed_id), ignoreCase = true)
+                }
+            }
+        }
+
+        fun createInteractionAdapter(initialMessages: List<LegacyChatMessage>): ChatAdapter {
+            val size = context.resources.displayMetrics.density
+            val isLightTheme = context.obtainStyledAttributes(intArrayOf(androidx.appcompat.R.attr.isLightTheme)).let { attributes ->
+                try { attributes.getBoolean(0, false) } finally { attributes.recycle() }
+            }
+            return ChatAdapter(
+                initialMessages = initialMessages,
+                localTwitchEmotes = emptyList(),
+                thirdPartyEmotes = emptyList(),
+                globalBadges = emptyList(),
+                channelBadges = emptyList(),
+                cheerEmotes = emptyList(),
+                namePaints = emptyList(),
+                stvBadges = emptyList(),
+                personalEmoteSets = emptyMap(),
+                stvUsers = emptyList(),
                 enableTimestamps = preferences.getBoolean(C.CHAT_TIMESTAMPS, false),
                 timestampFormat = preferences.getString(C.CHAT_TIMESTAMP_FORMAT, "0"),
-                firstMsgVisibility = preferences.getString(C.CHAT_FIRST_MSG_VISIBILITY, "0")?.toIntOrNull() ?: 0,
+                firstMsgVisibility = style.firstMessageVisibility,
                 firstChatMsg = fragment.getString(R.string.chat_first),
                 redeemedChatMsg = fragment.getString(R.string.redeemed),
                 redeemedNoMsg = fragment.getString(R.string.user_redeemed),
@@ -533,85 +703,43 @@ private class CombinedChatAdapter(
                 nameDisplay = preferences.getString(C.UI_NAME_DISPLAY, "0"),
                 useBoldNames = preferences.getBoolean(C.CHAT_BOLD_NAMES, false),
                 showNamePaints = preferences.getBoolean(C.CHAT_SHOW_PAINTS, true),
-                showBadges = preferences.getBoolean(C.CHAT_SHOW_BADGES, true),
+                showBadges = style.showBadges,
                 showSTVBadges = preferences.getBoolean(C.CHAT_SHOW_STV_BADGES, true),
                 showPersonalEmotes = preferences.getBoolean(C.CHAT_SHOW_PERSONAL_EMOTES, true),
                 showSystemMessageEmotes = preferences.getBoolean(C.CHAT_SYSTEM_MESSAGE_EMOTES, true),
                 chatUrl = null,
                 fragment = fragment,
-                backgroundColor = MaterialColors.getColor(fragment.requireView(), com.google.android.material.R.attr.colorSurface),
+                backgroundColor = surface,
                 dialogBackgroundColor = MaterialColors.getColor(fragment.requireView(), com.google.android.material.R.attr.colorSurfaceContainerLow),
                 imageLibrary = "0",
-                messageTextSize = (preferences.getString(C.CHAT_TEXT_SIZE, "14")?.toFloatOrNull() ?: 14f) * sizeModifier,
-                emoteSize = TypedValue.applyDimension(
-                    TypedValue.COMPLEX_UNIT_DIP,
-                    (preferences.getString(C.CHAT_EMOTE_SIZE, "29.5")?.toFloatOrNull() ?: 29.5f) * sizeModifier,
-                    fragment.resources.displayMetrics,
-                ).toInt(),
-                badgeSize = TypedValue.applyDimension(
-                    TypedValue.COMPLEX_UNIT_DIP,
-                    chatBadgeSizeOrDefault(preferences.getString(C.CHAT_BADGE_SIZE, DEFAULT_CHAT_BADGE_SIZE_DP.toString())) * sizeModifier,
-                    fragment.resources.displayMetrics,
-                ).toInt(),
-                inlineIconSize = TypedValue.applyDimension(
-                    TypedValue.COMPLEX_UNIT_DIP,
-                    DEFAULT_CHAT_BADGE_SIZE_DP * sizeModifier,
-                    fragment.resources.displayMetrics,
-                ).toInt(),
+                messageTextSize = style.textSizeSp,
+                emoteSize = style.emoteHeightPx,
+                badgeSize = style.badgeHeightPx,
+                inlineIconSize = (DEFAULT_CHAT_BADGE_SIZE_DP * size).toInt(),
                 emoteQuality = "4",
                 animateGifs = preferences.getBoolean(C.ANIMATED_EMOTES, true),
-                enableOverlayEmotes = preferences.getBoolean(C.CHAT_ZERO_WIDTH, true),
+                enableOverlayEmotes = style.enableOverlayEmotes,
                 translateMessage = { message, language -> fragment.onRendererTranslateMessage(message, language, identity) },
                 showLanguageDownloadDialog = { _, _ -> },
-                channelId = channelId,
+                channelId = active.spec.channelId,
                 loggedInUser = null,
-                messageClickListener = { clickedChannelId ->
-                    fragment.openMessageInteraction(adapter, clickedChannelId ?: channelId)
+                messageClickListener = null,
+                replyClickListener = null,
+                imageClickListener = { url, name, format, animated, source, thirdParty, emoteId ->
+                    fragment.openImageInteraction(url, name, format, animated, source, thirdParty, emoteId)
                 },
-                replyClickListener = {
-                    fragment.openReplyInteraction(adapter)
-                },
-                imageClickListener = { url, name, format, isAnimated, source, thirdParty, emoteId ->
-                    fragment.openImageInteraction(url, name, format, isAnimated, source, thirdParty, emoteId)
-                },
+                profilePopoutGesture = profileGesture,
             )
         }
-
-        fun bind(textView: TextView, message: ChatMessage, existingHolder: ChatAdapter.ViewHolder?): ChatAdapter.ViewHolder {
-            val holder = existingHolder?.takeIf { it.itemView === textView } ?: adapter.ViewHolder(textView)
-            adapter.setDirectMessage(message)
-            adapter.onBindViewHolder(holder, 0)
-            return holder
-        }
-
-        suspend fun prepareForDisplay(messages: List<ChatMessage>) {
-            messages.forEach { adapter.prepareDirectMessage(it) }
-        }
-
-        fun release(holder: ChatAdapter.ViewHolder) {
-            adapter.releaseDirectViewHolder(holder)
-        }
-
-        fun attach(holder: ChatAdapter.ViewHolder) {
-            adapter.attachDirectViewHolder(holder)
-        }
-
-        fun detach(holder: ChatAdapter.ViewHolder) {
-            adapter.detachDirectViewHolder(holder)
-        }
-
-        fun isFor(session: ChatViewModel): Boolean = this.session === session
     }
 
     companion object {
         private val DIFF_CALLBACK = object : DiffUtil.ItemCallback<CombinedChatMessage>() {
-            override fun areItemsTheSame(oldItem: CombinedChatMessage, newItem: CombinedChatMessage): Boolean {
-                return oldItem.sequence == newItem.sequence
-            }
+            override fun areItemsTheSame(oldItem: CombinedChatMessage, newItem: CombinedChatMessage): Boolean =
+                oldItem.sequence == newItem.sequence
 
-            override fun areContentsTheSame(oldItem: CombinedChatMessage, newItem: CombinedChatMessage): Boolean {
-                return oldItem == newItem
-            }
+            override fun areContentsTheSame(oldItem: CombinedChatMessage, newItem: CombinedChatMessage): Boolean =
+                oldItem == newItem
         }
     }
 }

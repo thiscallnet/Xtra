@@ -1,5 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.domain
 
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationUpdate
+
 sealed interface ChatEvent {
     val eventId: String?
     val receivedAtMs: Long
@@ -23,6 +25,11 @@ sealed interface ChatEvent {
         override val receivedAtMs: Long,
     ) : ChatEvent
     data class Notice(val message: ChatMessage, override val eventId: String?, override val receivedAtMs: Long) : ChatEvent
+    data class DecorationUpdated(
+        val update: ChatDecorationUpdate,
+        override val eventId: String? = null,
+        override val receivedAtMs: Long = System.currentTimeMillis(),
+    ) : ChatEvent
     /** Transport lifecycle is not a timeline item. It lets the session reconcile after a gap. */
     data class TransportDisconnected(
         val reason: String? = null,

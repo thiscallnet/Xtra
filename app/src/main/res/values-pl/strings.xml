@@ -1493,4 +1493,12 @@
     <string name="live_caption_processing_interval">Live caption processing interval</string>
     <string name="live_caption_processing_interval_value">Moonshine partials every %1$.1f seconds</string>
     <string name="player_live_captions">Toggle live captions</string>
+    <string name="chat_profile_popout_gesture">Open profile popout with</string>
+    <string name="chat_profile_popout_gesture_tap">Tap</string>
+    <string name="chat_profile_popout_gesture_hold">Hold</string>
+    <string name="chat_profile_popout_gesture_both">Tap or hold</string>
+    <string name="chat_gif_display">GIF messages</string>
+    <string name="chat_gif_display_large">Large images</string>
+    <string name="chat_gif_display_emote">Emote size</string>
+    <string name="chat_gif_display_link">Links only</string>
 </resources>

@@ -12,6 +12,7 @@ import android.text.Spanned
 import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.ReplacementSpan
+import android.text.style.URLSpan
 import android.view.View
 import android.view.ViewGroup
 import android.view.MotionEvent
@@ -295,6 +296,25 @@ class ChatMessageTextViewTest {
             val spanned = view.text as Spanned
             assertEquals(0, spanned.getSpans(0, spanned.length, ClickableSpan::class.java).size)
             assertEquals(0, emoteClicks)
+        }
+        scope.cancel()
+    }
+
+    @Test
+    fun ordinaryUrlsHaveClickableUrlSpans() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+
+        runOnMain {
+            view.bind(textRow("Visit https://example.com/watch?v=42 or www.example.com."))
+            val spanned = view.text as Spanned
+            val urls = spanned.getSpans(0, spanned.length, URLSpan::class.java)
+                .sortedBy(spanned::getSpanStart)
+            assertEquals(2, urls.size)
+            assertEquals("https://example.com/watch?v=42", urls[0].url)
+            assertEquals("http://www.example.com", urls[1].url)
         }
         scope.cancel()
     }

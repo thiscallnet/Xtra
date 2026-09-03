@@ -310,6 +310,8 @@ object C {
     const val CHAT_DROPS_SHOW = "chat_drops_show"
     const val CHAT_DROPS_AUTO_CLAIM = "chat_drops_auto_claim"
     const val CHAT_SYSTEM_MESSAGE_EMOTES = "chat_system_message_emotes"
+    const val CHAT_PROFILE_POPOUT_GESTURE = "chat_profile_popout_gesture"
+    const val CHAT_GIF_DISPLAY = "chat_gif_display"
     const val CHAT_SHOW_PAINTS = "chat_show_paints"
     const val CHAT_SHOW_BADGES = "chat_show_badges"
     const val CHAT_SHOW_STV_BADGES = "chat_show_stv_badges"
