@@ -7,9 +7,11 @@ profile="${3:?profile is required}"
 source_revision="${4:?source revision is required}"
 config_digest="${5:?configuration digest is required}"
 maven_archive="${6:-}"
+expected_manifest="${7:-}"
+observed_manifest="${8:-${artifact%.aar}.json}"
 
 case "$profile" in
-  safe|nowebrtc) ;;
+  safe|nowebrtc|nowebspeech|auth|minimal|twitch-auth-radical-r1) ;;
   *) echo "Unsupported profile: $profile" >&2; exit 2 ;;
 esac
 
@@ -21,6 +23,7 @@ fi
 command -v unzip >/dev/null || { echo "unzip is required" >&2; exit 1; }
 command -v sha256sum >/dev/null || { echo "sha256sum is required" >&2; exit 1; }
 command -v python3 >/dev/null || { echo "Python 3 is required" >&2; exit 1; }
+command -v readelf >/dev/null || { echo "readelf is required" >&2; exit 1; }
 
 mapfile -t native_abis < <(
   unzip -Z1 "$artifact" |
@@ -45,11 +48,78 @@ fi
 
 size_bytes="$(stat -c '%s' "$artifact")"
 digest="$(sha256sum "$artifact" | awk '{print $1}')"
+temporary_dir="$(mktemp -d)"
+trap 'rm -rf "$temporary_dir"' EXIT
+unzip -p "$artifact" "jni/$expected_abi/libxul.so" > "$temporary_dir/libxul.so"
+libxul_size_bytes="$(stat -c '%s' "$temporary_dir/libxul.so")"
+libxul_build_id="$(readelf -n "$temporary_dir/libxul.so" | sed -n 's/^[[:space:]]*Build ID: //p' | head -n 1)"
+omni_size_bytes="$(unzip -p "$artifact" assets/omni.ja | wc -c)"
+[[ -n "$libxul_build_id" ]] || { echo "libxul.so has no ELF Build ID" >&2; exit 1; }
 if [[ -n "$maven_archive" ]]; then
   maven_digest="$(sha256sum "$maven_archive" | awk '{print $1}')"
 fi
+if [[ -n "$expected_manifest" ]]; then
+  [[ -f "$expected_manifest" ]] || {
+    echo "Expected AAR manifest is missing: $expected_manifest" >&2
+    exit 1
+  }
+  [[ "$expected_manifest" != "$observed_manifest" ]] || {
+    echo "Expected and observed AAR manifests must be different files" >&2
+    exit 1
+  }
+  python3 - "$expected_manifest" "$artifact" "$expected_abi" "$profile" \
+    "$source_revision" "$config_digest" "$size_bytes" "$digest" \
+    "$libxul_size_bytes" "$libxul_build_id" "$omni_size_bytes" \
+    "${maven_archive:-}" "${maven_digest:-}" <<'PY'
+import json
+import os
+import sys
+
+(
+    expected_path,
+    artifact,
+    abi,
+    profile,
+    revision,
+    config,
+    size,
+    digest,
+    libxul_size,
+    libxul_build_id,
+    omni_size,
+    maven_archive,
+    maven_digest,
+) = sys.argv[1:]
+expected = json.loads(open(expected_path, encoding="utf-8").read())
+observed = {
+    "artifact": os.path.basename(artifact),
+    "abi": abi,
+    "profile": profile,
+    "sourceRevision": revision,
+    "configurationDigest": config,
+    "size": int(size),
+    "sha256": digest,
+    "libxulSize": int(libxul_size),
+    "libxulBuildId": libxul_build_id,
+    "omniSize": int(omni_size),
+}
+if maven_archive:
+    observed["mavenArchive"] = os.path.basename(maven_archive)
+    observed["mavenArchiveSha256"] = maven_digest
+fields = tuple(observed)
+for field in fields:
+    if expected.get(field) != observed[field]:
+        raise SystemExit(
+            f"AAR provenance mismatch for {field}: "
+            f"expected {expected.get(field)!r}, got {observed[field]!r}"
+        )
+for field in ("artifact", "abi", "profile", "sourceRevision", "configurationDigest"):
+    if field not in expected:
+        raise SystemExit(f"Expected AAR manifest is missing {field}")
+PY
+fi
 echo "AAR=$artifact"
-echo "profile=$profile abi=$expected_abi size=$size_bytes sha256=$digest"
+echo "profile=$profile abi=$expected_abi size=$size_bytes sha256=$digest libxul_size=$libxul_size_bytes libxul_build_id=$libxul_build_id omni_size=$omni_size_bytes"
 if [[ -n "$maven_archive" ]]; then
   echo "Maven archive=$maven_archive sha256=$maven_digest"
 fi
@@ -58,13 +128,26 @@ unzip -lv "$artifact" |
   awk 'NR > 3 && $1 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { print $1 " / " $3 "  " $8 }' |
   sort -nr | sed -n '1,20p'
 
-manifest="${artifact%.aar}.json"
-python3 - "$manifest" "$artifact" "$expected_abi" "$profile" "$source_revision" "$config_digest" "$size_bytes" "$digest" "${maven_archive:-}" "${maven_digest:-}" <<'PY'
+python3 - "$observed_manifest" "$artifact" "$expected_abi" "$profile" "$source_revision" "$config_digest" "$size_bytes" "$digest" "$libxul_size_bytes" "$libxul_build_id" "$omni_size_bytes" "${maven_archive:-}" "${maven_digest:-}" <<'PY'
 import json
 import os
 import sys
 
-path, artifact, abi, profile, revision, config, size, digest, maven_archive, maven_digest = sys.argv[1:]
+(
+    path,
+    artifact,
+    abi,
+    profile,
+    revision,
+    config,
+    size,
+    digest,
+    libxul_size,
+    libxul_build_id,
+    omni_size,
+    maven_archive,
+    maven_digest,
+) = sys.argv[1:]
 manifest = {
     "artifact": os.path.basename(artifact),
     "abi": abi,
@@ -73,6 +156,9 @@ manifest = {
     "configurationDigest": config,
     "size": int(size),
     "sha256": digest,
+    "libxulSize": int(libxul_size),
+    "libxulBuildId": libxul_build_id,
+    "omniSize": int(omni_size),
 }
 if maven_archive:
     manifest["mavenArchive"] = os.path.basename(maven_archive)
