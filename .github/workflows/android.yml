@@ -49,15 +49,11 @@ jobs:
         disable-animations: true
         disable-linux-hw-accel: false
         script: |
-          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=com.github.andreyasadchy.xtra.ui.player.clip
-          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.repository.MetadataCacheTest
-          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.db.AppDatabaseMigrationTest
-          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.util.DatabaseRestoreRecoveryTest
-          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCacheTest
-          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.view.CenteredImageSpanTest
-          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.chat.v2.ChatMessageTextViewTest
-          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.chat.v2.TwitchChatCatalogCacheTest
-          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.chat.v2.ChatCatalogCacheMigrationTest
+          # Keep the clip classes below synchronized with the clip instrumentation package.
+          # Run the selected classes together so the APK is installed only once.
+          # Reinstalling it for every filter can leave the emulator package
+          # installer stuck during the repeated ADB uploads.
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.github.andreyasadchy.xtra.ui.player.clip.ClipExporterInstrumentationTest,com.github.andreyasadchy.xtra.ui.player.clip.ClipMediaStoreLegacyInstrumentationTest,com.github.andreyasadchy.xtra.ui.player.clip.ClipPreparationRepositoryInstrumentationTest,com.github.andreyasadchy.xtra.repository.MetadataCacheTest,com.github.andreyasadchy.xtra.db.AppDatabaseMigrationTest,com.github.andreyasadchy.xtra.util.DatabaseRestoreRecoveryTest,com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCacheTest,com.github.andreyasadchy.xtra.ui.view.CenteredImageSpanTest,com.github.andreyasadchy.xtra.ui.chat.v2.ChatMessageTextViewTest,com.github.andreyasadchy.xtra.ui.chat.v2.TwitchChatCatalogCacheTest,com.github.andreyasadchy.xtra.ui.chat.v2.ChatCatalogCacheMigrationTest
 
   build:
     runs-on: ubuntu-latest
