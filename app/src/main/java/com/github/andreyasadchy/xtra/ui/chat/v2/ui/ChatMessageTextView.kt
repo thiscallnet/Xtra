@@ -326,9 +326,14 @@ open class ChatMessageTextView private constructor(
         val height = clipPreviewCardHeight().toFloat()
         val radius = (3 * density)
         val card = RectF(left, top, right, top + height)
-        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(35, 34, 39) }
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = com.google.android.material.color.MaterialColors.getColor(
+                this@ChatMessageTextView,
+                com.google.android.material.R.attr.colorSurfaceContainerHigh,
+            )
+        }
         canvas.drawRoundRect(card, radius, radius, fill)
-        fill.color = Color.rgb(145, 71, 255)
+        fill.color = ContextCompat.getColor(context, R.color.chatMessageSpecialAccent)
         canvas.drawRoundRect(RectF(right - 4 * density, top, right, top + height), radius, radius, fill)
 
         val imageUrl = preview.thumbnailUrl?.takeIf { it.isNotBlank() }
@@ -349,12 +354,18 @@ open class ChatMessageTextView private constructor(
         val textLeft = thumbRight + 6 * density
         val textRight = right - 9 * density
         val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(235, 232, 239)
+            color = com.google.android.material.color.MaterialColors.getColor(
+                this@ChatMessageTextView,
+                com.google.android.material.R.attr.colorOnSurface,
+            )
             textSize = paint.textSize
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         val secondaryPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(194, 189, 201)
+            color = com.google.android.material.color.MaterialColors.getColor(
+                this@ChatMessageTextView,
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+            )
             textSize = paint.textSize
         }
         drawClipLine(canvas, preview.title?.takeIf { it.isNotBlank() } ?: link.slug, titlePaint, textLeft, textRight, top + 18 * density)

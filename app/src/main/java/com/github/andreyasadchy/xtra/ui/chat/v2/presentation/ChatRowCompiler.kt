@@ -107,7 +107,7 @@ class ChatRowCompiler(
             !message.systemText.isNullOrBlank()
         val isPersonalHighlight = !hasSpecialBackground && shouldHighlightV2ChatMessage(message, highlightSettings)
         val rowBackground = if (isPersonalHighlight) highlightSettings.color else background(message)
-        val mutedColor = 0xFFC4BEC9.toInt()
+        val mutedColor = colors.mutedTextColor(rowBackground)
         val pieces = buildList {
             val specialNotice = isFirstChatter || isWatchStreak || isSubscription
             message.reply?.let { reply ->
@@ -147,7 +147,7 @@ class ChatRowCompiler(
                 add(ChatPiece.Text(" ${labels.firstChatter}\n", bold = true))
             }
             if (subscriptionBody != null) {
-                val headingColor = 0xFFE8E4EC.toInt()
+                val headingColor = colors.brightTextColor(rowBackground)
                 val icon = if (isPrimeSubscription) {
                     R.drawable.ic_chat_subscription
                 } else {
@@ -201,7 +201,7 @@ class ChatRowCompiler(
             }
             message.source?.let { source ->
                 val sourceName = source.broadcasterName ?: source.broadcasterLogin ?: source.broadcasterId
-                add(ChatPiece.Source(sourceName))
+                add(ChatPiece.Source(sourceName, colors.mutedTextColor(rowBackground)))
                 add(ChatPiece.Text(" "))
             }
             if (message.kind == ChatMessageKind.ANNOUNCEMENT) {

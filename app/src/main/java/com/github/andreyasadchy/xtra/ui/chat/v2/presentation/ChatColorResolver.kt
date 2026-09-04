@@ -41,6 +41,23 @@ class ChatColorResolver(
         }
     }
 
+    /**
+     * Muted secondary text for replies, subscription bodies, reward captions,
+     * and translations. The dark-mode mauve is unreadable on light surfaces,
+     * so light rows get a dark gray with equivalent contrast.
+     */
+    @ColorInt
+    fun mutedTextColor(@ColorInt rowBackground: Int): Int =
+        if (isLight(rowBackground)) 0xFF5F5B66.toInt() else 0xFFC4BEC9.toInt()
+
+    /**
+     * Bright heading text for tinted event rows (e.g. the subscription actor
+     * fallback). Near-white works on dark rows but vanishes on light ones.
+     */
+    @ColorInt
+    fun brightTextColor(@ColorInt rowBackground: Int): Int =
+        if (isLight(rowBackground)) 0xFF1F1B24.toInt() else 0xFFE8E4EC.toInt()
+
     private fun fallbackColor(identity: String?, @ColorInt rowBackground: Int): Int {
         if (identity == null) {
             return if (!isNearWhite(fallback) && hasContrast(fallback, rowBackground)) {
