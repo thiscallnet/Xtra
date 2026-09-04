@@ -120,10 +120,14 @@ class TeamFragment : PagedListFragment(), Scrollable {
                     else -> false
                 }
             }
+            var maxTopInset = 0
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-                collapsingToolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                    topMargin = insets.top
+                if (insets.top > maxTopInset) {
+                    maxTopInset = insets.top
+                    collapsingToolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                        topMargin = insets.top
+                    }
                 }
                 if (activity.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false) {
                     val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())

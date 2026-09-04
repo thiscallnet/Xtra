@@ -2,6 +2,10 @@ package com.github.andreyasadchy.xtra.util
 
 import android.graphics.Rect
 import android.view.View
+import android.view.ViewGroup
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updateLayoutParams
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 
@@ -40,4 +44,30 @@ fun ViewPager2.configureForSmoothPaging() {
         setHasFixedSize(true)
     }
     reduceDragSensitivity()
+}
+
+/**
+ * Offsets a collapsing AppBar child below the status bar/cutout.
+ *
+ * These pager screens are never immersive themselves, yet transient window
+ * states (player fullscreen transitions, PiP) can dispatch a zero top inset
+ * that would otherwise strand the collapsed tab strip underneath the status
+ * bar with clock/icons overlapping the tabs. Keep the largest inset seen for
+ * this view lifetime so a stale zero can never shrink the offset; the value
+ * resets with the view. Errs toward a slightly larger gap, never overlap.
+ */
+fun View.applyStickyTopSystemBarMargin(target: View) {
+    var maxTop = 0
+    ViewCompat.setOnApplyWindowInsetsListener(this) { _, windowInsets ->
+        val top = windowInsets.getInsets(
+            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        ).top
+        if (top > maxTop) {
+            maxTop = top
+            target.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                topMargin = top
+            }
+        }
+        windowInsets
+    }
 }

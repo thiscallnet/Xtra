@@ -13,13 +13,10 @@ import androidx.constraintlayout.helper.widget.Flow
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.use
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.core.view.marginBottom
 import androidx.core.view.marginTop
-import androidx.core.view.updateLayoutParams
 import androidx.core.widget.TextViewCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
@@ -51,6 +48,7 @@ import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.applyStickyTopSystemBarMargin
 import com.github.andreyasadchy.xtra.util.configureForSmoothPaging
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -300,13 +298,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                 }
             }.attach()
             tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_GAME_TABS)
-            ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
-                val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-                collapsingToolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                    topMargin = insets.top
-                }
-                windowInsets
-            }
+            view.applyStickyTopSystemBarMargin(collapsingToolbar)
         }
     }
 
