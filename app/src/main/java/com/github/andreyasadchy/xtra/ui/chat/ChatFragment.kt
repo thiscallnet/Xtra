@@ -1694,6 +1694,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onResume() {
         super.onResume()
+        adapter?.refreshChatHighlightSettings()
         if (useChatV2) {
             chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext()))
             (requireContext().applicationContext as XtraApp).xtraModule.chatSessionManager.active.value?.catalog?.refresh()

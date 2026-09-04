@@ -156,6 +156,16 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # translations are reviewed by native speakers.
     "chat_clip_playing",
     "chat_clip_clipped_by",
+    # Message highlight settings ship with the default English resources until
+    # their translations are reviewed by native speakers.
+    "chat_message_highlights",
+    "chat_highlight_replies",
+    "chat_highlight_mentions",
+    "chat_highlight_mentions_without_at",
+    "chat_highlight_color",
+    "chat_highlight_color_summary",
+    "chat_highlight_color_hint",
+    "chat_highlight_color_invalid",
 }
 
 

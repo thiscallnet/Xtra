@@ -28,6 +28,7 @@ import com.github.andreyasadchy.xtra.model.chat.ChatMessage as LegacyChatMessage
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.chat.ChatAdapter
 import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
+import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
 import com.github.andreyasadchy.xtra.ui.chat.ImageClickedDialog
 import com.github.andreyasadchy.xtra.ui.chat.MessageClickedChatAdapter
 import com.github.andreyasadchy.xtra.ui.chat.MessageClickedDialog
@@ -137,6 +138,11 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
     override fun onStart() {
         super.onStart()
         viewModel.onStart()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::adapter.isInitialized) adapter.refreshChatHighlightSettings()
     }
 
     override fun onStop() {
@@ -468,6 +474,11 @@ private class CombinedChatAdapter(
             }
     }
 
+    fun refreshChatHighlightSettings() {
+        if (!renderers.values.map { it.refreshChatHighlightSettings() }.any { it }) return
+        if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
+    }
+
     fun createInteractionAdapter(identity: String, messages: List<V2ChatMessage>): ChatAdapter? {
         val renderer = renderer(identity) ?: return null
         return renderer.createInteractionAdapter(messages.map(renderer::toLegacy))
@@ -553,7 +564,8 @@ private class CombinedChatAdapter(
         private val preferences = context.prefs()
         private val style = com.github.andreyasadchy.xtra.ui.chat.resolveChatRenderStyle(context)
         private val surface = MaterialColors.getColor(fragment.requireView(), com.google.android.material.R.attr.colorSurface)
-        private val compiler = ChatRowCompiler(
+        private var highlightSettings = resolveChatHighlightSettings(context)
+        private fun createCompiler() = ChatRowCompiler(
             colors = ChatColorResolver(
                     readable = preferences.getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),
                     randomFallback = preferences.getBoolean(C.CHAT_RANDOM_COLOR, true),
@@ -589,8 +601,17 @@ private class CombinedChatAdapter(
                 reply = { user, message -> fragment.getString(R.string.replying_to_message, user, message) },
             ),
             gifDisplayMode = style.gifDisplayMode,
+            highlightSettings = highlightSettings,
         )
-        private val presentation = ChatPresentationResolver(compiler)
+        private val presentation = ChatPresentationResolver(createCompiler())
+
+        fun refreshChatHighlightSettings(): Boolean {
+            val next = resolveChatHighlightSettings(context)
+            if (next == highlightSettings) return false
+            highlightSettings = next
+            presentation.replaceCompiler(createCompiler())
+            return true
+        }
 
         fun compile(message: V2ChatMessage): ChatRowUiModel = presentation.resolve(
             message = message,

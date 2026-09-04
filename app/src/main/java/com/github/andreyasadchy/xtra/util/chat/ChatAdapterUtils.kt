@@ -54,6 +54,8 @@ import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.view.CenteredImageSpan
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
 import com.github.andreyasadchy.xtra.ui.view.NamePaintSpan
+import com.github.andreyasadchy.xtra.ui.chat.ChatHighlightSettings
+import com.github.andreyasadchy.xtra.ui.chat.shouldHighlightLegacyChatMessage
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import java.text.NumberFormat
 import java.io.File
@@ -234,7 +236,7 @@ object ChatAdapterUtils {
         return description
     }
 
-    fun prepareChatMessage(chatMessage: ChatMessage, context: Context, itemView: View?, enableTimestamps: Boolean, timestampFormat: String?, firstMsgVisibility: Int, firstChatMsg: String, redeemedChatMsg: String, redeemedNoMsg: String, replyMessage: String, imageClick: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?, useRandomColors: Boolean, random: Random, useReadableColors: Boolean, isLightTheme: Boolean, nameDisplay: String?, useBoldNames: Boolean, showNamePaints: Boolean, namePaints: List<NamePaint>, showBadges: Boolean, showSTVBadges: Boolean, stvBadges: List<STVBadge>, showPersonalEmotes: Boolean, personalEmoteSets: Map<String, List<Emote>>, stvUsers: List<STVUser>, enableOverlayEmotes: Boolean, showSystemMessageEmotes: Boolean, loggedInUser: String?, chatUrl: String?, userColors: HashMap<String, Int>, savedColors: HashMap<String, Int>, translateAllMessages: Boolean, translateMessage: (ChatMessage, String?) -> Unit, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean, localTwitchEmotes: List<TwitchEmote>, thirdPartyEmotes: List<Emote>, globalBadges: List<TwitchBadge>, channelBadges: List<TwitchBadge>, cheerEmotes: List<CheerEmote>, savedLocalTwitchEmotes: MutableMap<String, ByteArray>, savedLocalBadges: MutableMap<String, ByteArray>, savedLocalCheerEmotes: MutableMap<String, ByteArray>, savedLocalEmotes: MutableMap<String, ByteArray>, catalogIndexes: ChatCatalogIndexes? = null, includeAccessibilityDescription: Boolean = false): MessageResult {
+    fun prepareChatMessage(chatMessage: ChatMessage, context: Context, itemView: View?, enableTimestamps: Boolean, timestampFormat: String?, firstMsgVisibility: Int, firstChatMsg: String, redeemedChatMsg: String, redeemedNoMsg: String, replyMessage: String, imageClick: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?, useRandomColors: Boolean, random: Random, useReadableColors: Boolean, isLightTheme: Boolean, nameDisplay: String?, useBoldNames: Boolean, showNamePaints: Boolean, namePaints: List<NamePaint>, showBadges: Boolean, showSTVBadges: Boolean, stvBadges: List<STVBadge>, showPersonalEmotes: Boolean, personalEmoteSets: Map<String, List<Emote>>, stvUsers: List<STVUser>, enableOverlayEmotes: Boolean, showSystemMessageEmotes: Boolean, loggedInUser: String?, chatUrl: String?, userColors: HashMap<String, Int>, savedColors: HashMap<String, Int>, translateAllMessages: Boolean, translateMessage: (ChatMessage, String?) -> Unit, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean, localTwitchEmotes: List<TwitchEmote>, thirdPartyEmotes: List<Emote>, globalBadges: List<TwitchBadge>, channelBadges: List<TwitchBadge>, cheerEmotes: List<CheerEmote>, savedLocalTwitchEmotes: MutableMap<String, ByteArray>, savedLocalBadges: MutableMap<String, ByteArray>, savedLocalCheerEmotes: MutableMap<String, ByteArray>, savedLocalEmotes: MutableMap<String, ByteArray>, catalogIndexes: ChatCatalogIndexes? = null, includeAccessibilityDescription: Boolean = false, highlightSettings: ChatHighlightSettings = ChatHighlightSettings()): MessageResult {
         val indexes = catalogIndexes ?: ChatCatalogIndexes.create(localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, stvUsers, stvBadges, namePaints, personalEmoteSets, cheerEmotes)
         val builder = SpannableStringBuilder()
         val images = ArrayList<Image>()
@@ -244,6 +246,8 @@ object ChatAdapterUtils {
         var wasMentioned = false
         var translated = false
         var backgroundResource = 0
+        var backgroundColor: Int? = null
+        val highlightMatch = shouldHighlightLegacyChatMessage(chatMessage, highlightSettings)
         var builderIndex = 0
         val badgeVisibility = chatBadgeVisibility(showBadges, showSTVBadges, showNamePaints, showPersonalEmotes)
         when {
@@ -695,7 +699,7 @@ object ChatAdapterUtils {
                         translateMessage(chatMessage, null)
                     }
                 }
-                backgroundResource = chatMessageBackgroundResource(chatMessage, firstMsgVisibility, wasMentioned)
+                backgroundResource = chatMessageBackgroundResource(chatMessage, firstMsgVisibility, highlightMatch)
             }
         }
         if (chatMessage.isHighlightedMessage()) {
@@ -707,7 +711,13 @@ object ChatAdapterUtils {
             )
             backgroundResource = R.drawable.bg_chat_highlight
         }
-        itemView?.setBackgroundResource(backgroundResource)
+        if (backgroundResource == R.color.chatMessageMention && highlightMatch) {
+            backgroundColor = highlightSettings.color
+            backgroundResource = 0
+        }
+        itemView?.let { view ->
+            backgroundColor?.let(view::setBackgroundColor) ?: view.setBackgroundResource(backgroundResource)
+        }
         return MessageResult(
             builder = builder,
             images = images,
@@ -716,6 +726,7 @@ object ChatAdapterUtils {
             userNameStartIndex = userNameStartIndex,
             translated = translated,
             backgroundResource = backgroundResource,
+            backgroundColor = backgroundColor,
             accessibilityDescription = if (includeAccessibilityDescription) {
                 accessibilityDescription(context, chatMessage, nameDisplay, builder)
             } else null,
@@ -737,6 +748,7 @@ object ChatAdapterUtils {
         useReadableColors: Boolean,
         isLightTheme: Boolean,
         savedColors: HashMap<String, Int>,
+        highlightSettings: ChatHighlightSettings = ChatHighlightSettings(),
     ): MessageResult {
         val builder = SpannableStringBuilder()
         val muted = getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)
@@ -776,10 +788,19 @@ object ChatAdapterUtils {
         }.orEmpty()
         appendMuted(content)
 
-        val backgroundResource = when {
+        var backgroundResource = when {
             chatMessage.isHighlightedMessage() -> R.drawable.bg_chat_highlight
             chatMessage.isWatchStreakNotice() -> R.drawable.bg_chat_watch_streak
-            else -> chatMessageBackgroundResource(chatMessage, firstMsgVisibility)
+            else -> chatMessageBackgroundResource(
+                chatMessage,
+                firstMsgVisibility,
+                shouldHighlightLegacyChatMessage(chatMessage, highlightSettings),
+            )
+        }
+        var backgroundColor: Int? = null
+        if (backgroundResource == R.color.chatMessageMention) {
+            backgroundColor = highlightSettings.color
+            backgroundResource = 0
         }
         return MessageResult(
             builder = builder,
@@ -789,6 +810,7 @@ object ChatAdapterUtils {
             userNameStartIndex = userNameStartIndex,
             translated = false,
             backgroundResource = backgroundResource,
+            backgroundColor = backgroundColor,
         )
     }
 
@@ -800,6 +822,7 @@ object ChatAdapterUtils {
         val userNameStartIndex: Int?,
         val translated: Boolean,
         val backgroundResource: Int,
+        val backgroundColor: Int? = null,
         val accessibilityDescription: String? = null,
         val resolvedImages: List<Drawable?> = emptyList(),
         val resolvedImagePaint: Drawable? = null,
@@ -813,6 +836,7 @@ object ChatAdapterUtils {
             userNameStartIndex = userNameStartIndex,
             translated = translated,
             backgroundResource = backgroundResource,
+            backgroundColor = backgroundColor,
             accessibilityDescription = accessibilityDescription,
             resolvedImages = resolvedImages.map { it?.constantState?.newDrawable()?.mutate() ?: it },
             resolvedImagePaint = resolvedImagePaint?.constantState?.newDrawable()?.mutate() ?: resolvedImagePaint,

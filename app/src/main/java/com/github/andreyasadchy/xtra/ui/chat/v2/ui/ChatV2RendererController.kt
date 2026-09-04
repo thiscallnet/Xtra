@@ -22,6 +22,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
 import com.github.andreyasadchy.xtra.ui.chat.ChatRenderStyle
 import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
+import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
@@ -123,6 +124,7 @@ class ChatV2RendererController(
         } else null,
     )
     private val viewport = ChatViewportController(recyclerView, initialState)
+    private var highlightSettings = resolveChatHighlightSettings(recyclerView.context)
     private val presentation = createPresentation(readableUsernameColors, backgroundColor, renderStyle)
     private var collectionJob: Job? = null
     private var styleRefreshJob: Job? = null
@@ -211,8 +213,10 @@ class ChatV2RendererController(
     }
 
     internal fun refreshStyle(style: ChatRenderStyle) {
-        if (style == renderStyle) return
+        val nextHighlightSettings = resolveChatHighlightSettings(recyclerView.context)
+        if (style == renderStyle && nextHighlightSettings == highlightSettings) return
         renderStyle = style
+        highlightSettings = nextHighlightSettings
         presentation.replaceCompiler(createPresentationCompiler(style))
         adapter.setMessageTextSizeSp(style.textSizeSp)
         adapter.setAnimateGifs(style.animateGifs)
@@ -339,6 +343,7 @@ class ChatV2RendererController(
             background = { background },
             labels = presentationLabels,
             gifDisplayMode = style.gifDisplayMode,
+            highlightSettings = highlightSettings,
         )
 
     private fun ActiveChatSession.presentationFlow() =
