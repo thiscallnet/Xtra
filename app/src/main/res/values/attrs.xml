@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <attr name="chatStatus" format="color" />
+    <attr name="chatMessageFirstColor" format="color" />
+    <attr name="chatMessageFirstChatterColor" format="color" />
+    <attr name="chatMessageSubscriptionAccentColor" format="color" />
+    <attr name="chatMessageRewardColor" format="color" />
+    <attr name="chatMessageNoticeColor" format="color" />
+    <attr name="chatMessageHighlightColor" format="color" />
+    <attr name="chatMessageSpecialAccentColor" format="color" />
+    <attr name="chatMessageMentionColor" format="color" />
+    <attr name="chatMessageSelectedColor" format="color" />
     <attr name="sortBarTextColor" format="color" />
     <attr name="dialogPadding" format="dimension" />
     <attr name="dialogLayoutPadding" format="dimension" />

@@ -28,6 +28,7 @@ import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
+import com.github.andreyasadchy.xtra.util.chat.setChatMessageBackground
 import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
 import com.github.andreyasadchy.xtra.util.chat.isWatchStreakNotice
 import java.util.Random
@@ -116,7 +117,7 @@ class ReplyClickedChatAdapter(
             highlightSettings = resolveChatHighlightSettings(fragment.requireContext()),
         )
         if (chatMessage == selectedMessage) {
-            holder.textView.setBackgroundResource(R.color.chatMessageSelected)
+            setChatMessageBackground(holder.textView, R.color.chatMessageSelected)
         }
         ChatAdapterUtils.installImagePlaceholders(
             result.builder,
@@ -251,7 +252,7 @@ class ReplyClickedChatAdapter(
                     if (selectionStart == -1 && selectionEnd == -1 && chatMessage != selectedMessage) {
                         messageClickListener?.invoke(chatMessage, selectedMessage)
                         selectedMessage = chatMessage
-                        setBackgroundResource(R.color.chatMessageSelected)
+                        setChatMessageBackground(this@ViewHolder.textView, R.color.chatMessageSelected)
                         (text as? Spannable)?.let { view ->
                             view.getSpans<NamePaintImageSpan>().forEach {
                                 it.backgroundColor = (background as? ColorDrawable)?.color

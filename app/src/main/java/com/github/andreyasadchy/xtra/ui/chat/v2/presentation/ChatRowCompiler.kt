@@ -106,8 +106,13 @@ class ChatRowCompiler(
             !message.noticeType.isNullOrBlank() ||
             !message.systemText.isNullOrBlank()
         val isPersonalHighlight = !hasSpecialBackground && shouldHighlightV2ChatMessage(message, highlightSettings)
-        val rowBackground = if (isPersonalHighlight) highlightSettings.color else background(message)
-        val mutedColor = 0xFFC4BEC9.toInt()
+        val baseBackground = background(message)
+        val rowBackground = if (isPersonalHighlight) {
+            compositeColors(highlightSettings.color, baseBackground)
+        } else {
+            baseBackground
+        }
+        val mutedColor = colors.mutedTextColor(rowBackground)
         val pieces = buildList {
             val specialNotice = isFirstChatter || isWatchStreak || isSubscription
             message.reply?.let { reply ->
@@ -147,7 +152,7 @@ class ChatRowCompiler(
                 add(ChatPiece.Text(" ${labels.firstChatter}\n", bold = true))
             }
             if (subscriptionBody != null) {
-                val headingColor = 0xFFE8E4EC.toInt()
+                val headingColor = colors.brightTextColor(rowBackground)
                 val icon = if (isPrimeSubscription) {
                     R.drawable.ic_chat_subscription
                 } else {
@@ -201,14 +206,14 @@ class ChatRowCompiler(
             }
             message.source?.let { source ->
                 val sourceName = source.broadcasterName ?: source.broadcasterLogin ?: source.broadcasterId
-                add(ChatPiece.Source(sourceName))
+                add(ChatPiece.Source(sourceName, colors.mutedTextColor(rowBackground)))
                 add(ChatPiece.Text(" "))
             }
             if (message.kind == ChatMessageKind.ANNOUNCEMENT) {
                 add(ChatPiece.Text("${labels.announcement}\n", bold = true))
             }
             if (message.twitchType == TwitchChatMessageType.Highlighted) {
-                val headingColor = 0xFFE8E4EC.toInt()
+                val headingColor = colors.brightTextColor(rowBackground)
                 // The displayed highlight title is always the localized
                 // presentation label. The catalog only provides the configured
                 // cost/image metadata, whose built-in titles are hardcoded
@@ -349,7 +354,7 @@ class ChatRowCompiler(
             timestampText = timestampText(message.timestampMs),
             timestampColor = colors.resolve("#999999", rowBackground = rowBackground),
             pieces = pieces,
-            background = rowBackground,
+            background = if (isPersonalHighlight) highlightSettings.color else baseBackground,
             backgroundStyle = when {
                 message.twitchType == TwitchChatMessageType.Highlighted -> ChatRowBackground.HIGHLIGHT
                 isWatchStreak -> ChatRowBackground.WATCH_STREAK
@@ -501,6 +506,23 @@ class ChatRowCompiler(
             "shared_chat_prime_paid_upgrade",
             "shared_chat_pay_it_forward",
         )
+    }
+
+    private fun compositeColors(foreground: Int, background: Int): Int {
+        val foregroundAlpha = foreground ushr 24 and 0xff
+        val backgroundAlpha = background ushr 24 and 0xff
+        val outputAlpha = 255 - ((255 - foregroundAlpha) * (255 - backgroundAlpha) / 255)
+        if (outputAlpha == 0) return 0
+
+        fun compositeComponent(foregroundComponent: Int, backgroundComponent: Int): Int =
+            (foregroundComponent * foregroundAlpha * 255 +
+                backgroundComponent * backgroundAlpha * (255 - foregroundAlpha)) /
+                (outputAlpha * 255)
+
+        return (outputAlpha shl 24) or
+            (compositeComponent(foreground ushr 16 and 0xff, background ushr 16 and 0xff) shl 16) or
+            (compositeComponent(foreground ushr 8 and 0xff, background ushr 8 and 0xff) shl 8) or
+            compositeComponent(foreground and 0xff, background and 0xff)
     }
 }
 

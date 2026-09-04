@@ -4,5 +4,5 @@
     <item
         android:width="3dp"
         android:gravity="start"
-        android:drawable="@color/chatMessageSubscriptionAccent" />
+        android:drawable="?attr/chatMessageSubscriptionAccentColor" />
 </layer-list>

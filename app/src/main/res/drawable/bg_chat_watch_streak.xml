@@ -4,5 +4,5 @@
     <item
         android:width="8dp"
         android:gravity="start"
-        android:drawable="@color/chatMessageSpecialAccent" />
+        android:drawable="?attr/chatMessageSpecialAccentColor" />
 </layer-list>

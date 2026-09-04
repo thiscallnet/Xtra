@@ -35,6 +35,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
+import com.github.andreyasadchy.xtra.util.chat.setChatMessageBackground
 import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
 import com.github.andreyasadchy.xtra.util.chat.isWatchStreakNotice
 import java.util.Random
@@ -151,7 +152,7 @@ class MessageClickedChatAdapter(
             v2View.setInteractionCallbacks(null, v2EmoteClick, v2GifClick)
             v2View.bind(v2Row)
             bindSelectionClick(holder.textView, chatMessage)
-            if (isSelected(chatMessage)) holder.textView.setBackgroundResource(R.color.chatMessageSelected)
+            if (isSelected(chatMessage)) setChatMessageBackground(holder.textView, R.color.chatMessageSelected)
             return
         }
         val result = ChatAdapterUtils.prepareChatMessage(
@@ -164,7 +165,7 @@ class MessageClickedChatAdapter(
             highlightSettings = resolveChatHighlightSettings(fragment.requireContext()),
         )
         if (isSelected(chatMessage)) {
-            holder.textView.setBackgroundResource(R.color.chatMessageSelected)
+            setChatMessageBackground(holder.textView, R.color.chatMessageSelected)
         }
         // Peek-only: the main list owns clip loading through the shared repository,
         // so a dialog opened after the row loaded shows the same unfurl.
@@ -252,7 +253,7 @@ class MessageClickedChatAdapter(
                 messageClickListener?.invoke(chatMessage, previous)
                 selectedMessage = chatMessage
                 selectedMessageId = chatMessage.id?.takeIf { it.isNotBlank() }
-                view.setBackgroundResource(R.color.chatMessageSelected)
+                setChatMessageBackground(view, R.color.chatMessageSelected)
             }
         }
     }
@@ -362,7 +363,7 @@ class MessageClickedChatAdapter(
                             messageClickListener?.invoke(chatMessage, selectedMessage)
                             selectedMessage = chatMessage
                             selectedMessageId = chatMessage.id?.takeIf { it.isNotBlank() }
-                            setBackgroundResource(R.color.chatMessageSelected)
+                            setChatMessageBackground(textView, R.color.chatMessageSelected)
                             (text as? Spannable)?.let { view ->
                                 view.getSpans<NamePaintImageSpan>().forEach {
                                     it.backgroundColor = (background as? ColorDrawable)?.color
