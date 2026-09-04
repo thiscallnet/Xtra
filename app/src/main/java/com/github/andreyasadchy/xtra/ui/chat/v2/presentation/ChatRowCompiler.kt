@@ -208,7 +208,7 @@ class ChatRowCompiler(
                 add(ChatPiece.Text("${labels.announcement}\n", bold = true))
             }
             if (message.twitchType == TwitchChatMessageType.Highlighted) {
-                val headingColor = 0xFFE8E4EC.toInt()
+                val headingColor = colors.brightTextColor(rowBackground)
                 // The displayed highlight title is always the localized
                 // presentation label. The catalog only provides the configured
                 // cost/image metadata, whose built-in titles are hardcoded

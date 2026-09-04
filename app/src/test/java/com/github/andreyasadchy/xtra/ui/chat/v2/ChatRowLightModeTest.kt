@@ -1,10 +1,15 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2
 
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReply
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.HIGHLIGHTED_MESSAGE_REWARD_TYPE
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatColorResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
@@ -75,6 +80,44 @@ class ChatRowLightModeTest {
             lightRow.pieces.filterIsInstance<ChatPiece.Source>().single().color,
         )
     }
+
+    @Test
+    fun highlightedHeadingAdaptsToRowBackground() {
+        val catalog = ChatCatalogSnapshot(
+            0,
+            automaticChannelPointRewards = mapOf(
+                HIGHLIGHTED_MESSAGE_REWARD_TYPE to ChatReward("Highlight My Message", 2_000, null),
+            ),
+        )
+        val lightRow = ChatRowCompiler(background = { lightBackground }).compile(
+            highlightedMessage(),
+            catalog,
+        )
+        val darkRow = ChatRowCompiler(background = { darkBackground }).compile(
+            highlightedMessage(),
+            catalog,
+        )
+
+        val lightHeading = lightRow.pieces.filterIsInstance<ChatPiece.Text>()
+            .filter { it.value.contains("Redeemed") || it.value.contains("Highlight My Message") || it.value.filter(Char::isDigit).contains("2000") }
+        assertTrue(lightHeading.isNotEmpty())
+        lightHeading.forEach { assertEquals(0xFF1F1B24.toInt(), it.color) }
+        assertEquals(
+            0xFF1F1B24.toInt(),
+            lightRow.pieces.filterIsInstance<ChatPiece.Icon>().single().tint,
+        )
+        assertTrue(
+            darkRow.pieces.filterIsInstance<ChatPiece.Text>()
+                .filter { it.value.contains("Highlight My Message") }
+                .all { it.color == 0xFFE8E4EC.toInt() },
+        )
+    }
+
+    private fun highlightedMessage() = message(ChatSegment.Text("Lock them up!")).copy(
+        user = ChatUser("user", "viewer", "Viewer", null),
+        rewardId = null,
+        twitchType = TwitchChatMessageType.Highlighted,
+    )
 
     private fun message(segment: ChatSegment) = ChatMessage(
         id = ChatMessageId("id"), channelId = "channel", timestampMs = 1,
