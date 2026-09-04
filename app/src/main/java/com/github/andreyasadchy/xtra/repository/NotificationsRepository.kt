@@ -268,7 +268,7 @@ class NotificationsRepository(
                     enabledIds += id
                 }
             }
-            offset = items.lastOrNull()?.cursor?.toString()
+            offset = items.lastOrNull()?.cursor
         } while (!offset.isNullOrBlank() && follows.pageInfo?.hasNextPage == true)
         return GraphQlFollowedChannels(
             followedIds = followedIds,
@@ -376,8 +376,8 @@ class NotificationsRepository(
                     } else null
                 }
             }.let { list.addAll(it) }
-            offset = items.lastOrNull()?.cursor?.toString()
-        } while (!items.lastOrNull()?.cursor?.toString().isNullOrBlank() && followedLiveUsers.pageInfo?.hasNextPage == true)
+            offset = items.lastOrNull()?.cursor
+        } while (!items.lastOrNull()?.cursor.isNullOrBlank() && followedLiveUsers.pageInfo?.hasNextPage == true)
         return list
     }
 

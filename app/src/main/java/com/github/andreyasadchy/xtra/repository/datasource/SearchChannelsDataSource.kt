@@ -6,66 +6,87 @@ import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.util.C
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
 
-class SearchChannelsDataSource(
+internal class SearchChannelsDataSource(
     private val query: String,
     private val gqlHeaders: Map<String, String>,
     private val graphQLRepository: GraphQLRepository,
     private val helixHeaders: Map<String, String>,
     private val helixRepository: HelixRepository,
     private val networkLibrary: String?,
-) : PagingSource<Int, User>() {
-    private var api: String? = null
-    private var offset: String? = null
+) : PagingSource<SearchPageKey, User>() {
 
-    override suspend fun load(params: LoadParams<Int>): LoadResult<Int, User> {
-        return if (query.isBlank()) {
-            LoadResult.Page(
+    override suspend fun load(params: LoadParams<SearchPageKey>): LoadResult<SearchPageKey, User> {
+        if (query.isBlank()) {
+            return LoadResult.Page(
                 data = emptyList(),
                 prevKey = null,
-                nextKey = null
+                nextKey = null,
             )
-        } else {
-            if (!offset.isNullOrBlank()) {
-                try {
-                    loadFromApi(params)
-                } catch (e: Exception) {
-                    LoadResult.Error(e)
-                }
-            } else {
-                try {
-                    api = C.GQL
-                    loadFromApi(params)
-                } catch (e: Exception) {
-                    try {
-                        api = C.GQL_PERSISTED_QUERY
-                        loadFromApi(params)
-                    } catch (e: Exception) {
-                        try {
-                            api = C.HELIX
-                            loadFromApi(params)
-                        } catch (e: Exception) {
-                            LoadResult.Error(e)
-                        }
-                    }
-                }
+        }
+
+        return try {
+            params.key?.let { key ->
+                loadFromApi(params.loadSize, key)
+            } ?: loadFirstPage(params.loadSize)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            LoadResult.Error(error)
+        }
+    }
+
+    private suspend fun loadFirstPage(loadSize: Int): LoadResult<SearchPageKey, User> {
+        return try {
+            loadGql(loadSize, cursor = null)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            try {
+                loadPersisted(cursor = null)
+            } catch (error2: Exception) {
+                if (error2 is CancellationException) throw error2
+                loadHelix(loadSize, cursor = null)
             }
         }
     }
 
-    private suspend fun loadFromApi(params: LoadParams<Int>): LoadResult<Int, User> {
-        return when (api) {
-            C.GQL -> gqlQueryLoad(params)
-            C.GQL_PERSISTED_QUERY -> gqlLoad(params)
-            C.HELIX -> if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) helixLoad(params) else throw Exception()
-            else -> throw Exception()
-        }
+    private suspend fun loadFromApi(
+        loadSize: Int,
+        key: SearchPageKey,
+    ): LoadResult<SearchPageKey, User> = when (key.api) {
+        C.GQL -> loadGql(loadSize, key.cursor)
+        C.GQL_PERSISTED_QUERY -> loadPersisted(key.cursor)
+        C.HELIX -> loadHelix(loadSize, key.cursor)
+        else -> throw IOException("Unknown search channel API: ${key.api}")
     }
 
-    private suspend fun gqlQueryLoad(params: LoadParams<Int>): LoadResult<Int, User> {
-        val response = graphQLRepository.loadQuerySearchChannels(networkLibrary, gqlHeaders, query, params.loadSize, offset)
-        val data = response.data!!.searchUsers!!
-        val list = data.edges!!.mapNotNull { item ->
+    private suspend fun loadGql(
+        loadSize: Int,
+        cursor: String?,
+    ): LoadResult<SearchPageKey, User> {
+        val response = graphQLRepository.loadQuerySearchChannels(
+            networkLibrary,
+            gqlHeaders,
+            query,
+            loadSize,
+            cursor,
+        )
+        val data = response.data?.searchUsers
+            ?: throw IOException(
+                buildString {
+                    append("SearchChannelsQuery returned no channel data")
+                    response.errors
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { errors ->
+                            append(": ")
+                            append(errors.joinToString("; ") { it.message })
+                        }
+                }
+            )
+        val edges = data.edges.orEmpty()
+        val list = edges.mapNotNull { item ->
             item.node?.let {
                 User(
                     id = it.id,
@@ -77,20 +98,31 @@ class SearchChannelsDataSource(
                 )
             }
         }
-        offset = data.edges.lastOrNull()?.cursor?.toString()
-        val nextPage = data.pageInfo?.hasNextPage != false
         return LoadResult.Page(
             data = list,
             prevKey = null,
-            nextKey = if (!offset.isNullOrBlank() && nextPage) {
-                (params.key ?: 1) + 1
-            } else null
+            nextKey = nextSearchPageKey(
+                api = C.GQL,
+                currentCursor = cursor,
+                candidate = edges.lastOrNull()?.cursor,
+            ).takeIf { data.pageInfo?.hasNextPage == true },
         )
     }
 
-    private suspend fun gqlLoad(params: LoadParams<Int>): LoadResult<Int, User> {
-        val response = graphQLRepository.loadSearchChannels(networkLibrary, gqlHeaders, query, offset)
-        val data = response.data!!.searchFor.channels
+    private suspend fun loadPersisted(cursor: String?): LoadResult<SearchPageKey, User> {
+        val response = graphQLRepository.loadSearchChannels(networkLibrary, gqlHeaders, query, cursor)
+        val data = response.data?.searchFor?.channels
+            ?: throw IOException(
+                buildString {
+                    append("SearchResultsPage_SearchResults returned no channel data")
+                    response.errors
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { errors ->
+                            append(": ")
+                            append(errors.joinToString("; ") { it.message ?: "unknown GraphQL error" })
+                        }
+                }
+            )
         val list = data.edges.map { item ->
             item.item.let {
                 User(
@@ -103,23 +135,26 @@ class SearchChannelsDataSource(
                 )
             }
         }
-        offset = data.cursor
         return LoadResult.Page(
             data = list,
             prevKey = null,
-            nextKey = if (!offset.isNullOrBlank()) {
-                (params.key ?: 1) + 1
-            } else null
+            nextKey = nextSearchPageKey(C.GQL_PERSISTED_QUERY, cursor, data.cursor),
         )
     }
 
-    private suspend fun helixLoad(params: LoadParams<Int>): LoadResult<Int, User> {
+    private suspend fun loadHelix(
+        loadSize: Int,
+        cursor: String?,
+    ): LoadResult<SearchPageKey, User> {
+        if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+            throw IOException("Helix search requires authentication")
+        }
         val response = helixRepository.getSearchChannels(
             networkLibrary = networkLibrary,
             headers = helixHeaders,
             query = query,
-            limit = params.loadSize,
-            offset = offset,
+            limit = loadSize,
+            offset = cursor,
         )
         val list = response.data.map {
             User(
@@ -130,20 +165,12 @@ class SearchChannelsDataSource(
                 isLive = it.isLive,
             )
         }
-        offset = response.pagination?.cursor
         return LoadResult.Page(
             data = list,
             prevKey = null,
-            nextKey = if (!offset.isNullOrBlank()) {
-                (params.key ?: 1) + 1
-            } else null
+            nextKey = nextSearchPageKey(C.HELIX, cursor, response.pagination?.cursor),
         )
     }
 
-    override fun getRefreshKey(state: PagingState<Int, User>): Int? {
-        return state.anchorPosition?.let { anchorPosition ->
-            val anchorPage = state.closestPageToPosition(anchorPosition)
-            anchorPage?.prevKey?.plus(1) ?: anchorPage?.nextKey?.minus(1)
-        }
-    }
+    override fun getRefreshKey(state: PagingState<SearchPageKey, User>): SearchPageKey? = null
 }

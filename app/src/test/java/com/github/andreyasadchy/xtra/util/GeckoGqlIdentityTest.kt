@@ -23,6 +23,7 @@ class GeckoGqlIdentityTest {
             userId = "user-1",
             authTokenFingerprint = GeckoGqlIdentity.fingerprintForAccessToken("captured-token"),
             capturedAt = 1_000L,
+            clientVersion = "web-version",
         )
 
         val headers = TwitchApiHelper.buildGeckoGqlHeaders(
@@ -35,6 +36,7 @@ class GeckoGqlIdentityTest {
         assertEquals("captured-integrity", headers["Client-Integrity"])
         assertEquals("captured-device", headers["X-Device-Id"])
         assertEquals("captured-session", headers["Client-Session-Id"])
+        assertEquals("web-version", headers["Client-Version"])
         assertEquals("auth-token=captured-token; other=value", headers["Cookie"])
     }
 

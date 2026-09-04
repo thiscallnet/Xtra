@@ -124,7 +124,7 @@ class ChannelVideosViewModel(
                     VideosSortDialog.SORT_VIEWS -> "views"
                     else -> "time"
                 },
-                gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext),
+                gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true),
                 graphQLRepository = graphQLRepository,
                 helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext),
                 helixRepository = helixRepository,

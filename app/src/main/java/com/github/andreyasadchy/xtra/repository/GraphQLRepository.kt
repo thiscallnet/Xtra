@@ -1204,7 +1204,7 @@ class GraphQLRepository(
         val body = buildJsonObject {
             putJsonObject("extensions") {
                 putJsonObject("persistedQuery") {
-                    put("sha256Hash", "76cb069d835b8a02914c08dc42c421d0dafda8af5b113a3f19141824b901402f")
+                    put("sha256Hash", "86bcceb4e8b1a51256ff8eed8bd8aae4acacf80d737efe904f84f3aeadf8cafd")
                     put("version", 1)
                 }
             }
@@ -1220,11 +1220,21 @@ class GraphQLRepository(
                             add(it)
                         }
                     }
-                    putJsonArray("freeformTags") {
-                        tags?.forEach {
-                            add(it)
+                    if (tags.isNullOrEmpty()) {
+                        put("freeformTags", null)
+                    } else {
+                        putJsonArray("freeformTags") {
+                            tags.forEach {
+                                add(it)
+                            }
                         }
                     }
+                    putJsonObject("recommendationsContext") {
+                        put("platform", "web")
+                    }
+                    put("requestID", "JIRA-VXP-2397")
+                    putJsonArray("systemFilters") {}
+                    putJsonArray("tags") {}
                     put("sort", sort)
                 }
                 put("slug", gameSlug)

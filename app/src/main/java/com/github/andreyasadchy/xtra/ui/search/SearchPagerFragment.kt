@@ -44,7 +44,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlin.time.Duration.Companion.milliseconds
 
 class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
 
@@ -218,21 +217,22 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             private var job: Job? = null
 
             override fun onQueryTextSubmit(query: String): Boolean {
-                (currentFragment as? Searchable)?.search(query)
+                (currentFragment as? Searchable)?.search(query.trim())
                 return false
             }
 
             override fun onQueryTextChange(newText: String): Boolean {
                 job?.cancel()
-                if (newText.isNotEmpty()) {
+                val query = newText.trim()
+                if (query.isNotEmpty()) {
                     job = lifecycleScope.launch {
-                        delay(750.milliseconds)
+                        delay(350L)
                         withResumed {
-                            (currentFragment as? Searchable)?.search(newText)
+                            (currentFragment as? Searchable)?.search(query)
                         }
                     }
                 } else {
-                    (currentFragment as? Searchable)?.search(newText) //might be null on rotation, so as?
+                    (currentFragment as? Searchable)?.search(query) //might be null on rotation, so as?
                 }
                 return false
             }

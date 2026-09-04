@@ -90,7 +90,7 @@ class TwitchGameFeedPageLoader(
                     )
                 }
             },
-            nextCursor = edges.lastOrNull()?.cursor?.toString()
+            nextCursor = edges.lastOrNull()?.cursor
                 ?.takeIf { it.isNotBlank() && data.pageInfo?.hasNextPage != false }
                 ?.let { GameFeedCursor(C.GQL, it) },
         )

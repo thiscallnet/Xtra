@@ -225,7 +225,7 @@ class FollowedChannelsDataSource(
                 )
             }
         }
-        offset = items.lastOrNull()?.cursor?.toString()
+        offset = items.lastOrNull()?.cursor
         val nextPage = data.pageInfo?.hasNextPage != false
         return LoadResult.Page(
             data = list,

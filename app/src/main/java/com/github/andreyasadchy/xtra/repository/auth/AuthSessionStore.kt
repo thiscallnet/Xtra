@@ -191,6 +191,7 @@ class AuthSessionStore(
             userId = userId,
             authTokenFingerprint = authTokenFingerprint,
             capturedAt = tokenPreferences.getLong(C.GECKO_GQL_CAPTURED_AT, 0L),
+            clientVersion = tokenPreferences.getString(C.GECKO_GQL_CLIENT_VERSION, null),
         )
     }
 
@@ -209,6 +210,7 @@ class AuthSessionStore(
             .putString(C.GECKO_GQL_CLIENT_INTEGRITY, identity.clientIntegrity)
             .putString(C.GECKO_GQL_X_DEVICE_ID, identity.xDeviceId)
             .putOptionalString(C.GECKO_GQL_CLIENT_SESSION_ID, identity.clientSessionId)
+            .putOptionalString(C.GECKO_GQL_CLIENT_VERSION, identity.clientVersion)
             .putString(C.GECKO_GQL_USER_ID, identity.userId)
             .putString(C.GECKO_GQL_AUTH_TOKEN_FINGERPRINT, identity.authTokenFingerprint)
             .putLong(C.GECKO_GQL_CAPTURED_AT, identity.capturedAt)
@@ -247,6 +249,7 @@ class AuthSessionStore(
             .remove(C.GECKO_GQL_CLIENT_INTEGRITY)
             .remove(C.GECKO_GQL_X_DEVICE_ID)
             .remove(C.GECKO_GQL_CLIENT_SESSION_ID)
+            .remove(C.GECKO_GQL_CLIENT_VERSION)
             .remove(C.GECKO_GQL_USER_ID)
             .remove(C.GECKO_GQL_AUTH_TOKEN_FINGERPRINT)
             .remove(C.GECKO_GQL_CAPTURED_AT)

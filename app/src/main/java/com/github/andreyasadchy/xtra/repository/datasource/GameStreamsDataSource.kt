@@ -7,6 +7,7 @@ import com.github.andreyasadchy.xtra.graphql.type.StreamSort
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
+import kotlinx.coroutines.CancellationException
 
 /** Compatibility PagingSource for callers outside the Room-backed feed path. */
 class GameStreamsDataSource(
@@ -49,6 +50,8 @@ class GameStreamsDataSource(
                 prevKey = null,
                 nextKey = page.nextCursor?.let { (params.key ?: 1) + 1 },
             )
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             LoadResult.Error(error)
         }

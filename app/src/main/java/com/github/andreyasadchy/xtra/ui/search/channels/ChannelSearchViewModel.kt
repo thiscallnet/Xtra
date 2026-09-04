@@ -44,7 +44,7 @@ class ChannelSearchViewModel(
                 query = query,
                 helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext),
                 helixRepository = helixRepository,
-                gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext),
+                gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true),
                 graphQLRepository = graphQLRepository,
                 networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
             )
@@ -52,8 +52,9 @@ class ChannelSearchViewModel(
     }.cachedIn(viewModelScope)
 
     fun setQuery(newQuery: String): Boolean {
-        if (_query.value == newQuery) return false
-        _query.value = newQuery
+        val query = newQuery.trim()
+        if (_query.value == query) return false
+        _query.value = query
         return true
     }
 

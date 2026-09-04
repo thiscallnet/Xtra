@@ -273,5 +273,6 @@ apollo {
     @Suppress("ApolloEndpointNotConfigured")
     service("service") {
         packageName.set("com.github.andreyasadchy.xtra.graphql")
+        mapScalarToKotlinString("Cursor")
     }
 }

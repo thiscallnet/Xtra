@@ -441,6 +441,7 @@ class TwitchWebSessionManager(
             userId = "",
             authTokenFingerprint = GeckoGqlIdentity.fingerprintForAccessToken(accessToken),
             capturedAt = message.optLong("capturedAt", System.currentTimeMillis()),
+            clientVersion = message.optString("clientVersion").takeIf { it.isNotBlank() },
         )
     }
 

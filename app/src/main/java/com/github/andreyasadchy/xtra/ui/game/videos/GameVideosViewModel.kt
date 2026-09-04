@@ -130,7 +130,7 @@ class GameVideosViewModel(
                     VideosSortDialog.SORT_VIEWS -> "views"
                     else -> "views"
                 },
-                gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext),
+                gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true),
                 graphQLRepository = graphQLRepository,
                 helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext),
                 helixRepository = helixRepository,

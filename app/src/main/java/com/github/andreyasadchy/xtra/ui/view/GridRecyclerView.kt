@@ -3,10 +3,10 @@ package com.github.andreyasadchy.xtra.ui.view
 import android.content.Context
 import android.content.res.Configuration
 import android.util.AttributeSet
-import androidx.recyclerview.widget.DividerItemDecoration
+import androidx.paging.LoadStateAdapter
+import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 
@@ -25,6 +25,18 @@ class GridRecyclerView : RecyclerView {
     init {
         val columns = getColumnsForConfiguration(resources.configuration)
         gridLayoutManager = GridLayoutManager(context, columns)
+        gridLayoutManager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+            override fun getSpanSize(position: Int): Int {
+                val wrappedAdapter = (adapter as? ConcatAdapter)
+                    ?.getWrappedAdapterAndPosition(position)
+                    ?.first
+                return if (wrappedAdapter is LoadStateAdapter<*>) {
+                    gridLayoutManager.spanCount
+                } else {
+                    1
+                }
+            }
+        }
         layoutManager = gridLayoutManager
         addItemDecoration(columns)
     }

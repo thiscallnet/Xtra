@@ -35,6 +35,7 @@ object C {
     const val GECKO_GQL_CLIENT_INTEGRITY = "gecko_gql_client_integrity"
     const val GECKO_GQL_X_DEVICE_ID = "gecko_gql_x_device_id"
     const val GECKO_GQL_CLIENT_SESSION_ID = "gecko_gql_client_session_id"
+    const val GECKO_GQL_CLIENT_VERSION = "gecko_gql_client_version"
     const val GECKO_GQL_USER_ID = "gecko_gql_user_id"
     const val GECKO_GQL_AUTH_TOKEN_FINGERPRINT = "gecko_gql_auth_token_fingerprint"
     const val GECKO_GQL_CAPTURED_AT = "gecko_gql_captured_at"

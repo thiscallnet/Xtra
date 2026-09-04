@@ -18,6 +18,7 @@ data class GeckoGqlIdentity(
     val userId: String,
     val authTokenFingerprint: String,
     val capturedAt: Long,
+    val clientVersion: String? = null,
 ) {
     internal fun accessTokenOrNull(): String? = authorization
         .takeIf { it.startsWith("OAuth ", ignoreCase = true) }
