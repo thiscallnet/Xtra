@@ -118,9 +118,11 @@ class ChatRowCompiler(
                 add(ChatPiece.Reply(" ${labels.reply(replyUser, body)}", color = mutedColor))
                 add(ChatPiece.Text("\n", color = mutedColor))
             }
-            if (showBadges && !specialNotice) message.badges.forEach { badge ->
-                add(ChatPiece.Badge(badgeSpec(badge, catalog), badgeInteraction(badge, catalog)))
-            }
+            if (showBadges && !specialNotice) message.badges
+                .filter { it.setId.isNotBlank() && it.versionId.isNotBlank() }
+                .forEach { badge ->
+                    add(ChatPiece.Badge(badgeSpec(badge, catalog), badgeInteraction(badge, catalog)))
+                }
             if (showThirdPartyBadges && !specialNotice) {
                 message.user?.id?.let(catalog.userDecorations::get)?.badgeId?.let { badgeId ->
                     catalog.sevenTvBadges[badgeId]?.let { badge ->

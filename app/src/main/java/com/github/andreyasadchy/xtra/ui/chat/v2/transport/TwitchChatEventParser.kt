@@ -352,7 +352,11 @@ object TwitchChatEventParser {
             channelId = channelId,
             timestampMs = message.timestamp ?: System.currentTimeMillis(),
             user = ChatUser(message.userId, message.userLogin, message.userName, parseColor(message.color)),
-            badges = message.badges.orEmpty().map { ChatBadgeRef(it.setId, it.version) },
+            badges = message.badges.orEmpty().mapNotNull { badge ->
+                badge.setId.takeIf { it.isNotBlank() }?.let { setId ->
+                    badge.version.takeIf { it.isNotBlank() }?.let { version -> ChatBadgeRef(setId, version) }
+                }
+            },
             segments = segments,
             kind = when {
                 legacyNoticeType == "raid" || legacyNoticeType == "unraid" -> ChatMessageKind.RAID

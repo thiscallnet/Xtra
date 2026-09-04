@@ -217,7 +217,10 @@ class TwitchChatCatalogSource(
         return ChatCatalogBadge(
             name = "$setId:$version",
             asset = ChatAssetSpec(
-                key = ChatAssetKey(url ?: "twitch-badge:$setId:$version"),
+                key = ChatAssetKey(
+                    url?.takeIf { it.isNotBlank() }
+                        ?: "twitch-badge:$setId:$version",
+                ),
                 sourceWidth = 18,
                 sourceHeight = 18,
                 targetHeight = 18,

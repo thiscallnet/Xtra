@@ -567,6 +567,16 @@ class ChatDomainPresentationTest {
     }
 
     @Test
+    fun malformedBadgeIdentityDoesNotCreateAnAssetPlaceholder() {
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Text("hi")).copy(badges = listOf(ChatBadgeRef("", ""))),
+            ChatCatalogSnapshot(0),
+        )
+
+        assertTrue(row.pieces.none { it is ChatPiece.Badge })
+    }
+
+    @Test
     fun usernameDisplayModeAndRandomFallbackRemainConfigurable() {
         val message = message(ChatSegment.Text("hello")).copy(
             user = ChatUser("user", "login", "Display", null),
