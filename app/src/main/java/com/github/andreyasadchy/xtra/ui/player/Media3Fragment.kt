@@ -59,7 +59,6 @@ import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
 import com.github.andreyasadchy.xtra.util.isTelevision
 import com.google.android.material.snackbar.Snackbar
 import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -270,8 +269,8 @@ class Media3Fragment : Media3PlayerFragment() {
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     updateProgress()
-                    if (canEnterPictureInPicture()) {
-                        requireView().keepScreenOn = isPlaying
+                    if (isAdded && view != null) {
+                        requireView().keepScreenOn = isPlaying && canEnterPictureInPicture()
                     }
                 }
 
@@ -379,7 +378,7 @@ class Media3Fragment : Media3PlayerFragment() {
                                         if (isNetworkAvailable) {
                                             when {
                                                 responseCode == 404 -> {
-                                                    showPlayerError(R.string.stream_ended)
+                                                    showPlayerError(R.string.stream_ended) { restartPlayer() }
                                                 }
                                                 viewModel.useCustomProxy && responseCode >= 400 -> {
                                                     showPlayerError(R.string.proxy_error) { restartPlayer() }
@@ -492,12 +491,13 @@ class Media3Fragment : Media3PlayerFragment() {
             }
             player?.sendCustomCommand(
                 SessionCommand(
-                    PlaybackService.SET_SLEEP_TIMER, Bundle().apply {
-                        putLong(PlaybackService.DURATION, -1L)
-                    }
+                    PlaybackService.GET_SLEEP_TIMER, Bundle.EMPTY
                 ), Bundle.EMPTY
             )?.let { result ->
                 result.addListener({
+                    if (!isAdded || view == null) {
+                        return@addListener
+                    }
                     if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
                         val endTime = result.get().extras.getLong(PlaybackService.RESULT)
                         if (endTime > 0L) {
@@ -511,7 +511,7 @@ class Media3Fragment : Media3PlayerFragment() {
                             }
                         }
                     }
-                }, MoreExecutors.directExecutor())
+                }, ContextCompat.getMainExecutor(requireContext()))
             }
             if (viewModel.resume) {
                 viewModel.resume = false
@@ -1079,6 +1079,9 @@ class Media3Fragment : Media3PlayerFragment() {
             ), Bundle.EMPTY
         )?.let { result ->
             result.addListener({
+                if (!isAdded || view == null) {
+                    return@addListener
+                }
                 if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
                     val state = result.get().extras.getBoolean(PlaybackService.RESULT)
                     if (state) {
@@ -1087,7 +1090,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         binding.playerControls.audioCompressor.setImageResource(R.drawable.baseline_audio_compressor_off_24dp)
                     }
                 }
-            }, MoreExecutors.directExecutor())
+            }, ContextCompat.getMainExecutor(requireContext()))
         }
     }
 
@@ -1150,6 +1153,9 @@ class Media3Fragment : Media3PlayerFragment() {
             ), Bundle.EMPTY
         )?.let { result ->
             result.addListener({
+                if (!isAdded || view == null) {
+                    return@addListener
+                }
                 if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
                     val tags = result.get().extras.getStringArray(PlaybackService.RESULT)?.joinToString("\n")
                     if (!tags.isNullOrBlank()) {
@@ -1171,7 +1177,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         }.show()
                     }
                 }
-            }, MoreExecutors.directExecutor())
+            }, ContextCompat.getMainExecutor(requireContext()))
         }
     }
 
@@ -1362,6 +1368,9 @@ class Media3Fragment : Media3PlayerFragment() {
             Bundle.EMPTY
         )?.let { result ->
             result.addListener({
+                if (!isAdded || view == null) {
+                    return@addListener
+                }
                 if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
                     val totalDuration = result.get().extras.getLong(PlaybackService.RESULT)
                     val qualities = viewModel.qualities?.filter { !it.url.isNullOrBlank() }
@@ -1388,7 +1397,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         qualityUrls = qualities?.map { it.url.toString() }?.toTypedArray(),
                     ).show(childFragmentManager, null)
                 }
-            }, MoreExecutors.directExecutor())
+            }, ContextCompat.getMainExecutor(requireContext()))
         }
     }
 
@@ -1608,6 +1617,7 @@ class Media3Fragment : Media3PlayerFragment() {
         qualityRetryJob = null
         qualityRetryAttempts = 0
         pendingQualityCallbacks.clear()
+        binding.playerControls.root.removeCallbacks(updateProgressAction)
         binding.liveCaptionView.clearCaption()
         logVideoSurfaceBinding("on_destroy_view", player, view?.findViewById(R.id.playerSurface))
         detachVideoOutput()

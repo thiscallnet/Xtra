@@ -261,8 +261,8 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 updateProgress()
-                if (canEnterPictureInPicture()) {
-                    requireView().keepScreenOn = isPlaying
+                if (isAdded && view != null) {
+                    requireView().keepScreenOn = isPlaying && canEnterPictureInPicture()
                 }
             }
 

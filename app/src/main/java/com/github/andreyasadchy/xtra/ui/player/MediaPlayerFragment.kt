@@ -303,8 +303,8 @@ class MediaPlayerFragment : PlayerFragment() {
                 showController(show = playbackService?.type != BasePlaybackService.STREAM && ended)
             }
             updateProgress()
-            if (canEnterPictureInPicture()) {
-                requireView().keepScreenOn = isPlaying
+            if (isAdded && view != null) {
+                requireView().keepScreenOn = isPlaying && canEnterPictureInPicture()
             }
         }
     }

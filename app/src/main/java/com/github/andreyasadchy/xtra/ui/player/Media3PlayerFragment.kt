@@ -3709,8 +3709,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     override fun onDestroyView() {
         _binding?.playerControls?.root?.let { root ->
             pendingTvFocusRequest?.let(root::removeCallbacks)
+            root.removeCallbacks(controllerHideAction)
         }
         pendingTvFocusRequest = null
+        velocityTracker?.recycle()
+        velocityTracker = null
         xtraModule.liveCaptionManager.resetForPlaybackTransition()
         loadedChannelAvatarUrl = null
         liveRewindDiscoveryJob?.cancel()
