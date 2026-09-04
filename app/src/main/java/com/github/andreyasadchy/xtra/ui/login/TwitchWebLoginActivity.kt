@@ -8,6 +8,7 @@ import android.view.inputmethod.InputMethodManager
 import android.content.Context
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -42,6 +43,11 @@ class TwitchWebLoginActivity : AppCompatActivity() {
 
         binding = ActivityTwitchWebLoginBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                cancel()
+            }
+        })
         geckoView = binding.geckoView
         sessionManager = (application as XtraApp).xtraModule.twitchWebSessionManager
         if (intent.getBooleanExtra(EXTRA_LOGOUT, false)) {
@@ -94,10 +100,6 @@ class TwitchWebLoginActivity : AppCompatActivity() {
     override fun onSupportNavigateUp(): Boolean {
         cancel()
         return true
-    }
-
-    override fun onBackPressed() {
-        cancel()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

@@ -58,7 +58,8 @@ class StreamsAdapter(
                 val preferences = FeedUiPreferencesStore.current(context)
                 StreamCardPresentationCache.prewarm(
                     context = context,
-                    streams = snapshot().items.filterNotNull(),
+                    itemCount = itemCount,
+                    itemAt = { index -> peek(index) },
                     preferences = preferences,
                 )
             }
@@ -271,6 +272,9 @@ class StreamsAdapter(
                     }
                 } else {
                     boundStream = null
+                    (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
+                        .detachSurface(previewSurface)
+                    boundPreviewIdentity = null
                     clearUptime()
                     userImage.setImageDrawable(null)
                     userImage.tag = null

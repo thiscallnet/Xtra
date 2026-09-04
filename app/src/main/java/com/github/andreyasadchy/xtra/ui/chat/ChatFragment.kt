@@ -283,6 +283,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var channelPointsIconRequestGeneration = 0
     private var channelPointsIconLoaded = false
     private var channelPointsIconForeground: Int? = null
+    private var dropImageUrl: String? = null
+    private var dropImageTarget: ImageView? = null
+    private var dropImageRequest: Disposable? = null
+    private var dropImageRequestGeneration = 0
+    private var pinnedBadgeRequests = mutableListOf<Disposable>()
     private var channelPointsAccessibilityLabel: String? = null
     private var chatIdentityPopup: ChatIdentityPopup? = null
     private var chatIdentityBadgeRequest: Disposable? = null
@@ -1524,6 +1529,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val pinnedBinding = pinnedMessageBinding ?: return
         val overlay = pinnedBinding.pinnedMessageOverlay
         if (message == null || message.id == seenPinnedMessageId) {
+            disposePinnedBadgeRequests()
             overlay.isGone = true
             return
         }
@@ -1551,6 +1557,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         pinnedBinding.pinnedMessageCollapsedPreview.text = message.text
         pinnedBinding.pinnedMessageCollapsedPreview.isVisible = pinnedMessageMinimized
         pinnedBinding.pinnedMessageFooter.isVisible = !pinnedMessageMinimized
+        disposePinnedBadgeRequests()
         renderPinnedMessageBadges(pinnedBinding.pinnedMessagePinnedByBadges, message.pinnedByBadges)
         renderPinnedMessageBadges(pinnedBinding.pinnedMessageSenderBadges, message.senderBadges)
         pinnedBinding.pinnedMessageMinimize.setImageResource(
@@ -1560,6 +1567,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             if (pinnedMessageMinimized) R.string.pinned_message_expand else R.string.pinned_message_minimize,
         )
         overlay.isVisible = true
+    }
+
+    private fun disposePinnedBadgeRequests() {
+        pinnedBadgeRequests.forEach(Disposable::dispose)
+        pinnedBadgeRequests.clear()
     }
 
     private fun renderPinnedMessageBadges(container: LinearLayout, badges: List<Badge>) {
@@ -1588,7 +1600,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     if (badge.setId == "broadcaster") R.drawable.ic_broadcaster_badge else R.drawable.ic_moderator_badge,
                 )
             } else {
-                requireContext().imageLoader.enqueue(
+                pinnedBadgeRequests += requireContext().imageLoader.enqueue(
                     ImageRequest.Builder(requireContext())
                         .data(url)
                         .diskCachePolicy(CachePolicy.ENABLED)
@@ -2540,19 +2552,41 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private fun updateDropImage(url: String?) {
         val image = dropImageView ?: return
+        if (dropImageUrl == url && dropImageTarget === image) return
+        disposeDropImageRequest()
+        dropImageUrl = url
+        dropImageTarget = image
+        val requestGeneration = ++dropImageRequestGeneration
         image.setImageDrawable(null)
         image.isVisible = !url.isNullOrBlank()
         if (url.isNullOrBlank()) return
 
         val context = requireContext()
-        context.imageLoader.enqueue(
+        dropImageRequest = context.imageLoader.enqueue(
             ImageRequest.Builder(context)
                 .data(url)
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .crossfade(true)
                 .target(image)
+                .listener(object : ImageRequest.Listener {
+                    override fun onError(request: ImageRequest, result: coil3.request.ErrorResult) {
+                        if (!isCurrentDropImageRequest(url, requestGeneration)) return
+                        image.setImageDrawable(null)
+                    }
+                })
                 .build(),
         )
+    }
+
+    private fun disposeDropImageRequest() {
+        dropImageRequest?.dispose()
+        dropImageRequest = null
+    }
+
+    private fun isCurrentDropImageRequest(url: String, requestGeneration: Int): Boolean {
+        return dropImageView != null &&
+            dropImageUrl == url &&
+            dropImageRequestGeneration == requestGeneration
     }
 
     private fun handleDropClaimResult(result: ChatViewModel.DropClaimResult) {
@@ -3126,6 +3160,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         channelPointsIconUrl = null
         channelPointsIconLoaded = false
         channelPointsIconForeground = null
+        disposeDropImageRequest()
+        dropImageRequestGeneration++
+        dropImageUrl = null
+        dropImageTarget = null
+        disposePinnedBadgeRequests()
         composerOverlayState = null
         pendingComposerText = null
         lastSlowModeUiState = SlowModeState()

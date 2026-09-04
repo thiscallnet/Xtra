@@ -571,6 +571,9 @@
     <string name="loaded_cached_ffz_emotes">已加载缓存的 FFZ 表情</string>
     <string name="find_unlisted_video">查找未列出的视频</string>
     <string name="video_not_found">未找到视频</string>
+    <string name="clip_not_found">未找到剪辑</string>
+    <string name="game_not_found">未找到游戏</string>
+    <string name="tag_not_found">未找到标签</string>
     <string name="recent_messages_api_url">最近消息 API URL</string>
     <string name="access_local_network_title">授予本地网络权限</string>
     <string name="access_local_network_desc">需要连接到本地代理</string>

@@ -244,11 +244,32 @@ class ChatAdapter(
         val prewarmGeneration: Long?,
     )
 
-    private val renderCache = object : LinkedHashMap<RenderCacheKey, ChatAdapterUtils.MessageResult>(256, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<RenderCacheKey, ChatAdapterUtils.MessageResult>?): Boolean =
-            size > MAX_RENDER_CACHE_ENTRIES && eldest?.key?.message?.let { message ->
-                messages.none { it === message }
-            } == true
+    private val renderCache = LinkedHashMap<RenderCacheKey, ChatAdapterUtils.MessageResult>(256, 0.75f, true)
+
+    /**
+     * Removes stale entries once the cache exceeds its target. Must be called
+     * while holding `synchronized(renderCache)` on the main thread, matching
+     * every other renderCache mutation.
+     */
+    private fun trimRenderCache() {
+        if (renderCache.size <= MAX_RENDER_CACHE_ENTRIES) {
+            return
+        }
+        val currentMessages =
+            Collections.newSetFromMap(
+                IdentityHashMap<ChatMessage, Boolean>()
+            )
+        currentMessages.addAll(messages)
+        val iterator = renderCache.entries.iterator()
+        while (
+            renderCache.size > MAX_RENDER_CACHE_ENTRIES &&
+            iterator.hasNext()
+        ) {
+            val entry = iterator.next()
+            if (entry.key.message !in currentMessages) {
+                iterator.remove()
+            }
+        }
     }
     private var renderScope = newRenderScope()
     private val renderJobs = HashSet<RenderCacheKey>()
@@ -593,7 +614,7 @@ class ChatAdapter(
                             // This catch can also cover queue/worker failures before renderMessage
                             // gets a chance to install its terminal result. Finish the same
                             // exceptional path here instead of retrying forever at the queue head.
-                            synchronized(renderCache) { renderCache[currentKey] = terminal }
+                            synchronized(renderCache) { renderCache[currentKey] = terminal; trimRenderCache() }
                         } else if (currentKey != failedKey) {
                             entry.state = PublicationState.QUEUED
                             scheduleDisplayEntry(entry, configuration, generation)
@@ -1341,7 +1362,7 @@ class ChatAdapter(
             )
             withContext(Dispatchers.Main.immediate) {
                 if (isKnownConfiguration(request.configuration) && currentRenderKey(chatMessage, request.configuration) == cacheKey) {
-                    synchronized(renderCache) { renderCache[cacheKey] = prepared }
+                    synchronized(renderCache) { renderCache[cacheKey] = prepared; trimRenderCache() }
                     completeRenderWaiters(cacheKey)
                     waitersCompleted = true
                 }
@@ -1369,7 +1390,7 @@ class ChatAdapter(
                 if (isKnownConfiguration(request.configuration) &&
                     currentRenderKey(chatMessage, request.configuration) == cacheKey
                 ) {
-                    synchronized(renderCache) { renderCache[cacheKey] = prepared }
+                    synchronized(renderCache) { renderCache[cacheKey] = prepared; trimRenderCache() }
                     completeRenderWaiters(cacheKey)
                     waitersCompleted = true
                 }

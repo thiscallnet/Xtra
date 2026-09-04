@@ -231,6 +231,7 @@ class PlaybackService : MediaSessionService() {
                             add(SessionCommand(TOGGLE_PROXY, Bundle.EMPTY))
                             add(SessionCommand(SET_BACKGROUND_PLAYBACK, Bundle.EMPTY))
                             add(SessionCommand(SET_SLEEP_TIMER, Bundle.EMPTY))
+                            add(SessionCommand(GET_SLEEP_TIMER, Bundle.EMPTY))
                             add(SessionCommand(CHECK_ADS, Bundle.EMPTY))
                             add(SessionCommand(GET_QUALITIES, Bundle.EMPTY))
                             add(SessionCommand(GET_DURATION, Bundle.EMPTY))
@@ -528,6 +529,7 @@ class PlaybackService : MediaSessionService() {
                                 val duration = customCommand.customExtras.getLong(DURATION)
                                 val endTime = sleepTimerEndTime
                                 sleepTimer?.cancel()
+                                sleepTimer = null
                                 sleepTimerEndTime = 0L
                                 if (duration > 0L) {
                                     sleepTimer = Timer().apply {
@@ -546,6 +548,11 @@ class PlaybackService : MediaSessionService() {
                                 }
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
                                     putLong(RESULT, endTime)
+                                }))
+                            }
+                            GET_SLEEP_TIMER -> {
+                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
+                                    putLong(RESULT, sleepTimerEndTime)
                                 }))
                             }
                             CHECK_ADS -> {
@@ -1145,6 +1152,7 @@ class PlaybackService : MediaSessionService() {
         const val TOGGLE_PROXY = "toggleProxy"
         const val SET_BACKGROUND_PLAYBACK = "setBackgroundPlayback"
         const val SET_SLEEP_TIMER = "setSleepTimer"
+        const val GET_SLEEP_TIMER = "getSleepTimer"
         const val CHECK_ADS = "checkAds"
         const val GET_QUALITIES = "getQualities"
         const val GET_DURATION = "getDuration"

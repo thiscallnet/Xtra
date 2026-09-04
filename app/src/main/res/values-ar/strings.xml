@@ -571,6 +571,9 @@
     <string name="loaded_cached_ffz_emotes">عواطف FFZ المحملة مؤقتًا</string>
     <string name="find_unlisted_video">ابحث عن فيديو غير مدرج</string>
     <string name="video_not_found">لم يتم العثور على الفيديو</string>
+    <string name="clip_not_found">لم يتم العثور على المقطع</string>
+    <string name="game_not_found">لم يتم العثور على اللعبة</string>
+    <string name="tag_not_found">لم يتم العثور على العلامة</string>
     <string name="recent_messages_api_url">عنوان URL لواجهة برمجة التطبيقات للرسائل الأخيرة</string>
     <string name="access_local_network_title">منح إذن الشبكة المحلية</string>
     <string name="access_local_network_desc">مطلوب للاتصال بالوكلاء المحليين</string>

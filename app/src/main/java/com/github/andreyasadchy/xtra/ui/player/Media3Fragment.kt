@@ -59,7 +59,6 @@ import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
 import com.github.andreyasadchy.xtra.util.isTelevision
 import com.google.android.material.snackbar.Snackbar
 import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -94,6 +93,9 @@ class Media3Fragment : Media3PlayerFragment() {
     private val pendingQualityCallbacks = mutableListOf<() -> Unit>()
     private var nativeCues: List<Cue> = emptyList()
     private var shownLiveCaptionError: String? = null
+    private var renderedPositionSecond = Long.MIN_VALUE
+    private var renderedDurationMs = Long.MIN_VALUE
+    private var renderedPlaybackChrome: PlaybackChromeState? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
     private val videoOutputOwner = VideoOutputOwner<Player, SurfaceView>(
         attachTarget = { currentPlayer, target -> currentPlayer.setVideoSurfaceView(target) },
@@ -212,20 +214,8 @@ class Media3Fragment : Media3PlayerFragment() {
                         streamRecoveryAttempt = 0
                         clearPlayerError()
                     }
-                    binding.bufferingIndicator.isVisible = playbackState == Player.STATE_BUFFERING
+                    renderPlaybackChrome()
                     val showPlayButton = Util.shouldShowPlayButton(player)
-                    binding.playerControls.playPause.contentDescription = getString(
-                        if (showPlayButton) R.string.player_play else R.string.player_pause_action,
-                    )
-                    if (showPlayButton) {
-                        binding.playerControls.playPause.setImageResource(R.drawable.baseline_play_arrow_black_48)
-                        binding.playerControls.playPause.visibility = View.VISIBLE
-                    } else {
-                        binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                        if (videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
-                            binding.playerControls.playPause.visibility = View.GONE
-                        }
-                    }
                     setPipActions(!showPlayButton)
                     updateProgress()
                     controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
@@ -235,20 +225,8 @@ class Media3Fragment : Media3PlayerFragment() {
                 }
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                    binding.bufferingIndicator.isVisible = player?.playbackState == Player.STATE_BUFFERING
+                    renderPlaybackChrome()
                     val showPlayButton = Util.shouldShowPlayButton(player)
-                    binding.playerControls.playPause.contentDescription = getString(
-                        if (showPlayButton) R.string.player_play else R.string.player_pause_action,
-                    )
-                    if (showPlayButton) {
-                        binding.playerControls.playPause.setImageResource(R.drawable.baseline_play_arrow_black_48)
-                        binding.playerControls.playPause.visibility = View.VISIBLE
-                    } else {
-                        binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                        if (videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
-                            binding.playerControls.playPause.visibility = View.GONE
-                        }
-                    }
                     setPipActions(!showPlayButton)
                     updateProgress()
                     controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
@@ -258,26 +236,9 @@ class Media3Fragment : Media3PlayerFragment() {
                 }
 
                 override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
-                    val showPlayButton = Util.shouldShowPlayButton(player)
-                    binding.playerControls.playPause.contentDescription = getString(
-                        if (showPlayButton) R.string.player_play else R.string.player_pause_action,
-                    )
-                    if (showPlayButton) {
-                        binding.playerControls.playPause.setImageResource(R.drawable.baseline_play_arrow_black_48)
-                        binding.playerControls.playPause.visibility = View.VISIBLE
-                    } else {
-                        binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                        if (videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
-                            binding.playerControls.playPause.visibility = View.GONE
-                        }
-                    }
+                    renderPlaybackChrome()
                     val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
-                    binding.playerControls.progressBar.setDuration(duration)
-                    binding.playerControls.duration.text = DateUtils.formatElapsedTime(duration / 1000)
-                    binding.playerControls.duration.contentDescription = getString(
-                        R.string.player_duration,
-                        binding.playerControls.duration.text,
-                    )
+                    updateDurationIfNeeded(duration)
                     updateProgress()
                 }
 
@@ -295,12 +256,7 @@ class Media3Fragment : Media3PlayerFragment() {
 
                 override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
                     val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
-                    binding.playerControls.progressBar.setDuration(duration)
-                    binding.playerControls.duration.text = DateUtils.formatElapsedTime(duration / 1000)
-                    binding.playerControls.duration.contentDescription = getString(
-                        R.string.player_duration,
-                        binding.playerControls.duration.text,
-                    )
+                    updateDurationIfNeeded(duration)
                     updateProgress()
                     if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                         chatFragment?.updatePosition(newPosition.positionMs)
@@ -313,8 +269,8 @@ class Media3Fragment : Media3PlayerFragment() {
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     updateProgress()
-                    if (canEnterPictureInPicture()) {
-                        requireView().keepScreenOn = isPlaying
+                    if (isAdded && view != null) {
+                        requireView().keepScreenOn = isPlaying && canEnterPictureInPicture()
                     }
                 }
 
@@ -343,12 +299,7 @@ class Media3Fragment : Media3PlayerFragment() {
 
                 override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                     val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
-                    binding.playerControls.progressBar.setDuration(duration)
-                    binding.playerControls.duration.text = DateUtils.formatElapsedTime(duration / 1000)
-                    binding.playerControls.duration.contentDescription = getString(
-                        R.string.player_duration,
-                        binding.playerControls.duration.text,
-                    )
+                    updateDurationIfNeeded(duration)
                     updateProgress()
                     if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && !timeline.isEmpty && viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
                         viewModel.updateQualities = viewModel.quality?.name != AUDIO_ONLY_QUALITY
@@ -427,7 +378,7 @@ class Media3Fragment : Media3PlayerFragment() {
                                         if (isNetworkAvailable) {
                                             when {
                                                 responseCode == 404 -> {
-                                                    showPlayerError(R.string.stream_ended)
+                                                    showPlayerError(R.string.stream_ended) { restartPlayer() }
                                                 }
                                                 viewModel.useCustomProxy && responseCode >= 400 -> {
                                                     showPlayerError(R.string.proxy_error) { restartPlayer() }
@@ -540,12 +491,13 @@ class Media3Fragment : Media3PlayerFragment() {
             }
             player?.sendCustomCommand(
                 SessionCommand(
-                    PlaybackService.SET_SLEEP_TIMER, Bundle().apply {
-                        putLong(PlaybackService.DURATION, -1L)
-                    }
+                    PlaybackService.GET_SLEEP_TIMER, Bundle.EMPTY
                 ), Bundle.EMPTY
             )?.let { result ->
                 result.addListener({
+                    if (!isAdded || view == null) {
+                        return@addListener
+                    }
                     if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
                         val endTime = result.get().extras.getLong(PlaybackService.RESULT)
                         if (endTime > 0L) {
@@ -559,7 +511,7 @@ class Media3Fragment : Media3PlayerFragment() {
                             }
                         }
                     }
-                }, MoreExecutors.directExecutor())
+                }, ContextCompat.getMainExecutor(requireContext()))
             }
             if (viewModel.resume) {
                 viewModel.resume = false
@@ -581,19 +533,7 @@ class Media3Fragment : Media3PlayerFragment() {
                     requireView().keepScreenOn = player.isPlaying
                 }
                 updateProgress()
-                val showPlayButton = Util.shouldShowPlayButton(player)
-                binding.playerControls.playPause.contentDescription = getString(
-                    if (showPlayButton) R.string.player_play else R.string.player_pause_action,
-                )
-                if (showPlayButton) {
-                    binding.playerControls.playPause.setImageResource(R.drawable.baseline_play_arrow_black_48)
-                    binding.playerControls.playPause.visibility = View.VISIBLE
-                } else {
-                    binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                    if (videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
-                        binding.playerControls.playPause.visibility = View.GONE
-                    }
-                }
+                renderPlaybackChrome()
             }
             if ((isInitialized || !enableNetworkCheck) && !viewModel.started) {
                 startPlayer()
@@ -799,6 +739,7 @@ class Media3Fragment : Media3PlayerFragment() {
 
     private fun startStreamInternal(url: String?, playWhenReady: Boolean?): ListenableFuture<SessionResult>? {
         clearPlayerError()
+        resetProgressRenderState()
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
         primaryStreamRestoreJob?.cancel()
@@ -841,6 +782,7 @@ class Media3Fragment : Media3PlayerFragment() {
 
     override fun startVideo(url: String?, playbackPosition: Long?, multivariantPlaylist: Boolean) {
         clearPlayerError()
+        resetProgressRenderState()
         player?.let { player ->
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
@@ -867,6 +809,7 @@ class Media3Fragment : Media3PlayerFragment() {
 
     override fun startClip(url: String?) {
         clearPlayerError()
+        resetProgressRenderState()
         player?.let { player ->
             if (viewModel.quality?.name == AUDIO_ONLY_QUALITY) {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
@@ -899,6 +842,7 @@ class Media3Fragment : Media3PlayerFragment() {
 
     override fun startOfflineVideo(url: String?, position: Long) {
         clearPlayerError()
+        resetProgressRenderState()
         player?.let { player ->
             if (viewModel.quality?.name == AUDIO_ONLY_QUALITY) {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
@@ -1040,8 +984,7 @@ class Media3Fragment : Media3PlayerFragment() {
         with(binding.playerControls) {
             if (root.isVisible && !progressBar.isPressed) {
                 val currentPosition = player?.currentPosition ?: 0
-                position.text = DateUtils.formatElapsedTime(currentPosition / 1000)
-                position.contentDescription = getString(R.string.player_position, position.text)
+                updatePositionTextIfNeeded(currentPosition)
                 progressBar.setPosition(currentPosition)
                 progressBar.setBufferedPosition(player?.bufferedPosition ?: 0)
                 root.removeCallbacks(updateProgressAction)
@@ -1060,6 +1003,74 @@ class Media3Fragment : Media3PlayerFragment() {
         }
     }
 
+    private data class PlaybackChromeState(
+        val showPlayIcon: Boolean,
+        val buffering: Boolean,
+        val canPause: Boolean,
+    )
+
+    private fun updatePositionTextIfNeeded(positionMs: Long) {
+        val positionSecond = positionMs / 1_000L
+        if (positionSecond == renderedPositionSecond) {
+            return
+        }
+        renderedPositionSecond = positionSecond
+        val formattedPosition = DateUtils.formatElapsedTime(positionSecond)
+        binding.playerControls.position.text = formattedPosition
+        binding.playerControls.position.contentDescription = getString(
+            R.string.player_position,
+            formattedPosition,
+        )
+    }
+
+    private fun updateDurationIfNeeded(durationMs: Long) {
+        if (durationMs == renderedDurationMs) {
+            return
+        }
+        renderedDurationMs = durationMs
+        binding.playerControls.progressBar.setDuration(durationMs)
+        val formattedDuration = DateUtils.formatElapsedTime(durationMs / 1000)
+        binding.playerControls.duration.text = formattedDuration
+        binding.playerControls.duration.contentDescription = getString(
+            R.string.player_duration,
+            formattedDuration,
+        )
+    }
+
+    private fun resetProgressRenderState() {
+        renderedPositionSecond = Long.MIN_VALUE
+        renderedDurationMs = Long.MIN_VALUE
+    }
+
+    private fun renderPlaybackChrome() {
+        val player = player ?: return
+        val showPlayButton = Util.shouldShowPlayButton(player)
+        val buffering = player.playbackState == Player.STATE_BUFFERING
+        val canPause = !(videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false))
+        val state = PlaybackChromeState(
+            showPlayIcon = showPlayButton,
+            buffering = buffering,
+            canPause = canPause,
+        )
+        if (state == renderedPlaybackChrome) {
+            return
+        }
+        renderedPlaybackChrome = state
+        binding.bufferingIndicator.isVisible = buffering
+        binding.playerControls.playPause.contentDescription = getString(
+            if (showPlayButton) R.string.player_play else R.string.player_pause_action,
+        )
+        if (showPlayButton) {
+            binding.playerControls.playPause.setImageResource(R.drawable.baseline_play_arrow_black_48)
+            binding.playerControls.playPause.visibility = View.VISIBLE
+        } else {
+            binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
+            if (!canPause) {
+                binding.playerControls.playPause.visibility = View.GONE
+            }
+        }
+    }
+
     override fun toggleAudioCompressor() {
         player?.sendCustomCommand(
             SessionCommand(
@@ -1068,6 +1079,9 @@ class Media3Fragment : Media3PlayerFragment() {
             ), Bundle.EMPTY
         )?.let { result ->
             result.addListener({
+                if (!isAdded || view == null) {
+                    return@addListener
+                }
                 if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
                     val state = result.get().extras.getBoolean(PlaybackService.RESULT)
                     if (state) {
@@ -1076,7 +1090,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         binding.playerControls.audioCompressor.setImageResource(R.drawable.baseline_audio_compressor_off_24dp)
                     }
                 }
-            }, MoreExecutors.directExecutor())
+            }, ContextCompat.getMainExecutor(requireContext()))
         }
     }
 
@@ -1139,6 +1153,9 @@ class Media3Fragment : Media3PlayerFragment() {
             ), Bundle.EMPTY
         )?.let { result ->
             result.addListener({
+                if (!isAdded || view == null) {
+                    return@addListener
+                }
                 if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
                     val tags = result.get().extras.getStringArray(PlaybackService.RESULT)?.joinToString("\n")
                     if (!tags.isNullOrBlank()) {
@@ -1160,7 +1177,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         }.show()
                     }
                 }
-            }, MoreExecutors.directExecutor())
+            }, ContextCompat.getMainExecutor(requireContext()))
         }
     }
 
@@ -1351,6 +1368,9 @@ class Media3Fragment : Media3PlayerFragment() {
             Bundle.EMPTY
         )?.let { result ->
             result.addListener({
+                if (!isAdded || view == null) {
+                    return@addListener
+                }
                 if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
                     val totalDuration = result.get().extras.getLong(PlaybackService.RESULT)
                     val qualities = viewModel.qualities?.filter { !it.url.isNullOrBlank() }
@@ -1377,7 +1397,7 @@ class Media3Fragment : Media3PlayerFragment() {
                         qualityUrls = qualities?.map { it.url.toString() }?.toTypedArray(),
                     ).show(childFragmentManager, null)
                 }
-            }, MoreExecutors.directExecutor())
+            }, ContextCompat.getMainExecutor(requireContext()))
         }
     }
 
@@ -1597,6 +1617,9 @@ class Media3Fragment : Media3PlayerFragment() {
         qualityRetryJob = null
         qualityRetryAttempts = 0
         pendingQualityCallbacks.clear()
+        resetProgressRenderState()
+        renderedPlaybackChrome = null
+        binding.playerControls.root.removeCallbacks(updateProgressAction)
         binding.liveCaptionView.clearCaption()
         logVideoSurfaceBinding("on_destroy_view", player, view?.findViewById(R.id.playerSurface))
         detachVideoOutput()

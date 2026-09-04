@@ -572,6 +572,9 @@
     <string name="loaded_cached_ffz_emotes">Önbelleğe alınmış FFZ ifadeleri yüklendi</string>
     <string name="find_unlisted_video">Listelenmemiş videoyu bul</string>
     <string name="video_not_found">Video bulunamadı</string>
+    <string name="clip_not_found">Klip bulunamadı</string>
+    <string name="game_not_found">Oyun bulunamadı</string>
+    <string name="tag_not_found">Etiket bulunamadı</string>
     <string name="recent_messages_api_url">Son mesajlar API URL\'si</string>
     <string name="access_local_network_title">Yerel ağ izni verin</string>
     <string name="access_local_network_desc">Yerel proxy\'lere bağlanmak için gereklidir</string>

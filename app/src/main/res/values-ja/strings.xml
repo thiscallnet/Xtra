@@ -571,6 +571,9 @@
     <string name="loaded_cached_ffz_emotes">キャッシュされたFFZエモートをロード</string>
     <string name="find_unlisted_video">限定公開のビデオを検索</string>
     <string name="video_not_found">ビデオが見つかりません</string>
+    <string name="clip_not_found">クリップが見つかりません</string>
+    <string name="game_not_found">ゲームが見つかりません</string>
+    <string name="tag_not_found">タグが見つかりません</string>
     <string name="recent_messages_api_url">最近のメッセージ API URL</string>
     <string name="access_local_network_title">ローカル ネットワーク許可の付与</string>
     <string name="access_local_network_desc">ローカル プロキシへの接続に必要</string>

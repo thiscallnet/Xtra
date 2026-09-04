@@ -576,6 +576,9 @@
     <string name="loaded_cached_ffz_emotes">Gestos FFZ cargados en caché</string>
     <string name="find_unlisted_video">Buscar video no listado</string>
     <string name="video_not_found">Video no encontrado</string>
+    <string name="clip_not_found">Clip no encontrado</string>
+    <string name="game_not_found">Juego no encontrado</string>
+    <string name="tag_not_found">Etiqueta no encontrada</string>
     <string name="recent_messages_api_url">URL de API de mensajes recientes</string>
     <string name="access_local_network_title">Otorgar permiso de red local</string>
     <string name="access_local_network_desc">Requerido para conectarse a servidores proxy locales</string>

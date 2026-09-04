@@ -1273,6 +1273,9 @@
     <string name="loaded_cached_ffz_emotes">Načítané emoty FFZ uložené vo vyrovnávacej pamäti</string>
     <string name="find_unlisted_video">Nájdite nezaradené video</string>
     <string name="video_not_found">Video sa nenašlo</string>
+    <string name="clip_not_found">Klip sa nenašiel</string>
+    <string name="game_not_found">Hra sa nenašla</string>
+    <string name="tag_not_found">Značka sa nenašla</string>
     <string name="recent_messages_api_url">Adresa URL rozhrania API posledných správ</string>
     <string name="access_local_network_title">Udeľte povolenie na lokálnu sieť</string>
     <string name="access_local_network_desc">Vyžaduje sa na pripojenie k miestnym serverom proxy</string>

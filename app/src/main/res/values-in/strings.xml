@@ -572,6 +572,9 @@
     <string name="loaded_cached_ffz_emotes">Memuat emote FFZ yang di-cache</string>
     <string name="find_unlisted_video">Temukan video yang tidak terdaftar</string>
     <string name="video_not_found">Video tidak ditemukan</string>
+    <string name="clip_not_found">Klip tidak ditemukan</string>
+    <string name="game_not_found">Game tidak ditemukan</string>
+    <string name="tag_not_found">Tag tidak ditemukan</string>
     <string name="recent_messages_api_url">URL API pesan terbaru</string>
     <string name="access_local_network_title">Berikan izin jaringan lokal</string>
     <string name="access_local_network_desc">Diperlukan untuk terhubung ke proxy lokal</string>

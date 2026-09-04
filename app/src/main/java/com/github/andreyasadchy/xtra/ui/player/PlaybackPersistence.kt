@@ -160,9 +160,15 @@ class PlaybackPersistence internal constructor(
                 true
             }
         }
-        if (shouldQueue && operations.trySend { drainPendingVideoPositions() }.isFailure) {
-            synchronized(videoPositionLock) {
-                videoPositionOperationQueued = false
+        if (!shouldQueue) {
+            return
+        }
+        val operation: suspend () -> Unit = {
+            drainPendingVideoPositions()
+        }
+        if (operations.trySend(operation).isFailure) {
+            scope.launch {
+                operations.send(operation)
             }
         }
     }

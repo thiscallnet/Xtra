@@ -43,6 +43,7 @@ import com.github.andreyasadchy.xtra.ui.team.TeamViewModel.Companion.TeamViewMod
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.applyStableTopSystemBarMargin
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -120,16 +121,13 @@ class TeamFragment : PagedListFragment(), Scrollable {
                     else -> false
                 }
             }
-            ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
-                val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-                collapsingToolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                    topMargin = insets.top
-                }
+            view.applyStableTopSystemBarMargin(collapsingToolbar)
+            ViewCompat.setOnApplyWindowInsetsListener(recyclerViewLayout.recyclerView) { _, windowInsets ->
                 if (activity.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false) {
                     val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
                     recyclerViewLayout.recyclerView.updatePadding(bottom = systemBars.bottom)
                 }
-                WindowInsetsCompat.CONSUMED
+                windowInsets
             }
         }
         pagingAdapter = TeamMembersAdapter(this) {

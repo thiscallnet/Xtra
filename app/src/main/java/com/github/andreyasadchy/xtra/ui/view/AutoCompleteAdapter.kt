@@ -43,6 +43,9 @@ class AutoCompleteAdapter<T>(
             is Emote -> {
                 view.findViewById<ImageView>(R.id.image)?.let {
                     it.visibility = View.VISIBLE
+                    // Dropdown rows are recycled; clear the previous emote before
+                    // the async load completes so a stale image never flashes.
+                    it.setImageDrawable(null)
                     if (imageLibrary == "0" || (imageLibrary == "1" && !item.format.equals("webp", true))) {
                         context.imageLoader.enqueue(
                             ImageRequest.Builder(context).apply {
@@ -84,7 +87,14 @@ class AutoCompleteAdapter<T>(
                 }
                 view.findViewById<TextView>(R.id.name)?.text = item.name
             }
-            is Chatter -> view.findViewById<TextView>(R.id.name)?.text = item.name
+            is Chatter -> {
+                // A recycled emote row keeps its image; chatter rows have none.
+                view.findViewById<ImageView>(R.id.image)?.let {
+                    it.visibility = View.GONE
+                    it.setImageDrawable(null)
+                }
+                view.findViewById<TextView>(R.id.name)?.text = item.name
+            }
         }
         return view
     }
