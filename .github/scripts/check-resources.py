@@ -156,6 +156,13 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # translations are reviewed by native speakers.
     "chat_clip_playing",
     "chat_clip_clipped_by",
+    # Prediction result display settings ship with the default English resources
+    # until their translations are reviewed by native speakers.
+    "prediction_result_duration",
+    "prediction_result_10s",
+    "prediction_result_20s",
+    "prediction_result_30s",
+    "prediction_result_60s",
     # Message highlight settings ship with the default English resources until
     # their translations are reviewed by native speakers.
     "chat_message_highlights",

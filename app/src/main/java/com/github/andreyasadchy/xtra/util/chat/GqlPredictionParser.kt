@@ -50,7 +50,11 @@ internal fun chooseGqlPredictionSnapshot(
  * handling separate from the snake_case PubSub/Helix parser.
  */
 internal object GqlPredictionParser {
-    fun parse(body: String, observedAt: Long = System.currentTimeMillis()): GqlPredictionSnapshot? {
+    fun parse(
+        body: String,
+        observedAt: Long = System.currentTimeMillis(),
+        finalResultEligibilityMillis: Long = PredictionState.RESULT_DISPLAY_GRACE_MILLIS,
+    ): GqlPredictionSnapshot? {
         val root = runCatching { JSONObject(body) }.getOrNull() ?: return null
         val data = root.optJSONObject("data") ?: return null
         val channel = data.optJSONObject("community")
@@ -70,7 +74,8 @@ internal object GqlPredictionParser {
         val resolvedEvents = channel.opt("resolvedPredictionEvents").predictionObjectsOrNull().orEmpty()
             .mapNotNull { parsePrediction(it, "RESOLVED", observedAt) }
             .filter { prediction ->
-                PredictionState.isFinal(prediction) && isRecentResolved(prediction, observedAt)
+                PredictionState.isFinal(prediction) &&
+                    isRecentResolved(prediction, observedAt, finalResultEligibilityMillis)
             }
 
         return GqlPredictionSnapshot(
@@ -144,10 +149,10 @@ internal object GqlPredictionParser {
         )
     }
 
-    private fun isRecentResolved(prediction: Prediction, observedAt: Long): Boolean {
+    private fun isRecentResolved(prediction: Prediction, observedAt: Long, eligibilityMillis: Long): Boolean {
         val endedAt = prediction.endedAt ?: return false
         val age = observedAt - endedAt
-        return age in 0L..PredictionState.RESULT_DISPLAY_GRACE_MILLIS
+        return age in 0L..eligibilityMillis
     }
 
     private fun Any?.predictionObjectsOrNull(): List<JSONObject>? = when (this) {

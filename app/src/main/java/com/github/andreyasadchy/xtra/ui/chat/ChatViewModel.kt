@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.chat
 
 import android.content.ContentResolver
 import android.content.Context
+import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.os.SystemClock
 import android.util.JsonReader
@@ -485,6 +486,12 @@ class ChatViewModel(
     private var predictionSnapshotJob: Job? = null
     private var predictionTimeoutJob: Job? = null
     private var predictionTimeoutPredictionId: String? = null
+    private var predictionPreferenceListenerRegistered = false
+    private val predictionPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == C.CHAT_PREDICTIONS_RESULT_DURATION) {
+            viewModelScope.launch { reschedulePredictionDismissal() }
+        }
+    }
     private var predictionSessionToken = 0L
     private var predictionSubscriptionSessionToken: Long? = null
     private var started = false
@@ -2872,6 +2879,10 @@ class ChatViewModel(
         }
         activeChannelId = channelId
         activeChannelLogin = channelLogin
+        if (!predictionPreferenceListenerRegistered) {
+            applicationContext.prefs().registerOnSharedPreferenceChangeListener(predictionPreferenceListener)
+            predictionPreferenceListenerRegistered = true
+        }
         val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
         val helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext)
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
@@ -2915,7 +2926,8 @@ class ChatViewModel(
         if (showPredictions && !channelId.isNullOrBlank()) {
             val cached = PredictionCache.load(applicationContext.prefs(), channelId, broadcastId = streamId)
             if (cached != null &&
-                (!PredictionState.isFinal(cached) || PredictionState.isFreshFinalForDisplay(cached))
+                (!PredictionState.isFinal(cached) ||
+                    PredictionState.isFreshFinalForDisplay(cached, graceMillis = predictionResultEligibilityMillis()))
             ) {
                 predictionStateStore.restore(cached, ::publishPrediction)
             } else if (cached != null) {
@@ -3238,6 +3250,10 @@ class ChatViewModel(
     }
 
     fun stopLiveChat() {
+        if (predictionPreferenceListenerRegistered) {
+            applicationContext.prefs().unregisterOnSharedPreferenceChangeListener(predictionPreferenceListener)
+            predictionPreferenceListenerRegistered = false
+        }
         predictionSessionToken += 1
         predictionSnapshotJob?.cancel()
         predictionSnapshotJob = null
@@ -3687,15 +3703,41 @@ class ChatViewModel(
         predictionTimeoutPredictionId = null
     }
 
+    private fun predictionResultDurationMillis(): Long =
+        PredictionDismissalPolicy.graceMillis(
+            applicationContext.prefs().getString(C.CHAT_PREDICTIONS_RESULT_DURATION, null),
+        )
+
+    private fun predictionResultEligibilityMillis(): Long =
+        PredictionDismissalPolicy.eligibilityMillis(predictionResultDurationMillis())
+
+    private fun reschedulePredictionDismissal() {
+        predictionStateStore.rescheduleFinal(
+            cancel = {
+                predictionTimeoutJob?.cancel()
+                predictionTimeoutJob = null
+                predictionTimeoutPredictionId = null
+            },
+            schedule = ::schedulePredictionDismissal,
+        )
+    }
+
     private fun schedulePredictionDismissal(value: Prediction) {
         val predictionId = value.id
         if (predictionId.isNullOrBlank()) return
         if (predictionTimeoutPredictionId == predictionId && predictionTimeoutJob?.isActive == true) return
         predictionTimeoutJob?.cancel()
+        predictionTimeoutJob = null
+        predictionTimeoutPredictionId = null
+        val displayDurationMillis = predictionResultDurationMillis()
+        val remaining = PredictionDismissalPolicy.dismissalDelayMillis(
+            value.endedAt,
+            graceMillis = displayDurationMillis,
+        ) ?: return
         predictionTimeoutPredictionId = predictionId
-        val remaining = PredictionDismissalPolicy.dismissalDelayMillis(value.endedAt)
         predictionTimeoutJob = viewModelScope.launch {
             delay(remaining)
+            if (predictionResultDurationMillis() != displayDurationMillis) return@launch
             val cleared = predictionStateStore.clearIf(
                 { current -> PredictionDismissalPolicy.shouldDismiss(current, predictionId) },
                 ::clearPredictionState,
@@ -3976,6 +4018,7 @@ class ChatViewModel(
         predictionSnapshotJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val snapshotRequestedAt = System.currentTimeMillis()
+                val resultEligibilityMillis = predictionResultEligibilityMillis()
                 val authenticatedSnapshot = GqlPredictionParser.parse(
                     graphQLRepository.loadChannelPointsPredictionContext(
                         networkLibrary,
@@ -3983,6 +4026,7 @@ class ChatViewModel(
                         channelLogin,
                     ),
                     snapshotRequestedAt,
+                    resultEligibilityMillis,
                 )
                 logPredictionSnapshot("gql-authenticated", authenticatedSnapshot)
                 var snapshot = authenticatedSnapshot
@@ -3997,6 +4041,7 @@ class ChatViewModel(
                             channelLogin,
                         ),
                         snapshotRequestedAt,
+                        resultEligibilityMillis,
                     )
                     logPredictionSnapshot("gql-anonymous", anonymousSnapshot)
                     snapshot = chooseGqlPredictionSnapshot(authenticatedSnapshot, anonymousSnapshot)
@@ -4046,13 +4091,16 @@ class ChatViewModel(
         sessionToken: Long,
         notAfter: Long,
     ) {
+        val resultDurationMillis = predictionResultDurationMillis()
         val cleared = predictionStateStore.clearIf(
             {
                 sessionToken == predictionSessionToken &&
                         channelLogin == activeChannelLogin &&
                         ((PredictionState.isOngoing(it) &&
                                 (it.observedAt == null || it.observedAt <= notAfter)) ||
-                                PredictionState.isFinal(it) && !PredictionState.isFreshFinalForDisplay(it))
+                                PredictionState.isFinal(it) &&
+                                    !PredictionDismissalPolicy.isNever(resultDurationMillis) &&
+                                    !PredictionState.isFreshFinalForDisplay(it, graceMillis = resultDurationMillis))
             },
             ::clearPredictionState,
         )

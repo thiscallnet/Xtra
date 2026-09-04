@@ -307,6 +307,7 @@ object C {
     const val CHAT_RAIDS_AUTO_SWITCH = "chat_raids_auto_switch"
     const val CHAT_POLLS_SHOW = "chat_polls_show"
     const val CHAT_PREDICTIONS_SHOW = "chat_predictions_show"
+    const val CHAT_PREDICTIONS_RESULT_DURATION = "chat_predictions_result_duration"
     const val CHAT_DROPS_SHOW = "chat_drops_show"
     const val CHAT_DROPS_AUTO_CLAIM = "chat_drops_auto_claim"
     const val CHAT_HIGHLIGHT_REPLIES = "chat_highlight_replies"

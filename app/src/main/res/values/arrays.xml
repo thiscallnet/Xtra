@@ -464,6 +464,22 @@
         <item>persistent</item>
     </string-array>
 
+    <string-array name="predictionResultDurationEntries" translatable="false">
+        <item>@string/prediction_result_10s</item>
+        <item>@string/prediction_result_20s</item>
+        <item>@string/prediction_result_30s</item>
+        <item>@string/prediction_result_60s</item>
+        <item>@string/never</item>
+    </string-array>
+
+    <string-array name="predictionResultDurationValues" translatable="false">
+        <item>10</item>
+        <item>20</item>
+        <item>30</item>
+        <item>60</item>
+        <item>never</item>
+    </string-array>
+
     <string-array name="chatFirstMsgEntries" translatable="false">
         <item>@string/chatFirstMsgEntries1</item>
         <item>@string/chatFirstMsgEntries2</item>

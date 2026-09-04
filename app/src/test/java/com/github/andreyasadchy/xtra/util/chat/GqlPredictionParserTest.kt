@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.util.chat
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import java.time.Instant
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -184,6 +185,58 @@ class GqlPredictionParserTest {
 
         assertFalse(snapshot?.authoritative == true)
         assertFalse(snapshot?.hasActiveOrLockedPrediction == true)
+    }
+
+    @Test
+    fun resolvedRecencyHonorsCustomGrace() {
+        val observedAt = 1_700_000_000_000L
+        val body = resolvedBody(endedAt = observedAt - 40_000L)
+
+        val expired = GqlPredictionParser.parse(body, observedAt = observedAt)
+        assertNull(expired?.prediction)
+
+        val extended = GqlPredictionParser.parse(
+            body,
+            observedAt = observedAt,
+            finalResultEligibilityMillis = 60_000L,
+        )
+        assertEquals("p-resolved", extended?.prediction?.id)
+
+        val never = GqlPredictionParser.parse(
+            body,
+            observedAt = observedAt,
+            finalResultEligibilityMillis = PredictionState.RESULT_DISPLAY_NEVER_MILLIS,
+        )
+        assertNull(never?.prediction)
+
+        val recentForNever = GqlPredictionParser.parse(
+            resolvedBody(endedAt = observedAt - 10_000L),
+            observedAt = observedAt,
+            finalResultEligibilityMillis = PredictionDismissalPolicy.eligibilityMillis(
+                PredictionState.RESULT_DISPLAY_NEVER_MILLIS,
+            ),
+        )
+        assertEquals("p-resolved", recentForNever?.prediction?.id)
+    }
+
+    private fun resolvedBody(endedAt: Long): String {
+        val prediction = JSONObject()
+            .put("id", "p-resolved")
+            .put("title", "Who wins?")
+            .put("status", "RESOLVED")
+            .put("endedAt", Instant.ofEpochMilli(endedAt).toString())
+            .put(
+                "outcomes",
+                JSONArray().put(JSONObject().put("id", "yes").put("title", "Yes")),
+            )
+        val channel = JSONObject()
+            .put("activePredictionEvents", JSONArray())
+            .put("lockedPredictionEvents", JSONArray())
+            .put("resolvedPredictionEvents", JSONArray().put(prediction))
+        return JSONObject().put(
+            "data",
+            JSONObject().put("community", JSONObject().put("channel", channel)),
+        ).toString()
     }
 
     private fun fourOutcomeFixture(): String =
