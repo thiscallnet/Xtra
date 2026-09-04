@@ -8,6 +8,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetState
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatImageHandle
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -126,6 +127,48 @@ class ChatAssetRepositoryTest {
         }
         assertTrue(repository.cachedStateCount() <= 2)
         assertTrue(attempts.values.all { it == 1 })
+        scope.cancel()
+    }
+
+    @Test
+    fun unobservedQueuedLoadDoesNotDelayNewlyObservedAsset() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val first = ChatAssetKey("first")
+        val second = ChatAssetKey("second")
+        val third = ChatAssetKey("third")
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val secondStarted = CompletableDeferred<Unit>()
+        val thirdStarted = CompletableDeferred<Unit>()
+        val repository = ChatAssetRepository(
+            scope,
+            ChatAssetLoader { key ->
+                when (key) {
+                    first -> {
+                        firstStarted.complete(Unit)
+                        releaseFirst.await()
+                    }
+                    second -> secondStarted.complete(Unit)
+                    third -> thirdStarted.complete(Unit)
+                }
+                ChatImageHandle { ColorDrawable(1) }
+            },
+            maxConcurrentLoads = 1,
+            nowMs = { 0L },
+        )
+        val firstListener: () -> Unit = {}
+        val secondListener: () -> Unit = {}
+        repository.observe(first, firstListener)
+        withTimeout(2_000) { firstStarted.await() }
+
+        repository.observe(second, secondListener)
+        assertTrue(repository.peek(second) is ChatAssetState.Loading)
+        repository.removeObserver(second, secondListener)
+        repository.observe(third) {}
+
+        releaseFirst.complete(Unit)
+        withTimeout(2_000) { thirdStarted.await() }
+        assertTrue(!secondStarted.isCompleted)
         scope.cancel()
     }
 }

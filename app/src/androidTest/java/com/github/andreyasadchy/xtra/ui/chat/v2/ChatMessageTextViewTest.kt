@@ -39,6 +39,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -92,22 +93,34 @@ class ChatMessageTextViewTest {
     }
 
     @Test
-    fun usernameHasExplicitFallbackColorAndMissingAssetHasStableGeometry() {
+    fun fallbackTextReflowsToCompactAssetWidthWhenLoaded() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val asset = CompletableDeferred<ChatImageHandle?>()
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { asset.await() })
         val view = TestTextView(context, repository)
         val spec = ChatAssetSpec(ChatAssetKey("missing"), 20, 20, 28)
+        lateinit var span: ReplacementSpan
         runOnMain {
-            view.bind(row(spec, username = "login"))
+            view.bind(row(spec, username = "login", fallback = "OMEGALUL"))
             val spanned = view.text as Spanned
             val usernameColor = spanned.getSpans(0, 5, ForegroundColorSpan::class.java).single().foregroundColor
             assertNotEquals(Color.WHITE, usernameColor)
             assertTrue(view.text.toString().contains("login"))
-            val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+            span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+            val metrics = Paint.FontMetricsInt()
+            assertTrue(span.getSize(Paint(), spanned, 0, 1, metrics) > spec.compositionWidth)
+            assertTrue(metrics.descent - metrics.ascent >= spec.compositionHeight)
+            draw(span, spanned, metrics)
+        }
+        asset.complete(ChatImageHandle { SolidDrawable(Color.RED) })
+        withTimeout(2_000) {
+            while (repository.peek(spec.key) !is ChatAssetState.Ready) delay(1)
+        }
+        runOnMain {
+            val spanned = view.text as Spanned
             val metrics = Paint.FontMetricsInt()
             assertEquals(spec.compositionWidth, span.getSize(Paint(), spanned, 0, 1, metrics))
-            assertTrue(metrics.descent - metrics.ascent >= spec.compositionHeight)
             draw(span, spanned, metrics)
         }
         scope.cancel()
@@ -474,11 +487,12 @@ class ChatMessageTextViewTest {
         spec: ChatAssetSpec,
         username: String? = null,
         interaction: ChatEmoteInteraction? = null,
+        fallback: String = ":asset:",
     ) = ChatRowUiModel(
         id = ChatMessageId("row"), channelId = "channel", timestampText = null,
         pieces = buildList {
             username?.let { add(ChatPiece.Username(it, 0xffff8a80.toInt())) }
-            add(ChatPiece.Emote(spec, ":asset:", interaction = interaction))
+            add(ChatPiece.Emote(spec, fallback, interaction = interaction))
         },
         background = 0xff101010.toInt(), accessibilityText = "row", reply = null,
         source = null, isAction = false,

@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.assets
 import android.os.SystemClock
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -10,6 +11,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.util.LinkedHashMap
 
 /** Bounded async cache. A request can only invalidate interested attached views. */
@@ -17,6 +20,7 @@ class ChatAssetRepository(
     private val scope: CoroutineScope,
     private val loader: ChatAssetLoader,
     private val maxEntries: Int = 512,
+    private val maxConcurrentLoads: Int = 8,
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val wait: suspend (Long) -> Unit = { delay(it) },
 ) {
@@ -24,6 +28,8 @@ class ChatAssetRepository(
     private val states = LinkedHashMap<ChatAssetKey, ChatAssetState>(maxEntries, .75f, true)
     private val listeners = HashMap<ChatAssetKey, MutableSet<() -> Unit>>()
     private val retryJobs = HashMap<ChatAssetKey, Job>()
+    private val loadJobs = HashMap<ChatAssetKey, Job>()
+    private val loadPermits = Semaphore(maxConcurrentLoads.coerceAtLeast(1))
     private val _changes = MutableStateFlow<ChatAssetKey?>(null)
     val changes: StateFlow<ChatAssetKey?> = _changes.asStateFlow()
 
@@ -41,13 +47,19 @@ class ChatAssetRepository(
         request(key)
     }
 
-    @Synchronized fun removeObserver(key: ChatAssetKey, listener: () -> Unit) {
-        listeners[key]?.remove(listener)
-        if (listeners[key].isNullOrEmpty()) {
-            listeners.remove(key)
-            retryJobs.remove(key)?.cancel()
+    fun removeObserver(key: ChatAssetKey, listener: () -> Unit) {
+        var loadJob: Job? = null
+        synchronized(this) {
+            listeners[key]?.remove(listener)
+            if (listeners[key].isNullOrEmpty()) {
+                listeners.remove(key)
+                retryJobs.remove(key)?.cancel()
+                loadJob = loadJobs.remove(key)
+                if (states[key] is ChatAssetState.Loading) states.remove(key)
+            }
+            trimCacheLocked()
         }
-        trimCacheLocked()
+        loadJob?.cancel()
     }
 
     /** Catalog revisions can make a previous negative result valid again. */
@@ -62,8 +74,8 @@ class ChatAssetRepository(
 
     private fun request(key: ChatAssetKey) {
         val now = nowMs()
-        val attempt = synchronized(this) {
-            when (val state = states[key]) {
+        val loadJob = synchronized(this) {
+            val attempt = when (val state = states[key]) {
                 is ChatAssetState.Ready, ChatAssetState.Loading -> return
                 is ChatAssetState.Failed if state.nextRetryAtMs > now -> {
                     scheduleRetry(key, state.nextRetryAtMs - now)
@@ -72,38 +84,72 @@ class ChatAssetRepository(
                 is ChatAssetState.Failed -> state.attempts + 1
                 ChatAssetState.Missing, null -> 1
             }.also { states[key] = ChatAssetState.Loading }
+            scope.launch(start = CoroutineStart.LAZY) {
+                val currentJob = coroutineContext[Job]
+                try {
+                    var completedAt: Long
+                    val state = try {
+                        val loaded = loadPermits.withPermit { loader.load(key) }
+                        completedAt = nowMs()
+                        loaded?.let(ChatAssetState::Ready)
+                            ?: ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
+                    } catch (e: CancellationException) {
+                        // A loader-local timeout is retryable while the repository is alive. A
+                        // load canceled after its last observer disappears is discarded instead.
+                        val stillObserved = synchronized(this@ChatAssetRepository) {
+                            !listeners[key].isNullOrEmpty()
+                        }
+                        if (repositoryJob?.isActive == false) throw e
+                        if (!stillObserved) {
+                            synchronized(this@ChatAssetRepository) {
+                                if (
+                                    loadJobs[key] === currentJob &&
+                                    listeners[key].isNullOrEmpty() &&
+                                    states[key] is ChatAssetState.Loading
+                                ) {
+                                    states.remove(key)
+                                }
+                            }
+                            return@launch
+                        }
+                        completedAt = nowMs()
+                        ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
+                    } catch (e: ChatAssetLoadException) {
+                        completedAt = nowMs()
+                        if (e.statusCode == 400 || e.statusCode == 404 || e.statusCode == 410) {
+                            ChatAssetState.Failed(completedAt + 5 * 60_000L, attempt, completedAt + 5 * 60_000L)
+                        } else ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
+                    } catch (_: Throwable) {
+                        completedAt = nowMs()
+                        ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
+                    }
+                    val callbacks = synchronized(this@ChatAssetRepository) {
+                        if (loadJobs[key] !== currentJob) null else {
+                            states[key] = state
+                            retryJobs.remove(key)
+                            trimCacheLocked()
+                            listeners[key]?.toList().orEmpty()
+                        }
+                    } ?: return@launch
+                    _changes.value = key
+                    callbacks.forEach { it() }
+                    if (state is ChatAssetState.Failed) scheduleRetry(key, state.nextRetryAtMs - nowMs())
+                } finally {
+                    synchronized(this@ChatAssetRepository) {
+                        if (loadJobs[key] === currentJob) loadJobs.remove(key)
+                    }
+                }
+            }.also { loadJobs[key] = it }
         }
-        scope.launch {
-            var completedAt: Long
-            val state = try {
-                val loaded = loader.load(key)
-                completedAt = nowMs()
-                loaded?.let(ChatAssetState::Ready)
-                    ?: ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
-            } catch (e: CancellationException) {
-                // A loader-local timeout is retryable while the repository is alive. Only
-                // cancellation of the repository's own scope should terminate the attempt.
-                if (repositoryJob?.isActive == false) throw e
-                completedAt = nowMs()
-                ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
-            } catch (e: ChatAssetLoadException) {
-                completedAt = nowMs()
-                if (e.statusCode == 404 || e.statusCode == 410) {
-                    ChatAssetState.Failed(completedAt + 5 * 60_000L, attempt, completedAt + 5 * 60_000L)
-                } else ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
-            } catch (_: Throwable) {
-                completedAt = nowMs()
-                ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
+        if (!loadJob.start()) {
+            synchronized(this) {
+                if (loadJobs[key] === loadJob) {
+                    loadJobs.remove(key)
+                    if (listeners[key].isNullOrEmpty() && states[key] is ChatAssetState.Loading) {
+                        states.remove(key)
+                    }
+                }
             }
-            val callbacks = synchronized(this@ChatAssetRepository) {
-                states[key] = state
-                retryJobs.remove(key)
-                trimCacheLocked()
-                listeners[key]?.toList().orEmpty()
-            }
-            _changes.value = key
-            callbacks.forEach { it() }
-            if (state is ChatAssetState.Failed) scheduleRetry(key, state.nextRetryAtMs - nowMs())
         }
     }
 

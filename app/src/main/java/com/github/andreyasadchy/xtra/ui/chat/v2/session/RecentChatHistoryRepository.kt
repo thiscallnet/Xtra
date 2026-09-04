@@ -134,7 +134,9 @@ fun VideoMessagesResponse.Comment.toV2(
             message?.userColor?.removePrefix("#")?.toLongOrNull(16)?.toInt(),
         ),
         badges = message?.userBadges.orEmpty().mapNotNull { badge ->
-            if (badge.setID != null && badge.version != null) ChatBadgeRef(badge.setID, badge.version) else null
+            if (!badge.setID.isNullOrBlank() && !badge.version.isNullOrBlank()) {
+                ChatBadgeRef(badge.setID, badge.version)
+            } else null
         },
         segments = segments, rawText = body,
         kind = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind.CHAT,

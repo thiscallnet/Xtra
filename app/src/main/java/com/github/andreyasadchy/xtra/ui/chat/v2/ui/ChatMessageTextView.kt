@@ -55,6 +55,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.preview.formatClipDuration
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.parseClipTimestamp
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
 import com.github.andreyasadchy.xtra.ui.view.CenteredImageSpan
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 open class ChatMessageTextView private constructor(
@@ -92,7 +93,12 @@ open class ChatMessageTextView private constructor(
     private var keys = emptySet<ChatAssetKey>()
     private val drawables = HashMap<ChatAssetKey, Drawable>()
     private val drawableHandles = HashMap<ChatAssetKey, Any>()
-    private val assetInvalidator: () -> Unit = { postInvalidateOnAnimation() }
+    private val assetInvalidator: () -> Unit = {
+        post {
+            requestLayout()
+            postInvalidateOnAnimation()
+        }
+    }
     private val clipMetadataInvalidator: () -> Unit = {
         post {
             refreshClipPreviewAssets()
@@ -242,7 +248,7 @@ open class ChatMessageTextView private constructor(
                 is ChatPiece.Source -> appendStyled(output, "[${piece.value}] ", piece.color)
                 is ChatPiece.Icon -> appendIcon(output, piece)
                 is ChatPiece.Mention -> appendStyled(output, piece.value, null)
-                is ChatPiece.Badge -> appendAsset(output, piece.asset, "badge", piece.interaction)
+                is ChatPiece.Badge -> appendAsset(output, piece.asset, piece.interaction?.name ?: "badge", piece.interaction)
                 is ChatPiece.RewardIcon -> appendAsset(output, piece.asset, piece.fallback)
                 is ChatPiece.Emote -> appendAsset(output, piece.asset, piece.fallback, piece.interaction)
                 is ChatPiece.Gif -> appendAsset(output, piece.asset, piece.fallback, gifInteraction = piece.interaction)
@@ -601,7 +607,17 @@ open class ChatMessageTextView private constructor(
         val start = output.length
         output.append(" ")
         val end = output.length
-        output.setSpan(ChatAssetSpan(spec, fallback) { drawableLayersFor(spec) }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        output.setSpan(
+            ChatAssetSpan(
+                spec,
+                fallback,
+                { drawableLayersFor(spec) },
+                { spec.flatten().all { assets.peek(it.key) is ChatAssetState.Ready } },
+            ),
+            start,
+            end,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
         interaction?.let { value ->
             output.setSpan(object : ClickableSpan() {
                 override fun onClick(widget: android.view.View) {
@@ -804,6 +820,7 @@ private class ChatAssetSpan(
     private val spec: ChatAssetSpec,
     private val fallback: String,
     private val drawables: () -> List<DrawableLayer>?,
+    private val isReady: () -> Boolean,
 ) : ReplacementSpan() {
     override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         val height = spec.compositionHeight
@@ -819,7 +836,7 @@ private class ChatAssetSpan(
                 fm.bottom = fm.descent
             }
         }
-        return spec.compositionWidth
+        return if (isReady()) spec.compositionWidth else maxOf(spec.compositionWidth, fallbackWidth(paint))
     }
 
     override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
@@ -828,8 +845,15 @@ private class ChatAssetSpan(
         val oldTextSize = paint.textSize
         val oldTextAlign = paint.textAlign
         val centerY = (top + bottom) / 2f
-        val rect = RectF(x, centerY - spec.compositionHeight / 2f, x + spec.compositionWidth, centerY + spec.compositionHeight / 2f)
+        val label = fallback.trim().ifEmpty { "?" }
+        val fallbackPaint = fallbackPaint(paint)
         val images = drawables()
+        val reservedWidth = if (images != null) {
+            spec.compositionWidth
+        } else {
+            maxOf(spec.compositionWidth, fallbackPaint.measureText(label).roundToInt())
+        }
+        val rect = RectF(x, centerY - spec.compositionHeight / 2f, x + reservedWidth, centerY + spec.compositionHeight / 2f)
         if (images != null) {
             images.forEach { layer ->
                 val width = layer.spec.computedWidth
@@ -840,15 +864,14 @@ private class ChatAssetSpan(
                 layer.drawable.draw(canvas)
             }
         } else {
-            paint.color = 0x55777777
+            // Keep the original token readable while the image is loading or retrying. The
+            // Reserve enough room for the original token while the image is unavailable. A
+            // fake pill suggests that an image exists when it does not and was especially
+            // confusing for missing badge URLs.
+            paint.color = oldColor
             paint.style = Paint.Style.FILL
-            canvas.drawRoundRect(rect, spec.targetHeight / 4f, spec.targetHeight / 4f, paint)
-            paint.color = 0xFFDDDDDD.toInt()
-            canvas.drawCircle(rect.centerX(), rect.centerY(), (spec.targetHeight / 8f).coerceAtLeast(1f), paint)
-            paint.color = 0xFF202020.toInt()
             paint.textAlign = Paint.Align.CENTER
-            paint.textSize = (spec.compositionHeight * 0.55f).coerceAtLeast(6f)
-            val label = fallback.trim().firstOrNull()?.toString() ?: "?"
+            paint.textSize = fallbackPaint.textSize
             val baseline = rect.centerY() - (paint.ascent() + paint.descent()) / 2f
             canvas.drawText(label, rect.centerX(), baseline, paint)
         }
@@ -856,5 +879,16 @@ private class ChatAssetSpan(
         paint.style = oldStyle
         paint.textSize = oldTextSize
         paint.textAlign = oldTextAlign
+    }
+
+    private fun fallbackWidth(paint: Paint): Int = fallbackPaint(paint)
+        .measureText(fallback.trim().ifEmpty { "?" })
+        .roundToInt()
+
+    private fun fallbackPaint(paint: Paint): Paint = Paint(paint).apply {
+        textSize = min(
+            paint.textSize.takeIf { it > 0f } ?: Float.MAX_VALUE,
+            (spec.compositionHeight * 0.5f).coerceAtLeast(8f),
+        )
     }
 }
