@@ -88,6 +88,7 @@ import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
 import com.github.andreyasadchy.xtra.util.chat.PollState
 import com.github.andreyasadchy.xtra.util.chat.PredictionBetPolicy
 import com.github.andreyasadchy.xtra.util.chat.PredictionCache
+import com.github.andreyasadchy.xtra.util.chat.PredictionDismissalPolicy
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.chat.PredictionStateStore
 import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
@@ -459,6 +460,8 @@ class ChatViewModel(
     private var pollVoteJob: Job? = null
     private var predictionBetJob: Job? = null
     private var predictionSnapshotJob: Job? = null
+    private var predictionTimeoutJob: Job? = null
+    private var predictionTimeoutPredictionId: String? = null
     private var predictionSessionToken = 0L
     private var predictionSubscriptionSessionToken: Long? = null
     private var started = false
@@ -3639,6 +3642,13 @@ class ChatViewModel(
                 broadcastId = streamId,
             )
         }
+        if (PredictionState.isFinal(value)) {
+            schedulePredictionDismissal(value)
+        } else {
+            predictionTimeoutJob?.cancel()
+            predictionTimeoutJob = null
+            predictionTimeoutPredictionId = null
+        }
     }
 
     private fun clearPredictionState() {
@@ -3652,6 +3662,31 @@ class ChatViewModel(
         predictionDeadlineJob?.cancel()
         predictionDeadlineJob = null
         predictionDeadlineToken = null
+        predictionTimeoutJob?.cancel()
+        predictionTimeoutJob = null
+        predictionTimeoutPredictionId = null
+    }
+
+    private fun schedulePredictionDismissal(value: Prediction) {
+        val predictionId = value.id
+        if (predictionId.isNullOrBlank()) return
+        if (predictionTimeoutPredictionId == predictionId && predictionTimeoutJob?.isActive == true) return
+        predictionTimeoutJob?.cancel()
+        predictionTimeoutPredictionId = predictionId
+        val remaining = PredictionDismissalPolicy.dismissalDelayMillis(value.endedAt)
+        predictionTimeoutJob = viewModelScope.launch {
+            delay(remaining)
+            val cleared = predictionStateStore.clearIf(
+                { current -> PredictionDismissalPolicy.shouldDismiss(current, predictionId) },
+                ::clearPredictionState,
+            )
+            if (cleared) {
+                val channelId = activeChannelId
+                if (!channelId.isNullOrBlank()) {
+                    PredictionCache.clear(applicationContext.prefs(), channelId)
+                }
+            }
+        }
     }
 
     private fun restorePredictionBetState(prediction: Prediction) {
