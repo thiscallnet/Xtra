@@ -571,6 +571,9 @@
     <string name="loaded_cached_ffz_emotes">Geladene zwischengespeicherte FFZ-Emotes</string>
     <string name="find_unlisted_video">Nicht gelistete Videos finden</string>
     <string name="video_not_found">Video nicht gefunden</string>
+    <string name="clip_not_found">Clip nicht gefunden</string>
+    <string name="game_not_found">Spiel nicht gefunden</string>
+    <string name="tag_not_found">Schlagwort nicht gefunden</string>
     <string name="recent_messages_api_url">API-URL für aktuelle Nachrichten</string>
     <string name="access_local_network_title">Berechtigung für lokales Netzwerk erteilen</string>
     <string name="access_local_network_desc">Erforderlich für die Verbindung zu lokalen Proxys</string>

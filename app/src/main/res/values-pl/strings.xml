@@ -1248,6 +1248,9 @@
     <string name="loaded_cached_ffz_emotes">Wczytane emotikony FFZ z pamięci podręcznej</string>
     <string name="find_unlisted_video">Znajdź niepubliczny film</string>
     <string name="video_not_found">Nie znaleziono filmu</string>
+    <string name="clip_not_found">Nie znaleziono klipu</string>
+    <string name="game_not_found">Nie znaleziono gry</string>
+    <string name="tag_not_found">Nie znaleziono tagu</string>
     <string name="recent_messages_api_url">URL API ostatnich wiadomości</string>
     <string name="access_local_network_title">Udziel uprawnień do sieci lokalnej</string>
     <string name="access_local_network_desc">Wymagane do połączenia z lokalnymi serwerami proxy</string>

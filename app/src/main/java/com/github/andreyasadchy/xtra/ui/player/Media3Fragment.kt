@@ -1617,6 +1617,8 @@ class Media3Fragment : Media3PlayerFragment() {
         qualityRetryJob = null
         qualityRetryAttempts = 0
         pendingQualityCallbacks.clear()
+        resetProgressRenderState()
+        renderedPlaybackChrome = null
         binding.playerControls.root.removeCallbacks(updateProgressAction)
         binding.liveCaptionView.clearCaption()
         logVideoSurfaceBinding("on_destroy_view", player, view?.findViewById(R.id.playerSurface))

@@ -51,7 +51,7 @@ import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.applyStickyTopSystemBarMargin
+import com.github.andreyasadchy.xtra.util.applyStableTopSystemBarMargin
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -293,7 +293,7 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                     }
                 }
             }, false)
-            view.applyStickyTopSystemBarMargin(collapsingToolbar)
+            view.applyStableTopSystemBarMargin(collapsingToolbar)
         }
     }
 

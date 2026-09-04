@@ -48,7 +48,7 @@ import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.applyStickyTopSystemBarMargin
+import com.github.andreyasadchy.xtra.util.applyStableTopSystemBarMargin
 import com.github.andreyasadchy.xtra.util.configureForSmoothPaging
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -298,7 +298,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                 }
             }.attach()
             tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_GAME_TABS)
-            view.applyStickyTopSystemBarMargin(collapsingToolbar)
+            view.applyStableTopSystemBarMargin(collapsingToolbar)
         }
     }
 

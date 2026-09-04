@@ -571,6 +571,9 @@
     <string name="loaded_cached_ffz_emotes">Émoticônes FFZ en cache chargées</string>
     <string name="find_unlisted_video">Rechercher une vidéo non répertoriée</string>
     <string name="video_not_found">Vidéo introuvable</string>
+    <string name="clip_not_found">Clip introuvable</string>
+    <string name="game_not_found">Jeu introuvable</string>
+    <string name="tag_not_found">Balise introuvable</string>
     <string name="recent_messages_api_url">URL de l\'API des messages récents</string>
     <string name="access_local_network_title">Accorder l\'autorisation du réseau local</string>
     <string name="access_local_network_desc">Requis pour la connexion aux proxys locaux</string>

@@ -1529,6 +1529,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val pinnedBinding = pinnedMessageBinding ?: return
         val overlay = pinnedBinding.pinnedMessageOverlay
         if (message == null || message.id == seenPinnedMessageId) {
+            disposePinnedBadgeRequests()
             overlay.isGone = true
             return
         }
@@ -1556,6 +1557,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         pinnedBinding.pinnedMessageCollapsedPreview.text = message.text
         pinnedBinding.pinnedMessageCollapsedPreview.isVisible = pinnedMessageMinimized
         pinnedBinding.pinnedMessageFooter.isVisible = !pinnedMessageMinimized
+        disposePinnedBadgeRequests()
         renderPinnedMessageBadges(pinnedBinding.pinnedMessagePinnedByBadges, message.pinnedByBadges)
         renderPinnedMessageBadges(pinnedBinding.pinnedMessageSenderBadges, message.senderBadges)
         pinnedBinding.pinnedMessageMinimize.setImageResource(
@@ -1567,9 +1569,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         overlay.isVisible = true
     }
 
-    private fun renderPinnedMessageBadges(container: LinearLayout, badges: List<Badge>) {
+    private fun disposePinnedBadgeRequests() {
         pinnedBadgeRequests.forEach(Disposable::dispose)
         pinnedBadgeRequests.clear()
+    }
+
+    private fun renderPinnedMessageBadges(container: LinearLayout, badges: List<Badge>) {
         container.removeAllViews()
         badges.forEach { badge ->
             val catalogBadge = synchronized(viewModel.globalBadges) {
@@ -3154,8 +3159,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         dropImageRequestGeneration++
         dropImageUrl = null
         dropImageTarget = null
-        pinnedBadgeRequests.forEach(Disposable::dispose)
-        pinnedBadgeRequests.clear()
+        disposePinnedBadgeRequests()
         composerOverlayState = null
         pendingComposerText = null
         lastSlowModeUiState = SlowModeState()

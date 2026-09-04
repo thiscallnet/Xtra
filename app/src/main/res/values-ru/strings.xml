@@ -571,6 +571,9 @@
     <string name="loaded_cached_ffz_emotes">Загруженные кэшированные смайлы FFZ</string>
     <string name="find_unlisted_video">Найти видео, не включенное в список</string>
     <string name="video_not_found">Видео не найдено</string>
+    <string name="clip_not_found">Клип не найден</string>
+    <string name="game_not_found">Игра не найдена</string>
+    <string name="tag_not_found">Тег не найден</string>
     <string name="recent_messages_api_url">URL-адрес API последних сообщений</string>
     <string name="access_local_network_title">Предоставить разрешение локальной сети</string>
     <string name="access_local_network_desc">Требуется для подключения к локальным прокси-серверам</string>

@@ -3712,6 +3712,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             root.removeCallbacks(controllerHideAction)
         }
         pendingTvFocusRequest = null
+        renderedLiveRewindState = null
         velocityTracker?.recycle()
         velocityTracker = null
         xtraModule.liveCaptionManager.resetForPlaybackTransition()

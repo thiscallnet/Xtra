@@ -49,25 +49,36 @@ fun ViewPager2.configureForSmoothPaging() {
 /**
  * Offsets a collapsing AppBar child below the status bar/cutout.
  *
- * These pager screens are never immersive themselves, yet transient window
- * states (player fullscreen transitions, PiP) can dispatch a zero top inset
- * that would otherwise strand the collapsed tab strip underneath the status
- * bar with clock/icons overlapping the tabs. Keep the largest inset seen for
- * this view lifetime so a stale zero can never shrink the offset; the value
- * resets with the view. Errs toward a slightly larger gap, never overlap.
+ * Uses the stable status-bar geometry, which is reported even while the
+ * bar is temporarily hidden (player fullscreen transitions, PiP), so a
+ * transient zero inset can never strand the collapsed tab strip underneath
+ * the status bar. Legitimate geometry changes such as portrait to
+ * landscape rotation are still applied.
  */
-fun View.applyStickyTopSystemBarMargin(target: View) {
-    var maxTop = 0
+fun View.applyStableTopSystemBarMargin(target: View) {
     ViewCompat.setOnApplyWindowInsetsListener(this) { _, windowInsets ->
-        val top = windowInsets.getInsets(
-            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
-        ).top
-        if (top > maxTop) {
-            maxTop = top
-            target.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+        val statusBarTop = windowInsets
+            .getInsetsIgnoringVisibility(
+                WindowInsetsCompat.Type.statusBars()
+            )
+            .top
+
+        val cutoutTop = windowInsets
+            .getInsets(
+                WindowInsetsCompat.Type.displayCutout()
+            )
+            .top
+
+        val top = maxOf(statusBarTop, cutoutTop)
+
+        target.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+            if (topMargin != top) {
                 topMargin = top
             }
         }
+
         windowInsets
     }
+
+    ViewCompat.requestApplyInsets(this)
 }
