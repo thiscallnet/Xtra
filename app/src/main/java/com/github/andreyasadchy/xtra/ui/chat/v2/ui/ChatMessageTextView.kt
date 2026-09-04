@@ -201,6 +201,7 @@ open class ChatMessageTextView private constructor(
         refreshClipPreviewAssets()
         when (row.backgroundStyle) {
             ChatRowBackground.NORMAL -> setBackgroundColor(row.background)
+            ChatRowBackground.PERSONAL_HIGHLIGHT -> setBackgroundColor(row.background)
             ChatRowBackground.HIGHLIGHT -> setBackgroundResource(R.drawable.bg_chat_highlight)
             ChatRowBackground.FIRST_CHATTER -> setBackgroundResource(R.drawable.bg_chat_first_chatter)
             ChatRowBackground.FIRST_CHATTER_TINT -> setBackgroundColor(ContextCompat.getColor(context, R.color.chatMessageFirst))

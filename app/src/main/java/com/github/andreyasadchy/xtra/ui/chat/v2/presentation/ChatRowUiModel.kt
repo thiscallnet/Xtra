@@ -29,6 +29,7 @@ data class ChatRowUiModel(
 
 enum class ChatRowBackground {
     NORMAL,
+    PERSONAL_HIGHLIGHT,
     HIGHLIGHT,
     FIRST_CHATTER,
     FIRST_CHATTER_TINT,

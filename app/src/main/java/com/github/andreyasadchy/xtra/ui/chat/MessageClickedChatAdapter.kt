@@ -10,7 +10,6 @@ import android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
 import android.text.TextUtils
 import android.text.method.LinkMovementMethod
 import android.text.style.ImageSpan
-import android.util.Patterns
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -161,7 +160,8 @@ class MessageClickedChatAdapter(
             useRandomColors, random, useReadableColors, isLightTheme, nameDisplay, useBoldNames, showNamePaints, namePaints, showBadges, showSTVBadges,
             stvBadges, showPersonalEmotes, personalEmoteSets, stvUsers, enableOverlayEmotes, showSystemMessageEmotes, loggedInUser, chatUrl,
             userColors, savedColors, translateAllMessages, translateMessage, showLanguageDownloadDialog, false, localTwitchEmotes,
-            thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes, savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes
+            thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes, savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes,
+            highlightSettings = resolveChatHighlightSettings(fragment.requireContext()),
         )
         if (isSelected(chatMessage)) {
             holder.textView.setBackgroundResource(R.color.chatMessageSelected)
@@ -201,6 +201,7 @@ class MessageClickedChatAdapter(
     }
 
     fun updateBackground(chatMessage: ChatMessage, item: TextView) {
+        val highlightSettings = resolveChatHighlightSettings(item.context)
         if (chatMessage.isHighlightedMessage()) {
             item.setBackgroundResource(R.drawable.bg_chat_highlight)
         } else if (chatMessage.isWatchStreakNotice()) {
@@ -212,13 +213,8 @@ class MessageClickedChatAdapter(
                 chatMessage.isFirst && firstMsgVisibility < 2 -> item.setBackgroundResource(R.color.chatMessageFirst)
                 chatMessage.reward?.id != null && firstMsgVisibility < 2 -> item.setBackgroundResource(R.color.chatMessageReward)
                 chatMessage.systemMsg != null || chatMessage.msgId != null -> item.setBackgroundResource(R.color.chatMessageNotice)
-                loggedInUser?.let { user ->
-                    if (chatMessage.userId != null && chatMessage.userLogin != user) {
-                        item.text.split(" ").find {
-                            !Patterns.WEB_URL.matcher(it).matches() && it.contains(user, true)
-                        } != null
-                    } else false
-                } == true -> item.setBackgroundResource(R.color.chatMessageMention)
+                shouldHighlightLegacyChatMessage(chatMessage, highlightSettings) ->
+                    item.setBackgroundColor(highlightSettings.color)
                 else -> item.setBackgroundResource(0)
             }
         }

@@ -81,6 +81,7 @@ internal data class ChatRenderConfiguration(
     val revision: Int,
     val indexes: ChatAdapterUtils.ChatCatalogIndexes,
     val translateAllMessages: Boolean,
+    val highlightSettings: ChatHighlightSettings = ChatHighlightSettings(),
 )
 
 internal enum class ChatPublicationKind { APPEND, PREPEND, REPLACE }
@@ -124,12 +125,14 @@ internal fun composeChatRenderConfiguration(
     revision: Int,
     indexes: ChatAdapterUtils.ChatCatalogIndexes? = null,
     translateAllMessages: Boolean? = null,
+    highlightSettings: ChatHighlightSettings? = null,
 ): ChatRenderConfiguration {
     val base = pending ?: active
     return base.copy(
         revision = revision,
         indexes = indexes ?: base.indexes,
         translateAllMessages = translateAllMessages ?: base.translateAllMessages,
+        highlightSettings = highlightSettings ?: base.highlightSettings,
     )
 }
 
@@ -206,6 +209,7 @@ class ChatAdapter(
         val translationFailed: Boolean,
         val messageLanguage: String?,
         val clipPreviews: List<ChatClipPreview?> = emptyList(),
+        val highlightSettings: ChatHighlightSettings = ChatHighlightSettings(),
     ) {
         // ChatMessage translation/moderation fields are mutable. Cache by object identity so a
         // mutation cannot change the hash of an entry that is already in the LRU map.
@@ -216,7 +220,8 @@ class ChatAdapter(
             translatedMessage == other.translatedMessage &&
             translationFailed == other.translationFailed &&
             messageLanguage == other.messageLanguage &&
-            clipPreviews == other.clipPreviews
+            clipPreviews == other.clipPreviews &&
+            highlightSettings == other.highlightSettings
 
         override fun hashCode(): Int {
             var result = System.identityHashCode(message)
@@ -226,6 +231,7 @@ class ChatAdapter(
             result = 31 * result + translationFailed.hashCode()
             result = 31 * result + (messageLanguage?.hashCode() ?: 0)
             result = 31 * result + clipPreviews.hashCode()
+            result = 31 * result + highlightSettings.hashCode()
             return result
         }
     }
@@ -277,7 +283,12 @@ class ChatAdapter(
         localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, stvUsers, stvBadges, namePaints, personalEmoteSets, cheerEmotes,
     )
     @Volatile
-    private var activeConfiguration = ChatRenderConfiguration(0, initialCatalogIndexes, false)
+    private var activeConfiguration = ChatRenderConfiguration(
+        revision = 0,
+        indexes = initialCatalogIndexes,
+        translateAllMessages = false,
+        highlightSettings = resolveChatHighlightSettings(fragment.requireContext()),
+    )
     @Volatile
     private var pendingConfiguration: ChatRenderConfiguration? = null
     private var configurationRevisionCounter = 0
@@ -300,6 +311,21 @@ class ChatAdapter(
                 ),
             )
         }
+
+    fun refreshChatHighlightSettings() {
+        val next = resolveChatHighlightSettings(fragment.requireContext())
+        val base = pendingConfiguration ?: activeConfiguration
+        if (next == base.highlightSettings) return
+        scheduleConfigurationSwitch(
+            composeChatRenderConfiguration(
+                active = activeConfiguration,
+                pending = pendingConfiguration,
+                revision = nextConfigurationRevision(),
+                highlightSettings = next,
+            ),
+        )
+    }
+
     private var attachedRecyclerView: RecyclerView? = null
     private var animationsPaused = false
     private var pauseAnimationsPosted = false
@@ -557,8 +583,9 @@ class ChatAdapter(
                         useReadableColors = useReadableColors,
                         isLightTheme = isLightTheme,
                         savedColors = savedColors,
+                        highlightSettings = configuration.highlightSettings,
                     )
-                }.getOrElse { prepareLastResortTerminalFailureRender(entry.value) }
+                }.getOrElse { prepareLastResortTerminalFailureRender(entry.value, configuration.highlightSettings) }
                 withContext(Dispatchers.Main.immediate) {
                     if (entry.preparationToken == preparationToken && entry.generation == generation && generation == renderGeneration && pendingConfiguration == null) {
                         val currentKey = createRenderKey(entry.value, configuration)
@@ -1101,7 +1128,8 @@ class ChatAdapter(
         }
 
         internal fun bind(chatMessage: ChatMessage, cacheKey: RenderCacheKey, result: ChatAdapterUtils.MessageResult) {
-            itemView.setBackgroundResource(result.backgroundResource)
+            if (result.backgroundColor != null) itemView.setBackgroundColor(result.backgroundColor)
+            else itemView.setBackgroundResource(result.backgroundResource)
             applyNamePaintBackground(result.builder, itemView.background)
             val specialPadding = if (chatMessage.isHighlightedMessage() ||
                 chatMessage.isWatchStreakNotice() ||
@@ -1308,6 +1336,7 @@ class ChatAdapter(
                 null,
                 request.configuration.indexes,
                 request.cacheKey.translateAllMessages,
+                request.configuration.highlightSettings,
                 offMain = true,
             )
             withContext(Dispatchers.Main.immediate) {
@@ -1333,8 +1362,9 @@ class ChatAdapter(
                     useReadableColors = useReadableColors,
                     isLightTheme = isLightTheme,
                     savedColors = savedColors,
+                    highlightSettings = request.configuration.highlightSettings,
                 )
-            }.getOrElse { prepareLastResortTerminalFailureRender(chatMessage) }
+            }.getOrElse { prepareLastResortTerminalFailureRender(chatMessage, request.configuration.highlightSettings) }
             withContext(Dispatchers.Main.immediate) {
                 if (isKnownConfiguration(request.configuration) &&
                     currentRenderKey(chatMessage, request.configuration) == cacheKey
@@ -1359,7 +1389,10 @@ class ChatAdapter(
      * image, or catalog dependency, so a corrupt message cannot keep the publication cursor
      * blocked. It is still a complete terminal row and is never upgraded asynchronously.
      */
-    private fun prepareLastResortTerminalFailureRender(message: ChatMessage): ChatAdapterUtils.MessageResult {
+    private fun prepareLastResortTerminalFailureRender(
+        message: ChatMessage,
+        highlightSettings: ChatHighlightSettings,
+    ): ChatAdapterUtils.MessageResult {
         val builder = SpannableStringBuilder()
         if (enableTimestamps) {
             runCatching { message.timestamp?.let { TwitchApiHelper.getTimestamp(it, timestampFormat) } }
@@ -1393,13 +1426,22 @@ class ChatAdapter(
                 builder.append(it)
             }
         }
-        val background = runCatching {
+        var background = runCatching {
             when {
                 message.isHighlightedMessage() -> R.drawable.bg_chat_highlight
                 message.isWatchStreakNotice() -> R.drawable.bg_chat_watch_streak
-                else -> chatMessageBackgroundResource(message, firstMsgVisibility)
+                else -> chatMessageBackgroundResource(
+                    message,
+                    firstMsgVisibility,
+                    shouldHighlightLegacyChatMessage(message, highlightSettings),
+                )
             }
         }.getOrDefault(0)
+        var backgroundColor: Int? = null
+        if (background == R.color.chatMessageMention) {
+            backgroundColor = highlightSettings.color
+            background = 0
+        }
         return ChatAdapterUtils.MessageResult(
             builder = builder,
             images = ArrayList(),
@@ -1408,6 +1450,7 @@ class ChatAdapter(
             userNameStartIndex = null,
             translated = message.translatedMessage != null,
             backgroundResource = background,
+            backgroundColor = backgroundColor,
         )
     }
 
@@ -1597,6 +1640,7 @@ class ChatAdapter(
         translationFailed = message.translationFailed,
         messageLanguage = message.messageLanguage,
         clipPreviews = clipLinksOf(message.message).map { link -> clipPreviewRepository()?.peek(link.slug) },
+        highlightSettings = configuration.highlightSettings,
     )
 
     private fun clipPreviewRepository(): ChatClipPreviewRepository? =
@@ -1655,14 +1699,16 @@ class ChatAdapter(
     private fun isActiveConfiguration(configuration: ChatRenderConfiguration): Boolean =
         configuration.revision == activeConfiguration.revision &&
             configuration.indexes === activeConfiguration.indexes &&
-            configuration.translateAllMessages == activeConfiguration.translateAllMessages
+            configuration.translateAllMessages == activeConfiguration.translateAllMessages &&
+            configuration.highlightSettings == activeConfiguration.highlightSettings
 
     private fun isKnownConfiguration(configuration: ChatRenderConfiguration): Boolean =
         isActiveConfiguration(configuration) ||
             pendingConfiguration?.let {
                 configuration.revision == it.revision &&
                     configuration.indexes === it.indexes &&
-                    configuration.translateAllMessages == it.translateAllMessages
+                    configuration.translateAllMessages == it.translateAllMessages &&
+                    configuration.highlightSettings == it.highlightSettings
             } == true
 
     private fun newRenderScope(): CoroutineScope = CoroutineScope(
@@ -1675,6 +1721,7 @@ class ChatAdapter(
         itemView: View?,
         indexes: ChatAdapterUtils.ChatCatalogIndexes,
         translateAllMessages: Boolean,
+        highlightSettings: ChatHighlightSettings,
         offMain: Boolean,
     ): ChatAdapterUtils.MessageResult {
         val deferredTranslate: (ChatMessage, String?) -> Unit = { message, language ->
@@ -1702,7 +1749,9 @@ class ChatAdapter(
             enableOverlayEmotes, showSystemMessageEmotes, loggedInUser, chatUrl, userColors, savedColors, translateAllMessages,
             deferredTranslate, deferredLanguageDialog, true, localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, cheerEmotes,
             savedLocalTwitchEmotes, savedLocalBadges, savedLocalCheerEmotes, savedLocalEmotes,
-            catalogIndexes = indexes, includeAccessibilityDescription = true,
+            catalogIndexes = indexes,
+            includeAccessibilityDescription = true,
+            highlightSettings = highlightSettings,
         )
         val clipLinks = clipLinksOf(chatMessage.message)
         if (clipLinks.isNotEmpty()) {
@@ -1722,9 +1771,17 @@ class ChatAdapter(
             emoteSize, badgeSize, inlineIconSize,
         )
         return ChatAdapterUtils.MessageResult(
-            result.builder, result.images, result.imagePaint, result.userName, result.userNameStartIndex,
-            result.translated, result.backgroundResource, result.accessibilityDescription,
-            resolvedImages, resolvedImagePaint,
+            builder = result.builder,
+            images = result.images,
+            imagePaint = result.imagePaint,
+            userName = result.userName,
+            userNameStartIndex = result.userNameStartIndex,
+            translated = result.translated,
+            backgroundResource = result.backgroundResource,
+            backgroundColor = result.backgroundColor,
+            accessibilityDescription = result.accessibilityDescription,
+            resolvedImages = resolvedImages,
+            resolvedImagePaint = resolvedImagePaint,
         )
     }
 

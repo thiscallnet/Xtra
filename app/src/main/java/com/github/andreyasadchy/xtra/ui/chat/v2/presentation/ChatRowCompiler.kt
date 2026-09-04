@@ -1,6 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.presentation
 
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.ui.chat.ChatHighlightSettings
+import com.github.andreyasadchy.xtra.ui.chat.shouldHighlightV2ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
@@ -50,10 +52,10 @@ class ChatRowCompiler(
     private val background: (ChatMessage) -> Int = { 0 },
     private val labels: ChatPresentationLabels = ChatPresentationLabels(),
     private val gifDisplayMode: ChatGifDisplayMode = ChatGifDisplayMode.LARGE,
+    private val highlightSettings: ChatHighlightSettings = ChatHighlightSettings(),
 ) {
     fun compile(message: ChatMessage, catalog: ChatCatalogSnapshot = ChatCatalogSnapshot(0)): ChatRowUiModel {
         val targetHeight = emoteHeightPx * if (message.twitchType == TwitchChatMessageType.GigantifiedEmote) 2 else 1
-        val rowBackground = background(message)
         val isWatchStreak = message.noticeType.equals("watch_streak", ignoreCase = true) ||
             (message.noticeType.equals("viewermilestone", ignoreCase = true) && message.watchStreakCount != null)
         val noticeType = message.noticeType?.lowercase()
@@ -95,6 +97,16 @@ class ChatRowCompiler(
         val isRewardOnly = message.rewardId != null &&
             message.twitchType != TwitchChatMessageType.Highlighted &&
             !hasSemanticBody
+        val hasSpecialBackground = message.twitchType == TwitchChatMessageType.Highlighted ||
+            isWatchStreak ||
+            isSubscription ||
+            (message.isFirst || message.twitchType == TwitchChatMessageType.UserIntro) && firstMessageVisibility in 0..1 ||
+            message.rewardId != null && firstMessageVisibility < 2 ||
+            message.kind != ChatMessageKind.CHAT ||
+            !message.noticeType.isNullOrBlank() ||
+            !message.systemText.isNullOrBlank()
+        val isPersonalHighlight = !hasSpecialBackground && shouldHighlightV2ChatMessage(message, highlightSettings)
+        val rowBackground = if (isPersonalHighlight) highlightSettings.color else background(message)
         val mutedColor = 0xFFC4BEC9.toInt()
         val pieces = buildList {
             val specialNotice = isFirstChatter || isWatchStreak || isSubscription
@@ -344,6 +356,7 @@ class ChatRowCompiler(
                 (message.isFirst || message.twitchType == TwitchChatMessageType.UserIntro) && firstMessageVisibility == 1 -> ChatRowBackground.FIRST_CHATTER_TINT
                 message.rewardId != null && firstMessageVisibility < 2 -> ChatRowBackground.REWARD
                 message.kind != ChatMessageKind.CHAT || !message.noticeType.isNullOrBlank() || !message.systemText.isNullOrBlank() -> ChatRowBackground.NOTICE
+                isPersonalHighlight -> ChatRowBackground.PERSONAL_HIGHLIGHT
                 else -> ChatRowBackground.NORMAL
             },
             reply = message.reply,

@@ -1359,6 +1359,14 @@
     <string name="name_display_entry2">Show display name only</string>
     <string name="name_display_entry3">Show login only</string>
     <string name="show_system_message_emotes">Show emotes on system messages</string>
+    <string name="chat_message_highlights">Message highlights</string>
+    <string name="chat_highlight_replies">Highlight replies to me</string>
+    <string name="chat_highlight_mentions">Highlight mentions of me</string>
+    <string name="chat_highlight_mentions_without_at">Match mentions without @</string>
+    <string name="chat_highlight_color">Highlight color</string>
+    <string name="chat_highlight_color_summary">Enter #RRGGBB or #AARRGGBB.</string>
+    <string name="chat_highlight_color_hint">#80680E0E</string>
+    <string name="chat_highlight_color_invalid">Enter a color as #RRGGBB or #AARRGGBB.</string>
     <string name="replying_to_message">Replying to %1$s\: %2$s</string>
     <string name="chat_accessibility_message">%1$s: %2$s</string>
     <string name="chat_accessibility_reply">%1$s. Replying to %2$s</string>

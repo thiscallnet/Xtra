@@ -127,6 +127,7 @@ import com.github.andreyasadchy.xtra.util.updater.UpdateVersionDisplay
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.ui.chat.parseChatHighlightColor
 import com.github.andreyasadchy.xtra.ui.player.captions.formatCaptionTextOffset
 import com.github.andreyasadchy.xtra.util.parseChatBadgeSize
 import com.github.andreyasadchy.xtra.util.proxyPrefs
@@ -1381,7 +1382,33 @@ class SettingsActivity : AppCompatActivity() {
             if (settingsScreen == SCREEN_CHAT_TRANSLATION) configureTranslationPreferences()
             if (settingsScreen == SCREEN_PLAYER_SEEK) configureSeekPreferences()
             if (settingsScreen == SCREEN_CHAT_APPEARANCE) configureChatSizePreferences()
+            if (settingsScreen == SCREEN_CHAT_FEATURES) configureChatHighlightPreferences()
             if (settingsScreen == SCREEN_DOWNLOAD_LIVE) configureLiveDownloadPreferences()
+        }
+
+        private fun configureChatHighlightPreferences() {
+            val changeListener = Preference.OnPreferenceChangeListener { _, _ ->
+                (requireActivity() as? SettingsActivity)?.setResult()
+                true
+            }
+            findPreference<SwitchPreferenceCompat>(C.CHAT_HIGHLIGHT_REPLIES)?.onPreferenceChangeListener = changeListener
+            findPreference<SwitchPreferenceCompat>(C.CHAT_HIGHLIGHT_MENTIONS)?.onPreferenceChangeListener = changeListener
+            findPreference<SwitchPreferenceCompat>(C.CHAT_HIGHLIGHT_MENTIONS_WITHOUT_AT)?.onPreferenceChangeListener = changeListener
+            findPreference<EditTextPreference>(C.CHAT_HIGHLIGHT_COLOR)?.apply {
+                setOnBindEditTextListener { editText ->
+                    editText.inputType = InputType.TYPE_CLASS_TEXT
+                    editText.hint = getString(R.string.chat_highlight_color_hint)
+                }
+                setOnPreferenceChangeListener { _, value ->
+                    val valid = parseChatHighlightColor(value.toString()) != null
+                    if (!valid) {
+                        Toast.makeText(requireContext(), R.string.chat_highlight_color_invalid, Toast.LENGTH_SHORT).show()
+                    } else {
+                        (requireActivity() as? SettingsActivity)?.setResult()
+                    }
+                    valid
+                }
+            }
         }
 
         private fun configureChatSizePreferences() {
