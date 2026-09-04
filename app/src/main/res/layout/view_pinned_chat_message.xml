@@ -11,9 +11,9 @@
     android:focusable="true"
     android:orientation="vertical"
     android:paddingStart="8dp"
-    android:paddingTop="5dp"
+    android:paddingTop="8dp"
     android:paddingEnd="8dp"
-    android:paddingBottom="5dp"
+    android:paddingBottom="8dp"
     android:visibility="gone"
     tools:visibility="visible">
 
@@ -21,12 +21,12 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
-        android:minHeight="28dp"
+        android:minHeight="32dp"
         android:orientation="horizontal">
 
         <ImageView
-            android:layout_width="16dp"
-            android:layout_height="16dp"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
             android:importantForAccessibility="no"
             android:src="@drawable/ic_push_pin"
             app:tint="?attr/colorOnSurfaceVariant" />
@@ -44,6 +44,7 @@
             android:id="@+id/pinnedMessagePinnedByBadges"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
             android:gravity="center_vertical"
             android:orientation="horizontal" />
 
@@ -56,7 +57,8 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:textAppearance="?attr/textAppearanceBodySmall"
-            android:textColor="?attr/colorOnSurface"
+            android:textColor="?attr/colorPrimary"
+            android:textStyle="bold"
             tools:text="Heuto" />
 
         <ImageButton
@@ -88,10 +90,10 @@
         android:id="@+id/pinnedMessageText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="1dp"
+        android:layout_marginTop="5dp"
         android:ellipsize="end"
         android:maxLines="4"
-        android:textAppearance="?attr/textAppearanceBodyLarge"
+        android:textAppearance="?attr/textAppearanceTitleLarge"
         android:textColor="?attr/colorOnSurface"
         android:textStyle="bold"
         tools:text="Asmon is aware of the JD Vance briefing" />
@@ -111,7 +113,7 @@
         android:id="@+id/pinnedMessageFooter"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="3dp"
+        android:layout_marginTop="6dp"
         android:gravity="center_vertical"
         android:minHeight="20dp"
         android:orientation="horizontal">

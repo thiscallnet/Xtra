@@ -9,4 +9,6 @@ data class PinnedChatMessage(
     val senderColor: String? = null,
     val senderBadges: List<Badge> = emptyList(),
     val sentAt: Long? = null,
+    val startsAt: Long? = null,
+    val endsAt: Long? = null,
 )
