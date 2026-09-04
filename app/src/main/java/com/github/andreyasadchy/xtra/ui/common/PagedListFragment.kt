@@ -92,7 +92,13 @@ abstract class PagedListFragment : BaseNetworkFragment() {
         return percentage > 3f
     }
 
-    fun <T : Any, VH : RecyclerView.ViewHolder> initializeAdapter(binding: CommonRecyclerViewLayoutBinding, pagingAdapter: PagingDataAdapter<T, VH>, enableSwipeRefresh: Boolean = true, enableScrollTopButton: Boolean = true) {
+    fun <T : Any, VH : RecyclerView.ViewHolder> initializeAdapter(
+        binding: CommonRecyclerViewLayoutBinding,
+        pagingAdapter: PagingDataAdapter<T, VH>,
+        enableSwipeRefresh: Boolean = true,
+        enableScrollTopButton: Boolean = true,
+        showAppendErrorSnackbar: Boolean = true,
+    ) {
         with(binding) {
             // Live/paged feeds update frequently. Change animations keep old row
             // holders alive and add extra layout/draw work during refreshes.
@@ -113,7 +119,13 @@ abstract class PagedListFragment : BaseNetworkFragment() {
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     pagingAdapter.loadStateFlow.collectLatest { loadState ->
-                        updatePagingState(binding, pagingAdapter, loadState, enableSwipeRefresh = enableSwipeRefresh)
+                        updatePagingState(
+                            binding,
+                            pagingAdapter,
+                            loadState,
+                            enableSwipeRefresh = enableSwipeRefresh,
+                            showAppendErrorSnackbar = showAppendErrorSnackbar,
+                        )
                     }
                 }
             }
@@ -173,6 +185,7 @@ abstract class PagedListFragment : BaseNetworkFragment() {
         loadState: CombinedLoadStates,
         showEmpty: Boolean = true,
         enableSwipeRefresh: Boolean = true,
+        showAppendErrorSnackbar: Boolean = true,
     ) {
         val sourceRefresh = loadState.source.refresh
         val mediatorRefresh = loadState.mediator?.refresh
@@ -224,7 +237,15 @@ abstract class PagedListFragment : BaseNetworkFragment() {
             }
         }
 
-        if (pageError != null && pagingAdapter.itemCount > 0) {
+        val shouldShowPageErrorSnackbar =
+            pageError != null &&
+                pagingAdapter.itemCount > 0 &&
+                (
+                    errorState == PagedListErrorState.Refresh ||
+                        showAppendErrorSnackbar
+                    )
+
+        if (shouldShowPageErrorSnackbar) {
             if (this.pageError !== pageError || this.pageErrorState != errorState) {
                 pageErrorSnackbar?.dismiss()
                 this.pageError = pageError

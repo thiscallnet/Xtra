@@ -259,7 +259,13 @@ class StreamFeedRefreshCoordinator(
                 }
                 return@withLock StreamAppendResult(null, endOfPaginationReached = true)
             }
-            val blockedUntil = maxOf(state.rateLimitUntil ?: 0L, state.failureBackoffUntil ?: 0L)
+            // Paging retries an append only after the user explicitly asks it
+            // to retry. Keep the automatic failure backoff for speculative
+            // tail loads, but let the inline footer retry the same cursor.
+            val blockedUntil = maxOf(
+                state.rateLimitUntil ?: 0L,
+                if (speculative) state.failureBackoffUntil ?: 0L else 0L,
+            )
             if (blockedUntil > now) {
                 throw IllegalStateException("Stream feed refresh is backed off")
             }

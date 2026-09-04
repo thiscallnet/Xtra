@@ -6,60 +6,81 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.util.C
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
 
-class SearchStreamsDataSource(
+internal class SearchStreamsDataSource(
     private val query: String,
     private val gqlHeaders: Map<String, String>,
     private val graphQLRepository: GraphQLRepository,
     private val helixHeaders: Map<String, String>,
     private val helixRepository: HelixRepository,
     private val networkLibrary: String?,
-) : PagingSource<Int, Stream>() {
-    private var api: String? = null
-    private var offset: String? = null
+) : PagingSource<SearchPageKey, Stream>() {
 
-    override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Stream> {
-        return if (query.isBlank()) {
-            LoadResult.Page(
+    override suspend fun load(params: LoadParams<SearchPageKey>): LoadResult<SearchPageKey, Stream> {
+        if (query.isBlank()) {
+            return LoadResult.Page(
                 data = emptyList(),
                 prevKey = null,
-                nextKey = null
+                nextKey = null,
             )
-        } else {
-            if (!offset.isNullOrBlank()) {
-                try {
-                    loadFromApi(params)
-                } catch (e: Exception) {
-                    LoadResult.Error(e)
-                }
-            } else {
-                try {
-                    api = C.GQL
-                    loadFromApi(params)
-                } catch (e: Exception) {
-                    try {
-                        api = C.HELIX
-                        loadFromApi(params)
-                    } catch (e: Exception) {
-                        LoadResult.Error(e)
-                    }
-                }
-            }
+        }
+
+        return try {
+            params.key?.let { key ->
+                loadFromApi(params.loadSize, key)
+            } ?: loadFirstPage(params.loadSize)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            LoadResult.Error(error)
         }
     }
 
-    private suspend fun loadFromApi(params: LoadParams<Int>): LoadResult<Int, Stream> {
-        return when (api) {
-            C.GQL -> gqlQueryLoad(params)
-            C.HELIX -> if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) helixLoad(params) else throw Exception()
-            else -> throw Exception()
+    private suspend fun loadFirstPage(loadSize: Int): LoadResult<SearchPageKey, Stream> {
+        return try {
+            loadGql(loadSize, cursor = null)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            loadHelix(loadSize, cursor = null)
         }
     }
 
-    private suspend fun gqlQueryLoad(params: LoadParams<Int>): LoadResult<Int, Stream> {
-        val response = graphQLRepository.loadQuerySearchStreams(networkLibrary, gqlHeaders, query, params.loadSize, offset)
-        val data = response.data!!.searchStreams!!
-        val list = data.edges!!.mapNotNull { item ->
+    private suspend fun loadFromApi(
+        loadSize: Int,
+        key: SearchPageKey,
+    ): LoadResult<SearchPageKey, Stream> = when (key.api) {
+        C.GQL -> loadGql(loadSize, key.cursor)
+        C.HELIX -> loadHelix(loadSize, key.cursor)
+        else -> throw IOException("Unknown search stream API: ${key.api}")
+    }
+
+    private suspend fun loadGql(
+        loadSize: Int,
+        cursor: String?,
+    ): LoadResult<SearchPageKey, Stream> {
+        val response = graphQLRepository.loadQuerySearchStreams(
+            networkLibrary,
+            gqlHeaders,
+            query,
+            loadSize,
+            cursor,
+        )
+        val data = response.data?.searchStreams
+            ?: throw IOException(
+                buildString {
+                    append("SearchStreamsQuery returned no stream data")
+                    response.errors
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { errors ->
+                            append(": ")
+                            append(errors.joinToString("; ") { it.message })
+                        }
+                }
+            )
+        val edges = data.edges.orEmpty()
+        val list = edges.mapNotNull { item ->
             item.node?.let {
                 Stream(
                     id = it.id,
@@ -80,24 +101,27 @@ class SearchStreamsDataSource(
                 }
             }
         }
-        offset = data.edges.lastOrNull()?.cursor?.toString()
-        val nextPage = data.pageInfo?.hasNextPage != false
         return LoadResult.Page(
             data = list,
             prevKey = null,
-            nextKey = if (!offset.isNullOrBlank() && nextPage) {
-                (params.key ?: 1) + 1
-            } else null
+            nextKey = nextSearchPageKey(
+                api = C.GQL,
+                currentCursor = cursor,
+                candidate = edges.lastOrNull()?.cursor,
+            ).takeIf { data.pageInfo?.hasNextPage == true },
         )
     }
 
-    private suspend fun helixLoad(params: LoadParams<Int>): LoadResult<Int, Stream> {
+    private suspend fun loadHelix(
+        loadSize: Int,
+        cursor: String?,
+    ): LoadResult<SearchPageKey, Stream> {
         val response = helixRepository.getSearchChannels(
             networkLibrary = networkLibrary,
             headers = helixHeaders,
             query = query,
-            limit = params.loadSize,
-            offset = offset,
+            limit = loadSize,
+            offset = cursor,
             live = true,
         )
         val list = response.data.mapNotNull {
@@ -117,20 +141,12 @@ class SearchStreamsDataSource(
                 }
             } else null
         }
-        offset = response.pagination?.cursor
         return LoadResult.Page(
             data = list,
             prevKey = null,
-            nextKey = if (!offset.isNullOrBlank()) {
-                (params.key ?: 1) + 1
-            } else null
+            nextKey = nextSearchPageKey(C.HELIX, cursor, response.pagination?.cursor),
         )
     }
 
-    override fun getRefreshKey(state: PagingState<Int, Stream>): Int? {
-        return state.anchorPosition?.let { anchorPosition ->
-            val anchorPage = state.closestPageToPosition(anchorPosition)
-            anchorPage?.prevKey?.plus(1) ?: anchorPage?.nextKey?.minus(1)
-        }
-    }
+    override fun getRefreshKey(state: PagingState<SearchPageKey, Stream>): SearchPageKey? = null
 }

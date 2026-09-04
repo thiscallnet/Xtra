@@ -306,6 +306,9 @@ object TwitchApiHelper {
         identity.clientSessionId?.takeIf { it.isNotBlank() }?.let {
             put("Client-Session-Id", it)
         }
+        identity.clientVersion?.takeIf { it.isNotBlank() }?.let {
+            put("Client-Version", it)
+        }
         cookieHeader?.takeIf { it.isNotBlank() }?.let { put("Cookie", it) }
     }
 

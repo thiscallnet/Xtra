@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.repository.datasource
 import com.github.andreyasadchy.xtra.graphql.type.Language
 import com.github.andreyasadchy.xtra.graphql.type.StreamSort
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.model.gql.Error
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
@@ -31,12 +32,53 @@ interface StreamFeedPageLoader {
     suspend fun load(cursor: StreamFeedCursor?): StreamFeedPage
 }
 
-internal fun String?.toStreamFeedCursor(api: String): StreamFeedCursor? {
-    return this?.takeIf { it.isNotBlank() }?.let { StreamFeedCursor(api, it) }
+internal fun nextStreamFeedCursor(
+    api: String,
+    currentCursor: String?,
+    candidate: String?,
+    hasNextPage: Boolean?,
+): StreamFeedCursor? {
+    if (hasNextPage != true) {
+        return null
+    }
+
+    val next = candidate?.takeIf { it.isNotBlank() } ?: return null
+
+    // A repeated cursor would otherwise cause an endless append loop.
+    if (next == currentCursor) {
+        return null
+    }
+
+    return StreamFeedCursor(
+        api = api,
+        value = next,
+    )
 }
 
 internal fun followedStreamsFallbackSupportsSort(sort: String): Boolean {
     return sort == StreamsSortDialog.SORT_VIEWERS
+}
+
+private fun persistedStreamDataError(
+    operation: String,
+    errors: List<Error>?,
+): IOException {
+    val messages = errors.orEmpty().mapNotNull { it.message }.joinToString("; ")
+    val notFound = messages.contains("PersistedQueryNotFound", ignoreCase = true)
+    return IOException(
+        buildString {
+            append(operation)
+            if (notFound) {
+                append(" is unavailable (PersistedQueryNotFound)")
+            } else {
+                append(" returned no stream data")
+            }
+            if (messages.isNotEmpty()) {
+                append(": ")
+                append(messages)
+            }
+        }
+    )
 }
 
 /** Select a compatible API only for the first page; subsequent cursors stay on it. */
@@ -135,8 +177,19 @@ class TopStreamsPageLoader(
             pageSize,
             cursor,
         )
-        val data = response.data!!.streams!!
-        val edges = data.edges!!
+        val data = response.data?.streams
+            ?: throw IOException(
+                buildString {
+                    append("TopStreamsQuery returned no stream data")
+                    response.errors
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { errors ->
+                            append(": ")
+                            append(errors.joinToString("; ") { it.message })
+                        }
+                }
+            )
+        val edges = data.edges.orEmpty()
         val items = edges.mapNotNull { edge ->
             edge?.node?.let { node ->
                 Stream(
@@ -158,9 +211,12 @@ class TopStreamsPageLoader(
         }
         return StreamFeedPage(
             items = items,
-            nextCursor = edges.lastOrNull()?.cursor?.toString()
-                ?.takeIf { !it.isNullOrBlank() && data.pageInfo?.hasNextPage != false }
-                .toStreamFeedCursor(C.GQL),
+            nextCursor = nextStreamFeedCursor(
+                api = C.GQL,
+                currentCursor = cursor,
+                candidate = edges.lastOrNull()?.cursor,
+                hasNextPage = data.pageInfo?.hasNextPage,
+            ),
         )
     }
 
@@ -174,7 +230,8 @@ class TopStreamsPageLoader(
             pageSize,
             cursor,
         )
-        val data = response.data!!.streams
+        val data = response.data?.streams
+            ?: throw persistedStreamDataError("TopStreams persisted query", response.errors)
         val edges = data.edges
         return StreamFeedPage(
             items = edges.mapNotNull { edge ->
@@ -196,9 +253,12 @@ class TopStreamsPageLoader(
                     ).takeIf { it.channelId != null || it.channelLogin != null }
                 }
             },
-            nextCursor = edges.lastOrNull()?.cursor
-                ?.takeIf { !it.isNullOrBlank() && data.pageInfo?.hasNextPage != false }
-                .toStreamFeedCursor(C.GQL_PERSISTED_QUERY),
+            nextCursor = nextStreamFeedCursor(
+                api = C.GQL_PERSISTED_QUERY,
+                currentCursor = cursor,
+                candidate = edges.lastOrNull()?.cursor,
+                hasNextPage = data.pageInfo?.hasNextPage,
+            ),
         )
     }
 
@@ -229,7 +289,9 @@ class TopStreamsPageLoader(
                     tags = item.tags,
                 ).takeIf { it.channelId != null || it.channelLogin != null }
             },
-            nextCursor = response.pagination?.cursor.toStreamFeedCursor(C.HELIX),
+            nextCursor = response.pagination?.cursor
+                ?.takeIf { it.isNotBlank() && it != cursor }
+                ?.let { StreamFeedCursor(C.HELIX, it) },
         )
     }
 }
@@ -330,8 +392,19 @@ class FollowedStreamsPageLoader(
 
     private suspend fun gqlQueryLoad(cursor: String?): StreamFeedPage {
         val response = graphQLRepository.loadQueryUserFollowedStreams(networkLibrary, gqlHeaders(), 100, cursor, gqlQuerySort)
-        val data = response.data!!.user!!.followedLiveUsers!!
-        val edges = data.edges!!
+        val data = response.data?.user?.followedLiveUsers
+            ?: throw IOException(
+                buildString {
+                    append("FollowedStreamsQuery returned no stream data")
+                    response.errors
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { errors ->
+                            append(": ")
+                            append(errors.joinToString("; ") { it.message })
+                        }
+                }
+            )
+        val edges = data.edges.orEmpty()
         return StreamFeedPage(
             items = edges.mapNotNull { edge ->
                 edge?.node?.let { node ->
@@ -352,15 +425,19 @@ class FollowedStreamsPageLoader(
                     )
                 }
             },
-            nextCursor = edges.lastOrNull()?.cursor?.toString()
-                ?.takeIf { !it.isNullOrBlank() && data.pageInfo?.hasNextPage != false }
-                .toStreamFeedCursor(C.GQL),
+            nextCursor = nextStreamFeedCursor(
+                api = C.GQL,
+                currentCursor = cursor,
+                candidate = edges.lastOrNull()?.cursor,
+                hasNextPage = data.pageInfo?.hasNextPage,
+            ),
         )
     }
 
     private suspend fun gqlLoad(cursor: String?): StreamFeedPage {
         val response = graphQLRepository.loadFollowedStreams(networkLibrary, gqlHeaders(), 100, cursor)
-        val data = response.data!!.currentUser.followedLiveUsers
+        val data = response.data?.currentUser?.followedLiveUsers
+            ?: throw persistedStreamDataError("FollowedStreams persisted query", response.errors)
         val edges = data.edges
         return StreamFeedPage(
             items = edges.map { edge ->
@@ -382,9 +459,12 @@ class FollowedStreamsPageLoader(
                     )
                 }
             },
-            nextCursor = edges.lastOrNull()?.cursor
-                ?.takeIf { !it.isNullOrBlank() && data.pageInfo?.hasNextPage != false }
-                .toStreamFeedCursor(C.GQL_PERSISTED_QUERY),
+            nextCursor = nextStreamFeedCursor(
+                api = C.GQL_PERSISTED_QUERY,
+                currentCursor = cursor,
+                candidate = edges.lastOrNull()?.cursor,
+                hasNextPage = data.pageInfo?.hasNextPage,
+            ),
         )
     }
 
@@ -410,7 +490,9 @@ class FollowedStreamsPageLoader(
                     tags = item.tags,
                 )
             },
-            nextCursor = response.pagination?.cursor.toStreamFeedCursor(C.HELIX),
+            nextCursor = response.pagination?.cursor
+                ?.takeIf { it.isNotBlank() && it != cursor }
+                ?.let { StreamFeedCursor(C.HELIX, it) },
         )
     }
 
@@ -558,8 +640,19 @@ class GameStreamsPageLoader(
             first = pageSize,
             after = cursor,
         )
-        val data = response.data!!.game!!.streams!!
-        val edges = data.edges!!
+        val data = response.data?.game?.streams
+            ?: throw IOException(
+                buildString {
+                    append("GameStreamsQuery returned no stream data")
+                    response.errors
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { errors ->
+                            append(": ")
+                            append(errors.joinToString("; ") { it.message })
+                        }
+                }
+            )
+        val edges = data.edges.orEmpty()
         return StreamFeedPage(
             items = edges.mapNotNull { edge ->
                 edge?.node?.let { node ->
@@ -580,15 +673,19 @@ class GameStreamsPageLoader(
                     ).takeIf { it.channelId != null || it.channelLogin != null }
                 }
             },
-            nextCursor = edges.lastOrNull()?.cursor?.toString()
-                ?.takeIf { !it.isNullOrBlank() && data.pageInfo?.hasNextPage != false }
-                .toStreamFeedCursor(C.GQL),
+            nextCursor = nextStreamFeedCursor(
+                api = C.GQL,
+                currentCursor = cursor,
+                candidate = edges.lastOrNull()?.cursor,
+                hasNextPage = data.pageInfo?.hasNextPage,
+            ),
         )
     }
 
     private suspend fun gqlLoad(cursor: String?): StreamFeedPage {
         val response = graphQLRepository.loadGameStreams(networkLibrary, gqlHeaders(), gameSlug, gqlSort, tags, gqlLanguages, pageSize, cursor)
-        val data = response.data!!.game.streams
+        val data = response.data?.game?.streams
+            ?: throw persistedStreamDataError("GameStreams persisted query", response.errors)
         val edges = data.edges
         return StreamFeedPage(
             items = edges.mapNotNull { edge ->
@@ -610,9 +707,12 @@ class GameStreamsPageLoader(
                     ).takeIf { it.channelId != null || it.channelLogin != null }
                 }
             },
-            nextCursor = edges.lastOrNull()?.cursor
-                ?.takeIf { !it.isNullOrBlank() && data.pageInfo?.hasNextPage != false }
-                .toStreamFeedCursor(C.GQL_PERSISTED_QUERY),
+            nextCursor = nextStreamFeedCursor(
+                api = C.GQL_PERSISTED_QUERY,
+                currentCursor = cursor,
+                candidate = edges.lastOrNull()?.cursor,
+                hasNextPage = data.pageInfo?.hasNextPage,
+            ),
         )
     }
 
@@ -645,7 +745,9 @@ class GameStreamsPageLoader(
                     tags = item.tags,
                 ).takeIf { it.channelId != null || it.channelLogin != null }
             },
-            nextCursor = response.pagination?.cursor.toStreamFeedCursor(C.HELIX),
+            nextCursor = response.pagination?.cursor
+                ?.takeIf { it.isNotBlank() && it != cursor }
+                ?.let { StreamFeedCursor(C.HELIX, it) },
         )
     }
 }

@@ -13,16 +13,45 @@ import com.github.andreyasadchy.xtra.repository.datasource.StreamFeedPage
 import com.github.andreyasadchy.xtra.repository.datasource.StreamFeedCursor
 import com.github.andreyasadchy.xtra.repository.datasource.StreamFeedPageLoader
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 @OptIn(ExperimentalPagingApi::class)
 class StreamFeedRemoteMediatorTest {
+
+    @Test
+    fun cancellationIsNotConvertedToMediatorError() = runBlocking {
+        val now = 1_000_000L
+        val key = StreamFeedKey("top:mediator-cancellation")
+        val cache = FakeCache(key, emptyList(), StreamFeedState(key.value, lastSuccessAt = 0L))
+        val cancellation = CancellationException("cancelled")
+        val loader = object : StreamFeedPageLoader {
+            override suspend fun load(cursor: StreamFeedCursor?): StreamFeedPage {
+                throw cancellation
+            }
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val mediator = StreamFeedRemoteMediator(
+            StreamFeedSpec(key, loader),
+            cache,
+            StreamFeedRefreshCoordinator(cache, scope, { now }, { 1_000L }, false),
+            { now },
+        )
+
+        mediator.initialize()
+
+        assertThrows(CancellationException::class.java) {
+            runBlocking { mediator.load(LoadType.REFRESH, emptyPagingState()) }
+        }
+        scope.cancel()
+    }
 
     @Test
     fun initialFailureCanBeRetriedWithoutLeavingTheMediatorLoading() = runBlocking {
@@ -52,6 +81,41 @@ class StreamFeedRemoteMediatorTest {
         assertTrue(retry is RemoteMediator.MediatorResult.Success)
         assertEquals(2, loads)
         assertEquals(listOf("channel:fresh"), cache.rows.map { it.itemKey })
+        scope.cancel()
+    }
+
+    @Test
+    fun appendRetryIgnoresAppendFailureBackoff() = runBlocking {
+        val now = 1_000_000L
+        val key = StreamFeedKey("top:mediator-append-retry")
+        val cache = FakeCache(
+            key,
+            emptyList(),
+            StreamFeedState(
+                key.value,
+                nextCursor = "cursor",
+                nextCursorApi = "gql",
+                failureBackoffUntil = now + 60_000L,
+            ),
+        )
+        var loads = 0
+        val loader = object : StreamFeedPageLoader {
+            override suspend fun load(cursor: StreamFeedCursor?): StreamFeedPage {
+                loads++
+                assertEquals(StreamFeedCursor("gql", "cursor"), cursor)
+                return StreamFeedPage(emptyList(), null)
+            }
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val mediator = StreamFeedRemoteMediator(
+            StreamFeedSpec(key, loader),
+            cache,
+            StreamFeedRefreshCoordinator(cache, scope, { now }, { 1_000L }, false),
+            { now },
+        )
+
+        assertTrue(mediator.load(LoadType.APPEND, emptyPagingState()) is RemoteMediator.MediatorResult.Success)
+        assertEquals(1, loads)
         scope.cancel()
     }
 

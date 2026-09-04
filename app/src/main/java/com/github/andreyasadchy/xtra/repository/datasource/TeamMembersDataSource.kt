@@ -41,7 +41,7 @@ class TeamMembersDataSource(
                         )
                     }
                 } ?: emptyList()
-                liveOffset = items?.lastOrNull()?.cursor?.toString()
+                liveOffset = items?.lastOrNull()?.cursor
                 val nextPage = data?.pageInfo?.hasNextPage != false
                 getLiveMembers = !liveOffset.isNullOrBlank() && nextPage
                 liveMemberIds.addAll(list.mapNotNull { it.channelId })
@@ -74,7 +74,7 @@ class TeamMembersDataSource(
                             } else null
                         }
                     } ?: emptyList()
-                    offset = items?.lastOrNull()?.cursor?.toString()
+                    offset = items?.lastOrNull()?.cursor
                     val nextPage = data?.pageInfo?.hasNextPage != false
                     LoadResult.Page(
                         data = list + members,
@@ -108,7 +108,7 @@ class TeamMembersDataSource(
                         } else null
                     }
                 } ?: emptyList()
-                offset = items?.lastOrNull()?.cursor?.toString()
+                offset = items?.lastOrNull()?.cursor
                 val nextPage = data?.pageInfo?.hasNextPage != false
                 LoadResult.Page(
                     data = list,

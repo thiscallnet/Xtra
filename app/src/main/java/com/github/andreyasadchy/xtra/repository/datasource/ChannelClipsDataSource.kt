@@ -92,7 +92,7 @@ class ChannelClipsDataSource(
                 )
             }
         }
-        offset = items.lastOrNull()?.cursor?.toString()
+        offset = items.lastOrNull()?.cursor
         val nextPage = data.clips.pageInfo?.hasNextPage != false
         return LoadResult.Page(
             data = list,

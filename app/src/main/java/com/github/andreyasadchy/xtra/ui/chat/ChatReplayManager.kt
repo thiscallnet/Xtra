@@ -113,7 +113,7 @@ class ChatReplayManager(
                 }
                 messageJob?.cancel()
                 list.addAll(messages)
-                cursor = if (comments.pageInfo?.hasNextPage != false) comments.edges.lastOrNull()?.cursor?.toString() else null
+                cursor = if (comments.pageInfo?.hasNextPage != false) comments.edges.lastOrNull()?.cursor else null
                 isLoading = false
                 startJob()
             } catch (e: Exception) {

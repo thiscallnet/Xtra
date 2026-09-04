@@ -24,6 +24,7 @@ import com.github.andreyasadchy.xtra.model.ui.SavedFilter
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
+import com.github.andreyasadchy.xtra.ui.common.PagingLoadStateAdapter
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.common.StreamsAdapter
@@ -65,7 +66,14 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
         } else {
             StreamsAdapter(this, { addTag(it) }, showGame = false)
         }
-        setAdapter(binding.recyclerView, pagingAdapter)
+        setAdapter(
+            binding.recyclerView,
+            pagingAdapter.withLoadStateFooter(
+                footer = PagingLoadStateAdapter {
+                    pagingAdapter.retry()
+                },
+            ),
+        )
         streamFeedScreenController = StreamFeedScreenController(
             fragment = this,
             coordinator = viewModel.refreshCoordinator,
@@ -134,7 +142,15 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
                 }
             }
         }
-        initializeAdapter(binding, pagingAdapter, enableScrollTopButton = args.gameId != null || args.gameName != null || !args.tags.isNullOrEmpty())
+        initializeAdapter(
+            binding = binding,
+            pagingAdapter = pagingAdapter,
+            enableScrollTopButton =
+                args.gameId != null ||
+                    args.gameName != null ||
+                    !args.tags.isNullOrEmpty(),
+            showAppendErrorSnackbar = false,
+        )
     }
 
     override fun setupSortBar(sortBar: SortBarBinding) {

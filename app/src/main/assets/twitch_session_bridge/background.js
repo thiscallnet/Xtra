@@ -29,6 +29,7 @@ function reportGqlIdentity(details) {
     clientIntegrity,
     xDeviceId,
     clientSessionId: requestHeader(details.requestHeaders || [], "Client-Session-Id"),
+    clientVersion: requestHeader(details.requestHeaders || [], "Client-Version"),
     capturedAt: Date.now()
   };
   const signature = JSON.stringify([
@@ -36,7 +37,8 @@ function reportGqlIdentity(details) {
     identity.clientId,
     identity.clientIntegrity,
     identity.xDeviceId,
-    identity.clientSessionId
+    identity.clientSessionId,
+    identity.clientVersion
   ]);
   if (signature === lastGqlIdentitySignature) return;
   lastGqlIdentitySignature = signature;
