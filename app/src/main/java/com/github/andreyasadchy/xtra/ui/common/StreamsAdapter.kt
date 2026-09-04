@@ -58,7 +58,8 @@ class StreamsAdapter(
                 val preferences = FeedUiPreferencesStore.current(context)
                 StreamCardPresentationCache.prewarm(
                     context = context,
-                    streams = snapshot().items.filterNotNull(),
+                    itemCount = itemCount,
+                    itemAt = { index -> peek(index) },
                     preferences = preferences,
                 )
             }

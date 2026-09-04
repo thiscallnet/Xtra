@@ -105,13 +105,17 @@ internal object StreamCardPresentationCache {
     /** Prepares a bounded visible window before it is handed to RecyclerView. */
     fun prewarm(
         context: Context,
-        streams: List<Stream>,
+        itemCount: Int,
+        itemAt: (Int) -> Stream?,
         preferences: FeedUiPreferences,
     ) {
-        val visibleWindow = streams.take(PREWARM_LIMIT)
+        val count = minOf(itemCount, PREWARM_LIMIT)
         // Prewarming only populates the process-local cache. It must not hop
         // back to the main thread or cause a second bind for every card.
-        visibleWindow.forEach { stream -> request(context, stream, preferences) }
+        for (index in 0 until count) {
+            val stream = itemAt(index) ?: continue
+            request(context, stream, preferences)
+        }
     }
 
     private fun build(

@@ -42,7 +42,7 @@ class FollowingStreamsListAdapter(
     fun submitStreams(streams: List<Stream>) {
         val context = fragment.requireContext()
         val preferences = FeedUiPreferencesStore.current(context)
-        StreamCardPresentationCache.prewarm(context, streams, preferences)
+        StreamCardPresentationCache.prewarm(context, streams.size, streams::getOrNull, preferences)
         submitList(streams)
     }
 
