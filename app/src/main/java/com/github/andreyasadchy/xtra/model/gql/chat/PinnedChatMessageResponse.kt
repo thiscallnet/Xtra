@@ -31,6 +31,8 @@ class PinnedChatMessageResponse(
     @Serializable
     class Node(
         val id: String? = null,
+        val startsAt: String? = null,
+        val endsAt: String? = null,
         val pinnedBy: User? = null,
         val pinnedMessage: Message? = null,
     )
@@ -41,6 +43,13 @@ class PinnedChatMessageResponse(
         val displayName: String? = null,
         val login: String? = null,
         val chatColor: String? = null,
+        val displayBadges: List<Badge>? = null,
+    )
+
+    @Serializable
+    class Badge(
+        val setID: String? = null,
+        val version: String? = null,
     )
 
     @Serializable

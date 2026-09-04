@@ -47,6 +47,7 @@ import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.model.chat.VideoChatMessage
 import com.github.andreyasadchy.xtra.model.gql.chat.ChannelPointContextResponse
+import com.github.andreyasadchy.xtra.model.gql.chat.PinnedChatMessageResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.WatchStreakResponse
 import com.github.andreyasadchy.xtra.model.ui.ChannelPoints
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointReward as ChannelPointRewardInfo
@@ -273,6 +274,15 @@ internal fun shouldStartLegacyChatWriteTransport(
         isLoggedIn &&
         !(startMessageTransport && useEventSubChat) &&
         (hasGqlToken || hasHelixToken && !useApiChatMessages)
+
+private fun PinnedChatMessageResponse.User?.toChatBadges(): List<Badge>? {
+    val displayBadges = this?.displayBadges ?: return null
+    return displayBadges.mapNotNull { badge ->
+        val setId = badge.setID?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+        val version = badge.version?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+        Badge(setId, version)
+    }
+}
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ChatViewModel(
@@ -2417,19 +2427,21 @@ class ChatViewModel(
                                         (senderLogin != null && message.userLogin.equals(senderLogin, true))
                                 }
                             }
-                            val roleBadge = Badge(
-                                setId = if (it.pinnedBy?.id == expectedChannelId) "broadcaster" else "moderator",
-                                version = "1",
-                            )
                             if (text.isBlank() || pinnedBy.isNullOrBlank()) null else PinnedChatMessage(
                                 id = it.id!!,
                                 pinnedBy = pinnedBy,
-                                pinnedByBadges = listOf(roleBadge),
+                                pinnedByBadges = it.pinnedBy.toChatBadges().orEmpty(),
                                 text = text,
                                 sender = senderName,
                                 senderColor = sender?.chatColor ?: it.pinnedBy?.chatColor,
-                                senderBadges = chatMessage?.badges.orEmpty(),
+                                senderBadges = sender.toChatBadges() ?: chatMessage?.badges.orEmpty(),
                                 sentAt = it.pinnedMessage?.sentAt?.let { value ->
+                                    runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrNull()
+                                },
+                                startsAt = it.startsAt?.let { value ->
+                                    runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrNull()
+                                },
+                                endsAt = it.endsAt?.let { value ->
                                     runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrNull()
                                 },
                             )

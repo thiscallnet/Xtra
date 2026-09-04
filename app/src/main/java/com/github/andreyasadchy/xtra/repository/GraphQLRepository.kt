@@ -167,11 +167,17 @@ class GraphQLRepository(
                     edges {
                         node {
                             id
+                            startsAt
+                            endsAt
                             pinnedBy {
                                 id
                                 displayName
                                 login
                                 chatColor
+                                displayBadges(channelID: ${'$'}channelId) {
+                                    setID
+                                    version
+                                }
                             }
                             pinnedMessage {
                                 sentAt
@@ -180,6 +186,10 @@ class GraphQLRepository(
                                     displayName
                                     login
                                     chatColor
+                                    displayBadges(channelID: ${'$'}channelId) {
+                                        setID
+                                        version
+                                    }
                                 }
                                 content {
                                     text

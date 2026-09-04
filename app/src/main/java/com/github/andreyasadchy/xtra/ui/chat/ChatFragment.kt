@@ -124,6 +124,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.max
@@ -288,6 +291,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var dropImageRequest: Disposable? = null
     private var dropImageRequestGeneration = 0
     private var pinnedBadgeRequests = mutableListOf<Disposable>()
+    private var pinnedMessageTimerJob: Job? = null
     private var channelPointsAccessibilityLabel: String? = null
     private var chatIdentityPopup: ChatIdentityPopup? = null
     private var chatIdentityBadgeRequest: Disposable? = null
@@ -629,6 +633,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val pinnedBinding = pinnedMessageBinding ?: return
         pinnedBinding.pinnedMessageSeen.setOnClickListener {
             seenPinnedMessageId = displayedPinnedMessageId
+            pinnedMessageTimerJob?.cancel()
             pinnedBinding.pinnedMessageOverlay.isGone = true
         }
         pinnedBinding.pinnedMessageMinimize.setOnClickListener {
@@ -1529,7 +1534,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val pinnedBinding = pinnedMessageBinding ?: return
         val overlay = pinnedBinding.pinnedMessageOverlay
         if (message == null || message.id == seenPinnedMessageId) {
+            pinnedMessageTimerJob?.cancel()
             disposePinnedBadgeRequests()
+            pinnedBinding.pinnedMessageProgress.isGone = true
             overlay.isGone = true
             return
         }
@@ -1567,6 +1574,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             if (pinnedMessageMinimized) R.string.pinned_message_expand else R.string.pinned_message_minimize,
         )
         overlay.isVisible = true
+        schedulePinnedMessageTimer(message)
     }
 
     private fun disposePinnedBadgeRequests() {
@@ -1583,7 +1591,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 viewModel.channelBadges.firstOrNull { it.setId == badge.setId && it.version == badge.version }
             }
             val url = catalogBadge?.url2x ?: catalogBadge?.url1x
-            if (url.isNullOrBlank() && badge.setId !in setOf("moderator", "broadcaster")) return@forEach
+            val fallbackDrawable = pinnedChatBadgeFallbackResource(badge.setId)
+            if (url.isNullOrBlank() && fallbackDrawable == null) return@forEach
             val density = resources.displayMetrics.density
             val image = ImageView(requireContext()).apply {
                 layoutParams = LinearLayout.LayoutParams(
@@ -1593,12 +1602,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     marginEnd = (3 * density).toInt()
                 }
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                contentDescription = badge.setId
+                contentDescription = catalogBadge?.title ?: badge.setId
             }
             if (url.isNullOrBlank()) {
-                image.setImageResource(
-                    if (badge.setId == "broadcaster") R.drawable.ic_broadcaster_badge else R.drawable.ic_moderator_badge,
-                )
+                image.setImageResource(fallbackDrawable!!)
             } else {
                 pinnedBadgeRequests += requireContext().imageLoader.enqueue(
                     ImageRequest.Builder(requireContext())
@@ -1612,6 +1619,36 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             container.addView(image)
         }
         container.isVisible = container.childCount > 0
+    }
+
+    private fun schedulePinnedMessageTimer(message: PinnedChatMessage) {
+        pinnedMessageTimerJob?.cancel()
+        val startsAt = message.startsAt
+        val endsAt = message.endsAt
+        val progress = pinnedMessageBinding?.pinnedMessageProgress ?: return
+        if (startsAt == null || endsAt == null || endsAt <= startsAt) {
+            progress.progress = 0
+            progress.isGone = true
+            return
+        }
+        val duration = endsAt - startsAt
+        pinnedMessageTimerJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive && displayedPinnedMessageId == message.id) {
+                val remaining = endsAt - System.currentTimeMillis()
+                if (remaining <= 0L) {
+                    pinnedMessageBinding?.pinnedMessageOverlay?.isGone = true
+                    pinnedMessageBinding?.pinnedMessageProgress?.isGone = true
+                    break
+                }
+                val currentBinding = pinnedMessageBinding ?: break
+                currentBinding.pinnedMessageProgress.progress =
+                    ((remaining.toDouble() / duration) * 1000.0)
+                        .coerceIn(0.0, 1000.0)
+                        .toInt()
+                currentBinding.pinnedMessageProgress.isVisible = true
+                delay(1_000L)
+            }
+        }
     }
 
     private fun updatePinnedMessageOverlayWidth() {
@@ -3138,6 +3175,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onDestroyView() {
+        pinnedMessageTimerJob?.cancel()
+        pinnedMessageTimerJob = null
         pinnedMessageBinding = null
         captureActiveOverlayState()
         chatV2ViewportState = chatV2Renderer?.state ?: chatV2ViewportState
