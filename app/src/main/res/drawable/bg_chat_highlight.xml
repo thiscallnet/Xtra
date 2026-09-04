@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@color/chatMessageHighlight" />
+    <item android:drawable="?attr/chatMessageHighlightColor" />
     <item
         android:width="8dp"
         android:gravity="start"
-        android:drawable="@color/chatMessageSpecialAccent" />
+        android:drawable="?attr/chatMessageSpecialAccentColor" />
 </layer-list>

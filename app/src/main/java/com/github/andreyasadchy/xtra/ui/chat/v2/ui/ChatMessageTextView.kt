@@ -210,11 +210,17 @@ open class ChatMessageTextView private constructor(
             ChatRowBackground.PERSONAL_HIGHLIGHT -> setBackgroundColor(row.background)
             ChatRowBackground.HIGHLIGHT -> setBackgroundResource(R.drawable.bg_chat_highlight)
             ChatRowBackground.FIRST_CHATTER -> setBackgroundResource(R.drawable.bg_chat_first_chatter)
-            ChatRowBackground.FIRST_CHATTER_TINT -> setBackgroundColor(ContextCompat.getColor(context, R.color.chatMessageFirst))
+            ChatRowBackground.FIRST_CHATTER_TINT -> setBackgroundColor(
+                com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageFirstColor),
+            )
             ChatRowBackground.SUBSCRIPTION -> setBackgroundResource(R.drawable.bg_chat_subscription)
             ChatRowBackground.WATCH_STREAK -> setBackgroundResource(R.drawable.bg_chat_watch_streak)
-            ChatRowBackground.REWARD -> setBackgroundColor(ContextCompat.getColor(context, R.color.chatMessageReward))
-            ChatRowBackground.NOTICE -> setBackgroundColor(ContextCompat.getColor(context, R.color.chatMessageNotice))
+            ChatRowBackground.REWARD -> setBackgroundColor(
+                com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageRewardColor),
+            )
+            ChatRowBackground.NOTICE -> setBackgroundColor(
+                com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageNoticeColor),
+            )
         }
         val density = resources.displayMetrics.density
         val extraStartPadding = when (row.backgroundStyle) {
@@ -333,7 +339,7 @@ open class ChatMessageTextView private constructor(
             )
         }
         canvas.drawRoundRect(card, radius, radius, fill)
-        fill.color = ContextCompat.getColor(context, R.color.chatMessageSpecialAccent)
+        fill.color = com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageSpecialAccentColor)
         canvas.drawRoundRect(RectF(right - 4 * density, top, right, top + height), radius, radius, fill)
 
         val imageUrl = preview.thumbnailUrl?.takeIf { it.isNotBlank() }

@@ -43,6 +43,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
+import com.github.andreyasadchy.xtra.util.chat.setChatMessageBackground
 import com.github.andreyasadchy.xtra.util.chat.displayName
 import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
 import com.github.andreyasadchy.xtra.util.chat.isWatchStreakNotice
@@ -1150,7 +1151,7 @@ class ChatAdapter(
 
         internal fun bind(chatMessage: ChatMessage, cacheKey: RenderCacheKey, result: ChatAdapterUtils.MessageResult) {
             if (result.backgroundColor != null) itemView.setBackgroundColor(result.backgroundColor)
-            else itemView.setBackgroundResource(result.backgroundResource)
+            else setChatMessageBackground(itemView, result.backgroundResource)
             applyNamePaintBackground(result.builder, itemView.background)
             val specialPadding = if (chatMessage.isHighlightedMessage() ||
                 chatMessage.isWatchStreakNotice() ||

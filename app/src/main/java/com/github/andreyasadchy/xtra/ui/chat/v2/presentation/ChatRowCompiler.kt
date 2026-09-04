@@ -106,7 +106,12 @@ class ChatRowCompiler(
             !message.noticeType.isNullOrBlank() ||
             !message.systemText.isNullOrBlank()
         val isPersonalHighlight = !hasSpecialBackground && shouldHighlightV2ChatMessage(message, highlightSettings)
-        val rowBackground = if (isPersonalHighlight) highlightSettings.color else background(message)
+        val baseBackground = background(message)
+        val rowBackground = if (isPersonalHighlight) {
+            compositeColors(highlightSettings.color, baseBackground)
+        } else {
+            baseBackground
+        }
         val mutedColor = colors.mutedTextColor(rowBackground)
         val pieces = buildList {
             val specialNotice = isFirstChatter || isWatchStreak || isSubscription
@@ -349,7 +354,7 @@ class ChatRowCompiler(
             timestampText = timestampText(message.timestampMs),
             timestampColor = colors.resolve("#999999", rowBackground = rowBackground),
             pieces = pieces,
-            background = rowBackground,
+            background = if (isPersonalHighlight) highlightSettings.color else baseBackground,
             backgroundStyle = when {
                 message.twitchType == TwitchChatMessageType.Highlighted -> ChatRowBackground.HIGHLIGHT
                 isWatchStreak -> ChatRowBackground.WATCH_STREAK
@@ -501,6 +506,23 @@ class ChatRowCompiler(
             "shared_chat_prime_paid_upgrade",
             "shared_chat_pay_it_forward",
         )
+    }
+
+    private fun compositeColors(foreground: Int, background: Int): Int {
+        val foregroundAlpha = foreground ushr 24 and 0xff
+        val backgroundAlpha = background ushr 24 and 0xff
+        val outputAlpha = 255 - ((255 - foregroundAlpha) * (255 - backgroundAlpha) / 255)
+        if (outputAlpha == 0) return 0
+
+        fun compositeComponent(foregroundComponent: Int, backgroundComponent: Int): Int =
+            (foregroundComponent * foregroundAlpha * 255 +
+                backgroundComponent * backgroundAlpha * (255 - foregroundAlpha)) /
+                (outputAlpha * 255)
+
+        return (outputAlpha shl 24) or
+            (compositeComponent(foreground ushr 16 and 0xff, background ushr 16 and 0xff) shl 16) or
+            (compositeComponent(foreground ushr 8 and 0xff, background ushr 8 and 0xff) shl 8) or
+            compositeComponent(foreground and 0xff, background and 0xff)
     }
 }
 

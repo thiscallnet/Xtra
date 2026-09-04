@@ -25,6 +25,7 @@ import android.view.View
 import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
+import com.google.android.material.color.MaterialColors
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import coil3.asDrawable
@@ -718,7 +719,7 @@ object ChatAdapterUtils {
             backgroundResource = 0
         }
         itemView?.let { view ->
-            backgroundColor?.let(view::setBackgroundColor) ?: view.setBackgroundResource(backgroundResource)
+            setChatMessageBackground(view, backgroundResource, backgroundColor)
         }
         return MessageResult(
             builder = builder,
@@ -1883,6 +1884,30 @@ internal fun chatMessageBackgroundResource(
     chatMessage.systemMsg != null || chatMessage.msgId != null -> R.color.chatMessageNotice
     wasMentioned -> R.color.chatMessageMention
     else -> 0
+}
+
+internal fun setChatMessageBackground(
+    view: View,
+    backgroundResource: Int,
+    backgroundColor: Int? = null,
+) {
+    if (backgroundColor != null) {
+        view.setBackgroundColor(backgroundColor)
+        return
+    }
+    val colorAttribute = when (backgroundResource) {
+        R.color.chatMessageFirst -> R.attr.chatMessageFirstColor
+        R.color.chatMessageReward -> R.attr.chatMessageRewardColor
+        R.color.chatMessageNotice -> R.attr.chatMessageNoticeColor
+        R.color.chatMessageMention -> R.attr.chatMessageMentionColor
+        R.color.chatMessageSelected -> R.attr.chatMessageSelectedColor
+        else -> null
+    }
+    if (colorAttribute != null) {
+        view.setBackgroundColor(MaterialColors.getColor(view, colorAttribute))
+    } else {
+        view.setBackgroundResource(backgroundResource)
+    }
 }
 
 private fun appendSpecialText(

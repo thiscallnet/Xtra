@@ -1,6 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
+import com.github.andreyasadchy.xtra.ui.chat.ChatHighlightSettings
+import com.github.andreyasadchy.xtra.ui.chat.DEFAULT_CHAT_HIGHLIGHT_COLOR
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
@@ -58,6 +60,25 @@ class ChatRowLightModeTest {
             0xFFC4BEC9.toInt(),
             darkRow.pieces.filterIsInstance<ChatPiece.Reply>().single().color,
         )
+    }
+
+    @Test
+    fun personalHighlightCompositesBeforeChoosingSecondaryText() {
+        val row = ChatRowCompiler(
+            background = { lightBackground },
+            highlightSettings = ChatHighlightSettings(
+                color = DEFAULT_CHAT_HIGHLIGHT_COLOR,
+                viewerLogin = "somebody",
+            ),
+        ).compile(
+            message(ChatSegment.Text("hello")).copy(reply = reply()),
+        )
+        val renderedBackground = composite(DEFAULT_CHAT_HIGHLIGHT_COLOR, lightBackground)
+        val replyColor = row.pieces.filterIsInstance<ChatPiece.Reply>().single().color
+
+        assertEquals(0xFFB28286.toInt(), renderedBackground)
+        assertTrue(replyColor != 0xFF5F5B66.toInt())
+        assertTrue(contrast(replyColor, renderedBackground) >= 4.5)
     }
 
     @Test
@@ -152,5 +173,22 @@ class ChatRowLightModeTest {
         return 0.2126 * channel(color ushr 16 and 0xff) +
             0.7152 * channel(color ushr 8 and 0xff) +
             0.0722 * channel(color and 0xff)
+    }
+
+    private fun composite(foreground: Int, background: Int): Int {
+        val foregroundAlpha = foreground ushr 24 and 0xff
+        val backgroundAlpha = background ushr 24 and 0xff
+        val outputAlpha = 255 - ((255 - foregroundAlpha) * (255 - backgroundAlpha) / 255)
+        if (outputAlpha == 0) return 0
+
+        fun component(foregroundComponent: Int, backgroundComponent: Int): Int =
+            (foregroundComponent * foregroundAlpha * 255 +
+                backgroundComponent * backgroundAlpha * (255 - foregroundAlpha)) /
+                (outputAlpha * 255)
+
+        return (outputAlpha shl 24) or
+            (component(foreground ushr 16 and 0xff, background ushr 16 and 0xff) shl 16) or
+            (component(foreground ushr 8 and 0xff, background ushr 8 and 0xff) shl 8) or
+            component(foreground and 0xff, background and 0xff)
     }
 }

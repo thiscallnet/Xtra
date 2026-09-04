@@ -33,6 +33,13 @@
     <color name="chatMessageSpecialAccent">#9146FF</color>
     <color name="chatMessageMention">#33D32F2F</color>
     <color name="chatMessageSelected">#33163584</color>
+    <color name="chatMessageFirstDark">#800a4028</color>
+    <color name="chatMessageFirstChatterDark">#3B2B4B</color>
+    <color name="chatMessageRewardDark">#800E4C68</color>
+    <color name="chatMessageNoticeDark">#803E0E68</color>
+    <color name="chatMessageHighlightDark">#31204D</color>
+    <color name="chatMessageMentionDark">#80680E0E</color>
+    <color name="chatMessageSelectedDark">#80163584</color>
     <color name="liveStreamRed">#DD0000</color>
     <color name="watchStreakOrange">#FFB31A</color>
     <color name="watchStreakProgress">#00D395</color>
