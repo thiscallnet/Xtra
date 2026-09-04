@@ -40,6 +40,25 @@ internal fun <T> moveListItem(items: MutableList<T>, from: Int, to: Int): Boolea
     return true
 }
 
+/**
+ * Binding-relevant equality for picker cells. [Emote.equals] only compares
+ * [Emote.name], but Favorites treats the live instance (URLs included) as the
+ * source of truth, so a catalog refresh that keeps the name while changing
+ * the asset must still count as a change.
+ */
+internal fun Emote.hasSamePickerBinding(other: Emote): Boolean =
+    favoriteKey() == other.favoriteKey() &&
+        name == other.name &&
+        url1x == other.url1x &&
+        url2x == other.url2x &&
+        url3x == other.url3x &&
+        url4x == other.url4x &&
+        format == other.format &&
+        source == other.source
+
+internal fun List<Emote>.hasSamePickerBinding(other: List<Emote>): Boolean =
+    size == other.size && indices.all { this[it].hasSamePickerBinding(other[it]) }
+
 class EmotesAdapter(
     private val fragment: Fragment,
     private val clickListener: (Emote) -> Unit,
@@ -67,8 +86,10 @@ class EmotesAdapter(
         if (reorderable) {
             // The favorites tab rebinds every item on notifyDataSetChanged,
             // which reloads all visible images. Skip redundant submissions
-            // from coincident flows so the grid does not flicker.
-            if (items == newItems) return
+            // from coincident flows so the grid does not flicker. The check
+            // is binding-aware: Emote.equals only compares names, while a
+            // catalog refresh may keep the name and change the asset.
+            if (items.hasSamePickerBinding(newItems)) return
             items.clear()
             items.addAll(newItems)
             notifyDataSetChanged()
