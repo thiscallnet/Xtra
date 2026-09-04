@@ -315,6 +315,83 @@ class PredictionStateTest {
     }
 
     @Test
+    fun reschedulingUnderStoreLockCannotScheduleStalePrediction() {
+        val store = PredictionStateStore()
+        val first = prediction("p1", "RESOLVED", 100L, 20).copy(endedAt = 200L)
+        val second = prediction("p2", "RESOLVED", 300L, 25).copy(endedAt = 400L)
+        val scheduledIds = mutableListOf<String?>()
+        store.restore(first) {}
+
+        val enteredReschedule = CountDownLatch(1)
+        val releaseReschedule = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val rescheduleFuture = executor.submit {
+                store.rescheduleFinal(
+                    cancel = {
+                        enteredReschedule.countDown()
+                        assertTrue(releaseReschedule.await(2, TimeUnit.SECONDS))
+                    },
+                    schedule = { scheduledIds += it.id },
+                )
+            }
+            assertTrue(enteredReschedule.await(2, TimeUnit.SECONDS))
+
+            val updateFuture = executor.submit {
+                store.update(second, normalize = { it }) { value ->
+                    scheduledIds += value.id
+                }
+            }
+
+            releaseReschedule.countDown()
+            rescheduleFuture.get(2, TimeUnit.SECONDS)
+            updateFuture.get(2, TimeUnit.SECONDS)
+
+            assertEquals(listOf("p1", "p2"), scheduledIds)
+            assertEquals("p2", store.snapshot()?.id)
+        } finally {
+            releaseReschedule.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun freshFinalHonorsCustomGracePeriod() {
+        val now = 1_000_000L
+        val agedFinal = prediction("p1", "RESOLVED", 1_000L, 10).copy(endedAt = now - 40_000L)
+
+        assertTrue(
+            PredictionState.isFreshFinalForDisplay(agedFinal, now = now, graceMillis = 60_000L),
+        )
+        assertFalse(
+            PredictionState.isFreshFinalForDisplay(agedFinal, now = now, graceMillis = 10_000L),
+        )
+        assertFalse(PredictionState.isFreshFinalForDisplay(agedFinal, now = now))
+    }
+
+    @Test
+    fun neverDisplayDurationDoesNotMakeHistoricalFinalFresh() {
+        val now = 1_000_000L
+        val ancientFinal = prediction("p1", "RESOLVED", 1_000L, 10).copy(endedAt = 2_000L)
+        val ongoing = prediction("p1", "LOCKED", 1_000L, 10)
+
+        assertFalse(
+            PredictionState.isFreshFinalForDisplay(
+                ancientFinal,
+                now = now,
+                graceMillis = PredictionState.RESULT_DISPLAY_NEVER_MILLIS,
+            ),
+        )
+        assertFalse(
+            PredictionState.isFreshFinalForDisplay(
+                ongoing,
+                now = now,
+                graceMillis = PredictionState.RESULT_DISPLAY_NEVER_MILLIS,
+            ),
+        )
+    }
+
+    @Test
     fun finalStateIsNotOngoingAndLockedStateIsNotFinal() {
         val locked = prediction("p1", "LOCKED", 1_000L, 10)
         val resolved = prediction("p1", "RESOLVED", 2_000L, 10)

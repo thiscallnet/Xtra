@@ -30,6 +30,7 @@
     <SwitchPreferenceCompat android:defaultValue="true" android:dependency="chat_raids_show" android:key="multiview_raids" android:title="@string/multiview_raids" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_polls_show" android:title="@string/show_polls" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_predictions_show" android:title="@string/show_predictions" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="20" android:dependency="chat_predictions_show" android:entries="@array/predictionResultDurationEntries" android:entryValues="@array/predictionResultDurationValues" android:key="chat_predictions_result_duration" android:summary="%s" android:title="@string/prediction_result_duration" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat
         android:defaultValue="true"
         android:key="chat_drops_show"

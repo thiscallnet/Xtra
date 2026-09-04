@@ -13,8 +13,14 @@ import com.github.andreyasadchy.xtra.model.chat.Prediction
  * result.
  */
 object PredictionState {
-    /** Final prediction results are visible briefly; cache retention is longer. */
+    /** Default final-result display duration; cache retention is longer. */
     const val RESULT_DISPLAY_GRACE_MILLIS = 20_000L
+
+    /**
+     * Sentinel result-display duration that disables automatic dismissal after
+     * a final result is presented.
+     */
+    const val RESULT_DISPLAY_NEVER_MILLIS = -1L
 
     private val finalStatuses = setOf(
         "RESOLVED",
@@ -49,11 +55,12 @@ object PredictionState {
     fun isFreshFinalForDisplay(
         prediction: Prediction?,
         now: Long = System.currentTimeMillis(),
+        graceMillis: Long = RESULT_DISPLAY_GRACE_MILLIS,
     ): Boolean {
         if (!isFinal(prediction)) return false
         val endedAt = prediction?.endedAt ?: return false
         val age = now - endedAt
-        return age in 0L..RESULT_DISPLAY_GRACE_MILLIS
+        return age in 0L..graceMillis
     }
 
     /** Normalizes an incoming live snapshot without guessing when timing is absent. */
@@ -220,6 +227,11 @@ internal class PredictionStateStore {
         current = null
         apply()
         true
+    }
+
+    fun rescheduleFinal(cancel: () -> Unit, schedule: (Prediction) -> Unit): Unit = withLock { current ->
+        cancel()
+        current?.takeIf(PredictionState::isFinal)?.let(schedule)
     }
 
     fun <T> withLock(block: (Prediction?) -> T): T = synchronized(lock) {

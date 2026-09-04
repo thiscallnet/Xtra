@@ -1414,6 +1414,11 @@
     <string name="personal_stv_emote">Personal 7TV emote</string>
     <string name="show_polls">Show polls</string>
     <string name="show_predictions">Show predictions</string>
+    <string name="prediction_result_duration">Prediction result display</string>
+    <string name="prediction_result_10s">10 seconds</string>
+    <string name="prediction_result_20s">20 seconds</string>
+    <string name="prediction_result_30s">30 seconds</string>
+    <string name="prediction_result_60s">1 minute</string>
     <string name="drops_show">Show Drops</string>
     <string name="drops">Drops</string>
     <string name="drops_inventory_tab">Inventory</string>
