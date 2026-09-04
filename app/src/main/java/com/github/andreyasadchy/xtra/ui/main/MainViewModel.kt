@@ -252,7 +252,7 @@ class MainViewModel(
                         }
                     } else null
                 }
-                video.value = item to offset
+                video.value = (item ?: Video()) to offset
             }
         }
     }
@@ -296,6 +296,8 @@ class MainViewModel(
     fun loadClip(clipId: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>) {
         if (clip.value == null) {
             viewModelScope.launch {
+                // Post a blank Clip (never null) so a failed resolution still
+                // emits and the UI can report it instead of stalling silently.
                 clip.value = try {
                     val response = graphQLRepository.loadQueryClip(networkLibrary, gqlHeaders, clipId!!)
                     response.data!!.clip?.let {
@@ -378,7 +380,7 @@ class MainViewModel(
                             }
                         } else null
                     }
-                }
+                } ?: Clip()
             }
         }
     }
@@ -386,6 +388,8 @@ class MainViewModel(
     fun loadUser(login: String?, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>) {
         if (user.value == null) {
             viewModelScope.launch {
+                // Post a blank User (never null) so a failed resolution still
+                // emits and the UI can report it instead of stalling silently.
                 user.value = try {
                     val response = graphQLRepository.loadQueryUser(networkLibrary, gqlHeaders, login = login)
                     response.data!!.user?.let {
@@ -418,7 +422,7 @@ class MainViewModel(
                             null
                         }
                     } else null
-                }
+                } ?: User()
             }
         }
     }
@@ -467,6 +471,8 @@ class MainViewModel(
     fun loadTag(tagId: String, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         if (tag.value == null) {
             viewModelScope.launch {
+                // Post a blank Tag (never null) so a failed resolution still
+                // emits and the UI can report it instead of stalling silently.
                 tag.value = try {
                     val response = graphQLRepository.loadQueryTag(networkLibrary, gqlHeaders, tagId)
                     response.data!!.contentTag?.let {
@@ -487,7 +493,7 @@ class MainViewModel(
                     } catch (e: Exception) {
                         null
                     }
-                }
+                } ?: Tag()
             }
         }
     }

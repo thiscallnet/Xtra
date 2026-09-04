@@ -139,6 +139,8 @@ class MainActivity : AppCompatActivity() {
         const val INTENT_OPEN_OWN_PROFILE = "com.github.andreyasadchy.xtra.OPEN_OWN_PROFILE"
         const val INTENT_OPEN_DROPS = "com.github.andreyasadchy.xtra.OPEN_DROPS"
         const val EXTRA_OPEN_UPDATE_DETAILS = "com.github.andreyasadchy.xtra.OPEN_UPDATE_DETAILS"
+
+        private const val DEEP_LINK_NAV_DEBOUNCE_MS = 500L
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -168,6 +170,8 @@ class MainActivity : AppCompatActivity() {
     private var bottomNavigationDrainPosted = false
     private val bottomNavigationInteractionSource = Any()
     private var keepStateNavigator: KeepStateFragmentNavigator? = null
+    private var lastDeepLinkNavKey: String? = null
+    private var lastDeepLinkNavTime = 0L
     private val isTv: Boolean get() = isTelevision()
 
     private fun rootNavigationView(): NavigationBarView =
@@ -539,7 +543,9 @@ class MainActivity : AppCompatActivity() {
                         if (videoUrl == "") {
                             Toast.makeText(this@MainActivity, R.string.video_not_found, Toast.LENGTH_SHORT).show()
                         } else {
-                            startVideo(Video(), 0, videoUrl = videoUrl)
+                            navigateDeepLinkOnce("videoUrl:$videoUrl") {
+                                startVideo(Video(), 0, videoUrl = videoUrl)
+                            }
                         }
                         viewModel.videoUrl.value = null
                     }
@@ -553,17 +559,21 @@ class MainActivity : AppCompatActivity() {
                     val offset = pair?.second
                     if (video != null) {
                         if (!video.id.isNullOrBlank()) {
-                            (playerFragment as? Media3PlayerFragment)?.also {
-                                if (!isTv) it.minimize()
-                                it.close()
-                                closePlayer()
-                            } ?:
-                            (playerFragment as? PlayerFragment)?.also {
-                                if (!isTv) it.minimize()
-                                it.close()
-                                closePlayer()
+                            navigateDeepLinkOnce("video:${video.id}|$offset") {
+                                (playerFragment as? Media3PlayerFragment)?.also {
+                                    if (!isTv) it.minimize()
+                                    it.close()
+                                    closePlayer()
+                                } ?:
+                                (playerFragment as? PlayerFragment)?.also {
+                                    if (!isTv) it.minimize()
+                                    it.close()
+                                    closePlayer()
+                                }
+                                startVideo(video, offset, offset != null)
                             }
-                            startVideo(video, offset, offset != null)
+                        } else {
+                            Toast.makeText(this@MainActivity, R.string.video_not_found, Toast.LENGTH_SHORT).show()
                         }
                         viewModel.video.value = null
                     }
@@ -575,7 +585,11 @@ class MainActivity : AppCompatActivity() {
                 viewModel.clip.collectLatest { clip ->
                     if (clip != null) {
                         if (!clip.id.isNullOrBlank()) {
-                            startClip(clip)
+                            navigateDeepLinkOnce("clip:${clip.id}") {
+                                startClip(clip)
+                            }
+                        } else {
+                            Toast.makeText(this@MainActivity, R.string.clip_not_found, Toast.LENGTH_SHORT).show()
                         }
                         viewModel.clip.value = null
                     }
@@ -587,15 +601,19 @@ class MainActivity : AppCompatActivity() {
                 viewModel.user.collectLatest { user ->
                     if (user != null) {
                         if (!user.id.isNullOrBlank() || !user.login.isNullOrBlank()) {
-                            leavePlayerForBrowsing()
-                            navController.navigate(
-                                ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
-                                    channelId = user.id,
-                                    channelLogin = user.login,
-                                    channelName = user.name,
-                                    channelImage = user.profileImage,
+                            navigateDeepLinkOnce("user:${user.id}|${user.login}") {
+                                leavePlayerForBrowsing()
+                                navController.navigate(
+                                    ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                                        channelId = user.id,
+                                        channelLogin = user.login,
+                                        channelName = user.name,
+                                        channelImage = user.profileImage,
+                                    )
                                 )
-                            )
+                            }
+                        } else {
+                            Toast.makeText(this@MainActivity, R.string.error_loading_user, Toast.LENGTH_SHORT).show()
                         }
                         viewModel.user.value = null
                     }
@@ -609,14 +627,18 @@ class MainActivity : AppCompatActivity() {
                         val game = pair.first
                         val tag = pair.second
                         if (game != null) {
-                            leavePlayerForBrowsing()
-                            navController.navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
-                                gameId = game.id,
-                                gameSlug = game.slug,
-                                gameName = game.name,
-                                boxArt = game.boxArt,
-                                tags = tag?.let { arrayOf(it) },
-                            ))
+                            navigateDeepLinkOnce("game:${game.id}|${game.slug}|${game.name}|$tag") {
+                                leavePlayerForBrowsing()
+                                navController.navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                                    gameId = game.id,
+                                    gameSlug = game.slug,
+                                    gameName = game.name,
+                                    boxArt = game.boxArt,
+                                    tags = tag?.let { arrayOf(it) },
+                                ))
+                            }
+                        } else {
+                            Toast.makeText(this@MainActivity, R.string.game_not_found, Toast.LENGTH_SHORT).show()
                         }
                         viewModel.game.value = null
                     }
@@ -627,12 +649,18 @@ class MainActivity : AppCompatActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.tag.collectLatest { tag ->
                     if (tag != null) {
-                        leavePlayerForBrowsing()
-                        navController.navigate(
-                            GamesFragmentDirections.actionGlobalGamesFragment(
-                                tags = arrayOf(tag)
-                            )
-                        )
+                        if (!tag.id.isNullOrBlank()) {
+                            navigateDeepLinkOnce("tag:${tag.id}") {
+                                leavePlayerForBrowsing()
+                                navController.navigate(
+                                    GamesFragmentDirections.actionGlobalGamesFragment(
+                                        tags = arrayOf(tag)
+                                    )
+                                )
+                            }
+                        } else {
+                            Toast.makeText(this@MainActivity, R.string.tag_not_found, Toast.LENGTH_SHORT).show()
+                        }
                         viewModel.tag.value = null
                     }
                 }
@@ -1459,6 +1487,22 @@ class MainActivity : AppCompatActivity() {
             (playerFragment as? Media3PlayerFragment)?.minimize()
                 ?: (playerFragment as? PlayerFragment)?.minimize()
         }
+    }
+
+    /**
+     * Deep-link resolutions can fire twice for one user tap (overlapping
+     * loads each post the same result). Ignore an identical navigation that
+     * follows the previous one within a tap window; different targets still
+     * navigate immediately.
+     */
+    private fun navigateDeepLinkOnce(key: String, navigate: () -> Unit) {
+        val now = SystemClock.uptimeMillis()
+        if (key == lastDeepLinkNavKey && now - lastDeepLinkNavTime < DEEP_LINK_NAV_DEBOUNCE_MS) {
+            return
+        }
+        lastDeepLinkNavKey = key
+        lastDeepLinkNavTime = now
+        navigate()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
