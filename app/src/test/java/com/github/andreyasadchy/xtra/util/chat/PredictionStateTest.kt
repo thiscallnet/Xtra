@@ -1,6 +1,8 @@
 package com.github.andreyasadchy.xtra.util.chat
 
 import com.github.andreyasadchy.xtra.model.chat.Prediction
+import com.github.andreyasadchy.xtra.ui.chat.updatePredictionCountdownState
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -13,6 +15,56 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class PredictionStateTest {
+    @Test
+    fun stalePredictionCountdownCannotOverwriteNewDeadline() {
+        listOf(9_000L, -1L).forEach { staleRemainingMs ->
+            val store = PredictionStateStore()
+            val secondsLeft = MutableStateFlow<Int?>(11)
+            val tokenA = Any()
+            val tokenB = Any()
+            var activeToken: Any? = tokenA
+            val replacementReady = CountDownLatch(1)
+            val releaseReplacement = CountDownLatch(1)
+            val staleReady = CountDownLatch(1)
+            val executor = Executors.newFixedThreadPool(2)
+
+            try {
+                val replacementFuture = executor.submit<Boolean> {
+                    store.withLock {
+                        activeToken = tokenB
+                        secondsLeft.value = 22
+                        replacementReady.countDown()
+                        releaseReplacement.await(2, TimeUnit.SECONDS)
+                    }
+                }
+                assertTrue(replacementReady.await(2, TimeUnit.SECONDS))
+
+                val staleFuture = executor.submit<Boolean> {
+                    staleReady.countDown()
+                    updatePredictionCountdownState(
+                        predictionStateStore = store,
+                        currentDeadlineToken = { activeToken },
+                        deadlineToken = tokenA,
+                        remainingMs = staleRemainingMs,
+                        predictionSecondsLeft = secondsLeft,
+                        onExpired = {
+                            throw AssertionError("stale countdown must not expire the replacement")
+                        },
+                    )
+                }
+                assertTrue(staleReady.await(2, TimeUnit.SECONDS))
+                releaseReplacement.countDown()
+
+                assertFalse(staleFuture.get(2, TimeUnit.SECONDS))
+                assertTrue(replacementFuture.get(2, TimeUnit.SECONDS))
+                assertEquals(22, secondsLeft.value)
+            } finally {
+                releaseReplacement.countDown()
+                executor.shutdownNow()
+            }
+        }
+    }
+
     @Test
     fun parsesHermesBeginWithColoredOutcomes() {
         val prediction = PubSubUtils.onPredictionUpdate(

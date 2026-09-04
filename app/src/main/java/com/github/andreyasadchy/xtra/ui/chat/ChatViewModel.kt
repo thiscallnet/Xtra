@@ -166,6 +166,31 @@ sealed interface ChatSendResult {
     data class Failure(val message: String) : ChatSendResult
 }
 
+internal fun updatePredictionCountdownState(
+    predictionStateStore: PredictionStateStore,
+    currentDeadlineToken: () -> Any?,
+    deadlineToken: Any,
+    remainingMs: Long,
+    predictionSecondsLeft: MutableStateFlow<Int?>,
+    onExpired: (Prediction?) -> Unit,
+): Boolean = predictionStateStore.withLock { current ->
+    if (currentDeadlineToken() !== deadlineToken) {
+        return@withLock false
+    }
+
+    if (remainingMs <= 0L) {
+        predictionSecondsLeft.value = null
+        onExpired(current)
+        false
+    } else {
+        val remainingSeconds = ((remainingMs + 999L) / 1_000L).toInt()
+        if (predictionSecondsLeft.value != remainingSeconds) {
+            predictionSecondsLeft.value = remainingSeconds
+        }
+        true
+    }
+}
+
 internal fun matchesV2PickerSession(
     active: com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec?,
     expectedChannelId: String?,
@@ -3743,18 +3768,17 @@ class ChatViewModel(
         predictionCountdownJob = viewModelScope.launch {
             while (isActive) {
                 val remainingMs = endsAt - System.currentTimeMillis()
-                if (remainingMs <= 0L) {
-                    predictionSecondsLeft.value = null
-                    predictionStateStore.withLock { current ->
-                        if (predictionDeadlineToken === deadlineToken) {
-                            transitionPredictionToLocked(current)
-                        }
-                    }
+                val keepRunning = updatePredictionCountdownState(
+                    predictionStateStore = predictionStateStore,
+                    currentDeadlineToken = { predictionDeadlineToken },
+                    deadlineToken = deadlineToken,
+                    remainingMs = remainingMs,
+                    predictionSecondsLeft = predictionSecondsLeft,
+                    onExpired = ::transitionPredictionToLocked,
+                )
+
+                if (!keepRunning) {
                     break
-                }
-                val remainingSeconds = ((remainingMs + 999L) / 1_000L).toInt()
-                if (predictionSecondsLeft.value != remainingSeconds) {
-                    predictionSecondsLeft.value = remainingSeconds
                 }
                 /*
                  * Wake at the next visible second boundary.
