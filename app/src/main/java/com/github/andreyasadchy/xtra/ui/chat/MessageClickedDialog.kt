@@ -145,9 +145,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                                 if (!it.id.isNullOrBlank()) message.id == it.id else message === it
                             }.takeIf { it != -1 }
                         }?.let {
-                            (recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
-                                adapter.updateBackground(previousSelectedMessage, it)
-                            } ?: adapter.notifyItemChanged(it)
+                            adapter.notifyItemChanged(it)
                         }
                     }
                 }

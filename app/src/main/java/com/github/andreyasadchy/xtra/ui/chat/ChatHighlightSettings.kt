@@ -12,6 +12,32 @@ import com.github.andreyasadchy.xtra.util.tokenPrefs
 internal const val DEFAULT_CHAT_HIGHLIGHT_COLOR: Int = 0x80680E0E.toInt()
 
 private val CHAT_HIGHLIGHT_COLOR_PATTERN = Regex("#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
+private val CHAT_HIGHLIGHT_URL_PATTERN = Regex(
+    """(?i)(?<![\p{L}\p{N}_])(?:(?:https?://|www\.)[^\s<>()]+|(?:[\p{L}\p{N}_-]+\.)+[a-z]{2,}(?:/[^\s<>()]*)?)""",
+)
+
+internal class ChatMentionMatcher(
+    viewerLogin: String?,
+    matchWithoutAt: Boolean,
+) {
+    internal val viewerLogin: String? = viewerLogin?.trim()?.takeIf { it.isNotEmpty() }
+    private val pattern = this.viewerLogin?.let { login ->
+        val prefix = if (matchWithoutAt) "@?" else "@"
+        Regex(
+            "(?<![\\p{L}\\p{N}_])$prefix${Regex.escape(login)}(?![\\p{L}\\p{N}_])",
+            RegexOption.IGNORE_CASE,
+        )
+    }
+
+    fun contains(text: String?): Boolean {
+        val value = text?.takeIf { it.isNotEmpty() } ?: return false
+        val mentionPattern = pattern ?: return false
+        val urlRanges = CHAT_HIGHLIGHT_URL_PATTERN.findAll(value).map { it.range }.toList()
+        return mentionPattern.findAll(value).any { mention ->
+            urlRanges.none { url -> mention.range.first <= url.last && mention.range.last >= url.first }
+        }
+    }
+}
 
 data class ChatHighlightSettings(
     val highlightReplies: Boolean = true,
@@ -20,7 +46,12 @@ data class ChatHighlightSettings(
     val color: Int = DEFAULT_CHAT_HIGHLIGHT_COLOR,
     val viewerId: String? = null,
     val viewerLogin: String? = null,
-)
+) {
+    /** The matcher is rebuilt with each new immutable settings instance, not per chat row. */
+    internal val mentionMatcher: ChatMentionMatcher by lazy {
+        ChatMentionMatcher(viewerLogin, matchMentionsWithoutAt)
+    }
+}
 
 internal fun resolveChatHighlightSettings(context: Context): ChatHighlightSettings {
     val preferences = context.prefs()
@@ -49,16 +80,8 @@ internal fun parseChatHighlightColor(value: String?): Int? {
 
 internal fun containsChatViewerMention(
     text: String?,
-    viewerLogin: String?,
-    matchWithoutAt: Boolean,
-): Boolean {
-    val login = viewerLogin?.trim()?.takeIf { it.isNotEmpty() } ?: return false
-    val prefix = if (matchWithoutAt) "@?" else "@"
-    return Regex(
-        "(?<![\\p{L}\\p{N}_])$prefix${Regex.escape(login)}(?![\\p{L}\\p{N}_])",
-        RegexOption.IGNORE_CASE,
-    ).containsMatchIn(text.orEmpty())
-}
+    matcher: ChatMentionMatcher,
+): Boolean = matcher.contains(text)
 
 internal fun matchesChatViewer(
     id: String?,
@@ -74,6 +97,7 @@ internal fun matchesChatViewer(
 internal fun shouldHighlightLegacyChatMessage(
     message: LegacyChatMessage,
     settings: ChatHighlightSettings,
+    mentionDetected: Boolean? = null,
 ): Boolean {
     if (message.type != LegacyChatMessage.USER_MESSAGE) return false
     if (settings.viewerId.isNullOrBlank() && settings.viewerLogin.isNullOrBlank()) return false
@@ -82,11 +106,8 @@ internal fun shouldHighlightLegacyChatMessage(
     val reply = settings.highlightReplies && message.reply?.let {
         matchesChatViewer(null, it.userLogin, it.userName, settings)
     } == true
-    val mention = settings.highlightMentions && containsChatViewerMention(
-        message.message,
-        settings.viewerLogin,
-        settings.matchMentionsWithoutAt,
-    )
+    val mention = settings.highlightMentions && (mentionDetected
+        ?: containsChatViewerMention(message.message, settings.mentionMatcher))
     return reply || mention
 }
 
@@ -106,19 +127,8 @@ internal fun shouldHighlightV2ChatMessage(
         if (!isExplicit && !settings.matchMentionsWithoutAt) return@any false
         matchesChatViewer(mention.userId, mention.login, null, settings)
     }
-    val rawText = message.rawText ?: message.segments.joinToString(separator = "") { segment ->
-        when (segment) {
-            is ChatSegment.Text -> segment.text
-            is ChatSegment.Mention -> segment.text
-            is ChatSegment.Emote -> segment.fallbackText
-            is ChatSegment.Gif -> segment.fallbackText
-            is ChatSegment.Cheermote -> segment.text
-        }
-    }
-    val textMention = settings.highlightMentions && containsChatViewerMention(
-        rawText,
-        settings.viewerLogin,
-        settings.matchMentionsWithoutAt,
-    )
+    val textMention = settings.highlightMentions && message.segments
+        .filterIsInstance<ChatSegment.Text>()
+        .any { containsChatViewerMention(it.text, settings.mentionMatcher) }
     return reply || structuredMention || textMention
 }
