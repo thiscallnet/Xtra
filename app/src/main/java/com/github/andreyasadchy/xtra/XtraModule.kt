@@ -697,8 +697,11 @@ class XtraModule(application: Application) {
                 ChatClipPreview(
                     title = clip.title,
                     broadcasterName = clip.broadcaster?.displayName ?: clip.broadcaster?.login,
-                    creatorName = clip.creator?.displayName ?: clip.creator?.login,
+                    creatorName = clip.curator?.displayName ?: clip.curator?.login,
                     thumbnailUrl = TwitchApiHelper.getClipThumbnail(clip.thumbnailURL),
+                    gameName = clip.game?.displayName,
+                    durationSeconds = clip.durationSeconds,
+                    createdAt = clip.createdAt?.toString(),
                 )
             },
         )

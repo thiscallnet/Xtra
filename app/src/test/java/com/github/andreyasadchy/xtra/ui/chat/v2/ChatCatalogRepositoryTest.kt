@@ -78,14 +78,15 @@ class ChatCatalogRepositoryTest {
                 "ffz-value"
             }
         }
+        // The duplicate must join the first load rather than win the race to own it.
+        withTimeout(1_000) {
+            while (duplicateCalls.get() < 1) delay(1)
+        }
         val duplicateSecond = async(Dispatchers.Default) {
             cache.get("ffz") {
                 duplicateCalls.incrementAndGet()
                 "unexpected"
             }
-        }
-        withTimeout(1_000) {
-            while (duplicateCalls.get() < 1) delay(1)
         }
         assertEquals(1, duplicateCalls.get())
         duplicateRelease.complete(Unit)

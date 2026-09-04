@@ -6,7 +6,7 @@ query Clip($slug: ID!) {
             login
             profileImageURL(width: 300)
         }
-        creator {
+        curator {
             displayName
             login
         }

@@ -14,13 +14,9 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopedEmoteCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink
 import com.github.andreyasadchy.xtra.ui.chat.ChatGifDisplayMode
 import java.text.NumberFormat
-
-private val TWITCH_CLIP_LINK = Regex(
-    "(?i)(https?://)?(?:www\\.)?twitch\\.tv/(?:[^/\\s]+/)?clip/([A-Za-z0-9_-]+)|" +
-        "(?i)(https?://)?clips\\.twitch\\.tv/([A-Za-z0-9_-]+)",
-)
 
 data class ChatPresentationLabels(
     val firstChatter: String = "First Time Chatter",
@@ -456,7 +452,7 @@ class ChatRowCompiler(
 
     private fun colorToHex(color: Int): String = "#%06X".format(color and 0xFFFFFF)
 
-    private fun extractClipPreviews(message: ChatMessage): List<com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink> {
+    private fun extractClipPreviews(message: ChatMessage): List<ChatClipPreviewLink> {
         val body = message.rawText ?: message.segments.joinToString("") { segment ->
             when (segment) {
                 is ChatSegment.Text -> segment.text
@@ -466,14 +462,7 @@ class ChatRowCompiler(
                 is ChatSegment.Cheermote -> segment.text
             }
         }
-        return TWITCH_CLIP_LINK.findAll(body).mapNotNull { match ->
-            val slug = match.groups[2]?.value ?: match.groups[4]?.value ?: return@mapNotNull null
-            val matchedUrl = match.value.trimEnd('.', ',', '!', '?', ':', ';', ')', ']', '}')
-            val url = if (matchedUrl.startsWith("http://", ignoreCase = true) ||
-                matchedUrl.startsWith("https://", ignoreCase = true)
-            ) matchedUrl else "https://$matchedUrl"
-            com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink(slug, url)
-        }.distinctBy { it.slug.lowercase() }.toList()
+        return ChatClipPreviewLink.parse(body)
     }
 
     private companion object {
