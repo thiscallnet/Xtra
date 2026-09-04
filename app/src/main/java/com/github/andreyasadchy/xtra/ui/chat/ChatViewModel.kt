@@ -139,13 +139,11 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.util.Timer
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.InflaterOutputStream
 import javax.net.ssl.X509TrustManager
-import kotlin.concurrent.scheduleAtFixedRate
 import kotlin.time.Instant
 
 internal fun shouldResumeLiveChat(
@@ -525,8 +523,7 @@ class ChatViewModel(
     /** The ongoing prediction only while its betting window is open. */
     val bettablePrediction = MutableStateFlow<Prediction?>(null)
     val predictionSecondsLeft = MutableStateFlow<Int?>(null)
-    var predictionTimer: Timer? = null
-    private var predictionDeadlineJob: Job? = null
+    private var predictionCountdownJob: Job? = null
     private var predictionDeadlineToken: Any? = null
     private val predictionStateStore = PredictionStateStore()
     private val predictionBetEvents = Channel<PredictionBetResult>(Channel.BUFFERED)
@@ -3657,10 +3654,8 @@ class ChatViewModel(
         ongoingPrediction.value = null
         bettablePrediction.value = null
         predictionSecondsLeft.value = null
-        predictionTimer?.cancel()
-        predictionTimer = null
-        predictionDeadlineJob?.cancel()
-        predictionDeadlineJob = null
+        predictionCountdownJob?.cancel()
+        predictionCountdownJob = null
         predictionDeadlineToken = null
         predictionTimeoutJob?.cancel()
         predictionTimeoutJob = null
@@ -3715,10 +3710,8 @@ class ChatViewModel(
     }
 
     private fun updatePredictionTimer(value: Prediction) {
-        predictionTimer?.cancel()
-        predictionTimer = null
-        predictionDeadlineJob?.cancel()
-        predictionDeadlineJob = null
+        predictionCountdownJob?.cancel()
+        predictionCountdownJob = null
         predictionDeadlineToken = null
         if (!PredictionState.isBettingOpen(value)) {
             predictionSecondsLeft.value = null
@@ -3736,40 +3729,47 @@ class ChatViewModel(
         if (remainingMillis != null && remainingMillis > 0L) {
             val deadlineToken = Any()
             predictionDeadlineToken = deadlineToken
-            predictionDeadlineJob = viewModelScope.launch {
-                while (isActive) {
-                    val remaining = endsAt - System.currentTimeMillis()
-                    if (remaining <= 0L) {
-                        predictionStateStore.withLock { current ->
-                            if (predictionDeadlineToken === deadlineToken) {
-                                transitionPredictionToLocked(current)
-                            }
-                        }
-                        return@launch
-                    }
-                    delay(remaining)
-                }
-            }
-            val timer = Timer()
-            predictionTimer = timer
-            timer.scheduleAtFixedRate(1_000, 1_000) {
-                var stopTimer = false
-                predictionStateStore.withLock { current ->
-                    val remaining = endsAt - System.currentTimeMillis()
-                    if (predictionTimer !== timer || current == null) {
-                        stopTimer = true
-                    } else if (remaining <= 0L) {
-                        predictionSecondsLeft.value = null
-                        transitionPredictionToLocked(current)
-                        stopTimer = true
-                    } else {
-                        predictionSecondsLeft.value = ((remaining + 999L) / 1_000L).toInt()
-                    }
-                }
-                if (stopTimer) cancel()
-            }
+            startPredictionCountdown(endsAt, deadlineToken)
         } else if (remainingMillis != null) {
             transitionPredictionToLocked()
+        }
+    }
+
+    private fun startPredictionCountdown(
+        endsAt: Long,
+        deadlineToken: Any,
+    ) {
+        predictionCountdownJob?.cancel()
+        predictionCountdownJob = viewModelScope.launch {
+            while (isActive) {
+                val remainingMs = endsAt - System.currentTimeMillis()
+                if (remainingMs <= 0L) {
+                    predictionSecondsLeft.value = null
+                    predictionStateStore.withLock { current ->
+                        if (predictionDeadlineToken === deadlineToken) {
+                            transitionPredictionToLocked(current)
+                        }
+                    }
+                    break
+                }
+                val remainingSeconds = ((remainingMs + 999L) / 1_000L).toInt()
+                if (predictionSecondsLeft.value != remainingSeconds) {
+                    predictionSecondsLeft.value = remainingSeconds
+                }
+                /*
+                 * Wake at the next visible second boundary.
+                 * We always recalculate from absolute endsAt, therefore delays
+                 * do not accumulate countdown drift.
+                 */
+                val delayMs = remainingMs % 1_000L
+                delay(
+                    if (delayMs == 0L) {
+                        1_000L
+                    } else {
+                        delayMs
+                    }
+                )
+            }
         }
     }
 
