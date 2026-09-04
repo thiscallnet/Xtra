@@ -272,6 +272,9 @@ class StreamsAdapter(
                     }
                 } else {
                     boundStream = null
+                    (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
+                        .detachSurface(previewSurface)
+                    boundPreviewIdentity = null
                     clearUptime()
                     userImage.setImageDrawable(null)
                     userImage.tag = null
