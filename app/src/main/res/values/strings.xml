@@ -1364,7 +1364,7 @@
     <string name="chat_highlight_mentions">Highlight mentions of me</string>
     <string name="chat_highlight_mentions_without_at">Match mentions without @</string>
     <string name="chat_highlight_color">Highlight color</string>
-    <string name="chat_highlight_color_summary">Enter #RRGGBB or #AARRGGBB.</string>
+    <string name="chat_highlight_color_summary">Enter #RRGGBB for the default translucent highlight, or #AARRGGBB to set opacity.</string>
     <string name="chat_highlight_color_hint">#80680E0E</string>
     <string name="chat_highlight_color_invalid">Enter a color as #RRGGBB or #AARRGGBB.</string>
     <string name="replying_to_message">Replying to %1$s\: %2$s</string>

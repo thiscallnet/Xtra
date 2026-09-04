@@ -99,9 +99,7 @@ class ReplyClickedDialog : BottomSheetDialogFragment() {
                         synchronized(adapter.messages) {
                             adapter.messages.indexOf(it).takeIf { it != -1 }
                         }?.let {
-                            (recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
-                                adapter.updateBackground(previousSelectedMessage, it)
-                            } ?: adapter.notifyItemChanged(it)
+                            adapter.notifyItemChanged(it)
                         }
                     }
                 }

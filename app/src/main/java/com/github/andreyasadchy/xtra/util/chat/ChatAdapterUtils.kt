@@ -55,6 +55,7 @@ import com.github.andreyasadchy.xtra.ui.view.CenteredImageSpan
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
 import com.github.andreyasadchy.xtra.ui.view.NamePaintSpan
 import com.github.andreyasadchy.xtra.ui.chat.ChatHighlightSettings
+import com.github.andreyasadchy.xtra.ui.chat.ChatMentionMatcher
 import com.github.andreyasadchy.xtra.ui.chat.shouldHighlightLegacyChatMessage
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import java.text.NumberFormat
@@ -247,7 +248,7 @@ object ChatAdapterUtils {
         var translated = false
         var backgroundResource = 0
         var backgroundColor: Int? = null
-        val highlightMatch = shouldHighlightLegacyChatMessage(chatMessage, highlightSettings)
+        var highlightMatch = shouldHighlightLegacyChatMessage(chatMessage, highlightSettings)
         var builderIndex = 0
         val badgeVisibility = chatBadgeVisibility(showBadges, showSTVBadges, showNamePaints, showPersonalEmotes)
         when {
@@ -686,8 +687,9 @@ object ChatAdapterUtils {
                     if (chatMessage.isAction) {
                         builder.setSpan(ForegroundColorSpan(color), builderIndex, builderIndex + chatMessage.message.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                     }
-                    val result = prepareEmotes(chatMessage, chatMessage.message, builder, builderIndex, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, stvUser, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes)
+                    val result = prepareEmotes(chatMessage, chatMessage.message, builder, builderIndex, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, stvUser, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes, highlightSettings.mentionMatcher)
                     wasMentioned = result
+                    highlightMatch = shouldHighlightLegacyChatMessage(chatMessage, highlightSettings, mentionDetected = wasMentioned)
                     builderIndex = builder.length
                 }
                 if (chatMessage.translatedMessage != null) {
@@ -1176,7 +1178,7 @@ object ChatAdapterUtils {
         return ColorUtils.HSLToColor(colorArray)
     }
 
-    private fun prepareEmotes(chatMessage: ChatMessage, message: String, builder: SpannableStringBuilder, startIndex: Int, images: ArrayList<Image>, imageClick: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?, useReadableColors: Boolean, isLightTheme: Boolean, enableOverlayEmotes: Boolean, useBoldNames: Boolean, loggedInUser: String?, chatUrl: String?, savedColors: HashMap<String, Int>, localTwitchEmotes: List<TwitchEmote>, showPersonalEmotes: Boolean, personalEmoteSets: Map<String, List<Emote>>, stvUser: STVUser?, thirdPartyEmotes: List<Emote>, cheerEmotes: List<CheerEmote>, savedLocalTwitchEmotes: MutableMap<String, ByteArray>, savedLocalCheerEmotes: MutableMap<String, ByteArray>, savedLocalEmotes: MutableMap<String, ByteArray>, catalogIndexes: ChatCatalogIndexes): Boolean {
+    private fun prepareEmotes(chatMessage: ChatMessage, message: String, builder: SpannableStringBuilder, startIndex: Int, images: ArrayList<Image>, imageClick: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?, useReadableColors: Boolean, isLightTheme: Boolean, enableOverlayEmotes: Boolean, useBoldNames: Boolean, loggedInUser: String?, chatUrl: String?, savedColors: HashMap<String, Int>, localTwitchEmotes: List<TwitchEmote>, showPersonalEmotes: Boolean, personalEmoteSets: Map<String, List<Emote>>, stvUser: STVUser?, thirdPartyEmotes: List<Emote>, cheerEmotes: List<CheerEmote>, savedLocalTwitchEmotes: MutableMap<String, ByteArray>, savedLocalCheerEmotes: MutableMap<String, ByteArray>, savedLocalEmotes: MutableMap<String, ByteArray>, catalogIndexes: ChatCatalogIndexes, mentionMatcher: ChatMentionMatcher? = null): Boolean {
         var wasMentioned = false
         try {
             var builderIndex = startIndex
@@ -1404,9 +1406,10 @@ object ChatAdapterUtils {
                 if (value.startsWith('@') && useBoldNames) {
                     builder.setSpan(StyleSpan(Typeface.BOLD), builderIndex, builderIndex + value.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
+                val matchesViewer = mentionMatcher?.contains(value)
+                    ?: (!loggedInUser.isNullOrBlank() && value.contains(loggedInUser, true))
                 if (!wasMentioned &&
-                    !loggedInUser.isNullOrBlank() &&
-                    value.contains(loggedInUser, true) &&
+                    matchesViewer &&
                     chatMessage.userId != null &&
                     chatMessage.userLogin != loggedInUser
                 ) {

@@ -200,32 +200,6 @@ class MessageClickedChatAdapter(
         )
     }
 
-    fun updateBackground(chatMessage: ChatMessage, item: TextView) {
-        val highlightSettings = resolveChatHighlightSettings(item.context)
-        if (chatMessage.isHighlightedMessage()) {
-            item.setBackgroundResource(R.drawable.bg_chat_highlight)
-        } else if (chatMessage.isWatchStreakNotice()) {
-            item.setBackgroundResource(R.drawable.bg_chat_watch_streak)
-        } else if (chatMessage.message.isNullOrBlank()) {
-            item.setBackgroundResource(0)
-        } else {
-            when {
-                chatMessage.isFirst && firstMsgVisibility < 2 -> item.setBackgroundResource(R.color.chatMessageFirst)
-                chatMessage.reward?.id != null && firstMsgVisibility < 2 -> item.setBackgroundResource(R.color.chatMessageReward)
-                chatMessage.systemMsg != null || chatMessage.msgId != null -> item.setBackgroundResource(R.color.chatMessageNotice)
-                shouldHighlightLegacyChatMessage(chatMessage, highlightSettings) ->
-                    item.setBackgroundColor(highlightSettings.color)
-                else -> item.setBackgroundResource(0)
-            }
-        }
-        (item.text as? Spannable)?.let { view ->
-            view.getSpans<NamePaintImageSpan>().forEach {
-                it.backgroundColor = (item.background as? ColorDrawable)?.color
-                view.setSpan(it, view.getSpanStart(it), view.getSpanEnd(it), SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
-        }
-    }
-
     fun updateTranslation(chatMessage: ChatMessage, item: TextView, previousTranslation: String?) {
         (item.text as? SpannableString)?.let { text ->
             val builder = SpannableStringBuilder()
