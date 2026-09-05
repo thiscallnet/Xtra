@@ -114,6 +114,8 @@ class Media3PlayerViewModel(
     var updateQualities = false
     var started = false
     var restoreQuality = false
+    /** True only when backgrounding temporarily disabled the video track. */
+    var videoTrackDisabledForBackground = false
     internal val videoOutputState = VideoOutputState()
     var resume = false
     var hidden = false
