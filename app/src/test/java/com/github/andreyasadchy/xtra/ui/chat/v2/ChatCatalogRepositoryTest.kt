@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogCache
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogBadge
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogLoadResult
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogProviderUpdate
@@ -14,8 +15,14 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ExpiringSingleFlightCach
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopeUpdate
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopedEmoteCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.isReadyForChatPublication
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -28,14 +35,427 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.awaitCancellation
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationSnapshot
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 class ChatCatalogRepositoryTest {
+    @Test
+    fun hydratedAloneDoesNotSettleInitialBadgeAttempt() = runBlocking {
+        val release = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                release.await()
+                ChatCatalogLoadResult(badges = ChatCatalogProviderUpdate(emptyMap()))
+            },
+        )
+
+        assertTrue(repository.state.value.hydrated)
+        assertFalse(repository.state.value.badgesSettled)
+        repository.refresh()
+        delay(20)
+        assertFalse(repository.state.value.badgesSettled)
+
+        release.complete(Unit)
+        withTimeout(1_000) { while (!repository.state.value.badgesSettled) delay(1) }
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun independentBadgeSettlementDoesNotWaitForUnrelatedProviders() = runBlocking {
+        val aggregateStarted = CompletableDeferred<Unit>()
+        val releaseUnrelatedProviders = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = object : ChatCatalogSource {
+                override val hasIndependentBadgeProvider = true
+
+                override suspend fun loadBadges() = ChatCatalogProviderUpdate(emptyMap<String, ChatCatalogBadge>())
+
+                override suspend fun load(): ChatCatalogLoadResult {
+                    aggregateStarted.complete(Unit)
+                    releaseUnrelatedProviders.await()
+                    return ChatCatalogLoadResult(
+                        twitch = ChatCatalogProviderUpdate(emptyMap()),
+                        sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                        bttv = ChatCatalogProviderUpdate(emptyMap()),
+                        ffz = ChatCatalogProviderUpdate(emptyMap()),
+                        cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                    )
+                }
+            },
+        )
+
+        repository.refresh()
+        aggregateStarted.await()
+        withTimeout(1_000) {
+            while (!repository.state.value.badgesSettled) delay(1)
+        }
+        assertFalse(repository.state.value.structuralCatalogSettled)
+        assertFalse(repository.state.value.isReadyForChatPublication(showBadges = true))
+
+        releaseUnrelatedProviders.complete(Unit)
+        withTimeout(1_000) {
+            while (!repository.state.value.structuralCatalogSettled) delay(1)
+        }
+        assertTrue(repository.state.value.isReadyForChatPublication(showBadges = true))
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun initialThirdPartyAttemptCompletesBeforeFirstPublication() = runBlocking {
+        val aggregateStarted = CompletableDeferred<Unit>()
+        val releaseAggregate = CompletableDeferred<Unit>()
+        val omegalul = emote("OMEGALUL", ChatAssetProvider.SEVEN_TV)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = object : ChatCatalogSource {
+                override val hasIndependentBadgeProvider = true
+
+                override suspend fun loadBadges() = ChatCatalogProviderUpdate(emptyMap<String, ChatCatalogBadge>())
+
+                override suspend fun load(): ChatCatalogLoadResult {
+                    aggregateStarted.complete(Unit)
+                    releaseAggregate.await()
+                    return ChatCatalogLoadResult(
+                        twitch = ChatCatalogProviderUpdate(emptyMap()),
+                        sevenTv = ChatCatalogProviderUpdate(mapOf(omegalul.name to omegalul)),
+                        bttv = ChatCatalogProviderUpdate(emptyMap()),
+                        ffz = ChatCatalogProviderUpdate(emptyMap()),
+                        cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                    )
+                }
+            },
+        )
+        repository.refresh()
+        aggregateStarted.await()
+        withTimeout(1_000) {
+            while (!repository.state.value.badgesSettled) delay(1)
+        }
+
+        assertFalse(repository.state.value.structuralCatalogSettled)
+        assertFalse(repository.state.value.isReadyForChatPublication(showBadges = true))
+
+        releaseAggregate.complete(Unit)
+        withTimeout(1_000) {
+            while (!repository.state.value.isReadyForChatPublication(showBadges = true)) delay(1)
+        }
+        val message = ChatMessage(
+            id = ChatMessageId("omegalul"),
+            channelId = "channel",
+            timestampMs = 1L,
+            user = null,
+            badges = emptyList(),
+            segments = listOf(ChatSegment.Text("OMEGALUL")),
+            kind = ChatMessageKind.CHAT,
+        )
+        val row = ChatRowCompiler().compile(
+            message,
+            ChatPresentationSnapshot().catalogsFor(
+                ChatSessionKey("channel", 1L),
+                listOf(message),
+                repository.state.value.snapshot,
+            ).single(),
+        )
+        assertTrue(row.pieces.any { it is ChatPiece.Emote })
+
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun successfulBadgesAreNotRestartedByAggregateRetries() = runBlocking {
+        val releaseFirstAggregate = CompletableDeferred<Unit>()
+        val secondAggregateStarted = CompletableDeferred<Unit>()
+        val badgeCalls = AtomicInteger()
+        val aggregateCalls = AtomicInteger()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = object : ChatCatalogSource {
+                override val hasIndependentBadgeProvider = true
+
+                override suspend fun loadBadges(): ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>> {
+                    badgeCalls.incrementAndGet()
+                    return ChatCatalogProviderUpdate(emptyMap())
+                }
+
+                override suspend fun load(): ChatCatalogLoadResult {
+                    if (aggregateCalls.incrementAndGet() == 1) {
+                        releaseFirstAggregate.await()
+                    } else {
+                        secondAggregateStarted.complete(Unit)
+                        awaitCancellation()
+                    }
+                    return ChatCatalogLoadResult(twitch = ChatCatalogProviderUpdate(emptyMap()))
+                }
+            },
+            wait = { delay(1) },
+        )
+
+        repository.refresh()
+        withTimeout(1_000) {
+            while (!repository.state.value.badgesSettled) delay(1)
+        }
+        assertEquals(1, badgeCalls.get())
+
+        releaseFirstAggregate.complete(Unit)
+        secondAggregateStarted.await()
+        assertEquals(1, badgeCalls.get())
+
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun badgesOnlyCacheDoesNotSettleStructuralCatalog() = runBlocking {
+        val releaseNetwork = CompletableDeferred<Unit>()
+        val badge = ChatCatalogBadge(
+            name = "subscriber:1",
+            asset = ChatAssetSpec(ChatAssetKey("https://cdn.example.test/subscriber.png"), 18, 18, 18),
+            provider = ChatAssetProvider.TWITCH,
+            setId = "subscriber",
+            versionId = "1",
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                releaseNetwork.await()
+                ChatCatalogLoadResult(
+                    twitch = ChatCatalogProviderUpdate(emptyMap()),
+                    sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                    bttv = ChatCatalogProviderUpdate(emptyMap()),
+                    ffz = ChatCatalogProviderUpdate(emptyMap()),
+                    cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                )
+            },
+            cache = object : ChatCatalogCache {
+                override suspend fun read() = ChatCatalogSnapshot(
+                    revision = 4,
+                    badges = mapOf("subscriber:1" to badge),
+                )
+
+                override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
+            },
+        )
+
+        repository.refresh()
+        withTimeout(1_000) {
+            while (!repository.state.value.hydrated || !repository.state.value.badgesSettled) delay(1)
+        }
+        assertTrue(repository.state.value.snapshot.badges.isNotEmpty())
+        assertFalse(repository.state.value.structuralCatalogSettled)
+        assertFalse(repository.state.value.isReadyForChatPublication(showBadges = true))
+
+        releaseNetwork.complete(Unit)
+        withTimeout(1_000) {
+            while (!repository.state.value.structuralCatalogSettled) delay(1)
+        }
+        assertTrue(repository.state.value.isReadyForChatPublication(showBadges = true))
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun badgeCacheWrittenBeforeAggregateCannotBypassNextColdStart() = runBlocking {
+        val badge = ChatCatalogBadge(
+            name = "subscriber:1",
+            asset = ChatAssetSpec(ChatAssetKey("https://cdn.example.test/subscriber.png"), 18, 18, 18),
+            provider = ChatAssetProvider.TWITCH,
+            setId = "subscriber",
+            versionId = "1",
+        )
+        val persisted = AtomicReference<ChatCatalogSnapshot?>()
+        val cache = object : ChatCatalogCache {
+            override suspend fun read(): ChatCatalogSnapshot? = persisted.get()
+
+            override suspend fun write(snapshot: ChatCatalogSnapshot) {
+                persisted.set(snapshot)
+            }
+        }
+        val firstAggregateRelease = CompletableDeferred<Unit>()
+        val firstScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val firstRepository = ChatCatalogRepository(
+            scope = firstScope,
+            source = object : ChatCatalogSource {
+                override val hasIndependentBadgeProvider = true
+
+                override suspend fun loadBadges() = ChatCatalogProviderUpdate(mapOf("subscriber:1" to badge))
+
+                override suspend fun load(): ChatCatalogLoadResult {
+                    firstAggregateRelease.await()
+                    return ChatCatalogLoadResult(
+                        twitch = ChatCatalogProviderUpdate(emptyMap()),
+                        sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                        bttv = ChatCatalogProviderUpdate(emptyMap()),
+                        ffz = ChatCatalogProviderUpdate(emptyMap()),
+                        cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                    )
+                }
+            },
+            cache = cache,
+        )
+        firstRepository.refresh()
+        withTimeout(1_000) {
+            while (persisted.get()?.badges.isNullOrEmpty()) delay(1)
+        }
+        assertFalse(firstRepository.state.value.structuralCatalogSettled)
+        firstRepository.close()
+        firstScope.cancel()
+
+        val secondAggregateRelease = CompletableDeferred<Unit>()
+        val secondScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val secondRepository = ChatCatalogRepository(
+            scope = secondScope,
+            source = object : ChatCatalogSource {
+                override val hasIndependentBadgeProvider = true
+
+                override suspend fun loadBadges() = ChatCatalogProviderUpdate(mapOf("subscriber:1" to badge))
+
+                override suspend fun load(): ChatCatalogLoadResult {
+                    secondAggregateRelease.await()
+                    return ChatCatalogLoadResult(
+                        twitch = ChatCatalogProviderUpdate(emptyMap()),
+                        sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                        bttv = ChatCatalogProviderUpdate(emptyMap()),
+                        ffz = ChatCatalogProviderUpdate(emptyMap()),
+                        cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                    )
+                }
+            },
+            cache = cache,
+        )
+        secondRepository.refresh()
+        withTimeout(1_000) {
+            while (!secondRepository.state.value.hydrated || !secondRepository.state.value.badgesSettled) delay(1)
+        }
+        assertFalse(secondRepository.state.value.structuralCatalogSettled)
+        assertFalse(secondRepository.state.value.isReadyForChatPublication(showBadges = true))
+
+        secondAggregateRelease.complete(Unit)
+        withTimeout(1_000) {
+            while (!secondRepository.state.value.structuralCatalogSettled) delay(1)
+        }
+        secondRepository.close()
+        secondScope.cancel()
+    }
+
+    @Test
+    fun successfulInitialCatalogAttemptSettlesBadges() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                ChatCatalogLoadResult(badges = ChatCatalogProviderUpdate(emptyMap()))
+            },
+        )
+
+        repository.refresh()
+        withTimeout(1_000) { while (!repository.state.value.badgesSettled) delay(1) }
+        assertTrue(repository.state.value.badgesSettled)
+        assertTrue(repository.state.value.structuralCatalogSettled)
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun failedInitialCatalogAttemptSettlesBadgesAndRetryKeepsItSettled() = runBlocking {
+        val retryStarted = CompletableDeferred<Unit>()
+        val releaseRetry = CompletableDeferred<Unit>()
+        val attempts = AtomicInteger()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                if (attempts.incrementAndGet() == 1) {
+                    throw IllegalStateException("catalog unavailable")
+                }
+                retryStarted.complete(Unit)
+                releaseRetry.await()
+                ChatCatalogLoadResult(badges = ChatCatalogProviderUpdate(emptyMap()))
+            },
+            wait = { delayMs ->
+                if (delayMs == 1_000L) retryStarted.complete(Unit)
+            },
+        )
+
+        repository.refresh()
+        withTimeout(1_000) { while (!repository.state.value.badgesSettled) delay(1) }
+        assertTrue(repository.state.value.badgesSettled)
+        assertTrue(repository.state.value.structuralCatalogSettled)
+        withTimeout(1_500) { retryStarted.await() }
+        assertTrue(repository.state.value.badgesSettled)
+
+        releaseRetry.complete(Unit)
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun failedInitialThirdPartyAttemptSettlesStructuralCatalog() = runBlocking {
+        val retryStarted = CompletableDeferred<Unit>()
+        val releaseRetry = CompletableDeferred<Unit>()
+        val attempts = AtomicInteger()
+        val recovered = emote("OMEGALUL", ChatAssetProvider.SEVEN_TV)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                if (attempts.incrementAndGet() == 1) {
+                    ChatCatalogLoadResult(
+                        twitch = ChatCatalogProviderUpdate(emptyMap()),
+                        badges = ChatCatalogProviderUpdate(emptyMap()),
+                    )
+                } else {
+                    retryStarted.complete(Unit)
+                    releaseRetry.await()
+                    ChatCatalogLoadResult(
+                        twitch = ChatCatalogProviderUpdate(emptyMap()),
+                        sevenTv = ChatCatalogProviderUpdate(mapOf(recovered.name to recovered)),
+                        bttv = ChatCatalogProviderUpdate(emptyMap()),
+                        ffz = ChatCatalogProviderUpdate(emptyMap()),
+                        cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                        badges = ChatCatalogProviderUpdate(emptyMap()),
+                    )
+                }
+            },
+            wait = { delayMs ->
+                if (delayMs == 1_000L) retryStarted.complete(Unit)
+            },
+        )
+
+        repository.refresh()
+        withTimeout(1_000) {
+            while (!repository.state.value.structuralCatalogSettled) delay(1)
+        }
+        assertTrue(repository.state.value.isReadyForChatPublication(showBadges = true))
+        withTimeout(1_000) { retryStarted.await() }
+        assertTrue(repository.state.value.structuralCatalogSettled)
+
+        releaseRetry.complete(Unit)
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTv[recovered.name] != recovered) delay(1)
+        }
+        assertTrue(repository.state.value.structuralCatalogSettled)
+
+        repository.close()
+        scope.cancel()
+    }
+
     @Test
     fun singleFlightCacheKeepsDifferentProviderKeysParallelAndJoinsDuplicates() = runBlocking {
         val cache = ExpiringSingleFlightCache<String>()
@@ -533,7 +953,7 @@ class ChatCatalogRepositoryTest {
     }
 
     @Test
-    fun pendingRefreshDoesNotDiscardCacheHydration() = runBlocking {
+    fun cachedThirdPartyCatalogHydratesBeforeStructuralSettlement() = runBlocking {
         val cacheReadStarted = CompletableDeferred<Unit>()
         val releaseCacheRead = CompletableDeferred<Unit>()
         val releaseNetwork = CompletableDeferred<Unit>()
@@ -573,8 +993,13 @@ class ChatCatalogRepositoryTest {
             while (repository.state.value.snapshot.revision != cached.revision) delay(1)
         }
         assertEquals(cached.sevenTv, repository.state.value.snapshot.sevenTv)
+        assertFalse(repository.state.value.structuralCatalogSettled)
 
         releaseNetwork.complete(Unit)
+        withTimeout(1_000) {
+            while (!repository.state.value.structuralCatalogSettled) delay(1)
+        }
+        assertTrue(repository.state.value.structuralCatalogSettled)
         repository.close()
         scope.cancel()
     }
@@ -620,7 +1045,98 @@ class ChatCatalogRepositoryTest {
         withTimeout(1_000) {
             while (repository.state.value.snapshot.bttv["cached"] != cachedBttv) delay(1)
         }
+        assertTrue(repository.state.value.structuralCatalogSettled)
         assertEquals(networkSevenTv, repository.state.value.snapshot.sevenTv["network"])
+
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun lateCacheHydrationPreservesSuccessfulStructuralSettlement() = runBlocking {
+        val cacheReadStarted = CompletableDeferred<Unit>()
+        val releaseCacheRead = CompletableDeferred<Unit>()
+        val cachedBttv = emote("cached-bttv", ChatAssetProvider.BTTV)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                ChatCatalogLoadResult(
+                    sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                    // Other providers remain eligible for the late cache merge.
+                )
+            },
+            cache = object : ChatCatalogCache {
+                override suspend fun read(): ChatCatalogSnapshot {
+                    cacheReadStarted.complete(Unit)
+                    releaseCacheRead.await()
+                    return ChatCatalogSnapshot(
+                        revision = 4,
+                        bttv = ScopedEmoteCatalog(global = mapOf("cached" to cachedBttv)),
+                    )
+                }
+
+                override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
+            },
+            wait = { awaitCancellation() },
+        )
+
+        cacheReadStarted.await()
+        repository.refresh()
+        withTimeout(1_000) {
+            while (!repository.state.value.structuralCatalogSettled) delay(1)
+        }
+        assertTrue(repository.state.value.structuralCatalogSettled)
+
+        releaseCacheRead.complete(Unit)
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.bttv["cached"] != cachedBttv) delay(1)
+        }
+        assertTrue(repository.state.value.structuralCatalogSettled)
+
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun lateCacheHydrationPreservesFailedFirstAttemptSettlement() = runBlocking {
+        val cacheReadStarted = CompletableDeferred<Unit>()
+        val releaseCacheRead = CompletableDeferred<Unit>()
+        val cachedBttv = emote("cached-bttv", ChatAssetProvider.BTTV)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                throw IllegalStateException("initial catalog failure")
+            },
+            cache = object : ChatCatalogCache {
+                override suspend fun read(): ChatCatalogSnapshot {
+                    cacheReadStarted.complete(Unit)
+                    releaseCacheRead.await()
+                    return ChatCatalogSnapshot(
+                        revision = 4,
+                        bttv = ScopedEmoteCatalog(global = mapOf("cached" to cachedBttv)),
+                    )
+                }
+
+                override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
+            },
+            wait = { awaitCancellation() },
+        )
+
+        cacheReadStarted.await()
+        repository.refresh()
+        withTimeout(1_000) {
+            while (!repository.state.value.structuralCatalogSettled) delay(1)
+        }
+        assertTrue(repository.state.value.structuralCatalogSettled)
+
+        releaseCacheRead.complete(Unit)
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.bttv["cached"] != cachedBttv) delay(1)
+        }
+        assertTrue(repository.state.value.structuralCatalogSettled)
+        assertTrue(repository.state.value.isReadyForChatPublication(showBadges = false))
 
         repository.close()
         scope.cancel()

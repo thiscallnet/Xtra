@@ -39,6 +39,12 @@ data class ChatClipPreviewLink(
     }
 }
 
+sealed interface ChatClipPreviewState {
+    data object Missing : ChatClipPreviewState
+    data object Loading : ChatClipPreviewState
+    data class Ready(val preview: ChatClipPreview?) : ChatClipPreviewState
+}
+
 /** Formats a clip duration the way Twitch does (`m:ss`, `h:mm:ss` past an hour). */
 fun formatClipDuration(durationSeconds: Int?): String? {
     if (durationSeconds == null || durationSeconds < 0) return null
@@ -64,19 +70,26 @@ class ChatClipPreviewRepository(
     private val loader: suspend (String) -> ChatClipPreview?,
 ) {
     private val cache = HashMap<String, ChatClipPreview>()
+    private val states = HashMap<String, ChatClipPreviewState>()
     private val listeners = HashMap<String, MutableSet<() -> Unit>>()
     private val loading = HashSet<String>()
 
     @Synchronized
     fun peek(slug: String): ChatClipPreview? = cache[slug]
 
+    @Synchronized
+    fun peekState(slug: String): ChatClipPreviewState = states[slug] ?: ChatClipPreviewState.Missing
+
     fun observe(slug: String, listener: () -> Unit) {
         val shouldLoad: Boolean
         val cached: Boolean
         synchronized(this) {
-            listeners.getOrPut(slug) { LinkedHashSet() }.add(listener)
+            val slugListeners = listeners.getOrPut(slug) { LinkedHashSet() }
+            val alreadyObserved = listener in slugListeners
+            slugListeners.add(listener)
             cached = cache.containsKey(slug)
-            shouldLoad = !cached && loading.add(slug)
+            shouldLoad = !cached && !alreadyObserved && loading.add(slug)
+            if (shouldLoad) states[slug] = ChatClipPreviewState.Loading
         }
         if (cached) listener()
         if (shouldLoad) {
@@ -86,6 +99,7 @@ class ChatClipPreviewRepository(
                     // A failed request must remain retryable when the same clip is seen again.
                     if (preview != null) cache[slug] = preview
                     loading.remove(slug)
+                    states[slug] = ChatClipPreviewState.Ready(preview)
                     listeners[slug]?.toList().orEmpty()
                 }
                 callbacks.forEach { it() }

@@ -166,6 +166,12 @@ data class ChatCatalogSnapshot(
 data class ChatCatalogState(
     val snapshot: ChatCatalogSnapshot,
     val hydrated: Boolean,
+    val badgesSettled: Boolean = false,
+    /** True after the first aggregate structural-catalog attempt returns. */
+    val structuralCatalogSettled: Boolean = false,
     val refreshFailed: Boolean = false,
     val thirdPartyRefreshFailed: Boolean = false,
 )
+
+internal fun ChatCatalogState.isReadyForChatPublication(showBadges: Boolean): Boolean =
+    hydrated && structuralCatalogSettled && (!showBadges || badgesSettled)

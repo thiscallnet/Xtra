@@ -644,6 +644,8 @@ class ChatViewModel(
     )
     val translateAllMessages = MutableStateFlow<Boolean?>(null)
     val channelPoints = MutableStateFlow<ChannelPoints?>(null)
+    /** The first channel-point metadata request has completed for the active channel. */
+    val channelPointCatalogSettled = MutableStateFlow(false)
     private var highlightedMessageReward: ChannelPointRewardInfo? = null
     val watchStreak = MutableStateFlow<WatchStreak?>(null)
     private val channelPointRedemptionEvents = Channel<ChannelPointRedemptionResult>(Channel.BUFFERED)
@@ -1946,6 +1948,7 @@ class ChatViewModel(
             channelPointsBalanceState = channelPointsBalanceReducer.reset()
             channelPoints.value = null
         }
+        channelPointCatalogSettled.value = false
     }
 
     private fun applyChannelPointsBalanceEvent(event: ChannelPointsBalanceEvent): Boolean {
@@ -2468,6 +2471,7 @@ class ChatViewModel(
         delayMillis: Long = 0L,
     ) {
         if (channelLogin.isNullOrBlank()) {
+            channelPointCatalogSettled.value = true
             return
         }
         val expectedChannelId = activeChannelId
@@ -2481,7 +2485,13 @@ class ChatViewModel(
                     return@launch
                 }
                 updateChannelPoints(response, requestRevision)
+                channelPointCatalogSettled.value = true
+            } catch (error: CancellationException) {
+                throw error
             } catch (_: Exception) {
+                if (activeChannelId == expectedChannelId && activeChannelLogin == channelLogin) {
+                    channelPointCatalogSettled.value = true
+                }
             }
         }
     }

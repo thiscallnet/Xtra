@@ -38,6 +38,8 @@ class TwitchChatCatalogSource(
 ) : ChatCatalogSource {
     private val context = context.applicationContext
 
+    override val hasIndependentBadgeProvider: Boolean = true
+
     suspend fun loadPersonalEmoteSet(setId: String): Map<String, ChatCatalogEmote> {
         return PersonalEmoteSetCache.get(setId) {
             val network = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
@@ -61,13 +63,6 @@ class TwitchChatCatalogSource(
             val sevenTv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_STV, true)) loadSevenTv(network, useWebp) else emptyProviderUpdate() }
             val bttv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_BTTV, true)) loadBttv(network, useWebp) else emptyProviderUpdate() }
             val ffz = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_FFZ, true)) loadFfz(network, useWebp) else emptyProviderUpdate() }
-            val badges = async { provider {
-                val global = GlobalChatCatalogCache.get(GlobalCatalogKey.TWITCH_BADGES) {
-                    playerRepository.loadGlobalBadges(network, helix, gql, "4")
-                }
-                val channel = playerRepository.loadChannelBadges(network, helix, gql, channelId, channelLogin, "4")
-                (global + channel).associateBy { "${it.setId}:${it.version}" }.mapValues { (_, badge) -> badge.toCatalog() }
-            } }
             val cheermotes = async { provider {
                 playerRepository.loadCheerEmotes(
                     network,
@@ -83,9 +78,21 @@ class TwitchChatCatalogSource(
                 sevenTv = sevenTv.await(),
                 bttv = bttv.await(),
                 ffz = ffz.await(),
-                badges = badges.await(),
                 cheermotes = cheermotes.await(),
             )
+        }
+    }
+
+    override suspend fun loadBadges(): ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>>? = withContext(Dispatchers.IO) {
+        val network = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        val helix = TwitchApiHelper.getHelixHeaders(context)
+        val gql = TwitchApiHelper.getGQLHeaders(context, true)
+        provider {
+            val global = GlobalChatCatalogCache.get(GlobalCatalogKey.TWITCH_BADGES) {
+                playerRepository.loadGlobalBadges(network, helix, gql, "4")
+            }
+            val channel = playerRepository.loadChannelBadges(network, helix, gql, channelId, channelLogin, "4")
+            (global + channel).associateBy { "${it.setId}:${it.version}" }.mapValues { (_, badge) -> badge.toCatalog() }
         }
     }
 
