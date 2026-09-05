@@ -120,12 +120,14 @@ class ChatRowLightModeTest {
         )
 
         val lightHeading = lightRow.pieces.filterIsInstance<ChatPiece.Text>()
-            .filter { it.value.contains("Redeemed") || it.value.contains("Highlight My Message") || it.value.filter(Char::isDigit).contains("2000") }
+            .filter { it.value.contains("redeemed") || it.value.contains("Highlight My Message") || it.value.filter(Char::isDigit).contains("2000") }
         assertTrue(lightHeading.isNotEmpty())
         lightHeading.forEach { assertEquals(0xFF1F1B24.toInt(), it.color) }
         assertEquals(
             0xFF1F1B24.toInt(),
-            lightRow.pieces.filterIsInstance<ChatPiece.Icon>().single().tint,
+            lightRow.pieces.filterIsInstance<ChatPiece.Icon>()
+                .first { it.drawableRes == com.github.andreyasadchy.xtra.R.drawable.ic_chat_channel_points }
+                .tint,
         )
         assertTrue(
             darkRow.pieces.filterIsInstance<ChatPiece.Text>()

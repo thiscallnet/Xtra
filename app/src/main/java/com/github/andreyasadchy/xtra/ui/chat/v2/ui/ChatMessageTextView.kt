@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.Animatable
@@ -28,6 +29,7 @@ import android.net.Uri
 import android.text.format.DateUtils
 import android.graphics.Typeface
 import android.view.Gravity
+import android.view.View
 import android.os.Handler
 import android.os.Looper
 import android.os.Trace
@@ -53,6 +55,9 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventVisualStyle
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventVisualTokens
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreview
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewRepository
@@ -96,6 +101,8 @@ open class ChatMessageTextView private constructor(
     private val initialPaddingTop = paddingTop
     private val initialPaddingEnd = paddingEnd
     private val initialPaddingBottom = paddingBottom
+    private val initialLineSpacingExtra = lineSpacingExtra
+    private val initialLineSpacingMultiplier = lineSpacingMultiplier
     private var keys = emptySet<ChatAssetKey>()
     private val drawables = HashMap<ChatAssetKey, Drawable>()
     private val drawableHandles = HashMap<ChatAssetKey, Any>()
@@ -266,43 +273,51 @@ open class ChatMessageTextView private constructor(
         }
         clipPreviewSlugs = newClipPreviewSlugs
         refreshClipPreviewAssets()
-        when (row.backgroundStyle) {
-            ChatRowBackground.NORMAL -> setBackgroundColor(row.background)
-            ChatRowBackground.PERSONAL_HIGHLIGHT -> setBackgroundColor(row.background)
-            ChatRowBackground.HIGHLIGHT -> setBackgroundResource(R.drawable.bg_chat_highlight)
-            ChatRowBackground.FIRST_CHATTER -> setBackgroundResource(R.drawable.bg_chat_first_chatter)
-            ChatRowBackground.FIRST_CHATTER_TINT -> setBackgroundColor(
-                com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageFirstColor),
-            )
-            ChatRowBackground.SUBSCRIPTION -> setBackgroundResource(R.drawable.bg_chat_subscription)
-            ChatRowBackground.WATCH_STREAK -> setBackgroundResource(R.drawable.bg_chat_watch_streak)
-            ChatRowBackground.REWARD -> setBackgroundColor(
-                com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageRewardColor),
-            )
-            ChatRowBackground.NOTICE -> setBackgroundColor(
-                com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageNoticeColor),
-            )
-        }
         val density = resources.displayMetrics.density
-        val extraStartPadding = when (row.backgroundStyle) {
-            ChatRowBackground.WATCH_STREAK -> (30 * density).roundToInt()
-            ChatRowBackground.FIRST_CHATTER,
-            ChatRowBackground.SUBSCRIPTION,
-            -> (6 * density).roundToInt()
-            else -> 0
+        val event = row.eventPresentation
+        if (event != null) {
+            val accentAttribute = if (event.visualStyle == ChatEventVisualStyle.STREAK) {
+                R.attr.chatEventStreakAccentColor
+            } else {
+                R.attr.chatMessageSpecialAccentColor
+            }
+            val accentColor = com.google.android.material.color.MaterialColors.getColor(this, accentAttribute)
+            val baseColor = row.background.takeIf { it != 0 } ?:
+                com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface)
+            val tintAlpha = if (event.kind == ChatEventKind.HIGHLIGHT) 0x2A else 0x18
+            setBackground(
+                ChatEventBackgroundDrawable(
+                    surfaceColor = blendColors(baseColor, accentColor, tintAlpha),
+                    accentColor = accentColor,
+                    railWidthPx = (ChatEventVisualTokens.accentRailWidthDp * density).roundToInt(),
+                ),
+            )
+            setPaddingRelative(
+                initialPaddingStart + (ChatEventVisualTokens.contentStartInsetDp * density).roundToInt(),
+                initialPaddingTop + (ChatEventVisualTokens.verticalPaddingDp * density).roundToInt(),
+                initialPaddingEnd + (ChatEventVisualTokens.endPaddingDp * density).roundToInt(),
+                initialPaddingBottom + (ChatEventVisualTokens.verticalPaddingDp * density).roundToInt(),
+            )
+            setLineSpacing(ChatEventVisualTokens.lineSpacingExtraDp * density, 1f)
+        } else {
+            when (row.backgroundStyle) {
+                ChatRowBackground.NORMAL,
+                ChatRowBackground.PERSONAL_HIGHLIGHT,
+                ChatRowBackground.EVENT,
+                -> setBackgroundColor(row.background)
+                ChatRowBackground.FIRST_CHATTER_TINT -> setBackgroundColor(
+                    com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageFirstColor),
+                )
+                ChatRowBackground.REWARD -> setBackgroundColor(
+                    com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageRewardColor),
+                )
+                ChatRowBackground.NOTICE -> setBackgroundColor(
+                    com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageNoticeColor),
+                )
+            }
+            setPaddingRelative(initialPaddingStart, initialPaddingTop, initialPaddingEnd, initialPaddingBottom)
+            setLineSpacing(initialLineSpacingExtra, initialLineSpacingMultiplier)
         }
-        val extraVerticalPadding = when (row.backgroundStyle) {
-            ChatRowBackground.FIRST_CHATTER,
-            ChatRowBackground.SUBSCRIPTION,
-            -> (4 * density).roundToInt()
-            else -> 0
-        }
-        setPaddingRelative(
-            initialPaddingStart + extraStartPadding,
-            initialPaddingTop + extraVerticalPadding,
-            initialPaddingEnd,
-            initialPaddingBottom + extraVerticalPadding,
-        )
         gravity = Gravity.TOP or Gravity.START
         movementMethod = LinkMovementMethod.getInstance()
         linksClickable = true
@@ -1010,6 +1025,69 @@ open class ChatMessageTextView private constructor(
         }
         super.invalidateDrawable(drawable)
     }
+}
+
+private class ChatEventBackgroundDrawable(
+    private val surfaceColor: Int,
+    private val accentColor: Int,
+    private val railWidthPx: Int,
+) : Drawable() {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    override fun draw(canvas: Canvas) {
+        val bounds = bounds
+        paint.color = surfaceColor
+        canvas.drawRect(
+            bounds.left.toFloat(),
+            bounds.top.toFloat(),
+            bounds.right.toFloat(),
+            bounds.bottom.toFloat(),
+            paint,
+        )
+        paint.color = accentColor
+        val railLeft = if (layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+            (bounds.right - railWidthPx).coerceAtLeast(bounds.left)
+        } else {
+            bounds.left
+        }
+        val railRight = if (layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+            bounds.right
+        } else {
+            (bounds.left + railWidthPx).coerceAtMost(bounds.right)
+        }
+        canvas.drawRect(
+            railLeft.toFloat(),
+            bounds.top.toFloat(),
+            railRight.toFloat(),
+            bounds.bottom.toFloat(),
+            paint,
+        )
+    }
+
+    override fun onLayoutDirectionChanged(layoutDirection: Int): Boolean {
+        invalidateSelf()
+        return true
+    }
+
+    override fun setAlpha(alpha: Int) = Unit
+
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) = Unit
+
+    @Deprecated("Drawable opacity is not used by the chat row")
+    override fun getOpacity(): Int = PixelFormat.OPAQUE
+}
+
+private fun blendColors(baseColor: Int, overlayColor: Int, overlayAlpha: Int): Int {
+    val alpha = overlayAlpha.coerceIn(0, 255)
+    fun component(shift: Int): Int {
+        val base = baseColor ushr shift and 0xff
+        val overlay = overlayColor ushr shift and 0xff
+        return (base * (255 - alpha) + overlay * alpha) / 255
+    }
+    return 0xff000000.toInt() or
+        (component(16) shl 16) or
+        (component(8) shl 8) or
+        component(0)
 }
 
 private fun Int?.orZero(): Int = this ?: 0

@@ -908,6 +908,31 @@
     <string name="chat_highlight_title">Highlight My Message</string>
     <string name="chat_watch_streak_reached">Watch Streak Reached</string>
     <string name="chat_watch_streak_status">%1$s is currently on a %2$s-stream streak!</string>
+    <string name="chat_event_raid">Raid</string>
+    <string name="chat_event_notice">Notice</string>
+    <string name="chat_event_anonymous">Anonymous</string>
+    <string name="chat_event_viewer">Viewer</string>
+    <string name="chat_event_channel_points_reward">Channel points reward</string>
+    <string name="chat_subscription_prime">subscribed with Prime Gaming</string>
+    <string name="chat_subscription_paid">subscribed at %1$s</string>
+    <string name="chat_subscription_upgrade">upgraded to a paid %1$s Sub</string>
+    <string name="chat_subscription_gift">gifted a %1$s Sub to %2$s</string>
+    <plurals name="chat_subscription_community_gift">
+        <item quantity="one">gifted %1$d %2$s Sub to the community</item>
+        <item quantity="other">gifted %1$d %2$s Subs to the community</item>
+    </plurals>
+    <plurals name="chat_subscription_months">
+        <item quantity="one">%1$d month subscribed</item>
+        <item quantity="other">%1$d months subscribed</item>
+    </plurals>
+    <plurals name="chat_subscription_streak">
+        <item quantity="one">%1$d month streak</item>
+        <item quantity="other">%1$d months streak</item>
+    </plurals>
+    <plurals name="chat_subscription_accessibility_months">
+        <item quantity="one">They\'ve been subscribed for %1$d month</item>
+        <item quantity="other">They\'ve been subscribed for %1$d months</item>
+    </plurals>
     <string name="chat_clip_playing">%1$s playing %2$s</string>
     <string name="chat_clip_clipped_by">Clipped by %1$s</string>
     <string name="channel_points_rewards">Rewards</string>

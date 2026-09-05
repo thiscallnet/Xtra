@@ -21,6 +21,7 @@ import android.text.style.ReplacementSpan
 import android.text.style.URLSpan
 import android.view.View
 import android.view.ViewGroup
+import android.view.ContextThemeWrapper
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.widget.FrameLayout
@@ -35,6 +36,11 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventKind
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventPresentation
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventVisualStyle
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventVisualTokens
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatTimelineAdapter
@@ -62,6 +68,7 @@ import kotlinx.coroutines.withTimeout
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -104,6 +111,113 @@ class ChatMessageTextViewTest {
             if (oldEmote == null) editor.remove(C.CHAT_EMOTE_SIZE) else editor.putString(C.CHAT_EMOTE_SIZE, oldEmote)
             if (oldBadge == null) editor.remove(C.CHAT_BADGE_SIZE) else editor.putString(C.CHAT_BADGE_SIZE, oldBadge)
             editor.apply()
+        }
+    }
+
+    @Test
+    fun eventVisualStylesShareRailInsetAndVerticalGeometry() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val themedContext = ContextThemeWrapper(context, com.github.andreyasadchy.xtra.R.style.DarkTheme)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(themedContext, repository)
+        try {
+            val density = context.resources.displayMetrics.density
+            val initial = listOf(view.paddingStart, view.paddingTop, view.paddingEnd, view.paddingBottom)
+            val measurements = runOnMainValue {
+                ChatEventVisualStyle.entries.map { style ->
+                    view.bind(eventRow(style))
+                    listOf(view.paddingStart, view.paddingTop, view.paddingEnd, view.paddingBottom)
+                }
+            }
+
+            measurements.forEach { measurement ->
+                assertEquals(initial[0] + (ChatEventVisualTokens.contentStartInsetDp * density).roundToInt(), measurement[0])
+                assertEquals(initial[1] + (ChatEventVisualTokens.verticalPaddingDp * density).roundToInt(), measurement[1])
+                assertEquals(initial[2] + (ChatEventVisualTokens.endPaddingDp * density).roundToInt(), measurement[2])
+                assertEquals(initial[3] + (ChatEventVisualTokens.verticalPaddingDp * density).roundToInt(), measurement[3])
+            }
+            assertTrue(measurements.distinct().size == 1)
+
+            val bitmap = runOnMainResult {
+                val width = (200 * density).roundToInt()
+                val height = (80 * density).roundToInt()
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val background = view.background ?: error("Event rows must have a shared background")
+                background.setBounds(0, 0, width, height)
+                background.draw(Canvas(bitmap))
+                bitmap
+            }
+            val railWidth = (ChatEventVisualTokens.accentRailWidthDp * density).roundToInt()
+            val railColor = bitmap.getPixel(0, bitmap.height / 2)
+            val surfaceColor = bitmap.getPixel(railWidth, bitmap.height / 2)
+            assertTrue(railColor != surfaceColor)
+            for (x in 0 until railWidth) assertEquals(railColor, bitmap.getPixel(x, bitmap.height / 2))
+        } finally {
+            view.recycle()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun eventRailFollowsContentStartInRtl() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val themedContext = ContextThemeWrapper(context, com.github.andreyasadchy.xtra.R.style.DarkTheme)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(themedContext, repository)
+        try {
+            val density = context.resources.displayMetrics.density
+            val bitmap = runOnMainResult {
+                view.layoutDirection = View.LAYOUT_DIRECTION_RTL
+                view.bind(eventRow(ChatEventVisualStyle.SUPPORT))
+                val background = view.background ?: error("Event rows must have a shared background")
+                assertEquals(View.LAYOUT_DIRECTION_RTL, background.layoutDirection)
+                val width = (200 * density).roundToInt()
+                val height = (80 * density).roundToInt()
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                background.setBounds(0, 0, width, height)
+                background.draw(Canvas(bitmap))
+                bitmap
+            }
+            val railWidth = (ChatEventVisualTokens.accentRailWidthDp * density).roundToInt()
+            val railColor = bitmap.getPixel(bitmap.width - 1, bitmap.height / 2)
+            val surfaceColor = bitmap.getPixel(0, bitmap.height / 2)
+            assertNotEquals(railColor, surfaceColor)
+            for (x in bitmap.width - railWidth until bitmap.width) {
+                assertEquals(railColor, bitmap.getPixel(x, bitmap.height / 2))
+            }
+            for (x in 0 until bitmap.width - railWidth) {
+                assertEquals(surfaceColor, bitmap.getPixel(x, bitmap.height / 2))
+            }
+        } finally {
+            view.recycle()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun longEventTitlesWrapInsideTheSharedTextView() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val themedContext = ContextThemeWrapper(context, com.github.andreyasadchy.xtra.R.style.DarkTheme)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(themedContext, repository)
+        try {
+            runOnMain {
+                val width = (240 * context.resources.displayMetrics.density).roundToInt()
+                view.layoutParams = ViewGroup.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+                view.bind(eventRow(ChatEventVisualStyle.SUPPORT, "A very long actor and event title that must wrap across multiple lines"))
+                view.measure(
+                    View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                )
+                view.layout(0, 0, width, view.measuredHeight)
+                assertTrue(view.layout.lineCount > 1)
+            }
+        } finally {
+            view.recycle()
+            scope.cancel()
         }
     }
 
@@ -1118,6 +1232,32 @@ class ChatMessageTextViewTest {
         background = 0xff101010.toInt(), accessibilityText = "row", reply = null,
         source = null, isAction = false,
     )
+
+    private fun eventRow(
+        style: ChatEventVisualStyle,
+        title: String = "Event title",
+    ): ChatRowUiModel {
+        val event = ChatEventPresentation(
+            kind = ChatEventKind.NOTICE,
+            visualStyle = style,
+            icon = ChatPiece.Icon(com.github.andreyasadchy.xtra.R.drawable.ic_chat_speaker_muted, sizeDp = ChatEventVisualTokens.iconSizeDp),
+            titlePieces = listOf(ChatPiece.Text(title, bold = true)),
+            accessibilityText = title,
+        )
+        return ChatRowUiModel(
+            id = ChatMessageId("event-row"),
+            channelId = "channel",
+            timestampText = null,
+            pieces = event.flatten(),
+            background = 0xff101010.toInt(),
+            backgroundStyle = ChatRowBackground.EVENT,
+            eventPresentation = event,
+            accessibilityText = title,
+            reply = null,
+            source = null,
+            isAction = false,
+        )
+    }
 
     private fun badgeRow(spec: ChatAssetSpec, name: String) = ChatRowUiModel(
         id = ChatMessageId("badge-row"),

@@ -3,13 +3,14 @@ package com.github.andreyasadchy.xtra.ui.chat.v2
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.HIGHLIGHTED_MESSAGE_REWARD_TYPE
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
-import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
@@ -301,6 +302,96 @@ class TwitchChatEventParserTest {
         assertEquals(com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind.NOTICE, event.message.kind)
         assertEquals("Prime", event.message.subscriptionPlan)
         assertEquals(true, event.message.isPrimeSubscription)
+        assertEquals("Prime", event.message.subscription?.tier)
+    }
+
+    @Test
+    fun ircGiftNoticeKeepsStructuredRecipientCountAndAnonymousState() {
+        val event = TwitchChatEventParser.fromIrc(
+            ChatUtils.IRCMessage(
+                tags = mapOf(
+                    "msg-id" to "subgift",
+                    "msg-param-sub-plan" to "1000",
+                    "msg-param-recipient-display-name" to "Recipient",
+                    "msg-param-gifter-is-anonymous" to "1",
+                ),
+                prefix = "gifter!gifter@gifter.tmi.twitch.tv",
+                command = "USERNOTICE",
+                params = listOf("#channel"),
+                fullMessage = "USERNOTICE #channel",
+            ),
+            "channel-id",
+        ) as ChatEvent.Message
+
+        assertEquals("1000", event.message.subscription?.tier)
+        assertEquals("Recipient", event.message.subscription?.recipientName)
+        assertEquals(true, event.message.subscription?.isAnonymous)
+    }
+
+    @Test
+    fun eventSubResubKeepsStructuredMonthsStreakAndTier() {
+        val event = JSONObject(
+            """
+            {
+              "broadcaster_user_id":"broadcaster",
+              "chatter_user_id":"viewer",
+              "chatter_user_name":"Viewer",
+              "message_id":"resub-1",
+              "notice_type":"shared_chat_resub",
+              "shared_chat_resub":{"sub_tier":"2000","cumulative_months":6,"streak_months":4},
+              "message":{"text":"Thanks!","fragments":[{"type":"text","text":"Thanks!"}]}
+            }
+            """.trimIndent(),
+        ).let { TwitchChatEventParser.fromEventSub(it, null, notice = true) as ChatEvent.Message }
+
+        assertEquals("2000", event.message.subscription?.tier)
+        assertEquals(6, event.message.subscription?.months)
+        assertEquals(4, event.message.subscription?.streakMonths)
+    }
+
+    @Test
+    fun eventSubSharedChatRaidUsesRaidPresentation() {
+        val event = JSONObject(
+            """
+            {
+              "broadcaster_user_id":"broadcaster",
+              "chatter_user_id":"viewer",
+              "chatter_user_name":"Viewer",
+              "message_id":"shared-raid-1",
+              "notice_type":"shared_chat_raid",
+              "shared_chat_raid":{"user_id":"raider","user_login":"raider","user_name":"Raider","viewer_count":42}
+            }
+            """.trimIndent(),
+        )
+
+        val message = (TwitchChatEventParser.fromEventSub(event, null, notice = true) as ChatEvent.Message).message
+        val row = ChatRowCompiler().compile(message)
+
+        assertEquals(ChatMessageKind.RAID, message.kind)
+        assertEquals(ChatEventKind.RAID, row.eventPresentation?.kind)
+    }
+
+    @Test
+    fun eventSubAnonymousCommunityGiftUsesTopLevelChatterAnonymity() {
+        val event = JSONObject(
+            """
+            {
+              "broadcaster_user_id":"broadcaster",
+              "chatter_user_id":"anonymous",
+              "chatter_user_name":"Anonymous",
+              "chatter_is_anonymous":true,
+              "message_id":"community-gift-1",
+              "notice_type":"community_sub_gift",
+              "community_sub_gift":{"total":5,"sub_tier":"1000","cumulative_total":5}
+            }
+            """.trimIndent(),
+        )
+
+        val message = (TwitchChatEventParser.fromEventSub(event, null, notice = true) as ChatEvent.Message).message
+
+        assertEquals(true, message.subscription?.isAnonymous)
+        assertEquals(true, message.subscription?.isCommunityGift)
+        assertEquals(5, message.subscription?.giftCount)
     }
 
     @Test
@@ -384,11 +475,11 @@ class TwitchChatEventParserTest {
         listOf(irc, eventSub).forEach { message ->
             val row = ChatRowCompiler().compile(message, catalog)
             val text = row.pieces.filterIsInstance<ChatPiece.Text>().joinToString("") { it.value }
-            assertTrue(row.pieces.any { it is ChatPiece.Text && it.value == "Highlight My Message" && it.bold })
+            assertTrue(row.pieces.any { it is ChatPiece.Text && it.value.contains("Highlight My Message") && it.bold })
             assertTrue(row.pieces.any { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_channel_points })
             assertTrue(text.filter(Char::isDigit).contains("2000"))
             assertTrue(text.contains("Lock them up!"))
-            assertEquals(ChatRowBackground.HIGHLIGHT, row.backgroundStyle)
+            assertEquals(ChatEventKind.HIGHLIGHT, row.eventPresentation?.kind)
         }
     }
 

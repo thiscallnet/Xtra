@@ -20,6 +20,8 @@ data class ChatRowUiModel(
     val pieces: List<ChatPiece>,
     val background: Int,
     val backgroundStyle: ChatRowBackground = ChatRowBackground.NORMAL,
+    /** Normalized event semantics and content sections, when this is a prominent event row. */
+    val eventPresentation: ChatEventPresentation? = null,
     val accessibilityText: String,
     val moderation: ChatModeration? = null,
     val moderationColor: Int? = null,
@@ -35,13 +37,72 @@ data class ChatRowUiModel(
 enum class ChatRowBackground {
     NORMAL,
     PERSONAL_HIGHLIGHT,
-    HIGHLIGHT,
-    FIRST_CHATTER,
+    EVENT,
     FIRST_CHATTER_TINT,
-    SUBSCRIPTION,
-    WATCH_STREAK,
     REWARD,
     NOTICE,
+}
+
+/** Small, normalized event vocabulary used by the v2 chat presentation layer. */
+enum class ChatEventKind {
+    WATCH_STREAK,
+    SUBSCRIPTION,
+    CHANNEL_POINTS,
+    HIGHLIGHT,
+    FIRST_CHATTER,
+    ANNOUNCEMENT,
+    RAID,
+    NOTICE,
+}
+
+/** The visual family controls color only. All event families share the same geometry. */
+enum class ChatEventVisualStyle {
+    SUPPORT,
+    REWARD,
+    STREAK,
+    INTRO,
+    NOTICE,
+}
+
+/**
+ * The event contract is compiled once with the row. ChatMessageTextView only flattens these
+ * sections into its existing span stream, keeping the hot rendering path allocation-light.
+ */
+data class ChatEventPresentation(
+    val kind: ChatEventKind,
+    val visualStyle: ChatEventVisualStyle,
+    /** Usually an Icon, or a RewardIcon when a custom Channel Points image is available. */
+    val icon: ChatPiece,
+    val titlePieces: List<ChatPiece>,
+    val metadataPieces: List<ChatPiece> = emptyList(),
+    val bodyPieces: List<ChatPiece> = emptyList(),
+    val accessibilityText: String,
+) {
+    fun flatten(): List<ChatPiece> = buildList {
+        add(icon)
+        add(ChatPiece.Text(" "))
+        addAll(titlePieces)
+        if (metadataPieces.isNotEmpty()) {
+            add(ChatPiece.Text("\n"))
+            addAll(metadataPieces)
+        }
+        if (bodyPieces.isNotEmpty()) {
+            add(ChatPiece.Text("\n"))
+            addAll(bodyPieces)
+        }
+    }
+}
+
+/** Shared event-row measurements. Keep these independent from event semantics and colors. */
+object ChatEventVisualTokens {
+    const val accentRailWidthDp = 4
+    const val contentInsetAfterRailDp = 12
+    const val endPaddingDp = 8
+    const val verticalPaddingDp = 6
+    const val lineSpacingExtraDp = 1
+    const val iconSizeDp = 20
+
+    const val contentStartInsetDp = accentRailWidthDp + contentInsetAfterRailDp
 }
 
 sealed interface ChatPiece {
