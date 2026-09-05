@@ -134,6 +134,9 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.max
 
+private const val TWITCH_LISTENING_ONLY_BADGE_URL =
+    "https://static-cdn.jtvnw.net/badges/v1/199a0dba-58f3-494e-a7fc-1fa0a1001fb8/3"
+
 internal fun shouldShowChatComposer(
     chatAvailable: Boolean,
     isSlidingPlayerLayout: Boolean,
@@ -1729,11 +1732,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     it.title.equals("Listening only", ignoreCase = true)
             }
         }
-        val url = badge?.url4x ?: badge?.url3x ?: badge?.url2x ?: badge?.url1x
-        if (url.isNullOrBlank()) {
-            seenButton.isGone = true
-            return
-        }
+        val url = badge?.url4x
+            ?: badge?.url3x
+            ?: badge?.url2x
+            ?: badge?.url1x
+            ?: TWITCH_LISTENING_ONLY_BADGE_URL
 
         seenButton.isVisible = true
         pinnedBadgeRequests += requireContext().imageLoader.enqueue(
