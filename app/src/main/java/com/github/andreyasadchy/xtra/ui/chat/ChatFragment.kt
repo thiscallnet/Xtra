@@ -134,10 +134,10 @@ import java.util.Locale
 import kotlin.math.max
 
 internal fun shouldShowChatComposer(
-    messagingEnabled: Boolean,
+    chatAvailable: Boolean,
     isSlidingPlayerLayout: Boolean,
     chatBarVisible: Boolean,
-): Boolean = messagingEnabled && (!isSlidingPlayerLayout || chatBarVisible)
+): Boolean = chatAvailable && (!isSlidingPlayerLayout || chatBarVisible)
 
 internal fun matchesV2MessageUser(
     message: V2ChatMessage,
@@ -1215,7 +1215,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         replyView.visibility = View.GONE
                         send.setOnClickListener { sendMessage() }
                         messageView.isVisible = shouldShowChatComposer(
-                            messagingEnabled = messagingEnabled,
+                            chatAvailable = isLive,
                             isSlidingPlayerLayout = isInSlidingPlayerLayout(binding.root),
                             chatBarVisible = requireContext().prefs().getBoolean(C.KEY_CHAT_BAR_VISIBLE, true),
                         )
@@ -2215,7 +2215,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live &&
                 isLoggedIn
         binding.messageView.isVisible = shouldShowChatComposer(
-            messagingEnabled = messagingEnabled,
+            chatAvailable = args.getBoolean(KEY_IS_LIVE) &&
+                    viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live,
             isSlidingPlayerLayout = isInSlidingPlayerLayout(binding.root),
             chatBarVisible = requireContext().prefs().getBoolean(C.KEY_CHAT_BAR_VISIBLE, true),
         )

@@ -11,7 +11,12 @@ class ChatComposerVisibilityTest {
     }
 
     @Test
-    fun enabledComposerIsVisibleWhenPreferenceAllowsIt() {
+    fun availableComposerIsVisibleWhenPreferenceAllowsIt() {
         assertTrue(shouldShowChatComposer(true, true, true))
+    }
+
+    @Test
+    fun availableComposerRemainsVisibleOutsideSlidingLayout() {
+        assertTrue(shouldShowChatComposer(true, false, true))
     }
 }
