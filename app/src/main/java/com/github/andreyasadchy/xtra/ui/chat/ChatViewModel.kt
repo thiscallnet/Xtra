@@ -23,7 +23,9 @@ import com.github.andreyasadchy.xtra.model.chat.ChannelPointReward
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityState
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityBadge
-import com.github.andreyasadchy.xtra.model.chat.effectiveBadge
+import com.github.andreyasadchy.xtra.model.chat.selectChannelBadgeOptimistically
+import com.github.andreyasadchy.xtra.model.chat.selectGlobalBadgeOptimistically
+import com.github.andreyasadchy.xtra.model.chat.toState
 import com.github.andreyasadchy.xtra.model.chat.Chatter
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
@@ -61,6 +63,7 @@ import com.github.andreyasadchy.xtra.model.ui.WatchStreak
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakReward
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakShareResult
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
+import com.github.andreyasadchy.xtra.repository.ChatIdentityCampaignRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.loadChatIdentity
@@ -409,8 +412,15 @@ class ChatViewModel(
         private set
 
     private data class CachedChatIdentity(
+        val viewerId: String,
         val loadedAtElapsedRealtime: Long,
         val state: ChatIdentityState,
+        val campaignsLoaded: Boolean,
+    )
+
+    private data class ChatIdentityCampaignLoadKey(
+        val viewerId: String,
+        val channelId: String,
     )
 
     data class ChatSnapshot(
@@ -516,7 +526,10 @@ class ChatViewModel(
     private var loggedInUserId: String? = null
     private var loggedInUserLogin: String? = null
     private val chatIdentityCache = mutableMapOf<String, CachedChatIdentity>()
+    private val chatIdentityCampaignRepository = ChatIdentityCampaignRepository(graphQLRepository)
     private var chatIdentityLoadJob: Job? = null
+    private var chatIdentityCampaignLoadJob: Job? = null
+    private var chatIdentityCampaignLoadKey: ChatIdentityCampaignLoadKey? = null
     private val chatIdentityMutationMutex = Mutex()
     private val _chatIdentityState = MutableStateFlow(ChatIdentityState())
     val chatIdentityState: StateFlow<ChatIdentityState> = _chatIdentityState
@@ -678,21 +691,41 @@ class ChatViewModel(
     fun ensureChatIdentityLoaded(channelId: String?, channelLogin: String?) {
         if (channelId.isNullOrBlank() || channelLogin.isNullOrBlank()) return
         val viewerId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
-        if (viewerId.isNullOrBlank()) return
-        val cached = chatIdentityCache[channelId]
+        if (viewerId.isNullOrBlank()) {
+            chatIdentityCache.clear()
+            chatIdentityCampaignRepository.clear()
+            cancelChatIdentityCampaignLoad()
+            _chatIdentityState.value = ChatIdentityState(loadedChannelId = channelId)
+            return
+        }
+        val cached = chatIdentityCache[channelId]?.takeIf { it.viewerId == viewerId }
         val now = SystemClock.elapsedRealtime()
         if (cached != null && now - cached.loadedAtElapsedRealtime < CHAT_IDENTITY_CACHE_TTL_MS) {
             _chatIdentityState.value = cached.state
+            if (!cached.campaignsLoaded) {
+                scheduleChatIdentityCampaignLoad(
+                    viewerId = viewerId,
+                    channelId = channelId,
+                    ownedBadges = cached.state.globalBadges,
+                )
+            }
             return
         }
-        if (chatIdentityLoadJob?.isActive == true && _chatIdentityState.value.loadedChannelId == channelId) {
+        if (chatIdentityLoadJob?.isActive == true &&
+            _chatIdentityState.value.loadedChannelId == channelId &&
+            _chatIdentityState.value.loadedViewerId == viewerId
+        ) {
             return
         }
         chatIdentityLoadJob?.cancel()
-        val previous = _chatIdentityState.value.takeIf { it.loadedChannelId == channelId }
+        cancelChatIdentityCampaignLoad()
+        val previous = _chatIdentityState.value.takeIf {
+            it.loadedChannelId == channelId && it.loadedViewerId == viewerId
+        }
         _chatIdentityState.value = (previous ?: ChatIdentityState(loadedChannelId = channelId)).copy(
             loading = true,
             loadedChannelId = channelId,
+            loadedViewerId = viewerId,
             error = null,
         )
         chatIdentityLoadJob = viewModelScope.launch {
@@ -705,10 +738,60 @@ class ChatViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (_chatIdentityState.value.loadedChannelId == channelId) {
+                if (_chatIdentityState.value.loadedChannelId == channelId &&
+                    _chatIdentityState.value.loadedViewerId == viewerId
+                ) {
                     _chatIdentityState.update { it.copy(loading = false, error = e.message) }
                 }
                 chatIdentityErrors.tryEmit(e.message ?: applicationContext.getString(R.string.chat_identity_load_failed))
+            }
+        }
+    }
+
+    private fun cancelChatIdentityCampaignLoad() {
+        chatIdentityCampaignLoadJob?.cancel()
+        chatIdentityCampaignLoadJob = null
+        chatIdentityCampaignLoadKey = null
+    }
+
+    private fun scheduleChatIdentityCampaignLoad(
+        viewerId: String,
+        channelId: String,
+        ownedBadges: List<ChatIdentityBadge>,
+    ) {
+        val key = ChatIdentityCampaignLoadKey(viewerId, channelId)
+        if (chatIdentityCampaignLoadJob?.isActive == true && chatIdentityCampaignLoadKey == key) {
+            return
+        }
+        chatIdentityCampaignLoadJob?.cancel()
+        chatIdentityCampaignLoadKey = key
+        chatIdentityCampaignLoadJob = viewModelScope.launch {
+            try {
+                val campaigns = chatIdentityCampaignRepository.load(
+                    viewerId = viewerId,
+                    networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    headers = TwitchApiHelper.getGQLHeaders(applicationContext, true),
+                    ownedBadges = ownedBadges,
+                )
+                val cached = chatIdentityCache[channelId]
+                    ?.takeIf { it.viewerId == viewerId }
+                if (cached != null) {
+                    val campaignState = cached.state.copy(campaigns = campaigns)
+                    chatIdentityCache[channelId] = cached.copy(
+                        state = campaignState,
+                        campaignsLoaded = true,
+                    )
+                    if (_chatIdentityState.value.loadedChannelId == channelId &&
+                        _chatIdentityState.value.loadedViewerId == viewerId
+                    ) {
+                        _chatIdentityState.update { it.copy(campaigns = campaigns) }
+                    }
+                }
+            } finally {
+                if (chatIdentityCampaignLoadKey == key) {
+                    chatIdentityCampaignLoadJob = null
+                    chatIdentityCampaignLoadKey = null
+                }
             }
         }
     }
@@ -723,6 +806,10 @@ class ChatViewModel(
         viewModelScope.launch {
             chatIdentityMutationMutex.withLock {
                 val before = _chatIdentityState.value
+                if (before.mutationInProgress ||
+                    before.loadedChannelId != channelId ||
+                    before.loadedViewerId != viewerId
+                ) return@withLock
                 _chatIdentityState.value = before.copy(
                     nameColor = normalized,
                     mutationInProgress = true,
@@ -738,12 +825,17 @@ class ChatViewModel(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    if (_chatIdentityState.value.loadedChannelId == channelId) {
+                    if (_chatIdentityState.value.loadedChannelId == channelId &&
+                        _chatIdentityState.value.loadedViewerId == viewerId
+                    ) {
                         _chatIdentityState.value = before.copy(mutationInProgress = false, error = e.message)
                     }
                     chatIdentityErrors.tryEmit(e.message ?: applicationContext.getString(R.string.chat_identity_update_failed))
                 } finally {
-                    if (_chatIdentityState.value.loadedChannelId == channelId && _chatIdentityState.value.mutationInProgress) {
+                    if (_chatIdentityState.value.loadedChannelId == channelId &&
+                        _chatIdentityState.value.loadedViewerId == viewerId &&
+                        _chatIdentityState.value.mutationInProgress
+                    ) {
                         _chatIdentityState.update { it.copy(mutationInProgress = false) }
                     }
                 }
@@ -753,7 +845,7 @@ class ChatViewModel(
 
     fun setChatIdentityGlobalBadge(badge: ChatIdentityBadge?) {
         mutateChatIdentityPreference(
-            optimistic = { state -> state.copy(selectedGlobalBadge = badge?.key) },
+            optimistic = { state -> state.selectGlobalBadgeOptimistically(badge) },
             request = {
                 graphQLRepository.setGlobalChatBadge(
                     networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
@@ -768,10 +860,7 @@ class ChatViewModel(
         val channelId = _chatIdentityState.value.loadedChannelId ?: activeChannelId ?: return
         mutateChatIdentityPreference(
             optimistic = { state ->
-                state.copy(
-                    useCustomChannelBadge = badge != null,
-                    selectedChannelBadge = badge?.key,
-                )
+                state.selectChannelBadgeOptimistically(badge)
             },
             request = {
                 graphQLRepository.setChannelChatBadge(
@@ -806,7 +895,10 @@ class ChatViewModel(
         viewModelScope.launch {
             chatIdentityMutationMutex.withLock {
                 val before = _chatIdentityState.value
-                if (before.mutationInProgress || before.loadedChannelId != channelId) return@withLock
+                if (before.mutationInProgress ||
+                    before.loadedChannelId != channelId ||
+                    before.loadedViewerId != viewerId
+                ) return@withLock
                 _chatIdentityState.value = optimistic(before).copy(
                     mutationInProgress = true,
                     error = null,
@@ -817,12 +909,17 @@ class ChatViewModel(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    if (_chatIdentityState.value.loadedChannelId == channelId) {
+                    if (_chatIdentityState.value.loadedChannelId == channelId &&
+                        _chatIdentityState.value.loadedViewerId == viewerId
+                    ) {
                         _chatIdentityState.value = before.copy(mutationInProgress = false, error = e.message)
                     }
                     chatIdentityErrors.tryEmit(e.message ?: applicationContext.getString(R.string.chat_identity_update_failed))
                 } finally {
-                    if (_chatIdentityState.value.loadedChannelId == channelId && _chatIdentityState.value.mutationInProgress) {
+                    if (_chatIdentityState.value.loadedChannelId == channelId &&
+                        _chatIdentityState.value.loadedViewerId == viewerId &&
+                        _chatIdentityState.value.mutationInProgress
+                    ) {
                         _chatIdentityState.update { it.copy(mutationInProgress = false) }
                     }
                 }
@@ -835,40 +932,38 @@ class ChatViewModel(
         channelId: String,
         channelLogin: String,
     ) {
-        val data = graphQLRepository.loadChatIdentity(
+        val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
+        val baseData = graphQLRepository.loadChatIdentity(
             networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-            headers = TwitchApiHelper.getGQLHeaders(applicationContext, true),
+            headers = gqlHeaders,
             viewerId = viewerId,
             channelId = channelId,
             channelLogin = channelLogin,
         )
-        val effectiveBadge = data.effectiveBadges.firstOrNull()
-        val globalBadges = (
-            data.availableGlobalBadges +
-                listOfNotNull(data.selectedGlobalBadge)
-            )
-            .distinctBy { it.key }
-        val state = ChatIdentityState(
-            loadedChannelId = channelId,
-            displayName = data.displayName,
-            nameColor = data.nameColor,
-            effectiveBadge = effectiveBadge,
-            globalBadges = globalBadges,
-            selectedGlobalBadge = data.selectedGlobalBadge?.key,
-            subscriberBadge = data.subscriberBadge,
-            isSubscribed = data.isSubscribed,
-            channelBadges = data.channelBadges,
-            useCustomChannelBadge = data.selectedChannelBadge != null,
-            selectedChannelBadge = data.selectedChannelBadge?.key,
-            campaigns = data.campaigns,
-            badgeSelectionAvailable = true,
-            channelBadgeOverrideAvailable = true,
-            canUseCustomNameColor = data.canUseCustomNameColor,
+        val existingCampaigns = _chatIdentityState.value
+            .takeIf {
+                it.loadedChannelId == channelId && it.loadedViewerId == viewerId
+            }
+            ?.campaigns
+            .orEmpty()
+        val state = baseData.toState(channelId = channelId, viewerId = viewerId)
+            .copy(campaigns = existingCampaigns)
+        chatIdentityCache[channelId] = CachedChatIdentity(
+            viewerId = viewerId,
+            loadedAtElapsedRealtime = SystemClock.elapsedRealtime(),
+            state = state,
+            campaignsLoaded = false,
         )
-        chatIdentityCache[channelId] = CachedChatIdentity(SystemClock.elapsedRealtime(), state)
-        if (_chatIdentityState.value.loadedChannelId == channelId) {
+        if (_chatIdentityState.value.loadedChannelId == channelId &&
+            _chatIdentityState.value.loadedViewerId == viewerId
+        ) {
             _chatIdentityState.value = state
         }
+        scheduleChatIdentityCampaignLoad(
+            viewerId = viewerId,
+            channelId = channelId,
+            ownedBadges = baseData.availableGlobalBadges,
+        )
     }
 
     fun startLive(
@@ -2885,9 +2980,20 @@ class ChatViewModel(
         val sessionToken = predictionSessionToken
         started = true
         _connectionState.value = ConnectionState.CONNECTING
-        if (_chatIdentityState.value.loadedChannelId != channelId) {
+        val currentIdentityViewerId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
+        if (_chatIdentityState.value.loadedChannelId != channelId ||
+            _chatIdentityState.value.loadedViewerId != currentIdentityViewerId
+        ) {
             chatIdentityLoadJob?.cancel()
-            _chatIdentityState.value = ChatIdentityState(loadedChannelId = channelId)
+            cancelChatIdentityCampaignLoad()
+            if (_chatIdentityState.value.loadedViewerId != currentIdentityViewerId) {
+                chatIdentityCache.clear()
+                chatIdentityCampaignRepository.clear()
+            }
+            _chatIdentityState.value = ChatIdentityState(
+                loadedChannelId = channelId,
+                loadedViewerId = currentIdentityViewerId,
+            )
         }
         activeChannelId = channelId
         activeChannelLogin = channelLogin
@@ -3275,6 +3381,14 @@ class ChatViewModel(
         lastWatchStreakReconciliationElapsedRealtime = null
         activeChannelId = null
         activeChannelLogin = null
+        if (applicationContext.tokenPrefs().getString(C.USER_ID, null).isNullOrBlank()) {
+            chatIdentityLoadJob?.cancel()
+            chatIdentityLoadJob = null
+            cancelChatIdentityCampaignLoad()
+            chatIdentityCache.clear()
+            chatIdentityCampaignRepository.clear()
+            _chatIdentityState.value = ChatIdentityState()
+        }
         v2LiveChannelId = null
         v2LiveChannelLogin = null
         pinnedChatRefreshJob?.cancel()

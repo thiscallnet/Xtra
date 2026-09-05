@@ -40,7 +40,6 @@ import com.github.andreyasadchy.xtra.util.PlayerUiGeometry
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityBadge
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityCampaign
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityState
-import com.github.andreyasadchy.xtra.model.chat.effectiveBadge
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -131,17 +130,28 @@ class ChatIdentityPopup(
         )
 
         clearImageRequests()
-        val previewBadge = content.findViewById<ImageView>(R.id.chatIdentityPreviewBadge)
-        previewBadge.setImageDrawable(null)
-        state.effectiveBadge()?.let { badge ->
-            previewBadge.isVisible = true
-            enqueueImage(badge.imageUrl, previewBadge)
-        } ?: run { previewBadge.isVisible = false }
+        renderPreviewBadges(content, state.displayBadges)
 
         renderCampaigns(content, state.campaigns)
         renderGlobalBadges(content, state)
         renderChannelBadges(content, state)
         renderColors(content, state)
+    }
+
+    private fun renderPreviewBadges(content: View, badges: List<ChatIdentityBadge>) {
+        val container = content.findViewById<LinearLayout>(R.id.chatIdentityPreviewBadges)
+        container.removeAllViews()
+        container.isVisible = badges.isNotEmpty()
+        badges.forEachIndexed { index, badge ->
+            val image = ImageView(context).apply {
+                contentDescription = null
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            container.addView(image, LinearLayout.LayoutParams(context.dp(24), context.dp(24)).apply {
+                if (index != badges.lastIndex) rightMargin = context.dp(3)
+            })
+            enqueueImage(badge.imageUrl, image)
+        }
     }
 
     private fun renderGlobalBadges(content: View, state: ChatIdentityState) {
@@ -174,6 +184,7 @@ class ChatIdentityPopup(
             context.getString(R.string.chat_identity_channel_description, channelDisplayName)
         val subscriberContainer = content.findViewById<LinearLayout>(R.id.chatIdentitySubscriberBadge)
         subscriberContainer.removeAllViews()
+        val subscriptionStatus = content.findViewById<TextView>(R.id.chatIdentitySubscriptionStatus)
         if (state.isSubscribed && state.subscriberBadge != null) {
             val tile = createBadgeTile(
                 parent = subscriberContainer,
@@ -189,15 +200,13 @@ class ChatIdentityPopup(
                 setPadding(context.dp(8), 0, 0, 0)
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             subscriberContainer.isVisible = true
-            content.findViewById<TextView>(R.id.chatIdentitySubscriptionStatus).text = ""
+            renderSubscriptionStatus(subscriptionStatus, state)
         } else if (state.isSubscribed) {
             subscriberContainer.isVisible = false
-            content.findViewById<TextView>(R.id.chatIdentitySubscriptionStatus)
-                .setText(R.string.chat_identity_subscriber_badge_unavailable)
+            renderSubscriptionStatus(subscriptionStatus, state)
         } else {
             subscriberContainer.isVisible = false
-            content.findViewById<TextView>(R.id.chatIdentitySubscriptionStatus)
-                .setText(R.string.chat_identity_not_subscribed)
+            subscriptionStatus.setText(R.string.chat_identity_not_subscribed)
         }
 
         val customSwitch = content.findViewById<MaterialSwitch>(R.id.chatIdentityCustomBadgeSwitch)
@@ -354,6 +363,28 @@ class ChatIdentityPopup(
             orientation = LinearLayout.VERTICAL
             isVisible = false
         }
+        if (campaign.badges.isNotEmpty()) {
+            rewards.addView(TextView(context).apply {
+                text = context.getString(R.string.chat_identity_campaign_badges)
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, context.dp(6), 0, context.dp(2))
+            })
+            campaign.badges.forEach { badge ->
+                val row = LinearLayout(context).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    alpha = if (badge.owned) 1f else 0.55f
+                    contentDescription = badge.title
+                }
+                val image = ImageView(context).apply { scaleType = ImageView.ScaleType.CENTER_INSIDE }
+                row.addView(image, LinearLayout.LayoutParams(context.dp(36), context.dp(36)))
+                enqueueImage(badge.imageUrl, image)
+                row.addView(TextView(context).apply {
+                    text = listOfNotNull(badge.title, badge.description).joinToString("\n")
+                    setPadding(context.dp(8), context.dp(4), 0, context.dp(4))
+                }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                rewards.addView(row)
+            }
+        }
         campaign.rewards.forEach { reward ->
             val row = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
             reward.imageUrl?.let { imageUrl ->
@@ -382,6 +413,19 @@ class ChatIdentityPopup(
         header.setOnClickListener { setExpanded(!rewards.isVisible) }
         card.addView(root)
         return card
+    }
+
+    private fun renderSubscriptionStatus(status: TextView, state: ChatIdentityState) {
+        val months = state.subscriptionMonths
+        if (months != null && months > 0) {
+            status.text = context.resources.getQuantityString(
+                R.plurals.user_card_subscribed_months,
+                months,
+                months,
+            )
+        } else {
+            status.setText(R.string.user_card_subscribed)
+        }
     }
 
     private fun addBadgeTile(

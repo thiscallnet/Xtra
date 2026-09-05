@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.repository
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityBadge
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityBadgeKey
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityData
+import com.github.andreyasadchy.xtra.model.chat.isSubscriptionSlotBadge
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -15,6 +16,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.intOrNull
 
 /**
  * Full-document operations verified against Twitch's current web Chat Identity chunks.
@@ -33,18 +36,21 @@ internal const val CHAT_IDENTITY_QUERY = """
             setID
             version
             title
+            description
             imageURL(size: QUADRUPLE)
           }
           availableBadges {
             setID
             version
             title
+            description
             imageURL(size: QUADRUPLE)
           }
           displayBadges {
             setID
             version
             title
+            description
             imageURL(size: QUADRUPLE)
           }
         }
@@ -62,12 +68,14 @@ internal const val CHAT_IDENTITY_QUERY = """
           setID
           version
           title
+          description
           imageURL(size: QUADRUPLE)
         }
         availableBadges {
           setID
           version
           title
+          description
           imageURL(size: QUADRUPLE)
         }
       }
@@ -82,6 +90,7 @@ internal const val CHAT_EARNED_BADGES_CHANNEL_DATA_QUERY = """
           setID
           version
           title
+          description
           imageURL(size: QUADRUPLE)
         }
       }
@@ -89,6 +98,22 @@ internal const val CHAT_EARNED_BADGES_CHANNEL_DATA_QUERY = """
 """
 
 internal const val CHAT_EARNED_BADGES_INITIAL_SUB_STATUS_QUERY = """
+    query Chat_EarnedBadges_InitialSubStatus(${'$'}channelLogin: String!) {
+      user(login: ${'$'}channelLogin) {
+        id
+        self {
+          subscriptionBenefit {
+            id
+          }
+          subscriptionTenure(tenureMethod: CUMULATIVE) {
+            months
+          }
+        }
+      }
+    }
+"""
+
+internal const val CHAT_EARNED_BADGES_INITIAL_SUB_STATUS_LEGACY_QUERY = """
     query Chat_EarnedBadges_InitialSubStatus(${'$'}channelLogin: String!) {
       user(login: ${'$'}channelLogin) {
         id
@@ -197,11 +222,7 @@ suspend fun GraphQLRepository.loadChatIdentity(
         throw ChatIdentityGraphQlException("Chat Identity returned an unexpected viewer")
     }
 
-    val effectiveBadges = identity.objectOrNull("channel")
-        ?.objectOrNull("self")
-        ?.arrayOrEmpty("displayBadges")
-        ?.mapNotNull(::parseChatIdentityBadge)
-        .orEmpty()
+    val displayBadges = ChatIdentityCampaignParser.parseDisplayBadges(identity)
     val channelSelf = identity.objectOrNull("channel")?.objectOrNull("self")
     val availableGlobalBadges = currentUser.arrayOrEmpty("availableBadges")
         .mapNotNull(::parseChatIdentityBadge)
@@ -225,32 +246,77 @@ suspend fun GraphQLRepository.loadChatIdentity(
         ?.mapNotNull(::parseChatIdentityBadge)
         .orEmpty()
 
-    val subStatus = executeRawOperation(
+    val subscription = loadSubscriptionStatus(
         networkLibrary = networkLibrary,
         headers = headers,
-        operationName = "Chat_EarnedBadges_InitialSubStatus",
-        query = CHAT_EARNED_BADGES_INITIAL_SUB_STATUS_QUERY,
-        variables = buildJsonObject { put("channelLogin", channelLogin) },
-    ).dataOrThrow("Chat_EarnedBadges_InitialSubStatus")
-        .objectOrNull("user")
-        ?.objectOrNull("self")
-        ?.objectOrNull("subscriptionBenefit")
+        channelLogin = channelLogin,
+    )
+    val displayedSubscriptionBadge = displayBadges.firstOrNull { it.isSubscriptionSlotBadge() }
+    val subscriptionBadge = displayedSubscriptionBadge
+        ?: earned.firstOrNull { it.isSubscriptionSlotBadge() }
 
     return ChatIdentityData(
         displayName = currentUser.stringOrNull("displayName")
             ?: currentUser.stringOrNull("login").orEmpty(),
         nameColor = currentUser.stringOrNull("chatColor"),
-        effectiveBadges = effectiveBadges,
+        displayBadges = displayBadges,
         availableGlobalBadges = availableGlobalBadges,
-        selectedGlobalBadge = selectedGlobalBadge,
-        subscriberBadge = earned.firstOrNull { it.isSubscriberBadge() },
+        selectedGlobalBadge = selectedGlobalBadge?.takeUnless { it.isSubscriptionSlotBadge() },
+        subscriberBadge = subscriptionBadge,
         channelBadges = (availableChannelBadges + listOfNotNull(selectedChannelBadge) + earned)
-            .filterNot { it.isSubscriberBadge() }
+            .filterNot { it.isSubscriptionSlotBadge() }
             .distinctBy { it.key },
-        selectedChannelBadge = selectedChannelBadge,
-        isSubscribed = subStatus != null,
+        selectedChannelBadge = selectedChannelBadge?.takeUnless { it.isSubscriptionSlotBadge() },
+        isSubscribed = subscription?.isSubscribed == true || displayedSubscriptionBadge != null,
         canUseCustomNameColor = currentUser.booleanOrNull("hasPrime") == true ||
             currentUser.objectOrNull("turboStatus")?.booleanOrNull("hasActiveTurbo") == true,
+        subscriptionMonths = subscription?.months,
+    )
+}
+
+private data class SubscriptionStatus(
+    val isSubscribed: Boolean,
+    val months: Int?,
+)
+
+private suspend fun GraphQLRepository.loadSubscriptionStatus(
+    networkLibrary: String?,
+    headers: Map<String, String>,
+    channelLogin: String,
+): SubscriptionStatus? {
+    val result = try {
+        executeRawOperation(
+            networkLibrary = networkLibrary,
+            headers = headers,
+            operationName = "Chat_EarnedBadges_InitialSubStatus",
+            query = CHAT_EARNED_BADGES_INITIAL_SUB_STATUS_QUERY,
+            variables = buildJsonObject { put("channelLogin", channelLogin) },
+        ).dataOrThrow("Chat_EarnedBadges_InitialSubStatus")
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        // subscriptionTenure is optional. Retry the stable subscription-only query when Twitch
+        // removes or changes that field, so a tenure schema change cannot hide Chat Identity.
+        try {
+            executeRawOperation(
+                networkLibrary = networkLibrary,
+                headers = headers,
+                operationName = "Chat_EarnedBadges_InitialSubStatus",
+                query = CHAT_EARNED_BADGES_INITIAL_SUB_STATUS_LEGACY_QUERY,
+                variables = buildJsonObject { put("channelLogin", channelLogin) },
+            ).dataOrThrow("Chat_EarnedBadges_InitialSubStatus")
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            return null
+        }
+    }
+    val self = result.objectOrNull("user")?.objectOrNull("self")
+    return SubscriptionStatus(
+        isSubscribed = self?.objectOrNull("subscriptionBenefit") != null,
+        months = self?.objectOrNull("subscriptionTenure")
+            ?.intOrNull("months")
+            ?.takeIf { it > 0 },
     )
 }
 
@@ -380,13 +446,10 @@ private fun parseChatIdentityBadge(element: JsonElement): ChatIdentityBadge? {
     return ChatIdentityBadge(
         key = ChatIdentityBadgeKey(setId, version),
         title = badge.stringOrNull("title"),
-        description = null,
+        description = badge.stringOrNull("description"),
         imageUrl = imageUrl,
     )
 }
-
-private fun ChatIdentityBadge.isSubscriberBadge(): Boolean =
-    key.setId.contains("subscriber", ignoreCase = true)
 
 private fun JsonObject.objectOrNull(name: String): JsonObject? =
     this[name]?.jsonObjectOrNull()
@@ -403,4 +466,9 @@ private fun JsonElement.jsonArrayOrNull(): JsonArray? =
 private fun JsonObject.stringOrNull(name: String): String? =
     this[name]?.takeUnless { it is JsonNull }?.let {
         runCatching { it.jsonPrimitive.contentOrNull }.getOrNull()
+    }
+
+private fun JsonObject.intOrNull(name: String): Int? =
+    this[name]?.takeUnless { it is JsonNull }?.let {
+        runCatching { it.jsonPrimitive.intOrNull }.getOrNull()
     }

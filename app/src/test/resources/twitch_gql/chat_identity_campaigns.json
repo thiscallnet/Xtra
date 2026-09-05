@@ -1,0 +1,51 @@
+{
+  "data": {
+    "currentUser": { "id": "viewer" },
+    "rewardCampaignsAvailableToUser": [
+      {
+        "id": "reward-poke-ball",
+        "name": "First Partners Collection",
+        "brand": "Pokémon",
+        "startsAt": "2026-01-01T00:00:00Z",
+        "endsAt": "2026-12-31T23:59:59Z",
+        "status": "ACTIVE",
+        "summary": "Collect Pokémon chat badges",
+        "isSitewide": true,
+        "game": { "id": "pokemon", "displayName": "Pokémon" },
+        "image": { "image1xURL": "https://example.com/pokemon.png" },
+        "unlockRequirements": { "minuteWatchedGoal": 0, "subsGoal": 0 },
+        "rewards": [
+          {
+            "id": "poke-ball",
+            "name": "Poké Ball",
+            "earnableUntil": "2026-12-31T23:59:59Z",
+            "thumbnailImage": { "image1xURL": "https://example.com/poke-ball.png" },
+            "bannerImage": { "image1xURL": "https://example.com/poke-ball-banner.png" }
+          }
+        ]
+      },
+      {
+        "id": "reward-great-ball",
+        "name": "First Partners Collection",
+        "brand": "Pokémon",
+        "startsAt": "2026-01-01T00:00:00Z",
+        "endsAt": "2026-12-31T23:59:59Z",
+        "status": "ACTIVE",
+        "summary": "Collect more Pokémon chat badges",
+        "isSitewide": true,
+        "game": { "id": "pokemon", "displayName": "Pokémon" },
+        "image": { "image1xURL": "https://example.com/pokemon.png" },
+        "unlockRequirements": { "minuteWatchedGoal": 0, "subsGoal": 0 },
+        "rewards": [
+          {
+            "id": "great-ball",
+            "name": "Great Ball",
+            "earnableUntil": "2026-12-31T23:59:59Z",
+            "thumbnailImage": { "image1xURL": "https://example.com/great-ball.png" },
+            "bannerImage": { "image1xURL": "https://example.com/great-ball-banner.png" }
+          }
+        ]
+      }
+    ]
+  }
+}

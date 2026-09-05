@@ -1,0 +1,46 @@
+{
+  "data": {
+    "badges": [
+      {
+        "id": "pichu",
+        "setID": "first-partners",
+        "version": "pichu",
+        "title": "Pichu",
+        "description": "Chat badge earned through the Pokémon First Partners Collection.",
+        "imageURL": "https://example.com/pichu.png"
+      },
+      {
+        "id": "bulbasaur",
+        "setID": "first-partners",
+        "version": "bulbasaur",
+        "title": "Bulbasaur",
+        "description": "Chat badge earned through the Pokémon First Partners Collection.",
+        "imageURL": "https://example.com/bulbasaur.png"
+      },
+      {
+        "id": "charmander",
+        "setID": "first-partners",
+        "version": "charmander",
+        "title": "Charmander",
+        "description": "Chat badge earned through the Pokémon First Partners Collection.",
+        "imageURL": "https://example.com/charmander.png"
+      },
+      {
+        "id": "squirtle",
+        "setID": "first-partners",
+        "version": "squirtle",
+        "title": "Squirtle",
+        "description": "Chat badge earned through the Pokémon First Partners Collection.",
+        "imageURL": "https://example.com/squirtle.png"
+      },
+      {
+        "id": "unrelated",
+        "setID": "other-collection",
+        "version": "1",
+        "title": "Other",
+        "description": "Chat badge earned through another collection.",
+        "imageURL": "https://example.com/other.png"
+      }
+    ]
+  }
+}

@@ -56,7 +56,7 @@ import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityState
 import com.github.andreyasadchy.xtra.model.chat.NamePaint
 import com.github.andreyasadchy.xtra.model.chat.STVBadge
-import com.github.andreyasadchy.xtra.model.chat.effectiveBadge
+import com.github.andreyasadchy.xtra.model.chat.selectedVanityBadge
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.Poll
 import com.github.andreyasadchy.xtra.model.chat.PollVoteState
@@ -2021,7 +2021,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private fun updateChatIdentityTrigger(state: ChatIdentityState) {
         val icon = _binding?.chatIdentity ?: return
-        val badge = state.effectiveBadge()
+        val badge = state.displayBadges.firstOrNull()
+            ?: state.takeIf { !it.loading && it.displayName.isNotBlank() }?.selectedVanityBadge()
         if (badge?.imageUrl.isNullOrBlank()) {
             chatIdentityBadgeRequest?.dispose()
             chatIdentityBadgeRequest = null
