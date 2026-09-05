@@ -147,6 +147,7 @@ class VideoShelfAdapter(
                 }.build()))
             }
             binding.title.text = item.title.orEmpty()
+            binding.title.maxLines = if (binding.root.resources.configuration.smallestScreenWidthDp >= 600) 1 else 2
             binding.channel.text = item.channelName.orEmpty()
             binding.category.text = item.gameName.orEmpty()
             binding.channel.visibility = if (binding.channel.text.isNullOrBlank()) View.GONE else View.VISIBLE

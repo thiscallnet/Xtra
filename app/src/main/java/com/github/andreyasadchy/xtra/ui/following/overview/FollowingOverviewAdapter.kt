@@ -65,7 +65,7 @@ class FollowingOverviewAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(getItem(position))
+        holder.bind(getItem(position), position > 0)
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
@@ -119,7 +119,8 @@ class FollowingOverviewAdapter(
             }
         }
 
-        fun bind(section: FollowingOverviewSection) {
+        fun bind(section: FollowingOverviewSection, showDivider: Boolean) {
+            binding.sectionDivider.visibility = if (showDivider) android.view.View.VISIBLE else android.view.View.GONE
             if (boundSectionKey != section.key) {
                 saveShelfState()
                 boundSectionKey = section.key
