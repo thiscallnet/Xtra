@@ -3995,7 +3995,7 @@ class ChatViewModel(
             }
         }
 
-        override suspend fun onClearChat(event: JSONObject, timestamp: String?) {
+        override suspend fun onClearChat(event: JSONObject, timestamp: String?, notificationId: String?) {
             if (showClearChat) {
                 onMessage(EventSubUtils.parseClearChat(applicationContext, event, timestamp))
             }

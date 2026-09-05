@@ -729,6 +729,7 @@
     <string name="chat_join">Welcome to %s\'s chat room!</string>
     <string name="copy_clip">Copy to clipboard</string>
     <string name="chat_clear">Chat has been cleared by a moderator.</string>
+    <string name="chat_clear_user">Messages from %s have been cleared by a moderator.</string>
     <string name="chat_timeout">%1$s has been timed out for %2$s.</string>
     <string name="chat_ban">%s has been permanently banned.</string>
     <string name="chat_clearmsg">Message deleted from %1$s\: %2$s</string>

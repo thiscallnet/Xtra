@@ -5,6 +5,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.util.chat.ChatReadWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
 import com.github.andreyasadchy.xtra.util.chat.EventSubWebSocket
@@ -64,6 +65,9 @@ data class TwitchChatTransportConfig(
     val joinedMessage: String? = null,
     val messageDeletedMessage: String? = null,
     val chatClearedMessage: String? = null,
+    val chatTimeoutMessage: ((String, Int) -> String)? = null,
+    val chatBanMessage: ((String) -> String)? = null,
+    val chatUserMessagesClearedMessage: ((String) -> String)? = null,
 )
 
 /**
@@ -121,10 +125,7 @@ class TwitchChatTransport(
                 override suspend fun onClearChat(message: ChatUtils.IRCMessage) {
                     TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event ->
                         send(event)
-                        if (config.showClearChat) {
-                            val eventKey = message.tags["tmi-sent-ts"] ?: System.nanoTime().toString()
-                            systemMessage(session, "clear-$eventKey", config.chatClearedMessage)?.let { flowScope.send(it) }
-                        }
+                        moderationSystemMessage(session, event)?.let { flowScope.send(it) }
                     }
                 }
 
@@ -193,20 +194,16 @@ class TwitchChatTransport(
                     flowScope.send(TwitchChatEventParser.fromEventSub(event, timestamp, notice = true))
                 }
 
-                override suspend fun onClearChat(event: org.json.JSONObject, timestamp: String?) {
-                    val clearEvent = TwitchChatEventParser.fromEventSubClear(event, timestamp)
+                override suspend fun onClearChat(event: org.json.JSONObject, timestamp: String?, notificationId: String?) {
+                    val clearEvent = TwitchChatEventParser.fromEventSubClear(event, timestamp, notificationId)
                     flowScope.send(clearEvent)
-                    if (config.showClearChat) {
-                        systemMessage(session, "clear-${clearEvent.eventId ?: timestamp ?: System.nanoTime()}", config.chatClearedMessage)?.let { flowScope.send(it) }
-                    }
+                    moderationSystemMessage(session, clearEvent)?.let { flowScope.send(it) }
                 }
 
-                override suspend fun onClearUserMessages(event: org.json.JSONObject, timestamp: String?) {
-                    val clearEvent = TwitchChatEventParser.fromEventSubClear(event, timestamp)
+                override suspend fun onClearUserMessages(event: org.json.JSONObject, timestamp: String?, notificationId: String?) {
+                    val clearEvent = TwitchChatEventParser.fromEventSubClear(event, timestamp, notificationId)
                     flowScope.send(clearEvent)
-                    if (config.showClearChat) {
-                        systemMessage(session, "clear-user-${clearEvent.eventId ?: timestamp ?: System.nanoTime()}", config.chatClearedMessage)?.let { flowScope.send(it) }
-                    }
+                    moderationSystemMessage(session, clearEvent)?.let { flowScope.send(it) }
                 }
 
                 override suspend fun onMessageDelete(event: org.json.JSONObject, timestamp: String?) {
@@ -403,13 +400,44 @@ class TwitchChatTransport(
         )
     }
 
-    private fun systemMessage(session: ChatSessionKey, suffix: String, text: String?): ChatEvent.Message? =
+    private fun moderationSystemMessage(session: ChatSessionKey, event: ChatEvent): ChatEvent.Message? {
+        if (!config.showClearChat) return null
+        val text = when (event) {
+            is ChatEvent.Clear -> config.chatClearedMessage
+            is ChatEvent.ClearUser -> {
+                val target = event.userName ?: event.userLogin ?: event.userId ?: return null
+                when (event.reason) {
+                    ChatUserClearReason.TIMEOUT -> event.timeoutSeconds?.let { seconds ->
+                        config.chatTimeoutMessage?.invoke(target, seconds)
+                    } ?: config.chatUserMessagesClearedMessage?.invoke(target)
+                    ChatUserClearReason.BAN -> config.chatBanMessage?.invoke(target)
+                        ?: config.chatUserMessagesClearedMessage?.invoke(target)
+                    ChatUserClearReason.MESSAGES_CLEARED -> config.chatUserMessagesClearedMessage?.invoke(target)
+                }
+            }
+            else -> null
+        }
+        val prefix = if (event is ChatEvent.ClearUser) "clear-user" else "clear"
+        return systemMessage(
+            session = session,
+            suffix = "$prefix-${event.eventId ?: event.receivedAtMs}",
+            text = text,
+            timestampMs = event.receivedAtMs + 1,
+        )
+    }
+
+    private fun systemMessage(
+        session: ChatSessionKey,
+        suffix: String,
+        text: String?,
+        timestampMs: Long? = null,
+    ): ChatEvent.Message? =
         text?.takeIf { it.isNotBlank() }?.let {
             ChatEvent.Message(
                 message = ChatMessage(
                     id = ChatMessageId("system-$suffix-${session.generation}"),
                     channelId = config.channelId,
-                    timestampMs = System.currentTimeMillis(),
+                    timestampMs = timestampMs ?: System.currentTimeMillis(),
                     user = null,
                     badges = emptyList(),
                     segments = emptyList(),
