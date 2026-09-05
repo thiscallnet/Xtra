@@ -173,6 +173,22 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "chat_moderation_preview_username",
     "chat_moderation_preview_message",
     "chat_moderation_preview_new_message",
+    # Chat event rows ship with the default English wording until their
+    # translations are reviewed by native speakers. Android intentionally
+    # falls back to values/ for these presentation labels.
+    "chat_event_raid",
+    "chat_event_notice",
+    "chat_event_anonymous",
+    "chat_event_viewer",
+    "chat_event_channel_points_reward",
+    "chat_subscription_prime",
+    "chat_subscription_paid",
+    "chat_subscription_upgrade",
+    "chat_subscription_gift",
+    "chat_subscription_community_gift",
+    "chat_subscription_months",
+    "chat_subscription_streak",
+    "chat_subscription_accessibility_months",
     # Prediction result display settings ship with the default English resources
     # until their translations are reviewed by native speakers.
     "prediction_result_duration",
@@ -180,6 +196,26 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "prediction_result_20s",
     "prediction_result_30s",
     "prediction_result_60s",
+    # Happening Now activity cards ship with the default English wording until
+    # their translations are reviewed by native speakers.
+    "happening_now_title",
+    "happening_now_new_events",
+    "happening_now_predict_with_points",
+    "happening_now_prediction",
+    "happening_now_prediction_result",
+    "happening_now_poll",
+    "happening_now_predict",
+    "happening_now_vote",
+    "happening_now_see_details",
+    "happening_now_gifted_subs",
+    "happening_now_gift_count",
+    "happening_now_go_to",
+    "happening_now_votes",
+    "happening_now_dismiss",
+    "happening_now_winner",
+    "happening_now_more",
+    "happening_now_expand",
+    "happening_now_collapse",
     # Message highlight settings ship with the default English resources until
     # their translations are reviewed by native speakers.
     "chat_message_highlights",

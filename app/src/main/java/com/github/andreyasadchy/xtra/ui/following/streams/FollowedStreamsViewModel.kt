@@ -59,6 +59,14 @@ class FollowedStreamsViewModel(
     val sort: String
         get() = streamSort.value
 
+    val sortText = MutableStateFlow<CharSequence?>(null)
+
+    fun setSort(sort: String) {
+        if (streamSort.value == sort) return
+        streamSort.value = sort
+        cachedFeedSpec = createSpec(accountId.value, sort)
+    }
+
     val flow = combine(accountId, streamSort) { userId, sort -> userId to sort }
         .flatMapLatest { (userId, sort) ->
             flow {

@@ -3,6 +3,11 @@
     <application>
         <activity
             android:name="com.github.andreyasadchy.xtra.ui.chat.v2.ChatMessageTextViewTestActivity"
-            android:exported="true" />
+            android:exported="true"
+            android:theme="@style/DarkTheme" />
+        <activity
+            android:name="com.github.andreyasadchy.xtra.ui.chat.v2.ChatEventFixtureActivity"
+            android:exported="true"
+            android:theme="@style/DarkTheme" />
     </application>
 </manifest>

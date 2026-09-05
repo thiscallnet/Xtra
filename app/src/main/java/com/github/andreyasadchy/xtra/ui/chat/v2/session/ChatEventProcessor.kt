@@ -81,6 +81,7 @@ class ChatEventProcessor(scope: CoroutineScope, private val store: ChatTimelineS
         is ChatEvent.Clear -> event.eventId?.let { "clear:$it" }
         is ChatEvent.SettingsUpdated -> event.eventId?.let { "settings:$it" }
         is ChatEvent.DecorationUpdated -> null
+        is ChatEvent.CommunityGift -> event.eventId?.let { "community-gift:$it" }
         is ChatEvent.TransportDisconnected -> null
     }
 

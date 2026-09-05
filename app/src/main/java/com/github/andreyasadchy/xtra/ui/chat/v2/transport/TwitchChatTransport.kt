@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.transport
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
@@ -21,6 +22,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaintShadow
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.model.chat.Emote as LegacyEmote
+import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGiftParser
+import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGift
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -105,6 +108,11 @@ class TwitchChatTransport(
                 }
 
                 override suspend fun onChatMessage(message: ChatUtils.IRCMessage, userNotice: Boolean) {
+                    if (userNotice) {
+                        HappeningNowGiftParser.fromIrc(message)?.let { gift ->
+                            flowScope.send(ChatEvent.CommunityGift(gift.toChatCommunityGift()))
+                        }
+                    }
                     if (userNotice && !config.showUserNotices) return
                     TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event ->
                         send(event)
@@ -193,6 +201,9 @@ class TwitchChatTransport(
                 }
 
                 override suspend fun onUserNotice(event: org.json.JSONObject, timestamp: String?) {
+                    HappeningNowGiftParser.fromEventSub(event, timestamp)?.let { gift ->
+                        flowScope.send(ChatEvent.CommunityGift(gift.toChatCommunityGift()))
+                    }
                     if (!config.showUserNotices) return
                     flowScope.send(TwitchChatEventParser.fromEventSub(event, timestamp, notice = true))
                 }
@@ -311,6 +322,16 @@ class TwitchChatTransport(
         )
         return socket to socket.connect(scope)
     }
+
+    private fun HappeningNowGift.toChatCommunityGift() =
+        ChatCommunityGift(
+            stableId = stableId,
+            occurredAt = occurredAt,
+            gifterDisplayName = gifterDisplayName,
+            isAnonymous = isAnonymous,
+            count = count,
+            source = source,
+        )
 
     private fun notifySevenTvPresence(scope: kotlinx.coroutines.CoroutineScope, event: ChatEvent) {
         val message = (event as? ChatEvent.Message)?.message ?: return

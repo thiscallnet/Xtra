@@ -7,7 +7,7 @@
     android:layout_height="wrap_content"
     android:background="@drawable/bg_pinned_chat_message"
     android:clickable="true"
-    android:elevation="1dp"
+    android:elevation="0dp"
     android:focusable="true"
     android:orientation="vertical"
     android:paddingStart="8dp"
@@ -69,9 +69,8 @@
             android:contentDescription="@string/pinned_message_mark_seen"
             android:minWidth="40dp"
             android:minHeight="40dp"
-            android:padding="11dp"
-            android:src="@drawable/ic_visibility_off"
-            app:tint="?attr/colorOnSurfaceVariant" />
+            android:padding="8dp"
+            android:scaleType="centerInside" />
 
         <ImageButton
             android:id="@+id/pinnedMessageMinimize"

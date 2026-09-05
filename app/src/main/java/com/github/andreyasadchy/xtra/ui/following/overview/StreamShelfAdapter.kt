@@ -186,6 +186,7 @@ class StreamShelfAdapter(
                 boundPreviewIdentity = nextPreviewIdentity
             }
             with(binding) {
+                title.maxLines = titleMaxLines
                 bindThumbnail(stream)
                 thumbnail.contentDescription = stream.title?.takeIf { it.isNotBlank() }
                     ?: context.getString(R.string.live)
@@ -202,12 +203,7 @@ class StreamShelfAdapter(
                 category.visibility = if (category.text.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
 
                 val tags = presentation?.tags ?: if (uiPreferences.showTags) stream.tags.orEmpty() else emptyList()
-                val firstTag = tags.getOrNull(0)?.trim()?.takeIf(String::isNotEmpty)
-                val secondTag = tags.getOrNull(1)?.trim()?.takeIf(String::isNotEmpty)
-                tagOne.text = firstTag.orEmpty()
-                tagOne.visibility = if (firstTag != null) android.view.View.VISIBLE else android.view.View.GONE
-                tagTwo.text = secondTag.orEmpty()
-                tagTwo.visibility = if (secondTag != null) android.view.View.VISIBLE else android.view.View.GONE
+                bindTags(tags)
 
                 if (stream.channelImage != null) {
                     avatar.visibility = android.view.View.VISIBLE
@@ -239,13 +235,27 @@ class StreamShelfAdapter(
                 channel.visibility = if (channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
                 category.text = presentation.gameName.orEmpty()
                 category.visibility = if (category.text.isNullOrBlank()) View.GONE else View.VISIBLE
-                val tags = presentation.tags.take(2)
-                tagOne.text = tags.firstOrNull()?.trim().orEmpty()
-                tagOne.visibility = if (tagOne.text.isNullOrBlank()) View.GONE else View.VISIBLE
-                tagTwo.text = tags.getOrNull(1)?.trim().orEmpty()
-                tagTwo.visibility = if (tagTwo.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                bindTags(presentation.tags)
             }
         }
+
+        private fun bindTags(tags: List<String>) {
+            val tagValues = tags.asSequence()
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .take(3)
+                .toList()
+            binding.tagOne.text = tagValues.getOrNull(0).orEmpty()
+            binding.tagOne.visibility = if (tagValues.size > 0) View.VISIBLE else View.GONE
+            binding.tagTwo.text = tagValues.getOrNull(1).orEmpty()
+            binding.tagTwo.visibility = if (tagValues.size > 1) View.VISIBLE else View.GONE
+            binding.tagThree.text = tagValues.getOrNull(2).orEmpty()
+            binding.tagThree.visibility = if (tagValues.size > 2) View.VISIBLE else View.GONE
+            binding.tags.visibility = if (tagValues.isNotEmpty()) View.VISIBLE else View.GONE
+        }
+
+        private val titleMaxLines: Int
+            get() = if (binding.root.resources.configuration.smallestScreenWidthDp >= 600) 1 else 2
 
         override fun updateUptime(nowMs: Long) {
             val startedAtMs = uptimeStartedAtMs

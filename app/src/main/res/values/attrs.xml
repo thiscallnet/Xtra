@@ -8,6 +8,7 @@
     <attr name="chatMessageNoticeColor" format="color" />
     <attr name="chatMessageHighlightColor" format="color" />
     <attr name="chatMessageSpecialAccentColor" format="color" />
+    <attr name="chatEventStreakAccentColor" format="color" />
     <attr name="chatMessageMentionColor" format="color" />
     <attr name="chatMessageSelectedColor" format="color" />
     <attr name="sortBarTextColor" format="color" />

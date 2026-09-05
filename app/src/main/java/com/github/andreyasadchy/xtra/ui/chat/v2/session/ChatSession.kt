@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.session
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.ChatTransport
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationUpdate
 import kotlinx.coroutines.CoroutineScope
@@ -10,6 +11,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.cancelAndJoin
@@ -32,6 +37,13 @@ class ChatSession(
     private var highestAcceptedGeneration = Long.MIN_VALUE
     private var highestAcceptedKey: ChatSessionKey? = null
     private var closed = false
+
+    private val _communityGifts = MutableSharedFlow<ChatCommunityGift>(
+        replay = 16,
+        extraBufferCapacity = 32,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val communityGifts: SharedFlow<ChatCommunityGift> = _communityGifts.asSharedFlow()
 
     val isActive: Boolean
         get() = job.isActive && !closed
@@ -59,6 +71,8 @@ class ChatSession(
                                 launch { onTransportDisconnected(key, event.reason) }
                             } else if (event is ChatEvent.DecorationUpdated) {
                                 onDecorationUpdated(event.update)
+                            } else if (event is ChatEvent.CommunityGift) {
+                                _communityGifts.emit(event.gift)
                             } else {
                                 processor.submit(key, event)
                             }

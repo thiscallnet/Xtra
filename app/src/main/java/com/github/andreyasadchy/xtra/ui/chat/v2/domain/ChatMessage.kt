@@ -10,6 +10,51 @@ data class ChatUser(
     val color: Int?,
 )
 
+/** Structured subscription notice metadata shared by IRC and EventSub transports. */
+data class ChatSubscription(
+    val tier: String? = null,
+    val months: Int? = null,
+    val streakMonths: Int? = null,
+    val recipientName: String? = null,
+    val giftCount: Int? = null,
+    val isCommunityGift: Boolean = false,
+    val isAnonymous: Boolean = false,
+    val isUpgrade: Boolean = false,
+)
+
+/**
+ * Twitch has several transport-specific names for the same subscription event family.
+ * Keep that normalization in the domain boundary so presentation code does not duplicate
+ * protocol strings or infer semantics from localized system text.
+ */
+object ChatSubscriptionNoticeTypes {
+    private val names = setOf(
+        "sub", "resub", "subgift", "submysterygift", "giftpaidupgrade", "anongiftpaidupgrade",
+        "prime_paid_upgrade", "gift_paid_upgrade", "sub_gift", "community_sub_gift",
+        "shared_chat_sub", "shared_chat_resub", "shared_chat_sub_gift",
+        "shared_chat_community_sub_gift", "pay_it_forward", "shared_chat_gift_paid_upgrade",
+        "shared_chat_prime_paid_upgrade", "shared_chat_pay_it_forward",
+    )
+    private val giftNames = setOf(
+        "subgift", "submysterygift", "giftpaidupgrade", "anongiftpaidupgrade",
+        "gift_paid_upgrade", "sub_gift", "community_sub_gift", "shared_chat_sub_gift",
+        "shared_chat_community_sub_gift", "pay_it_forward", "shared_chat_gift_paid_upgrade",
+        "shared_chat_prime_paid_upgrade", "shared_chat_pay_it_forward",
+    )
+
+    fun isSubscription(type: String?): Boolean = type?.lowercase() in names
+
+    fun isGift(type: String?): Boolean = type?.lowercase() in giftNames
+
+    fun isCommunityGift(type: String?): Boolean = type?.lowercase()?.endsWith("community_sub_gift") == true
+
+    fun isUpgrade(type: String?): Boolean = type?.lowercase()?.let {
+        it.contains("paid_upgrade") || it.contains("pay_it_forward")
+    } == true
+
+    fun isAnonymous(type: String?): Boolean = type?.lowercase()?.startsWith("anon") == true
+}
+
 data class ChatBadgeRef(
     val setId: String,
     val versionId: String,
@@ -146,4 +191,5 @@ data class ChatMessage(
     val subscriptionPlan: String? = null,
     val subscriptionTier: String? = null,
     val isPrimeSubscription: Boolean? = null,
+    val subscription: ChatSubscription? = null,
 )

@@ -37,6 +37,14 @@
 
                 <include layout="@layout/view_pinned_chat_message" />
 
+                <com.github.andreyasadchy.xtra.ui.chat.HappeningNowView
+                    android:id="@+id/happeningNow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
+
                 <com.google.android.material.chip.Chip
                     android:id="@+id/slowModeIndicator"
                     style="@style/Widget.Material3.Chip.Assist"

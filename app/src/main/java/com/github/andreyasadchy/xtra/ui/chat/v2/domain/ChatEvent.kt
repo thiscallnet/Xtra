@@ -8,6 +8,20 @@ enum class ChatUserClearReason {
     MESSAGES_CLEARED,
 }
 
+enum class ChatGiftSource {
+    IRC,
+    EVENTSUB,
+}
+
+data class ChatCommunityGift(
+    val stableId: String,
+    val occurredAt: Long,
+    val gifterDisplayName: String?,
+    val isAnonymous: Boolean,
+    val count: Int,
+    val source: ChatGiftSource,
+)
+
 sealed interface ChatEvent {
     val eventId: String?
     val receivedAtMs: Long
@@ -44,6 +58,11 @@ sealed interface ChatEvent {
         val update: ChatDecorationUpdate,
         override val eventId: String? = null,
         override val receivedAtMs: Long = System.currentTimeMillis(),
+    ) : ChatEvent
+    data class CommunityGift(
+        val gift: ChatCommunityGift,
+        override val eventId: String? = gift.stableId,
+        override val receivedAtMs: Long = gift.occurredAt,
     ) : ChatEvent
     /** Transport lifecycle is not a timeline item. It lets the session reconcile after a gap. */
     data class TransportDisconnected(

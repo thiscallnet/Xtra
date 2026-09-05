@@ -21,6 +21,7 @@ import android.widget.MultiAutoCompleteTextView
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.core.content.res.use
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -120,6 +121,7 @@ import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -132,11 +134,14 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.max
 
+private const val TWITCH_LISTENING_ONLY_BADGE_URL =
+    "https://static-cdn.jtvnw.net/badges/v1/199a0dba-58f3-494e-a7fc-1fa0a1001fb8/3"
+
 internal fun shouldShowChatComposer(
-    messagingEnabled: Boolean,
+    chatAvailable: Boolean,
     isSlidingPlayerLayout: Boolean,
     chatBarVisible: Boolean,
-): Boolean = messagingEnabled && (!isSlidingPlayerLayout || chatBarVisible)
+): Boolean = chatAvailable && (!isSlidingPlayerLayout || chatBarVisible)
 
 internal fun matchesV2MessageUser(
     message: V2ChatMessage,
@@ -270,6 +275,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var useChatV2 = false
     private var chatV2RendererVisible = true
     private var selectedV2Message: V2ChatMessage? = null
+    private var selectedPinnedMessage: ChatMessage? = null
     private val v2Translations = mutableMapOf<String, String>()
 
     internal val isUsingChatV2: Boolean
@@ -585,6 +591,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun betPrediction(outcomeId: String, points: Int) = viewModel.betPrediction(outcomeId, points)
 
+    private fun showChannelPointsDialog(prediction: Prediction? = null) {
+        if (childFragmentManager.findFragmentByTag(ChannelPointsDialog.TAG) == null) {
+            ChannelPointsDialog.newInstance(prediction).show(
+                childFragmentManager,
+                ChannelPointsDialog.TAG,
+            )
+        }
+    }
+
     override fun channelName(): String? {
         return arguments?.getString(KEY_CHANNEL_NAME)?.takeIf { it.isNotBlank() }
             ?: arguments?.getString(KEY_CHANNEL_LOGIN)
@@ -719,6 +734,61 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     ) { poll, pollSeconds, prediction, predictionSeconds ->
                         ChannelPointsActivityState(poll, pollSeconds, prediction, predictionSeconds)
                     }.collectLatest(::updateChannelPointsActivity)
+                }
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    launch {
+                        combine(
+                            viewModel.predictionSecondsLeft,
+                            viewModel.pollSecondsLeft,
+                        ) { predictionSeconds, pollSeconds ->
+                            predictionSeconds to pollSeconds
+                        }.collect { (predictionSeconds, pollSeconds) ->
+                            binding.happeningNow.updateTimers(predictionSeconds, pollSeconds)
+                        }
+                    }
+                    val activeActivities = combine(
+                        viewModel.ongoingPrediction,
+                        viewModel.predictionSecondsLeft,
+                        viewModel.activePoll,
+                        viewModel.pollSecondsLeft,
+                    ) { prediction, _, poll, _ ->
+                        HappeningNowActivityState(
+                            prediction = prediction,
+                            poll = poll,
+                            canBetPrediction = viewModel.canBetPrediction(),
+                            canVotePoll = viewModel.canVotePoll(),
+                        )
+                    }.distinctUntilChanged()
+
+                    combine(
+                        activeActivities,
+                        viewModel.happeningNowGift,
+                        viewModel.happeningNowPredictionResult,
+                        viewModel.happeningNowNewIds,
+                        viewModel.dismissedHappeningNowIds,
+                    ) { activity, gift, result, newIds, dismissedIds ->
+                        HappeningNowView.RenderState(
+                            gift = gift,
+                            activePrediction = activity.prediction,
+                            recentPredictionResult = result,
+                            activePoll = activity.poll,
+                            canBetPrediction = activity.canBetPrediction,
+                            canVotePoll = activity.canVotePoll,
+                            newIds = newIds,
+                            dismissedIds = dismissedIds,
+                        )
+                    }.collectLatest { state ->
+                        binding.happeningNow.render(
+                            state = state,
+                            onOpenChannelPoints = { showChannelPointsDialog() },
+                            onOpenHistoricalPrediction = { prediction ->
+                                showChannelPointsDialog(prediction)
+                            },
+                            onDismiss = viewModel::dismissHappeningNowCard,
+                        )
+                    }
                 }
             }
             if (requireContext().prefs().isChatEnabled()) {
@@ -880,6 +950,19 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 highlightRedeemed = { title -> getString(R.string.chat_highlight_redeemed, title) },
                                 watchStreakReached = getString(R.string.chat_watch_streak_reached),
                                 watchStreakStatus = { user, count -> getString(R.string.chat_watch_streak_status, user, count) },
+                                raid = getString(R.string.chat_event_raid),
+                                notice = getString(R.string.chat_event_notice),
+                                anonymous = getString(R.string.chat_event_anonymous),
+                                viewer = getString(R.string.chat_event_viewer),
+                                reward = getString(R.string.chat_event_channel_points_reward),
+                                subscriptionPrime = getString(R.string.chat_subscription_prime),
+                                subscriptionPaid = { tier -> getString(R.string.chat_subscription_paid, tier) },
+                                subscriptionUpgrade = { tier -> getString(R.string.chat_subscription_upgrade, tier) },
+                                subscriptionGift = { tier, recipient -> getString(R.string.chat_subscription_gift, tier, recipient) },
+                                subscriptionCommunityGift = { count, tier -> resources.getQuantityString(R.plurals.chat_subscription_community_gift, count, count, tier) },
+                                subscriptionMonths = { months -> resources.getQuantityString(R.plurals.chat_subscription_months, months, months) },
+                                subscriptionStreak = { months -> resources.getQuantityString(R.plurals.chat_subscription_streak, months, months) },
+                                subscriptionAccessibilityMonths = { months -> resources.getQuantityString(R.plurals.chat_subscription_accessibility_months, months, months) },
                                 reply = { user, message -> getString(R.string.replying_to_message, user, message) },
                                 moderationSuffix = { moderation ->
                                     when (moderation.reason) {
@@ -1140,7 +1223,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         replyView.visibility = View.GONE
                         send.setOnClickListener { sendMessage() }
                         messageView.isVisible = shouldShowChatComposer(
-                            messagingEnabled = messagingEnabled,
+                            chatAvailable = isLive,
                             isSlidingPlayerLayout = isInSlidingPlayerLayout(binding.root),
                             chatBarVisible = requireContext().prefs().getBoolean(C.KEY_CHAT_BAR_VISIBLE, true),
                         )
@@ -1182,9 +1265,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             }
                         }
                         channelPoints.setOnClickListener {
-                            if (childFragmentManager.findFragmentByTag(ChannelPointsDialog.TAG) == null) {
-                                ChannelPointsDialog().show(childFragmentManager, ChannelPointsDialog.TAG)
-                            }
+                            showChannelPointsDialog()
                         }
                         updateSlowModeIndicator(viewModel.slowModeState.value)
                     }
@@ -1564,13 +1645,28 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             pinnedMessageMinimized = requireContext().isTelevision()
         }
         pinnedBinding.pinnedMessageBy.text = message.pinnedBy
-        pinnedBinding.pinnedMessageSender.text = message.sender ?: message.pinnedBy
+        pinnedBinding.pinnedMessageBy.setOnClickListener {
+            showPinnedMessageUserPopout(message, pinner = true)
+        }
+        pinnedBinding.pinnedMessageBy.isClickable =
+            !message.pinnedById.isNullOrBlank() || !message.pinnedByLogin.isNullOrBlank()
+
+        val senderName = message.sender ?: message.pinnedBy
+        pinnedBinding.pinnedMessageSender.text = senderName
         val senderColor = message.senderColor?.let { color ->
             runCatching { Color.parseColor(color) }.getOrNull()
         }
         pinnedBinding.pinnedMessageSender.setTextColor(
-            senderColor ?: MaterialColors.getColor(pinnedBinding.pinnedMessageSender, androidx.appcompat.R.attr.colorPrimary),
+            senderColor ?: MaterialColors.getColor(
+                pinnedBinding.pinnedMessageSender,
+                androidx.appcompat.R.attr.colorPrimary,
+            ),
         )
+        pinnedBinding.pinnedMessageSender.setOnClickListener {
+            showPinnedMessageUserPopout(message, pinner = false)
+        }
+        pinnedBinding.pinnedMessageSender.isClickable =
+            !message.senderId.isNullOrBlank() || !message.senderLogin.isNullOrBlank()
         val sentAt = message.sentAt?.let { TwitchApiHelper.getTimestamp(it, "2") }
         pinnedBinding.pinnedMessageSentAt.text = sentAt?.let { getString(R.string.pinned_message_sent_at, it) }.orEmpty()
         pinnedBinding.pinnedMessageSentAt.isVisible = sentAt != null
@@ -1580,8 +1676,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         pinnedBinding.pinnedMessageCollapsedPreview.isVisible = pinnedMessageMinimized
         pinnedBinding.pinnedMessageFooter.isVisible = !pinnedMessageMinimized
         disposePinnedBadgeRequests()
-        renderPinnedMessageBadges(pinnedBinding.pinnedMessagePinnedByBadges, message.pinnedByBadges)
+        renderPinnedMessageBadges(
+            pinnedBinding.pinnedMessagePinnedByBadges,
+            listOfNotNull(highestPinnedChatRoleBadge(message.pinnedByBadges)),
+        )
         renderPinnedMessageBadges(pinnedBinding.pinnedMessageSenderBadges, message.senderBadges)
+        renderPinnedMessageListeningBadge()
         pinnedBinding.pinnedMessageMinimize.setImageResource(
             if (pinnedMessageMinimized) R.drawable.baseline_expand_more_black_24 else R.drawable.ic_expand_less,
         )
@@ -1605,9 +1705,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             } ?: synchronized(viewModel.channelBadges) {
                 viewModel.channelBadges.firstOrNull { it.setId == badge.setId && it.version == badge.version }
             }
-            val url = catalogBadge?.url2x ?: catalogBadge?.url1x
-            val fallbackDrawable = pinnedChatBadgeFallbackResource(badge.setId)
-            if (url.isNullOrBlank() && fallbackDrawable == null) return@forEach
+            val url = badge.imageUrl?.takeIf { it.isNotBlank() }
+                ?: catalogBadge?.url2x
+                ?: catalogBadge?.url1x
+            if (url.isNullOrBlank()) return@forEach
             val density = resources.displayMetrics.density
             val image = ImageView(requireContext()).apply {
                 layoutParams = LinearLayout.LayoutParams(
@@ -1617,23 +1718,71 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     marginEnd = (3 * density).toInt()
                 }
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                contentDescription = catalogBadge?.title ?: badge.setId
+                contentDescription = badge.title ?: catalogBadge?.title ?: badge.setId
             }
-            if (url.isNullOrBlank()) {
-                image.setImageResource(fallbackDrawable!!)
-            } else {
-                pinnedBadgeRequests += requireContext().imageLoader.enqueue(
-                    ImageRequest.Builder(requireContext())
-                        .data(url)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .crossfade(false)
-                        .target(image)
-                        .build(),
-                )
-            }
+            pinnedBadgeRequests += requireContext().imageLoader.enqueue(
+                ImageRequest.Builder(requireContext())
+                    .data(url)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .crossfade(false)
+                    .target(image)
+                    .build(),
+            )
             container.addView(image)
         }
         container.isVisible = container.childCount > 0
+    }
+
+    private fun renderPinnedMessageListeningBadge() {
+        val seenButton = pinnedMessageBinding?.pinnedMessageSeen ?: return
+        val badge = synchronized(viewModel.globalBadges) {
+            viewModel.globalBadges.firstOrNull {
+                it.setId.equals("no_video", ignoreCase = true) ||
+                    it.title.equals("Listening only", ignoreCase = true)
+            }
+        }
+        val url = badge?.url4x
+            ?: badge?.url3x
+            ?: badge?.url2x
+            ?: badge?.url1x
+            ?: TWITCH_LISTENING_ONLY_BADGE_URL
+
+        seenButton.isVisible = true
+        pinnedBadgeRequests += requireContext().imageLoader.enqueue(
+            ImageRequest.Builder(requireContext())
+                .data(url)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .crossfade(false)
+                .target(seenButton)
+                .build(),
+        )
+    }
+
+    private fun showPinnedMessageUserPopout(
+        message: PinnedChatMessage,
+        pinner: Boolean,
+    ) {
+        val userId = if (pinner) message.pinnedById else message.senderId
+        val userLogin = if (pinner) message.pinnedByLogin else message.senderLogin
+        val userName = if (pinner) message.pinnedBy else message.sender ?: message.pinnedBy
+        if (userId.isNullOrBlank() && userLogin.isNullOrBlank()) return
+
+        selectedV2Message = null
+        selectedPinnedMessage = ChatMessage(
+            type = ChatMessage.USER_MESSAGE,
+            userId = userId,
+            userLogin = userLogin,
+            userName = userName,
+            message = message.text,
+            badges = if (pinner) message.pinnedByBadges else message.senderBadges,
+            timestamp = message.sentAt,
+        )
+        hideChatInputForDialog()
+        MessageClickedDialog.newInstance(
+            messagingEnabled = messagingEnabled,
+            channelId = requireArguments().getString(KEY_CHANNEL_ID),
+            channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+        ).show(childFragmentManager, "messageDialog")
     }
 
     private fun schedulePinnedMessageTimer(message: PinnedChatMessage) {
@@ -2132,7 +2281,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live &&
                 isLoggedIn
         binding.messageView.isVisible = shouldShowChatComposer(
-            messagingEnabled = messagingEnabled,
+            chatAvailable = args.getBoolean(KEY_IS_LIVE) &&
+                    viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live,
             isSlidingPlayerLayout = isInSlidingPlayerLayout(binding.root),
             chatBarVisible = requireContext().prefs().getBoolean(C.KEY_CHAT_BAR_VISIBLE, true),
         )
@@ -2268,6 +2418,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val pollSeconds: Int?,
         val prediction: Prediction?,
         val predictionSeconds: Int?,
+    )
+
+    private data class HappeningNowActivityState(
+        val prediction: Prediction?,
+        val poll: Poll?,
+        val canBetPrediction: Boolean,
+        val canVotePoll: Boolean,
     )
 
     private data class ActivityVisualState(
@@ -2907,6 +3064,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onCreateMessageClickedChatAdapter(): MessageClickedChatAdapter? {
+        selectedPinnedMessage?.let { pinnedMessage ->
+            selectedPinnedMessage = null
+            return adapter?.createMessageClickedChatAdapter(
+                selectedMessageOverride = pinnedMessage,
+            )
+        }
         val clicked = selectedV2Message
         if (!useChatV2 || clicked == null) return adapter?.createMessageClickedChatAdapter()
         val canonicalMessages = chatV2Renderer?.currentMessages().orEmpty()

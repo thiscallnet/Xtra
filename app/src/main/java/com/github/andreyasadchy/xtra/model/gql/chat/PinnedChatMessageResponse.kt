@@ -50,6 +50,8 @@ class PinnedChatMessageResponse(
     class Badge(
         val setID: String? = null,
         val version: String? = null,
+        val imageURL: String? = null,
+        val title: String? = null,
     )
 
     @Serializable
