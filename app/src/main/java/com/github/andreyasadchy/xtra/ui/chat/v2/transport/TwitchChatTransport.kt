@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.transport
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
@@ -22,6 +23,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.model.chat.Emote as LegacyEmote
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGiftParser
+import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGift
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -71,7 +73,6 @@ data class TwitchChatTransportConfig(
     val chatTimeoutMessage: ((String, Int) -> String)? = null,
     val chatBanMessage: ((String) -> String)? = null,
     val chatUserMessagesClearedMessage: ((String) -> String)? = null,
-    val onCommunityGift: suspend (String, Long, String, Int) -> Unit = { _, _, _, _ -> },
 )
 
 /**
@@ -109,12 +110,7 @@ class TwitchChatTransport(
                 override suspend fun onChatMessage(message: ChatUtils.IRCMessage, userNotice: Boolean) {
                     if (userNotice) {
                         HappeningNowGiftParser.fromIrc(message)?.let { gift ->
-                            config.onCommunityGift(
-                                gift.stableId,
-                                gift.occurredAt,
-                                gift.gifterDisplayName,
-                                gift.count,
-                            )
+                            flowScope.send(ChatEvent.CommunityGift(gift.toChatCommunityGift()))
                         }
                     }
                     if (userNotice && !config.showUserNotices) return
@@ -206,12 +202,7 @@ class TwitchChatTransport(
 
                 override suspend fun onUserNotice(event: org.json.JSONObject, timestamp: String?) {
                     HappeningNowGiftParser.fromEventSub(event, timestamp)?.let { gift ->
-                        config.onCommunityGift(
-                            gift.stableId,
-                            gift.occurredAt,
-                            gift.gifterDisplayName,
-                            gift.count,
-                        )
+                        flowScope.send(ChatEvent.CommunityGift(gift.toChatCommunityGift()))
                     }
                     if (!config.showUserNotices) return
                     flowScope.send(TwitchChatEventParser.fromEventSub(event, timestamp, notice = true))
@@ -331,6 +322,16 @@ class TwitchChatTransport(
         )
         return socket to socket.connect(scope)
     }
+
+    private fun HappeningNowGift.toChatCommunityGift() =
+        ChatCommunityGift(
+            stableId = stableId,
+            occurredAt = occurredAt,
+            gifterDisplayName = gifterDisplayName,
+            isAnonymous = isAnonymous,
+            count = count,
+            source = source,
+        )
 
     private fun notifySevenTvPresence(scope: kotlinx.coroutines.CoroutineScope, event: ChatEvent) {
         val message = (event as? ChatEvent.Message)?.message ?: return

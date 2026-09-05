@@ -1844,16 +1844,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         channelLogin = channelLogin,
                         streamId = currentLiveStreamId(),
                         legacySupplementalSockets = true,
-                        onCommunityGift = { stableId, occurredAt, gifterDisplayName, count ->
-                            viewModel.recordHappeningNowGift(
-                                HappeningNowGift(
-                                    stableId = stableId,
-                                    occurredAt = occurredAt,
-                                    gifterDisplayName = gifterDisplayName,
-                                    count = count,
-                                ),
-                            )
-                        },
                     ),
                 )
             }.onFailure { error ->

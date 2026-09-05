@@ -253,6 +253,7 @@ class ChatTimelineStore(
             is ChatEvent.Clear -> apply(TimelineOperation.Clear(event.receivedAtMs))
             is ChatEvent.SettingsUpdated -> Unit
             is ChatEvent.DecorationUpdated -> Unit
+            is ChatEvent.CommunityGift -> Unit
             is ChatEvent.TransportDisconnected -> Unit
         }
     }

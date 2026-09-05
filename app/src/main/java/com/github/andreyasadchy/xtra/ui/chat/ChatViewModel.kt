@@ -106,6 +106,7 @@ import com.github.andreyasadchy.xtra.util.watch.WatchCreditTelemetry
 import kotlinx.coroutines.cancel
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
 import kotlinx.coroutines.CancellationException
@@ -123,6 +124,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -304,6 +306,27 @@ class ChatViewModel(
     private val json: Json,
     private val chatSessionManager: ChatSessionManager,
 ) : ViewModel() {
+
+    init {
+        viewModelScope.launch {
+            chatSessionManager.active
+                .flatMapLatest { active ->
+                    active?.session?.communityGifts ?: flowOf<ChatCommunityGift>()
+                }
+                .collect { gift ->
+                    recordHappeningNowGift(
+                        HappeningNowGift(
+                            stableId = gift.stableId,
+                            occurredAt = gift.occurredAt,
+                            gifterDisplayName = gift.gifterDisplayName,
+                            isAnonymous = gift.isAnonymous,
+                            count = gift.count,
+                            source = gift.source,
+                        ),
+                    )
+                }
+        }
+    }
 
     sealed interface ThirdPartyPickerState {
         data object Loading : ThirdPartyPickerState
@@ -3715,7 +3738,9 @@ class ChatViewModel(
             }
 
             if (previous != null &&
+                previous.source != gift.source &&
                 previous.count == gift.count &&
+                previous.isAnonymous == gift.isAnonymous &&
                 previous.gifterDisplayName.equals(gift.gifterDisplayName, ignoreCase = true) &&
                 kotlin.math.abs(previous.occurredAt - gift.occurredAt) <=
                     HAPPENING_NOW_CROSS_TRANSPORT_DEDUPE_MILLIS

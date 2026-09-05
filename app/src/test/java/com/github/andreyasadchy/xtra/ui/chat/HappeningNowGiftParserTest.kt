@@ -51,7 +51,8 @@ class HappeningNowGiftParserTest {
             timestamp = null,
         )
 
-        assertEquals("Anonymous", gift?.gifterDisplayName)
+        assertTrue(gift?.isAnonymous == true)
+        assertNull(gift?.gifterDisplayName)
     }
 
     @Test

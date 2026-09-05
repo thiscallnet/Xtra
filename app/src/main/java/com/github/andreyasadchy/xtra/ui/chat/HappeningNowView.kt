@@ -222,16 +222,21 @@ internal class HappeningNowView @JvmOverloads constructor(
 
         val giftText = view.findViewById<TextView>(R.id.happeningGiftText)
         val giftCount = view.findViewById<TextView>(R.id.happeningGiftCount)
+        val gifterDisplayName = if (gift.isAnonymous) {
+            context.getString(R.string.chat_event_anonymous)
+        } else {
+            gift.gifterDisplayName.orEmpty()
+        }
         val text = context.getString(
             R.string.happening_now_gifted_subs,
-            gift.gifterDisplayName,
+            gifterDisplayName,
         )
 
         giftText.text = SpannableString(text).apply {
             setSpan(
                 StyleSpan(Typeface.BOLD),
                 0,
-                gift.gifterDisplayName.length.coerceAtMost(length),
+                gifterDisplayName.length.coerceAtMost(length),
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
             )
         }

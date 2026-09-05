@@ -71,6 +71,7 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val REPLY_TEXT_SCALE = 0.82f
+private const val REPLY_ICON_SIZE_DP = 15
 
 open class ChatMessageTextView private constructor(
     context: Context,
@@ -802,11 +803,14 @@ open class ChatMessageTextView private constructor(
         val replyPaint = TextPaint(paint).apply {
             textSize *= REPLY_TEXT_SCALE
         }
+        val replyBoldPaint = TextPaint(replyPaint).apply {
+            typeface = Typeface.create(replyPaint.typeface, Typeface.BOLD)
+        }
         val availableWidth = if (width > 0) {
             val lineStart = output.lastIndexOf('\n') + 1
             val prefix = output.substring(lineStart)
-            val iconCorrection = (18 * resources.displayMetrics.density).roundToInt() - replyPaint.measureText(".")
-            val timestampWidth = timestampText?.let { replyPaint.measureText("$it ") } ?: 0f
+            val iconCorrection = (REPLY_ICON_SIZE_DP * resources.displayMetrics.density).roundToInt() - replyPaint.measureText(".")
+            val timestampWidth = timestampText?.let { paint.measureText("$it ") } ?: 0f
             (width - totalPaddingLeft - totalPaddingRight - timestampWidth - replyPaint.measureText(prefix) - iconCorrection)
                 .coerceAtLeast(replyPaint.measureText("…"))
         } else {
@@ -834,7 +838,9 @@ open class ChatMessageTextView private constructor(
         }
         val rendered = if (structured != null) {
             val fixed = structured.prefix + structured.user + structured.separator
-            val bodyWidth = (availableWidth - replyPaint.measureText(fixed)).coerceAtLeast(
+            val fixedWidth = replyPaint.measureText(structured.prefix + structured.separator) +
+                replyBoldPaint.measureText(structured.user)
+            val bodyWidth = (availableWidth - fixedWidth).coerceAtLeast(
                 replyPaint.measureText("…"),
             )
             fixed + if (bodyWidth.isFinite()) {

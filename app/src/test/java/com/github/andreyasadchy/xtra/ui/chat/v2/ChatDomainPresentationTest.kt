@@ -96,16 +96,27 @@ class ChatDomainPresentationTest {
     }
 
     @Test
-    fun ordinaryTwitchEmoteOnlyMessagesUseTheLargerEmoteSize() {
+    fun ordinaryTwitchEmoteOnlyMessagesUseTheNormalEmoteSize() {
         val row = ChatRowCompiler().compile(
             message(ChatSegment.Emote(base, ":party:", animated = false)),
+        )
+
+        assertEquals(28, row.pieces.filterIsInstance<ChatPiece.Emote>().single().asset.targetHeight)
+    }
+
+    @Test
+    fun explicitlyGigantifiedTwitchEmotesKeepTheLargerEmoteSize() {
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Emote(base, ":party:", animated = false)).copy(
+                twitchType = TwitchChatMessageType.GigantifiedEmote,
+            ),
         )
 
         assertEquals(56, row.pieces.filterIsInstance<ChatPiece.Emote>().single().asset.targetHeight)
     }
 
     @Test
-    fun thirdPartyEmoteOnlyMessagesAreDetectedAfterTokenization() {
+    fun thirdPartyEmoteOnlyMessagesRemainAtTheNormalEmoteSizeAfterTokenization() {
         val definition = emote("Party", ChatAssetProvider.SEVEN_TV)
         val row = ChatRowCompiler().compile(
             message(ChatSegment.Text("Party Party")),
@@ -116,13 +127,13 @@ class ChatDomainPresentationTest {
         )
 
         assertEquals(
-            listOf(56, 56),
+            listOf(28, 28),
             row.pieces.filterIsInstance<ChatPiece.Emote>().map { it.asset.targetHeight },
         )
     }
 
     @Test
-    fun bttvEmoteOnlyMessagesAreDetectedAfterTokenization() {
+    fun bttvEmoteOnlyMessagesRemainAtTheNormalEmoteSizeAfterTokenization() {
         val definition = emote("Party", ChatAssetProvider.BTTV)
         val row = ChatRowCompiler().compile(
             message(ChatSegment.Text("Party")),
@@ -132,11 +143,11 @@ class ChatDomainPresentationTest {
             ),
         )
 
-        assertEquals(56, row.pieces.filterIsInstance<ChatPiece.Emote>().single().asset.targetHeight)
+        assertEquals(28, row.pieces.filterIsInstance<ChatPiece.Emote>().single().asset.targetHeight)
     }
 
     @Test
-    fun whitespaceBetweenEmotesStillCountsAsEmoteOnly() {
+    fun whitespaceBetweenEmotesRemainAtTheNormalEmoteSize() {
         val row = ChatRowCompiler().compile(
             message(ChatSegment.Emote(base, ":one:", animated = false)).copy(
                 segments = listOf(
@@ -148,7 +159,7 @@ class ChatDomainPresentationTest {
         )
 
         assertEquals(
-            listOf(56, 56),
+            listOf(28, 28),
             row.pieces.filterIsInstance<ChatPiece.Emote>().map { it.asset.targetHeight },
         )
     }
@@ -694,8 +705,8 @@ class ChatDomainPresentationTest {
         val spec = base.copy(overlays = listOf(overlay.copy(overlays = listOf(nested))))
         val row = ChatRowCompiler().compile(message(ChatSegment.Emote(spec, ":x:", false)))
         val compiled = row.pieces.filterIsInstance<ChatPiece.Emote>().single().asset
-        assertEquals(56, compiled.targetHeight)
-        assertTrue(compiled.overlays.all { it.targetHeight == 56 })
+        assertEquals(28, compiled.targetHeight)
+        assertTrue(compiled.overlays.all { it.targetHeight == 28 })
         assertTrue(compiled.compositionWidth >= compiled.overlays[0].computedWidth)
         assertTrue(compiled.compositionHeight >= compiled.overlays[0].compositionHeight)
     }
@@ -854,9 +865,9 @@ class ChatDomainPresentationTest {
         resolver.replaceCompiler(ChatRowCompiler(emoteHeightPx = 56, badgeHeightPx = 36))
         val large = resolver.resolve(message, catalog)
 
-        assertEquals(28, compact.pieces.filterIsInstance<ChatPiece.Emote>().single().asset.targetHeight)
+        assertEquals(14, compact.pieces.filterIsInstance<ChatPiece.Emote>().single().asset.targetHeight)
         assertEquals(9, compact.pieces.filterIsInstance<ChatPiece.Badge>().single().asset.targetHeight)
-        assertEquals(112, large.pieces.filterIsInstance<ChatPiece.Emote>().single().asset.targetHeight)
+        assertEquals(56, large.pieces.filterIsInstance<ChatPiece.Emote>().single().asset.targetHeight)
         assertEquals(36, large.pieces.filterIsInstance<ChatPiece.Badge>().single().asset.targetHeight)
     }
 

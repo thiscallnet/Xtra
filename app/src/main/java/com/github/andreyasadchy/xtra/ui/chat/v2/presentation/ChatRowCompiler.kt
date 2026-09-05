@@ -125,7 +125,7 @@ class ChatRowCompiler(
             catalog,
             personalEmoteSetId = messagePersonalEmoteSetId(message, catalog),
         )
-        val targetHeight = emoteTargetHeight(message, resolvedSegments)
+        val targetHeight = emoteTargetHeight(message)
         val moderationSuffix = message.moderation?.let(labels.moderationSuffix)
         val clipPreviews = extractClipPreviews(message)
         val isFirstChatterMessage = message.isFirst || message.twitchType == TwitchChatMessageType.UserIntro
@@ -151,7 +151,7 @@ class ChatRowCompiler(
             message.reply?.let { reply ->
                 val user = reply.parentUserName ?: reply.parentUserLogin ?: ""
                 val body = reply.parentMessageBody.orEmpty()
-                add(ChatPiece.Icon(R.drawable.ic_chat_reply, tint = mutedColor, sizeDp = 18))
+                add(ChatPiece.Icon(R.drawable.ic_chat_reply, tint = mutedColor, sizeDp = 15))
                 val replyUser = user
                 add(
                     ChatPiece.Reply(
@@ -254,23 +254,8 @@ class ChatRowCompiler(
         )
     }
 
-    private fun emoteTargetHeight(
-        message: ChatMessage,
-        resolvedSegments: List<ChatSegment>,
-    ): Int {
-        val isEmoteOnly = resolvedSegments.isNotEmpty() && resolvedSegments.all { segment ->
-            when (segment) {
-                is ChatSegment.Emote -> true
-                is ChatSegment.Text -> segment.text.isBlank()
-                else -> false
-            }
-        }
-        return emoteHeightPx * when {
-            message.twitchType == TwitchChatMessageType.GigantifiedEmote -> 2
-            isEmoteOnly -> 2
-            else -> 1
-        }
-    }
+    private fun emoteTargetHeight(message: ChatMessage): Int =
+        emoteHeightPx * if (message.twitchType == TwitchChatMessageType.GigantifiedEmote) 2 else 1
 
     private fun eventKindFor(
         message: ChatMessage,
@@ -320,7 +305,7 @@ class ChatRowCompiler(
             resolveThirdParty = !systemEvent || showSystemMessageEmotes,
             personalEmoteSetId = messagePersonalEmoteSetId(message, catalog),
         )
-        val targetHeight = emoteTargetHeight(message, resolvedSegments)
+        val targetHeight = emoteTargetHeight(message)
         val bodyPieces = if (hasSemanticBody) {
             messageBodyPieces(message, resolvedSegments, catalog, targetHeight, baseBackground)
         } else {
@@ -342,7 +327,7 @@ class ChatRowCompiler(
             message.reply?.let { reply ->
                 val user = reply.parentUserName ?: reply.parentUserLogin ?: ""
                 val body = reply.parentMessageBody.orEmpty()
-                add(ChatPiece.Icon(R.drawable.ic_chat_reply, tint = mutedColor, sizeDp = 18))
+                add(ChatPiece.Icon(R.drawable.ic_chat_reply, tint = mutedColor, sizeDp = 15))
                 val replyUser = user
                 add(
                     ChatPiece.Reply(
