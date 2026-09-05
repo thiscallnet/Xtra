@@ -156,6 +156,9 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # translations are reviewed by native speakers.
     "chat_clip_playing",
     "chat_clip_clipped_by",
+    # User-targeted moderation notices use the default English wording until
+    # translations are reviewed by native speakers.
+    "chat_clear_user",
     # Prediction result display settings ship with the default English resources
     # until their translations are reviewed by native speakers.
     "prediction_result_duration",

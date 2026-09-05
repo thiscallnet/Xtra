@@ -758,6 +758,16 @@ class XtraModule(application: Application) {
                         joinedMessage = appContext.getString(R.string.chat_join).format(spec.channelLogin),
                         messageDeletedMessage = appContext.getString(R.string.chat_message_deleted),
                         chatClearedMessage = appContext.getString(R.string.chat_clear),
+                        chatTimeoutMessage = { login, seconds ->
+                            appContext.getString(R.string.chat_timeout).format(
+                                login,
+                                TwitchApiHelper.getDurationFromSeconds(appContext, seconds.toString()).orEmpty(),
+                            )
+                        },
+                        chatBanMessage = { login -> appContext.getString(R.string.chat_ban).format(login) },
+                        chatUserMessagesClearedMessage = { login ->
+                            appContext.getString(R.string.chat_clear_user).format(login)
+                        },
                     ),
                     trustManager = trustManager,
                     createSubscription = { headers, userId, type, sessionId ->

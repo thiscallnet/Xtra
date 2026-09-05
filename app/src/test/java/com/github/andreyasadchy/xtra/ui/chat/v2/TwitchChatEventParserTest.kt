@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.chat.v2
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.HIGHLIGHTED_MESSAGE_REWARD_TYPE
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
@@ -15,10 +16,79 @@ import com.github.andreyasadchy.xtra.util.chat.ChatUtils
 import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TwitchChatEventParserTest {
+    @Test
+    fun ircClearchatDistinguishesTimeoutBanAndRoomClear() {
+        val timeout = TwitchChatEventParser.fromIrc(
+            ChatUtils.parseIRCMessage(
+                "@target-user-id=42;ban-duration=600;tmi-sent-ts=1000 :mod!mod@mod.tmi.twitch.tv CLEARCHAT #channel :viewer",
+            ),
+            "channel-id",
+        ) as ChatEvent.ClearUser
+        assertEquals("42", timeout.userId)
+        assertEquals("viewer", timeout.userLogin)
+        assertEquals(ChatUserClearReason.TIMEOUT, timeout.reason)
+        assertEquals(600, timeout.timeoutSeconds)
+
+        val ban = TwitchChatEventParser.fromIrc(
+            ChatUtils.parseIRCMessage(
+                "@tmi-sent-ts=1001 :mod!mod@mod.tmi.twitch.tv CLEARCHAT #channel :viewer",
+            ),
+            "channel-id",
+        ) as ChatEvent.ClearUser
+        assertEquals(ChatUserClearReason.BAN, ban.reason)
+        assertEquals("viewer", ban.userLogin)
+
+        val roomClear = TwitchChatEventParser.fromIrc(
+            ChatUtils.parseIRCMessage(
+                "@tmi-sent-ts=1002 :tmi.twitch.tv CLEARCHAT #channel",
+            ),
+            "channel-id",
+        )
+        assertTrue(roomClear is ChatEvent.Clear)
+    }
+
+    @Test
+    fun eventSubUserClearCarriesTargetIdentityWithoutCallingItABan() {
+        val event = TwitchChatEventParser.fromEventSubClear(
+            JSONObject(
+                """{"target_user_id":"42","target_user_login":"viewer","target_user_name":"Viewer"}""",
+            ),
+            "2026-09-01T12:00:00Z",
+        ) as ChatEvent.ClearUser
+
+        assertEquals("42", event.userId)
+        assertEquals("viewer", event.userLogin)
+        assertEquals("Viewer", event.userName)
+        assertEquals(ChatUserClearReason.MESSAGES_CLEARED, event.reason)
+        assertTrue(event.eventId?.startsWith("42-") == true)
+    }
+
+    @Test
+    fun repeatedEventSubUserClearsUseNotificationIdsForDistinctNotices() {
+        val payload = JSONObject(
+            """{"target_user_id":"42","target_user_login":"viewer","target_user_name":"Viewer"}""",
+        )
+        val first = TwitchChatEventParser.fromEventSubClear(
+            payload,
+            "2026-09-01T12:00:00Z",
+            notificationId = "clear-1",
+        ) as ChatEvent.ClearUser
+        val second = TwitchChatEventParser.fromEventSubClear(
+            payload,
+            "2026-09-01T12:00:00Z",
+            notificationId = "clear-2",
+        ) as ChatEvent.ClearUser
+
+        assertEquals("clear-1", first.eventId)
+        assertEquals("clear-2", second.eventId)
+        assertNotEquals(first.eventId, second.eventId)
+    }
+
     @Test
     fun eventSubKeepsStructuredFragmentsAndCurrentMessageMetadata() {
         val gifUrl = "https://clips-media-assets2.twitch.tv/gif?token=keep-exactly"

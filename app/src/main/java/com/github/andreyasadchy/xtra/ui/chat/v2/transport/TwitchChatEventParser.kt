@@ -13,6 +13,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReply
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.SharedChatSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
@@ -53,9 +54,18 @@ object TwitchChatEventParser {
             receivedAtMs = timestamp(message.tags["tmi-sent-ts"]),
         )
         "CLEARCHAT" -> {
-            val userId = message.tags["target-user-id"]
-            if (!userId.isNullOrBlank()) {
-                ChatEvent.ClearUser(userId, message.tags["target-user-id"], timestamp(message.tags["tmi-sent-ts"]))
+            val userId = message.tags["target-user-id"]?.takeIf { it.isNotBlank() }
+            val userLogin = message.params.getOrNull(1)?.takeIf { it.isNotBlank() }
+            if (userId != null || userLogin != null) {
+                val timeoutSeconds = message.tags["ban-duration"]?.toIntOrNull()?.takeIf { it > 0 }
+                ChatEvent.ClearUser(
+                    userId = userId,
+                    eventId = message.tags["tmi-sent-ts"] ?: userLogin,
+                    receivedAtMs = timestamp(message.tags["tmi-sent-ts"]),
+                    userLogin = userLogin,
+                    reason = if (timeoutSeconds != null) ChatUserClearReason.TIMEOUT else ChatUserClearReason.BAN,
+                    timeoutSeconds = timeoutSeconds,
+                )
             } else {
                 ChatEvent.Clear(message.tags["id"], timestamp(message.tags["tmi-sent-ts"]))
             }
@@ -144,14 +154,23 @@ object TwitchChatEventParser {
         )
     }
 
-    fun fromEventSubClear(event: JSONObject, timestamp: String?): ChatEvent {
+    fun fromEventSubClear(event: JSONObject, timestamp: String?, notificationId: String? = null): ChatEvent {
         val receivedAt = parseTimestamp(timestamp)
+        val eventId = notificationId?.takeIf { it.isNotBlank() }
         val messageId = event.optString("message_id").takeIf { it.isNotBlank() }
         val userId = event.optString("target_user_id").takeIf { it.isNotBlank() }
+        val userLogin = event.optString("target_user_login").takeIf { it.isNotBlank() }
+        val userName = event.optString("target_user_name").takeIf { it.isNotBlank() }
         return when {
             messageId != null -> ChatEvent.Delete(ChatMessageId(messageId), messageId, receivedAt)
-            userId != null -> ChatEvent.ClearUser(userId, userId, receivedAt)
-            else -> ChatEvent.Clear(null, receivedAt)
+            userId != null || userLogin != null -> ChatEvent.ClearUser(
+                userId = userId,
+                eventId = eventId ?: "${userId ?: userLogin}-$receivedAt",
+                receivedAtMs = receivedAt,
+                userLogin = userLogin,
+                userName = userName,
+            )
+            else -> ChatEvent.Clear(eventId, receivedAt)
         }
     }
 

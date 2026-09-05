@@ -332,8 +332,8 @@ class EventSubWebSocket(
         suspend fun onChatMessage(event: JSONObject, timestamp: String?) {}
         suspend fun onChannelPointsRewardRedemption(event: JSONObject, timestamp: String?) {}
         suspend fun onUserNotice(event: JSONObject, timestamp: String?) {}
-        suspend fun onClearChat(event: JSONObject, timestamp: String?) {}
-        suspend fun onClearUserMessages(event: JSONObject, timestamp: String?) {}
+        suspend fun onClearChat(event: JSONObject, timestamp: String?, notificationId: String?) {}
+        suspend fun onClearUserMessages(event: JSONObject, timestamp: String?, notificationId: String?) {}
         suspend fun onMessageDelete(event: JSONObject, timestamp: String?) {}
         suspend fun onRoomState(event: JSONObject, timestamp: String?) {}
         suspend fun onStreamOnline(event: JSONObject, timestamp: String?) {}
@@ -378,8 +378,8 @@ class EventSubWebSocket(
                                     "channel.chat.message" -> listener.onChatMessage(event, timestamp)
                                     "channel.channel_points_custom_reward_redemption.add" -> listener.onChannelPointsRewardRedemption(event, timestamp)
                                     "channel.chat.notification" -> listener.onUserNotice(event, timestamp)
-                                    "channel.chat.clear" -> listener.onClearChat(event, timestamp)
-                                    "channel.chat.clear_user_messages" -> listener.onClearUserMessages(event, timestamp)
+                                    "channel.chat.clear" -> listener.onClearChat(event, timestamp, messageId)
+                                    "channel.chat.clear_user_messages" -> listener.onClearUserMessages(event, timestamp, messageId)
                                     "channel.chat.message_delete" -> listener.onMessageDelete(event, timestamp)
                                     "channel.chat_settings.update" -> listener.onRoomState(event, timestamp)
                                     "stream.online" -> listener.onStreamOnline(event, timestamp)

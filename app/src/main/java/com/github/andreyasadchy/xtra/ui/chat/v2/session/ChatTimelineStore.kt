@@ -16,7 +16,6 @@ sealed interface TimelineOperation {
     data class Append(val items: List<ChatMessage>) : TimelineOperation
     data class Prepend(val items: List<ChatMessage>) : TimelineOperation
     data class Delete(val id: ChatMessageId, val atMs: Long) : TimelineOperation
-    data class ClearUser(val userId: String, val atMs: Long) : TimelineOperation
     data class Clear(val atMs: Long) : TimelineOperation
     data class Replace(val items: List<ChatMessage>) : TimelineOperation
     class RequestSnapshot(val result: CompletableDeferred<List<ChatMessage>>) : TimelineOperation
@@ -42,7 +41,6 @@ class ChatTimelineStore(
             // These tombstones belong to the active generation. Replace(emptyList()) is the
             // processor's generation boundary and resets them before a new channel is accepted.
             val deletedMessageIds = LinkedHashSet<ChatMessageId>(MODERATION_TOMBSTONE_LIMIT)
-            val clearedUsersAt = LinkedHashMap<String, Long>(MODERATION_TOMBSTONE_LIMIT, 0.75f, true)
             var globallyClearedAt: Long? = null
             for (operation in operations) {
                 when (operation) {
@@ -55,31 +53,19 @@ class ChatTimelineStore(
                         continue
                     }
                     is TimelineOperation.Append -> operation.items.forEach { item ->
-                        if (isSuppressed(item, deletedMessageIds, clearedUsersAt, globallyClearedAt)) continue
+                        if (isSuppressed(item, deletedMessageIds, globallyClearedAt)) continue
                         if (isDuplicateReward(item, items)) continue
                         if (ids.add(item.id)) items.addLast(item)
                     }
                     is TimelineOperation.Prepend -> operation.items.asReversed().forEach { item ->
-                        if (isSuppressed(item, deletedMessageIds, clearedUsersAt, globallyClearedAt)) continue
+                        if (isSuppressed(item, deletedMessageIds, globallyClearedAt)) continue
                         if (isDuplicateReward(item, items)) continue
                         if (ids.add(item.id)) items.addFirst(item)
                     }
                     is TimelineOperation.Delete -> {
                         deletedMessageIds.add(operation.id)
-                        trimModerationTombstones(deletedMessageIds, clearedUsersAt)
+                        trimModerationTombstones(deletedMessageIds)
                         if (ids.remove(operation.id)) items.removeIf { it.id == operation.id }
-                    }
-                    is TimelineOperation.ClearUser -> {
-                        val previous = clearedUsersAt[operation.userId]
-                        if (previous == null || operation.atMs > previous) {
-                            clearedUsersAt[operation.userId] = operation.atMs
-                        }
-                        trimModerationTombstones(deletedMessageIds, clearedUsersAt)
-                        items.removeIf { item ->
-                            val removed = item.user?.id == operation.userId
-                            if (removed) ids.remove(item.id)
-                            removed
-                        }
                     }
                     is TimelineOperation.Clear -> {
                         val previous = globallyClearedAt
@@ -91,13 +77,12 @@ class ChatTimelineStore(
                     is TimelineOperation.Replace -> {
                         items.clear(); ids.clear()
                         deletedMessageIds.clear()
-                        clearedUsersAt.clear()
                         globallyClearedAt = null
                         operation.items.takeLast(maxSize).forEach { if (ids.add(it.id)) items.addLast(it) }
                     }
                     is TimelineOperation.Reconcile -> {
                         val merged = (items.toList() + operation.recent.filterNot {
-                            isSuppressed(it, deletedMessageIds, clearedUsersAt, globallyClearedAt)
+                            isSuppressed(it, deletedMessageIds, globallyClearedAt)
                         })
                             .distinctBy { it.id }
                             .sortedBy { it.timestampMs }
@@ -117,13 +102,11 @@ class ChatTimelineStore(
     private fun isSuppressed(
         message: ChatMessage,
         deletedMessageIds: Set<ChatMessageId>,
-        clearedUsersAt: Map<String, Long>,
         globallyClearedAt: Long?,
     ): Boolean {
         if (message.id in deletedMessageIds) return true
         if (globallyClearedAt?.let { message.timestampMs <= it } == true) return true
-        val userId = message.user?.id ?: return false
-        return clearedUsersAt[userId]?.let { message.timestampMs <= it } == true
+        return false
     }
 
     /** Hermes and chat.message can describe the same redemption without sharing an ID. */
@@ -149,13 +132,9 @@ class ChatTimelineStore(
 
     private fun trimModerationTombstones(
         deletedMessageIds: LinkedHashSet<ChatMessageId>,
-        clearedUsersAt: LinkedHashMap<String, Long>,
     ) {
         while (deletedMessageIds.size > MODERATION_TOMBSTONE_LIMIT) {
             deletedMessageIds.remove(deletedMessageIds.first())
-        }
-        while (clearedUsersAt.size > MODERATION_TOMBSTONE_LIMIT) {
-            clearedUsersAt.remove(clearedUsersAt.entries.iterator().next().key)
         }
     }
 
@@ -183,11 +162,14 @@ class ChatTimelineStore(
             is ChatEvent.Message -> apply(TimelineOperation.Append(listOf(event.message)))
             is ChatEvent.Notice -> apply(TimelineOperation.Append(listOf(event.message)))
             is ChatEvent.Delete -> apply(TimelineOperation.Delete(event.messageId, event.receivedAtMs))
-            is ChatEvent.ClearUser -> apply(TimelineOperation.ClearUser(event.userId, event.receivedAtMs))
+            // Legacy Xtra keeps a user's existing messages visible after moderation. The
+            // transport emits the notice separately; user clears do not mutate this timeline.
+            is ChatEvent.ClearUser -> Unit
             is ChatEvent.Clear -> apply(TimelineOperation.Clear(event.receivedAtMs))
             is ChatEvent.SettingsUpdated -> Unit
             is ChatEvent.DecorationUpdated -> Unit
             is ChatEvent.TransportDisconnected -> Unit
         }
     }
+
 }

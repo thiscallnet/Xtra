@@ -2,6 +2,12 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.domain
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationUpdate
 
+enum class ChatUserClearReason {
+    TIMEOUT,
+    BAN,
+    MESSAGES_CLEARED,
+}
+
 sealed interface ChatEvent {
     val eventId: String?
     val receivedAtMs: Long
@@ -12,7 +18,15 @@ sealed interface ChatEvent {
         override val receivedAtMs: Long = System.currentTimeMillis(),
     ) : ChatEvent
     data class Delete(val messageId: ChatMessageId, override val eventId: String?, override val receivedAtMs: Long) : ChatEvent
-    data class ClearUser(val userId: String, override val eventId: String?, override val receivedAtMs: Long) : ChatEvent
+    data class ClearUser(
+        val userId: String?,
+        override val eventId: String?,
+        override val receivedAtMs: Long,
+        val userLogin: String? = null,
+        val userName: String? = null,
+        val reason: ChatUserClearReason = ChatUserClearReason.MESSAGES_CLEARED,
+        val timeoutSeconds: Int? = null,
+    ) : ChatEvent
     data class Clear(override val eventId: String?, override val receivedAtMs: Long) : ChatEvent
     data class SettingsUpdated(
         val channelId: String,
