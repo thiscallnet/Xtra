@@ -1653,8 +1653,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
         val senderName = message.sender ?: message.pinnedBy
         pinnedBinding.pinnedMessageSender.text = senderName
+        val senderColor = message.senderColor?.let { color ->
+            runCatching { Color.parseColor(color) }.getOrNull()
+        }
         pinnedBinding.pinnedMessageSender.setTextColor(
-            ContextCompat.getColor(requireContext(), R.color.happeningNowPurple),
+            senderColor ?: MaterialColors.getColor(
+                pinnedBinding.pinnedMessageSender,
+                androidx.appcompat.R.attr.colorPrimary,
+            ),
         )
         pinnedBinding.pinnedMessageSender.setOnClickListener {
             showPinnedMessageUserPopout(message, pinner = false)
