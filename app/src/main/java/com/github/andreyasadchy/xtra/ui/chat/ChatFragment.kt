@@ -120,6 +120,7 @@ import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -594,22 +595,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
     }
 
-    private fun showHappeningNowPredictionDetails(prediction: Prediction) {
-        if (childFragmentManager.findFragmentByTag(
-                HappeningNowPredictionResultDialog.TAG,
-            ) != null
-        ) {
-            return
-        }
-
-        HappeningNowPredictionResultDialog
-            .newInstance(prediction)
-            .show(
-                childFragmentManager,
-                HappeningNowPredictionResultDialog.TAG,
-            )
-    }
-
     override fun channelName(): String? {
         return arguments?.getString(KEY_CHANNEL_NAME)?.takeIf { it.isNotBlank() }
             ?: arguments?.getString(KEY_CHANNEL_LOGIN)
@@ -757,8 +742,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         HappeningNowActivityState(
                             prediction = prediction,
                             poll = poll,
+                            canBetPrediction = viewModel.canBetPrediction(),
+                            canVotePoll = viewModel.canVotePoll(),
                         )
-                    }
+                    }.distinctUntilChanged()
 
                     combine(
                         activeActivities,
@@ -772,8 +759,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             activePrediction = activity.prediction,
                             recentPredictionResult = result,
                             activePoll = activity.poll,
-                            canBetPrediction = viewModel.canBetPrediction(),
-                            canVotePoll = viewModel.canVotePoll(),
+                            canBetPrediction = activity.canBetPrediction,
+                            canVotePoll = activity.canVotePoll,
                             newIds = newIds,
                             dismissedIds = dismissedIds,
                         )
@@ -781,7 +768,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         binding.happeningNow.render(
                             state = state,
                             onOpenChannelPoints = ::showChannelPointsDialog,
-                            onPredictionDetails = ::showHappeningNowPredictionDetails,
                             onDismiss = viewModel::dismissHappeningNowCard,
                         )
                     }
@@ -2360,6 +2346,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private data class HappeningNowActivityState(
         val prediction: Prediction?,
         val poll: Poll?,
+        val canBetPrediction: Boolean,
+        val canVotePoll: Boolean,
     )
 
     private data class ActivityVisualState(

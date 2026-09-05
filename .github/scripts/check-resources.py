@@ -196,6 +196,26 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "prediction_result_20s",
     "prediction_result_30s",
     "prediction_result_60s",
+    # Happening Now activity cards ship with the default English wording until
+    # their translations are reviewed by native speakers.
+    "happening_now_title",
+    "happening_now_new_events",
+    "happening_now_predict_with_points",
+    "happening_now_prediction",
+    "happening_now_prediction_result",
+    "happening_now_poll",
+    "happening_now_predict",
+    "happening_now_vote",
+    "happening_now_see_details",
+    "happening_now_gifted_subs",
+    "happening_now_gift_count",
+    "happening_now_go_to",
+    "happening_now_votes",
+    "happening_now_dismiss",
+    "happening_now_winner",
+    "happening_now_more",
+    "happening_now_expand",
+    "happening_now_collapse",
     # Message highlight settings ship with the default English resources until
     # their translations are reviewed by native speakers.
     "chat_message_highlights",

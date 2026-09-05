@@ -1,7 +1,9 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
 import android.content.Context
+import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.StyleSpan
@@ -66,7 +68,6 @@ internal class HappeningNowView @JvmOverloads constructor(
     fun render(
         state: RenderState,
         onOpenChannelPoints: () -> Unit,
-        onPredictionDetails: (Prediction) -> Unit,
         onDismiss: (String) -> Unit,
     ) {
         cards.removeAllViews()
@@ -92,7 +93,6 @@ internal class HappeningNowView @JvmOverloads constructor(
                         canBet = state.canBetPrediction,
                         historicalResult = false,
                         onOpenChannelPoints = onOpenChannelPoints,
-                        onPredictionDetails = onPredictionDetails,
                         onDismiss = onDismiss,
                     )
                     visibleKeys += key
@@ -111,7 +111,6 @@ internal class HappeningNowView @JvmOverloads constructor(
                         canBet = false,
                         historicalResult = true,
                         onOpenChannelPoints = onOpenChannelPoints,
-                        onPredictionDetails = onPredictionDetails,
                         onDismiss = onDismiss,
                     )
                     visibleKeys += key
@@ -212,7 +211,6 @@ internal class HappeningNowView @JvmOverloads constructor(
         canBet: Boolean,
         historicalResult: Boolean,
         onOpenChannelPoints: () -> Unit,
-        onPredictionDetails: (Prediction) -> Unit,
         onDismiss: (String) -> Unit,
     ) {
         val view = inflater.inflate(
@@ -255,7 +253,7 @@ internal class HappeningNowView @JvmOverloads constructor(
             }
 
             action.setText(R.string.happening_now_see_details)
-            action.setOnClickListener { onPredictionDetails(prediction) }
+            action.setOnClickListener { onOpenChannelPoints() }
             progress.isVisible = false
         } else {
             kicker.setText(
@@ -272,12 +270,7 @@ internal class HappeningNowView @JvmOverloads constructor(
                 ?: totals
                 ?: context.getString(R.string.happening_now_prediction)
 
-            if (!totals.isNullOrBlank() && totals != cardTitle.text.toString()) {
-                subtitle.text = totals
-                subtitle.isVisible = true
-            } else {
-                subtitle.isVisible = false
-            }
+            bindPredictionTotals(view, outcomes, subtitle)
 
             action.setText(
                 if (canBet) {
@@ -290,13 +283,16 @@ internal class HappeningNowView @JvmOverloads constructor(
                 if (canBet) {
                     onOpenChannelPoints()
                 } else {
-                    onPredictionDetails(prediction)
+                    onOpenChannelPoints()
                 }
             }
             bindProgress(progress, outcomes.map { it.totalPoints ?: 0 })
         }
 
         bindDismissMenu(more, stableKey, onDismiss)
+        view.findViewById<View>(R.id.happeningCardContent).setOnClickListener {
+            toggleExpandedTitle(cardTitle)
+        }
         cards.addView(view)
     }
 
@@ -337,8 +333,79 @@ internal class HappeningNowView @JvmOverloads constructor(
         action.setOnClickListener { onOpenChannelPoints() }
         bindProgress(progress, poll.choices.orEmpty().map { it.totalVotes ?: 0 })
         bindDismissMenu(more, stableKey, onDismiss)
+        view.findViewById<View>(R.id.happeningCardContent).setOnClickListener {
+            toggleExpandedTitle(cardTitle)
+        }
         cards.addView(view)
     }
+
+    private fun bindPredictionTotals(
+        view: View,
+        outcomes: List<Prediction.PredictionOutcome>,
+        subtitle: TextView,
+    ) {
+        val totals = view.findViewById<LinearLayout>(R.id.happeningPredictionTotals)
+        totals.removeAllViews()
+        subtitle.isVisible = false
+
+        if (outcomes.size < 2) {
+            totals.isVisible = false
+            return
+        }
+
+        outcomes.take(2).forEachIndexed { index, outcome ->
+            if (index > 0) {
+                totals.addView(TextView(context).apply {
+                    text = " vs "
+                    setTextColor(ContextCompat.getColor(context, R.color.happeningNowTextSecondary))
+                    textSize = 13f
+                })
+            }
+
+            totals.addView(TextView(context).apply {
+                text = TwitchApiHelper.formatCount(outcome.totalPoints ?: 0, compact = true)
+                setTextColor(ContextCompat.getColor(context, R.color.happeningNowTextPrimary))
+                textSize = 13f
+                val dot = predictionColorDot(outcome, index, outcomes.size)
+                dot.setBounds(0, 0, dp(8), dp(8))
+                setCompoundDrawablesRelative(dot, null, null, null)
+                compoundDrawablePadding = dp(4)
+            })
+        }
+
+        totals.isVisible = true
+    }
+
+    private fun predictionColorDot(
+        outcome: Prediction.PredictionOutcome,
+        index: Int,
+        outcomeCount: Int,
+    ): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(predictionColor(outcome, index, outcomeCount))
+        setSize(dp(8), dp(8))
+    }
+
+    private fun predictionColor(
+        outcome: Prediction.PredictionOutcome,
+        index: Int,
+        outcomeCount: Int,
+    ): Int = when {
+        outcomeCount > 2 -> Color.rgb(70, 132, 255)
+        outcome.color.equals("PINK", ignoreCase = true) -> Color.rgb(238, 23, 153)
+        outcome.color.equals("BLUE", ignoreCase = true) -> Color.rgb(70, 132, 255)
+        outcomeCount == 2 && index == 1 -> Color.rgb(238, 23, 153)
+        else -> Color.rgb(70, 132, 255)
+    }
+
+    private fun toggleExpandedTitle(title: TextView) {
+        val expanded = title.maxLines != 1
+        title.maxLines = if (expanded) 1 else Int.MAX_VALUE
+        title.ellipsize = if (expanded) android.text.TextUtils.TruncateAt.END else null
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
     private fun bindProgress(container: LinearLayout, values: List<Int>) {
         container.removeAllViews()
