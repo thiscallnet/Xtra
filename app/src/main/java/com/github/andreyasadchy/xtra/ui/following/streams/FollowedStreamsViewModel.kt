@@ -59,6 +59,8 @@ class FollowedStreamsViewModel(
     val sort: String
         get() = streamSort.value
 
+    val sortText = MutableStateFlow<CharSequence?>(null)
+
     fun setSort(sort: String) {
         if (streamSort.value == sort) return
         streamSort.value = sort
