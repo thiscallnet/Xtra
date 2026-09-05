@@ -55,6 +55,29 @@ class HappeningNowGiftParserTest {
     }
 
     @Test
+    fun `eventsub shared chat community gift uses its top-level gift object`() {
+        val gift = HappeningNowGiftParser.fromEventSub(
+            event = JSONObject(
+                """
+                {
+                  "notice_type":"shared_chat_community_sub_gift",
+                  "shared_chat_community_sub_gift":{"id":"shared-abc","total":5},
+                  "chatter_user_name":"MeRc_UnLeAsHeD"
+                }
+                """.trimIndent(),
+            ),
+            timestamp = null,
+            now = 123L,
+        )
+
+        assertNotNull(gift)
+        assertEquals("shared-abc", gift?.stableId)
+        assertEquals(5, gift?.count)
+        assertEquals("MeRc_UnLeAsHeD", gift?.gifterDisplayName)
+        assertEquals(123L, gift?.occurredAt)
+    }
+
+    @Test
     fun `eventsub individual gift is ignored`() {
         val gift = HappeningNowGiftParser.fromEventSub(
             JSONObject(

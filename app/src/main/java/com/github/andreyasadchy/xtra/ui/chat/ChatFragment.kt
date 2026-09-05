@@ -591,9 +591,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun betPrediction(outcomeId: String, points: Int) = viewModel.betPrediction(outcomeId, points)
 
-    private fun showChannelPointsDialog() {
+    private fun showChannelPointsDialog(prediction: Prediction? = null) {
         if (childFragmentManager.findFragmentByTag(ChannelPointsDialog.TAG) == null) {
-            ChannelPointsDialog().show(
+            ChannelPointsDialog.newInstance(prediction).show(
                 childFragmentManager,
                 ChannelPointsDialog.TAG,
             )
@@ -782,7 +782,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     }.collectLatest { state ->
                         binding.happeningNow.render(
                             state = state,
-                            onOpenChannelPoints = ::showChannelPointsDialog,
+                            onOpenChannelPoints = { showChannelPointsDialog() },
+                            onOpenHistoricalPrediction = { prediction ->
+                                showChannelPointsDialog(prediction)
+                            },
                             onDismiss = viewModel::dismissHappeningNowCard,
                         )
                     }

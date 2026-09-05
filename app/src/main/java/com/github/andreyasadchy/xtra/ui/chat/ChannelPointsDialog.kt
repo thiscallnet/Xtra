@@ -63,6 +63,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.NumberFormat
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -97,16 +99,60 @@ class ChannelPointsDialog : DialogFragment() {
 
     companion object {
         const val TAG = "channelPointsDialog"
+        private const val ARG_PREDICTION_JSON = "predictionJson"
         private const val REWARD_COLUMNS = 3
         private const val MIN_PREDICTION_POINTS = 10
         private const val MAX_PREDICTION_POINTS = 250_000
         private val BLUE_PREDICTION_COLOR = Color.rgb(70, 132, 255)
         private val PINK_PREDICTION_COLOR = Color.rgb(238, 23, 153)
+
+        fun newInstance(prediction: Prediction? = null): ChannelPointsDialog =
+            ChannelPointsDialog().apply {
+                arguments = Bundle().apply {
+                    prediction?.let {
+                        putString(ARG_PREDICTION_JSON, encodePrediction(it))
+                    }
+                }
+            }
+
+        private fun encodePrediction(prediction: Prediction): String = JSONObject().apply {
+            putNullable("id", prediction.id)
+            putNullable("createdAt", prediction.createdAt)
+            putNullable("predictionWindowSeconds", prediction.predictionWindowSeconds)
+            putNullable("status", prediction.status)
+            putNullable("title", prediction.title)
+            putNullable("winningOutcomeId", prediction.winningOutcomeId)
+            putNullable("startedAt", prediction.startedAt)
+            putNullable("locksAt", prediction.locksAt)
+            putNullable("lockedAt", prediction.lockedAt)
+            putNullable("endedAt", prediction.endedAt)
+            putNullable("observedAt", prediction.observedAt)
+            putNullable("broadcastId", prediction.broadcastId)
+            put("outcomes", JSONArray().apply {
+                prediction.outcomes.orEmpty().forEach { outcome ->
+                    put(JSONObject().apply {
+                        putNullable("id", outcome.id)
+                        putNullable("title", outcome.title)
+                        putNullable("totalPoints", outcome.totalPoints)
+                        putNullable("totalUsers", outcome.totalUsers)
+                        putNullable("color", outcome.color)
+                        putNullable("badgeSetId", outcome.badgeSetId)
+                        putNullable("badgeVersion", outcome.badgeVersion)
+                        putNullable("badgeUrl", outcome.badgeUrl)
+                    })
+                }
+            })
+        }.toString()
+
+        private fun JSONObject.putNullable(key: String, value: Any?) {
+            put(key, value ?: JSONObject.NULL)
+        }
     }
 
     private var _binding: DialogChannelPointsBinding? = null
     private val binding get() = _binding!!
     private lateinit var listener: Listener
+    private var historicalPrediction: Prediction? = null
     private var predictionDraftId: String? = null
     private var predictionAmountDraft = MIN_PREDICTION_POINTS.toString()
     private var predictionAmountWatcher: TextWatcher? = null
@@ -123,6 +169,13 @@ class ChannelPointsDialog : DialogFragment() {
         super.onAttach(context)
         listener = parentFragment as? Listener
             ?: error("ChannelPointsDialog must be shown by a ChannelPointsDialog.Listener")
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        historicalPrediction = arguments
+            ?.getString(ARG_PREDICTION_JSON)
+            ?.let(::decodePrediction)
     }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
@@ -214,10 +267,21 @@ class ChannelPointsDialog : DialogFragment() {
             MaterialColors.getColor(binding.balanceIcon, androidx.appcompat.R.attr.colorControlNormal),
         )
 
+        val displayedPrediction = historicalPrediction ?: state.prediction
+        val displayedOngoingPrediction = if (historicalPrediction == null) {
+            state.ongoingPrediction
+        } else {
+            null
+        }
+        val displayedPredictionSecondsLeft = if (historicalPrediction == null) {
+            state.predictionSecondsLeft
+        } else {
+            null
+        }
         renderPrediction(
-            state.prediction,
-            state.ongoingPrediction,
-            state.predictionSecondsLeft,
+            displayedPrediction,
+            displayedOngoingPrediction,
+            displayedPredictionSecondsLeft,
             state.predictionBetState,
             state.channelPoints,
             numberFormat,
@@ -226,6 +290,49 @@ class ChannelPointsDialog : DialogFragment() {
         renderWatchStreak(state.watchStreak, points, numberFormat)
         renderRewards(points, numberFormat)
     }
+
+    private fun decodePrediction(encoded: String): Prediction? = runCatching {
+        val json = JSONObject(encoded)
+        val outcomes = json.optJSONArray("outcomes")?.let { array ->
+            List(array.length()) { index ->
+                val outcome = array.getJSONObject(index)
+                Prediction.PredictionOutcome(
+                    id = outcome.optNullableString("id"),
+                    title = outcome.optNullableString("title"),
+                    totalPoints = outcome.optNullableInt("totalPoints"),
+                    totalUsers = outcome.optNullableInt("totalUsers"),
+                    color = outcome.optNullableString("color"),
+                    badgeSetId = outcome.optNullableString("badgeSetId"),
+                    badgeVersion = outcome.optNullableString("badgeVersion"),
+                    badgeUrl = outcome.optNullableString("badgeUrl"),
+                )
+            }
+        }
+        Prediction(
+            id = json.optNullableString("id"),
+            createdAt = json.optNullableLong("createdAt"),
+            outcomes = outcomes,
+            predictionWindowSeconds = json.optNullableInt("predictionWindowSeconds"),
+            status = json.optNullableString("status"),
+            title = json.optNullableString("title"),
+            winningOutcomeId = json.optNullableString("winningOutcomeId"),
+            startedAt = json.optNullableLong("startedAt"),
+            locksAt = json.optNullableLong("locksAt"),
+            lockedAt = json.optNullableLong("lockedAt"),
+            endedAt = json.optNullableLong("endedAt"),
+            observedAt = json.optNullableLong("observedAt"),
+            broadcastId = json.optNullableString("broadcastId"),
+        )
+    }.getOrNull()
+
+    private fun JSONObject.optNullableString(key: String): String? =
+        takeIf { !isNull(key) }?.optString(key)?.takeIf { it.isNotBlank() }
+
+    private fun JSONObject.optNullableInt(key: String): Int? =
+        takeIf { !isNull(key) }?.optInt(key)
+
+    private fun JSONObject.optNullableLong(key: String): Long? =
+        takeIf { !isNull(key) }?.optLong(key)
 
     private fun renderWatchStreak(
         streak: WatchStreak?,

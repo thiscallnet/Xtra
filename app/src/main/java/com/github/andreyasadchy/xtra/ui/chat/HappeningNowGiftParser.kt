@@ -11,11 +11,16 @@ internal object HappeningNowGiftParser {
         timestamp: String?,
         now: Long = System.currentTimeMillis(),
     ): HappeningNowGift? {
-        if (!event.optString("notice_type").equals("community_sub_gift", ignoreCase = true)) {
-            return null
-        }
+        val noticeType = event.optString("notice_type")
+        val gift = when {
+            noticeType.equals("community_sub_gift", ignoreCase = true) ->
+                event.optJSONObject("community_sub_gift")
 
-        val gift = event.optJSONObject("community_sub_gift") ?: return null
+            noticeType.equals("shared_chat_community_sub_gift", ignoreCase = true) ->
+                event.optJSONObject("shared_chat_community_sub_gift")
+
+            else -> null
+        } ?: return null
         val id = gift.optString("id").takeIf { it.isNotBlank() } ?: return null
         val count = gift.optInt("total", 0).takeIf { it > 0 } ?: return null
 

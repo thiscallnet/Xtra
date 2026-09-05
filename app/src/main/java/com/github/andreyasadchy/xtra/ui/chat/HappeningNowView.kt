@@ -76,6 +76,7 @@ internal class HappeningNowView @JvmOverloads constructor(
     fun render(
         state: RenderState,
         onOpenChannelPoints: () -> Unit,
+        onOpenHistoricalPrediction: (Prediction) -> Unit,
         onDismiss: (String) -> Unit,
     ) {
         cards.removeAllViews()
@@ -105,6 +106,7 @@ internal class HappeningNowView @JvmOverloads constructor(
                         canBet = state.canBetPrediction,
                         historicalResult = false,
                         onOpenChannelPoints = onOpenChannelPoints,
+                        onOpenHistoricalPrediction = onOpenHistoricalPrediction,
                         onDismiss = onDismiss,
                     )
                     visibleKeys += key
@@ -123,6 +125,7 @@ internal class HappeningNowView @JvmOverloads constructor(
                         canBet = false,
                         historicalResult = true,
                         onOpenChannelPoints = onOpenChannelPoints,
+                        onOpenHistoricalPrediction = onOpenHistoricalPrediction,
                         onDismiss = onDismiss,
                     )
                     visibleKeys += key
@@ -246,6 +249,7 @@ internal class HappeningNowView @JvmOverloads constructor(
         canBet: Boolean,
         historicalResult: Boolean,
         onOpenChannelPoints: () -> Unit,
+        onOpenHistoricalPrediction: (Prediction) -> Unit,
         onDismiss: (String) -> Unit,
     ) {
         val view = inflater.inflate(
@@ -289,7 +293,7 @@ internal class HappeningNowView @JvmOverloads constructor(
             }
 
             action.setText(R.string.happening_now_see_details)
-            action.setOnClickListener { onOpenChannelPoints() }
+            action.setOnClickListener { onOpenHistoricalPrediction(prediction) }
             progress.isVisible = false
         } else {
             activePredictionTimer = timer
@@ -331,12 +335,14 @@ internal class HappeningNowView @JvmOverloads constructor(
         view.findViewById<View>(R.id.happeningCardContent).setOnClickListener {
             toggleExpandedTitle(stableKey, cardTitle, timer)
         }
-        updateTimerView(
-            timer = timer,
-            secondsLeft = latestPredictionSecondsLeft,
-            prediction = true,
-            stableKey = stableKey,
-        )
+        if (!historicalResult) {
+            updateTimerView(
+                timer = timer,
+                secondsLeft = latestPredictionSecondsLeft,
+                prediction = true,
+                stableKey = stableKey,
+            )
+        }
         applyExpandedState(stableKey, cardTitle, timer)
         cards.addView(view)
     }

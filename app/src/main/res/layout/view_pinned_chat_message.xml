@@ -29,7 +29,7 @@
             android:layout_height="18dp"
             android:importantForAccessibility="no"
             android:src="@drawable/ic_push_pin"
-            app:tint="@color/happeningNowTextSecondary" />
+            app:tint="?attr/colorOnSurfaceVariant" />
 
         <TextView
             android:id="@+id/pinnedMessageLabel"
@@ -38,7 +38,7 @@
             android:layout_marginStart="4dp"
             android:text="@string/pinned_message_label"
             android:textAppearance="?attr/textAppearanceBodySmall"
-            android:textColor="@color/happeningNowTextSecondary" />
+            android:textColor="?attr/colorOnSurfaceVariant" />
 
         <LinearLayout
             android:id="@+id/pinnedMessagePinnedByBadges"
@@ -57,7 +57,7 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:textAppearance="?attr/textAppearanceBodySmall"
-            android:textColor="@color/happeningNowPurple"
+            android:textColor="?attr/colorPrimary"
             android:textStyle="bold"
             tools:text="Heuto" />
 
@@ -82,7 +82,7 @@
             android:minHeight="40dp"
             android:padding="11dp"
             android:src="@drawable/ic_expand_less"
-            app:tint="@color/happeningNowTextSecondary" />
+            app:tint="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
 
     <TextView
@@ -93,7 +93,7 @@
         android:ellipsize="end"
         android:maxLines="4"
         android:textAppearance="?attr/textAppearanceTitleLarge"
-        android:textColor="@color/happeningNowTextPrimary"
+        android:textColor="?attr/colorOnSurface"
         android:textStyle="bold"
         tools:text="Asmon is aware of the JD Vance briefing" />
 
@@ -104,7 +104,7 @@
         android:ellipsize="end"
         android:maxLines="1"
         android:textAppearance="?attr/textAppearanceBodySmall"
-        android:textColor="@color/happeningNowTextPrimary"
+        android:textColor="?attr/colorOnSurface"
         android:visibility="gone"
         tools:text="Asmon is aware of the JD Vance briefing" />
 
@@ -131,7 +131,7 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:textAppearance="?attr/textAppearanceBodySmall"
-            android:textColor="@color/happeningNowPurple"
+            android:textColor="?attr/colorPrimary"
             android:textStyle="bold"
             tools:text="Heuto" />
 
@@ -141,7 +141,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="4dp"
             android:textAppearance="?attr/textAppearanceBodySmall"
-            android:textColor="@color/happeningNowTextSecondary"
+            android:textColor="?attr/colorOnSurfaceVariant"
             tools:text="sent at 07:41 PM" />
     </LinearLayout>
 
@@ -153,7 +153,7 @@
         android:layout_marginTop="5dp"
         android:max="1000"
         android:progress="0"
-        android:progressTint="@color/happeningNowPurple"
-        android:progressBackgroundTint="@color/happeningNowBorder"
+        android:progressTint="?attr/colorPrimary"
+        android:progressBackgroundTint="?attr/colorSurfaceContainerHighest"
         android:visibility="gone" />
 </LinearLayout>
