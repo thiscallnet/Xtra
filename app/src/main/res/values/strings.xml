@@ -1769,7 +1769,8 @@
     <string name="chat_identity_campaign_collapse" translatable="false">Collapse campaign</string>
     <string name="chat_identity_campaign_chevron_collapsed" translatable="false">&#9662;</string>
     <string name="chat_identity_campaign_chevron_expanded" translatable="false">&#9652;</string>
-    <string name="chat_identity_campaign_progress" translatable="false">%1$d/%2$d</string>
+    <string name="chat_identity_campaign_badges" translatable="false">Badges</string>
+    <string name="chat_identity_campaign_progress" translatable="false">%1$d/%2$d Badges</string>
     <string name="chat_identity_badge_selected" translatable="false">%1$s, selected</string>
     <string name="chat_identity_badge_title_hex" translatable="false">%1$s (%2$s)</string>
     <string name="chat_identity_subscriber_badge_unavailable" translatable="false">No subscriber badge is currently available.</string>
