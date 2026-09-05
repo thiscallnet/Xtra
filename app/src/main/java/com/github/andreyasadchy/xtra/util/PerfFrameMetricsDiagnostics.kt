@@ -21,15 +21,18 @@ internal object PerfFrameMetricsDiagnostics {
     private var lastReportMs = 0L
     private var attachedWindow: Window? = null
 
-    private val listener = Window.OnFrameMetricsAvailableListener { _, metrics, _ ->
-        val durationMs = metrics.getMetric(FrameMetrics.TOTAL_DURATION) / 1_000_000L
+    private val listener = Window.OnFrameMetricsAvailableListener { window, metrics, _ ->
+        val durationNs = metrics.getMetric(FrameMetrics.TOTAL_DURATION)
+        val refreshRateHz = window.decorView.display?.refreshRate?.takeIf { it > 1f } ?: 60f
+        val frameBudgetNs = (1_000_000_000.0 / refreshRateHz).toLong()
+        val durationMs = durationNs / 1_000_000L
         val bucket = when {
-            durationMs <= 16L -> 0
-            durationMs <= 32L -> 1
-            durationMs <= 50L -> 2
-            durationMs <= 100L -> 3
-            durationMs <= 250L -> 4
-            durationMs <= 500L -> 5
+            durationNs <= frameBudgetNs -> 0
+            durationNs <= frameBudgetNs * 3L / 2L -> 1
+            durationNs <= frameBudgetNs * 2L -> 2
+            durationNs <= frameBudgetNs * 3L -> 3
+            durationNs <= frameBudgetNs * 6L -> 4
+            durationNs <= frameBudgetNs * 12L -> 5
             else -> 6
         }
         buckets[bucket]++
@@ -40,9 +43,14 @@ internal object PerfFrameMetricsDiagnostics {
             lastReportMs = now
             Log.i(
                 TAG,
-                "frames=$frameCount worstMs=$worstFrameMs buckets=${buckets.joinToString(",")}",
+                "frames=$frameCount refreshHz=$refreshRateHz budgetMs=${frameBudgetNs / 1_000_000.0} " +
+                    "worstMs=$worstFrameMs budgetBuckets=${buckets.joinToString(",")}",
             )
+            Log.i(TAG, "chatRender=${ChatRenderDiagnostics.snapshotAndReset()}")
             Log.i(TAG, "keystorePrefs=${KeystorePreferenceDiagnostics.snapshot()}")
+            buckets.fill(0)
+            frameCount = 0L
+            worstFrameMs = 0L
         }
     }
 

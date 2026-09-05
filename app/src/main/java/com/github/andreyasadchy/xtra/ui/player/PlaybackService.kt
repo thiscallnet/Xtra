@@ -26,10 +26,12 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
@@ -172,6 +174,40 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         )
+        if (BuildConfig.PERF_DIAGNOSTICS) {
+            player.addAnalyticsListener(object : AnalyticsListener {
+                override fun onVideoDecoderInitialized(
+                    eventTime: AnalyticsListener.EventTime,
+                    decoderName: String,
+                    initializedTimestampMs: Long,
+                    initializationDurationMs: Long,
+                ) {
+                    Log.i(PERF_TAG, "primary videoDecoder=$decoderName initMs=$initializationDurationMs")
+                }
+
+                override fun onDroppedVideoFrames(
+                    eventTime: AnalyticsListener.EventTime,
+                    droppedFrames: Int,
+                    elapsedMs: Long,
+                ) {
+                    Log.i(PERF_TAG, "primary droppedFrames=$droppedFrames elapsedMs=$elapsedMs")
+                }
+
+                override fun onDownstreamFormatChanged(
+                    eventTime: AnalyticsListener.EventTime,
+                    mediaLoadData: MediaLoadData,
+                ) {
+                    if (mediaLoadData.trackType != androidx.media3.common.C.TRACK_TYPE_VIDEO) return
+                    val format = mediaLoadData.trackFormat ?: return
+                    Log.i(
+                        PERF_TAG,
+                        "primary videoFormat=${format.width}x${format.height} " +
+                            "fps=${format.frameRate} bitrate=${format.bitrate} " +
+                            "mime=${format.sampleMimeType} codecs=${format.codecs}",
+                    )
+                }
+            })
+        }
         mediaSession = MediaSession.Builder(
             this,
             object : ForwardingSimpleBasePlayer(player) {
@@ -1141,6 +1177,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     companion object {
+        private const val PERF_TAG = "PlaybackPerf"
         const val START_STREAM = "startStream"
         const val START_LIVE_REWIND = "startLiveRewind"
         const val GET_LIVE_REWIND_STATE = "getLiveRewindState"

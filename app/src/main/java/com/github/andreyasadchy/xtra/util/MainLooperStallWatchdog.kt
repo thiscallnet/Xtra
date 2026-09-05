@@ -34,7 +34,7 @@ internal object MainLooperStallWatchdog {
     private var worstStallMs = 0L
 
     fun start() {
-        if (!BuildConfig.DEBUG) return
+        if (!BuildConfig.DEBUG && !BuildConfig.PERF_DIAGNOSTICS) return
         executor.scheduleAtFixedRate(
             {
                 val now = SystemClock.uptimeMillis()

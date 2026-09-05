@@ -1,11 +1,13 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.ui
 
+import android.os.Trace
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
@@ -255,7 +257,7 @@ class ChatV2RendererController(
                 if (!rendererVisible.value || latestPublication !== publication) return@withContext
                 latestRows = rows
                 onPublicationChanged(publication.messages, rows)
-                adapter.submitList(rows.toList())
+                adapter.submitList(rows)
             }
         }
     }
@@ -293,7 +295,7 @@ class ChatV2RendererController(
             previousTailId = publication.messages.lastOrNull()?.id
             latestRows = rows
             onPublicationChanged(publication.messages, rows)
-            adapter.submitList(rows.toList()) {
+            adapter.submitList(rows) {
                 viewport.onSnapshotCommitted(previousAnchor, rows, appendedCount)
                 onStateChanged(viewport.state)
             }
@@ -310,8 +312,13 @@ class ChatV2RendererController(
                 captureBadges = renderStyle.showBadges,
             )
             val rows = withContext(Dispatchers.Default) {
-                publication.messages.zip(catalogs).map { (message, catalog) ->
-                    compiler.resolve(message, catalog)
+                if (BuildConfig.PERF_DIAGNOSTICS) Trace.beginSection("Xtra.ChatV2.compileCurrent")
+                try {
+                    publication.messages.zip(catalogs).map { (message, catalog) ->
+                        compiler.resolve(message, catalog)
+                    }
+                } finally {
+                    if (BuildConfig.PERF_DIAGNOSTICS) Trace.endSection()
                 }
             }
             if (presentation.isCurrent(compiler)) return rows

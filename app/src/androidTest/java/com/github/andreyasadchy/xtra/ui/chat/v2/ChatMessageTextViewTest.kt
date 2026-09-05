@@ -782,6 +782,29 @@ class ChatMessageTextViewTest {
     }
 
     @Test
+    fun modelDisabledAnimationStaysStoppedWhenGlobalAnimationIsEnabled() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        lateinit var animated: RecordingAnimatedDrawable
+        val repository = ChatAssetRepository(scope, ChatAssetLoader {
+            ChatImageHandle { RecordingAnimatedDrawable().also { animated = it } }
+        })
+        val view = TestTextView(context, repository)
+        val spec = ChatAssetSpec(ChatAssetKey("model-disabled-animation"), 20, 20, 28)
+
+        runOnMain {
+            view.setAnimateGifs(true)
+            view.bind(row(spec, animated = false))
+            val spanned = view.text as Spanned
+            val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+            draw(span, spanned, Paint.FontMetricsInt())
+            view.attachedForTest()
+            assertEquals(0, animated.startCount)
+        }
+        scope.cancel()
+    }
+
+    @Test
     fun adapterAppliesRuntimeAnimationSettingToReboundRows() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -1085,11 +1108,12 @@ class ChatMessageTextViewTest {
         username: String? = null,
         interaction: ChatEmoteInteraction? = null,
         fallback: String = ":asset:",
+        animated: Boolean = true,
     ) = ChatRowUiModel(
         id = ChatMessageId("row"), channelId = "channel", timestampText = null,
         pieces = buildList {
             username?.let { add(ChatPiece.Username(it, 0xffff8a80.toInt())) }
-            add(ChatPiece.Emote(spec, fallback, interaction = interaction))
+            add(ChatPiece.Emote(spec, fallback, animated = animated, interaction = interaction))
         },
         background = 0xff101010.toInt(), accessibilityText = "row", reply = null,
         source = null, isAction = false,
