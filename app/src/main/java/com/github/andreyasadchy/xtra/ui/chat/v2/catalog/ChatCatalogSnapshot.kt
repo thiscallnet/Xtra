@@ -90,6 +90,7 @@ data class ChatCatalogBadge(
 data class ChatCatalogCheermote(
     val asset: ChatAssetSpec,
     val color: Int?,
+    val animated: Boolean = false,
 )
 
 data class ChatNamePaint(

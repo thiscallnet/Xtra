@@ -23,12 +23,15 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatColorResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogBadge
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogCheermote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatUserDecoration
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopedEmoteCatalog
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.toCatalog
 import com.github.andreyasadchy.xtra.ui.chat.ChatGifDisplayMode
+import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -370,8 +373,61 @@ class ChatDomainPresentationTest {
         val cheer = row.pieces.filterIsInstance<ChatPiece.Cheermote>().single()
         assertEquals(100, cheer.bits)
         assertEquals(ChatAssetProvider.TWITCH, cheer.interaction?.provider)
+        assertTrue(cheer.interaction?.animated == false)
         assertTrue(row.accessibilityText.contains("100 Bits"))
         assertTrue(!row.accessibilityText.contains("Cheer100 100"))
+    }
+
+    @Test
+    fun animatedCheermoteRetainsCatalogAnimationMetadata() {
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Cheermote(base, "Cheer100", 100, null)),
+            ChatCatalogSnapshot(
+                revision = 1,
+                cheermotes = mapOf(
+                    base.key.value to ChatCatalogCheermote(base, null, animated = true),
+                ),
+            ),
+        )
+        val cheer = row.pieces.filterIsInstance<ChatPiece.Cheermote>().single()
+        assertTrue(cheer.interaction?.animated == true)
+    }
+
+    @Test
+    fun staticCheermoteRetainsCatalogAnimationMetadata() {
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Cheermote(base, "Cheer100", 100, null)),
+            ChatCatalogSnapshot(
+                revision = 1,
+                cheermotes = mapOf(
+                    base.key.value to ChatCatalogCheermote(base, null, animated = false),
+                ),
+            ),
+        )
+        val cheer = row.pieces.filterIsInstance<ChatPiece.Cheermote>().single()
+        assertTrue(cheer.interaction?.animated == false)
+    }
+
+    @Test
+    fun cheerCatalogConversionPreservesAnimatedFlag() {
+        val catalog = CheerEmote(
+            name = "Cheer100",
+            url1x = "https://cdn.example.test/cheer.gif",
+            isAnimated = true,
+            minBits = 100,
+        ).toCatalog()!!.second
+        assertTrue(catalog.animated)
+    }
+
+    @Test
+    fun cheerCatalogConversionPreservesStaticFlag() {
+        val catalog = CheerEmote(
+            name = "Cheer100",
+            url1x = "https://cdn.example.test/cheer.png",
+            isAnimated = false,
+            minBits = 100,
+        ).toCatalog()!!.second
+        assertTrue(!catalog.animated)
     }
 
     @Test
@@ -501,6 +557,7 @@ class ChatDomainPresentationTest {
         val modifier = emote("Crown", ChatAssetProvider.SEVEN_TV).copy(
             id = "modifier-id",
             zeroWidth = true,
+            animated = true,
         )
         val row = ChatRowCompiler().compile(
             message(ChatSegment.Text("Party Crown")),
@@ -515,6 +572,7 @@ class ChatDomainPresentationTest {
         assertEquals("base-id", piece.interaction?.id)
         assertEquals(ChatAssetProvider.SEVEN_TV, piece.interaction?.provider)
         assertEquals(1, piece.asset.overlays.size)
+        assertTrue(piece.animated)
     }
 
     @Test

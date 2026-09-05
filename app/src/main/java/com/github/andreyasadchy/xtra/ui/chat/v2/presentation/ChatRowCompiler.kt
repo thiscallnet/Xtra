@@ -347,7 +347,7 @@ class ChatRowCompiler(
                                     id = segment.asset.key.value,
                                     name = segment.text,
                                     url = catalogCheermote?.asset?.key?.value ?: segment.asset.key.value,
-                                    animated = false,
+                                    animated = catalogCheermote?.animated == true,
                                     provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.TWITCH,
                                     scope = null,
                                 ),
@@ -491,6 +491,7 @@ class ChatRowCompiler(
         val previous = output.lastOrNull() as? ChatSegment.Emote ?: return false
         output[output.lastIndex] = previous.copy(
             asset = previous.asset.copy(overlays = previous.asset.overlays + modifier.asset),
+            animated = previous.animated || modifier.animated,
         )
         return true
     }

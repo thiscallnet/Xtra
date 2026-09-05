@@ -239,21 +239,6 @@ class TwitchChatCatalogSource(
         )
     }
 
-    private fun CheerEmote.toCatalog(): Pair<String, ChatCatalogCheermote>? {
-        val url = url4x ?: url3x ?: url2x ?: url1x ?: return null
-        val key = "twitch-cheer:$name:$minBits"
-        val color = color?.let { value -> runCatching { Color.parseColor(value) }.getOrNull() }
-        return key to ChatCatalogCheermote(
-            asset = ChatAssetSpec(
-                key = ChatAssetKey(url),
-                sourceWidth = 28,
-                sourceHeight = 28,
-                targetHeight = 28,
-            ),
-            color = color,
-        )
-    }
-
     private suspend fun <T> scopeUpdate(
         channel: Boolean,
         emptyValue: T? = null,
@@ -315,6 +300,22 @@ class TwitchChatCatalogSource(
     } catch (_: Throwable) {
         null
     }
+}
+
+internal fun CheerEmote.toCatalog(): Pair<String, ChatCatalogCheermote>? {
+    val url = url4x ?: url3x ?: url2x ?: url1x ?: return null
+    val key = "twitch-cheer:$name:$minBits"
+    val color = color?.let { value -> runCatching { Color.parseColor(value) }.getOrNull() }
+    return key to ChatCatalogCheermote(
+        asset = ChatAssetSpec(
+            key = ChatAssetKey(url),
+            sourceWidth = 28,
+            sourceHeight = 28,
+            targetHeight = 28,
+        ),
+        color = color,
+        animated = isAnimated,
+    )
 }
 
 private enum class GlobalCatalogKey {
