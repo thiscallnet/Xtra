@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.SpannableString
 import android.text.Spanned
+import android.text.format.DateUtils
 import android.text.style.StyleSpan
 import android.util.AttributeSet
 import android.view.LayoutInflater
@@ -47,6 +48,10 @@ internal class HappeningNowView @JvmOverloads constructor(
 
     private var expanded = true
     private var visibleNewCount = 0
+    private var latestPredictionSecondsLeft: Int? = null
+    private var latestPollSecondsLeft: Int? = null
+    private var activePredictionTimer: TextView? = null
+    private var activePollTimer: TextView? = null
 
     init {
         orientation = VERTICAL
@@ -71,6 +76,8 @@ internal class HappeningNowView @JvmOverloads constructor(
         onDismiss: (String) -> Unit,
     ) {
         cards.removeAllViews()
+        activePredictionTimer = null
+        activePollTimer = null
 
         val visibleKeys = mutableListOf<String>()
 
@@ -154,6 +161,24 @@ internal class HappeningNowView @JvmOverloads constructor(
         updateExpandedState()
     }
 
+    fun updateTimers(
+        predictionSecondsLeft: Int?,
+        pollSecondsLeft: Int?,
+    ) {
+        latestPredictionSecondsLeft = predictionSecondsLeft
+        latestPollSecondsLeft = pollSecondsLeft
+        updateTimerView(
+            timer = activePredictionTimer,
+            secondsLeft = predictionSecondsLeft,
+            prediction = true,
+        )
+        updateTimerView(
+            timer = activePollTimer,
+            secondsLeft = pollSecondsLeft,
+            prediction = false,
+        )
+    }
+
     private fun updateExpandedState() {
         cards.isVisible = expanded
         newBadge.isVisible = expanded && visibleNewCount > 0
@@ -222,6 +247,7 @@ internal class HappeningNowView @JvmOverloads constructor(
         val kicker = view.findViewById<TextView>(R.id.happeningKicker)
         val cardTitle = view.findViewById<TextView>(R.id.happeningCardTitle)
         val subtitle = view.findViewById<TextView>(R.id.happeningSubtitle)
+        val timer = view.findViewById<TextView>(R.id.happeningTimer)
         val action = view.findViewById<MaterialButton>(R.id.happeningAction)
         val more = view.findViewById<ImageButton>(R.id.happeningMore)
         val progress = view.findViewById<LinearLayout>(R.id.happeningProgress)
@@ -256,6 +282,7 @@ internal class HappeningNowView @JvmOverloads constructor(
             action.setOnClickListener { onOpenChannelPoints() }
             progress.isVisible = false
         } else {
+            activePredictionTimer = timer
             kicker.setText(
                 if (canBet) {
                     R.string.happening_now_predict_with_points
@@ -291,8 +318,9 @@ internal class HappeningNowView @JvmOverloads constructor(
 
         bindDismissMenu(more, stableKey, onDismiss)
         view.findViewById<View>(R.id.happeningCardContent).setOnClickListener {
-            toggleExpandedTitle(cardTitle)
+            toggleExpandedTitle(cardTitle, timer)
         }
+        updateTimerView(timer, latestPredictionSecondsLeft, prediction = true)
         cards.addView(view)
     }
 
@@ -312,6 +340,7 @@ internal class HappeningNowView @JvmOverloads constructor(
         val kicker = view.findViewById<TextView>(R.id.happeningKicker)
         val cardTitle = view.findViewById<TextView>(R.id.happeningCardTitle)
         val subtitle = view.findViewById<TextView>(R.id.happeningSubtitle)
+        val timer = view.findViewById<TextView>(R.id.happeningTimer)
         val action = view.findViewById<MaterialButton>(R.id.happeningAction)
         val more = view.findViewById<ImageButton>(R.id.happeningMore)
         val progress = view.findViewById<LinearLayout>(R.id.happeningProgress)
@@ -331,11 +360,13 @@ internal class HappeningNowView @JvmOverloads constructor(
             },
         )
         action.setOnClickListener { onOpenChannelPoints() }
+        activePollTimer = timer
         bindProgress(progress, poll.choices.orEmpty().map { it.totalVotes ?: 0 })
         bindDismissMenu(more, stableKey, onDismiss)
         view.findViewById<View>(R.id.happeningCardContent).setOnClickListener {
-            toggleExpandedTitle(cardTitle)
+            toggleExpandedTitle(cardTitle, timer)
         }
+        updateTimerView(timer, latestPollSecondsLeft, prediction = false)
         cards.addView(view)
     }
 
@@ -398,10 +429,40 @@ internal class HappeningNowView @JvmOverloads constructor(
         else -> Color.rgb(70, 132, 255)
     }
 
-    private fun toggleExpandedTitle(title: TextView) {
-        val expanded = title.maxLines != 1
-        title.maxLines = if (expanded) 1 else Int.MAX_VALUE
-        title.ellipsize = if (expanded) android.text.TextUtils.TruncateAt.END else null
+    private fun toggleExpandedTitle(title: TextView, timer: TextView) {
+        val expanded = title.maxLines == 1
+        title.maxLines = if (expanded) Int.MAX_VALUE else 1
+        title.ellipsize = if (expanded) null else android.text.TextUtils.TruncateAt.END
+        timer.isVisible = expanded && !timer.text.isNullOrBlank()
+    }
+
+    private fun updateTimerView(
+        timer: TextView?,
+        secondsLeft: Int?,
+        prediction: Boolean,
+    ) {
+        timer ?: return
+        val text = secondsLeft
+            ?.takeIf { it >= 0 }
+            ?.let { seconds ->
+                val formatted = DateUtils.formatElapsedTime(seconds.toLong())
+                if (prediction) {
+                    context.getString(
+                        R.string.channel_points_prediction_active_with_time,
+                        formatted,
+                    )
+                } else {
+                    context.getString(
+                        R.string.channel_points_poll_active_with_time,
+                        formatted,
+                    )
+                }
+            }
+            .orEmpty()
+        timer.text = text
+        if (timer.isVisible && text.isBlank()) {
+            timer.isVisible = false
+        }
     }
 
     private fun dp(value: Int): Int =

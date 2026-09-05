@@ -733,6 +733,16 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             }
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    launch {
+                        combine(
+                            viewModel.predictionSecondsLeft,
+                            viewModel.pollSecondsLeft,
+                        ) { predictionSeconds, pollSeconds ->
+                            predictionSeconds to pollSeconds
+                        }.collect { (predictionSeconds, pollSeconds) ->
+                            binding.happeningNow.updateTimers(predictionSeconds, pollSeconds)
+                        }
+                    }
                     val activeActivities = combine(
                         viewModel.ongoingPrediction,
                         viewModel.predictionSecondsLeft,
