@@ -24,6 +24,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Format
+import androidx.media3.common.C as Media3C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -39,6 +40,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Clip
@@ -101,7 +103,6 @@ class Media3Fragment : Media3PlayerFragment() {
         attachTarget = { currentPlayer, target -> currentPlayer.setVideoSurfaceView(target) },
         detachTarget = { currentPlayer, target -> currentPlayer.clearVideoSurfaceView(target) },
     )
-
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
@@ -460,10 +461,30 @@ class Media3Fragment : Media3PlayerFragment() {
                     logVideoSurfaceBinding("first_frame", controller, binding.playerSurface)
                 }
             }
-            val restored = viewModel.videoOutputState.restoreIfNeeded {
+            val restoreBackgroundVideo = shouldRestoreVideoAfterBackground(
+                backgroundOwnedVideoDisable = viewModel.videoTrackDisabledForBackground,
+                audioOnly = viewModel.quality?.name == AUDIO_ONLY_QUALITY,
+                chatOnly = viewModel.quality?.name == CHAT_ONLY_QUALITY,
+                videoAlreadySuppressed = viewModel.hidden,
+            )
+            if (restoreBackgroundVideo) {
+                controller.trackSelectionParameters = controller.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, false)
+                    .build()
+                if (BuildConfig.PERF_DIAGNOSTICS) {
+                    Log.i("XtraPerf", "backgroundVideoTrack restored")
+                }
+            } else if (viewModel.videoTrackDisabledForBackground) {
+                viewModel.videoOutputState.clear()
+            }
+            viewModel.videoTrackDisabledForBackground = false
+            val restored = if (restoreBackgroundVideo) viewModel.videoOutputState.restoreIfNeeded {
                 binding.playerSurface.visibility = View.VISIBLE
                 attachVideoOutput(controller)
                 true
+            } else {
+                false
             }
             if (!restored) {
                 attachVideoOutput(controller)
@@ -1559,10 +1580,26 @@ class Media3Fragment : Media3PlayerFragment() {
                     viewModel.usingProxy = false
                 }
                 if (requireContext().prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
-                    if (!isInPIPMode && player.playWhenReady && viewModel.quality?.name != AUDIO_ONLY_QUALITY) {
-                        if (player.currentMediaItem != null) {
-                            viewModel.videoOutputState.markDetachedForBackground()
-                            binding.playerSurface.visibility = View.GONE
+                    val shouldDisableVideo = shouldDisableVideoForBackground(
+                        backgroundPlaybackEnabled = true,
+                        isInPictureInPicture = isInPIPMode,
+                        playWhenReady = player.playWhenReady,
+                        playbackState = player.playbackState,
+                        hasMediaItem = player.currentMediaItem != null,
+                        audioOnly = viewModel.quality?.name == AUDIO_ONLY_QUALITY,
+                        chatOnly = viewModel.quality?.name == CHAT_ONLY_QUALITY,
+                        videoAlreadySuppressed = viewModel.hidden,
+                    )
+                    if (shouldDisableVideo) {
+                        player.trackSelectionParameters = player.trackSelectionParameters
+                            .buildUpon()
+                            .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, true)
+                            .build()
+                        viewModel.videoTrackDisabledForBackground = true
+                        viewModel.videoOutputState.markDetachedForBackground()
+                        binding.playerSurface.visibility = View.GONE
+                        if (BuildConfig.PERF_DIAGNOSTICS) {
+                            Log.i("XtraPerf", "backgroundVideoTrack disabled")
                         }
                     }
                 } else {
