@@ -69,7 +69,8 @@
             android:contentDescription="@string/pinned_message_mark_seen"
             android:minWidth="40dp"
             android:minHeight="40dp"
-            android:padding="11dp" />
+            android:padding="8dp"
+            android:scaleType="centerInside" />
 
         <ImageButton
             android:id="@+id/pinnedMessageMinimize"
