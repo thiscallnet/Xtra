@@ -34,7 +34,6 @@ import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStateAware, Sortable, StreamsSortDialog.OnFilter {
@@ -91,10 +90,6 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
 
     override fun initialize() {
         viewModel.syncCurrentAccount()
-        viewModel.sortText.value = getString(
-            R.string.sort_by,
-            getString(StreamsSortDialog.labelRes(viewModel.sort)),
-        )
         streamFeedScreenController.onSpecChanged(force = false, reason = RefreshReason.SCREEN_VISIBLE)
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -130,6 +125,7 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
 
     override fun setupSortBar(sortBar: SortBarBinding) {
         sortBar.root.visibility = View.VISIBLE
+        sortBar.sortText.text = null
         sortBar.filtersText.visibility = View.GONE
         sortBar.root.setOnClickListener {
             StreamsSortDialog.newInstance(
@@ -138,13 +134,6 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
                 languages = emptyArray(),
                 showFilters = false,
             ).show(childFragmentManager, null)
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.sortText.collectLatest {
-                    sortBar.sortText.text = it
-                }
-            }
         }
     }
 
@@ -162,7 +151,6 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
         if (changed) {
             viewModel.setSort(sort)
             streamFeedScreenController.onSpecChanged(force = true)
-            viewModel.sortText.value = getString(R.string.sort_by, sortText)
         }
         if (saveDefault) {
             requireContext().prefs().edit { putString(C.UI_STREAM_SORT, sort) }
