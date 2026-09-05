@@ -47,11 +47,14 @@ internal class HappeningNowView @JvmOverloads constructor(
     private val cards: LinearLayout
 
     private var expanded = true
+    private var expandedCardKey: String? = null
     private var visibleNewCount = 0
     private var latestPredictionSecondsLeft: Int? = null
     private var latestPollSecondsLeft: Int? = null
     private var activePredictionTimer: TextView? = null
+    private var activePredictionStableKey: String? = null
     private var activePollTimer: TextView? = null
+    private var activePollStableKey: String? = null
 
     init {
         orientation = VERTICAL
@@ -77,7 +80,9 @@ internal class HappeningNowView @JvmOverloads constructor(
     ) {
         cards.removeAllViews()
         activePredictionTimer = null
+        activePredictionStableKey = null
         activePollTimer = null
+        activePollStableKey = null
 
         val visibleKeys = mutableListOf<String>()
 
@@ -143,6 +148,9 @@ internal class HappeningNowView @JvmOverloads constructor(
         }
 
         val count = visibleKeys.size
+        if (expandedCardKey !in visibleKeys) {
+            expandedCardKey = null
+        }
         isVisible = count > 0
 
         if (count == 0) {
@@ -171,11 +179,13 @@ internal class HappeningNowView @JvmOverloads constructor(
             timer = activePredictionTimer,
             secondsLeft = predictionSecondsLeft,
             prediction = true,
+            stableKey = activePredictionStableKey,
         )
         updateTimerView(
             timer = activePollTimer,
             secondsLeft = pollSecondsLeft,
             prediction = false,
+            stableKey = activePollStableKey,
         )
     }
 
@@ -283,6 +293,7 @@ internal class HappeningNowView @JvmOverloads constructor(
             progress.isVisible = false
         } else {
             activePredictionTimer = timer
+            activePredictionStableKey = stableKey
             kicker.setText(
                 if (canBet) {
                     R.string.happening_now_predict_with_points
@@ -318,9 +329,15 @@ internal class HappeningNowView @JvmOverloads constructor(
 
         bindDismissMenu(more, stableKey, onDismiss)
         view.findViewById<View>(R.id.happeningCardContent).setOnClickListener {
-            toggleExpandedTitle(cardTitle, timer)
+            toggleExpandedTitle(stableKey, cardTitle, timer)
         }
-        updateTimerView(timer, latestPredictionSecondsLeft, prediction = true)
+        updateTimerView(
+            timer = timer,
+            secondsLeft = latestPredictionSecondsLeft,
+            prediction = true,
+            stableKey = stableKey,
+        )
+        applyExpandedState(stableKey, cardTitle, timer)
         cards.addView(view)
     }
 
@@ -361,12 +378,19 @@ internal class HappeningNowView @JvmOverloads constructor(
         )
         action.setOnClickListener { onOpenChannelPoints() }
         activePollTimer = timer
+        activePollStableKey = stableKey
         bindProgress(progress, poll.choices.orEmpty().map { it.totalVotes ?: 0 })
         bindDismissMenu(more, stableKey, onDismiss)
         view.findViewById<View>(R.id.happeningCardContent).setOnClickListener {
-            toggleExpandedTitle(cardTitle, timer)
+            toggleExpandedTitle(stableKey, cardTitle, timer)
         }
-        updateTimerView(timer, latestPollSecondsLeft, prediction = false)
+        updateTimerView(
+            timer = timer,
+            secondsLeft = latestPollSecondsLeft,
+            prediction = false,
+            stableKey = stableKey,
+        )
+        applyExpandedState(stableKey, cardTitle, timer)
         cards.addView(view)
     }
 
@@ -429,17 +453,31 @@ internal class HappeningNowView @JvmOverloads constructor(
         else -> Color.rgb(70, 132, 255)
     }
 
-    private fun toggleExpandedTitle(title: TextView, timer: TextView) {
-        val expanded = title.maxLines == 1
-        title.maxLines = if (expanded) Int.MAX_VALUE else 1
-        title.ellipsize = if (expanded) null else android.text.TextUtils.TruncateAt.END
-        timer.isVisible = expanded && !timer.text.isNullOrBlank()
+    private fun toggleExpandedTitle(
+        stableKey: String,
+        title: TextView,
+        timer: TextView,
+    ) {
+        expandedCardKey = if (expandedCardKey == stableKey) null else stableKey
+        applyExpandedState(stableKey, title, timer)
+    }
+
+    private fun applyExpandedState(
+        stableKey: String,
+        title: TextView,
+        timer: TextView,
+    ) {
+        val isExpanded = expandedCardKey == stableKey
+        title.maxLines = if (isExpanded) Int.MAX_VALUE else 1
+        title.ellipsize = if (isExpanded) null else android.text.TextUtils.TruncateAt.END
+        timer.isVisible = isExpanded && !timer.text.isNullOrBlank()
     }
 
     private fun updateTimerView(
         timer: TextView?,
         secondsLeft: Int?,
         prediction: Boolean,
+        stableKey: String?,
     ) {
         timer ?: return
         val text = secondsLeft
@@ -460,9 +498,7 @@ internal class HappeningNowView @JvmOverloads constructor(
             }
             .orEmpty()
         timer.text = text
-        if (timer.isVisible && text.isBlank()) {
-            timer.isVisible = false
-        }
+        timer.isVisible = stableKey != null && expandedCardKey == stableKey && text.isNotBlank()
     }
 
     private fun dp(value: Int): Int =

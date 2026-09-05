@@ -11,4 +11,8 @@ data class PinnedChatMessage(
     val sentAt: Long? = null,
     val startsAt: Long? = null,
     val endsAt: Long? = null,
+    val pinnedById: String? = null,
+    val pinnedByLogin: String? = null,
+    val senderId: String? = null,
+    val senderLogin: String? = null,
 )

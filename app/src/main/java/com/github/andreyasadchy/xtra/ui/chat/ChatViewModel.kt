@@ -2562,6 +2562,10 @@ class ChatViewModel(
                                 endsAt = it.endsAt?.let { value ->
                                     runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrNull()
                                 },
+                                pinnedById = it.pinnedBy?.id,
+                                pinnedByLogin = it.pinnedBy?.login,
+                                senderId = sender?.id,
+                                senderLogin = sender?.login,
                             )
                         }
                     }

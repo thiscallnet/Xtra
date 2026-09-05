@@ -21,6 +21,7 @@ import android.widget.MultiAutoCompleteTextView
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.core.content.res.use
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -1637,13 +1638,36 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             pinnedMessageMinimized = requireContext().isTelevision()
         }
         pinnedBinding.pinnedMessageBy.text = message.pinnedBy
-        pinnedBinding.pinnedMessageSender.text = message.sender ?: message.pinnedBy
-        val senderColor = message.senderColor?.let { color ->
-            runCatching { Color.parseColor(color) }.getOrNull()
+        pinnedBinding.pinnedMessageBy.setOnClickListener {
+            if (!message.pinnedById.isNullOrBlank() || !message.pinnedByLogin.isNullOrBlank()) {
+                onViewProfileClicked(
+                    message.pinnedById,
+                    message.pinnedByLogin,
+                    message.pinnedBy,
+                    null,
+                )
+            }
         }
+        pinnedBinding.pinnedMessageBy.isClickable =
+            !message.pinnedById.isNullOrBlank() || !message.pinnedByLogin.isNullOrBlank()
+
+        val senderName = message.sender ?: message.pinnedBy
+        pinnedBinding.pinnedMessageSender.text = senderName
         pinnedBinding.pinnedMessageSender.setTextColor(
-            senderColor ?: MaterialColors.getColor(pinnedBinding.pinnedMessageSender, androidx.appcompat.R.attr.colorPrimary),
+            ContextCompat.getColor(requireContext(), R.color.happeningNowPurple),
         )
+        pinnedBinding.pinnedMessageSender.setOnClickListener {
+            if (!message.senderId.isNullOrBlank() || !message.senderLogin.isNullOrBlank()) {
+                onViewProfileClicked(
+                    message.senderId,
+                    message.senderLogin,
+                    senderName,
+                    null,
+                )
+            }
+        }
+        pinnedBinding.pinnedMessageSender.isClickable =
+            !message.senderId.isNullOrBlank() || !message.senderLogin.isNullOrBlank()
         val sentAt = message.sentAt?.let { TwitchApiHelper.getTimestamp(it, "2") }
         pinnedBinding.pinnedMessageSentAt.text = sentAt?.let { getString(R.string.pinned_message_sent_at, it) }.orEmpty()
         pinnedBinding.pinnedMessageSentAt.isVisible = sentAt != null
@@ -1653,7 +1677,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         pinnedBinding.pinnedMessageCollapsedPreview.isVisible = pinnedMessageMinimized
         pinnedBinding.pinnedMessageFooter.isVisible = !pinnedMessageMinimized
         disposePinnedBadgeRequests()
-        renderPinnedMessageBadges(pinnedBinding.pinnedMessagePinnedByBadges, message.pinnedByBadges)
+        renderPinnedMessageBadges(
+            pinnedBinding.pinnedMessagePinnedByBadges,
+            listOfNotNull(highestPinnedChatRoleBadge(message.pinnedByBadges)),
+        )
         renderPinnedMessageBadges(pinnedBinding.pinnedMessageSenderBadges, message.senderBadges)
         pinnedBinding.pinnedMessageMinimize.setImageResource(
             if (pinnedMessageMinimized) R.drawable.baseline_expand_more_black_24 else R.drawable.ic_expand_less,
