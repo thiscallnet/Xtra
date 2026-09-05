@@ -62,6 +62,10 @@ object LiveNotificationRealtimeEngine {
         }
     }
 
+    internal fun hasHealthyOwner(): Boolean = synchronized(lock) {
+        current?.runner?.isRunning() == true
+    }
+
     private data class OwnedRunner(
         val owner: LiveNotificationProcessOwner,
         val runner: LiveNotificationRunner,

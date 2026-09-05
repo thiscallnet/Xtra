@@ -33,6 +33,23 @@ class LiveNotificationRunnerTest {
     }
 
     @Test
+    fun nonInterruptibleRetryDrainsDeferredWakeSignal() = runBlocking {
+        val wakeSignal = Channel<Unit>(Channel.CONFLATED)
+        val retry = launch {
+            awaitLiveNotificationRetry(
+                retryDelayMs = 20L,
+                interruptible = false,
+                wakeSignal = wakeSignal,
+            )
+        }
+        wakeSignal.trySend(Unit)
+
+        retry.join()
+
+        assertTrue(wakeSignal.tryReceive().isFailure)
+    }
+
+    @Test
     fun ordinaryRetryCanBeWoken() = runBlocking {
         val wakeSignal = Channel<Unit>(Channel.CONFLATED)
 

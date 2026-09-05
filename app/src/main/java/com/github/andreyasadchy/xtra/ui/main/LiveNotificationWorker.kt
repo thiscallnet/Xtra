@@ -34,6 +34,13 @@ class LiveNotificationWorker(
             if (authMaintainer?.validateIfDue() == AuthSessionMaintenanceState.REAUTHORIZATION_REQUIRED) {
                 return Result.success()
             }
+            if (shouldSkipLiveNotificationWorker(
+                    LiveNotificationScheduler.hasHealthyRealtimeOwner(context),
+                )
+            ) {
+                Log.d(TAG, "Skipping fallback reconciliation because a realtime owner is healthy")
+                return Result.success()
+            }
             val result = monitor.poll(baselineOnly = baselineOnly)
             recordSuccess(startedAt, result.delivered, result.api)
             Log.d(TAG, "Live notification reconciliation completed in ${SystemClock.elapsedRealtime() - startElapsed}ms; delivered=${result.delivered}")

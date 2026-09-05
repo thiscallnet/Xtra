@@ -43,6 +43,27 @@ data class LiveEventSubRevocation(
     val broadcasterUserId: String?,
 )
 
+data class LiveEventSubCoverage(
+    val desiredChannelCount: Int,
+    val activeSubscriptionCount: Int,
+    val connected: Boolean,
+    val suspended: Boolean,
+) {
+    val complete: Boolean
+        get() =
+            connected &&
+                !suspended &&
+                desiredChannelCount > 0 &&
+                activeSubscriptionCount >= desiredChannelCount
+
+    val partial: Boolean
+        get() =
+            connected &&
+                !suspended &&
+                activeSubscriptionCount > 0 &&
+                activeSubscriptionCount < desiredChannelCount
+}
+
 internal enum class LiveEventSubSuspensionReason {
     AUTHENTICATION,
     RATE_LIMIT,
@@ -268,6 +289,7 @@ class LiveNotificationEventSub(
     private val scope: CoroutineScope,
     private val onStreamOnline: suspend () -> Unit,
     private val onRevocation: suspend (LiveEventSubRevocation) -> Unit = {},
+    private val onReconnected: suspend () -> Unit = {},
 ) {
 
     private val stateMutex = Mutex()
@@ -296,6 +318,18 @@ class LiveNotificationEventSub(
                 openNormalConnectionLocked()
             }
         }
+    }
+
+    suspend fun coverage(): LiveEventSubCoverage = stateMutex.withLock {
+        val connection = activeConnection
+        LiveEventSubCoverage(
+            desiredChannelCount = desiredChannelIds.size,
+            activeSubscriptionCount = connection?.subscribedChannelIds
+                ?.count { it in desiredChannelIds && it !in revokedChannelIds }
+                ?: 0,
+            connected = started && connection?.welcomed == true,
+            suspended = suspension != null,
+        )
     }
 
     suspend fun stop() {
@@ -502,13 +536,14 @@ class LiveNotificationEventSub(
         sockets.forEach { it.close(NORMAL_CLOSE_CODE, "EventSub suspended: ${reason.name}") }
     }
 
-    private fun openNormalConnectionLocked() {
+    private fun openNormalConnectionLocked(reconcileAfterRecovery: Boolean = false) {
         if (!started || desiredChannelIds.isEmpty() || suspension != null) {
             return
         }
         val connection = Connection(
             url = EVENTSUB_URL,
             transferredSubscriptions = false,
+            reconcileAfterRecovery = reconcileAfterRecovery,
             credentialFingerprint = credentialFingerprint(),
         )
         activeConnection = connection
@@ -687,6 +722,9 @@ class LiveNotificationEventSub(
             if (shouldFill) {
                 connection.subscriptionJob = scope.launch { subscribe(connection) }
             }
+            if (connection.reconcileAfterRecovery) {
+                onReconnected()
+            }
             return
         }
 
@@ -696,6 +734,9 @@ class LiveNotificationEventSub(
         if (shouldSubscribe) {
             connection.subscriptionJob?.cancel()
             connection.subscriptionJob = scope.launch { subscribe(connection) }
+        }
+        if (connection.reconcileAfterRecovery) {
+            onReconnected()
         }
     }
 
@@ -1036,6 +1077,7 @@ class LiveNotificationEventSub(
             val replacement = Connection(
                 url = reconnectUrl,
                 transferredSubscriptions = true,
+                reconcileAfterRecovery = true,
                 credentialFingerprint = connection.credentialFingerprint,
                 handoffDeadlineElapsedMs = SystemClock.elapsedRealtime() + HANDOFF_BUDGET_MS,
             )
@@ -1131,6 +1173,7 @@ class LiveNotificationEventSub(
                     val replacement = Connection(
                         reconnectUrl,
                         transferredSubscriptions = true,
+                        reconcileAfterRecovery = true,
                         credentialFingerprint = active.credentialFingerprint,
                         handoffDeadlineElapsedMs = deadline,
                     )
@@ -1152,7 +1195,7 @@ class LiveNotificationEventSub(
             stateMutex.withLock {
                 reconnectJob = null
                 if (started && activeConnection == null && pendingReconnect == null && desiredChannelIds.isNotEmpty()) {
-                    openNormalConnectionLocked()
+                    openNormalConnectionLocked(reconcileAfterRecovery = true)
                 }
             }
         }
@@ -1188,6 +1231,7 @@ class LiveNotificationEventSub(
     private inner class Connection(
         val url: String,
         val transferredSubscriptions: Boolean,
+        val reconcileAfterRecovery: Boolean = false,
         val handoffDeadlineElapsedMs: Long? = null,
         var credentialFingerprint: String? = null,
     ) : WebSocketListener() {

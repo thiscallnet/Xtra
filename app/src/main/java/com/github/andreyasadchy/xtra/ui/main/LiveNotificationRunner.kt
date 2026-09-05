@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.util.Log
 import androidx.core.content.edit
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.repository.HelixRateLimit
 import com.github.andreyasadchy.xtra.repository.TwitchApiException
@@ -31,6 +32,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 
 internal suspend fun awaitLiveNotificationRetry(
@@ -44,6 +46,9 @@ internal suspend fun awaitLiveNotificationRetry(
         }
     } else {
         delay(retryDelayMs)
+        // A non-interruptible rate-limit wait must not leave the deferred
+        // wake token queued for the normal wait after the recovery poll.
+        wakeSignal.tryReceive()
     }
 }
 
@@ -66,8 +71,9 @@ class LiveNotificationRunner(
     private val module = xtraApp.xtraModule
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val wakeSignal = Channel<Unit>(Channel.CONFLATED)
+    private val pendingWakeReason = AtomicReference<String?>(null)
     private val networkAvailable = AtomicBoolean(false)
-    private val nextDelayMs = AtomicLong(NORMAL_POLL_INTERVAL_MS)
+    private val nextDelayMs = AtomicLong(PARTIAL_EVENTSUB_RECONCILE_INTERVAL_MS)
     private val eventSubStarted = AtomicBoolean(false)
     private val monitor = LiveNotificationMonitor(applicationContext)
     private val eventSub = LiveNotificationEventSub(
@@ -78,11 +84,14 @@ class LiveNotificationRunner(
         channelIds = { module.notificationsRepository.getNotificationUserIds() },
         scope = scope,
         onStreamOnline = {
-            wakeSignal.trySend(Unit)
+            requestImmediateReconciliation("eventsub_online")
         },
         onRevocation = { revocation ->
             recordRevocation(revocation)
-            wakeSignal.trySend(Unit)
+            requestImmediateReconciliation("eventsub_revocation")
+        },
+        onReconnected = {
+            requestImmediateReconciliation("eventsub_reconnect")
         },
     )
     private enum class State { NEW, RUNNING, STOPPED }
@@ -127,12 +136,18 @@ class LiveNotificationRunner(
         }
     }
 
+    internal fun isRunning(): Boolean = synchronized(lifecycleLock) {
+        state == State.RUNNING && monitorJob?.isActive == true
+    }
+
     private suspend fun monitorLoop() {
         var notifyOwner = false
+        var reconciliationReason = "startup"
         try {
             while (currentCoroutineContext().isActive && isMonitoringEnabled()) {
                 if (!networkAvailable.get()) {
-                    waitForNextPoll(NETWORK_RETRY_INTERVAL_MS)
+                    nextDelayMs.set(NETWORK_RETRY_INTERVAL_MS)
+                    reconciliationReason = waitForNextPoll() ?: "network_retry"
                     continue
                 }
                 ensureEventSubStarted()
@@ -145,31 +160,102 @@ class LiveNotificationRunner(
                         Log.w(TAG, "Unable to refresh EventSub subscriptions", e)
                     }
                 }
+                var coverage = if (eventSubStarted.get()) {
+                    eventSub.coverage()
+                } else {
+                    LiveEventSubCoverage(
+                        desiredChannelCount = 0,
+                        activeSubscriptionCount = 0,
+                        connected = false,
+                        suspended = false,
+                    )
+                }
                 applicationContext.prefs().edit {
                     putLong(C.LIVE_NOTIFICATION_LAST_RUN, System.currentTimeMillis())
                 }
                 var retryDelayMs: Long? = null
                 var retryDelayInterruptible = false
+                var helixMinimumDelayMs: Long? = null
                 val result = try {
-                    monitor.poll(onHelixRateLimit = ::onHelixRateLimit)
+                    monitor.poll(onHelixRateLimit = { rateLimit ->
+                        val minimumDelayMs = helixRateLimitMinimumDelayMs(rateLimit)
+                        if (minimumDelayMs != null) {
+                            helixMinimumDelayMs = maxOf(
+                                helixMinimumDelayMs ?: 0L,
+                                minimumDelayMs,
+                            )
+                        }
+                    })
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: TwitchApiException) {
                     Log.w(TAG, "Fast live notification poll failed: ${e.message}", e)
-                    retryDelayMs = rateLimitDelay(e)
+                    retryDelayMs = applyHelixMinimumDelay(
+                        coverageDelayMs = rateLimitDelay(e),
+                        helixMinimumDelayMs = helixMinimumDelayMs,
+                    )
                     retryDelayInterruptible = isLiveNotificationRetryInterruptible(e)
                     recordFailure(e)
                     null
                 } catch (e: Exception) {
                     Log.w(TAG, "Fast live notification poll failed", e)
+                    retryDelayMs = applyHelixMinimumDelay(
+                        coverageDelayMs = NETWORK_RETRY_INTERVAL_MS,
+                        helixMinimumDelayMs = helixMinimumDelayMs,
+                    )
+                    retryDelayInterruptible = true
                     recordFailure(e)
                     null
                 }
-                result?.let { recordSuccess(it.delivered, it.api) }
+                result?.let {
+                    recordSuccess(it.delivered, it.api)
+                    var postPollRefreshSucceeded = true
+                    if (eventSubStarted.get()) {
+                        try {
+                            // The poll may have synchronized the desired
+                            // notification users, so recalculate coverage
+                            // before selecting the next safety interval.
+                            eventSub.refreshIfNeeded()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            postPollRefreshSucceeded = false
+                            Log.w(TAG, "Unable to refresh EventSub after poll", e)
+                        }
+                    }
+                    coverage = if (eventSubStarted.get() && postPollRefreshSucceeded) {
+                        eventSub.coverage()
+                    } else {
+                        coverage.copy(connected = false, suspended = true)
+                    }
+                    nextDelayMs.set(
+                        applyHelixMinimumDelay(
+                            coverageDelayMs = reconcileIntervalMs(
+                                desiredChannelCount = coverage.desiredChannelCount,
+                                activeEventSubChannelCount = coverage.activeSubscriptionCount,
+                                eventSubConnected = coverage.connected,
+                                eventSubSuspended = coverage.suspended,
+                            ),
+                            helixMinimumDelayMs = helixMinimumDelayMs,
+                        )
+                    )
+                    if (BuildConfig.PERF_DIAGNOSTICS) {
+                        Log.i(
+                            TAG,
+                            "eventSub coverage desired=${coverage.desiredChannelCount} " +
+                                "active=${coverage.activeSubscriptionCount} " +
+                                "connected=${coverage.connected} suspended=${coverage.suspended}",
+                        )
+                        Log.i(TAG, "notification nextReconcileMs=${nextDelayMs.get()}")
+                        Log.i(TAG, "notification reconciliation reason=$reconciliationReason")
+                    }
+                }
                 if (retryDelayMs != null) {
                     awaitLiveNotificationRetry(retryDelayMs, retryDelayInterruptible, wakeSignal)
+                    reconciliationReason = pendingWakeReason.getAndSet(null) ?: "rate_limit_retry"
                 } else {
-                    waitForNextPoll()
+                    reconciliationReason = waitForNextPoll()
+                        ?: if (coverage.complete) "periodic_safety" else "periodic_partial_coverage"
                 }
             }
         } finally {
@@ -193,10 +279,17 @@ class LiveNotificationRunner(
         }
     }
 
-    private suspend fun waitForNextPoll(timeoutMs: Long = nextDelayMs.get()) {
-        withTimeoutOrNull(timeoutMs) {
+    private suspend fun waitForNextPoll(timeoutMs: Long = nextDelayMs.get()): String? {
+        val woke = withTimeoutOrNull(timeoutMs) {
             wakeSignal.receiveCatching()
-        }
+            true
+        } ?: false
+        return if (woke) pendingWakeReason.getAndSet(null) else null
+    }
+
+    private fun requestImmediateReconciliation(reason: String) {
+        pendingWakeReason.set(reason)
+        wakeSignal.trySend(Unit)
     }
 
     private suspend fun ensureEventSubStarted() {
@@ -215,14 +308,14 @@ class LiveNotificationRunner(
     }
 
     private fun rateLimitDelay(error: TwitchApiException): Long {
-        val reset = error.rateLimitResetEpochSeconds
-        return reset?.let {
-            (it * 1_000L - System.currentTimeMillis() + RATE_LIMIT_SAFETY_MARGIN_MS)
-                .coerceAtLeast(NORMAL_POLL_INTERVAL_MS)
-        } ?: nextDelayMs.get()
+        return liveNotificationFailureRetryDelayMs(
+            statusCode = error.statusCode,
+            rateLimitResetEpochSeconds = error.rateLimitResetEpochSeconds,
+            nowEpochMs = System.currentTimeMillis(),
+        )
     }
 
-    private fun onHelixRateLimit(rateLimit: HelixRateLimit) {
+    private fun helixRateLimitMinimumDelayMs(rateLimit: HelixRateLimit): Long? {
         val limit = rateLimit.limit
         val remaining = rateLimit.remaining
         val resetDelay = if (remaining == 0L) {
@@ -231,13 +324,11 @@ class LiveNotificationRunner(
                     .takeIf { delay -> delay > 0L }
             }
         } else null
-        nextDelayMs.set(
-            resetDelay ?: if (limit != null && remaining != null && remaining <= max(1L, limit / 10L)) {
-                THROTTLED_POLL_INTERVAL_MS
-            } else {
-                NORMAL_POLL_INTERVAL_MS
-            }
-        )
+        return resetDelay ?: if (limit != null && remaining != null && remaining <= max(1L, limit / 10L)) {
+            RATE_LIMIT_RETRY_INTERVAL_MS
+        } else {
+            null
+        }
     }
 
     private fun recordSuccess(delivered: Int, api: String) {
@@ -292,17 +383,27 @@ class LiveNotificationRunner(
         val connectivityManager = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                networkAvailable.set(hasValidatedNetwork())
-                wakeSignal.trySend(Unit)
+                val available = hasValidatedNetwork()
+                val wasAvailable = networkAvailable.getAndSet(available)
+                if (!wasAvailable && available) {
+                    requestImmediateReconciliation("network_recovered")
+                }
             }
 
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                networkAvailable.set(capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
-                wakeSignal.trySend(Unit)
+                val available = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                val wasAvailable = networkAvailable.getAndSet(available)
+                if (!wasAvailable && available) {
+                    requestImmediateReconciliation("network_recovered")
+                }
             }
 
             override fun onLost(network: Network) {
-                networkAvailable.set(hasValidatedNetwork())
+                val available = hasValidatedNetwork()
+                val wasAvailable = networkAvailable.getAndSet(available)
+                if (wasAvailable && !available) {
+                    requestImmediateReconciliation("network_lost")
+                }
             }
         }
         runCatching {
@@ -331,9 +432,5 @@ class LiveNotificationRunner(
 
     companion object {
         private const val TAG = "LiveNotificationRunner"
-        private const val NORMAL_POLL_INTERVAL_MS = 10_000L
-        private const val THROTTLED_POLL_INTERVAL_MS = 30_000L
-        private const val NETWORK_RETRY_INTERVAL_MS = 60_000L
-        private const val RATE_LIMIT_SAFETY_MARGIN_MS = 1_000L
     }
 }
