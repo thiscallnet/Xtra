@@ -510,6 +510,18 @@
         <item>link</item>
     </string-array>
 
+    <string-array name="chatModerationDisplayEntries" translatable="false">
+        <item>@string/chat_moderation_display_notice</item>
+        <item>@string/chat_moderation_display_strikethrough</item>
+        <item>@string/chat_moderation_display_hide</item>
+    </string-array>
+
+    <string-array name="chatModerationDisplayValues" translatable="false">
+        <item>notice</item>
+        <item>strikethrough</item>
+        <item>hide</item>
+    </string-array>
+
     <string-array name="timestampEntries" translatable="false">
         <item>@string/timestamp_format_0</item>
         <item>@string/timestamp_format_1</item>

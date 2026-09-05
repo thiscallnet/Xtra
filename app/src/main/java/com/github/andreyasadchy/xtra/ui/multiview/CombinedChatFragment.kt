@@ -41,6 +41,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage as V2ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatColorResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLabels
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationResolver
@@ -599,6 +600,19 @@ private class CombinedChatAdapter(
                 watchStreakReached = fragment.getString(R.string.chat_watch_streak_reached),
                 watchStreakStatus = { user, count -> fragment.getString(R.string.chat_watch_streak_status, user, count) },
                 reply = { user, message -> fragment.getString(R.string.replying_to_message, user, message) },
+                moderationSuffix = { moderation ->
+                    when (moderation.reason) {
+                        ChatUserClearReason.TIMEOUT -> fragment.getString(
+                            R.string.chat_moderation_timeout,
+                            com.github.andreyasadchy.xtra.util.TwitchApiHelper.getDurationFromSeconds(
+                                fragment.requireContext(),
+                                moderation.timeoutSeconds?.toString(),
+                            ).orEmpty(),
+                        )
+                        ChatUserClearReason.BAN -> fragment.getString(R.string.chat_moderation_ban)
+                        ChatUserClearReason.MESSAGES_CLEARED -> fragment.getString(R.string.chat_moderation_messages_cleared)
+                    }
+                },
             ),
             gifDisplayMode = style.gifDisplayMode,
             highlightSettings = highlightSettings,

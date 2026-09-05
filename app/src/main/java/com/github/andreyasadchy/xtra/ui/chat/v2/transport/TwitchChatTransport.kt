@@ -4,6 +4,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModerationDisplayMode
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.util.chat.ChatReadWebSocket
@@ -62,6 +63,7 @@ data class TwitchChatTransportConfig(
     val showUserNotices: Boolean = true,
     val showClearMessages: Boolean = true,
     val showClearChat: Boolean = true,
+    val moderationDisplayMode: () -> ChatModerationDisplayMode = { ChatModerationDisplayMode.NOTICE },
     val joinedMessage: String? = null,
     val messageDeletedMessage: String? = null,
     val chatClearedMessage: String? = null,
@@ -123,7 +125,8 @@ class TwitchChatTransport(
                 }
 
                 override suspend fun onClearChat(message: ChatUtils.IRCMessage) {
-                    TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event ->
+                    TwitchChatEventParser.fromIrc(message, config.channelId)?.let { parsedEvent ->
+                        val event = applyModerationDisplay(parsedEvent)
                         send(event)
                         moderationSystemMessage(session, event)?.let { flowScope.send(it) }
                     }
@@ -195,13 +198,17 @@ class TwitchChatTransport(
                 }
 
                 override suspend fun onClearChat(event: org.json.JSONObject, timestamp: String?, notificationId: String?) {
-                    val clearEvent = TwitchChatEventParser.fromEventSubClear(event, timestamp, notificationId)
+                    val clearEvent = applyModerationDisplay(
+                        TwitchChatEventParser.fromEventSubClear(event, timestamp, notificationId),
+                    )
                     flowScope.send(clearEvent)
                     moderationSystemMessage(session, clearEvent)?.let { flowScope.send(it) }
                 }
 
                 override suspend fun onClearUserMessages(event: org.json.JSONObject, timestamp: String?, notificationId: String?) {
-                    val clearEvent = TwitchChatEventParser.fromEventSubClear(event, timestamp, notificationId)
+                    val clearEvent = applyModerationDisplay(
+                        TwitchChatEventParser.fromEventSubClear(event, timestamp, notificationId),
+                    )
                     flowScope.send(clearEvent)
                     moderationSystemMessage(session, clearEvent)?.let { flowScope.send(it) }
                 }
@@ -402,6 +409,7 @@ class TwitchChatTransport(
 
     private fun moderationSystemMessage(session: ChatSessionKey, event: ChatEvent): ChatEvent.Message? {
         if (!config.showClearChat) return null
+        if (event is ChatEvent.ClearUser && event.displayMode == ChatModerationDisplayMode.STRIKETHROUGH) return null
         val text = when (event) {
             is ChatEvent.Clear -> config.chatClearedMessage
             is ChatEvent.ClearUser -> {
@@ -425,6 +433,13 @@ class TwitchChatTransport(
             timestampMs = event.receivedAtMs + 1,
         )
     }
+
+    private fun applyModerationDisplay(event: ChatEvent): ChatEvent =
+        if (event is ChatEvent.ClearUser) {
+            event.copy(displayMode = config.moderationDisplayMode())
+        } else {
+            event
+        }
 
     private fun systemMessage(
         session: ChatSessionKey,

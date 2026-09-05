@@ -213,6 +213,7 @@ object SettingsMigration {
         C.CHAT_SHOW_USER_NOTICE,
         C.CHAT_SHOW_CLEAR_MSG,
         C.CHAT_SHOW_CLEAR_CHAT,
+        C.CHAT_MODERATION_DISPLAY,
         C.CHAT_ENABLE_STV,
         C.CHAT_ENABLE_BTTV,
         C.CHAT_ENABLE_FFZ,

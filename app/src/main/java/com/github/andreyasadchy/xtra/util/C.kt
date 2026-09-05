@@ -298,6 +298,7 @@ object C {
     const val CHAT_SHOW_USER_NOTICE = "chat_show_usernotice"
     const val CHAT_SHOW_CLEAR_MSG = "chat_show_clearmsg"
     const val CHAT_SHOW_CLEAR_CHAT = "chat_show_clearchat"
+    const val CHAT_MODERATION_DISPLAY = "chat_moderation_display"
     const val CHAT_ENABLE_STV = "chat_enable_stv"
     const val CHAT_ENABLE_BTTV = "chat_enable_bttv"
     const val CHAT_ENABLE_FFZ = "chat_enable_ffz"

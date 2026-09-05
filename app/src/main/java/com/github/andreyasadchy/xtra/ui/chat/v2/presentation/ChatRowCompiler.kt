@@ -4,6 +4,8 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.ui.chat.ChatHighlightSettings
 import com.github.andreyasadchy.xtra.ui.chat.shouldHighlightV2ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModeration
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
@@ -29,6 +31,14 @@ data class ChatPresentationLabels(
     val watchStreakStatus: (String, Int) -> String = { user, count -> "$user is currently on a $count-stream streak!" },
     val reply: (String, String) -> String = { user, message -> "Replying to $user: $message" },
     val sharedChat: (String) -> String = { "Shared chat from $it" },
+    val moderationSuffix: (ChatModeration) -> String = { moderation ->
+        when (moderation.reason) {
+            ChatUserClearReason.TIMEOUT ->
+                "(${moderation.timeoutSeconds ?: 0}s Timeout)"
+            ChatUserClearReason.BAN -> "(Ban)"
+            ChatUserClearReason.MESSAGES_CLEARED -> "(Messages cleared)"
+        }
+    },
     val announcement: String = "Announcement",
     val reward: String = "Channel points reward",
     val userRedeemed: (String) -> String = { "redeemed $it" },
@@ -91,6 +101,7 @@ class ChatRowCompiler(
         } else {
             resolveSegments(message.segments, catalog, personalEmoteSetId = messagePersonalEmoteSetId(message, catalog))
         }
+        val moderationSuffix = message.moderation?.let(labels.moderationSuffix)
         val clipPreviews = extractClipPreviews(message)
         val isFirstChatter = (message.isFirst || message.twitchType == TwitchChatMessageType.UserIntro) &&
             firstMessageVisibility == 0
@@ -113,6 +124,7 @@ class ChatRowCompiler(
             baseBackground
         }
         val mutedColor = colors.mutedTextColor(rowBackground)
+        var moderationPieceRange: IntRange? = null
         val pieces = buildList {
             val specialNotice = isFirstChatter || isWatchStreak || isSubscription
             message.reply?.let { reply ->
@@ -271,6 +283,7 @@ class ChatRowCompiler(
                 }
                 if (!isRewardOnly) add(ChatPiece.Text("\n", color = mutedColor))
             }
+            val moderationStart = message.moderation?.let { size }
             message.user?.takeIf {
                 !isRewardOnly && ((noticeBody == null && !isSubscription) || hasSemanticBody)
             }?.let { user ->
@@ -344,6 +357,10 @@ class ChatRowCompiler(
                     }
                 }
             }
+            moderationStart?.let { moderationPieceRange = it until size }
+            moderationSuffix?.let { suffix ->
+                add(ChatPiece.Text(" $suffix", color = colors.brightTextColor(rowBackground)))
+            }
             translation(message)?.takeIf { it.isNotBlank() }?.let {
                 add(ChatPiece.Text("\n$it", color = mutedColor))
             }
@@ -367,6 +384,9 @@ class ChatRowCompiler(
                 else -> ChatRowBackground.NORMAL
             },
             reply = message.reply,
+            moderation = message.moderation,
+            moderationColor = message.moderation?.let { mutedColor },
+            moderationPieceRange = moderationPieceRange,
             source = message.source,
             isAction = message.kind == com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind.ACTION,
             twitchType = message.twitchType,
@@ -388,6 +408,7 @@ class ChatRowCompiler(
                     append(message.user?.displayName(nameDisplay).orEmpty())
                     append(" ").append(labels.userRedeemed(reward?.title ?: labels.reward))
                 }
+                moderationSuffix?.let { append(" ").append(it) }
             },
         )
     }

@@ -75,6 +75,7 @@ import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewMod
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage as V2ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
@@ -880,6 +881,19 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 watchStreakReached = getString(R.string.chat_watch_streak_reached),
                                 watchStreakStatus = { user, count -> getString(R.string.chat_watch_streak_status, user, count) },
                                 reply = { user, message -> getString(R.string.replying_to_message, user, message) },
+                                moderationSuffix = { moderation ->
+                                    when (moderation.reason) {
+                                        ChatUserClearReason.TIMEOUT -> getString(
+                                            R.string.chat_moderation_timeout,
+                                            TwitchApiHelper.getDurationFromSeconds(
+                                                requireContext(),
+                                                moderation.timeoutSeconds?.toString(),
+                                            ).orEmpty(),
+                                        )
+                                        ChatUserClearReason.BAN -> getString(R.string.chat_moderation_ban)
+                                        ChatUserClearReason.MESSAGES_CLEARED -> getString(R.string.chat_moderation_messages_cleared)
+                                    }
+                                },
                             ),
                             onStateChanged = { state ->
                                 btnDown.isVisible = state.followMode == com.github.andreyasadchy.xtra.ui.chat.v2.ui.FollowMode.USER_SCROLLED_UP

@@ -26,6 +26,7 @@ sealed interface ChatEvent {
         val userName: String? = null,
         val reason: ChatUserClearReason = ChatUserClearReason.MESSAGES_CLEARED,
         val timeoutSeconds: Int? = null,
+        val displayMode: ChatModerationDisplayMode = ChatModerationDisplayMode.NOTICE,
     ) : ChatEvent
     data class Clear(override val eventId: String?, override val receivedAtMs: Long) : ChatEvent
     data class SettingsUpdated(

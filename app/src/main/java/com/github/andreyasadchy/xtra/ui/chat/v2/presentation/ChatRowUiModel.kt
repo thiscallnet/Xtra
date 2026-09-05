@@ -5,6 +5,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModeration
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReply
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.SharedChatSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
@@ -20,6 +21,10 @@ data class ChatRowUiModel(
     val background: Int,
     val backgroundStyle: ChatRowBackground = ChatRowBackground.NORMAL,
     val accessibilityText: String,
+    val moderation: ChatModeration? = null,
+    val moderationColor: Int? = null,
+    /** Piece range containing the moderated user's message, excluding surrounding metadata. */
+    val moderationPieceRange: IntRange? = null,
     val reply: ChatReply?,
     val source: SharedChatSource?,
     val isAction: Boolean,
