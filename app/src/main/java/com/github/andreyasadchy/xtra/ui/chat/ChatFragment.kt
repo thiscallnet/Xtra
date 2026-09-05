@@ -1705,9 +1705,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             } ?: synchronized(viewModel.channelBadges) {
                 viewModel.channelBadges.firstOrNull { it.setId == badge.setId && it.version == badge.version }
             }
-            val url = catalogBadge?.url2x ?: catalogBadge?.url1x
-            val fallbackDrawable = pinnedChatBadgeFallbackResource(badge.setId)
-            if (url.isNullOrBlank() && fallbackDrawable == null) return@forEach
+            val url = badge.imageUrl?.takeIf { it.isNotBlank() }
+                ?: catalogBadge?.url2x
+                ?: catalogBadge?.url1x
+            if (url.isNullOrBlank()) return@forEach
             val density = resources.displayMetrics.density
             val image = ImageView(requireContext()).apply {
                 layoutParams = LinearLayout.LayoutParams(
@@ -1717,20 +1718,16 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     marginEnd = (3 * density).toInt()
                 }
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
-                contentDescription = catalogBadge?.title ?: badge.setId
+                contentDescription = badge.title ?: catalogBadge?.title ?: badge.setId
             }
-            if (url.isNullOrBlank()) {
-                image.setImageResource(fallbackDrawable!!)
-            } else {
-                pinnedBadgeRequests += requireContext().imageLoader.enqueue(
-                    ImageRequest.Builder(requireContext())
-                        .data(url)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .crossfade(false)
-                        .target(image)
-                        .build(),
-                )
-            }
+            pinnedBadgeRequests += requireContext().imageLoader.enqueue(
+                ImageRequest.Builder(requireContext())
+                    .data(url)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .crossfade(false)
+                    .target(image)
+                    .build(),
+            )
             container.addView(image)
         }
         container.isVisible = container.childCount > 0

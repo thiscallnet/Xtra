@@ -175,22 +175,26 @@ class GraphQLRepository(
                                 login
                                 chatColor
                                 displayBadges(channelID: ${'$'}channelId) {
+                                    imageURL(size: QUADRUPLE)
                                     setID
+                                    title
                                     version
                                 }
                             }
-                            pinnedMessage {
-                                sentAt
-                                sender {
-                                    id
-                                    displayName
-                                    login
-                                    chatColor
-                                    displayBadges(channelID: ${'$'}channelId) {
-                                        setID
-                                        version
+                                pinnedMessage {
+                                    sentAt
+                                    sender {
+                                        id
+                                        displayName
+                                        login
+                                        chatColor
+                                        displayBadges(channelID: ${'$'}channelId) {
+                                            imageURL(size: QUADRUPLE)
+                                            setID
+                                            title
+                                            version
+                                        }
                                     }
-                                }
                                 content {
                                     text
                                 }

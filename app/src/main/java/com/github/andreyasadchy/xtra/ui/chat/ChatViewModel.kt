@@ -284,7 +284,12 @@ private fun PinnedChatMessageResponse.User?.toChatBadges(): List<Badge>? {
     return displayBadges.mapNotNull { badge ->
         val setId = badge.setID?.takeIf(String::isNotBlank) ?: return@mapNotNull null
         val version = badge.version?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-        Badge(setId, version)
+        Badge(
+            setId = setId,
+            version = version,
+            imageUrl = badge.imageURL,
+            title = badge.title,
+        )
     }
 }
 
