@@ -67,4 +67,13 @@
     <color name="modernAmoledSurfaceContainer">#0E0F13</color>
     <color name="modernAmoledSurfaceContainerHigh">#16171C</color>
     <color name="modernAmoledSurfaceContainerHighest">#202126</color>
+    <color name="happeningNowHeader">#26262C</color>
+    <color name="happeningNowCard">#18181B</color>
+    <color name="happeningNowBorder">#33333B</color>
+    <color name="happeningNowPurple">#9147FF</color>
+    <color name="happeningNowProgressLight">#BF94FF</color>
+    <color name="happeningNowProgressDark">#7137C7</color>
+    <color name="happeningNowTextPrimary">#F7F7F8</color>
+    <color name="happeningNowTextSecondary">#ADADB8</color>
+    <color name="happeningNowNewText">#0E0E10</color>
 </resources>

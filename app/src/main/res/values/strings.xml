@@ -1816,4 +1816,27 @@
     <string name="mark_all_as_seen">Mark all as seen</string>
     <string name="mark_all_notifications_seen_title">Mark all notifications as seen?</string>
     <string name="mark_all_notifications_seen_message">This marks every notification in your Twitch inbox as seen.</string>
+    <string name="happening_now_title">Happening Now (%1$d)</string>
+
+    <plurals name="happening_now_new_events">
+        <item quantity="one">%d NEW EVENT</item>
+        <item quantity="other">%d NEW EVENTS</item>
+    </plurals>
+
+    <string name="happening_now_predict_with_points">Predict with Channel Points</string>
+    <string name="happening_now_prediction">Prediction</string>
+    <string name="happening_now_prediction_result">Prediction result</string>
+    <string name="happening_now_poll">Poll</string>
+    <string name="happening_now_predict">Predict</string>
+    <string name="happening_now_vote">Vote</string>
+    <string name="happening_now_see_details">See Details</string>
+    <string name="happening_now_gifted_subs">%1$s gifted subs</string>
+    <string name="happening_now_gift_count">x%1$d</string>
+    <string name="happening_now_go_to">%1$s go to %2$s</string>
+    <string name="happening_now_votes">%1$s votes</string>
+    <string name="happening_now_dismiss">Dismiss</string>
+    <string name="happening_now_winner">Winner · %1$s</string>
+    <string name="happening_now_more">More options</string>
+    <string name="happening_now_expand">Expand Happening Now</string>
+    <string name="happening_now_collapse">Collapse Happening Now</string>
 </resources>

@@ -585,6 +585,31 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun betPrediction(outcomeId: String, points: Int) = viewModel.betPrediction(outcomeId, points)
 
+    private fun showChannelPointsDialog() {
+        if (childFragmentManager.findFragmentByTag(ChannelPointsDialog.TAG) == null) {
+            ChannelPointsDialog().show(
+                childFragmentManager,
+                ChannelPointsDialog.TAG,
+            )
+        }
+    }
+
+    private fun showHappeningNowPredictionDetails(prediction: Prediction) {
+        if (childFragmentManager.findFragmentByTag(
+                HappeningNowPredictionResultDialog.TAG,
+            ) != null
+        ) {
+            return
+        }
+
+        HappeningNowPredictionResultDialog
+            .newInstance(prediction)
+            .show(
+                childFragmentManager,
+                HappeningNowPredictionResultDialog.TAG,
+            )
+    }
+
     override fun channelName(): String? {
         return arguments?.getString(KEY_CHANNEL_NAME)?.takeIf { it.isNotBlank() }
             ?: arguments?.getString(KEY_CHANNEL_LOGIN)
@@ -719,6 +744,47 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     ) { poll, pollSeconds, prediction, predictionSeconds ->
                         ChannelPointsActivityState(poll, pollSeconds, prediction, predictionSeconds)
                     }.collectLatest(::updateChannelPointsActivity)
+                }
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    val activeActivities = combine(
+                        viewModel.ongoingPrediction,
+                        viewModel.predictionSecondsLeft,
+                        viewModel.activePoll,
+                        viewModel.pollSecondsLeft,
+                    ) { prediction, _, poll, _ ->
+                        HappeningNowActivityState(
+                            prediction = prediction,
+                            poll = poll,
+                        )
+                    }
+
+                    combine(
+                        activeActivities,
+                        viewModel.happeningNowGift,
+                        viewModel.happeningNowPredictionResult,
+                        viewModel.happeningNowNewIds,
+                        viewModel.dismissedHappeningNowIds,
+                    ) { activity, gift, result, newIds, dismissedIds ->
+                        HappeningNowView.RenderState(
+                            gift = gift,
+                            activePrediction = activity.prediction,
+                            recentPredictionResult = result,
+                            activePoll = activity.poll,
+                            canBetPrediction = viewModel.canBetPrediction(),
+                            canVotePoll = viewModel.canVotePoll(),
+                            newIds = newIds,
+                            dismissedIds = dismissedIds,
+                        )
+                    }.collectLatest { state ->
+                        binding.happeningNow.render(
+                            state = state,
+                            onOpenChannelPoints = ::showChannelPointsDialog,
+                            onPredictionDetails = ::showHappeningNowPredictionDetails,
+                            onDismiss = viewModel::dismissHappeningNowCard,
+                        )
+                    }
                 }
             }
             if (requireContext().prefs().isChatEnabled()) {
@@ -1195,9 +1261,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             }
                         }
                         channelPoints.setOnClickListener {
-                            if (childFragmentManager.findFragmentByTag(ChannelPointsDialog.TAG) == null) {
-                                ChannelPointsDialog().show(childFragmentManager, ChannelPointsDialog.TAG)
-                            }
+                            showChannelPointsDialog()
                         }
                         updateSlowModeIndicator(viewModel.slowModeState.value)
                     }
@@ -1708,6 +1772,16 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         channelLogin = channelLogin,
                         streamId = currentLiveStreamId(),
                         legacySupplementalSockets = true,
+                        onCommunityGift = { stableId, occurredAt, gifterDisplayName, count ->
+                            viewModel.recordHappeningNowGift(
+                                HappeningNowGift(
+                                    stableId = stableId,
+                                    occurredAt = occurredAt,
+                                    gifterDisplayName = gifterDisplayName,
+                                    count = count,
+                                ),
+                            )
+                        },
                     ),
                 )
             }.onFailure { error ->
@@ -2281,6 +2355,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val pollSeconds: Int?,
         val prediction: Prediction?,
         val predictionSeconds: Int?,
+    )
+
+    private data class HappeningNowActivityState(
+        val prediction: Prediction?,
+        val poll: Poll?,
     )
 
     private data class ActivityVisualState(

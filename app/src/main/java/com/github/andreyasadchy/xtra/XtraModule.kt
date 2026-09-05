@@ -774,6 +774,7 @@ class XtraModule(application: Application) {
                         chatUserMessagesClearedMessage = { login ->
                             appContext.getString(R.string.chat_clear_user).format(login)
                         },
+                        onCommunityGift = spec.onCommunityGift,
                     ),
                     trustManager = trustManager,
                     createSubscription = { headers, userId, type, sessionId ->
