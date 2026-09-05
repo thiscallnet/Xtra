@@ -10,10 +10,14 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.requiresInitialRewardMetadata
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationSnapshot
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogState
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.isReadyForChatPublication
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatColorResolver
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
@@ -92,6 +96,7 @@ class ChatV2RendererController(
     private val onMessageLongClick: (ChatMessage) -> Unit = {},
     private val profilePopoutGesture: ChatProfilePopoutGesture = ChatProfilePopoutGesture.HOLD,
     private val rewardCatalog: Flow<ChatRewardCatalog> = flowOf(ChatRewardCatalog()),
+    private val rewardCatalogSettled: Flow<Boolean> = flowOf(true),
     private val decorationCatalog: Flow<ChatDecorationSnapshot> = flowOf(ChatDecorationSnapshot()),
     private val onEmoteClick: (ChatEmoteInteraction) -> Unit = {},
     private val onGifClick: (ChatGifInteraction) -> Unit = {},
@@ -134,6 +139,7 @@ class ChatV2RendererController(
     private var previousTailId: ChatMessageId? = null
     private var latestRows: List<ChatRowUiModel> = emptyList()
     private var latestPublication: PresentationPublication? = null
+    private val presentationSnapshot = ChatPresentationSnapshot()
     private val rendererVisible = MutableStateFlow(true)
     private var translateAllMessages = translateAllMessages
     private val requestedTranslationIds = HashSet<ChatMessageId>()
@@ -204,6 +210,7 @@ class ChatV2RendererController(
         previousIds = null
         previousTailId = null
         currentKey = null
+        presentationSnapshot.clear()
         requestedTranslationIds.clear()
     }
 
@@ -296,8 +303,16 @@ class ChatV2RendererController(
     private suspend fun compileCurrent(publication: PresentationPublication): List<ChatRowUiModel> {
         while (true) {
             val compiler = presentation.snapshot()
+            val catalogs = presentationSnapshot.catalogsFor(
+                publication.key,
+                publication.messages,
+                publication.catalog,
+                captureBadges = renderStyle.showBadges,
+            )
             val rows = withContext(Dispatchers.Default) {
-                publication.messages.map { compiler.resolve(it, publication.catalog) }
+                publication.messages.zip(catalogs).map { (message, catalog) ->
+                    compiler.resolve(message, catalog)
+                }
             }
             if (presentation.isCurrent(compiler)) return rows
         }
@@ -351,9 +366,16 @@ class ChatV2RendererController(
             session.attachUi(),
             catalog.state,
             rewardCatalog,
+            rewardCatalogSettled,
             decorationCatalog,
-        ) { snapshot, catalogState, rewards, decorations ->
-            if (!catalogState.hydrated) {
+        ) { snapshot, catalogState, rewards, rewardsSettled, decorations ->
+            if (!isReadyForChatPublication(
+                    catalogState = catalogState,
+                    showBadges = renderStyle.showBadges,
+                    messages = snapshot.messages,
+                    rewardCatalogSettled = rewardsSettled,
+                )
+            ) {
                 null
             } else {
                 PresentationPublication(
@@ -379,3 +401,11 @@ class ChatV2RendererController(
         val catalog: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot,
     )
 }
+
+internal fun isReadyForChatPublication(
+    catalogState: ChatCatalogState,
+    showBadges: Boolean,
+    messages: List<ChatMessage>,
+    rewardCatalogSettled: Boolean,
+): Boolean = catalogState.isReadyForChatPublication(showBadges) &&
+    (rewardCatalogSettled || messages.none { it.requiresInitialRewardMetadata() })

@@ -10,6 +10,9 @@ data class ChatReward(
 /** GQL automatic reward type for the Highlight My Message redemption. */
 const val HIGHLIGHTED_MESSAGE_REWARD_TYPE = "SEND_HIGHLIGHTED_MESSAGE"
 
+fun ChatMessage.requiresInitialRewardMetadata(): Boolean =
+    rewardId != null || twitchType == TwitchChatMessageType.Highlighted
+
 /**
  * Runtime channel-point metadata. Custom rewards are keyed by reward ID while
  * automatic (built-in) rewards are keyed by their upper-cased GQL type, since

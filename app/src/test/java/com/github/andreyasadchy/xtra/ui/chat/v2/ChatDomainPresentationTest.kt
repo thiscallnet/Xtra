@@ -522,10 +522,22 @@ class ChatDomainPresentationTest {
         val message = message(ChatSegment.Emote(base, "Kappa", false)).copy(
             badges = listOf(ChatBadgeRef("subscriber", "1", "Subscriber")),
         )
+        val catalog = ChatCatalogSnapshot(
+            1,
+            badges = mapOf(
+                "subscriber:1" to ChatCatalogBadge(
+                    name = "subscriber:1",
+                    asset = ChatAssetSpec(ChatAssetKey("https://cdn.example.test/subscriber.png"), 18, 18, 18),
+                    provider = ChatAssetProvider.TWITCH,
+                    setId = "subscriber",
+                    versionId = "1",
+                ),
+            ),
+        )
         val resolver = ChatPresentationResolver(ChatRowCompiler(emoteHeightPx = 14, badgeHeightPx = 9))
-        val compact = resolver.resolve(message, ChatCatalogSnapshot(1))
+        val compact = resolver.resolve(message, catalog)
         resolver.replaceCompiler(ChatRowCompiler(emoteHeightPx = 56, badgeHeightPx = 36))
-        val large = resolver.resolve(message, ChatCatalogSnapshot(1))
+        val large = resolver.resolve(message, catalog)
 
         assertEquals(14, compact.pieces.filterIsInstance<ChatPiece.Emote>().single().asset.targetHeight)
         assertEquals(9, compact.pieces.filterIsInstance<ChatPiece.Badge>().single().asset.targetHeight)
@@ -589,13 +601,39 @@ class ChatDomainPresentationTest {
     }
 
     @Test
-    fun badgeIdentityAndGeometryExistBeforeBadgeCatalogLoads() {
+    fun twitchBadgesRequireResolvedHttpAssets() {
         val badge = ChatBadgeRef("subscriber", "12", "Subscriber")
-        val row = ChatPresentationResolver().resolve(message(ChatSegment.Text("hi")).copy(badges = listOf(badge)), ChatCatalogSnapshot(0))
-        val piece = row.pieces.filterIsInstance<ChatPiece.Badge>().single()
-        assertEquals("twitch-badge:subscriber:12", piece.asset.key.value)
+        val missing = ChatPresentationResolver().resolve(
+            message(ChatSegment.Text("hi")).copy(badges = listOf(badge)),
+            ChatCatalogSnapshot(0),
+        )
+        assertTrue(missing.pieces.none { it is ChatPiece.Badge })
+
+        val resolvedDefinition = ChatCatalogBadge(
+            name = "subscriber:12",
+            asset = ChatAssetSpec(ChatAssetKey("https://cdn.example.test/subscriber.png"), 18, 18, 18),
+            provider = ChatAssetProvider.TWITCH,
+            setId = "subscriber",
+            versionId = "12",
+            info = "Subscriber",
+        )
+        val resolved = ChatPresentationResolver().resolve(
+            message(ChatSegment.Text("hi")).copy(badges = listOf(badge)),
+            ChatCatalogSnapshot(1, badges = mapOf(badge.catalogKey to resolvedDefinition)),
+        )
+        val piece = resolved.pieces.filterIsInstance<ChatPiece.Badge>().single()
+        assertTrue(piece.asset.key.value.startsWith("https://"))
         assertEquals(18, piece.asset.targetHeight)
         assertEquals(ChatAssetProvider.TWITCH, piece.interaction?.provider)
+
+        val pseudo = resolvedDefinition.copy(
+            asset = resolvedDefinition.asset.copy(key = ChatAssetKey("twitch-badge:subscriber:12")),
+        )
+        val invalid = ChatPresentationResolver().resolve(
+            message(ChatSegment.Text("hi")).copy(badges = listOf(badge)),
+            ChatCatalogSnapshot(2, badges = mapOf(badge.catalogKey to pseudo)),
+        )
+        assertTrue(invalid.pieces.none { it is ChatPiece.Badge })
     }
 
     @Test

@@ -36,6 +36,7 @@ import android.widget.TextView
 import android.util.TypedValue
 import android.util.AttributeSet
 import androidx.core.content.ContextCompat
+import androidx.core.view.doOnPreDraw
 import androidx.appcompat.widget.AppCompatTextView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
@@ -52,6 +53,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreview
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewRepository
+import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewState
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.formatClipDuration
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.parseClipTimestamp
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
@@ -96,8 +98,10 @@ open class ChatMessageTextView private constructor(
     private val drawableHandles = HashMap<ChatAssetKey, Any>()
     private val assetInvalidator: () -> Unit = {
         post {
+            latchTerminalAssetFailures()
             requestLayout()
             postInvalidateOnAnimation()
+            maybeRevealInitialAssetFrame()
         }
     }
     private val clipMetadataInvalidator: () -> Unit = {
@@ -105,9 +109,17 @@ open class ChatMessageTextView private constructor(
             refreshClipPreviewAssets()
             requestLayout()
             postInvalidateOnAnimation()
+            maybeRevealInitialAssetFrame()
         }
     }
-    private val clipThumbnailInvalidator: () -> Unit = { postInvalidateOnAnimation() }
+    private val clipThumbnailInvalidator: () -> Unit = {
+        post {
+            latchTerminalAssetFailures()
+            requestLayout()
+            postInvalidateOnAnimation()
+            maybeRevealInitialAssetFrame()
+        }
+    }
     private var renderingActive = true
     private var animateGifs = true
     private var boundMessageId: ChatMessageId? = null
@@ -126,6 +138,13 @@ open class ChatMessageTextView private constructor(
     private var touchMoved = false
     private var clipPreviewSlugs = emptySet<String>()
     private var clipPreviewAssetKeys = emptySet<ChatAssetKey>()
+    private var awaitingInitialAssetFrame = false
+    private var revealOnPreDrawPosted = false
+    private var initialAssetSpecs = emptyList<ChatAssetSpec>()
+    private var initialDirectAssetKeys = emptySet<ChatAssetKey>()
+    private val latchedFailedCompositionKeys = HashSet<String>()
+    private val latchedFailedDirectKeys = HashSet<ChatAssetKey>()
+    private val latchedFailedClipMetadataSlugs = HashSet<String>()
 
     fun setInteractionCallbacks(
         onMessageLongClick: ((ChatMessageId) -> Unit)?,
@@ -173,20 +192,25 @@ open class ChatMessageTextView private constructor(
     }
 
     private fun bindRow(row: ChatRowUiModel) {
+        val sameRevealedMessage = boundMessageId == row.id && !awaitingInitialAssetFrame
+        if (!sameRevealedMessage) {
+            awaitingInitialAssetFrame = true
+            alpha = 0f
+            latchedFailedCompositionKeys.clear()
+            latchedFailedDirectKeys.clear()
+            latchedFailedClipMetadataSlugs.clear()
+        }
         boundMessageId = row.id
         longPressConsumed = false
         longPressRunnable?.let(mainHandler::removeCallbacks)
         longPressRunnable = null
         isLongClickable = onMessageLongClick != null
-        keys.forEach { assets.removeObserver(it, assetInvalidator) }
-        clipPreviewSlugs.forEach { slug -> clipPreviews?.removeObserver(slug, clipMetadataInvalidator) }
-        clipPreviewAssetKeys.forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
-        clipPreviewSlugs = emptySet()
-        clipPreviewAssetKeys = emptySet()
+        val oldKeys = keys
+        val oldClipPreviewSlugs = clipPreviewSlugs
         drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
         drawables.clear()
         drawableHandles.clear()
-        keys = row.pieces.flatMap { piece ->
+        val newKeys = row.pieces.flatMap { piece ->
             buildList {
                 val spec = when (piece) {
                     is ChatPiece.Badge -> piece.asset
@@ -202,9 +226,32 @@ open class ChatMessageTextView private constructor(
                 }
             }
         }.toSet()
-        keys.forEach { assets.observe(it, assetInvalidator) }
-        clipPreviewSlugs = row.clipPreviews.map { it.slug }.toSet()
-        clipPreviewSlugs.forEach { slug -> clipPreviews?.observe(slug, clipMetadataInvalidator) }
+        oldKeys.filterNot(newKeys::contains).forEach { assets.removeObserver(it, assetInvalidator) }
+        newKeys.filterNot(oldKeys::contains).forEach { assets.observe(it, assetInvalidator) }
+        keys = newKeys
+        initialAssetSpecs = row.pieces.mapNotNull { piece ->
+            when (piece) {
+                is ChatPiece.Badge -> piece.asset
+                is ChatPiece.RewardIcon -> piece.asset
+                is ChatPiece.Emote -> piece.asset
+                is ChatPiece.Cheermote -> piece.asset
+                is ChatPiece.Gif -> piece.asset
+                else -> null
+            }
+        }
+        initialDirectAssetKeys = row.pieces.mapNotNull { piece ->
+            (piece as? ChatPiece.Username)?.paint?.imageUrl
+                ?.takeIf { it.isNotBlank() }
+                ?.let(::ChatAssetKey)
+        }.toSet()
+        val newClipPreviewSlugs = row.clipPreviews.map { it.slug }.toSet()
+        oldClipPreviewSlugs.filterNot(newClipPreviewSlugs::contains).forEach { slug ->
+            clipPreviews?.removeObserver(slug, clipMetadataInvalidator)
+        }
+        newClipPreviewSlugs.filterNot(oldClipPreviewSlugs::contains).forEach { slug ->
+            clipPreviews?.observe(slug, clipMetadataInvalidator)
+        }
+        clipPreviewSlugs = newClipPreviewSlugs
         refreshClipPreviewAssets()
         when (row.backgroundStyle) {
             ChatRowBackground.NORMAL -> setBackgroundColor(row.background)
@@ -259,12 +306,41 @@ open class ChatMessageTextView private constructor(
                 is ChatPiece.Source -> appendStyled(output, "[${piece.value}] ", piece.color)
                 is ChatPiece.Icon -> appendIcon(output, piece)
                 is ChatPiece.Mention -> appendStyled(output, piece.value, null)
-                is ChatPiece.Badge -> appendAsset(output, piece.asset, piece.interaction?.name ?: "badge", piece.interaction)
-                is ChatPiece.RewardIcon -> appendAsset(output, piece.asset, piece.fallback)
-                is ChatPiece.Emote -> appendAsset(output, piece.asset, piece.fallback, piece.interaction)
-                is ChatPiece.Gif -> appendAsset(output, piece.asset, piece.fallback, gifInteraction = piece.interaction)
+                is ChatPiece.Badge -> appendAsset(
+                    output,
+                    piece.asset,
+                    fallback = "",
+                    fallbackMode = ChatAssetFallbackMode.NONE,
+                    interaction = piece.interaction,
+                )
+                is ChatPiece.RewardIcon -> appendAsset(
+                    output,
+                    piece.asset,
+                    piece.fallback,
+                    fallbackMode = ChatAssetFallbackMode.NONE,
+                )
+                is ChatPiece.Emote -> appendAsset(
+                    output,
+                    piece.asset,
+                    piece.fallback,
+                    fallbackMode = ChatAssetFallbackMode.TEXT_ON_FAILURE,
+                    interaction = piece.interaction,
+                )
+                is ChatPiece.Gif -> appendAsset(
+                    output,
+                    piece.asset,
+                    piece.fallback,
+                    fallbackMode = ChatAssetFallbackMode.TEXT_ON_FAILURE,
+                    gifInteraction = piece.interaction,
+                )
                 is ChatPiece.Cheermote -> {
-                    appendAsset(output, piece.asset, piece.bits.toString(), piece.interaction)
+                    appendAsset(
+                        output,
+                        piece.asset,
+                        piece.bits.toString(),
+                        fallbackMode = ChatAssetFallbackMode.NONE,
+                        interaction = piece.interaction,
+                    )
                     appendStyled(output, " ${piece.bits}", piece.color)
                 }
             }
@@ -300,12 +376,94 @@ open class ChatMessageTextView private constructor(
         if (row.isAction) output.setSpan(StyleSpan(android.graphics.Typeface.ITALIC), 0, output.length, 0)
         contentDescription = row.accessibilityText
         text = output
+        maybeRevealInitialAssetFrame()
+    }
+
+    private fun maybeRevealInitialAssetFrame() {
+        if (!awaitingInitialAssetFrame) return
+
+        latchFailedClipMetadata()
+
+        val hasPendingAsset = (keys + clipPreviewAssetKeys).any { key ->
+            when (val state = assets.peek(key)) {
+                ChatAssetState.Missing,
+                ChatAssetState.Loading -> true
+
+                is ChatAssetState.Ready -> false
+                is ChatAssetState.Failed -> !state.isPresentationTerminal
+            }
+        }
+        if (hasPendingAsset) return
+        if (clipPreviewSlugs.any { slug ->
+                when (clipPreviews?.peekState(slug)) {
+                    ChatClipPreviewState.Missing,
+                    ChatClipPreviewState.Loading -> true
+                    is ChatClipPreviewState.Ready,
+                    null -> false
+                }
+            }
+        ) return
+
+        if (!isAttachedToWindow || revealOnPreDrawPosted) return
+        revealOnPreDrawPosted = true
+        doOnPreDraw {
+            revealOnPreDrawPosted = false
+            revealInitialAssetFrameIfReady()
+        }
+    }
+
+    private fun revealInitialAssetFrameIfReady() {
+        if (!awaitingInitialAssetFrame) return
+        latchFailedClipMetadata()
+        val hasPendingAsset = (keys + clipPreviewAssetKeys).any { key ->
+            when (val state = assets.peek(key)) {
+                ChatAssetState.Missing,
+                ChatAssetState.Loading -> true
+
+                is ChatAssetState.Ready -> false
+                is ChatAssetState.Failed -> !state.isPresentationTerminal
+            }
+        }
+        if (hasPendingAsset || clipPreviewSlugs.any { slug ->
+                when (clipPreviews?.peekState(slug)) {
+                    ChatClipPreviewState.Missing,
+                    ChatClipPreviewState.Loading -> true
+                    is ChatClipPreviewState.Ready,
+                    null -> false
+                }
+            }
+        ) return
+
+        latchTerminalAssetFailures()
+
+        awaitingInitialAssetFrame = false
+        alpha = 1f
+    }
+
+    private fun latchTerminalAssetFailures() {
+        initialAssetSpecs
+            .filter { assetRenderState(it) == ChatAssetRenderState.FAILED }
+            .forEach { latchedFailedCompositionKeys += it.compositionKey }
+        (initialDirectAssetKeys + clipPreviewAssetKeys).forEach { key ->
+            val state = assets.peek(key)
+            if (state is ChatAssetState.Failed && state.isPresentationTerminal) {
+                latchedFailedDirectKeys += key
+            }
+        }
+    }
+
+    private fun latchFailedClipMetadata() {
+        val failed = clipPreviewSlugs.filter { slug ->
+            clipPreviews?.peekState(slug) == ChatClipPreviewState.Ready(null)
+        }
+        if (latchedFailedClipMetadataSlugs.addAll(failed)) requestLayout()
     }
 
     private fun refreshClipPreviewAssets() {
         val nextKeys = boundRow?.clipPreviews.orEmpty().mapNotNull { link ->
             clipPreviews?.peek(link.slug)?.thumbnailUrl?.takeIf { it.isNotBlank() }?.let(::ChatAssetKey)
         }.toSet()
+        initialDirectAssetKeys = (initialDirectAssetKeys - clipPreviewAssetKeys) + nextKeys
         clipPreviewAssetKeys.filterNot(nextKeys::contains).forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
         if (isAttachedToWindow && renderingActive) {
             nextKeys.filterNot(clipPreviewAssetKeys::contains).forEach { assets.observe(it, clipThumbnailInvalidator) }
@@ -315,12 +473,15 @@ open class ChatMessageTextView private constructor(
 
     private fun resolvedClipPreviews(): List<Pair<ChatClipPreviewLink, ChatClipPreview>> =
         boundRow?.clipPreviews.orEmpty().mapNotNull { link ->
+            if (link.slug in latchedFailedClipMetadataSlugs) return@mapNotNull null
             clipPreviews?.peek(link.slug)?.let { preview -> link to preview }
         }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-        val count = resolvedClipPreviews().size
+        // Reserve parsed clip-card geometry before metadata arrives. The row remains hidden until
+        // metadata and its thumbnail reach a terminal state, so metadata cannot reflow a visible row.
+        val count = boundRow?.clipPreviews?.count { it.slug !in latchedFailedClipMetadataSlugs } ?: 0
         if (count == 0) return
         val extra = count * clipPreviewBlockHeight() + count * clipPreviewGap()
         setMeasuredDimension(measuredWidth, measuredHeight + extra)
@@ -370,7 +531,8 @@ open class ChatMessageTextView private constructor(
             val spec = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec(
                 ChatAssetKey(imageUrl), 16, 9, (thumbBottom - thumbTop).toInt(),
             )
-            drawableFor(ChatAssetKey(imageUrl), spec)?.let { drawable ->
+            val key = ChatAssetKey(imageUrl)
+            if (!isDirectAssetFailureLatched(key)) drawableFor(key, spec)?.let { drawable ->
                 drawable.setBounds(thumbLeft.toInt(), thumbTop.toInt(), thumbRight.toInt(), thumbBottom.toInt())
                 drawable.draw(canvas)
             }
@@ -588,7 +750,12 @@ open class ChatMessageTextView private constructor(
         val start = output.length
         appendStyled(output, piece.value + piece.separator, piece.color, piece.bold)
         piece.paint?.let { paintSpec ->
-            output.setSpan(ChatNamePaintSpan(paintSpec, assets), start, start + piece.value.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            output.setSpan(
+                ChatNamePaintSpan(paintSpec, assets, ::isDirectAssetFailureLatched),
+                start,
+                start + piece.value.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
         }
     }
 
@@ -638,6 +805,7 @@ open class ChatMessageTextView private constructor(
         output: SpannableStringBuilder,
         spec: ChatAssetSpec,
         fallback: String,
+        fallbackMode: ChatAssetFallbackMode,
         interaction: ChatEmoteInteraction? = null,
         gifInteraction: ChatGifInteraction? = null,
     ) {
@@ -649,7 +817,8 @@ open class ChatMessageTextView private constructor(
                 spec,
                 fallback,
                 { drawableLayersFor(spec) },
-                { spec.flatten().all { assets.peek(it.key) is ChatAssetState.Ready } },
+                { assetRenderState(spec) },
+                fallbackMode,
             ),
             start,
             end,
@@ -715,8 +884,35 @@ open class ChatMessageTextView private constructor(
         keys = emptySet()
         clipPreviewSlugs = emptySet()
         clipPreviewAssetKeys = emptySet()
+        initialAssetSpecs = emptyList()
+        initialDirectAssetKeys = emptySet()
+        latchedFailedCompositionKeys.clear()
+        latchedFailedDirectKeys.clear()
+        latchedFailedClipMetadataSlugs.clear()
         text = null
+        boundMessageId = null
+        boundRow = null
+        awaitingInitialAssetFrame = false
+        revealOnPreDrawPosted = false
+        alpha = 1f
     }
+
+    private fun assetRenderState(spec: ChatAssetSpec): ChatAssetRenderState {
+        val flattened = spec.flatten()
+        if (spec.compositionKey in latchedFailedCompositionKeys) return ChatAssetRenderState.FAILED
+        val states = flattened.map { assets.peek(it.key) }
+        return when {
+            states.all { it is ChatAssetState.Ready } -> ChatAssetRenderState.READY
+            states.any {
+                it === ChatAssetState.Missing ||
+                    it === ChatAssetState.Loading ||
+                    it is ChatAssetState.Failed && !it.isPresentationTerminal
+            } -> ChatAssetRenderState.PENDING
+            else -> ChatAssetRenderState.FAILED
+        }
+    }
+
+    private fun isDirectAssetFailureLatched(key: ChatAssetKey): Boolean = key in latchedFailedDirectKeys
 
     /** Stops asset callbacks while the containing chat surface is hidden. */
     fun setRenderingActive(active: Boolean) {
@@ -726,6 +922,10 @@ open class ChatMessageTextView private constructor(
             if (isAttachedToWindow) keys.forEach { assets.observe(it, assetInvalidator) }
             if (isAttachedToWindow) clipPreviewSlugs.forEach { slug -> clipPreviews?.observe(slug, clipMetadataInvalidator) }
             if (isAttachedToWindow) clipPreviewAssetKeys.forEach { assets.observe(it, clipThumbnailInvalidator) }
+            if (isAttachedToWindow) {
+                refreshClipPreviewAssets()
+                maybeRevealInitialAssetFrame()
+            }
             if (isAttachedToWindow) {
                 drawables.values.forEach { drawable ->
                     drawable.callback = this
@@ -756,6 +956,8 @@ open class ChatMessageTextView private constructor(
             keys.forEach { assets.observe(it, assetInvalidator) }
             clipPreviewSlugs.forEach { slug -> clipPreviews?.observe(slug, clipMetadataInvalidator) }
             clipPreviewAssetKeys.forEach { assets.observe(it, clipThumbnailInvalidator) }
+            refreshClipPreviewAssets()
+            maybeRevealInitialAssetFrame()
             drawables.values.forEach { drawable ->
                 drawable.callback = this
                 if (animateGifs) drawable.startIfNeeded()
@@ -786,9 +988,21 @@ private fun ChatAssetSpec.flatten(): List<ChatAssetSpec> = buildList {
 
 private data class DrawableLayer(val spec: ChatAssetSpec, val drawable: Drawable)
 
+private enum class ChatAssetRenderState {
+    PENDING,
+    READY,
+    FAILED,
+}
+
+private enum class ChatAssetFallbackMode {
+    NONE,
+    TEXT_ON_FAILURE,
+}
+
 private class ChatNamePaintSpan(
     private val paintSpec: ChatNamePaint,
     private val assets: ChatAssetRepository,
+    private val isFailureLatched: (ChatAssetKey) -> Boolean,
 ) : CharacterStyle() {
     private var imageHandle: Any? = null
     private var imageShader: Shader? = null
@@ -797,7 +1011,12 @@ private class ChatNamePaintSpan(
         textPaint.clearShadowLayer()
         val imageUrl = paintSpec.imageUrl?.takeIf { it.isNotBlank() }
         if (imageUrl != null) {
-            val handle = (assets.peek(ChatAssetKey(imageUrl)) as? ChatAssetState.Ready)?.image
+            val key = ChatAssetKey(imageUrl)
+            val handle = if (isFailureLatched(key)) {
+                null
+            } else {
+                (assets.peek(key) as? ChatAssetState.Ready)?.image
+            }
             if (handle !== imageHandle) {
                 imageHandle = handle
                 imageShader = (handle?.newDrawable() as? BitmapDrawable)?.bitmap?.let { bitmap ->
@@ -857,7 +1076,8 @@ private class ChatAssetSpan(
     private val spec: ChatAssetSpec,
     private val fallback: String,
     private val drawables: () -> List<DrawableLayer>?,
-    private val isReady: () -> Boolean,
+    private val renderState: () -> ChatAssetRenderState,
+    private val fallbackMode: ChatAssetFallbackMode,
 ) : ReplacementSpan() {
     override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         val height = spec.compositionHeight
@@ -873,10 +1093,44 @@ private class ChatAssetSpan(
                 fm.bottom = fm.descent
             }
         }
-        return if (isReady()) spec.compositionWidth else maxOf(spec.compositionWidth, fallbackWidth(paint))
+        return if (renderState() == ChatAssetRenderState.FAILED &&
+            fallbackMode == ChatAssetFallbackMode.TEXT_ON_FAILURE
+        ) {
+            maxOf(spec.compositionWidth, fallbackWidth(paint))
+        } else {
+            spec.compositionWidth
+        }
     }
 
     override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
+        when (renderState()) {
+            ChatAssetRenderState.PENDING -> return
+            ChatAssetRenderState.FAILED if fallbackMode == ChatAssetFallbackMode.NONE -> return
+            ChatAssetRenderState.READY -> drawReady(canvas, x, top, bottom)
+            ChatAssetRenderState.FAILED -> drawFallback(canvas, x, top, bottom, paint)
+        }
+    }
+
+    private fun drawReady(canvas: Canvas, x: Float, top: Int, bottom: Int) {
+        val images = drawables() ?: return
+        val centerY = (top + bottom) / 2f
+        val rect = RectF(
+            x,
+            centerY - spec.compositionHeight / 2f,
+            x + spec.compositionWidth,
+            centerY + spec.compositionHeight / 2f,
+        )
+        images.forEach { layer ->
+            val width = layer.spec.computedWidth
+            val height = layer.spec.targetHeight
+            val left = rect.centerX() - width / 2f
+            val layerRect = RectF(left, rect.centerY() - height / 2f, left + width, rect.centerY() + height / 2f)
+            layer.drawable.setBounds(layerRect.left.toInt(), layerRect.top.toInt(), layerRect.right.toInt(), layerRect.bottom.toInt())
+            layer.drawable.draw(canvas)
+        }
+    }
+
+    private fun drawFallback(canvas: Canvas, x: Float, top: Int, bottom: Int, paint: Paint) {
         val oldColor = paint.color
         val oldStyle = paint.style
         val oldTextSize = paint.textSize
@@ -884,34 +1138,14 @@ private class ChatAssetSpan(
         val centerY = (top + bottom) / 2f
         val label = fallback.trim().ifEmpty { "?" }
         val fallbackPaint = fallbackPaint(paint)
-        val images = drawables()
-        val reservedWidth = if (images != null) {
-            spec.compositionWidth
-        } else {
-            maxOf(spec.compositionWidth, fallbackPaint.measureText(label).roundToInt())
-        }
+        val reservedWidth = maxOf(spec.compositionWidth, fallbackPaint.measureText(label).roundToInt())
         val rect = RectF(x, centerY - spec.compositionHeight / 2f, x + reservedWidth, centerY + spec.compositionHeight / 2f)
-        if (images != null) {
-            images.forEach { layer ->
-                val width = layer.spec.computedWidth
-                val height = layer.spec.targetHeight
-                val left = rect.centerX() - width / 2f
-                val layerRect = RectF(left, rect.centerY() - height / 2f, left + width, rect.centerY() + height / 2f)
-                layer.drawable.setBounds(layerRect.left.toInt(), layerRect.top.toInt(), layerRect.right.toInt(), layerRect.bottom.toInt())
-                layer.drawable.draw(canvas)
-            }
-        } else {
-            // Keep the original token readable while the image is loading or retrying. The
-            // Reserve enough room for the original token while the image is unavailable. A
-            // fake pill suggests that an image exists when it does not and was especially
-            // confusing for missing badge URLs.
-            paint.color = oldColor
-            paint.style = Paint.Style.FILL
-            paint.textAlign = Paint.Align.CENTER
-            paint.textSize = fallbackPaint.textSize
-            val baseline = rect.centerY() - (paint.ascent() + paint.descent()) / 2f
-            canvas.drawText(label, rect.centerX(), baseline, paint)
-        }
+        paint.color = oldColor
+        paint.style = Paint.Style.FILL
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = fallbackPaint.textSize
+        val baseline = rect.centerY() - (paint.ascent() + paint.descent()) / 2f
+        canvas.drawText(label, rect.centerX(), baseline, paint)
         paint.color = oldColor
         paint.style = oldStyle
         paint.textSize = oldTextSize

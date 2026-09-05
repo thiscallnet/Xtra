@@ -60,8 +60,21 @@ jobs:
           cache-provider: basic
       - name: Build for CodeQL
         # CodeQL only needs a compilable release graph; publishing validates the real ID.
-        # Bytecode tracing makes the Kotlin compiler's default daemon heap unreliable.
-        run: ./gradlew assembleRelease "-PtwitchPublicClientId=codeql-placeholder" "-Pkotlin.daemon.jvmargs=-Xmx4g"
+        # CodeQL tracing increases packaging memory pressure, so keep the build single-worker.
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_args=(
+            "-PtwitchPublicClientId=codeql-placeholder"
+          )
+          # AGP can leave its incremental packaging worker in a bad state after
+          # CodeQL interrupts or traces a packaging task. Retry without daemon
+          # or configuration-cache state before treating the build as broken.
+          if ./gradlew --no-daemon --no-configuration-cache --max-workers=1 assembleRelease "${build_args[@]}"; then
+            exit 0
+          fi
+          ./gradlew --stop || true
+          ./gradlew --no-daemon --no-configuration-cache --max-workers=1 assembleRelease "${build_args[@]}"
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@4c0873ef8656cb3c50b3f42fb63bc1ade0cfa827 # v4
         with:

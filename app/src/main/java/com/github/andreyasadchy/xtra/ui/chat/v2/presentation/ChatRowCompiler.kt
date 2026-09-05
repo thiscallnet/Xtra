@@ -137,9 +137,8 @@ class ChatRowCompiler(
             }
             if (showBadges && !specialNotice) message.badges
                 .filter { it.setId.isNotBlank() && it.versionId.isNotBlank() }
-                .forEach { badge ->
-                    add(ChatPiece.Badge(badgeSpec(badge, catalog), badgeInteraction(badge, catalog)))
-                }
+                .mapNotNull { badge -> badgePiece(badge, catalog) }
+                .forEach(::add)
             if (showThirdPartyBadges && !specialNotice) {
                 message.user?.id?.let(catalog.userDecorations::get)?.badgeId?.let { badgeId ->
                     catalog.sevenTvBadges[badgeId]?.let { badge ->
@@ -413,18 +412,23 @@ class ChatRowCompiler(
         )
     }
 
-    private fun badgeSpec(badge: ChatBadgeRef, catalog: ChatCatalogSnapshot): ChatAssetSpec =
-        (catalog.badges[badge.catalogKey]?.asset ?: badge.asset).scaledTo(badgeHeightPx)
+    private fun badgePiece(badge: ChatBadgeRef, catalog: ChatCatalogSnapshot): ChatPiece.Badge? {
+        val definition = catalog.badges[badge.catalogKey] ?: return null
+        val assetKey = definition.asset.key.value
+        if (!assetKey.startsWith("http://", ignoreCase = true) &&
+            !assetKey.startsWith("https://", ignoreCase = true)
+        ) return null
 
-    private fun badgeInteraction(badge: ChatBadgeRef, catalog: ChatCatalogSnapshot): ChatEmoteInteraction {
-        val definition = catalog.badges[badge.catalogKey]
-        return ChatEmoteInteraction(
-            id = badge.versionId,
-            name = definition?.info ?: badge.info ?: badge.setId,
-            url = definition?.asset?.key?.value ?: badge.asset.key.value,
-            animated = false,
-            provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.TWITCH,
-            scope = null,
+        return ChatPiece.Badge(
+            asset = definition.asset.scaledTo(badgeHeightPx),
+            interaction = ChatEmoteInteraction(
+                id = badge.versionId,
+                name = definition.info ?: badge.info ?: badge.setId,
+                url = definition.asset.key.value,
+                animated = false,
+                provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.TWITCH,
+                scope = null,
+            ),
         )
     }
 

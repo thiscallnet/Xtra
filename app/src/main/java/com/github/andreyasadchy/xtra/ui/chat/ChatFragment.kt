@@ -920,6 +920,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                         },
                                 )
                             },
+                            rewardCatalogSettled = viewModel.channelPointCatalogSettled,
                             decorationCatalog = merge(
                                 viewModel.thirdPartyEmotesUpdated,
                                 viewModel.updateUserMessages.map { Unit },
