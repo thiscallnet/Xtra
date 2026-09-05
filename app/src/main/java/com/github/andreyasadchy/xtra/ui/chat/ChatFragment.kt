@@ -272,6 +272,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var useChatV2 = false
     private var chatV2RendererVisible = true
     private var selectedV2Message: V2ChatMessage? = null
+    private var selectedPinnedMessage: ChatMessage? = null
     private val v2Translations = mutableMapOf<String, String>()
 
     internal val isUsingChatV2: Boolean
@@ -1639,14 +1640,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
         pinnedBinding.pinnedMessageBy.text = message.pinnedBy
         pinnedBinding.pinnedMessageBy.setOnClickListener {
-            if (!message.pinnedById.isNullOrBlank() || !message.pinnedByLogin.isNullOrBlank()) {
-                onViewProfileClicked(
-                    message.pinnedById,
-                    message.pinnedByLogin,
-                    message.pinnedBy,
-                    null,
-                )
-            }
+            showPinnedMessageUserPopout(message, pinner = true)
         }
         pinnedBinding.pinnedMessageBy.isClickable =
             !message.pinnedById.isNullOrBlank() || !message.pinnedByLogin.isNullOrBlank()
@@ -1657,14 +1651,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             ContextCompat.getColor(requireContext(), R.color.happeningNowPurple),
         )
         pinnedBinding.pinnedMessageSender.setOnClickListener {
-            if (!message.senderId.isNullOrBlank() || !message.senderLogin.isNullOrBlank()) {
-                onViewProfileClicked(
-                    message.senderId,
-                    message.senderLogin,
-                    senderName,
-                    null,
-                )
-            }
+            showPinnedMessageUserPopout(message, pinner = false)
         }
         pinnedBinding.pinnedMessageSender.isClickable =
             !message.senderId.isNullOrBlank() || !message.senderLogin.isNullOrBlank()
@@ -1682,6 +1669,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             listOfNotNull(highestPinnedChatRoleBadge(message.pinnedByBadges)),
         )
         renderPinnedMessageBadges(pinnedBinding.pinnedMessageSenderBadges, message.senderBadges)
+        renderPinnedMessageListeningBadge()
         pinnedBinding.pinnedMessageMinimize.setImageResource(
             if (pinnedMessageMinimized) R.drawable.baseline_expand_more_black_24 else R.drawable.ic_expand_less,
         )
@@ -1731,6 +1719,58 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             container.addView(image)
         }
         container.isVisible = container.childCount > 0
+    }
+
+    private fun renderPinnedMessageListeningBadge() {
+        val seenButton = pinnedMessageBinding?.pinnedMessageSeen ?: return
+        val badge = synchronized(viewModel.globalBadges) {
+            viewModel.globalBadges.firstOrNull {
+                it.setId.equals("no_video", ignoreCase = true) ||
+                    it.title.equals("Listening only", ignoreCase = true)
+            }
+        }
+        val url = badge?.url4x ?: badge?.url3x ?: badge?.url2x ?: badge?.url1x
+        if (url.isNullOrBlank()) {
+            seenButton.isGone = true
+            return
+        }
+
+        seenButton.isVisible = true
+        pinnedBadgeRequests += requireContext().imageLoader.enqueue(
+            ImageRequest.Builder(requireContext())
+                .data(url)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .crossfade(false)
+                .target(seenButton)
+                .build(),
+        )
+    }
+
+    private fun showPinnedMessageUserPopout(
+        message: PinnedChatMessage,
+        pinner: Boolean,
+    ) {
+        val userId = if (pinner) message.pinnedById else message.senderId
+        val userLogin = if (pinner) message.pinnedByLogin else message.senderLogin
+        val userName = if (pinner) message.pinnedBy else message.sender ?: message.pinnedBy
+        if (userId.isNullOrBlank() && userLogin.isNullOrBlank()) return
+
+        selectedV2Message = null
+        selectedPinnedMessage = ChatMessage(
+            type = ChatMessage.USER_MESSAGE,
+            userId = userId,
+            userLogin = userLogin,
+            userName = userName,
+            message = message.text,
+            badges = if (pinner) message.pinnedByBadges else message.senderBadges,
+            timestamp = message.sentAt,
+        )
+        hideChatInputForDialog()
+        MessageClickedDialog.newInstance(
+            messagingEnabled = messagingEnabled,
+            channelId = requireArguments().getString(KEY_CHANNEL_ID),
+            channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+        ).show(childFragmentManager, "messageDialog")
     }
 
     private fun schedulePinnedMessageTimer(message: PinnedChatMessage) {
@@ -3022,6 +3062,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onCreateMessageClickedChatAdapter(): MessageClickedChatAdapter? {
+        selectedPinnedMessage?.let { pinnedMessage ->
+            selectedPinnedMessage = null
+            return adapter?.createMessageClickedChatAdapter(
+                selectedMessageOverride = pinnedMessage,
+            )
+        }
         val clicked = selectedV2Message
         if (!useChatV2 || clicked == null) return adapter?.createMessageClickedChatAdapter()
         val canonicalMessages = chatV2Renderer?.currentMessages().orEmpty()

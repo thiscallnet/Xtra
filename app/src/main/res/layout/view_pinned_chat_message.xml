@@ -69,9 +69,7 @@
             android:contentDescription="@string/pinned_message_mark_seen"
             android:minWidth="40dp"
             android:minHeight="40dp"
-            android:padding="11dp"
-            android:src="@drawable/ic_visibility_off"
-            app:tint="@color/happeningNowTextSecondary" />
+            android:padding="11dp" />
 
         <ImageButton
             android:id="@+id/pinnedMessageMinimize"
