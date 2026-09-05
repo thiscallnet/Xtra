@@ -88,7 +88,6 @@ class ChatRowCompiler(
     private val highlightSettings: ChatHighlightSettings = ChatHighlightSettings(),
 ) {
     fun compile(message: ChatMessage, catalog: ChatCatalogSnapshot = ChatCatalogSnapshot(0)): ChatRowUiModel {
-        val targetHeight = emoteHeightPx * if (message.twitchType == TwitchChatMessageType.GigantifiedEmote) 2 else 1
         val isWatchStreak = message.noticeType.equals("watch_streak", ignoreCase = true) ||
             (message.noticeType.equals("viewermilestone", ignoreCase = true) && message.watchStreakCount != null)
         val noticeType = message.noticeType?.lowercase()
@@ -126,6 +125,7 @@ class ChatRowCompiler(
             catalog,
             personalEmoteSetId = messagePersonalEmoteSetId(message, catalog),
         )
+        val targetHeight = emoteTargetHeight(message, resolvedSegments)
         val moderationSuffix = message.moderation?.let(labels.moderationSuffix)
         val clipPreviews = extractClipPreviews(message)
         val isFirstChatterMessage = message.isFirst || message.twitchType == TwitchChatMessageType.UserIntro
@@ -152,8 +152,15 @@ class ChatRowCompiler(
                 val user = reply.parentUserName ?: reply.parentUserLogin ?: ""
                 val body = reply.parentMessageBody.orEmpty()
                 add(ChatPiece.Icon(R.drawable.ic_chat_reply, tint = mutedColor, sizeDp = 18))
-                val replyUser = user.takeIf { it.startsWith("@") }?.let { it } ?: "@$user"
-                add(ChatPiece.Reply(" ${labels.reply(replyUser, body)}", color = mutedColor))
+                val replyUser = user
+                add(
+                    ChatPiece.Reply(
+                        value = " ${labels.reply(replyUser, body)}",
+                        color = mutedColor,
+                        parentUser = replyUser.takeIf { it.isNotBlank() },
+                        parentMessage = body,
+                    ),
+                )
                 add(ChatPiece.Text("\n", color = mutedColor))
             }
             if (showBadges) message.badges
@@ -247,6 +254,24 @@ class ChatRowCompiler(
         )
     }
 
+    private fun emoteTargetHeight(
+        message: ChatMessage,
+        resolvedSegments: List<ChatSegment>,
+    ): Int {
+        val isEmoteOnly = resolvedSegments.isNotEmpty() && resolvedSegments.all { segment ->
+            when (segment) {
+                is ChatSegment.Emote -> true
+                is ChatSegment.Text -> segment.text.isBlank()
+                else -> false
+            }
+        }
+        return emoteHeightPx * when {
+            message.twitchType == TwitchChatMessageType.GigantifiedEmote -> 2
+            isEmoteOnly -> 2
+            else -> 1
+        }
+    }
+
     private fun eventKindFor(
         message: ChatMessage,
         noticeType: String?,
@@ -284,7 +309,6 @@ class ChatRowCompiler(
         isPrimeSubscription: Boolean,
         hasSemanticBody: Boolean,
     ): ChatRowUiModel {
-        val targetHeight = emoteHeightPx * if (message.twitchType == TwitchChatMessageType.GigantifiedEmote) 2 else 1
         val baseBackground = background(message)
         val mutedColor = colors.mutedTextColor(baseBackground)
         val systemEvent = eventKind == ChatEventKind.ANNOUNCEMENT ||
@@ -296,6 +320,7 @@ class ChatRowCompiler(
             resolveThirdParty = !systemEvent || showSystemMessageEmotes,
             personalEmoteSetId = messagePersonalEmoteSetId(message, catalog),
         )
+        val targetHeight = emoteTargetHeight(message, resolvedSegments)
         val bodyPieces = if (hasSemanticBody) {
             messageBodyPieces(message, resolvedSegments, catalog, targetHeight, baseBackground)
         } else {
@@ -318,8 +343,15 @@ class ChatRowCompiler(
                 val user = reply.parentUserName ?: reply.parentUserLogin ?: ""
                 val body = reply.parentMessageBody.orEmpty()
                 add(ChatPiece.Icon(R.drawable.ic_chat_reply, tint = mutedColor, sizeDp = 18))
-                val replyUser = user.takeIf { it.startsWith("@") } ?: "@$user"
-                add(ChatPiece.Reply(" ${labels.reply(replyUser, body)}", color = mutedColor))
+                val replyUser = user
+                add(
+                    ChatPiece.Reply(
+                        value = " ${labels.reply(replyUser, body)}",
+                        color = mutedColor,
+                        parentUser = replyUser.takeIf { it.isNotBlank() },
+                        parentMessage = body,
+                    ),
+                )
                 add(ChatPiece.Text("\n", color = mutedColor))
             }
             addAll(event.flatten())

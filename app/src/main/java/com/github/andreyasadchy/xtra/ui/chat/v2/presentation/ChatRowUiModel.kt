@@ -107,7 +107,12 @@ object ChatEventVisualTokens {
 
 sealed interface ChatPiece {
     data class Text(val value: String, val color: Int? = null, val bold: Boolean = false) : ChatPiece
-    data class Reply(val value: String, val color: Int) : ChatPiece
+    data class Reply(
+        val value: String,
+        val color: Int,
+        val parentUser: String? = null,
+        val parentMessage: String? = null,
+    ) : ChatPiece
     data class Username(
         val value: String,
         val color: Int,

@@ -20,6 +20,7 @@ import android.text.style.ClickableSpan
 import android.text.style.URLSpan
 import android.text.style.CharacterStyle
 import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.text.style.ReplacementSpan
 import android.text.style.StyleSpan
 import android.text.style.StrikethroughSpan
@@ -68,6 +69,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
 import com.github.andreyasadchy.xtra.ui.view.CenteredImageSpan
 import kotlin.math.min
 import kotlin.math.roundToInt
+
+private const val REPLY_TEXT_SCALE = 0.82f
 
 open class ChatMessageTextView private constructor(
     context: Context,
@@ -796,23 +799,85 @@ open class ChatMessageTextView private constructor(
     }
 
     private fun appendReply(output: SpannableStringBuilder, piece: ChatPiece.Reply, timestampText: String?) {
+        val replyPaint = TextPaint(paint).apply {
+            textSize *= REPLY_TEXT_SCALE
+        }
         val availableWidth = if (width > 0) {
             val lineStart = output.lastIndexOf('\n') + 1
             val prefix = output.substring(lineStart)
-            val iconCorrection = (18 * resources.displayMetrics.density).roundToInt() - paint.measureText(".")
-            val timestampWidth = timestampText?.let { paint.measureText("$it ") } ?: 0f
-            (width - totalPaddingLeft - totalPaddingRight - timestampWidth - paint.measureText(prefix) - iconCorrection)
-                .coerceAtLeast(paint.measureText("…"))
+            val iconCorrection = (18 * resources.displayMetrics.density).roundToInt() - replyPaint.measureText(".")
+            val timestampWidth = timestampText?.let { replyPaint.measureText("$it ") } ?: 0f
+            (width - totalPaddingLeft - totalPaddingRight - timestampWidth - replyPaint.measureText(prefix) - iconCorrection)
+                .coerceAtLeast(replyPaint.measureText("…"))
         } else {
             Float.POSITIVE_INFINITY
         }
-        val value = if (availableWidth.isFinite()) {
-            TextUtils.ellipsize(piece.value, paint, availableWidth, TextUtils.TruncateAt.END).toString()
+        val structured = piece.parentUser?.let { parentUser ->
+            val userStart = piece.value.indexOf(parentUser)
+            if (userStart < 0) {
+                null
+            } else {
+                val userEnd = userStart + parentUser.length
+                val body = piece.parentMessage.orEmpty()
+                val bodyStart = if (body.isNotEmpty()) {
+                    piece.value.lastIndexOf(body).takeIf { it >= userEnd } ?: piece.value.length
+                } else {
+                    piece.value.length
+                }
+                ReplyParts(
+                    prefix = piece.value.substring(0, userStart),
+                    user = parentUser,
+                    separator = piece.value.substring(userEnd, bodyStart),
+                    body = body.takeIf { bodyStart < piece.value.length }.orEmpty(),
+                )
+            }
+        }
+        val rendered = if (structured != null) {
+            val fixed = structured.prefix + structured.user + structured.separator
+            val bodyWidth = (availableWidth - replyPaint.measureText(fixed)).coerceAtLeast(
+                replyPaint.measureText("…"),
+            )
+            fixed + if (bodyWidth.isFinite()) {
+                TextUtils.ellipsize(
+                    structured.body,
+                    replyPaint,
+                    bodyWidth,
+                    TextUtils.TruncateAt.END,
+                ).toString()
+            } else {
+                structured.body
+            }
+        } else if (availableWidth.isFinite()) {
+            TextUtils.ellipsize(piece.value, replyPaint, availableWidth, TextUtils.TruncateAt.END).toString()
         } else {
             piece.value
         }
-        appendStyled(output, value, piece.color)
+
+        val start = output.length
+        appendStyled(output, rendered, piece.color)
+        output.setSpan(
+            RelativeSizeSpan(REPLY_TEXT_SCALE),
+            start,
+            output.length,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        structured?.let {
+            val userStart = start + it.prefix.length
+            output.setSpan(
+                StyleSpan(Typeface.BOLD),
+                userStart,
+                (userStart + it.user.length).coerceAtMost(output.length),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
     }
+
+    private data class ReplyParts(
+        val prefix: String,
+        val user: String,
+        val separator: String,
+        val body: String,
+    )
 
     private fun hasClickableSpanAt(event: MotionEvent): Boolean {
         val content = text as? Spanned ?: return false
