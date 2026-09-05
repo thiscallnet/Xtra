@@ -12,6 +12,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReply
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSubscription
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSubscriptionNoticeTypes
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser
@@ -46,6 +48,7 @@ object TwitchChatEventParser {
                 subscriptionTier = message.tags["msg-param-sub-plan"],
                 isPrimeSubscription = message.tags["msg-param-sub-plan"]
                     ?.equals("Prime", ignoreCase = true),
+                subscription = subscriptionFromIrc(message.tags),
             ),
         )
         "CLEARMSG" -> ChatEvent.Delete(
@@ -195,10 +198,12 @@ object TwitchChatEventParser {
         val rawType = event.optString("message_type").takeIf { it.isNotBlank() } ?: "text"
         val type = parseMessageType(rawType)
         val noticeType = event.optString("notice_type").takeIf { it.isNotBlank() }
-        val subscription = event.optJSONObject("sub")
+        val subscription = event.optJSONObject(noticeType.orEmpty())
+            ?: event.optJSONObject("sub")
             ?: event.optJSONObject("resub")
             ?: event.optJSONObject("shared_chat_sub")
             ?: event.optJSONObject("shared_chat_resub")
+        val subscriptionDetails = subscriptionFromEvent(noticeType, event, subscription)
         val subscriptionPlan = event.optString("sub_tier").takeIf { it.isNotBlank() }
             ?: subscription?.optString("sub_tier")?.takeIf { it.isNotBlank() }
         val isPrimeSubscription = event.optBooleanOrNull("is_prime")
@@ -230,7 +235,9 @@ object TwitchChatEventParser {
             segments = segments,
             rawText = messageObject?.optString("text")?.takeIf { it.isNotEmpty() },
             kind = when {
-                noticeType.equals("raid", ignoreCase = true) || noticeType.equals("unraid", ignoreCase = true) -> ChatMessageKind.RAID
+                noticeType.equals("raid", ignoreCase = true) ||
+                    noticeType.equals("unraid", ignoreCase = true) ||
+                    noticeType.equals("shared_chat_raid", ignoreCase = true) -> ChatMessageKind.RAID
                 noticeType.equals("announcement", ignoreCase = true) || noticeType.equals("shared_chat_announcement", ignoreCase = true) -> ChatMessageKind.ANNOUNCEMENT
                 notice -> ChatMessageKind.NOTICE
                 fullText.startsWith(ChatUtils.ACTION) -> ChatMessageKind.ACTION
@@ -252,6 +259,7 @@ object TwitchChatEventParser {
             subscriptionPlan = subscriptionPlan,
             subscriptionTier = subscriptionPlan,
             isPrimeSubscription = isPrimeSubscription,
+            subscription = subscriptionDetails,
         )
     }
 
@@ -358,6 +366,7 @@ object TwitchChatEventParser {
         subscriptionPlan: String? = null,
         subscriptionTier: String? = null,
         isPrimeSubscription: Boolean? = null,
+        subscription: ChatSubscription? = null,
     ): ChatMessage {
         val raw = message.message.orEmpty()
         val segments = ircSegments(raw, message.emotes.orEmpty(), gifTag)
@@ -378,7 +387,9 @@ object TwitchChatEventParser {
             },
             segments = segments,
             kind = when {
-                legacyNoticeType == "raid" || legacyNoticeType == "unraid" -> ChatMessageKind.RAID
+                legacyNoticeType == "raid" ||
+                    legacyNoticeType == "unraid" ||
+                    legacyNoticeType == "shared_chat_raid" -> ChatMessageKind.RAID
                 legacyNoticeType == "announcement" || legacyNoticeType == "shared_chat_announcement" -> ChatMessageKind.ANNOUNCEMENT
                 message.isAction -> ChatMessageKind.ACTION
                 forceNotice || message.type == LegacyChatMessage.NOTICE_MESSAGE -> ChatMessageKind.NOTICE
@@ -397,6 +408,59 @@ object TwitchChatEventParser {
             subscriptionPlan = subscriptionPlan,
             subscriptionTier = subscriptionTier,
             isPrimeSubscription = isPrimeSubscription,
+            subscription = subscription,
+        )
+    }
+
+    private fun subscriptionFromIrc(tags: Map<String, String>): ChatSubscription? {
+        val noticeType = (tags["source-msg-id"] ?: tags["msg-id"]).orEmpty().lowercase()
+        if (!ChatSubscriptionNoticeTypes.isSubscription(noticeType)) return null
+        return ChatSubscription(
+            tier = tags["msg-param-sub-plan"] ?: tags["msg-param-sub-plan-name"],
+            months = tags["msg-param-cumulative-months"]?.toIntOrNull(),
+            streakMonths = tags["msg-param-streak-months"]?.toIntOrNull(),
+            recipientName = tags["msg-param-recipient-display-name"]
+                ?: tags["msg-param-recipient-user-name"],
+            giftCount = tags["msg-param-mass-gift-count"]?.toIntOrNull()
+                ?: tags["msg-param-sender-count"]?.toIntOrNull(),
+            isCommunityGift = ChatSubscriptionNoticeTypes.isCommunityGift(noticeType),
+            isAnonymous = ChatSubscriptionNoticeTypes.isAnonymous(noticeType) ||
+                tags["msg-param-gifter-is-anonymous"] == "1" ||
+                tags["msg-param-prior-gifter-anonymous"] == "1",
+            isUpgrade = ChatSubscriptionNoticeTypes.isUpgrade(noticeType),
+        )
+    }
+
+    private fun subscriptionFromEvent(
+        noticeType: String?,
+        event: JSONObject,
+        subscription: JSONObject?,
+    ): ChatSubscription? {
+        val type = noticeType?.lowercase() ?: return null
+        if (!ChatSubscriptionNoticeTypes.isSubscription(type)) return null
+        fun stringValue(name: String): String? = event.optString(name).takeIf { it.isNotBlank() }
+            ?: subscription?.optString(name)?.takeIf { it.isNotBlank() }
+        fun intValue(vararg names: String): Int? = names.firstNotNullOfOrNull { name ->
+            event.optIntOrNull(name) ?: subscription?.optIntOrNull(name)
+        }
+        fun booleanValue(name: String): Boolean? = event.optBooleanOrNull(name)
+            ?: subscription?.optBooleanOrNull(name)
+
+        return ChatSubscription(
+            tier = stringValue("sub_tier") ?: stringValue("tier"),
+            months = intValue("cumulative_months", "months", "duration_months"),
+            streakMonths = intValue("streak_months"),
+            recipientName = stringValue("recipient_user_name")
+                ?: stringValue("recipient_user_login"),
+            giftCount = intValue("total", "mass_gift_count", "gift_count"),
+            isCommunityGift = ChatSubscriptionNoticeTypes.isCommunityGift(type) ||
+                booleanValue("community_gift") == true ||
+                intValue("total", "mass_gift_count") != null,
+            isAnonymous = ChatSubscriptionNoticeTypes.isAnonymous(type) ||
+                event.optBooleanOrNull("chatter_is_anonymous") == true ||
+                booleanValue("gifter_is_anonymous") == true ||
+                booleanValue("prior_gifter_is_anonymous") == true,
+            isUpgrade = ChatSubscriptionNoticeTypes.isUpgrade(type),
         )
     }
 

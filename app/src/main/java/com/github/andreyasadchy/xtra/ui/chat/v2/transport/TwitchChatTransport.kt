@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaintShadow
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.model.chat.Emote as LegacyEmote
+import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGiftParser
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -70,6 +71,7 @@ data class TwitchChatTransportConfig(
     val chatTimeoutMessage: ((String, Int) -> String)? = null,
     val chatBanMessage: ((String) -> String)? = null,
     val chatUserMessagesClearedMessage: ((String) -> String)? = null,
+    val onCommunityGift: suspend (String, Long, String, Int) -> Unit = { _, _, _, _ -> },
 )
 
 /**
@@ -105,6 +107,16 @@ class TwitchChatTransport(
                 }
 
                 override suspend fun onChatMessage(message: ChatUtils.IRCMessage, userNotice: Boolean) {
+                    if (userNotice) {
+                        HappeningNowGiftParser.fromIrc(message)?.let { gift ->
+                            config.onCommunityGift(
+                                gift.stableId,
+                                gift.occurredAt,
+                                gift.gifterDisplayName,
+                                gift.count,
+                            )
+                        }
+                    }
                     if (userNotice && !config.showUserNotices) return
                     TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event ->
                         send(event)
@@ -193,6 +205,14 @@ class TwitchChatTransport(
                 }
 
                 override suspend fun onUserNotice(event: org.json.JSONObject, timestamp: String?) {
+                    HappeningNowGiftParser.fromEventSub(event, timestamp)?.let { gift ->
+                        config.onCommunityGift(
+                            gift.stableId,
+                            gift.occurredAt,
+                            gift.gifterDisplayName,
+                            gift.count,
+                        )
+                    }
                     if (!config.showUserNotices) return
                     flowScope.send(TwitchChatEventParser.fromEventSub(event, timestamp, notice = true))
                 }

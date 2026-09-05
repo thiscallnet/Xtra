@@ -121,6 +121,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -506,6 +507,8 @@ class ChatViewModel(
     private var predictionSnapshotJob: Job? = null
     private var predictionTimeoutJob: Job? = null
     private var predictionTimeoutPredictionId: String? = null
+    private var happeningNowGiftExpiryJob: Job? = null
+    private var happeningNowPredictionResultExpiryJob: Job? = null
     private var predictionPreferenceListenerRegistered = false
     private val predictionPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == C.CHAT_PREDICTIONS_RESULT_DURATION) {
@@ -578,6 +581,16 @@ class ChatViewModel(
     /** The ongoing prediction only while its betting window is open. */
     val bettablePrediction = MutableStateFlow<Prediction?>(null)
     val predictionSecondsLeft = MutableStateFlow<Int?>(null)
+    private val _happeningNowGift = MutableStateFlow<HappeningNowGift?>(null)
+    internal val happeningNowGift: StateFlow<HappeningNowGift?> = _happeningNowGift.asStateFlow()
+    private val _happeningNowPredictionResult = MutableStateFlow<Prediction?>(null)
+    internal val happeningNowPredictionResult: StateFlow<Prediction?> =
+        _happeningNowPredictionResult.asStateFlow()
+    private val _happeningNowNewIds = MutableStateFlow<Set<String>>(emptySet())
+    internal val happeningNowNewIds: StateFlow<Set<String>> = _happeningNowNewIds.asStateFlow()
+    private val _dismissedHappeningNowIds = MutableStateFlow<Set<String>>(emptySet())
+    internal val dismissedHappeningNowIds: StateFlow<Set<String>> =
+        _dismissedHappeningNowIds.asStateFlow()
     private var predictionCountdownJob: Job? = null
     private var predictionDeadlineToken: Any? = null
     private val predictionStateStore = PredictionStateStore()
@@ -3436,6 +3449,7 @@ class ChatViewModel(
         pollVoteJob = null
         _pollVoteState.value = PollVoteState()
         predictionStateStore.reset(::clearPredictionState)
+        clearHappeningNowState()
         predictionBetJob?.cancel()
         predictionBetJob = null
         _predictionBetState.value = PredictionBetState()
@@ -3533,6 +3547,9 @@ class ChatViewModel(
         }
 
         override suspend fun onChatMessage(message: ChatUtils.IRCMessage, userNotice: Boolean) {
+            if (userNotice) {
+                HappeningNowGiftParser.fromIrc(message)?.let(::recordHappeningNowGift)
+            }
             val effectiveNoticeId = message.tags["source-msg-id"] ?: message.tags["msg-id"]
             if (userNotice && effectiveNoticeId.equals("viewermilestone", true) &&
                 message.tags["msg-param-category"] == "watch-streak" &&
@@ -3666,10 +3683,117 @@ class ChatViewModel(
         }
     }
 
+    fun dismissHappeningNowCard(stableKey: String) {
+        _dismissedHappeningNowIds.update { it + stableKey }
+    }
+
+    private fun markHappeningNowNew(stableKey: String) {
+        _dismissedHappeningNowIds.update { it - stableKey }
+        _happeningNowNewIds.update { it + stableKey }
+
+        viewModelScope.launch {
+            delay(HAPPENING_NOW_NEW_MARKER_MILLIS)
+            _happeningNowNewIds.update { it - stableKey }
+        }
+    }
+
+    internal fun recordHappeningNowGift(gift: HappeningNowGift) {
+        viewModelScope.launch(Dispatchers.Main.immediate) {
+            val previous = _happeningNowGift.value
+
+            if (previous?.stableId == gift.stableId) {
+                return@launch
+            }
+
+            if (previous != null &&
+                previous.count == gift.count &&
+                previous.gifterDisplayName.equals(gift.gifterDisplayName, ignoreCase = true) &&
+                kotlin.math.abs(previous.occurredAt - gift.occurredAt) <=
+                    HAPPENING_NOW_CROSS_TRANSPORT_DEDUPE_MILLIS
+            ) {
+                return@launch
+            }
+
+            _happeningNowGift.value = gift
+
+            val key = HappeningNowKeys.gift(gift.stableId)
+            markHappeningNowNew(key)
+
+            happeningNowGiftExpiryJob?.cancel()
+            happeningNowGiftExpiryJob = viewModelScope.launch {
+                delay(HAPPENING_NOW_GIFT_VISIBLE_MILLIS)
+
+                if (_happeningNowGift.value?.stableId == gift.stableId) {
+                    _happeningNowGift.value = null
+                    _happeningNowNewIds.update { it - key }
+                    _dismissedHappeningNowIds.update { it - key }
+                }
+            }
+        }
+    }
+
+    private fun recordHappeningNowPredictionResult(value: Prediction) {
+        val predictionId = value.id?.takeIf { it.isNotBlank() } ?: return
+
+        viewModelScope.launch(Dispatchers.Main.immediate) {
+            val previousId = _happeningNowPredictionResult.value?.id
+            _happeningNowPredictionResult.value = value
+
+            val key = HappeningNowKeys.predictionResult(predictionId)
+            if (previousId != predictionId) {
+                markHappeningNowNew(key)
+            }
+
+            scheduleHappeningNowPredictionResultExpiry(value)
+        }
+    }
+
+    private fun scheduleHappeningNowPredictionResultExpiry(value: Prediction) {
+        val predictionId = value.id?.takeIf { it.isNotBlank() } ?: return
+
+        happeningNowPredictionResultExpiryJob?.cancel()
+        happeningNowPredictionResultExpiryJob = null
+
+        val remaining = PredictionDismissalPolicy.dismissalDelayMillis(
+            value.endedAt,
+            graceMillis = predictionResultDurationMillis(),
+        ) ?: return
+
+        val key = HappeningNowKeys.predictionResult(predictionId)
+        happeningNowPredictionResultExpiryJob = viewModelScope.launch {
+            delay(remaining)
+
+            if (_happeningNowPredictionResult.value?.id == predictionId) {
+                _happeningNowPredictionResult.value = null
+                _happeningNowNewIds.update { it - key }
+                _dismissedHappeningNowIds.update { it - key }
+            }
+        }
+    }
+
+    private fun clearHappeningNowState() {
+        happeningNowGiftExpiryJob?.cancel()
+        happeningNowGiftExpiryJob = null
+
+        happeningNowPredictionResultExpiryJob?.cancel()
+        happeningNowPredictionResultExpiryJob = null
+
+        _happeningNowGift.value = null
+        _happeningNowPredictionResult.value = null
+        _happeningNowNewIds.value = emptySet()
+        _dismissedHappeningNowIds.value = emptySet()
+    }
+
     private fun updatePoll(value: Poll) {
         val previousId = latestPoll?.id
         val merged = PollState.merge(latestPoll, value) ?: return
         latestPoll = merged
+        if (PollState.isActive(merged) &&
+            !merged.id.isNullOrBlank() &&
+            merged.id != previousId
+        ) {
+            markHappeningNowNew(HappeningNowKeys.poll(merged.id!!))
+        }
         if (merged.id != previousId) {
             restorePollVoteState(merged, restoreConfirmed = PollState.isActive(merged))
             pollTimeoutJob?.cancel()
@@ -3803,10 +3927,19 @@ class ChatViewModel(
     }
 
     private fun publishPrediction(value: Prediction) {
+        val previousOngoingId = ongoingPrediction.value?.id
+
         restorePredictionBetState(value)
         prediction.value = value
-        ongoingPrediction.value = value.takeIf { PredictionState.isOngoing(it) }
+        val ongoing = value.takeIf { PredictionState.isOngoing(it) }
+        ongoingPrediction.value = ongoing
         bettablePrediction.value = value.takeIf { PredictionState.isBettingOpen(it) }
+
+        val newOngoingId = ongoing?.id?.takeIf { it.isNotBlank() }
+        if (newOngoingId != null && newOngoingId != previousOngoingId) {
+            markHappeningNowNew(HappeningNowKeys.prediction(newOngoingId))
+        }
+
         updatePredictionTimer(value)
         activeChannelId?.let { channelId ->
             PredictionCache.save(
@@ -3817,6 +3950,7 @@ class ChatViewModel(
             )
         }
         if (PredictionState.isFinal(value)) {
+            recordHappeningNowPredictionResult(value)
             schedulePredictionDismissal(value)
         } else {
             predictionTimeoutJob?.cancel()
@@ -3856,6 +3990,7 @@ class ChatViewModel(
             },
             schedule = ::schedulePredictionDismissal,
         )
+        _happeningNowPredictionResult.value?.let(::scheduleHappeningNowPredictionResultExpiry)
     }
 
     private fun schedulePredictionDismissal(value: Prediction) {
@@ -4096,6 +4231,8 @@ class ChatViewModel(
         }
 
         override suspend fun onUserNotice(event: JSONObject, timestamp: String?) {
+            HappeningNowGiftParser.fromEventSub(event, timestamp)
+                ?.let(::recordHappeningNowGift)
             if (event.optString("notice_type") == "watch_streak" && event.optString("chatter_user_id") == accountId) {
                 val streak = event.optJSONObject("watch_streak")
                 val countBeforeEvent = watchStreak.value?.streakCount
@@ -6764,6 +6901,9 @@ class ChatViewModel(
         private const val DEFAULT_REWARD_COLOR = "#9146FF"
         private const val MIN_PREDICTION_POINTS = 10
         private const val MAX_PREDICTION_POINTS = 250_000
+        private const val HAPPENING_NOW_NEW_MARKER_MILLIS = 8_000L
+        private const val HAPPENING_NOW_GIFT_VISIBLE_MILLIS = 15_000L
+        private const val HAPPENING_NOW_CROSS_TRANSPORT_DEDUPE_MILLIS = 2_500L
         private var savedEmoteSets: List<String>? = null
         private val savedUserEmotes = mutableMapOf<String, List<TwitchEmote>>()
         private var savedGlobalBadges: List<TwitchBadge>? = null

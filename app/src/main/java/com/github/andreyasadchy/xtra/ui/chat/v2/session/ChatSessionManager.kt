@@ -30,6 +30,7 @@ data class LiveChatSessionSpec(
     val recentMessagesUrl: String? = null,
     /** The legacy player owns these supplemental sockets and bridges their events into v2. */
     val legacySupplementalSockets: Boolean = false,
+    val onCommunityGift: suspend (String, Long, String, Int) -> Unit = { _, _, _, _ -> },
 )
 
 data class ActiveChatSession(

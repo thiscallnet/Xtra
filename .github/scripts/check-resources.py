@@ -173,6 +173,22 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "chat_moderation_preview_username",
     "chat_moderation_preview_message",
     "chat_moderation_preview_new_message",
+    # Chat event rows ship with the default English wording until their
+    # translations are reviewed by native speakers. Android intentionally
+    # falls back to values/ for these presentation labels.
+    "chat_event_raid",
+    "chat_event_notice",
+    "chat_event_anonymous",
+    "chat_event_viewer",
+    "chat_event_channel_points_reward",
+    "chat_subscription_prime",
+    "chat_subscription_paid",
+    "chat_subscription_upgrade",
+    "chat_subscription_gift",
+    "chat_subscription_community_gift",
+    "chat_subscription_months",
+    "chat_subscription_streak",
+    "chat_subscription_accessibility_months",
     # Prediction result display settings ship with the default English resources
     # until their translations are reviewed by native speakers.
     "prediction_result_duration",

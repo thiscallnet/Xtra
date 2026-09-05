@@ -10,6 +10,7 @@
         <item name="chatMessageNoticeColor">@color/chatMessageNoticeDark</item>
         <item name="chatMessageHighlightColor">@color/chatMessageHighlightDark</item>
         <item name="chatMessageSpecialAccentColor">@color/chatMessageSpecialAccent</item>
+        <item name="chatEventStreakAccentColor">@color/watchStreakOrange</item>
         <item name="chatMessageMentionColor">@color/chatMessageMentionDark</item>
         <item name="chatMessageSelectedColor">@color/chatMessageSelectedDark</item>
         <item name="sortBarTextColor">?android:textColorSecondary</item>
@@ -42,6 +43,7 @@
         <item name="chatMessageNoticeColor">@color/chatMessageNotice</item>
         <item name="chatMessageHighlightColor">@color/chatMessageHighlight</item>
         <item name="chatMessageSpecialAccentColor">@color/chatMessageSpecialAccent</item>
+        <item name="chatEventStreakAccentColor">@color/watchStreakOrange</item>
         <item name="chatMessageMentionColor">@color/chatMessageMention</item>
         <item name="chatMessageSelectedColor">@color/chatMessageSelected</item>
         <item name="sortBarTextColor">?android:textColorSecondary</item>
@@ -80,6 +82,7 @@
         <item name="chatMessageNoticeColor">@color/chatMessageNoticeDark</item>
         <item name="chatMessageHighlightColor">@color/chatMessageHighlightDark</item>
         <item name="chatMessageSpecialAccentColor">@color/chatMessageSpecialAccent</item>
+        <item name="chatEventStreakAccentColor">@color/watchStreakOrange</item>
         <item name="chatMessageMentionColor">@color/chatMessageMentionDark</item>
         <item name="chatMessageSelectedColor">@color/chatMessageSelectedDark</item>
         <item name="sortBarTextColor">?android:textColorSecondary</item>
@@ -122,6 +125,7 @@
         <item name="chatMessageNoticeColor">@color/chatMessageNoticeDark</item>
         <item name="chatMessageHighlightColor">@color/chatMessageHighlightDark</item>
         <item name="chatMessageSpecialAccentColor">@color/chatMessageSpecialAccent</item>
+        <item name="chatEventStreakAccentColor">@color/watchStreakOrange</item>
         <item name="chatMessageMentionColor">@color/chatMessageMentionDark</item>
         <item name="chatMessageSelectedColor">@color/chatMessageSelectedDark</item>
         <item name="sortBarTextColor">?android:textColorSecondary</item>
@@ -1369,6 +1373,7 @@
         <item name="chatMessageNoticeColor">@color/chatMessageNoticeDark</item>
         <item name="chatMessageHighlightColor">@color/chatMessageHighlightDark</item>
         <item name="chatMessageSpecialAccentColor">@color/chatMessageSpecialAccent</item>
+        <item name="chatEventStreakAccentColor">@color/watchStreakOrange</item>
         <item name="chatMessageMentionColor">@color/chatMessageMentionDark</item>
         <item name="chatMessageSelectedColor">@color/chatMessageSelectedDark</item>
         <item name="sortBarTextColor">?attr/colorControlNormal</item>
@@ -1438,6 +1443,7 @@
         <item name="chatMessageNoticeColor">@color/chatMessageNotice</item>
         <item name="chatMessageHighlightColor">@color/chatMessageHighlight</item>
         <item name="chatMessageSpecialAccentColor">@color/chatMessageSpecialAccent</item>
+        <item name="chatEventStreakAccentColor">@color/watchStreakOrange</item>
         <item name="chatMessageMentionColor">@color/chatMessageMention</item>
         <item name="chatMessageSelectedColor">@color/chatMessageSelected</item>
         <item name="sortBarTextColor">?attr/colorControlNormal</item>
@@ -1509,6 +1515,7 @@
         <item name="chatMessageNoticeColor">@color/chatMessageNoticeDark</item>
         <item name="chatMessageHighlightColor">@color/chatMessageHighlightDark</item>
         <item name="chatMessageSpecialAccentColor">@color/chatMessageSpecialAccent</item>
+        <item name="chatEventStreakAccentColor">@color/watchStreakOrange</item>
         <item name="chatMessageMentionColor">@color/chatMessageMentionDark</item>
         <item name="chatMessageSelectedColor">@color/chatMessageSelectedDark</item>
         <item name="sortBarTextColor">?attr/colorControlNormal</item>
@@ -1578,6 +1585,7 @@
         <item name="chatMessageNoticeColor">@color/chatMessageNoticeDark</item>
         <item name="chatMessageHighlightColor">@color/chatMessageHighlightDark</item>
         <item name="chatMessageSpecialAccentColor">@color/chatMessageSpecialAccent</item>
+        <item name="chatEventStreakAccentColor">@color/watchStreakOrange</item>
         <item name="chatMessageMentionColor">@color/chatMessageMentionDark</item>
         <item name="chatMessageSelectedColor">@color/chatMessageSelectedDark</item>
         <item name="sortBarTextColor">?attr/colorControlNormal</item>
