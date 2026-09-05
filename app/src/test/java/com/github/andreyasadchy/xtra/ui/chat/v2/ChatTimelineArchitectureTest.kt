@@ -4,6 +4,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModerationDisplayMode
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatEventProcessor
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineStore
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
@@ -234,6 +236,66 @@ class ChatTimelineArchitectureTest {
 
         processor.reconcile(key, oldMessages)
         assertEquals(listOf("1", "2"), store.snapshot().map { it.id.value })
+        scope.cancel()
+    }
+
+    @Test
+    fun strikeThroughModerationAnnotatesOnlyMessagesBeforeTheEvent() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 600)
+        val processor = ChatEventProcessor(scope, store)
+        val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", 1)
+        processor.activate(key)
+        processor.submit(key, ChatEvent.Message(message(1, "u1"), receivedAtMs = 1))
+        processor.submit(key, ChatEvent.Message(message(2, "u2"), receivedAtMs = 2))
+        awaitSnapshot(store) { it.size == 2 }
+
+        processor.submit(
+            key,
+            ChatEvent.ClearUser(
+                userId = "u1",
+                eventId = "clear-1",
+                receivedAtMs = 3,
+                reason = ChatUserClearReason.TIMEOUT,
+                timeoutSeconds = 10,
+                displayMode = ChatModerationDisplayMode.STRIKETHROUGH,
+            ),
+        )
+        val moderated = awaitSnapshot(store) { it.firstOrNull()?.moderation != null }
+        assertEquals(ChatUserClearReason.TIMEOUT, moderated.first().moderation?.reason)
+        assertEquals(10, moderated.first().moderation?.timeoutSeconds)
+
+        processor.submit(key, ChatEvent.Message(message(4, "u1"), receivedAtMs = 4))
+        val withFutureMessage = awaitSnapshot(store) { it.size == 3 }
+        assertEquals(null, withFutureMessage.last().moderation)
+        scope.cancel()
+    }
+
+    @Test
+    fun hideModerationRemovesOldMessagesButKeepsFutureMessages() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 600)
+        val processor = ChatEventProcessor(scope, store)
+        val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", 1)
+        processor.activate(key)
+        processor.submit(key, ChatEvent.Message(message(1, "u1"), receivedAtMs = 1))
+        processor.submit(key, ChatEvent.Message(message(2, "u2"), receivedAtMs = 2))
+        awaitSnapshot(store) { it.size == 2 }
+
+        processor.submit(
+            key,
+            ChatEvent.ClearUser(
+                userId = "u1",
+                eventId = "clear-1",
+                receivedAtMs = 3,
+                displayMode = ChatModerationDisplayMode.HIDE,
+            ),
+        )
+        assertEquals(listOf("2"), awaitSnapshot(store) { it.size == 1 }.map { it.id.value })
+        processor.submit(key, ChatEvent.Message(message(4, "u1"), receivedAtMs = 4))
+        assertEquals(listOf("2", "4"), awaitSnapshot(store) { it.size == 2 }.map { it.id.value })
+        processor.reconcile(key, listOf(message(1, "u1"), message(4, "u1")))
+        assertEquals(listOf("2", "4"), store.snapshot().map { it.id.value })
         scope.cancel()
     }
 

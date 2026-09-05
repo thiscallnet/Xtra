@@ -7,6 +7,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatBadgeRef
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModeration
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReply
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
@@ -211,6 +213,36 @@ class ChatDomainPresentationTest {
         ).compile(message(ChatSegment.Text("hello")))
 
         assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value == "\nTranslated: hello" })
+    }
+
+    @Test
+    fun moderationRangeStopsBeforeSuffixAndLeavesReplyMetadataOutside() {
+        val row = ChatRowCompiler(
+            timestampText = { _ -> "12:00" },
+            translation = { "Translated" },
+        ).compile(
+            message(ChatSegment.Text("hello")).copy(
+                user = ChatUser("user", "viewer", "Viewer", null),
+                reply = ChatReply(
+                    parentMessageId = ChatMessageId("parent"),
+                    parentMessageBody = "parent",
+                    parentUserId = "parent-user",
+                    parentUserName = "Parent",
+                    parentUserLogin = "parent",
+                    threadMessageId = null,
+                    threadUserId = null,
+                    threadUserName = null,
+                    threadUserLogin = null,
+                ),
+                moderation = ChatModeration(ChatUserClearReason.TIMEOUT, 10),
+            ),
+        )
+
+        val range = row.moderationPieceRange ?: error("Moderated rows must expose their message piece range")
+        val suffixIndex = row.pieces.indexOfLast { it is ChatPiece.Text && it.value.contains("Timeout") }
+        assertTrue(range.first > row.pieces.indexOfFirst { it is ChatPiece.Reply })
+        assertTrue(range.last < suffixIndex)
+        assertTrue(row.pieces.drop(range.first).take(range.last - range.first + 1).any { it is ChatPiece.Text && it.value.contains("hello") })
     }
 
     @Test

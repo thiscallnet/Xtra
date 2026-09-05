@@ -159,6 +159,20 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # User-targeted moderation notices use the default English wording until
     # translations are reviewed by native speakers.
     "chat_clear_user",
+    # Moderation display options and their preview ship with the default
+    # English resources until translations are reviewed by native speakers.
+    "chat_moderation_display",
+    "chat_moderation_display_notice",
+    "chat_moderation_display_strikethrough",
+    "chat_moderation_display_hide",
+    "chat_moderation_display_preview_title",
+    "chat_moderation_preview_summary",
+    "chat_moderation_timeout",
+    "chat_moderation_ban",
+    "chat_moderation_messages_cleared",
+    "chat_moderation_preview_username",
+    "chat_moderation_preview_message",
+    "chat_moderation_preview_new_message",
     # Prediction result display settings ship with the default English resources
     # until their translations are reviewed by native speakers.
     "prediction_result_duration",

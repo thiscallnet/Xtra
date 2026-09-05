@@ -21,6 +21,7 @@ import android.text.style.CharacterStyle
 import android.text.style.ForegroundColorSpan
 import android.text.style.ReplacementSpan
 import android.text.style.StyleSpan
+import android.text.style.StrikethroughSpan
 import android.text.util.Linkify
 import android.content.Intent
 import android.net.Uri
@@ -247,7 +248,10 @@ open class ChatMessageTextView private constructor(
         linksClickable = true
         highlightColor = Color.TRANSPARENT
         val output = SpannableStringBuilder()
-        row.pieces.forEach { piece ->
+        var moderationStart: Int? = null
+        var moderationEnd: Int? = null
+        row.pieces.forEachIndexed { index, piece ->
+            val pieceStart = output.length
             when (piece) {
                 is ChatPiece.Text -> appendStyled(output, piece.value, piece.color, piece.bold)
                 is ChatPiece.Reply -> appendReply(output, piece, row.timestampText)
@@ -264,6 +268,10 @@ open class ChatMessageTextView private constructor(
                     appendStyled(output, " ${piece.bits}", piece.color)
                 }
             }
+            if (row.moderationPieceRange?.contains(index) == true) {
+                moderationStart = moderationStart ?: pieceStart
+                moderationEnd = output.length
+            }
         }
         row.timestampText?.let { timestamp ->
             output.insert(0, "$timestamp ")
@@ -278,6 +286,17 @@ open class ChatMessageTextView private constructor(
         // around badges, emotes, GIFs, and timestamp text.
         Linkify.addLinks(output, Linkify.WEB_URLS)
         redirectClipUrlSpans(output)
+        row.moderation?.let {
+            val timestampOffset = row.timestampText?.let { it.length + 1 } ?: 0
+            val start = moderationStart?.plus(timestampOffset)
+            val end = moderationEnd?.plus(timestampOffset)
+            if (start != null && end != null && end > start) {
+                output.setSpan(StrikethroughSpan(), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                row.moderationColor?.let { color ->
+                    output.setSpan(ForegroundColorSpan(color), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+            }
+        }
         if (row.isAction) output.setSpan(StyleSpan(android.graphics.Typeface.ITALIC), 0, output.length, 0)
         contentDescription = row.accessibilityText
         text = output

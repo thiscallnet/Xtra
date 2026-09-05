@@ -485,6 +485,12 @@
     <string name="settings_chat_history_page">History</string>
     <string name="settings_chat_translation_page">Translation</string>
     <string name="settings_chat_visibility">Message visibility</string>
+    <string name="chat_moderation_display">Moderated message display</string>
+    <string name="chat_moderation_display_notice">Notice only</string>
+    <string name="chat_moderation_display_strikethrough">Strike-through message</string>
+    <string name="chat_moderation_display_hide">Hide message</string>
+    <string name="chat_moderation_display_preview_title">Preview</string>
+    <string name="chat_moderation_preview_summary">Preview after moderation clears a user\'s messages. IRC may include timeout or ban details.</string>
     <string name="settings_username_appearance">Username appearance</string>
     <string name="settings_7tv_appearance">7TV appearance</string>
     <string name="settings_chat_size">Chat size</string>
@@ -778,6 +784,12 @@
     <string name="show_usernotice">Show user notices (subs, raids)</string>
     <string name="show_clearmsg">Show deletions of single messages</string>
     <string name="show_clearchat">Show timeouts and bans</string>
+    <string name="chat_moderation_timeout">(%1$s Timeout)</string>
+    <string name="chat_moderation_ban">(Permanent ban)</string>
+    <string name="chat_moderation_messages_cleared">(Messages cleared)</string>
+    <string name="chat_moderation_preview_username">viewer</string>
+    <string name="chat_moderation_preview_message">cannot handle the truth xD</string>
+    <string name="chat_moderation_preview_new_message">new message</string>
     <string name="copy_fullmsg">Copy full message</string>
     <string name="show_copy_fullmsg">Copy full IRC messages</string>
     <string name="chat_disconnect">Disconnecting from %1$s - %2$s</string>

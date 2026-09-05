@@ -56,6 +56,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.TwitchChatCatalogCache
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.TwitchChatCatalogSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModerationDisplayMode
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
@@ -755,6 +756,11 @@ class XtraModule(application: Application) {
                         showUserNotices = appContext.prefs().getBoolean(C.CHAT_SHOW_USER_NOTICE, true),
                         showClearMessages = appContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_MSG, true),
                         showClearChat = appContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_CHAT, true),
+                        moderationDisplayMode = {
+                            ChatModerationDisplayMode.fromPreference(
+                                appContext.prefs().getString(C.CHAT_MODERATION_DISPLAY, "notice"),
+                            )
+                        },
                         joinedMessage = appContext.getString(R.string.chat_join).format(spec.channelLogin),
                         messageDeletedMessage = appContext.getString(R.string.chat_message_deleted),
                         chatClearedMessage = appContext.getString(R.string.chat_clear),

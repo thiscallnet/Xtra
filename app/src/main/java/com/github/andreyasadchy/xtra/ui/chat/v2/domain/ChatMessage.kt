@@ -140,6 +140,7 @@ data class ChatMessage(
     val watchStreakPoints: Int? = null,
     val twitchType: TwitchChatMessageType = TwitchChatMessageType.Text,
     val systemText: String? = null,
+    val moderation: ChatModeration? = null,
     val noticeType: String? = null,
     /** Twitch reports Prime and paid subscription notices differently. */
     val subscriptionPlan: String? = null,

@@ -1383,7 +1383,17 @@ class SettingsActivity : AppCompatActivity() {
             if (settingsScreen == SCREEN_PLAYER_SEEK) configureSeekPreferences()
             if (settingsScreen == SCREEN_CHAT_APPEARANCE) configureChatSizePreferences()
             if (settingsScreen == SCREEN_CHAT_FEATURES) configureChatHighlightPreferences()
+            if (settingsScreen == SCREEN_CHAT_VISIBILITY) configureChatVisibilityPreferences()
             if (settingsScreen == SCREEN_DOWNLOAD_LIVE) configureLiveDownloadPreferences()
+        }
+
+        private fun configureChatVisibilityPreferences() {
+            val preview = findPreference<ChatModerationDisplayPreviewPreference>("chat_moderation_display_preview")
+            findPreference<ListPreference>(C.CHAT_MODERATION_DISPLAY)?.setOnPreferenceChangeListener { _, _ ->
+                Handler(Looper.getMainLooper()).post { preview?.refreshPreview() }
+                (requireActivity() as? SettingsActivity)?.setResult()
+                true
+            }
         }
 
         private fun configureChatHighlightPreferences() {
