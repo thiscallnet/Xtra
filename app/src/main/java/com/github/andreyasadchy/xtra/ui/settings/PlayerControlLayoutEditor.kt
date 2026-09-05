@@ -117,6 +117,7 @@ class PlayerControlLayoutEditor(
                 "aspect" -> R.string.aspect_ratio
                 "reload_emotes" -> R.string.reload_emotes
                 "disconnect_chat" -> R.string.disconnect_chat
+                "video_info" -> R.string.video_info
                 else -> return action
             },
         )

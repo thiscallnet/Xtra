@@ -22,13 +22,17 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Format
+import androidx.media3.common.C as Media3C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.LoadEventInfo
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MediaLoadData
@@ -73,6 +77,7 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var playbackPlayer: ExoPlayer? = null
+    private val diagnostics = PlaybackVideoDiagnosticsStore()
     private var dynamicsProcessing: DynamicsProcessing? = null
     private var backgroundPlayback = false
     private var backgroundRecoveryTimer: Timer? = null
@@ -155,6 +160,22 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    diagnostics.resetForNewMedia()
+                    if (mediaItem != null) {
+                        diagnostics.update {
+                            it.copy(
+                                contentProtocol = when (viewingContentType) {
+                                    ViewingPlaybackMetadata.CONTENT_TYPE_LIVE,
+                                    ViewingPlaybackMetadata.CONTENT_TYPE_VOD -> "HLS"
+                                    ViewingPlaybackMetadata.CONTENT_TYPE_CLIP -> "Progressive"
+                                    else -> null
+                                },
+                                isLiveContent = viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE,
+                                lowLatencyRequested = viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
+                                    prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+                            )
+                        }
+                    }
                     xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(mediaItem)
                 }
 
@@ -174,31 +195,69 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         )
-        if (BuildConfig.PERF_DIAGNOSTICS) {
-            player.addAnalyticsListener(object : AnalyticsListener {
-                override fun onVideoDecoderInitialized(
-                    eventTime: AnalyticsListener.EventTime,
-                    decoderName: String,
-                    initializedTimestampMs: Long,
-                    initializationDurationMs: Long,
-                ) {
-                    Log.i(PERF_TAG, "primary videoDecoder=$decoderName initMs=$initializationDurationMs")
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onVideoDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                val classification = classifyVideoDecoder(decoderName)
+                diagnostics.update {
+                    it.copy(
+                        videoDecoderName = decoderName,
+                        videoDecoderHardwareAccelerated = classification.hardwareAccelerated,
+                    )
                 }
+                if (BuildConfig.PERF_DIAGNOSTICS) {
+                    Log.i(
+                        PERF_TAG,
+                        "primary videoDecoder=$decoderName " +
+                            "hardware=${classification.hardwareAccelerated} " +
+                            "initMs=$initializationDurationMs",
+                    )
+                }
+            }
 
-                override fun onDroppedVideoFrames(
-                    eventTime: AnalyticsListener.EventTime,
-                    droppedFrames: Int,
-                    elapsedMs: Long,
-                ) {
+            override fun onDroppedVideoFrames(
+                eventTime: AnalyticsListener.EventTime,
+                droppedFrames: Int,
+                elapsedMs: Long,
+            ) {
+                diagnostics.recordDroppedVideoFrames(droppedFrames)
+                if (BuildConfig.PERF_DIAGNOSTICS) {
                     Log.i(PERF_TAG, "primary droppedFrames=$droppedFrames elapsedMs=$elapsedMs")
                 }
+            }
 
-                override fun onDownstreamFormatChanged(
-                    eventTime: AnalyticsListener.EventTime,
-                    mediaLoadData: MediaLoadData,
-                ) {
-                    if (mediaLoadData.trackType != androidx.media3.common.C.TRACK_TYPE_VIDEO) return
-                    val format = mediaLoadData.trackFormat ?: return
+            override fun onDownstreamFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                mediaLoadData: MediaLoadData,
+            ) {
+                val format = mediaLoadData.trackFormat ?: return
+                when (mediaLoadData.trackType) {
+                    Media3C.TRACK_TYPE_VIDEO -> diagnostics.update {
+                        it.copy(
+                            selectedVideoWidth = format.width.takeIf { value -> value > 0 },
+                            selectedVideoHeight = format.height.takeIf { value -> value > 0 },
+                            videoFrameRate = format.frameRate.takeIf { value -> value > 0f },
+                            videoBitrate = firstPositiveBitrate(
+                                format.averageBitrate,
+                                format.peakBitrate,
+                                format.bitrate,
+                            ),
+                            videoCodec = format.codecs,
+                            videoMimeType = format.sampleMimeType,
+                        )
+                    }
+                    Media3C.TRACK_TYPE_AUDIO -> diagnostics.update {
+                        it.copy(
+                            audioCodec = format.codecs,
+                            audioMimeType = format.sampleMimeType,
+                        )
+                    }
+                }
+                if (BuildConfig.PERF_DIAGNOSTICS && mediaLoadData.trackType == Media3C.TRACK_TYPE_VIDEO) {
                     Log.i(
                         PERF_TAG,
                         "primary videoFormat=${format.width}x${format.height} " +
@@ -206,8 +265,42 @@ class PlaybackService : MediaSessionService() {
                             "mime=${format.sampleMimeType} codecs=${format.codecs}",
                     )
                 }
-            })
-        }
+            }
+
+            override fun onBandwidthEstimate(
+                eventTime: AnalyticsListener.EventTime,
+                totalLoadTimeMs: Int,
+                totalBytesLoaded: Long,
+                bitrateEstimate: Long,
+            ) {
+                diagnostics.update {
+                    it.copy(
+                        bandwidthEstimateBitsPerSecond = bitrateEstimate.takeIf { value -> value > 0L },
+                    )
+                }
+            }
+
+            override fun onLoadCompleted(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData,
+            ) {
+                diagnostics.recordLoad(mediaLoadData.dataType, loadEventInfo.bytesLoaded)
+            }
+
+            override fun onAudioInputFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                format: Format,
+                decoderReuseEvaluation: DecoderReuseEvaluation?,
+            ) {
+                diagnostics.update {
+                    it.copy(
+                        audioCodec = format.codecs,
+                        audioMimeType = format.sampleMimeType,
+                    )
+                }
+            }
+        })
         mediaSession = MediaSession.Builder(
             this,
             object : ForwardingSimpleBasePlayer(player) {
@@ -274,6 +367,7 @@ class PlaybackService : MediaSessionService() {
                             add(SessionCommand(GET_ERROR_CODE, Bundle.EMPTY))
                             add(SessionCommand(GET_MEDIA_PLAYLIST, Bundle.EMPTY))
                             add(SessionCommand(GET_MULTIVARIANT_PLAYLIST, Bundle.EMPTY))
+                            add(SessionCommand(GET_VIDEO_INFO, Bundle.EMPTY))
                         }.build()
                         val playerCommands = connectionResult.availablePlayerCommands.buildUpon()
                             .apply {
@@ -633,6 +727,14 @@ class PlaybackService : MediaSessionService() {
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
                                     putStringArray(RESULT, (session.player.currentManifest as? HlsManifest)?.multivariantPlaylist?.tags?.toTypedArray())
                                 }))
+                            }
+                            GET_VIDEO_INFO -> {
+                                Futures.immediateFuture(
+                                    SessionResult(
+                                        SessionResult.RESULT_SUCCESS,
+                                        diagnostics.snapshot(session.player).toBundle(),
+                                    )
+                                )
                             }
                             else -> super.onCustomCommand(session, controller, customCommand, args)
                         }
@@ -1196,6 +1298,7 @@ class PlaybackService : MediaSessionService() {
         const val GET_ERROR_CODE = "getErrorCode"
         const val GET_MEDIA_PLAYLIST = "getMediaPlaylist"
         const val GET_MULTIVARIANT_PLAYLIST = "getMultivariantPlaylist"
+        const val GET_VIDEO_INFO = "getVideoInfo"
 
         const val RESULT = "result"
         const val URI = "uri"

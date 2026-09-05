@@ -84,6 +84,7 @@ object PlayerControlLayout {
         ControlDefinition("aspect", C.PLAYER_ASPECT, true, C.PLAYER_MENU_ASPECT, false, canQuick = true, canMenu = true),
         ControlDefinition("reload_emotes", null, false, C.PLAYER_MENU_RELOAD_EMOTES, true, canQuick = false, canMenu = true),
         ControlDefinition("disconnect_chat", null, false, C.PLAYER_MENU_CHAT_DISCONNECT, true, canQuick = false, canMenu = true),
+        ControlDefinition("video_info", null, false, C.PLAYER_MENU_VIDEO_INFO, false, canQuick = false, canMenu = true),
     )
 
     fun applyToPlayer(context: Context, binding: FragmentPlayerBinding) {
