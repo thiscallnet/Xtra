@@ -133,6 +133,17 @@ object LiveNotificationScheduler {
 
     fun canPostNotifications(context: Context): Boolean = LiveNotificationNotifier(context).canPostNotifications()
 
+    internal fun hasHealthyRealtimeOwner(context: Context): Boolean = synchronized(transitionLock) {
+        if (!context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) ||
+            mode(context) == C.LIVE_NOTIFICATIONS_MODE_BATTERY
+        ) {
+            false
+        } else {
+            LiveNotificationRealtimeEngine.hasHealthyOwner() ||
+                LiveNotificationService.hasHealthyRunner()
+        }
+    }
+
     fun migrateMode(context: Context): String {
         val preferences = context.prefs()
         val stored = preferences.getString(C.LIVE_NOTIFICATIONS_MODE, null)

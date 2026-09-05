@@ -20,6 +20,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 /** Thin Android lifetime owner for the opt-in Persistent real-time mode. */
 class LiveNotificationService : Service() {
 
+    @Volatile
     private var runner: LiveNotificationRunner? = null
 
     override fun onCreate() {
@@ -63,6 +64,7 @@ class LiveNotificationService : Service() {
                 shouldContinue = ::shouldRunPersistentMode,
                 onMonitoringStopped = { stopSelf() },
             ).also { it.start() }
+            activeRunner = runner
         }
         return START_STICKY
     }
@@ -71,6 +73,7 @@ class LiveNotificationService : Service() {
         running = false
         runner?.stop()
         runner = null
+        activeRunner = null
         LiveNotificationScheduler.onPersistentServiceStopped(applicationContext)
         super.onDestroy()
     }
@@ -138,9 +141,14 @@ class LiveNotificationService : Service() {
         private var running = false
 
         @Volatile
+        private var activeRunner: LiveNotificationRunner? = null
+
+        @Volatile
         private var stopRequested = false
 
         fun isRunning(): Boolean = running
+
+        internal fun hasHealthyRunner(): Boolean = running && activeRunner?.isRunning() == true
 
         fun ensureNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
