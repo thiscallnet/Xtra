@@ -5,6 +5,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
@@ -18,21 +19,25 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
+import com.github.andreyasadchy.xtra.databinding.SortBarBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.PagerScrollStateAware
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
+import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
+import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.ui.following.streams.FollowedStreamsViewModel.Companion.FollowedStreamsViewModelFactory
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStateAware {
+class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStateAware, Sortable, StreamsSortDialog.OnFilter {
 
     override val initializeWithoutNetwork = true
 
@@ -86,6 +91,10 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
 
     override fun initialize() {
         viewModel.syncCurrentAccount()
+        viewModel.sortText.value = getString(
+            R.string.sort_by,
+            getString(StreamsSortDialog.labelRes(viewModel.sort)),
+        )
         streamFeedScreenController.onSpecChanged(force = false, reason = RefreshReason.SCREEN_VISIBLE)
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -118,6 +127,49 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
             }
         })
     }
+
+    override fun setupSortBar(sortBar: SortBarBinding) {
+        sortBar.root.visibility = View.VISIBLE
+        sortBar.filtersText.visibility = View.GONE
+        sortBar.root.setOnClickListener {
+            StreamsSortDialog.newInstance(
+                sort = viewModel.sort,
+                tags = emptyArray(),
+                languages = emptyArray(),
+                showFilters = false,
+            ).show(childFragmentManager, null)
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.sortText.collectLatest {
+                    sortBar.sortText.text = it
+                }
+            }
+        }
+    }
+
+    override fun onChange(
+        sort: String,
+        sortText: CharSequence,
+        tags: Array<String>,
+        languages: Array<String>,
+        changed: Boolean,
+        saveFilters: Boolean,
+        saveSort: Boolean,
+        saveDefault: Boolean,
+    ) {
+        if (!isAdded) return
+        if (changed) {
+            viewModel.setSort(sort)
+            streamFeedScreenController.onSpecChanged(force = true)
+            viewModel.sortText.value = getString(R.string.sort_by, sortText)
+        }
+        if (saveDefault) {
+            requireContext().prefs().edit { putString(C.UI_STREAM_SORT, sort) }
+        }
+    }
+
+    override fun deleteSavedSort() = Unit
 
     override fun scrollToTop() {
         binding.recyclerView.scrollToPosition(0)

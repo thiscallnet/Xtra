@@ -35,14 +35,22 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
         private const val TAGS = "tags"
         private const val LANGUAGES = "languages"
         private const val SAVED = "saved"
+        private const val SHOW_FILTERS = "showFilters"
 
-        fun newInstance(sort: String?, tags: Array<String>?, languages: Array<String>?, saved: Boolean = false): StreamsSortDialog {
+        fun newInstance(
+            sort: String?,
+            tags: Array<String>?,
+            languages: Array<String>?,
+            saved: Boolean = false,
+            showFilters: Boolean = true,
+        ): StreamsSortDialog {
             return StreamsSortDialog().apply {
                 arguments = Bundle().apply {
                     putString(SORT, sort)
                     putStringArray(TAGS, tags)
                     putStringArray(LANGUAGES, languages)
                     putBoolean(SAVED, saved)
+                    putBoolean(SHOW_FILTERS, showFilters)
                 }
             }
         }
@@ -83,6 +91,13 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
         with(binding) {
             val args = requireArguments()
+            val showFilters = args.getBoolean(SHOW_FILTERS, true)
+            filtersTitle.isVisible = showFilters
+            tagScroll.isVisible = showFilters
+            selectTags.isVisible = showFilters
+            selectLanguages.isVisible = showFilters
+            saveFilters.isVisible = showFilters
+            saveSortLayout.visibility = View.GONE
             when (parentFragment) {
                 is GameStreamsFragment -> {
                     saveSortLayout.isVisible = parentFragment?.arguments?.getString(C.GAME_ID).isNullOrBlank() == false

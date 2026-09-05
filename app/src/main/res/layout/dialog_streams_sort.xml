@@ -50,6 +50,7 @@
         </RadioGroup>
 
         <TextView
+            android:id="@+id/filtersTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="5dp"
@@ -59,6 +60,7 @@
             android:textStyle="bold" />
 
         <HorizontalScrollView
+            android:id="@+id/tagScroll"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
