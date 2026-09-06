@@ -33,6 +33,8 @@ import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.model.ui.DownloadProgress
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
+import com.github.andreyasadchy.xtra.model.gql.video.lastNode
+import com.github.andreyasadchy.xtra.model.gql.video.nextCursor
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.DownloadStorageException
@@ -1258,17 +1260,20 @@ class VideoDownloadService : LifecycleService() {
                     } else {
                         xtraModule.graphQLRepository.loadQueryVideoCommentsDownload(networkLibrary, CRONET_TIMEOUT, okHttpClient, gqlHeaders, videoId, cursor = cursor)
                     }
-                    val comments = response.data!!.video.comments
+                    val comments = response.data?.video?.comments
+                        ?: throw IllegalStateException("Video comments were unavailable")
+                    val edges = comments.edges.orEmpty()
                     val messages = if (cursor == null && resumed) {
-                        comments.edges.filter { item ->
-                            val id = item.node.id
-                            val offset = item.node.contentOffsetSeconds
-                            id != null && offset != null && ((offset == startOffset && !latestSavedMessageIds.contains(id)) || offset > startOffset)
+                        edges.mapNotNull { item ->
+                            val node = item?.node ?: return@mapNotNull null
+                            val id = node.id
+                            val offset = node.contentOffsetSeconds
+                            node.takeIf { id != null && offset != null && ((offset == startOffset && !latestSavedMessageIds.contains(id)) || offset > startOffset) }
                         }
                     } else {
-                        comments.edges
+                        edges.mapNotNull { it?.node }
                     }
-                    cursor = if (comments.pageInfo?.hasNextPage != false) comments.edges.lastOrNull()?.cursor else null
+                    cursor = if (comments.pageInfo?.hasNextPage != false) comments.nextCursor else null
                     if (messages.isNotEmpty()) {
                         if (isShared) {
                             openOutputStream(fileUri.toUri(), "wa").bufferedWriter()
@@ -1278,11 +1283,11 @@ class VideoDownloadService : LifecycleService() {
                             writer.write(",".also { position += 1 })
                             writer.write("\"comments\":".also { position += it.length })
                             writer.write("[".also { position += 1 })
-                            messages.forEachIndexed { index, message ->
+                            messages.forEachIndexed { index, node ->
                                 if (index > 0) {
                                     writer.write(",".also { position += 1 })
                                 }
-                                writer.write(xtraModule.json.encodeToString(message.node).also { position += it.toByteArray().size })
+                                writer.write(xtraModule.json.encodeToString(node).also { position += it.toByteArray().size })
                             }
                             writer.write("]".also { position += 1 })
                         }
@@ -1292,54 +1297,52 @@ class VideoDownloadService : LifecycleService() {
                             val cheerEmotes = mutableListOf<CheerEmote>()
                             val emotes = mutableListOf<Emote>()
                             val words = mutableListOf<String>()
-                            messages.forEach { comment ->
-                                comment.node.let { item ->
-                                    item.message?.let { message ->
-                                        val chatMessage = StringBuilder()
-                                        message.fragments?.forEach { fragment ->
-                                            fragment.text?.let { text ->
-                                                fragment.emote?.emoteID?.let { id ->
-                                                    if (!savedTwitchEmotes.contains(id)) {
-                                                        savedTwitchEmotes.add(id)
-                                                        twitchEmotes.add(TwitchEmote(id = id))
-                                                    }
-                                                }
-                                                chatMessage.append(text)
-                                            }
-                                        }
-                                        message.userBadges?.forEach { badge ->
-                                            badge.setID?.let { setId ->
-                                                badge.version?.let { version ->
-                                                    val pair = Pair(setId, version)
-                                                    if (!savedBadges.contains(pair)) {
-                                                        savedBadges.add(pair)
-                                                        val badge = channelBadgeList.find { badge -> badge.setId == setId && badge.version == version }
-                                                            ?: globalBadgeList.find { badge -> badge.setId == setId && badge.version == version }
-                                                        if (badge != null) {
-                                                            twitchBadges.add(badge)
-                                                        }
-                                                    }
+                            messages.forEach { item ->
+                                item.message?.let { message ->
+                                    val chatMessage = StringBuilder()
+                                    message.fragments?.forEach { fragment ->
+                                        fragment.text?.let { text ->
+                                            fragment.emote?.emoteID?.let { id ->
+                                                if (!savedTwitchEmotes.contains(id)) {
+                                                    savedTwitchEmotes.add(id)
+                                                    twitchEmotes.add(TwitchEmote(id = id))
                                                 }
                                             }
+                                            chatMessage.append(text)
                                         }
-                                        chatMessage.toString().split(" ").forEach { string ->
-                                            if (!words.contains(string)) {
-                                                words.add(string)
-                                                if (!savedEmotes.contains(string)) {
-                                                    val bitsCount = string.takeLastWhile { it.isDigit() }
-                                                    val cheerEmote = if (bitsCount.isNotEmpty()) {
-                                                        val bitsName = string.substringBeforeLast(bitsCount)
-                                                        cheerEmoteList.findLast { it.name.equals(bitsName, true) && it.minBits <= bitsCount.toInt() }
-                                                    } else null
-                                                    if (cheerEmote != null) {
+                                    }
+                                    message.userBadges?.forEach { badge ->
+                                        badge.setID?.let { setId ->
+                                            badge.version?.let { version ->
+                                                val pair = Pair(setId, version)
+                                                if (!savedBadges.contains(pair)) {
+                                                    savedBadges.add(pair)
+                                                    val badge = channelBadgeList.find { badge -> badge.setId == setId && badge.version == version }
+                                                        ?: globalBadgeList.find { badge -> badge.setId == setId && badge.version == version }
+                                                    if (badge != null) {
+                                                        twitchBadges.add(badge)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    chatMessage.toString().split(" ").forEach { string ->
+                                        if (!words.contains(string)) {
+                                            words.add(string)
+                                            if (!savedEmotes.contains(string)) {
+                                                val bitsCount = string.takeLastWhile { it.isDigit() }
+                                                val cheerEmote = if (bitsCount.isNotEmpty()) {
+                                                    val bitsName = string.substringBeforeLast(bitsCount)
+                                                    cheerEmoteList.findLast { it.name.equals(bitsName, true) && it.minBits <= bitsCount.toInt() }
+                                                } else null
+                                                if (cheerEmote != null) {
+                                                    savedEmotes.add(string)
+                                                    cheerEmotes.add(cheerEmote)
+                                                } else {
+                                                    val emote = emoteList.find { it.name == string }
+                                                    if (emote != null) {
                                                         savedEmotes.add(string)
-                                                        cheerEmotes.add(cheerEmote)
-                                                    } else {
-                                                        val emote = emoteList.find { it.name == string }
-                                                        if (emote != null) {
-                                                            savedEmotes.add(string)
-                                                            emotes.add(emote)
-                                                        }
+                                                        emotes.add(emote)
                                                     }
                                                 }
                                             }
@@ -1718,7 +1721,7 @@ class VideoDownloadService : LifecycleService() {
                             emoteJobs?.joinAll()
                         }
                     }
-                    val lastOffsetSeconds = comments.edges.lastOrNull()?.node?.contentOffsetSeconds
+                    val lastOffsetSeconds = comments.lastNode?.contentOffsetSeconds
                     if (lastOffsetSeconds != null && lastOffsetSeconds < endTimeSeconds && !cursor.isNullOrBlank()) {
                         downloadProgress.chatProgress = lastOffsetSeconds - startTimeSeconds
                         downloadProgress.chatBytes = position

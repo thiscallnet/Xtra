@@ -4,6 +4,7 @@ import com.github.andreyasadchy.xtra.model.chat.Badge
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.model.chat.VideoChatMessage
+import com.github.andreyasadchy.xtra.model.gql.video.nextCursor
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.util.C
 import kotlinx.coroutines.CoroutineScope
@@ -113,7 +114,10 @@ class ChatReplayManager(
                 }
                 messageJob?.cancel()
                 list.addAll(messages)
-                cursor = if (comments.pageInfo?.hasNextPage != false) comments.edges.lastOrNull()?.cursor else null
+                val edges = comments.edges.orEmpty()
+                cursor = if (comments.pageInfo?.hasNextPage != false) {
+                    edges.asReversed().firstNotNullOfOrNull { edge -> edge?.cursor?.takeIf(String::isNotBlank) }
+                } else null
                 isLoading = false
                 startJob()
             } catch (e: Exception) {
@@ -123,9 +127,12 @@ class ChatReplayManager(
                     } else {
                         graphQLRepository.loadVideoMessages(networkLibrary, gqlHeaders, videoId, cursor = cursor)
                     }
-                    val comments = response.data!!.video.comments
-                    val messages = comments.edges.mapNotNull { comment ->
-                        comment.node.let { item ->
+                    val comments = response.data?.video?.comments ?: run {
+                        isLoading = false
+                        return@launch
+                    }
+                    val messages = comments.edges.orEmpty().mapNotNull { comment ->
+                        comment?.node?.let { item ->
                             item.message?.let { message ->
                                 val chatMessage = StringBuilder()
                                 val emotes = message.fragments?.mapNotNull { fragment ->
@@ -167,7 +174,7 @@ class ChatReplayManager(
                     }
                     messageJob?.cancel()
                     list.addAll(messages)
-                    cursor = if (comments.pageInfo?.hasNextPage != false) comments.edges.lastOrNull()?.cursor else null
+                    cursor = if (comments.pageInfo?.hasNextPage != false) comments.nextCursor else null
                     isLoading = false
                     startJob()
                 } catch (e: Exception) {

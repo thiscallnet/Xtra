@@ -11,23 +11,23 @@ class VideoMessagesResponse(
 ) {
     @Serializable
     class Data(
-        val video: Video,
+        val video: Video? = null,
     )
 
     @Serializable
     class Video(
-        val comments: Comments,
+        val comments: Comments? = null,
     )
 
     @Serializable
     class Comments(
-        val edges: List<Item>,
+        val edges: List<Item?>? = null,
         val pageInfo: PageInfo? = null,
     )
 
     @Serializable
     class Item(
-        val node: Comment,
+        val node: Comment? = null,
         val cursor: String? = null,
     )
 
@@ -71,3 +71,13 @@ class VideoMessagesResponse(
         val displayName: String? = null,
     )
 }
+
+val VideoMessagesResponse.Comments.nextCursor: String?
+    get() = edges.orEmpty()
+        .asReversed()
+        .firstNotNullOfOrNull { edge -> edge?.cursor?.takeIf(String::isNotBlank) }
+
+val VideoMessagesResponse.Comments.lastNode: VideoMessagesResponse.Comment?
+    get() = edges.orEmpty()
+        .asReversed()
+        .firstNotNullOfOrNull { edge -> edge?.node }

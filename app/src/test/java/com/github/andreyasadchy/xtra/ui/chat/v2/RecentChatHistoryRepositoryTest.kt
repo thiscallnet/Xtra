@@ -1,6 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2
 
 import com.github.andreyasadchy.xtra.model.gql.video.VideoMessagesResponse
+import com.github.andreyasadchy.xtra.model.gql.video.lastNode
+import com.github.andreyasadchy.xtra.model.gql.video.nextCursor
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
@@ -13,7 +15,9 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.session.paginateRecentChatPages
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.toV2
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -66,6 +70,47 @@ class RecentChatHistoryRepositoryTest {
             robottyTimeoutMs = 100,
         ).load(spec)
         assertEquals(listOf(message), result)
+    }
+
+    @Test fun twitchSerializationFailureFallsBackToRobotty() = runBlocking {
+        val json = Json { ignoreUnknownKeys = true }
+        var robottyCalls = 0
+        val logs = mutableListOf<String>()
+        val result = RecentChatHistoryRepository(
+            twitch = RecentChatHistorySource {
+                json.decodeFromString<VideoMessagesResponse>(
+                    """{"data":{"video":{"comments":{"edges":{"invalid":true}}}}}""",
+                )
+                error("unreachable")
+            },
+            robotty = RecentChatHistorySource {
+                robottyCalls += 1
+                listOf(message)
+            },
+            log = logs::add,
+        ).load(spec)
+
+        assertEquals(listOf(message), result)
+        assertEquals(1, robottyCalls)
+        assertTrue(logs.contains("history fallback=twitch-failed reason=JsonDecodingException"))
+    }
+
+    @Test fun twitchResponseAcceptsNullableHistoryContainersAndEntries() {
+        val json = Json { ignoreUnknownKeys = true }
+        fun decode(payload: String) = json.decodeFromString<VideoMessagesResponse>(payload)
+
+        assertNull(decode("""{"data":null}""").data)
+        assertNull(decode("""{"data":{"video":null}}""").data?.video)
+        assertNull(decode("""{"data":{"video":{"comments":null}}}""").data?.video?.comments)
+        assertNull(decode("""{"data":{"video":{"comments":{"edges":null}}}}""").data?.video?.comments?.edges)
+        assertNull(decode("""{"data":{"video":{"comments":{"edges":[null]}}}}""").data?.video?.comments?.edges?.single())
+        assertNull(decode("""{"data":{"video":{"comments":{"edges":[{"cursor":"cursor-node-null","node":null}]}}}}""").data?.video?.comments?.edges?.single()?.node)
+
+        val comments = decode(
+            """{"data":{"video":{"comments":{"edges":[{"cursor":"cursor-valid","node":{"id":"valid"}},null],"pageInfo":{"hasNextPage":true}}}}}""",
+        ).data!!.video!!.comments!!
+        assertEquals("cursor-valid", comments.nextCursor)
+        assertEquals("valid", comments.lastNode?.id)
     }
 
     @Test fun gqlFragmentsKeepTheirEmotePositions() {
