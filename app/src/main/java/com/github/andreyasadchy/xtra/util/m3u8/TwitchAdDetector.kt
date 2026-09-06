@@ -18,7 +18,7 @@ object TwitchAdDetector {
     fun isAd(playlist: HlsMediaPlaylist): Boolean {
         val segment = playlist.segments.lastOrNull() ?: return false
         val segmentStartTime = playlist.startTimeUs + segment.relativeStartTimeUs
-        return adTitleMarkers.any { segment.title.contains(it, ignoreCase = true) }
+        return isAdTitle(segment.title)
                 || playlist.interstitials.any { interstitial ->
             val startTime = interstitial.startDateUnixUs
             val endTime = interstitial.endDateUnixUs.takeIf { it != C.TIME_UNSET }
@@ -36,7 +36,7 @@ object TwitchAdDetector {
 
     fun isAd(playlist: MediaPlaylist): Boolean {
         val segment = playlist.segments.lastOrNull() ?: return false
-        if (adTitleMarkers.any { segment.title?.contains(it, ignoreCase = true) == true }) {
+        if (segment.title?.let(::isAdTitle) == true) {
             return true
         }
         val segmentStartTime = segment.programDateTime
@@ -55,6 +55,9 @@ object TwitchAdDetector {
             segmentStartTime >= startTime && (endTime == null || segmentStartTime < endTime)
         }
     }
+
+    internal fun isAdTitle(title: String): Boolean =
+        adTitleMarkers.any { title.contains(it, ignoreCase = true) }
 
     private fun isTwitchAd(id: String, rangeClass: String?, ad: Boolean = false): Boolean {
         return ad || id.startsWith("stitched-ad-") || rangeClass == "twitch-stitched-ad"

@@ -18,6 +18,7 @@ import androidx.media3.exoplayer.source.preload.PreloadManagerListener
 import androidx.media3.exoplayer.source.preload.TargetPreloadStatusControl
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraModule
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import com.github.andreyasadchy.xtra.ui.player.StreamHlsMediaSourceFactory
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
@@ -364,6 +365,13 @@ class StreamMedia3Runtime(
             .firstOrNull()
             ?.proxyMediaPlaylist = enabled
     }
+
+    @Synchronized
+    fun hlsDiagnosticsFor(mediaId: String): TwitchHlsPlaylistDiagnostics? =
+        states.asReversed()
+            .asSequence()
+            .mapNotNull { it.hlsFactory.hlsDiagnosticsFor(mediaId) }
+            .firstOrNull()
 
     @Synchronized
     fun releasePlaybackPlayer(player: ExoPlayer?) {

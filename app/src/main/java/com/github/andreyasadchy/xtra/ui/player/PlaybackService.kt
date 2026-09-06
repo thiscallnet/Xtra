@@ -49,6 +49,8 @@ import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.model.stats.mergeViewingCategoryPatch
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsDiagnosticsSink
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
@@ -177,6 +179,7 @@ class PlaybackService : MediaSessionService() {
                         }
                     }
                     xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(mediaItem)
+                    syncTwitchHlsDiagnostics(player)
                 }
 
                 override fun onRenderedFirstFrame() {
@@ -480,7 +483,7 @@ class PlaybackService : MediaSessionService() {
                                             }
                                         )
                                     ).apply {
-                                        setPlaylistParserFactory(ExoPlayerService.CustomHlsPlaylistParserFactory())
+                                        setPlaylistParserFactory(twitchHlsPlaylistParserFactory())
                                     }.createMediaSource(
                                         MediaItem.Builder().apply {
                                             setUri(uri?.toUri())
@@ -732,7 +735,7 @@ class PlaybackService : MediaSessionService() {
                                 Futures.immediateFuture(
                                     SessionResult(
                                         SessionResult.RESULT_SUCCESS,
-                                        diagnostics.snapshot(session.player).toBundle(),
+                                        videoDiagnosticsSnapshot(session.player).toBundle(),
                                     )
                                 )
                             }
@@ -1079,8 +1082,30 @@ class PlaybackService : MediaSessionService() {
                 },
             ),
         ).apply {
-            setPlaylistParserFactory(ExoPlayerService.CustomHlsPlaylistParserFactory())
+            setPlaylistParserFactory(twitchHlsPlaylistParserFactory())
         }.createMediaSource(MediaItem.Builder().setUri(uri).build())
+
+    private fun twitchHlsPlaylistParserFactory(): TwitchHlsPlaylistParserFactory =
+        TwitchHlsPlaylistParserFactory(
+            lowLatencyEnabled = false,
+            diagnostics = TwitchHlsDiagnosticsSink { hlsDiagnostics, parsed ->
+                if (parsed is androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist) {
+                    diagnostics.recordTwitchHlsPlaylist(hlsDiagnostics, parsed)
+                }
+            },
+        )
+
+    private fun syncTwitchHlsDiagnostics(player: Player) {
+        val mediaId = player.currentMediaItem?.mediaId ?: return
+        xtraModule.streamMedia3Runtime.hlsDiagnosticsFor(mediaId)?.let {
+            diagnostics.recordTwitchHlsDiagnostics(it)
+        }
+    }
+
+    private fun videoDiagnosticsSnapshot(player: Player): PlaybackVideoInfo {
+        syncTwitchHlsDiagnostics(player)
+        return diagnostics.snapshot(player)
+    }
 
     private fun savePosition() {
         mediaSession?.player?.let { player ->

@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.player
 
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -91,4 +92,36 @@ class PlaybackVideoDiagnosticsTest {
         assertFalse(copyText.contains("private"))
         assertTrue(copyText.contains("<redacted>"))
     }
+
+    @Test
+    fun `twitch playlist diagnostics update and reset with the media session`() {
+        val store = PlaybackVideoDiagnosticsStore()
+
+        store.recordTwitchHlsDiagnostics(
+            TwitchHlsPlaylistDiagnostics(
+                declaredTargetDurationMs = 6_000L,
+                averageSegmentDurationMs = 2_001L,
+                twitchPrefetchDetected = true,
+                twitchPrefetchActive = true,
+                partTargetDurationMs = 2_001L,
+                effectiveReloadTargetDurationMs = 2_000L,
+                container = "MPEG-TS",
+            ),
+        )
+
+        assertEquals(6_000L, store.snapshot().declaredTargetDurationMs)
+        assertEquals(2_000L, store.snapshot().effectiveReloadTargetDurationMs)
+        assertEquals(2_001L, store.snapshot().averageSegmentDurationMs)
+        assertEquals(2_001L, store.snapshot().partTargetDurationMs)
+        assertEquals("MPEG-TS", store.snapshot().hlsContainer)
+        assertTrue(store.snapshot().twitchPrefetchActive == true)
+
+        store.resetForNewMedia()
+
+        assertEquals(null, store.snapshot().declaredTargetDurationMs)
+        assertEquals(null, store.snapshot().effectiveReloadTargetDurationMs)
+        assertEquals(null, store.snapshot().partTargetDurationMs)
+        assertEquals(null, store.snapshot().twitchPrefetchActive)
+    }
+
 }

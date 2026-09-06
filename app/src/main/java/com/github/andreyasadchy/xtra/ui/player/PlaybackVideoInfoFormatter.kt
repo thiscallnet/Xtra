@@ -89,6 +89,7 @@ internal fun videoInfoRows(
     add("Container" to info.hlsContainer.orUnknown())
     add("Media3 version" to info.media3Version.orUnknown())
     add("HLS target duration" to formatDurationMs(info.declaredTargetDurationMs))
+    add("Effective reload target" to formatDurationMs(info.effectiveReloadTargetDurationMs))
     add("Average segment duration" to formatDurationMs(info.averageSegmentDurationMs))
     add("Part target duration" to formatDurationMs(info.partTargetDurationMs))
     add("Twitch prefetch" to twitchPrefetchState(info))
@@ -107,6 +108,7 @@ internal fun latencyMode(info: PlaybackVideoInfo): String {
 }
 
 internal fun twitchPrefetchState(info: PlaybackVideoInfo): String = when {
+    info.twitchPrefetchSuppressed == true -> "Suppressed at discontinuity/ad boundary"
     info.twitchPrefetchActive == true -> "Active"
     info.twitchPrefetchPresent == true -> "Present"
     info.twitchPrefetchPresent == false -> "Not present"
