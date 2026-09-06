@@ -93,6 +93,95 @@ class ViewingStatsAggregationTest {
     }
 
     @Test
+    fun overlapBoundariesRemainHalfOpenAndUnfilteredFastPathMatches() = runBlocking {
+        suspend fun insertBoundaryInterval(startAt: Long, endAt: Long, watchedMs: Long) {
+            val sessionId = insertSession(
+                channelId = "boundary-$startAt",
+                startedAt = startAt,
+                endedAt = endAt,
+                watchedMs = watchedMs,
+            )
+            database.viewingStats().insertInterval(
+                ViewingInterval(
+                    sessionId = sessionId,
+                    channelId = "boundary-$startAt",
+                    channelLogin = null,
+                    channelName = null,
+                    channelImage = null,
+                    contentType = "live",
+                    startAt = startAt,
+                    endAt = endAt,
+                    watchedMs = watchedMs,
+                    lastCheckpointAt = endAt,
+                ),
+            )
+        }
+
+        insertBoundaryInterval(0L, 100L, 100L)
+        insertBoundaryInterval(100L, 200L, 100L)
+        insertBoundaryInterval(200L, 300L, 100L)
+        insertBoundaryInterval(50L, 250L, 200L)
+        insertBoundaryInterval(199L, 201L, 2L)
+
+        val dao = database.viewingStats()
+        val overview = dao.getOverview(100L, 200L)
+
+        assertEquals(201L, overview.totalWatchMs)
+        assertEquals(overview, dao.getUnfilteredOverview(100L, 200L))
+        assertEquals(201L, dao.getUnfilteredTotalWatchMs(100L, 200L))
+    }
+
+    @Test
+    fun channelCategoryAndContentFiltersKeepTheirExistingResults() = runBlocking {
+        val firstSession = insertSession("channel-a", 0L, 100L, 100L)
+        val secondSession = insertSession("channel-b", 0L, 100L, 100L)
+        database.viewingStats().insertInterval(
+            interval(
+                sessionId = firstSession,
+                startAt = 0L,
+                endAt = 100L,
+                channelName = "Channel A",
+                watchedMs = 100L,
+            ).copy(categoryId = null, categoryName = "Game A", contentType = "live"),
+        )
+        database.viewingStats().insertInterval(
+            interval(
+                sessionId = secondSession,
+                startAt = 0L,
+                endAt = 100L,
+                channelName = "Channel B",
+                watchedMs = 100L,
+            ).copy(
+                channelId = "channel-b",
+                channelLogin = "channel-b",
+                categoryId = "game-b",
+                categoryName = "Game B",
+                contentType = "vod",
+            ),
+        )
+
+        val dao = database.viewingStats()
+        assertEquals(200L, dao.getOverview(0L, 100L).totalWatchMs)
+        assertEquals(100L, dao.getOverview(0L, 100L, channelId = "channel-a").totalWatchMs)
+        assertEquals(100L, dao.getOverview(0L, 100L, categoryKey = "name:game a").totalWatchMs)
+        assertEquals(100L, dao.getOverview(0L, 100L, contentType = "vod").totalWatchMs)
+    }
+
+    @Test
+    fun emptyHistoryRetainsTheEmptySnapshot() = runBlocking {
+        val snapshot = repository.loadStatistics(
+            range = ViewingStatsRange.LAST_7_DAYS,
+            now = 1_720_000_000_000L,
+            timeZone = TimeZone.getTimeZone("UTC"),
+        )
+
+        assertEquals(0L, snapshot.totalWatchMs)
+        assertEquals(0, snapshot.sessionCount)
+        assertTrue(snapshot.timeline.isEmpty())
+        assertTrue(snapshot.topChannels.isEmpty())
+    }
+
+    @Test
     fun selectedRangeClipsAnIntervalWithoutLoadingRawHistoryIntoRepository() = runBlocking {
         val now = 1_720_000_000_000L
         val sessionId = database.viewingStats().insertSession(

@@ -5,15 +5,20 @@ import com.github.andreyasadchy.xtra.model.stats.ViewingSession
 import com.github.andreyasadchy.xtra.model.stats.ViewingInterval
 import com.github.andreyasadchy.xtra.repository.ViewingStatsStore
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.locks.ReentrantLock
 import kotlin.math.max
 
 /**
@@ -32,27 +37,70 @@ class ViewingStatsRecorder(
 
     private val ownedScope = scope == null
     private val scope = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val commands = Channel<Command>(Channel.UNLIMITED)
+    /**
+     * Only ordered transitions are sent here. Producer callbacks are
+     * non-suspending, so a pathological full-channel stall applies
+     * synchronous backpressure to the caller until a slot is available. This
+     * is intentional: preserving every semantic transition is more important
+     * than returning immediately after the bounded queue is saturated.
+     */
+    private val commands = Channel<Command>(SEMANTIC_COMMAND_CAPACITY)
+    /** Repeated metadata refreshes share one coalesced wake-up. */
+    private val refreshWork = Channel<Unit>(Channel.CONFLATED)
+    /** Timer wakes are separate so a refresh cannot hide a forced checkpoint. */
+    private val timerWork = Channel<Unit>(Channel.CONFLATED)
+    private val schedulerWake = Channel<Unit>(Channel.CONFLATED)
+    /**
+     * There is one synchronous backpressure boundary for semantic commands.
+     * Keeping the sender serialized is important: a bounded channel alone is
+     * not enough if every full-channel send creates another suspended job.
+     */
+    private val orderedIngressLock = ReentrantLock()
+    private val commandDepth = AtomicInteger(0)
+    private val maxCommandDepth = AtomicInteger(0)
+    private val activeSourceCount = AtomicInteger(0)
+    private val closed = AtomicBoolean(false)
+    private val ingressLock = Any()
+    private val latestInputs = mutableMapOf<String, IngressState>()
+    private val pendingRefreshes = mutableMapOf<String, Command.StateChanged>()
     private val states = linkedMapOf<String, SourceState>()
     private val worker = this.scope.launch {
-        for (command in commands) {
-            when (command) {
-                is Command.StateChanged -> handleStateChanged(command)
-                is Command.SourceReleased -> handleSourceReleased(command)
-                is Command.Checkpoint -> {
-                    handleCheckpoint(command.reading)
-                    command.completed?.complete(Unit)
+        while (isActive) {
+            val work = nextWork() ?: break
+            when (work) {
+                is Work.Semantic -> if (processSemanticCommand(work.command)) break
+                Work.Timer -> {
+                    drainPendingRefreshes()
+                    runCheckpoint(reading(), force = true)
                 }
-                is Command.Reset -> handleReset(command)
-                is Command.Barrier -> command.completed.complete(Unit)
-                Command.Close -> break
+                Work.Refresh -> {
+                    drainPendingRefreshes()
+                    runCheckpoint(reading())
+                }
             }
         }
     }
     private val ticker = this.scope.launch {
+        var nextCheckpointAt = NO_DEADLINE
         while (isActive) {
-            delay(checkpointIntervalMs)
-            commands.send(Command.Checkpoint(reading()))
+            if (activeSourceCount.get() == 0) {
+                nextCheckpointAt = NO_DEADLINE
+                schedulerWake.receive()
+            } else {
+                val now = clock.elapsedRealtime()
+                if (nextCheckpointAt == NO_DEADLINE || nextCheckpointAt <= now) {
+                    nextCheckpointAt = safeAdd(now, checkpointIntervalMs)
+                }
+                val waitMs = (nextCheckpointAt - now).coerceAtLeast(1L)
+                val schedulerWoke = withTimeoutOrNull(waitMs) {
+                    schedulerWake.receive()
+                }
+                val wakeTime = clock.elapsedRealtime()
+                if (schedulerWoke == null || wakeTime >= nextCheckpointAt) {
+                    timerWork.trySend(Unit)
+                    nextCheckpointAt = safeAdd(wakeTime, checkpointIntervalMs)
+                }
+            }
         }
     }
 
@@ -62,45 +110,188 @@ class ViewingStatsRecorder(
         isPlaying: Boolean,
         isBuffering: Boolean,
     ) {
-        commands.trySend(
-            Command.StateChanged(
-                sourceId = sourceId,
-                metadata = metadata,
-                shouldPlay = isPlaying && !isBuffering,
-                reading = reading(),
-            )
-        )
+        var isSemantic = false
+        var semanticCommand: Command.StateChanged? = null
+        orderedIngressLock.lock()
+        try {
+            val accepted = synchronized(ingressLock) {
+                if (closed.get()) {
+                    false
+                } else {
+                    val command = Command.StateChanged(
+                        sourceId = sourceId,
+                        metadata = metadata,
+                        shouldPlay = isPlaying && !isBuffering,
+                        reading = reading(),
+                    )
+                    val previous = latestInputs[sourceId]
+                    latestInputs[sourceId] = IngressState(command.metadata, command.shouldPlay)
+                    isSemantic = isSemanticTransition(previous, command)
+                    if (isSemantic) {
+                        pendingRefreshes.remove(sourceId)
+                        semanticCommand = command
+                    } else {
+                        pendingRefreshes[sourceId] = command
+                    }
+                    true
+                }
+            }
+            if (accepted) {
+                // The channel send may block, but ingressLock is deliberately
+                // not held here so the worker can drain pending refreshes.
+                semanticCommand?.let(::sendOrderedBlocking)
+            }
+            if (accepted && !isSemantic) {
+                refreshWork.trySend(Unit)
+            }
+        } finally {
+            orderedIngressLock.unlock()
+        }
     }
 
     fun release(sourceId: String) {
-        commands.trySend(Command.SourceReleased(sourceId, reading()))
+        orderedIngressLock.lock()
+        try {
+            val command = synchronized(ingressLock) {
+                if (closed.get()) {
+                    null
+                } else {
+                    latestInputs.remove(sourceId)
+                    pendingRefreshes.remove(sourceId)
+                    Command.SourceReleased(sourceId, reading())
+                }
+            }
+            command?.let(::sendOrderedBlocking)
+        } finally {
+            orderedIngressLock.unlock()
+        }
     }
 
     /** Deletes persisted rows and creates new zero-based sessions for active sources. */
     suspend fun reset() {
         val completed = CompletableDeferred<Unit>()
-        commands.send(Command.Reset(reading(), completed))
+        sendOrdered(Command.Reset(reading(), completed))
         completed.await()
     }
 
     suspend fun awaitIdle() {
         val completed = CompletableDeferred<Unit>()
-        commands.send(Command.Barrier(completed))
+        sendOrdered(Command.Barrier(completed))
         completed.await()
     }
 
     /** Persists the current playback baseline before a foreground stats query. */
     suspend fun flush() {
         val completed = CompletableDeferred<Unit>()
-        commands.send(Command.Checkpoint(reading(), completed))
+        sendOrdered(Command.Checkpoint(reading(), completed))
         completed.await()
     }
 
     fun close() {
-        commands.trySend(Command.Close)
-        ticker.cancel()
+        orderedIngressLock.lock()
+        try {
+            val shouldClose = synchronized(ingressLock) {
+                if (closed.get()) {
+                    false
+                } else {
+                    closed.set(true)
+                    ticker.cancel()
+                    true
+                }
+            }
+            if (shouldClose) {
+                sendOrderedBlocking(Command.Close)
+            }
+        } finally {
+            orderedIngressLock.unlock()
+        }
         if (ownedScope) {
-            scope.cancel()
+            scope.launch {
+                worker.join()
+                scope.cancel()
+            }
+        }
+    }
+
+    private suspend fun nextWork(): Work? {
+        commands.tryReceive().getOrNull()?.let {
+            commandDepth.decrementAndGet()
+            return Work.Semantic(it)
+        }
+        timerWork.tryReceive().getOrNull()?.let {
+            return Work.Timer
+        }
+        return kotlinx.coroutines.selects.select {
+            commands.onReceiveCatching { result ->
+                result.getOrNull()?.let {
+                    commandDepth.decrementAndGet()
+                    Work.Semantic(it)
+                }
+            }
+            timerWork.onReceive { Work.Timer }
+            refreshWork.onReceive { Work.Refresh }
+        }
+    }
+
+    private suspend fun processSemanticCommand(command: Command): Boolean {
+        var retried = false
+        while (true) {
+            try {
+                when (command) {
+                    is Command.StateChanged -> handleStateChanged(command)
+                    is Command.SourceReleased -> handleSourceReleased(command)
+                    is Command.Checkpoint -> {
+                        drainPendingRefreshes()
+                        runCheckpoint(command.reading, force = true)
+                        command.completed?.complete(Unit)
+                    }
+                    is Command.Reset -> {
+                        drainPendingRefreshes()
+                        handleReset(command)
+                        command.completed.complete(Unit)
+                    }
+                    is Command.Barrier -> {
+                        drainPendingRefreshes()
+                        val timerPending = timerWork.tryReceive().isSuccess
+                        val refreshPending = refreshWork.tryReceive().isSuccess
+                        if (timerPending || refreshPending) {
+                            drainPendingRefreshes()
+                            runCheckpoint(reading(), force = timerPending)
+                        }
+                        command.completed.complete(Unit)
+                    }
+                    Command.Close -> {
+                        drainPendingRefreshes()
+                        finishAll(reading())
+                        return true
+                    }
+                }
+                return false
+            } catch (cancelled: CancellationException) {
+                when (command) {
+                    is Command.Checkpoint -> command.completed?.completeExceptionally(cancelled)
+                    is Command.Reset -> command.completed.completeExceptionally(cancelled)
+                    is Command.Barrier -> command.completed.completeExceptionally(cancelled)
+                    else -> Unit
+                }
+                throw cancelled
+            } catch (failure: Exception) {
+                if (!retried &&
+                    (command is Command.StateChanged || command is Command.SourceReleased)
+                ) {
+                    retried = true
+                    continue
+                }
+                when (command) {
+                    is Command.Checkpoint -> command.completed?.completeExceptionally(failure)
+                    is Command.Reset -> command.completed.completeExceptionally(failure)
+                    is Command.Barrier -> command.completed.completeExceptionally(failure)
+                    else -> Unit
+                }
+                // A single failed Room write must not permanently stop later
+                // transitions. The in-memory state remains the retry baseline.
+                return false
+            }
         }
     }
 
@@ -136,8 +327,7 @@ class ViewingStatsRecorder(
             // viewing session. The elapsed time accrued above belongs to the
             // previous category before we checkpoint it.
             if (state.actualPlaying) {
-                closeActiveInterval(state, command.reading)
-                persistSession(state, command.reading.wallTimeMillis)
+                closeActiveIntervalAndPersistSession(state, command.reading)
             }
             state.metadata = metadata
         } else {
@@ -157,24 +347,135 @@ class ViewingStatsRecorder(
                 persistCheckpoint(state, command.reading)
             }
         } else if (state.actualPlaying) {
-            closeActiveInterval(state, command.reading)
-            persistSession(state, command.reading.wallTimeMillis)
-            state.actualPlaying = false
+            closeActiveIntervalAndPersistSession(state, command.reading)
             state.lastPersistElapsed = command.reading.elapsedRealtime
         }
     }
 
     private suspend fun handleSourceReleased(command: Command.SourceReleased) {
-        states.remove(command.sourceId)?.let { finish(it, command.reading) }
+        states[command.sourceId]?.let {
+            finish(it, command.reading)
+            states.remove(command.sourceId)
+        }
     }
 
-    private suspend fun handleCheckpoint(reading: ClockReading) {
-        states.values.toList().forEach { state ->
-            if (state.actualPlaying) {
-                accrue(state, reading)
-                persistCheckpoint(state, reading)
+    private suspend fun runCheckpoint(reading: ClockReading, force: Boolean = false) {
+        val activeStates = states.values.filter { it.actualPlaying }
+        activeStates.forEach { accrue(it, reading) }
+        val dueStates = activeStates.filter { force || shouldCheckpoint(it, reading) }
+        if (dueStates.isEmpty()) return
+
+        try {
+            repository.updateCheckpoints(
+                intervals = dueStates.mapNotNull { it.checkpointInterval(reading) },
+                sessions = dueStates.mapNotNull { it.checkpointSession(reading.wallTimeMillis) },
+            )
+            dueStates.forEach { it.lastPersistElapsed = reading.elapsedRealtime }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Keep the state and its elapsed baseline intact so the next
+            // checkpoint or transition can retry the write.
+        }
+    }
+
+    private suspend fun drainPendingRefreshes() {
+        val refreshes = synchronized(ingressLock) {
+            pendingRefreshes.values.toList().also { pendingRefreshes.clear() }
+        }
+        refreshes.forEach { command ->
+            try {
+                handleStateChanged(command)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Retain a failed metadata refresh for a future coalesced
+                // wake, but never let one Room failure kill the worker.
+                synchronized(ingressLock) {
+                    val latest = latestInputs[command.sourceId]
+                    if (latest == IngressState(command.metadata, command.shouldPlay)) {
+                        pendingRefreshes[command.sourceId] = command
+                    }
+                }
             }
         }
+    }
+
+    private suspend fun finishAll(reading: ClockReading) {
+        states.values.toList().forEach { state ->
+            try {
+                finish(state, reading)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Close must still drain the other sources. A failed row can
+                // be recovered by the next application session's normal DB
+                // state, while this recorder is no longer usable.
+            }
+        }
+        states.clear()
+    }
+
+    private fun isSemanticTransition(
+        previous: IngressState?,
+        next: Command.StateChanged,
+    ): Boolean {
+        if (previous == null || previous.metadata == null || next.metadata == null) {
+            return true
+        }
+        return previous.shouldPlay != next.shouldPlay ||
+                !previous.metadata.hasSamePlaybackAs(next.metadata) ||
+                !previous.metadata.hasSameAttributionAs(next.metadata)
+    }
+
+    private fun enqueueOrdered(command: Command) {
+        // Do not replace this with one coroutine per send. A full channel must
+        // backpressure the producer rather than move an unbounded backlog into
+        // suspended sender jobs.
+        orderedIngressLock.lock()
+        try {
+            sendOrderedBlocking(command)
+        } finally {
+            orderedIngressLock.unlock()
+        }
+    }
+
+    private suspend fun sendOrdered(command: Command) {
+        withContext(Dispatchers.IO) {
+            enqueueOrdered(command)
+        }
+    }
+
+    private fun sendOrderedBlocking(command: Command) {
+        val pending = commandDepth.incrementAndGet()
+        // A rendezvous receiver can resume the sender just before its select
+        // callback decrements commandDepth. Do not count that bookkeeping
+        // handoff as an additional pending command.
+        maxCommandDepth.updateAndGet {
+            max(it, pending.coerceAtMost(SEMANTIC_COMMAND_CAPACITY + 1))
+        }
+        val result = commands.trySend(command).let { initial ->
+            if (initial.isSuccess) initial else commands.trySendBlocking(command)
+        }
+        if (result.isFailure) {
+            commandDepth.decrementAndGet()
+            error("Viewing stats recorder command channel is unavailable")
+        }
+    }
+
+    internal fun pendingSemanticWorkForTest(): Int = commandDepth.get()
+
+    internal fun maxPendingSemanticWorkForTest(): Int = maxCommandDepth.get()
+
+    private fun setActualPlaying(state: SourceState, actualPlaying: Boolean) {
+        if (state.actualPlaying == actualPlaying) return
+        state.actualPlaying = actualPlaying
+        if (actualPlaying) {
+            activeSourceCount.incrementAndGet()
+        } else {
+            activeSourceCount.decrementAndGet()
+        }
+        schedulerWake.trySend(Unit)
     }
 
     private suspend fun handleReset(command: Command.Reset) {
@@ -187,16 +488,14 @@ class ViewingStatsRecorder(
             state.sessionWatchedMs = 0L
             state.intervalStartWall = 0L
             state.intervalWatchedMs = 0L
-            state.actualPlaying = false
+            setActualPlaying(state, false)
             state.lastElapsed = command.reading.elapsedRealtime
             state.lastWall = command.reading.wallTimeMillis
             state.lastPersistElapsed = command.reading.elapsedRealtime
         }
         states.values.filter { it.metadata.hasTrackableChannel() && it.wasPlayingBeforeReset }.forEach {
-            it.actualPlaying = false
             startSession(it, command.reading)
         }
-        command.completed.complete(Unit)
     }
 
     private suspend fun startSession(state: SourceState, reading: ClockReading) {
@@ -214,7 +513,7 @@ class ViewingStatsRecorder(
         state.intervalStartWall = reading.wallTimeMillis
         state.intervalWatchedMs = 0L
         state.intervalId = repository.insertInterval(state.metadata, state.sessionId!!, reading.wallTimeMillis)
-        state.actualPlaying = true
+        setActualPlaying(state, true)
         state.lastElapsed = reading.elapsedRealtime
         state.lastWall = reading.wallTimeMillis
         state.lastPersistElapsed = reading.elapsedRealtime
@@ -223,87 +522,85 @@ class ViewingStatsRecorder(
     private suspend fun finish(state: SourceState, reading: ClockReading) {
         accrue(state, reading)
         if (state.intervalId != null) {
-            closeActiveInterval(state, reading)
-        }
-        if (state.sessionId != null) {
+            closeActiveIntervalAndPersistSession(state, reading)
+        } else if (state.sessionId != null) {
             persistSession(state, reading.wallTimeMillis)
         }
-        state.actualPlaying = false
+        setActualPlaying(state, false)
     }
 
-    private suspend fun closeActiveInterval(state: SourceState, reading: ClockReading) {
+    private suspend fun closeActiveIntervalAndPersistSession(
+        state: SourceState,
+        reading: ClockReading,
+    ) {
         val intervalId = state.intervalId ?: return
         val endAt = normalizeIntervalStart(state, reading.wallTimeMillis)
-        repository.updateInterval(
-            ViewingInterval(
-                id = intervalId,
-                sessionId = state.sessionId!!,
-                channelId = state.metadata.normalizedChannelId!!,
-                channelLogin = state.metadata.channelLogin,
-                channelName = state.metadata.channelName,
-                channelImage = state.metadata.channelImage,
-                categoryId = state.metadata.categoryId,
-                categoryName = state.metadata.categoryName,
-                categoryImage = state.metadata.categoryImage,
-                contentType = state.metadata.contentType,
-                contentId = state.metadata.contentId,
-                streamTitle = state.metadata.title,
-                startAt = state.intervalStartWall,
-                endAt = endAt,
-                watchedMs = state.intervalWatchedMs,
-                lastCheckpointAt = reading.wallTimeMillis,
-            )
+        repository.updateCheckpoints(
+            intervals = listOf(state.interval(endAt, reading.wallTimeMillis, intervalId)),
+            sessions = listOfNotNull(state.checkpointSession(reading.wallTimeMillis)),
         )
         state.intervalId = null
         state.intervalWatchedMs = 0L
-        state.actualPlaying = false
+        setActualPlaying(state, false)
     }
 
     private suspend fun persistCheckpoint(state: SourceState, reading: ClockReading) {
-        val intervalId = state.intervalId
-        if (intervalId != null) {
-            val endAt = normalizeIntervalStart(state, reading.wallTimeMillis)
-            repository.updateInterval(
-                ViewingInterval(
-                    id = intervalId,
-                    sessionId = state.sessionId!!,
-                    channelId = state.metadata.normalizedChannelId!!,
-                    channelLogin = state.metadata.channelLogin,
-                    channelName = state.metadata.channelName,
-                    channelImage = state.metadata.channelImage,
-                    categoryId = state.metadata.categoryId,
-                    categoryName = state.metadata.categoryName,
-                    categoryImage = state.metadata.categoryImage,
-                    contentType = state.metadata.contentType,
-                    contentId = state.metadata.contentId,
-                    streamTitle = state.metadata.title,
-                    startAt = state.intervalStartWall,
-                    endAt = endAt,
-                    watchedMs = state.intervalWatchedMs,
-                    lastCheckpointAt = reading.wallTimeMillis,
-                )
-            )
-        }
-        persistSession(state, reading.wallTimeMillis)
+        repository.updateCheckpoints(
+            intervals = listOfNotNull(state.checkpointInterval(reading)),
+            sessions = listOfNotNull(state.checkpointSession(reading.wallTimeMillis)),
+        )
         state.lastPersistElapsed = reading.elapsedRealtime
     }
 
     private suspend fun persistSession(state: SourceState, endedAt: Long) {
-        val sessionId = state.sessionId ?: return
-        repository.updateSession(
-            ViewingSession(
-                id = sessionId,
-                channelId = state.metadata.normalizedChannelId!!,
-                channelLogin = state.metadata.channelLogin,
-                channelName = state.metadata.channelName,
-                channelImage = state.metadata.channelImage,
-                contentType = state.metadata.contentType,
-                contentId = state.metadata.contentId,
-                startedAt = state.sessionStartedAt,
-                endedAt = max(state.sessionStartedAt, endedAt),
-                watchedMs = state.sessionWatchedMs,
-                lastCheckpointAt = endedAt,
-            )
+        state.checkpointSession(endedAt)?.let { repository.updateSession(it) }
+    }
+
+    private fun SourceState.checkpointInterval(reading: ClockReading): ViewingInterval? {
+        val intervalId = intervalId ?: return null
+        val endAt = normalizeIntervalStart(this, reading.wallTimeMillis)
+        return interval(endAt, reading.wallTimeMillis, intervalId)
+    }
+
+    private fun SourceState.interval(
+        endAt: Long,
+        lastCheckpointAt: Long,
+        intervalId: Long = this.intervalId!!,
+    ): ViewingInterval {
+        return ViewingInterval(
+            id = intervalId,
+            sessionId = sessionId!!,
+            channelId = metadata.normalizedChannelId!!,
+            channelLogin = metadata.channelLogin,
+            channelName = metadata.channelName,
+            channelImage = metadata.channelImage,
+            categoryId = metadata.categoryId,
+            categoryName = metadata.categoryName,
+            categoryImage = metadata.categoryImage,
+            contentType = metadata.contentType,
+            contentId = metadata.contentId,
+            streamTitle = metadata.title,
+            startAt = intervalStartWall,
+            endAt = endAt,
+            watchedMs = intervalWatchedMs,
+            lastCheckpointAt = lastCheckpointAt,
+        )
+    }
+
+    private fun SourceState.checkpointSession(endedAt: Long): ViewingSession? {
+        val sessionId = sessionId ?: return null
+        return ViewingSession(
+            id = sessionId,
+            channelId = metadata.normalizedChannelId!!,
+            channelLogin = metadata.channelLogin,
+            channelName = metadata.channelName,
+            channelImage = metadata.channelImage,
+            contentType = metadata.contentType,
+            contentId = metadata.contentId,
+            startedAt = sessionStartedAt,
+            endedAt = max(sessionStartedAt, endedAt),
+            watchedMs = sessionWatchedMs,
+            lastCheckpointAt = endedAt,
         )
     }
 
@@ -398,8 +695,21 @@ class ViewingStatsRecorder(
         }
     }
 
+    private data class IngressState(
+        val metadata: ViewingPlaybackMetadata?,
+        val shouldPlay: Boolean,
+    )
+
+    private sealed interface Work {
+        data class Semantic(val command: Command) : Work
+        data object Timer : Work
+        data object Refresh : Work
+    }
+
     private companion object {
-        const val DEFAULT_CHECKPOINT_INTERVAL_MS = 45_000L
+        const val SEMANTIC_COMMAND_CAPACITY = 128
+        const val DEFAULT_CHECKPOINT_INTERVAL_MS = 120_000L
         const val CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000L
+        const val NO_DEADLINE = Long.MAX_VALUE
     }
 }

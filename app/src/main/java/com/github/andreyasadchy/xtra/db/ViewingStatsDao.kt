@@ -27,6 +27,15 @@ interface ViewingStatsDao {
     @Update
     suspend fun updateInterval(interval: ViewingInterval)
 
+    @Transaction
+    suspend fun updateCheckpoints(
+        intervals: List<ViewingInterval>,
+        sessions: List<ViewingSession>,
+    ) {
+        intervals.forEach { updateInterval(it) }
+        sessions.forEach { updateSession(it) }
+    }
+
     @Query(
         "SELECT * FROM viewing_intervals " +
                 "WHERE watched_ms > 0 AND start_at < :toExclusive AND end_at > :fromInclusive " +
@@ -87,6 +96,27 @@ interface ViewingStatsDao {
 
     @Query(
         """
+        SELECT COALESCE(SUM(CASE
+            WHEN end_at <= start_at THEN watched_ms
+            ELSE CAST(ROUND(
+                watched_ms * 1.0 *
+                (MIN(end_at, :toExclusive) - MAX(start_at, :fromInclusive)) /
+                NULLIF(end_at - start_at, 0)
+            ) AS INTEGER)
+        END), 0)
+        FROM viewing_intervals
+        WHERE watched_ms > 0
+          AND start_at < :toExclusive
+          AND end_at > :fromInclusive
+        """
+    )
+    suspend fun getUnfilteredTotalWatchMs(
+        fromInclusive: Long,
+        toExclusive: Long,
+    ): Long
+
+    @Query(
+        """
         WITH filtered AS (
             SELECT
                 session_id,
@@ -137,6 +167,48 @@ interface ViewingStatsDao {
         channelId: String? = null,
         categoryKey: String? = null,
         contentType: String? = null,
+    ): ViewingStatsOverviewRow
+
+    @Query(
+        """
+        WITH filtered AS (
+            SELECT
+                session_id,
+                channel_id,
+                category_id,
+                category_name,
+                content_type,
+                CASE
+                    WHEN end_at <= start_at THEN watched_ms
+                    ELSE CAST(ROUND(
+                        watched_ms * 1.0 *
+                        (MIN(end_at, :toExclusive) - MAX(start_at, :fromInclusive)) /
+                        NULLIF(end_at - start_at, 0)
+                    ) AS INTEGER)
+                END AS clipped_watched_ms,
+                COALESCE(
+                    NULLIF(category_id, ''),
+                    CASE
+                        WHEN category_name IS NOT NULL AND TRIM(category_name) != ''
+                        THEN 'name:' || LOWER(TRIM(category_name))
+                    END
+                ) AS category_key
+            FROM viewing_intervals
+            WHERE watched_ms > 0
+              AND start_at < :toExclusive
+              AND end_at > :fromInclusive
+        )
+        SELECT
+            COALESCE(SUM(clipped_watched_ms), 0) AS total_watch_ms,
+            COUNT(DISTINCT session_id) AS session_count,
+            COUNT(DISTINCT channel_id) AS channel_count,
+            COUNT(DISTINCT CASE WHEN category_key IS NOT NULL THEN category_key END) AS category_count
+        FROM filtered
+        """
+    )
+    suspend fun getUnfilteredOverview(
+        fromInclusive: Long,
+        toExclusive: Long,
     ): ViewingStatsOverviewRow
 
     @Query(
