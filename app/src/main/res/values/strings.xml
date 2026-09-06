@@ -1028,6 +1028,21 @@
     <string name="live_caption_processing_interval_value">Moonshine partials every %1$.1f seconds</string>
     <string name="live_caption_settings" translatable="false">Live captions (experimental)</string>
     <string name="live_caption_settings_summary" translatable="false">On-device English captions powered by Moonshine v2 Tiny</string>
+    <string name="live_caption_model" translatable="false">Moonshine v2 Tiny model</string>
+    <string name="live_caption_model_summary" translatable="false">Downloaded separately for live captions</string>
+    <string name="live_caption_model_checking" translatable="false">Checking downloaded model...</string>
+    <string name="live_caption_model_not_installed" translatable="false">Download about 30 MB for live captions</string>
+    <string name="live_caption_model_downloading" translatable="false">Downloading live-caption model... %1$d%%</string>
+    <string name="live_caption_model_verifying" translatable="false">Verifying live-caption model...</string>
+    <string name="live_caption_model_ready" translatable="false">Installed and verified. Uses about 45 MB</string>
+    <string name="live_caption_model_error" translatable="false">Model unavailable. Tap to try again</string>
+    <string name="live_caption_model_dialog_message" translatable="false">Live captions need a one-time download of about 30 MB. The model stays on this device and is verified before use.</string>
+    <string name="live_caption_model_dialog_error" translatable="false">The model download or verification failed. Check your connection and try again.</string>
+    <string name="live_caption_model_download" translatable="false">Download</string>
+    <string name="live_caption_model_cancel_download" translatable="false">Cancel download</string>
+    <string name="live_caption_model_remove" translatable="false">Remove model</string>
+    <string name="live_caption_model_remove_message" translatable="false">Remove the live-caption model? It uses about 45 MB and can be downloaded again later.</string>
+    <string name="live_caption_model_remove_disabled" translatable="false">Turn off live captions before removing the model.</string>
     <string name="live_caption_background" translatable="false">Caption background</string>
     <string name="live_caption_background_black" translatable="false">Black</string>
     <string name="live_caption_background_transparent" translatable="false">Transparent</string>

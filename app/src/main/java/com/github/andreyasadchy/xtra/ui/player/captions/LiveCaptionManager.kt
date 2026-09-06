@@ -74,7 +74,19 @@ class LiveCaptionManager(
     private val context: Context,
     private val engineFactory: (Context) -> LiveCaptionEngine =
         LiveCaptionEngineFactory::create,
+    private val modelManager: MoonshineModelManager? = null,
 ) {
+    private var runtimeSettingsLoader: (() -> Unit)? = null
+
+    internal constructor(
+        context: Context,
+        engineFactory: (Context) -> LiveCaptionEngine,
+        modelManager: MoonshineModelManager?,
+        runtimeSettingsLoader: () -> Unit,
+    ) : this(context, engineFactory, modelManager) {
+        this.runtimeSettingsLoader = runtimeSettingsLoader
+    }
+
     private val enabled = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val audioGeneration = AtomicLong(0L)
@@ -121,7 +133,7 @@ class LiveCaptionManager(
 
     fun reloadCaptionSettings() {
         if (closed.get()) return
-        refreshRuntimeSettings()
+        loadRuntimeSettings()
         captionSettingsGeneration.incrementAndGet()
     }
 
@@ -224,7 +236,7 @@ class LiveCaptionManager(
             return
         }
 
-        refreshRuntimeSettings()
+        loadRuntimeSettings()
         enabled.set(true)
         resetCaptionText()
         stateMutable.value = LiveCaptionState(
@@ -237,7 +249,7 @@ class LiveCaptionManager(
     fun reloadConfiguration() {
         if (closed.get()) return
 
-        refreshRuntimeSettings()
+        loadRuntimeSettings()
         val generation = audioGeneration.incrementAndGet()
         audioQueue.clear()
         resetCaptionText()
@@ -304,6 +316,7 @@ class LiveCaptionManager(
 
         var engine: LiveCaptionEngine? = null
         var engineGeneration = -1L
+        var modelBlocked = false
         var metricsEngineId = MOONSHINE_ENGINE_ID
         var metricsStartedAtMs = 0L
         var engineInitMs = 0L
@@ -394,6 +407,21 @@ class LiveCaptionManager(
             engineGeneration = -1L
         }
 
+        fun blockForModel() {
+            if (modelBlocked) return
+            modelBlocked = true
+            pendingCaptionEvents.clear()
+            closeEngine()
+            val lineShiftToken = resetCaptionText()
+            visibleCaptionExpiresAtMs = 0L
+            if (enabled.get()) {
+                stateMutable.value = stateMutable.value.copy(
+                    text = "",
+                    lineShiftToken = lineShiftToken,
+                )
+            }
+        }
+
         try {
             while (!closed.get()) {
                 invalidatePendingCaptionEventsIfNeeded()
@@ -455,6 +483,35 @@ class LiveCaptionManager(
 
                     is AudioEvent.Pcm -> {
                         if (!enabled.get() || event.generation != audioGeneration.get()) continue
+
+                        when (modelManager?.state?.value) {
+                            null -> Unit
+                            MoonshineModelState.Ready -> {
+                                if (modelBlocked) {
+                                    modelBlocked = false
+                                    publishStarting()
+                                }
+                            }
+                            MoonshineModelState.Checking,
+                            is MoonshineModelState.Downloading,
+                            MoonshineModelState.Verifying,
+                            -> {
+                                // Keep the worker alive while verification/download runs.
+                                // Throwing here would restart a worker for every queued PCM buffer.
+                                blockForModel()
+                                publishStarting()
+                                continue
+                            }
+                            is MoonshineModelState.Error,
+                            MoonshineModelState.NotInstalled,
+                            -> {
+                                // A persisted ON setting can outlive the downloaded files.
+                                // Keep it disableable without entering an exception loop.
+                                blockForModel()
+                                publishModelRequired()
+                                continue
+                            }
+                        }
 
                         if (engine != null &&
                             engineGeneration != event.generation
@@ -559,6 +616,16 @@ class LiveCaptionManager(
         }
     }
 
+    private fun publishModelRequired() {
+        if (enabled.get()) {
+            stateMutable.value = stateMutable.value.copy(
+                enabled = true,
+                status = LiveCaptionState.Status.ERROR,
+                error = MODEL_REQUIRED_ERROR,
+            )
+        }
+    }
+
     private fun publishListening() {
         if (enabled.get()) {
             stateMutable.value = stateMutable.value.copy(
@@ -647,9 +714,14 @@ class LiveCaptionManager(
         )
     }
 
+    private fun loadRuntimeSettings() {
+        runtimeSettingsLoader?.invoke() ?: refreshRuntimeSettings()
+    }
+
     private companion object {
         const val NO_AUDIO_SINK = Long.MIN_VALUE
         const val TAG = "LiveCaptionManager"
+        const val MODEL_REQUIRED_ERROR = "MODEL_REQUIRED"
         const val METRICS_LOG_INTERVAL_MS = 10_000L
         const val QUEUE_POLL_INTERVAL_MS = 100L
     }

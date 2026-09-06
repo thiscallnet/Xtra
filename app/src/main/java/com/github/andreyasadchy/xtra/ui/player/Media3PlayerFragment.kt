@@ -79,6 +79,7 @@ import com.github.andreyasadchy.xtra.ui.common.RadioButtonDialogFragment
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.player.captions.MoonshineModelState
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.ui.tv.applyTvChatPresentation
 import com.github.andreyasadchy.xtra.ui.tv.tvChatMode
@@ -88,6 +89,7 @@ import com.github.andreyasadchy.xtra.ui.tv.tvPlayerCommand
 import com.github.andreyasadchy.xtra.util.isTelevision
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerViewModel.Companion.Media3PlayerViewModelFactory
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
+import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.C
@@ -169,6 +171,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var liveRewindDiscoveryJob: Job? = null
     private var liveRewindTickerJob: Job? = null
     private var liveRewindSwitchJob: Job? = null
+    private var liveCaptionModelVerificationJob: Job? = null
     private var liveRewindSessionGeneration = 0L
     private var liveRewindSwitchGeneration = 0L
     private var liveRewindFrozenEdgeMs: Long? = null
@@ -401,15 +404,47 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun toggleLiveCaptions() {
         if (videoType != STREAM) return
         val preferences = requireContext().prefs()
-        val enabled = !preferences.getBoolean(C.PLAYER_LIVE_CAPTIONS, false)
-        preferences.edit { putBoolean(C.PLAYER_LIVE_CAPTIONS, enabled) }
-        xtraModule.liveCaptionManager.setEnabled(enabled)
+        if (preferences.getBoolean(C.PLAYER_LIVE_CAPTIONS, false)) {
+            preferences.edit { putBoolean(C.PLAYER_LIVE_CAPTIONS, false) }
+            xtraModule.liveCaptionManager.setEnabled(false)
+            return
+        }
+
+        val modelManager = xtraModule.moonshineModelManager
+        when (modelManager.state.value) {
+            MoonshineModelState.Ready -> enableLiveCaptions()
+            MoonshineModelState.Checking,
+            MoonshineModelState.Verifying,
+            -> {
+                if (liveCaptionModelVerificationJob?.isActive == true) return
+                liveCaptionModelVerificationJob = viewLifecycleOwner.lifecycleScope.launch {
+                    if (modelManager.awaitVerification() is MoonshineModelState.Ready) {
+                        enableLiveCaptions()
+                    } else {
+                        openLiveCaptionSettings()
+                    }
+                }
+            }
+            MoonshineModelState.NotInstalled,
+            is MoonshineModelState.Downloading,
+            is MoonshineModelState.Error,
+            -> openLiveCaptionSettings()
+        }
+    }
+
+    private fun enableLiveCaptions() {
+        if (!isAdded || videoType != STREAM) return
+        val preferences = requireContext().prefs()
+        if (preferences.getBoolean(C.PLAYER_LIVE_CAPTIONS, false)) return
+        preferences.edit { putBoolean(C.PLAYER_LIVE_CAPTIONS, true) }
+        xtraModule.liveCaptionManager.setEnabled(true)
     }
 
     fun openLiveCaptionSettings() {
         if (videoType != STREAM) return
         val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
             putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
+            putExtra(EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE, C.PLAYER_LIVE_CAPTION_MODEL)
         }
         (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
             ?: startActivity(intent)
@@ -3719,6 +3754,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         loadedChannelAvatarUrl = null
         liveRewindDiscoveryJob?.cancel()
         liveRewindDiscoveryJob = null
+        liveCaptionModelVerificationJob?.cancel()
+        liveCaptionModelVerificationJob = null
         stopLiveRewindTicker()
         liveRewindScrubPositionMs = null
         liveRewindSwitchGeneration++

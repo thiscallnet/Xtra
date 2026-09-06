@@ -151,6 +151,10 @@ android {
     lint {
         disable += "ContentDescription"
     }
+    testOptions {
+        // LiveCaptionManager's worker tests exercise framework calls that are no-ops on the JVM.
+        unitTests.isReturnDefaultValues = true
+    }
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -245,6 +249,7 @@ dependencies {
     implementation(libs.conscrypt)
     implementation(libs.serialization.json)
     implementation(libs.apollo.api)
+    implementation("org.apache.commons:commons-compress:1.27.1")
 
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)
