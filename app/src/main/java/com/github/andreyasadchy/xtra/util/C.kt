@@ -213,6 +213,7 @@ object C {
     const val PLAYER_AUDIO_COMPRESSOR = "player_audio_compressor"
     const val PLAYER_SUBTITLES_ENABLED = "player_subtitles_enabled"
     const val PLAYER_LIVE_CAPTIONS = "player_live_captions"
+    const val PLAYER_LIVE_CAPTION_MODEL = "player_live_caption_model"
     const val PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS = "player_live_caption_partial_interval_ms"
     const val PLAYER_LIVE_CAPTION_BACKGROUND = "player_live_caption_background"
     const val PLAYER_LIVE_CAPTION_BACKGROUND_COLOR = "player_live_caption_background_color"

@@ -49,6 +49,7 @@ import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedRefreshCoordina
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCoordinator
 import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
+import com.github.andreyasadchy.xtra.ui.player.captions.MoonshineModelManager
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetLoader
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.CoilChatAssetLoader
@@ -130,8 +131,15 @@ class XtraModule(application: Application) {
         GameFeedPager(gameFeedCache, gameFeedRefreshCoordinator)
     }
 
+    val moonshineModelManager by lazy {
+        MoonshineModelManager(application.applicationContext, okHttpClient.value)
+    }
+
     val liveCaptionManager by lazy {
-        LiveCaptionManager(application.applicationContext)
+        LiveCaptionManager(
+            context = application.applicationContext,
+            modelManager = moonshineModelManager,
+        )
     }
 
     val streamMedia3Runtime by lazy {

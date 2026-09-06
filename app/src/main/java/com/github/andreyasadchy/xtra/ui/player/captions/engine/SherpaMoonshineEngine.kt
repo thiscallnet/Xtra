@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.ui.player.captions.MoonshineModelManager
 import com.github.andreyasadchy.xtra.ui.player.captions.resampleTo16k
 import com.github.andreyasadchy.xtra.ui.player.captions.liveCaptionPartialIntervalMs
 import com.github.andreyasadchy.xtra.util.prefs
@@ -15,6 +16,7 @@ import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import com.k2fsa.sherpa.onnx.SileroVadModelConfig
 import com.k2fsa.sherpa.onnx.Vad
 import com.k2fsa.sherpa.onnx.VadModelConfig
+import java.io.File
 
 /** Moonshine's offline model driven by VAD and periodic simulated-streaming re-decodes. */
 class SherpaMoonshineEngine(
@@ -164,7 +166,7 @@ class SherpaMoonshineEngine(
     }
 
     private fun createRecognizer(): OfflineRecognizer {
-        val base = "live-captions/moonshine-v2-tiny-en"
+        val base = MoonshineModelManager.modelDirectory(context).absolutePath
         val moonshine = OfflineMoonshineModelConfig().apply {
             encoder = "$base/encoder_model.ort"
             mergedDecoder = "$base/decoder_model_merged.ort"
@@ -187,12 +189,15 @@ class SherpaMoonshineEngine(
             decodingMethod = "greedy_search"
             maxActivePaths = 4
         }
-        return OfflineRecognizer(context.assets, config)
+        return OfflineRecognizer(null, config)
     }
 
     private fun createVad(): Vad {
         val silero = SileroVadModelConfig().apply {
-            model = "live-captions/moonshine-v2-tiny-en/silero_vad.onnx"
+            model = File(
+                MoonshineModelManager.modelDirectory(context),
+                "silero_vad.onnx",
+            ).absolutePath
             threshold = VAD_THRESHOLD
             minSilenceDuration = MIN_SILENCE_SECONDS
             minSpeechDuration = MIN_SPEECH_SECONDS
@@ -206,7 +211,7 @@ class SherpaMoonshineEngine(
             provider = "cpu"
             debug = BuildConfig.DEBUG
         }
-        return Vad(context.assets, config)
+        return Vad(null, config)
     }
 
     private fun audioPositionMs(): Long = audioPositionSamples * 1_000L / TARGET_SAMPLE_RATE
