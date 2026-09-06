@@ -461,6 +461,34 @@ class ChatCatalogRepositoryTest {
     }
 
     @Test
+    fun forcedRefreshPublishesUpgradeMarkerOnlyAfterProviderResult() = runBlocking {
+        val loadStarted = CompletableDeferred<Unit>()
+        val releaseLoad = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                loadStarted.complete(Unit)
+                releaseLoad.await()
+                ChatCatalogLoadResult(twitch = ChatCatalogProviderUpdate(emptyMap()))
+            },
+        )
+
+        repository.refresh(force = true)
+        loadStarted.await()
+        assertEquals(0L, repository.state.value.forceRefreshRevision)
+
+        releaseLoad.complete(Unit)
+        withTimeout(1_000) {
+            while (repository.state.value.forceRefreshRevision == 0L) delay(1)
+        }
+        assertEquals(1L, repository.state.value.forceRefreshRevision)
+
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
     fun failedInitialCatalogAttemptSettlesBadgesAndRetryKeepsItSettled() = runBlocking {
         val retryStarted = CompletableDeferred<Unit>()
         val releaseRetry = CompletableDeferred<Unit>()

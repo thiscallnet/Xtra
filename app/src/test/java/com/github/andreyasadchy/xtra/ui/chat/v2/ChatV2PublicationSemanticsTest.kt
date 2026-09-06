@@ -237,7 +237,9 @@ class ChatV2PublicationSemanticsTest {
                 session,
                 listOf(message),
                 ChatCatalogSnapshot(revision = 1),
-                metadataSettled = false,
+                structuralSettled = false,
+                badgesSettled = false,
+                rewardsSettled = false,
             ).single(),
         )
         val enrichedRow = compiler.compile(
@@ -249,12 +251,51 @@ class ChatV2PublicationSemanticsTest {
                     revision = 2,
                     sevenTv = ScopedEmoteCatalog(global = mapOf(emote.name to emote)),
                 ),
-                metadataSettled = true,
+                structuralSettled = true,
+                badgesSettled = true,
+                rewardsSettled = true,
             ).single(),
         )
 
         assertTrue(provisionalRow.pieces.none { it is ChatPiece.Emote })
         assertTrue(enrichedRow.pieces.any { it is ChatPiece.Emote })
+    }
+
+    @Test
+    fun structuralSettlementUpgradesEmotesBeforeRewardsSettle() {
+        val session = ChatSessionKey("channel", 24L)
+        val message = message("first", 1L).copy(segments = listOf(ChatSegment.Text("OMEGALUL")))
+        val emote = emote("OMEGALUL", ChatAssetProvider.SEVEN_TV)
+        val compiler = ChatRowCompiler()
+        val presentation = ChatPresentationSnapshot()
+
+        compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(revision = 1),
+                structuralSettled = false,
+                badgesSettled = false,
+                rewardsSettled = false,
+            ).single(),
+        )
+        val rowAfterStructuralSettlement = compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(
+                    revision = 2,
+                    sevenTv = ScopedEmoteCatalog(global = mapOf(emote.name to emote)),
+                ),
+                structuralSettled = true,
+                badgesSettled = false,
+                rewardsSettled = false,
+            ).single(),
+        )
+
+        assertTrue(rowAfterStructuralSettlement.pieces.any { it is ChatPiece.Emote })
     }
 
     @Test
@@ -318,7 +359,9 @@ class ChatV2PublicationSemanticsTest {
                 session,
                 listOf(message),
                 ChatCatalogSnapshot(revision = 1),
-                metadataSettled = false,
+                structuralSettled = false,
+                badgesSettled = false,
+                rewardsSettled = false,
             ).single(),
         )
         val enrichedRow = compiler.compile(
@@ -327,12 +370,51 @@ class ChatV2PublicationSemanticsTest {
                 session,
                 listOf(message),
                 ChatCatalogSnapshot(revision = 2, badges = mapOf(badgeRef.catalogKey to badge)),
-                metadataSettled = true,
+                structuralSettled = true,
+                badgesSettled = true,
+                rewardsSettled = true,
             ).single(),
         )
 
         assertTrue(provisionalRow.pieces.none { it is ChatPiece.Badge })
         assertTrue(enrichedRow.pieces.any { it is ChatPiece.Badge })
+    }
+
+    @Test
+    fun structuralSettlementUpgradesEmotesBeforeBadgesSettle() {
+        val session = ChatSessionKey("channel", 25L)
+        val message = message("first", 1L).copy(segments = listOf(ChatSegment.Text("OMEGALUL")))
+        val emote = emote("OMEGALUL", ChatAssetProvider.SEVEN_TV)
+        val compiler = ChatRowCompiler()
+        val presentation = ChatPresentationSnapshot()
+
+        compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(revision = 1),
+                structuralSettled = false,
+                badgesSettled = false,
+                rewardsSettled = true,
+            ).single(),
+        )
+        val rowAfterStructuralSettlement = compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(
+                    revision = 2,
+                    sevenTv = ScopedEmoteCatalog(global = mapOf(emote.name to emote)),
+                ),
+                structuralSettled = true,
+                badgesSettled = false,
+                rewardsSettled = true,
+            ).single(),
+        )
+
+        assertTrue(rowAfterStructuralSettlement.pieces.any { it is ChatPiece.Emote })
     }
 
     @Test
@@ -349,7 +431,9 @@ class ChatV2PublicationSemanticsTest {
                 session,
                 listOf(message),
                 ChatCatalogSnapshot(revision = 1),
-                metadataSettled = false,
+                structuralSettled = false,
+                badgesSettled = false,
+                rewardsSettled = false,
             ).single(),
         )
         val enrichedRow = compiler.compile(
@@ -361,7 +445,9 @@ class ChatV2PublicationSemanticsTest {
                     revision = 2,
                     channelPointRewards = mapOf("reward-id" to reward),
                 ),
-                metadataSettled = true,
+                structuralSettled = true,
+                badgesSettled = true,
+                rewardsSettled = true,
             ).single(),
         )
 
@@ -400,6 +486,55 @@ class ChatV2PublicationSemanticsTest {
 
         assertTrue(frozenRow.pieces.none { it is ChatPiece.Emote })
         assertTrue(refreshedRow.pieces.any { it is ChatPiece.Emote })
+    }
+
+    @Test
+    fun cancelledForceRefreshKeepsProvisionalMessageUpgradeable() {
+        val session = ChatSessionKey("channel", 26L)
+        val message = message("first", 1L).copy(segments = listOf(ChatSegment.Text("OMEGALUL")))
+        val emote = emote("OMEGALUL", ChatAssetProvider.SEVEN_TV)
+        val compiler = ChatRowCompiler()
+        val presentation = ChatPresentationSnapshot()
+
+        compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(revision = 1),
+                structuralSettled = false,
+                badgesSettled = false,
+                rewardsSettled = false,
+            ).single(),
+        )
+        compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(revision = 1),
+                structuralSettled = false,
+                badgesSettled = false,
+                rewardsSettled = false,
+                forceUpgrade = true,
+            ).single(),
+        )
+        val rowAfterNormalSettlement = compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(
+                    revision = 2,
+                    sevenTv = ScopedEmoteCatalog(global = mapOf(emote.name to emote)),
+                ),
+                structuralSettled = true,
+                badgesSettled = false,
+                rewardsSettled = false,
+            ).single(),
+        )
+
+        assertTrue(rowAfterNormalSettlement.pieces.any { it is ChatPiece.Emote })
     }
 
     @Test

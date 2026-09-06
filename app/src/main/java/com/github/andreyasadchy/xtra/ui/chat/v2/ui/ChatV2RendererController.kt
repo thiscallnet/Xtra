@@ -17,6 +17,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogState
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatColorResolver
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatMetadataSettlement
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
@@ -317,11 +318,13 @@ class ChatV2RendererController(
                 publication.messages,
                 publication.catalog,
                 captureBadges = renderStyle.showBadges,
-                metadataSettled = publication.initialMetadataSettled,
+                structuralSettled = publication.metadataSettlement.structuralSettled,
+                badgesSettled = publication.metadataSettlement.badgesSettled,
+                rewardsSettled = publication.metadataSettlement.rewardsSettled,
                 forceUpgrade = forceCatalogUpgrade,
             )
-            val metadataSettlementChanged = previousPublication?.initialMetadataSettled !=
-                    publication.initialMetadataSettled
+            val metadataSettlementChanged = previousPublication?.metadataSettlement !=
+                    publication.metadataSettlement
             val reusablePublication = previousPublication?.takeIf {
                 !forceCatalogUpgrade &&
                         !metadataSettlementChanged &&
@@ -420,9 +423,11 @@ class ChatV2RendererController(
                 PresentationPublication(
                     key,
                     snapshot.messages,
-                    initialMetadataSettled = catalogState.structuralCatalogSettled &&
-                            (!renderStyle.showBadges || catalogState.badgesSettled) &&
-                            rewardsSettled,
+                    metadataSettlement = ChatMetadataSettlement(
+                        structuralSettled = catalogState.structuralCatalogSettled,
+                        badgesSettled = !renderStyle.showBadges || catalogState.badgesSettled,
+                        rewardsSettled = rewardsSettled,
+                    ),
                     forceRefreshRevision = catalogState.forceRefreshRevision,
                     catalogState.snapshot.copy(
                         channelPointRewards = rewards.byId,
@@ -441,7 +446,7 @@ class ChatV2RendererController(
     private data class PresentationPublication(
         val key: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey,
         val messages: List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>,
-        val initialMetadataSettled: Boolean,
+        val metadataSettlement: ChatMetadataSettlement,
         val forceRefreshRevision: Long,
         val catalog: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot,
     )

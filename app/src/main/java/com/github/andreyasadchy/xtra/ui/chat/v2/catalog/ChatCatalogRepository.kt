@@ -370,9 +370,6 @@ class ChatCatalogRepository(
         } else {
             null
         }
-        _state.value = currentState.copy(
-            forceRefreshRevision = forceRefreshRevision ?: currentState.forceRefreshRevision,
-        )
         refreshJob?.cancel()
         badgeRefreshJob?.cancel()
         badgeRefreshGeneration = null
