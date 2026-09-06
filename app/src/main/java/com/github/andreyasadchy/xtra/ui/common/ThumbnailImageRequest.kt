@@ -472,7 +472,7 @@ private fun restoreWarmStreamThumbnail(cacheKey: String, imageView: ImageView): 
 /**
  * Coil's decoded memory cache is the source of truth for images that were
  * loaded by another holder. Restoring it synchronously avoids showing the
- * layout's grey placeholder while a cache-only request posts its callback.
+ * layout placeholder while a cache-only request posts its callback.
  * The small ConstantState cache above remains a fallback for images Coil has
  * already evicted from its decoded cache.
  */
@@ -491,7 +491,7 @@ internal fun restoreDecodedMemoryImage(
 
     if (BuildConfig.DEBUG) {
         Log.d(
-            "StreamThumbnail",
+            "ImageCache",
             "memory_restore keyHash=${cacheKey.hashCode().toString(16)}",
         )
     }
