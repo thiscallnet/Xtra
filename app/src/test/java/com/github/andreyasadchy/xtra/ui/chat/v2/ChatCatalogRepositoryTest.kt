@@ -178,6 +178,46 @@ class ChatCatalogRepositoryTest {
     }
 
     @Test
+    fun failedTwitchRefreshKeepsTheLastGoodCatalog() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val attempts = AtomicInteger()
+        val kappa = emote("Kappa", ChatAssetProvider.TWITCH)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                if (attempts.incrementAndGet() == 1) {
+                    ChatCatalogLoadResult(
+                        twitch = ChatCatalogProviderUpdate(mapOf(kappa.name to kappa)),
+                        sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                        bttv = ChatCatalogProviderUpdate(emptyMap()),
+                        ffz = ChatCatalogProviderUpdate(emptyMap()),
+                        badges = ChatCatalogProviderUpdate(emptyMap()),
+                        cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                    )
+                } else {
+                    ChatCatalogLoadResult(
+                        twitch = null,
+                        sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                        bttv = ChatCatalogProviderUpdate(emptyMap()),
+                        ffz = ChatCatalogProviderUpdate(emptyMap()),
+                        badges = ChatCatalogProviderUpdate(emptyMap()),
+                        cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                    )
+                }
+            },
+        )
+
+        repository.refresh()
+        withTimeout(1_000) { while (repository.state.value.snapshot.twitch.isEmpty()) delay(1) }
+        repository.refresh()
+        withTimeout(1_000) { while (!repository.state.value.refreshFailed) delay(1) }
+
+        assertEquals(mapOf(kappa.name to kappa), repository.state.value.snapshot.twitch)
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
     fun successfulBadgesAreNotRestartedByAggregateRetries() = runBlocking {
         val releaseFirstAggregate = CompletableDeferred<Unit>()
         val secondAggregateStarted = CompletableDeferred<Unit>()

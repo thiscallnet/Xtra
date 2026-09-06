@@ -25,6 +25,8 @@ data class ChatCatalogProviderUpdate<T>(
     val channel: ScopeUpdate<T>? = null,
     /** Only emote providers use this; each entry is keyed by a sender-owned 7TV set ID. */
     val personal: ScopeUpdate<Map<String, Map<String, ChatCatalogEmote>>>? = null,
+    /** Personal 7TV sets belonging to the logged-in viewer, not arbitrary chatters. */
+    val viewerPersonalSetIds: Set<String> = emptySet(),
     /** The channel's actual 7TV emote-set ID, when this is the 7TV provider update. */
     val channelSetId: String? = null,
 ) {
@@ -683,6 +685,7 @@ class ChatCatalogRepository(
         var personal = current.personal
         var pending = current.pending
         var legacyCombined = current.legacyCombined
+        var viewerPersonalSetIds = current.viewerPersonalSetIds
         fun apply(scope: ChatEmoteScope, result: ScopeUpdate<Map<String, ChatCatalogEmote>>?) {
             when (result) {
                 is ScopeUpdate.Success -> {
@@ -701,13 +704,23 @@ class ChatCatalogRepository(
         when (val result = update.personal) {
             // Keep sender sets discovered through the live decoration stream; a later account
             // entitlement refresh only knows about the logged-in viewer's sets.
-            is ScopeUpdate.Success -> personal = personal + result.value
+            is ScopeUpdate.Success -> {
+                personal = personal + result.value
+                viewerPersonalSetIds = update.viewerPersonalSetIds
+            }
             ScopeUpdate.Failed, null -> Unit
         }
         if (update.global is ScopeUpdate.Success && update.channel is ScopeUpdate.Success) {
             legacyCombined = emptyMap()
         }
-        return ScopedEmoteCatalog(global, channel, personal, pending, legacyCombined)
+        return ScopedEmoteCatalog(
+            global = global,
+            channel = channel,
+            personal = personal,
+            pending = pending,
+            legacyCombined = legacyCombined,
+            viewerPersonalSetIds = viewerPersonalSetIds,
+        )
     }
 
     private fun resolveSevenTvPendingChannelSet(snapshot: ChatCatalogSnapshot): ChatCatalogSnapshot {
@@ -749,6 +762,11 @@ class ChatCatalogRepository(
             global = if (ChatEmoteScope.GLOBAL in observed) current.global else cached.global,
             channel = if (ChatEmoteScope.CHANNEL in observed) current.channel else cached.channel,
             personal = if (ChatEmoteScope.PERSONAL in observed) current.personal else cached.personal,
+            viewerPersonalSetIds = if (ChatEmoteScope.PERSONAL in observed) {
+                current.viewerPersonalSetIds
+            } else {
+                cached.viewerPersonalSetIds
+            },
             legacyCombined = when {
                 realScopesAuthoritative -> emptyMap()
                 current.legacyCombined.isNotEmpty() -> current.legacyCombined

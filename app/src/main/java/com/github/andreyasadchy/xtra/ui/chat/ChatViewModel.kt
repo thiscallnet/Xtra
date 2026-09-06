@@ -59,6 +59,7 @@ import com.github.andreyasadchy.xtra.model.ui.ChannelPointRedemptionResult
 import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.repository.DropsRepository
+import com.github.andreyasadchy.xtra.repository.EmoteUsageRepository
 import com.github.andreyasadchy.xtra.model.ui.WatchStreak
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakReward
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakShareResult
@@ -106,7 +107,13 @@ import com.github.andreyasadchy.xtra.util.watch.WatchCreditTelemetry
 import kotlinx.coroutines.cancel
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.viewerSendableValues
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
+import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendationEngine
+import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendationState
+import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteUsageKeys
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
 import kotlinx.coroutines.CancellationException
@@ -302,12 +309,26 @@ class ChatViewModel(
     private val dropsRepository: DropsRepository,
     private val helixRepository: HelixRepository,
     private val playerRepository: PlayerRepository,
+    private val emoteUsageRepository: EmoteUsageRepository,
     private val trustManager: Lazy<X509TrustManager>,
     private val json: Json,
     private val chatSessionManager: ChatSessionManager,
 ) : ViewModel() {
 
+    private val emoteRecommendationEngine = EmoteRecommendationEngine()
+    private val emoteUsageViewerId = MutableStateFlow(currentEmoteUsageViewerId())
+    private val emoteUsageViewerPreferenceListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == C.USER_ID) {
+                emoteUsageViewerId.value = currentEmoteUsageViewerId()
+            }
+        }
+
+    private fun currentEmoteUsageViewerId(): String =
+        EmoteUsageKeys.normalizeViewerId(applicationContext.tokenPrefs().getString(C.USER_ID, null))
+
     init {
+        applicationContext.tokenPrefs().registerOnSharedPreferenceChangeListener(emoteUsageViewerPreferenceListener)
         viewModelScope.launch {
             chatSessionManager.active
                 .flatMapLatest { active ->
@@ -370,6 +391,36 @@ class ChatViewModel(
         }
     }
 
+    fun emoteRecommendationCatalogFor(
+        expectedChannelId: String?,
+        expectedChannelLogin: String?,
+        useV2: Boolean = true,
+    ): Flow<EmoteRecommendationState?> =
+        if (!useV2) {
+            flowOf(null)
+        } else {
+            chatSessionManager.active.flatMapLatest { active ->
+                val session = active ?: return@flatMapLatest flowOf(null)
+                if (!matchesV2PickerSession(session.spec, expectedChannelId, expectedChannelLogin)) {
+                    flowOf(null)
+                } else {
+                    emoteUsageViewerId.flatMapLatest { viewerId ->
+                        combine(
+                            session.catalog.state,
+                            emoteUsageRepository.observeForChannel(viewerId, session.spec.channelId),
+                        ) { state, usage ->
+                            if (!state.hydrated) null
+                            else EmoteRecommendationState(
+                                viewerId = viewerId,
+                                catalog = emoteRecommendationEngine.catalog(state.snapshot),
+                                usage = usage,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
     fun thirdPartyPickerStateFor(
         expectedChannelId: String?,
         expectedChannelLogin: String?,
@@ -396,12 +447,10 @@ class ChatViewModel(
         refreshFailed: Boolean,
         retry: () -> Unit,
     ): ThirdPartyPickerState {
-        val emotes = mergePickerThirdPartyEmotes(
-            personalPickerEmotes(),
-            snapshot.sevenTv.effectiveValues().map(::toPickerEmote) +
-                    snapshot.bttv.effectiveValues().map(::toPickerEmote) +
-                    snapshot.ffz.effectiveValues().map(::toPickerEmote),
-        ).filter { it.name?.isNotBlank() == true && isPickerProviderEnabled(it) }
+        val emotes = snapshot.viewerSendableValues()
+            .filter { it.provider != ChatAssetProvider.TWITCH }
+            .map(::toPickerEmote)
+            .filter { it.name?.isNotBlank() == true && isPickerProviderEnabled(it) }
         return if (emotes.isEmpty() && refreshFailed) ThirdPartyPickerState.Error(retry)
         else if (emotes.isEmpty()) ThirdPartyPickerState.Empty
         else ThirdPartyPickerState.Ready(emotes.sortedBy { it.name.orEmpty().lowercase() })
@@ -1062,9 +1111,9 @@ class ChatViewModel(
             val isLoggedIn = !applicationContext.tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
                     (!TwitchApiHelper.getGQLHeaders(applicationContext, true)[C.HEADER_TOKEN].isNullOrBlank() ||
                             !TwitchApiHelper.getHelixHeaders(applicationContext)[C.HEADER_TOKEN].isNullOrBlank())
-            if (isLoggedIn) {
-                // v2 owns third-party loading, but Twitch subscriber/user emotes are still
-                // needed by the Twitch picker and autocomplete.
+            if (isLoggedIn && !useChatV2) {
+                // The v2 catalog owns Twitch user emotes as well as third-party emotes. The
+                // legacy path still loads them through its existing picker pipeline.
                 loadUserEmotes(channelId)
             }
             if (useChatV2) {
@@ -1122,6 +1171,7 @@ class ChatViewModel(
     }
 
     override fun onCleared() {
+        applicationContext.tokenPrefs().unregisterOnSharedPreferenceChangeListener(emoteUsageViewerPreferenceListener)
         releaseSession()
     }
 
@@ -2926,15 +2976,14 @@ class ChatViewModel(
     private fun pickerCatalogFor(
         snapshot: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot,
     ): PickerCatalog {
-        val thirdParty = mergePickerThirdPartyEmotes(
-            personalPickerEmotes(),
-            snapshot.sevenTv.effectiveValues().map(::toPickerEmote) +
-                    snapshot.bttv.effectiveValues().map(::toPickerEmote) +
-                    snapshot.ffz.effectiveValues().map(::toPickerEmote),
-        ).filter { it.name?.isNotBlank() == true && isPickerProviderEnabled(it) }
+        val sendable = snapshot.viewerSendableValues()
+        val thirdParty = sendable
+            .filter { it.provider != ChatAssetProvider.TWITCH }
+            .map(::toPickerEmote)
+            .filter { it.name?.isNotBlank() == true && isPickerProviderEnabled(it) }
             .sortedBy { it.name.orEmpty().lowercase() }
         return PickerCatalog(
-            twitch = twitchPickerEmotes(),
+            twitch = sendable.filter { it.provider == ChatAssetProvider.TWITCH }.map(::toPickerEmote),
             thirdParty = thirdParty,
         )
     }
@@ -3061,6 +3110,7 @@ class ChatViewModel(
         started = true
         _connectionState.value = ConnectionState.CONNECTING
         val currentIdentityViewerId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
+        emoteUsageViewerId.value = currentEmoteUsageViewerId()
         if (_chatIdentityState.value.loadedChannelId != channelId ||
             _chatIdentityState.value.loadedViewerId != currentIdentityViewerId
         ) {
@@ -5460,6 +5510,15 @@ class ChatViewModel(
         replyId: String? = null,
         onResult: (ChatSendResult) -> Unit = {},
     ) {
+        val usageViewerId = accountId?.trim()?.takeIf(String::isNotEmpty)
+            ?: applicationContext.tokenPrefs().getString(C.USER_ID, null)?.trim()?.takeIf(String::isNotEmpty)
+        val usageSnapshot = chatSessionManager.active.value
+            ?.takeIf { it.spec.channelId == channelId }
+            ?.catalog
+            ?.state
+            ?.value
+            ?.takeIf { it.hydrated }
+            ?.snapshot
         viewModelScope.launch {
             val result = try {
                 if (useApiChatMessages) {
@@ -5520,8 +5579,35 @@ class ChatViewModel(
             } catch (e: Exception) {
                 ChatSendResult.Failure(e.message ?: "Unable to send chat message")
             }
-            if (result is ChatSendResult.Success) recordRecentEmotes(message)
+            if (result is ChatSendResult.Success) {
+                recordRecentEmotes(message)
+                recordEmoteUsage(message, usageViewerId, channelId, usageSnapshot)
+            }
             onResult(result)
+        }
+    }
+
+    private fun recordEmoteUsage(
+        message: CharSequence,
+        viewerId: String?,
+        channelId: String?,
+        snapshot: ChatCatalogSnapshot?,
+    ) {
+        val normalizedViewerId = viewerId?.trim()?.takeIf(String::isNotEmpty) ?: return
+        val active = chatSessionManager.active.value ?: return
+        val targetChannelId = channelId?.takeIf { it == active.spec.channelId } ?: return
+        val usageSnapshot = snapshot ?: return
+        val increments = emoteRecommendationEngine.usageInMessage(
+            snapshot = usageSnapshot,
+            message = message,
+            channelId = targetChannelId,
+            usedAt = System.currentTimeMillis(),
+            viewerId = normalizedViewerId,
+        )
+        if (increments.isNotEmpty()) {
+            viewModelScope.launch {
+                emoteUsageRepository.record(increments)
+            }
         }
     }
 
@@ -6976,7 +7062,7 @@ class ChatViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                ChatViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.dropsRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.trustManager, xtraModule.json, xtraModule.chatSessionManager)
+                ChatViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.dropsRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.emoteUsageRepository, xtraModule.trustManager, xtraModule.json, xtraModule.chatSessionManager)
             }
         }
     }

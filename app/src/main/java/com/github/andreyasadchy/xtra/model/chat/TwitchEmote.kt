@@ -14,4 +14,6 @@ class TwitchEmote(
     var end: Int = 0,
     val setId: String? = null,
     val ownerId: String? = null,
+    /** Twitch's availability restriction from the Helix user-emotes response. */
+    val restrictionType: String? = null,
 )

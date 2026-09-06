@@ -201,6 +201,7 @@ class AppDatabaseMigrationTest {
                 },
                 GameFeedMigrations.FROM_49,
                 NotificationMigrations.FROM_50,
+                EmoteUsageMigrations.FROM_51,
             )
             .build()
             .also { it.openHelper.writableDatabase }

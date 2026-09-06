@@ -15,6 +15,7 @@ import com.github.andreyasadchy.xtra.db.MetadataCacheMigrations
 import com.github.andreyasadchy.xtra.db.StreamFeedMigrations
 import com.github.andreyasadchy.xtra.db.GameFeedMigrations
 import com.github.andreyasadchy.xtra.db.NotificationMigrations
+import com.github.andreyasadchy.xtra.db.EmoteUsageMigrations
 import com.github.andreyasadchy.xtra.db.ViewingStatsMigrations
 import com.github.andreyasadchy.xtra.repository.AuthRepository
 import com.github.andreyasadchy.xtra.repository.BookmarksRepository
@@ -22,6 +23,7 @@ import com.github.andreyasadchy.xtra.repository.ChannelSortRepository
 import com.github.andreyasadchy.xtra.repository.GameSortRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.DropsRepository
+import com.github.andreyasadchy.xtra.repository.EmoteUsageRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.LocalGameFollowsRepository
@@ -570,6 +572,7 @@ class XtraModule(application: Application) {
                 },
                 GameFeedMigrations.FROM_49,
                 NotificationMigrations.FROM_50,
+                EmoteUsageMigrations.FROM_51,
             )
         }.build()
 
@@ -662,6 +665,10 @@ class XtraModule(application: Application) {
 
     val playerRepository by lazy {
         PlayerRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json, database.recentEmotes(), database.favoriteEmotes(), database.translatedChannels(), database.videoPositions(), database.videoHistory(), database.playbackStates(), graphQLRepository, helixRepository)
+    }
+
+    val emoteUsageRepository by lazy {
+        EmoteUsageRepository(database.emoteUsage())
     }
 
     val recentSearchesRepository by lazy {

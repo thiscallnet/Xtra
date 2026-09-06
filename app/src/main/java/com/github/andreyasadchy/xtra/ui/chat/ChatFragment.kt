@@ -101,6 +101,9 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatV2RendererController
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatViewportState
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLabels
+import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.ChatInputToken
+import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendation
+import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendationEngine
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
@@ -130,6 +133,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
@@ -138,6 +142,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.max
 
@@ -452,6 +458,21 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     private var autoCompleteAdapter: AutoCompleteAdapter<Any>? = null
+    private var recommendationAdapter: EmoteRecommendationAdapter? = null
+    private val recommendationEngine = EmoteRecommendationEngine()
+    private val recommendationInput = MutableStateFlow(RecommendationInput())
+    private var currentRecommendations = emptyList<EmoteRecommendation>()
+    private var currentRecommendationQuery: String? = null
+
+    private data class RecommendationInput(
+        val text: String = "",
+        val cursor: Int = 0,
+    )
+
+    private data class RecommendationResult(
+        val query: String,
+        val recommendations: List<EmoteRecommendation>,
+    )
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
@@ -1220,6 +1241,17 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 setNotifyOnChange(hasFocus)
                             }
                         }
+                        val app = requireContext().applicationContext as XtraApp
+                        recommendationAdapter = EmoteRecommendationAdapter(
+                            assets = app.xtraModule.chatAssetRepository,
+                            clickListener = ::insertRecommendedEmote,
+                        )
+                        recommendationStrip.layoutManager = LinearLayoutManager(
+                            requireContext(),
+                            LinearLayoutManager.HORIZONTAL,
+                            false,
+                        )
+                        recommendationStrip.adapter = recommendationAdapter
                         if (useChatV2) {
                             viewLifecycleOwner.lifecycleScope.launch {
                                 repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -1229,13 +1261,54 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                                 viewModel.refreshV2AutoCompleteList(catalog)
                                                 autoCompleteAdapter?.notifyDataSetChanged()
                                             }
+                                    }
+                                }
+                            }
+                            viewLifecycleOwner.lifecycleScope.launch {
+                                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                                    combine(
+                                        recommendationInput,
+                                        viewModel.emoteRecommendationCatalogFor(channelId, channelLogin, useV2 = true),
+                                    ) { input, catalog ->
+                                        withContext(Dispatchers.Default) {
+                                            val token = ChatInputToken.aroundCursor(input.text, input.cursor)
+                                            if (token == null) {
+                                                RecommendationResult("", emptyList())
+                                            } else if (catalog == null) {
+                                                RecommendationResult(token.text, emptyList())
+                                            } else {
+                                                RecommendationResult(
+                                                    query = token.text,
+                                                    recommendations = recommendationEngine.recommend(
+                                                        query = token.text,
+                                                        channelId = channelId.orEmpty(),
+                                                        catalog = catalog.catalog,
+                                                        usage = catalog.usage,
+                                                        viewerId = catalog.viewerId,
+                                                    ),
+                                                )
+                                            }
                                         }
+                                    }.collectLatest { result ->
+                                        val queryChanged = currentRecommendationQuery != result.query
+                                        currentRecommendationQuery = result.query
+                                        currentRecommendations = result.recommendations
+                                        if (queryChanged) {
+                                            recommendationStrip.stopScroll()
+                                            recommendationStrip.scrollToPosition(0)
+                                        }
+                                        recommendationAdapter?.submitList(result.recommendations)
+                                        updateRecommendationVisibility()
+                                    }
                                 }
                             }
                         }
                         editText.addTextChangedListener(onTextChanged = { text, _, _, _ ->
+                            updateRecommendationInput()
                             updateComposerButtons()
                         })
+                        editText.onSelectionChangedListener = { _, _ -> updateRecommendationInput() }
+                        updateRecommendationInput()
                         editText.setTokenizer(SpaceTokenizer())
                         editText.setOnKeyListener { _, keyCode, event ->
                             if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
@@ -1271,6 +1344,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             isSlidingPlayerLayout = isInSlidingPlayerLayout(binding.root),
                             chatBarVisible = requireContext().prefs().getBoolean(C.KEY_CHAT_BAR_VISIBLE, true),
                         )
+                        updateRecommendationVisibility()
                         editText.isEnabled = enableMessaging && !composerSubmissionInProgress
                         updateSlowModeIndicator(viewModel.slowModeState.value)
                         messageView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -2335,6 +2409,32 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         binding.editText.text.append(emote.name).append(' ')
     }
 
+    private fun insertRecommendedEmote(recommendation: EmoteRecommendation) {
+        val current = binding.editText
+        val replacement = ChatInputToken.replace(
+            text = current.text,
+            cursor = current.selectionStart,
+            replacement = recommendation.emote.name,
+        ) ?: return
+        current.setText(replacement.text)
+        current.setSelection(replacement.cursor.coerceIn(0, current.length()))
+        updateRecommendationInput()
+    }
+
+    private fun updateRecommendationInput() {
+        val current = _binding?.editText ?: return
+        recommendationInput.value = RecommendationInput(
+            text = current.text.toString(),
+            cursor = current.selectionStart.coerceAtLeast(0),
+        )
+    }
+
+    private fun updateRecommendationVisibility() {
+        val currentBinding = _binding ?: return
+        currentBinding.recommendationStrip.isVisible = currentRecommendations.isNotEmpty() &&
+                messagingEnabled && currentBinding.messageView.isVisible
+    }
+
     private fun resetMessageComposerAction() {
         replyComposerState = null
         with(binding) {
@@ -2369,6 +2469,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         binding.send.isVisible = !composerSubmissionInProgress && (hasText || canShareWithoutMessage)
         binding.send.isEnabled = !blockedBySlowMode
         binding.clear.isVisible = !composerSubmissionInProgress && hasText
+        updateRecommendationVisibility()
     }
 
     private fun refreshMessagingEnabled() {
@@ -2388,6 +2489,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         )
         binding.editText.isEnabled = messagingEnabled && !composerSubmissionInProgress
         updateComposerButtons()
+        updateRecommendationVisibility()
         updateSlowModeIndicator(viewModel.slowModeState.value)
     }
 
@@ -3469,6 +3571,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         backPressedCallback.remove()
         backPressedCallbackAdded = false
         _binding?.recyclerView?.removeCallbacks(chatAdapterUpdateRunnable)
+        _binding?.recommendationStrip?.adapter = null
+        recommendationAdapter?.submitList(emptyList())
+        recommendationAdapter = null
+        currentRecommendations = emptyList()
+        currentRecommendationQuery = null
         chatAdapterUpdatePosted = false
         chatAdapterReady = false
         chatSnapshotSyncPending = false

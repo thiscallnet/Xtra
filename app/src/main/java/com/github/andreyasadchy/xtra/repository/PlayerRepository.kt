@@ -2056,6 +2056,15 @@ class PlayerRepository(
     }
 
     suspend fun loadUserEmotes(networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, channelId: String?, userId: String?, animateGifs: Boolean): List<TwitchEmote> = withContext(Dispatchers.IO) {
+        if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+            try {
+                return@withContext loadUserEmotesFromHelix(networkLibrary, helixHeaders, userId, channelId, animateGifs)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Keep the existing GraphQL fallbacks for accounts where Helix is unavailable.
+            }
+        }
         try {
             if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
             val emotes = mutableListOf<TwitchEmote>()
@@ -2077,7 +2086,8 @@ class PlayerRepository(
                                             .replace(Regex("\\[(.).*?]")) { it.groups[1]?.value ?: "" }
                                     } else token,
                                     setId = emote.setID,
-                                    ownerId = set.owner?.id
+                                    ownerId = set.owner?.id,
+                                    restrictionType = emote.type,
                                 )
                             }
                         }
@@ -2102,7 +2112,8 @@ class PlayerRepository(
                                         .replace(Regex("\\[(.).*?]")) { it.groups[1]?.value ?: "" }
                                 } else emote.token,
                                 setId = emote.setID,
-                                ownerId = emote.owner?.id
+                                ownerId = emote.owner?.id,
+                                restrictionType = emote.type?.rawValue,
                             )
                         } else null
                     }
@@ -2143,7 +2154,8 @@ class PlayerRepository(
                                     url4x = url.replaceFirst("{{scale}}", scale3x),
                                     format = if (format == "animated") "gif" else null,
                                     setId = emote.setId,
-                                    ownerId = emote.ownerId
+                                    ownerId = emote.ownerId,
+                                    restrictionType = emote.type,
                                 )
                             }
                         }
@@ -2153,6 +2165,57 @@ class PlayerRepository(
                 emotes
             }
         }
+    }
+
+    private suspend fun loadUserEmotesFromHelix(
+        networkLibrary: String?,
+        helixHeaders: Map<String, String>,
+        userId: String?,
+        channelId: String?,
+        animateGifs: Boolean,
+    ): List<TwitchEmote> {
+        val emotes = mutableListOf<TwitchEmote>()
+        var offset: String? = null
+        do {
+            val response = helixRepository.getUserEmotes(networkLibrary, helixHeaders, userId, channelId, offset)
+            response.data.mapNotNull { emote ->
+                emote.name?.let { name ->
+                    emote.id?.let { id ->
+                        val format = if (animateGifs) {
+                            emote.format?.find { it == "animated" } ?: emote.format?.find { it == "static" }
+                        } else {
+                            emote.format?.find { it == "static" }
+                        } ?: emote.format?.firstOrNull() ?: ""
+                        val theme = emote.theme?.find { it == "dark" } ?: emote.theme?.lastOrNull() ?: ""
+                        val scale1x = emote.scale?.find { it.startsWith("1") } ?: emote.scale?.lastOrNull() ?: ""
+                        val scale2x = emote.scale?.find { it.startsWith("2") } ?: scale1x
+                        val scale3x = emote.scale?.find { it.startsWith("3") } ?: scale2x
+                        val url = response.template
+                            .replaceFirst("{{id}}", id)
+                            .replaceFirst("{{format}}", format)
+                            .replaceFirst("{{theme_mode}}", theme)
+                        TwitchEmote(
+                            id = id,
+                            name = if (emote.type == "smilies") {
+                                name.replace("\\", "").replace("?", "")
+                                    .replace(Regex("\\((.)\\|.\\)")) { it.groups[1]?.value ?: "" }
+                                    .replace(Regex("\\[(.).*?]")) { it.groups[1]?.value ?: "" }
+                            } else name,
+                            url1x = url.replaceFirst("{{scale}}", scale1x),
+                            url2x = url.replaceFirst("{{scale}}", scale2x),
+                            url3x = url.replaceFirst("{{scale}}", scale3x),
+                            url4x = url.replaceFirst("{{scale}}", scale3x),
+                            format = if (format == "animated") "gif" else null,
+                            setId = emote.setId,
+                            ownerId = emote.ownerId,
+                            restrictionType = emote.type,
+                        )
+                    }
+                }
+            }.let { emotes.addAll(it) }
+            offset = response.pagination?.cursor
+        } while (!response.pagination?.cursor.isNullOrBlank())
+        return emotes
     }
 
     suspend fun loadEmotesFromSet(networkLibrary: String?, helixHeaders: Map<String, String>, setIds: List<String>, animateGifs: Boolean): List<TwitchEmote> = withContext(Dispatchers.IO) {
@@ -2187,7 +2250,8 @@ class PlayerRepository(
                         url4x = url.replaceFirst("{{scale}}", scale3x),
                         format = if (format == "animated") "gif" else null,
                         setId = emote.setId,
-                        ownerId = emote.ownerId
+                        ownerId = emote.ownerId,
+                        restrictionType = emote.type,
                     )
                 }
             }

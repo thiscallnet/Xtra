@@ -9,6 +9,7 @@
         android:id="@+id/chatContentColumn"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:animateLayoutChanges="true"
         android:orientation="vertical"
         tools:visibility="visible">
 
@@ -201,6 +202,17 @@
                 android:background="?attr/colorOutlineVariant" />
         </LinearLayout>
 
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recommendationStrip"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="?attr/colorSurfaceContainer"
+            android:clipToPadding="false"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:visibility="gone"
+            tools:listitem="@layout/item_emote_recommendation" />
+
         <LinearLayout
             android:id="@+id/messageView"
             android:layout_width="match_parent"
@@ -226,7 +238,7 @@
                 android:visibility="gone"
                 app:tint="?attr/colorControlNormal" />
 
-            <MultiAutoCompleteTextView
+            <com.github.andreyasadchy.xtra.ui.view.CursorAwareMultiAutoCompleteTextView
                 android:id="@+id/editText"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
