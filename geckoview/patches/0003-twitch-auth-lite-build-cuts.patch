@@ -1,0 +1,77 @@
+diff --git a/mobile/android/installer/package-manifest.in b/mobile/android/installer/package-manifest.in
+--- a/mobile/android/installer/package-manifest.in
++++ b/mobile/android/installer/package-manifest.in
+@@ -17,5 +17,7 @@
+ [@AB_CD@]
+ @BINPATH@/default.locale
++#ifndef MOZ_TWITCH_AUTH_LITE
+ @BINPATH@/hyphenation/*
++#endif
+ @BINPATH@/localization/*
+ 
+@@ -110,6 +110,8 @@
+ ; [Browser Chrome Files]
++#ifndef MOZ_TWITCH_AUTH_LITE
+ @BINPATH@/chrome/pdfjs.manifest
+ @BINPATH@/chrome/pdfjs/*
+ @BINPATH@/defaults/pref/PdfJsDefaultPrefs.js
++#endif
+ @BINPATH@/chrome/toolkit@JAREXT@
+ @BINPATH@/chrome/toolkit.manifest
+@@ -121,4 +123,6 @@
+ ; DevTools
++#ifndef MOZ_TWITCH_AUTH_LITE
+ @BINPATH@/chrome/devtools@JAREXT@
+ @BINPATH@/chrome/devtools.manifest
++#endif
+ 
+diff --git a/toolkit/components/moz.build b/toolkit/components/moz.build
+--- a/toolkit/components/moz.build
++++ b/toolkit/components/moz.build
+@@ -58,14 +58,12 @@ DIRS += [
+     "jsoncpp/src/lib_json",
+     "kvstore",
+     "media",
+     "mediasniffer",
+-    "ml",
+     "mozintl",
+     "mozprotocol",
+     "pageextractor",
+     "parentalcontrols",
+     "passwordmgr",
+-    "pdfjs",
+     "places",
+     "processtools",
+     "processsingleton",
+@@ -82,8 +82,7 @@ DIRS += [
+     "shell",
+     "startup",
+     "statusfilter",
+     "telemetry",
+-    "translations",
+     "thumbnails",
+     "timermanager",
+     "tooltiptext",
+@@ -99,3 +98,6 @@ DIRS += [
+ ]
+ 
++if not CONFIG["MOZ_TWITCH_AUTH_LITE"]:
++    DIRS += ["ml", "pdfjs", "translations"]
++
+ if CONFIG["NS_PRINTING"]:
+diff --git a/toolkit/moz.configure b/toolkit/moz.configure
+--- a/toolkit/moz.configure
++++ b/toolkit/moz.configure
+@@ -169,1 +169,12 @@
+ set_config("MOZ_FOLD_LIBS", fold_libs)
++option(
++    "--enable-twitch-auth-lite",
++    help="Build the reduced product profile used by Xtra's Twitch authentication engine",
++)
++
++@depends("--enable-twitch-auth-lite")
++def twitch_auth_lite(value):
++    return bool(value)
++
++set_config("MOZ_TWITCH_AUTH_LITE", twitch_auth_lite)
++set_define("MOZ_TWITCH_AUTH_LITE", twitch_auth_lite)
