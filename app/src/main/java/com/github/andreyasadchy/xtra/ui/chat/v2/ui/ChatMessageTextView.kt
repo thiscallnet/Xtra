@@ -113,6 +113,7 @@ open class ChatMessageTextView private constructor(
     private val assetInvalidator: () -> Unit = {
         post {
             latchTerminalAssetFailures()
+            maybeApplyStagedRow()
             requestLayout()
             postInvalidateOnAnimation()
             maybeRevealInitialAssetFrame()
@@ -156,6 +157,11 @@ open class ChatMessageTextView private constructor(
     private var clipPreviewAssetKeys = emptySet<ChatAssetKey>()
     private var awaitingInitialAssetFrame = false
     private var revealOnPreDrawPosted = false
+    private var stagedRow: ChatRowUiModel? = null
+    private var stagedBindGeneration = 0L
+    private var stagedAssetKeys = emptySet<ChatAssetKey>()
+    private var stagedObservedAssetKeys = emptySet<ChatAssetKey>()
+    private var externalBindGeneration = 0L
     private var initialAssetSpecs = emptyList<ChatAssetSpec>()
     private var initialDirectAssetKeys = emptySet<ChatAssetKey>()
     private val latchedFailedCompositionKeys = HashSet<String>()
@@ -191,18 +197,71 @@ open class ChatMessageTextView private constructor(
     }
 
     fun bind(row: ChatRowUiModel) {
-        boundRow = row
+        externalBindGeneration++
+        clearStagedRow()
+        bindInternal(row, stagePendingCandidate = true)
+    }
+
+    private fun bindInternal(row: ChatRowUiModel, stagePendingCandidate: Boolean) {
         bindingRow = true
         if (BuildConfig.PERF_DIAGNOSTICS) {
             ChatRenderDiagnostics.recordBind()
             Trace.beginSection("Xtra.ChatV2.bind")
         }
         try {
-            bindRow(row)
+            if (stagePendingCandidate && shouldStageRow(row)) stageRow(row) else {
+                if (stagePendingCandidate && boundRow != row) clearStagedRow()
+                bindRow(row)
+            }
         } finally {
             if (BuildConfig.PERF_DIAGNOSTICS) Trace.endSection()
             bindingRow = false
         }
+    }
+
+    private fun shouldStageRow(row: ChatRowUiModel): Boolean =
+        boundMessageId == row.id &&
+            !awaitingInitialAssetFrame &&
+            hasPendingAssets(row.assetKeys())
+
+    private fun stageRow(row: ChatRowUiModel) {
+        val nextKeys = row.assetKeys()
+        val previousObservedKeys = stagedObservedAssetKeys
+        previousObservedKeys
+            .filterNot(nextKeys::contains)
+            .filterNot(keys::contains)
+            .forEach { assets.removeObserver(it, assetInvalidator) }
+
+        stagedRow = row
+        stagedBindGeneration = externalBindGeneration
+        stagedAssetKeys = nextKeys
+        stagedObservedAssetKeys = nextKeys - keys
+        stagedObservedAssetKeys
+            .filterNot(previousObservedKeys::contains)
+            .forEach { assets.observe(it, assetInvalidator) }
+        maybeApplyStagedRow()
+    }
+
+    private fun maybeApplyStagedRow() {
+        val row = stagedRow ?: return
+        if (stagedBindGeneration != externalBindGeneration) {
+            clearStagedRow()
+            return
+        }
+        if (hasPendingAssets(stagedAssetKeys)) return
+        clearStagedRow()
+        bindRow(row)
+    }
+
+    private fun clearStagedRow() {
+        val activeKeys = keys
+        stagedObservedAssetKeys
+            .filterNot(activeKeys::contains)
+            .forEach { assets.removeObserver(it, assetInvalidator) }
+        stagedRow = null
+        stagedBindGeneration = 0L
+        stagedAssetKeys = emptySet()
+        stagedObservedAssetKeys = emptySet()
     }
 
     private fun bindRow(row: ChatRowUiModel) {
@@ -214,6 +273,7 @@ open class ChatMessageTextView private constructor(
             latchedFailedDirectKeys.clear()
             latchedFailedClipMetadataSlugs.clear()
         }
+        boundRow = row
         boundMessageId = row.id
         longPressConsumed = false
         longPressRunnable?.let(mainHandler::removeCallbacks)
@@ -224,22 +284,7 @@ open class ChatMessageTextView private constructor(
         drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
         drawables.clear()
         drawableHandles.clear()
-        val newKeys = row.pieces.flatMap { piece ->
-            buildList {
-                val spec = when (piece) {
-                    is ChatPiece.Badge -> piece.asset
-                    is ChatPiece.RewardIcon -> piece.asset
-                    is ChatPiece.Emote -> piece.asset
-                    is ChatPiece.Cheermote -> piece.asset
-                    is ChatPiece.Gif -> piece.asset
-                    else -> null
-                }
-                spec?.let { addAll(it.allKeys()) }
-                if (piece is ChatPiece.Username) {
-                    piece.paint?.imageUrl?.takeIf { it.isNotBlank() }?.let { add(ChatAssetKey(it)) }
-                }
-            }
-        }.toSet()
+        val newKeys = row.assetKeys()
         oldKeys.filterNot(newKeys::contains).forEach { assets.removeObserver(it, assetInvalidator) }
         newKeys.filterNot(oldKeys::contains).forEach { assets.observe(it, assetInvalidator) }
         keys = newKeys
@@ -277,6 +322,7 @@ open class ChatMessageTextView private constructor(
         }
         clipPreviewSlugs = newClipPreviewSlugs
         refreshClipPreviewAssets()
+        latchTerminalAssetFailures()
         val density = resources.displayMetrics.density
         val event = row.eventPresentation
         if (event != null) {
@@ -416,16 +462,7 @@ open class ChatMessageTextView private constructor(
 
         latchFailedClipMetadata()
 
-        val hasPendingAsset = (keys + clipPreviewAssetKeys).any { key ->
-            when (val state = assets.peek(key)) {
-                ChatAssetState.Missing,
-                ChatAssetState.Loading -> true
-
-                is ChatAssetState.Ready -> false
-                is ChatAssetState.Failed -> !state.isPresentationTerminal
-            }
-        }
-        if (hasPendingAsset) return
+        if (hasPendingAssets(keys + clipPreviewAssetKeys)) return
         if (clipPreviewSlugs.any { slug ->
                 when (clipPreviews?.peekState(slug)) {
                     ChatClipPreviewState.Missing,
@@ -447,16 +484,7 @@ open class ChatMessageTextView private constructor(
     private fun revealInitialAssetFrameIfReady() {
         if (!awaitingInitialAssetFrame) return
         latchFailedClipMetadata()
-        val hasPendingAsset = (keys + clipPreviewAssetKeys).any { key ->
-            when (val state = assets.peek(key)) {
-                ChatAssetState.Missing,
-                ChatAssetState.Loading -> true
-
-                is ChatAssetState.Ready -> false
-                is ChatAssetState.Failed -> !state.isPresentationTerminal
-            }
-        }
-        if (hasPendingAsset || clipPreviewSlugs.any { slug ->
+        if (hasPendingAssets(keys + clipPreviewAssetKeys) || clipPreviewSlugs.any { slug ->
                 when (clipPreviews?.peekState(slug)) {
                     ChatClipPreviewState.Missing,
                     ChatClipPreviewState.Loading -> true
@@ -470,6 +498,16 @@ open class ChatMessageTextView private constructor(
 
         awaitingInitialAssetFrame = false
         alpha = 1f
+    }
+
+    private fun hasPendingAssets(assetKeys: Set<ChatAssetKey>): Boolean = assetKeys.any { key ->
+        when (val state = assets.peek(key)) {
+            ChatAssetState.Missing,
+            ChatAssetState.Loading -> true
+
+            is ChatAssetState.Ready -> false
+            is ChatAssetState.Failed -> !state.isPresentationTerminal
+        }
     }
 
     private fun latchTerminalAssetFailures() {
@@ -685,7 +723,7 @@ open class ChatMessageTextView private constructor(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w != oldw && !bindingRow && boundRow?.pieces?.any { it is ChatPiece.Reply } == true) {
-            boundRow?.let(::bind)
+            boundRow?.let { bindInternal(it, stagePendingCandidate = false) }
         }
     }
 
@@ -971,6 +1009,7 @@ open class ChatMessageTextView private constructor(
     fun recycle() {
         longPressRunnable?.let(mainHandler::removeCallbacks)
         longPressRunnable = null
+        clearStagedRow()
         keys.forEach { assets.removeObserver(it, assetInvalidator) }
         clipPreviewSlugs.forEach { slug -> clipPreviews?.removeObserver(slug, clipMetadataInvalidator) }
         clipPreviewAssetKeys.forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
@@ -981,6 +1020,11 @@ open class ChatMessageTextView private constructor(
         animatedAssetKeys = emptySet()
         clipPreviewSlugs = emptySet()
         clipPreviewAssetKeys = emptySet()
+        stagedRow = null
+        stagedBindGeneration = 0L
+        stagedAssetKeys = emptySet()
+        stagedObservedAssetKeys = emptySet()
+        externalBindGeneration++
         initialAssetSpecs = emptyList()
         initialDirectAssetKeys = emptySet()
         latchedFailedCompositionKeys.clear()
@@ -1048,15 +1092,18 @@ open class ChatMessageTextView private constructor(
         renderingActive = active
         if (active) {
             if (isAttachedToWindow) keys.forEach { assets.observe(it, assetInvalidator) }
+            if (isAttachedToWindow) stagedObservedAssetKeys.forEach { assets.observe(it, assetInvalidator) }
             if (isAttachedToWindow) clipPreviewSlugs.forEach { slug -> clipPreviews?.observe(slug, clipMetadataInvalidator) }
             if (isAttachedToWindow) clipPreviewAssetKeys.forEach { assets.observe(it, clipThumbnailInvalidator) }
             if (isAttachedToWindow) {
                 refreshClipPreviewAssets()
+                maybeApplyStagedRow()
                 maybeRevealInitialAssetFrame()
             }
             if (isAttachedToWindow) updateDrawableAnimations()
         } else {
             keys.forEach { assets.removeObserver(it, assetInvalidator) }
+            stagedObservedAssetKeys.forEach { assets.removeObserver(it, assetInvalidator) }
             clipPreviewSlugs.forEach { slug -> clipPreviews?.removeObserver(slug, clipMetadataInvalidator) }
             clipPreviewAssetKeys.forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
             drawables.forEach { (key, drawable) -> updateAnimationState(key, drawable) }
@@ -1068,6 +1115,7 @@ open class ChatMessageTextView private constructor(
         longPressRunnable?.let(mainHandler::removeCallbacks)
         longPressRunnable = null
         keys.forEach { assets.removeObserver(it, assetInvalidator) }
+        stagedObservedAssetKeys.forEach { assets.removeObserver(it, assetInvalidator) }
         clipPreviewSlugs.forEach { slug -> clipPreviews?.removeObserver(slug, clipMetadataInvalidator) }
         clipPreviewAssetKeys.forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
         drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
@@ -1079,9 +1127,11 @@ open class ChatMessageTextView private constructor(
         windowAttached = true
         if (renderingActive) {
             keys.forEach { assets.observe(it, assetInvalidator) }
+            stagedObservedAssetKeys.forEach { assets.observe(it, assetInvalidator) }
             clipPreviewSlugs.forEach { slug -> clipPreviews?.observe(slug, clipMetadataInvalidator) }
             clipPreviewAssetKeys.forEach { assets.observe(it, clipThumbnailInvalidator) }
             refreshClipPreviewAssets()
+            maybeApplyStagedRow()
             maybeRevealInitialAssetFrame()
             updateDrawableAnimations()
         }
@@ -1176,6 +1226,22 @@ private fun ChatAssetSpec.allKeys(): List<ChatAssetKey> = buildList {
     add(key)
     overlays.forEach { addAll(it.allKeys()) }
 }
+
+private fun ChatRowUiModel.assetKeys(): Set<ChatAssetKey> = pieces.flatMap { piece ->
+    buildList {
+        when (piece) {
+            is ChatPiece.Badge -> addAll(piece.asset.allKeys())
+            is ChatPiece.RewardIcon -> addAll(piece.asset.allKeys())
+            is ChatPiece.Emote -> addAll(piece.asset.allKeys())
+            is ChatPiece.Cheermote -> addAll(piece.asset.allKeys())
+            is ChatPiece.Gif -> addAll(piece.asset.allKeys())
+            else -> Unit
+        }
+        if (piece is ChatPiece.Username) {
+            piece.paint?.imageUrl?.takeIf { it.isNotBlank() }?.let { add(ChatAssetKey(it)) }
+        }
+    }
+}.toSet()
 
 private fun ChatAssetSpec.flatten(): List<ChatAssetSpec> = buildList {
     add(this@flatten)

@@ -263,6 +263,224 @@ class ChatMessageTextViewTest {
     }
 
     @Test
+    fun sameIdRebindStagesPendingEmoteSpamUntilAllAssetsAreReady() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val releases = (0 until 24).associate { index ->
+            "spam-$index" to CompletableDeferred<ChatImageHandle?>()
+        }
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { key ->
+            releases[key.value]?.await() ?: ChatImageHandle { SolidDrawable(Color.RED) }
+        })
+        val attached = attachView(repository)
+        val view = attached.view
+        val oldSpec = ChatAssetSpec(ChatAssetKey("old-emote"), 16, 16, 24)
+        val candidateSpecs = releases.keys.map { key ->
+            ChatAssetSpec(ChatAssetKey(key), 16, 16, 24)
+        }
+        val oldRow = emoteSpamRow(ChatMessageId("spam-row"), listOf(oldSpec))
+        val candidateRow = emoteSpamRow(ChatMessageId("spam-row"), candidateSpecs)
+        try {
+            runOnMain {
+                view.layoutParams = FrameLayout.LayoutParams(160, ViewGroup.LayoutParams.WRAP_CONTENT)
+                view.bind(oldRow)
+            }
+            awaitSettled(repository, listOf(oldSpec.key))
+            awaitPreDraw(view)
+            val initial = runOnMainValue {
+                val spanned = view.text as Spanned
+                Triple(view.text.toString(), view.layout.lineCount, spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).size)
+            }
+
+            runOnMain { view.bind(candidateRow) }
+            awaitPreDraw(view)
+            runOnMain {
+                val spanned = view.text as Spanned
+                assertEquals(1f, view.alpha)
+                assertEquals(initial.first, view.text.toString())
+                assertEquals(initial.second, view.layout.lineCount)
+                assertEquals(initial.third, spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).size)
+            }
+
+            candidateSpecs.take(12).forEach { spec ->
+                releases.getValue(spec.key.value).complete(ChatImageHandle { SolidDrawable(Color.BLUE) })
+            }
+            awaitSettled(repository, candidateSpecs.take(12).map(ChatAssetSpec::key))
+            awaitPreDraw(view)
+            runOnMain {
+                val spanned = view.text as Spanned
+                assertEquals(initial.first, view.text.toString())
+                assertEquals(initial.third, spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).size)
+            }
+
+            candidateSpecs.drop(12).forEach { spec ->
+                releases.getValue(spec.key.value).complete(ChatImageHandle { SolidDrawable(Color.BLUE) })
+            }
+            awaitSettled(repository, candidateSpecs.map(ChatAssetSpec::key))
+            awaitPreDraw(view)
+            val final = runOnMainValue {
+                val spanned = view.text as Spanned
+                val spans = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java)
+                Triple(
+                    view.layout.lineCount,
+                    spans.size,
+                    spans.all { hasVisiblePixels(draw(it, spanned, Paint.FontMetricsInt())) },
+                )
+            }
+            assertEquals(candidateSpecs.size, final.second)
+            assertTrue(final.first in 2..8)
+            assertTrue(final.third)
+        } finally {
+            attached.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun sameIdRebindStagesComposedOverlayUntilTheOverlayIsReady() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val overlayRelease = CompletableDeferred<ChatImageHandle?>()
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { key ->
+            when (key.value) {
+                "old-composed" -> ChatImageHandle { SolidDrawable(Color.RED) }
+                "composed-base" -> ChatImageHandle { SolidDrawable(Color.BLUE) }
+                "composed-overlay" -> overlayRelease.await()
+                else -> null
+            }
+        })
+        val attached = attachView(repository)
+        val view = attached.view
+        val oldSpec = ChatAssetSpec(ChatAssetKey("old-composed"), 16, 16, 24)
+        val composite = ChatAssetSpec(
+            key = ChatAssetKey("composed-base"),
+            sourceWidth = 16,
+            sourceHeight = 16,
+            targetHeight = 24,
+            overlays = listOf(
+                ChatAssetSpec(ChatAssetKey("composed-overlay"), sourceWidth = 0, sourceHeight = 1, targetHeight = 24),
+            ),
+        )
+        try {
+            runOnMain {
+                view.layoutParams = FrameLayout.LayoutParams(160, ViewGroup.LayoutParams.WRAP_CONTENT)
+                view.bind(emoteSpamRow(ChatMessageId("composite-row"), listOf(oldSpec)))
+            }
+            awaitSettled(repository, listOf(oldSpec.key))
+            awaitPreDraw(view)
+            val oldText = runOnMainValue { view.text.toString() }
+
+            runOnMain { view.bind(emoteSpamRow(ChatMessageId("composite-row"), listOf(composite))) }
+            awaitSettled(repository, listOf(composite.key))
+            awaitPreDraw(view)
+            runOnMain {
+                assertEquals(oldText, view.text.toString())
+                assertEquals(1, (view.text as Spanned).getSpans(0, view.text.length, ReplacementSpan::class.java).size)
+            }
+
+            overlayRelease.complete(ChatImageHandle { SolidDrawable(Color.GREEN) })
+            awaitSettled(repository, composite.allKeysForTest())
+            awaitPreDraw(view)
+            runOnMain {
+                val spanned = view.text as Spanned
+                val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+                val bitmap = draw(span, spanned, Paint.FontMetricsInt())
+                assertTrue(containsColor(bitmap, Color.BLUE))
+                assertTrue(containsColor(bitmap, Color.GREEN))
+            }
+        } finally {
+            attached.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun newerSameIdBindDiscardsAnObsoleteStagedRow() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val releases = (1..2).associate { index ->
+            "obsolete-$index" to CompletableDeferred<ChatImageHandle?>()
+        }
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { key ->
+            when (key.value) {
+                "visible-a" -> ChatImageHandle { SolidDrawable(Color.RED) }
+                else -> releases[key.value]?.await()
+            }
+        })
+        val attached = attachView(repository)
+        val view = attached.view
+        val aSpec = ChatAssetSpec(ChatAssetKey("visible-a"), 16, 16, 24)
+        val bSpecs = releases.keys.map { key -> ChatAssetSpec(ChatAssetKey(key), 16, 16, 24) }
+        val id = ChatMessageId("superseded-row")
+        try {
+            runOnMain {
+                view.bind(emoteSpamRow(id, listOf(aSpec)))
+            }
+            awaitSettled(repository, listOf(aSpec.key))
+            awaitPreDraw(view)
+            val aText = runOnMainValue { view.text.toString() }
+
+            runOnMain { view.bind(emoteSpamRow(id, bSpecs)) }
+            bSpecs.forEach { awaitAssetRequested(repository, it.key) }
+            awaitPreDraw(view)
+            runOnMain { view.bind(emoteSpamRow(id, listOf(aSpec))) }
+            runOnMain {
+                assertEquals(aText, view.text.toString())
+                assertEquals(1, (view.text as Spanned).getSpans(0, view.text.length, ReplacementSpan::class.java).size)
+                bSpecs.forEach { assertEquals(0, repository.observerCount(it.key)) }
+            }
+
+            bSpecs.forEach { releases.getValue(it.key.value).complete(ChatImageHandle { SolidDrawable(Color.BLUE) }) }
+            delay(100)
+            awaitPreDraw(view)
+            runOnMain {
+                assertEquals(aText, view.text.toString())
+                assertEquals(1, (view.text as Spanned).getSpans(0, view.text.length, ReplacementSpan::class.java).size)
+            }
+        } finally {
+            attached.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun stagedRowAppliesTextFallbackAfterTerminalAssetFailure() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { key ->
+            when (key.value) {
+                "visible-before-failure" -> ChatImageHandle { SolidDrawable(Color.RED) }
+                "terminal-emote" -> throw ChatAssetLoadException(404)
+                else -> null
+            }
+        })
+        val attached = attachView(repository)
+        val view = attached.view
+        val id = ChatMessageId("terminal-staged-row")
+        val visibleSpec = ChatAssetSpec(ChatAssetKey("visible-before-failure"), 16, 16, 24)
+        val failedSpec = ChatAssetSpec(ChatAssetKey("terminal-emote"), 20, 20, 28)
+        try {
+            runOnMain { view.bind(emoteSpamRow(id, listOf(visibleSpec))) }
+            awaitSettled(repository, listOf(visibleSpec.key))
+            awaitPreDraw(view)
+
+            runOnMain {
+                view.bind(emoteSpamRow(id, listOf(failedSpec)))
+            }
+            awaitPresentationTerminal(repository, listOf(failedSpec.key))
+            awaitPreDraw(view)
+            runOnMain {
+                val spanned = view.text as Spanned
+                val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+                assertEquals(1f, view.alpha)
+                assertTrue(span.getSize(Paint(), spanned, 0, 1, Paint.FontMetricsInt()) >= failedSpec.compositionWidth)
+                assertTrue(hasVisiblePixels(draw(span, spanned, Paint.FontMetricsInt())))
+            }
+        } finally {
+            attached.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun failedBadgeNeverDrawsItsName() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -1233,6 +1451,24 @@ class ChatMessageTextViewTest {
         source = null, isAction = false,
     )
 
+    private fun emoteSpamRow(id: ChatMessageId, specs: List<ChatAssetSpec>) = ChatRowUiModel(
+        id = id,
+        channelId = "channel",
+        timestampText = null,
+        pieces = buildList {
+            add(ChatPiece.Username("login", 0xffff8a80.toInt()))
+            specs.forEachIndexed { index, spec ->
+                if (index > 0) add(ChatPiece.Text(" "))
+                add(ChatPiece.Emote(spec, "EMOTE_$index", animated = false))
+            }
+        },
+        background = 0xff101010.toInt(),
+        accessibilityText = "emote spam",
+        reply = null,
+        source = null,
+        isAction = false,
+    )
+
     private fun eventRow(
         style: ChatEventVisualStyle,
         title: String = "Event title",
@@ -1311,6 +1547,12 @@ class ChatMessageTextViewTest {
             while (keys.any { repository.peek(it) is ChatAssetState.Missing || repository.peek(it) is ChatAssetState.Loading }) {
                 delay(1)
             }
+        }
+    }
+
+    private fun awaitAssetRequested(repository: ChatAssetRepository, key: ChatAssetKey) = runBlocking {
+        withTimeout(2_000) {
+            while (repository.peek(key) is ChatAssetState.Missing) delay(1)
         }
     }
 
