@@ -733,11 +733,25 @@ class ChatViewModel(
         thirdPartyEmotesUpdated.emit(Unit)
     }
 
+    internal fun cachedChatIdentityBadge(channelId: String?, viewerId: String?): ChatIdentityBadge? {
+        if (channelId.isNullOrBlank() || viewerId.isNullOrBlank()) return null
+        return ChatIdentityBadgeCache.get(channelId, viewerId)
+    }
+
+    private fun updateChatIdentityBadgeCache(
+        viewerId: String,
+        channelId: String,
+        triggerBadge: ChatIdentityBadge?,
+    ) {
+        ChatIdentityBadgeCache.updateFromServer(viewerId, channelId, triggerBadge)
+    }
+
     fun ensureChatIdentityLoaded(channelId: String?, channelLogin: String?) {
         if (channelId.isNullOrBlank() || channelLogin.isNullOrBlank()) return
         val viewerId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
         if (viewerId.isNullOrBlank()) {
             chatIdentityCache.clear()
+            ChatIdentityBadgeCache.clear()
             chatIdentityCampaignRepository.clear()
             cancelChatIdentityCampaignLoad()
             _chatIdentityState.value = ChatIdentityState(loadedChannelId = channelId)
@@ -993,6 +1007,13 @@ class ChatViewModel(
             .orEmpty()
         val state = baseData.toState(channelId = channelId, viewerId = viewerId)
             .copy(campaigns = existingCampaigns)
+        if (applicationContext.tokenPrefs().getString(C.USER_ID, null) == viewerId) {
+            updateChatIdentityBadgeCache(
+                viewerId = viewerId,
+                channelId = channelId,
+                triggerBadge = state.resolvedServerChatIdentityTriggerBadge(),
+            )
+        }
         chatIdentityCache[channelId] = CachedChatIdentity(
             viewerId = viewerId,
             loadedAtElapsedRealtime = SystemClock.elapsedRealtime(),
@@ -3045,6 +3066,7 @@ class ChatViewModel(
             cancelChatIdentityCampaignLoad()
             if (_chatIdentityState.value.loadedViewerId != currentIdentityViewerId) {
                 chatIdentityCache.clear()
+                ChatIdentityBadgeCache.clear()
                 chatIdentityCampaignRepository.clear()
             }
             _chatIdentityState.value = ChatIdentityState(
@@ -3443,6 +3465,7 @@ class ChatViewModel(
             chatIdentityLoadJob = null
             cancelChatIdentityCampaignLoad()
             chatIdentityCache.clear()
+            ChatIdentityBadgeCache.clear()
             chatIdentityCampaignRepository.clear()
             _chatIdentityState.value = ChatIdentityState()
         }
