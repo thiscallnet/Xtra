@@ -424,6 +424,19 @@ class ChatDomainPresentationTest {
     }
 
     @Test
+    fun deletedMessageStrikethroughUsesTheDeletionSuffix() {
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Text("hello")).copy(
+                user = ChatUser("user", "viewer", "Viewer", null),
+                moderation = ChatModeration(ChatUserClearReason.MESSAGE_DELETED),
+            ),
+        )
+
+        assertTrue(row.pieces.any { it is ChatPiece.Text && it.value.contains("Message deleted") })
+        assertTrue(row.accessibilityText.contains("Message deleted"))
+    }
+
+    @Test
     fun subscriptionNoticeUsesTheSpaciousRailTreatment() {
         val row = ChatRowCompiler().compile(
             message(ChatSegment.Text("They've been subscribed for 6 months!")).copy(

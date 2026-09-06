@@ -624,6 +624,7 @@ private class CombinedChatAdapter(
                         )
                         ChatUserClearReason.BAN -> fragment.getString(R.string.chat_moderation_ban)
                         ChatUserClearReason.MESSAGES_CLEARED -> fragment.getString(R.string.chat_moderation_messages_cleared)
+                        ChatUserClearReason.MESSAGE_DELETED -> "(${fragment.getString(R.string.chat_message_deleted)})"
                     }
                 },
             ),

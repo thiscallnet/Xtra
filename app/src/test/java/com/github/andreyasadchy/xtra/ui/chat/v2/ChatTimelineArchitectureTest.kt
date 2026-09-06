@@ -141,7 +141,13 @@ class ChatTimelineArchitectureTest {
         val scope = CoroutineScope(Dispatchers.Default)
         val store = ChatTimelineStore(scope, maxSize = 600)
         store.apply(com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.Append(listOf(message(1, "u1"), message(2, "u2"), message(3, "u1"))))
-        store.apply(com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.Delete(ChatMessageId("2"), atMs = 4))
+        store.apply(
+            com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.Delete(
+                ChatMessageId("2"),
+                atMs = 4,
+                displayMode = ChatModerationDisplayMode.HIDE,
+            ),
+        )
         assertEquals(listOf("1", "3"), store.snapshot().map { it.id.value })
         store.apply(com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.Clear(atMs = 5))
         assertEquals(emptyList<String>(), store.snapshot().map { it.id.value })
@@ -178,9 +184,90 @@ class ChatTimelineArchitectureTest {
         processor.submit(key, ChatEvent.Message(message(1), eventId = "1", receivedAtMs = 1))
         awaitSnapshot(store) { it.lastOrNull()?.id?.value == "1" }
 
-        processor.submit(key, ChatEvent.Delete(ChatMessageId("1"), eventId = "1", receivedAtMs = 2))
+        processor.submit(
+            key,
+            ChatEvent.Delete(
+                ChatMessageId("1"),
+                eventId = "1",
+                receivedAtMs = 2,
+                displayMode = ChatModerationDisplayMode.HIDE,
+            ),
+        )
         assertEquals(emptyList<String>(), awaitSnapshot(store) { it.isEmpty() }.map { it.id.value })
         scope.cancel()
+    }
+
+    @Test
+    fun singleDeletionHonorsTheConfiguredDisplayMode() = runBlocking {
+        suspend fun snapshotAfterDeletion(mode: ChatModerationDisplayMode): List<ChatMessage> {
+            val scope = CoroutineScope(Dispatchers.Default)
+            val store = ChatTimelineStore(scope, maxSize = 10)
+            val processor = ChatEventProcessor(scope, store)
+            val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", mode.ordinal.toLong() + 1)
+            val original = message(1, "viewer")
+            processor.activate(key)
+            processor.submit(key, ChatEvent.Message(original, receivedAtMs = 1))
+            awaitSnapshot(store) { it.size == 1 }
+            val versionBeforeDeletion = store.versionedSnapshot().version
+            processor.submit(
+                key,
+                ChatEvent.Delete(
+                    original.id,
+                    eventId = "delete-${mode.name}",
+                    receivedAtMs = 2,
+                    displayMode = mode,
+                ),
+            )
+            withTimeout(5_000) {
+                while (store.versionedSnapshot().version <= versionBeforeDeletion) delay(1)
+            }
+            val result = store.snapshot()
+            scope.cancel()
+            return result
+        }
+
+        val notice = snapshotAfterDeletion(ChatModerationDisplayMode.NOTICE).single()
+        assertEquals(null, notice.moderation)
+
+        val strikethrough = snapshotAfterDeletion(ChatModerationDisplayMode.STRIKETHROUGH).single()
+        assertEquals(ChatUserClearReason.MESSAGE_DELETED, strikethrough.moderation?.reason)
+
+        assertEquals(emptyList<String>(), snapshotAfterDeletion(ChatModerationDisplayMode.HIDE).map { it.id.value })
+    }
+
+    @Test
+    fun deletionBeforeReconciliationHonorsTheConfiguredDisplayMode() = runBlocking {
+        suspend fun reconcileAfterDeletion(mode: ChatModerationDisplayMode): List<ChatMessage> {
+            val scope = CoroutineScope(Dispatchers.Default)
+            val store = ChatTimelineStore(scope, maxSize = 10)
+            val processor = ChatEventProcessor(scope, store)
+            val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", mode.ordinal.toLong() + 10)
+            val deleted = message(1, "viewer")
+            processor.activate(key)
+            processor.submit(
+                key,
+                ChatEvent.Delete(
+                    deleted.id,
+                    eventId = "delete-before-reconcile-${mode.name}",
+                    receivedAtMs = 2,
+                    displayMode = mode,
+                ),
+            )
+            processor.reconcile(key, listOf(deleted))
+            val result = store.snapshot()
+            scope.cancel()
+            return result
+        }
+
+        val notice = reconcileAfterDeletion(ChatModerationDisplayMode.NOTICE).single()
+        assertEquals("1", notice.id.value)
+        assertEquals(null, notice.moderation)
+
+        val strikethrough = reconcileAfterDeletion(ChatModerationDisplayMode.STRIKETHROUGH).single()
+        assertEquals("1", strikethrough.id.value)
+        assertEquals(ChatUserClearReason.MESSAGE_DELETED, strikethrough.moderation?.reason)
+
+        assertEquals(emptyList<String>(), reconcileAfterDeletion(ChatModerationDisplayMode.HIDE).map { it.id.value })
     }
 
     @Test
@@ -213,7 +300,15 @@ class ChatTimelineArchitectureTest {
         val deleted = message(1)
         processor.submit(key, ChatEvent.Message(deleted, receivedAtMs = 1))
         awaitSnapshot(store) { it.lastOrNull()?.id?.value == "1" }
-        processor.submit(key, ChatEvent.Delete(deleted.id, eventId = "1", receivedAtMs = 2))
+        processor.submit(
+            key,
+            ChatEvent.Delete(
+                deleted.id,
+                eventId = "1",
+                receivedAtMs = 2,
+                displayMode = ChatModerationDisplayMode.HIDE,
+            ),
+        )
         awaitSnapshot(store) { it.isEmpty() }
 
         processor.reconcile(key, listOf(deleted))

@@ -6,6 +6,7 @@ enum class ChatUserClearReason {
     TIMEOUT,
     BAN,
     MESSAGES_CLEARED,
+    MESSAGE_DELETED,
 }
 
 enum class ChatGiftSource {
@@ -31,7 +32,12 @@ sealed interface ChatEvent {
         override val eventId: String? = message.id.value,
         override val receivedAtMs: Long = System.currentTimeMillis(),
     ) : ChatEvent
-    data class Delete(val messageId: ChatMessageId, override val eventId: String?, override val receivedAtMs: Long) : ChatEvent
+    data class Delete(
+        val messageId: ChatMessageId,
+        override val eventId: String?,
+        override val receivedAtMs: Long,
+        val displayMode: ChatModerationDisplayMode = ChatModerationDisplayMode.NOTICE,
+    ) : ChatEvent
     data class ClearUser(
         val userId: String?,
         override val eventId: String?,
