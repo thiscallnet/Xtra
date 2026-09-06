@@ -81,6 +81,8 @@ import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage as V2ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
@@ -826,6 +828,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             onOpenHistoricalPrediction = { prediction ->
                                 showChannelPointsDialog(prediction)
                             },
+                            onOpenGiftProfile = ::showHappeningNowGiftProfile,
                             onDismiss = viewModel::dismissHappeningNowCard,
                         )
                     }
@@ -1818,6 +1821,48 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             badges = if (pinner) message.pinnedByBadges else message.senderBadges,
             timestamp = message.sentAt,
         )
+        hideChatInputForDialog()
+        MessageClickedDialog.newInstance(
+            messagingEnabled = messagingEnabled,
+            channelId = requireArguments().getString(KEY_CHANNEL_ID),
+            channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+        ).show(childFragmentManager, "messageDialog")
+    }
+
+    private fun showHappeningNowGiftProfile(gift: HappeningNowGift) {
+        if (gift.isAnonymous) return
+
+        val userId = gift.gifterUserId
+        val userLogin = gift.gifterLogin
+        if (userId.isNullOrBlank() && userLogin.isNullOrBlank()) return
+
+        if (useChatV2) {
+            selectedPinnedMessage = null
+            selectedV2Message = V2ChatMessage(
+                id = ChatMessageId("happening-now-gift:${gift.stableId}"),
+                channelId = requireArguments().getString(KEY_CHANNEL_ID).orEmpty(),
+                timestampMs = gift.occurredAt,
+                user = ChatUser(
+                    id = userId,
+                    login = userLogin,
+                    displayName = gift.gifterDisplayName ?: userLogin,
+                    color = null,
+                ),
+                badges = emptyList(),
+                segments = emptyList(),
+                kind = ChatMessageKind.SYSTEM,
+            )
+        } else {
+            selectedV2Message = null
+            selectedPinnedMessage = ChatMessage(
+                type = ChatMessage.USER_MESSAGE,
+                userId = userId,
+                userLogin = userLogin,
+                userName = gift.gifterDisplayName ?: userLogin,
+                message = null,
+                timestamp = gift.occurredAt,
+            )
+        }
         hideChatInputForDialog()
         MessageClickedDialog.newInstance(
             messagingEnabled = messagingEnabled,

@@ -25,8 +25,12 @@ internal object HappeningNowGiftParser {
         val id = gift.optString("id").takeIf { it.isNotBlank() } ?: return null
         val count = gift.optInt("total", 0).takeIf { it > 0 } ?: return null
 
+        val userId = event.optString("chatter_user_id")
+            .takeIf { it.isNotBlank() }
+        val login = event.optString("chatter_user_login")
+            .takeIf { it.isNotBlank() }
         val displayName = event.optString("chatter_user_name")
-            .ifBlank { event.optString("chatter_user_login") }
+            .ifBlank { login.orEmpty() }
             .takeIf { it.isNotBlank() }
         val anonymous = event.optBoolean("chatter_is_anonymous", false) || displayName == null
         val gifter = displayName.takeUnless { anonymous }
@@ -38,6 +42,8 @@ internal object HappeningNowGiftParser {
                 ?.toEpochMilliseconds()
                 ?: now,
             gifterDisplayName = gifter,
+            gifterUserId = userId.takeUnless { anonymous },
+            gifterLogin = login.takeUnless { anonymous },
             isAnonymous = anonymous,
             count = count,
             source = ChatGiftSource.EVENTSUB,
@@ -65,6 +71,7 @@ internal object HappeningNowGiftParser {
             ?: return null
 
         val login = message.tags["login"].orEmpty()
+        val userId = message.tags["user-id"]?.takeIf { it.isNotBlank() }
         val displayName = message.tags["display-name"].orEmpty()
 
         val anonymous =
@@ -88,6 +95,8 @@ internal object HappeningNowGiftParser {
             stableId = id,
             occurredAt = timestamp,
             gifterDisplayName = gifter,
+            gifterUserId = userId.takeUnless { isAnonymous },
+            gifterLogin = login.takeIf { it.isNotBlank() }.takeUnless { isAnonymous },
             isAnonymous = isAnonymous,
             count = count,
             source = ChatGiftSource.IRC,

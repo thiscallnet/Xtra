@@ -319,6 +319,8 @@ class ChatViewModel(
                             stableId = gift.stableId,
                             occurredAt = gift.occurredAt,
                             gifterDisplayName = gift.gifterDisplayName,
+                            gifterUserId = gift.gifterUserId,
+                            gifterLogin = gift.gifterLogin,
                             isAnonymous = gift.isAnonymous,
                             count = gift.count,
                             source = gift.source,

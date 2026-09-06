@@ -6,6 +6,8 @@ internal data class HappeningNowGift(
     val stableId: String,
     val occurredAt: Long,
     val gifterDisplayName: String?,
+    val gifterUserId: String?,
+    val gifterLogin: String?,
     val isAnonymous: Boolean,
     val count: Int,
     val source: ChatGiftSource,
