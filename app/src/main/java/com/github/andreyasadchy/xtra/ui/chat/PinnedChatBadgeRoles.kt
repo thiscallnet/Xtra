@@ -2,6 +2,15 @@ package com.github.andreyasadchy.xtra.ui.chat
 
 import com.github.andreyasadchy.xtra.model.chat.Badge
 
+private val pinnedChatRoleBadgePriority = listOf(
+    "broadcaster",
+    "lead_moderator",
+    "moderator",
+)
+
 internal fun highestPinnedChatRoleBadge(badges: List<Badge>): Badge? =
-    badges.firstOrNull { it.setId.equals("broadcaster", ignoreCase = true) }
-        ?: badges.firstOrNull { it.setId.equals("moderator", ignoreCase = true) }
+    pinnedChatRoleBadgePriority.asSequence()
+        .mapNotNull { roleSetId ->
+            badges.firstOrNull { it.setId.equals(roleSetId, ignoreCase = true) }
+        }
+        .firstOrNull()
