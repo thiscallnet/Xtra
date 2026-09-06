@@ -382,9 +382,22 @@ class ChatViewModel(
                 thirdPartyEmotesUpdated.onStart { emit(Unit) },
             ) { state, _ ->
                 if (!state.hydrated) ThirdPartyPickerState.Loading
-                else thirdPartyPickerStateFor(state.snapshot, state.thirdPartyRefreshFailed) { session.catalog.refresh() }
+                else thirdPartyPickerStateFor(state.snapshot, state.thirdPartyRefreshFailed) {
+                    session.catalog.refresh(force = true)
+                }
             }
         }
+    }
+
+    fun forceRefreshThirdPartyCatalog(
+        expectedChannelId: String?,
+        expectedChannelLogin: String?,
+        useV2: Boolean = true,
+    ) {
+        if (!useV2) return
+        val active = chatSessionManager.active.value ?: return
+        if (!matchesV2PickerSession(active.spec, expectedChannelId, expectedChannelLogin)) return
+        active.catalog.refresh(force = true)
     }
 
     private fun thirdPartyPickerStateFor(

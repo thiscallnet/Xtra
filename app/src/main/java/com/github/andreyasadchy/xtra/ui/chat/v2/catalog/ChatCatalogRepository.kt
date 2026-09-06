@@ -63,18 +63,32 @@ data class ChatCatalogLoadResult(
 fun interface ChatCatalogSource {
     suspend fun load(): ChatCatalogLoadResult
 
+    suspend fun load(force: Boolean): ChatCatalogLoadResult = load()
+
     /** True when Twitch badges are published independently of the aggregate catalog request. */
     val hasIndependentBadgeProvider: Boolean
         get() = false
 
     /** Returns the Twitch badge result as soon as that provider finishes. */
     suspend fun loadBadges(): ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>>? = null
+
+    suspend fun loadBadges(force: Boolean): ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>>? = loadBadges()
 }
+
+data class ChatCatalogCacheEntry(
+    val snapshot: ChatCatalogSnapshot,
+    val fetchedAtMs: Long,
+)
 
 /** A last-good cache. A provider is absent from a result when its refresh failed. */
 interface ChatCatalogCache {
     suspend fun read(): ChatCatalogSnapshot?
+    suspend fun readFetchedAtMs(): Long = 0L
+    suspend fun readEntry(): ChatCatalogCacheEntry? = read()?.let { snapshot ->
+        ChatCatalogCacheEntry(snapshot, readFetchedAtMs())
+    }
     suspend fun write(snapshot: ChatCatalogSnapshot)
+    suspend fun write(snapshot: ChatCatalogSnapshot, fetchedAtMs: Long) = write(snapshot)
 }
 
 /** Replaces scattered mutable provider lists with one atomically published catalog revision. */
@@ -84,6 +98,7 @@ class ChatCatalogRepository(
     private val cache: ChatCatalogCache? = null,
     private val wait: suspend (Long) -> Unit = { delay(it) },
     private val personalEmoteSetLoader: (suspend (String) -> Map<String, ChatCatalogEmote>)? = null,
+    private val cacheFreshnessMs: Long = 60 * 60 * 1000L,
 ) {
     private enum class Provider { TWITCH, SEVEN_TV, BTTV, FFZ, BADGES, CHEERMOTES }
 
@@ -103,6 +118,7 @@ class ChatCatalogRepository(
     private var closed = false
     private var cacheJob: Job? = null
     private var persistenceJob: Job? = null
+    private var cacheFetchedAtMs: Long? = null
     private val personalEmoteSetJobs = mutableMapOf<String, Job>()
     private val loadedPersonalEmoteSets = mutableSetOf<String>()
     private var networkProvidersObserved = emptySet<Provider>()
@@ -251,7 +267,7 @@ class ChatCatalogRepository(
         cache?.let { persistence ->
             cacheJob = scope.launch {
                 val cached = try {
-                    persistence.read()
+                    persistence.readEntry()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Throwable) {
@@ -262,13 +278,15 @@ class ChatCatalogRepository(
                         val currentState = _state.value
                         val current = currentState.snapshot
                         if (cached != null) {
+                            cacheFetchedAtMs = cached.fetchedAtMs.takeIf { it > 0L }
+                            val cachedSnapshot = cached.snapshot
                             if (networkProvidersObserved.isEmpty() && networkEmoteScopesObserved.isEmpty()) {
                                 // A refresh may already be in flight while disk hydration is pending.
                                 // Publish the last-good cache before that refresh completes.
                                 _state.value = ChatCatalogState(
-                                    cached.withRuntimeDecorations(runtimeDecorations),
+                                    cachedSnapshot.withRuntimeDecorations(runtimeDecorations),
                                     hydrated = true,
-                                    badgesSettled = currentState.badgesSettled || cached.badges.isNotEmpty(),
+                                    badgesSettled = currentState.badgesSettled || cachedSnapshot.badges.isNotEmpty(),
                                     structuralCatalogSettled = currentState.structuralCatalogSettled,
                                     refreshFailed = currentState.refreshFailed,
                                     thirdPartyRefreshFailed = currentState.thirdPartyRefreshFailed,
@@ -278,21 +296,21 @@ class ChatCatalogRepository(
                                 // A partial refresh must not erase cached data for providers that are
                                 // still retrying, while a successful provider must remain authoritative.
                                 val merged = current.copy(
-                                    twitch = if (Provider.TWITCH in networkProvidersObserved) current.twitch else cached.twitch,
-                                    sevenTv = hydrateUnobservedScopes(current.sevenTv, cached.sevenTv, Provider.SEVEN_TV),
+                                    twitch = if (Provider.TWITCH in networkProvidersObserved) current.twitch else cachedSnapshot.twitch,
+                                    sevenTv = hydrateUnobservedScopes(current.sevenTv, cachedSnapshot.sevenTv, Provider.SEVEN_TV),
                                     sevenTvChannelSetId = if (
                                         ChatEmoteScope.CHANNEL in networkEmoteScopesObserved[Provider.SEVEN_TV].orEmpty()
-                                    ) current.sevenTvChannelSetId else cached.sevenTvChannelSetId,
-                                    bttv = hydrateUnobservedScopes(current.bttv, cached.bttv, Provider.BTTV),
-                                    ffz = hydrateUnobservedScopes(current.ffz, cached.ffz, Provider.FFZ),
-                                    badges = if (Provider.BADGES in networkProvidersObserved) current.badges else cached.badges,
-                                    cheermotes = if (Provider.CHEERMOTES in networkProvidersObserved) current.cheermotes else cached.cheermotes,
+                                    ) current.sevenTvChannelSetId else cachedSnapshot.sevenTvChannelSetId,
+                                    bttv = hydrateUnobservedScopes(current.bttv, cachedSnapshot.bttv, Provider.BTTV),
+                                    ffz = hydrateUnobservedScopes(current.ffz, cachedSnapshot.ffz, Provider.FFZ),
+                                    badges = if (Provider.BADGES in networkProvidersObserved) current.badges else cachedSnapshot.badges,
+                                    cheermotes = if (Provider.CHEERMOTES in networkProvidersObserved) current.cheermotes else cachedSnapshot.cheermotes,
                                 )
                                 if (merged != current) {
                                     _state.value = ChatCatalogState(
                                         merged.copy(revision = current.revision + 1),
                                         hydrated = true,
-                                        badgesSettled = currentState.badgesSettled || cached.badges.isNotEmpty(),
+                                        badgesSettled = currentState.badgesSettled || cachedSnapshot.badges.isNotEmpty(),
                                         structuralCatalogSettled = currentState.structuralCatalogSettled,
                                         refreshFailed = currentState.refreshFailed,
                                         thirdPartyRefreshFailed = currentState.thirdPartyRefreshFailed,
@@ -300,7 +318,7 @@ class ChatCatalogRepository(
                                 } else {
                                     _state.value = currentState.copy(
                                         hydrated = true,
-                                        badgesSettled = currentState.badgesSettled || cached.badges.isNotEmpty(),
+                                        badgesSettled = currentState.badgesSettled || cachedSnapshot.badges.isNotEmpty(),
                                     )
                                 }
                             }
@@ -313,13 +331,24 @@ class ChatCatalogRepository(
         }
     }
 
-    @Synchronized fun refresh() {
+    /** Refreshes immediately by default. Pass false for the normal stale-while-revalidate path. */
+    @Synchronized fun refresh(force: Boolean = true) {
         if (closed) return
         val requestGeneration = ++generation
         refreshJob?.cancel()
         badgeRefreshJob?.cancel()
         badgeRefreshGeneration = null
-        refreshJob = launchRefresh(requestGeneration, attempt = 1, delayMs = 0L)
+        refreshJob = scope.launch {
+            if (!force) cacheJob?.join()
+            synchronized(this@ChatCatalogRepository) {
+                if (closed || requestGeneration != generation) return@synchronized
+                if (!force && isCacheFresh()) {
+                    refreshJob = null
+                    return@synchronized
+                }
+                refreshJob = launchRefresh(requestGeneration, attempt = 1, delayMs = 0L, force = force)
+            }
+        }
     }
 
     /** Stops provider refresh/retry work while an owning session is paused. */
@@ -346,17 +375,22 @@ class ChatCatalogRepository(
         personalEmoteSetJobs.clear()
     }
 
-    private fun launchRefresh(requestGeneration: Long, attempt: Int, delayMs: Long): Job = scope.launch {
+    private fun launchRefresh(
+        requestGeneration: Long,
+        attempt: Int,
+        delayMs: Long,
+        force: Boolean,
+    ): Job = scope.launch {
         if (delayMs > 0) wait(delayMs)
         if (source.hasIndependentBadgeProvider &&
             badgeRefreshGeneration != requestGeneration &&
             badgeRefreshJob?.isActive != true
         ) {
             badgeRefreshGeneration = requestGeneration
-            badgeRefreshJob = launchBadgeRefresh(requestGeneration, attempt, delayMs = 0L)
+            badgeRefreshJob = launchBadgeRefresh(requestGeneration, attempt, delayMs = 0L, force = force)
         }
         val result = try {
-            source.load()
+            source.load(force)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Throwable) {
@@ -377,7 +411,7 @@ class ChatCatalogRepository(
                         thirdPartyRefreshFailed = true,
                     )
                 }
-                refreshJob = launchRefresh(requestGeneration, attempt + 1, retryDelay(attempt))
+                refreshJob = launchRefresh(requestGeneration, attempt + 1, retryDelay(attempt), force = false)
                 return@synchronized
             }
             networkProvidersObserved = buildSet {
@@ -421,6 +455,12 @@ class ChatCatalogRepository(
                 },
                 thirdPartyRefreshFailed = result.hasFailedThirdPartyProvider,
             )
+            val aggregateFailed = if (source.hasIndependentBadgeProvider) {
+                result.hasFailedProviderIgnoringBadges()
+            } else {
+                result.hasFailedProvider
+            }
+            if (!aggregateFailed) cacheFetchedAtMs = System.currentTimeMillis()
             if (changed) {
                 _state.value = nextState
                 enqueuePersistence(next)
@@ -432,23 +472,24 @@ class ChatCatalogRepository(
             ) {
                 _state.value = nextState
             }
-            val aggregateFailed = if (source.hasIndependentBadgeProvider) {
-                result.hasFailedProviderIgnoringBadges()
-            } else {
-                result.hasFailedProvider
-            }
+            if (!aggregateFailed && !changed) enqueuePersistence(next)
             refreshJob = if (aggregateFailed) {
-                launchRefresh(requestGeneration, attempt + 1, retryDelay(attempt))
+                launchRefresh(requestGeneration, attempt + 1, retryDelay(attempt), force = false)
             } else {
                 null
             }
         }
     }
 
-    private fun launchBadgeRefresh(requestGeneration: Long, attempt: Int, delayMs: Long): Job = scope.launch {
+    private fun launchBadgeRefresh(
+        requestGeneration: Long,
+        attempt: Int,
+        delayMs: Long,
+        force: Boolean,
+    ): Job = scope.launch {
         if (delayMs > 0) wait(delayMs)
         val result = try {
-            source.loadBadges()
+            source.loadBadges(force)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Throwable) {
@@ -475,7 +516,7 @@ class ChatCatalogRepository(
                     badgesSettled = true,
                     refreshFailed = true,
                 )
-                badgeRefreshJob = launchBadgeRefresh(requestGeneration, attempt + 1, retryDelay(attempt))
+                badgeRefreshJob = launchBadgeRefresh(requestGeneration, attempt + 1, retryDelay(attempt), force = false)
             }
         }
     }
@@ -486,11 +527,12 @@ class ChatCatalogRepository(
      */
     private fun enqueuePersistence(next: ChatCatalogSnapshot) {
         val persistence = cache ?: return
+        val fetchedAtMs = cacheFetchedAtMs ?: 0L
         val previous = persistenceJob
         persistenceJob = scope.launch {
             previous?.join()
             try {
-                persistence.write(next)
+                persistence.write(next, fetchedAtMs)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Throwable) {
@@ -506,6 +548,9 @@ class ChatCatalogRepository(
         4 -> 30_000L
         else -> 60_000L
     }
+
+    private fun isCacheFresh(nowMs: Long = System.currentTimeMillis()): Boolean =
+        cacheFetchedAtMs?.let { fetchedAt -> nowMs - fetchedAt in 0 until cacheFreshnessMs } == true
 
     private fun mergeEmoteScopes(
         current: ScopedEmoteCatalog,

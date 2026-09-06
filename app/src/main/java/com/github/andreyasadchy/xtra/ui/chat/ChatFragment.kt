@@ -1911,7 +1911,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         adapter?.refreshChatHighlightSettings()
         if (useChatV2) {
             chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext()))
-            (requireContext().applicationContext as XtraApp).xtraModule.chatSessionManager.active.value?.catalog?.refresh()
+            (requireContext().applicationContext as XtraApp).xtraModule.chatSessionManager.active.value?.catalog?.refresh(force = false)
         }
         if (useChatV2 && chatV2RendererVisible) chatV2Renderer?.setVisible(true)
         val args = requireArguments()
@@ -2048,7 +2048,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     fun reloadEmotes() {
         if (useChatV2) {
             val app = requireContext().applicationContext as XtraApp
-            app.xtraModule.chatSessionManager.active.value?.catalog?.refresh()
+            app.xtraModule.chatSessionManager.active.value?.catalog?.refresh(force = true)
         } else {
             viewModel.reloadEmotes(
                 requireArguments().getString(KEY_CHANNEL_ID),

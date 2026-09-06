@@ -74,6 +74,10 @@ class EmotesFragment : Fragment() {
         val expectedChannelId = chatFragment?.arguments?.getString(ChatFragment.KEY_CHANNEL_ID)
         val expectedChannelLogin = chatFragment?.arguments?.getString(ChatFragment.KEY_CHANNEL_LOGIN)
         val usesV2 = chatFragment?.isUsingChatV2 == true
+        binding.refreshEmotes.isVisible = usesV2
+        binding.refreshEmotes.setOnClickListener {
+            viewModel.forceRefreshThirdPartyCatalog(expectedChannelId, expectedChannelLogin, usesV2)
+        }
         binding.emptyState.setOnClickListener {
             (thirdPartyPickerState as? ChatViewModel.ThirdPartyPickerState.Error)?.retry?.invoke()
         }

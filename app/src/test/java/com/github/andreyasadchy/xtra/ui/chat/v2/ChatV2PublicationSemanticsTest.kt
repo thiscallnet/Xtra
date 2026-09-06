@@ -48,7 +48,7 @@ class ChatV2PublicationSemanticsTest {
     }
 
     @Test
-    fun rewardMessageWaitsForInitialRewardMetadata() {
+    fun rewardMessagePublishesBeforeInitialRewardMetadata() {
         val state = ChatCatalogState(
             snapshot = ChatCatalogSnapshot(0),
             hydrated = true,
@@ -59,7 +59,7 @@ class ChatV2PublicationSemanticsTest {
         val ordinaryMessage = message("ordinary", 2L)
 
         assertEquals(
-            false,
+            true,
             isPresentationReady(state, showBadges = true, messages = listOf(rewardMessage), rewardCatalogSettled = false),
         )
         assertEquals(

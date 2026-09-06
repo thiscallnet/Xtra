@@ -37,6 +37,7 @@ class TwitchChatCatalogSource(
     private val channelLogin: String,
 ) : ChatCatalogSource {
     private val context = context.applicationContext
+    private val globalCatalogCache = GlobalCatalogCacheRegistry.get(context)
 
     override val hasIndependentBadgeProvider: Boolean = true
 
@@ -54,15 +55,17 @@ class TwitchChatCatalogSource(
         }
     }
 
-    override suspend fun load(): ChatCatalogLoadResult = withContext(Dispatchers.IO) {
+    override suspend fun load(): ChatCatalogLoadResult = load(force = false)
+
+    override suspend fun load(force: Boolean): ChatCatalogLoadResult = withContext(Dispatchers.IO) {
         val network = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val helix = TwitchApiHelper.getHelixHeaders(context)
         val gql = TwitchApiHelper.getGQLHeaders(context, true)
         val useWebp = true
         supervisorScope {
-            val sevenTv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_STV, true)) loadSevenTv(network, useWebp) else emptyProviderUpdate() }
-            val bttv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_BTTV, true)) loadBttv(network, useWebp) else emptyProviderUpdate() }
-            val ffz = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_FFZ, true)) loadFfz(network, useWebp) else emptyProviderUpdate() }
+            val sevenTv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_STV, true)) loadSevenTv(network, useWebp, force) else emptyProviderUpdate() }
+            val bttv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_BTTV, true)) loadBttv(network, useWebp, force) else emptyProviderUpdate() }
+            val ffz = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_FFZ, true)) loadFfz(network, useWebp, force) else emptyProviderUpdate() }
             val cheermotes = async { provider {
                 playerRepository.loadCheerEmotes(
                     network,
@@ -83,12 +86,14 @@ class TwitchChatCatalogSource(
         }
     }
 
-    override suspend fun loadBadges(): ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>>? = withContext(Dispatchers.IO) {
+    override suspend fun loadBadges(): ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>>? = loadBadges(force = false)
+
+    override suspend fun loadBadges(force: Boolean): ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>>? = withContext(Dispatchers.IO) {
         val network = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val helix = TwitchApiHelper.getHelixHeaders(context)
         val gql = TwitchApiHelper.getGQLHeaders(context, true)
         provider {
-            val global = GlobalChatCatalogCache.get(GlobalCatalogKey.TWITCH_BADGES) {
+            val global = GlobalBadgeCache.get(GlobalCatalogKey.TWITCH_BADGES, force = force) {
                 playerRepository.loadGlobalBadges(network, helix, gql, "4")
             }
             val channel = playerRepository.loadChannelBadges(network, helix, gql, channelId, channelLogin, "4")
@@ -96,14 +101,19 @@ class TwitchChatCatalogSource(
         }
     }
 
-    private suspend fun loadSevenTv(network: String?, useWebp: Boolean): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
+    private suspend fun loadSevenTv(
+        network: String?,
+        useWebp: Boolean,
+        force: Boolean,
+    ): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
         var channelSetId: String? = null
         val global = scopeUpdate(channel = false) {
-            GlobalChatCatalogCache.get(GlobalCatalogKey.SEVEN_TV) {
-                playerRepository.loadSTVEmoteSet(
-                    playerRepository.loadGlobalSTVEmoteSetResponse(network), useWebp, true,
-                ).second
+            val response = globalCatalogCache.get(GlobalCatalogKey.SEVEN_TV, force) {
+                playerRepository.loadGlobalSTVEmoteSetResponse(network).also {
+                    playerRepository.loadSTVEmoteSet(it, useWebp, true)
+                }
             }
+            playerRepository.loadSTVEmoteSet(response, useWebp, true).second
         }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.GLOBAL) }
         val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
             val user = playerRepository.loadSTVUser(
@@ -152,13 +162,18 @@ class TwitchChatCatalogSource(
         return scopedProviderUpdate(global, channel, personal, channelSetId)
     }
 
-    private suspend fun loadBttv(network: String?, useWebp: Boolean): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
+    private suspend fun loadBttv(
+        network: String?,
+        useWebp: Boolean,
+        force: Boolean,
+    ): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
         val global = scopeUpdate(channel = false) {
-            GlobalChatCatalogCache.get(GlobalCatalogKey.BTTV) {
-                playerRepository.loadGlobalBTTVEmotes(
-                    playerRepository.loadGlobalBTTVEmotesResponse(network), useWebp,
-                )
+            val response = globalCatalogCache.get(GlobalCatalogKey.BTTV, force) {
+                playerRepository.loadGlobalBTTVEmotesResponse(network).also {
+                    playerRepository.loadGlobalBTTVEmotes(it, useWebp)
+                }
             }
+            playerRepository.loadGlobalBTTVEmotes(response, useWebp)
         }.map { emoteMap(it, ChatAssetProvider.BTTV, ChatEmoteScope.GLOBAL) }
         val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
             playerRepository.loadBTTVEmotes(
@@ -173,13 +188,18 @@ class TwitchChatCatalogSource(
         return scopedProviderUpdate(global, channel)
     }
 
-    private suspend fun loadFfz(network: String?, useWebp: Boolean): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
+    private suspend fun loadFfz(
+        network: String?,
+        useWebp: Boolean,
+        force: Boolean,
+    ): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
         val global = scopeUpdate(channel = false) {
-            GlobalChatCatalogCache.get(GlobalCatalogKey.FFZ) {
-                playerRepository.loadGlobalFFZEmotes(
-                    playerRepository.loadGlobalFFZEmotesResponse(network), useWebp,
-                )
+            val response = globalCatalogCache.get(GlobalCatalogKey.FFZ, force) {
+                playerRepository.loadGlobalFFZEmotesResponse(network).also {
+                    playerRepository.loadGlobalFFZEmotes(it, useWebp)
+                }
             }
+            playerRepository.loadGlobalFFZEmotes(response, useWebp)
         }.map { emoteMap(it, ChatAssetProvider.FFZ, ChatEmoteScope.GLOBAL) }
         val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
             playerRepository.loadFFZEmotes(
@@ -332,11 +352,11 @@ internal class ExpiringSingleFlightCache<K>(private val ttlMs: Long = 5 * 60 * 1
     private val inFlight = mutableMapOf<K, CompletableDeferred<Any>>()
 
     @Suppress("UNCHECKED_CAST")
-    suspend fun <T : Any> get(key: K, loader: suspend () -> T): T {
+    suspend fun <T : Any> get(key: K, force: Boolean = false, loader: suspend () -> T): T {
         data class Lookup(val deferred: CompletableDeferred<Any>, val owner: Boolean)
         val lookup = mutex.withLock {
             val now = System.currentTimeMillis()
-            entries[key]?.takeIf { now - it.createdAtMs < ttlMs }?.let {
+            entries[key]?.takeIf { !force && now - it.createdAtMs < ttlMs }?.let {
                 return@withLock Lookup(CompletableDeferred(it.value), owner = false)
             }
             inFlight[key]?.let { return@withLock Lookup(it, owner = false) }
@@ -361,8 +381,95 @@ internal class ExpiringSingleFlightCache<K>(private val ttlMs: Long = 5 * 60 * 1
     private data class Entry(val createdAtMs: Long, val value: Any)
 }
 
-private val GlobalChatCatalogCache = ExpiringSingleFlightCache<GlobalCatalogKey>()
+private val GlobalBadgeCache = ExpiringSingleFlightCache<GlobalCatalogKey>()
 private val PersonalEmoteSetCache = ExpiringSingleFlightCache<String>()
+
+private object GlobalCatalogCacheRegistry {
+    @Volatile
+    private var cache: PersistentStringSingleFlightCache<GlobalCatalogKey>? = null
+
+    @Synchronized
+    fun get(context: Context): PersistentStringSingleFlightCache<GlobalCatalogKey> =
+        cache ?: PersistentStringSingleFlightCache<GlobalCatalogKey>(
+            directory = File(context.applicationContext.filesDir, "chat-v2/global"),
+            ttlMs = 12 * 60 * 60 * 1000L,
+            fileName = { key: GlobalCatalogKey -> "${key.name.lowercase()}.json" },
+        ).also { cache = it }
+}
+
+/** Persistent L1/L2 cache for provider responses shared by all channel sessions. */
+internal class PersistentStringSingleFlightCache<K>(
+    private val directory: File,
+    private val ttlMs: Long,
+    private val fileName: (K) -> String,
+) {
+    private data class Entry(val fetchedAtMs: Long, val value: String)
+    private data class DiskEntry(val fetchedAtMs: Long, val value: String)
+
+    private val mutex = Mutex()
+    private val entries = mutableMapOf<K, Entry>()
+    private val inFlight = mutableMapOf<K, CompletableDeferred<String>>()
+
+    suspend fun get(key: K, force: Boolean = false, loader: suspend () -> String): String {
+        data class Lookup(val deferred: CompletableDeferred<String>, val owner: Boolean)
+        val lookup = mutex.withLock {
+            inFlight[key]?.let { return@withLock Lookup(it, owner = false) }
+            if (!force) {
+                entries[key]?.takeIf { isFresh(it.fetchedAtMs) }?.let {
+                    return@withLock Lookup(CompletableDeferred(it.value), owner = false)
+                }
+            }
+            val deferred = CompletableDeferred<String>()
+            inFlight[key] = deferred
+            Lookup(deferred, owner = true)
+        }
+        if (!lookup.owner) return lookup.deferred.await()
+
+        return try {
+            val disk = if (!force) readDisk(key) else null
+            val diskFresh = disk?.takeIf { isFresh(it.fetchedAtMs) }
+            val value = diskFresh?.value ?: loader()
+            val fetchedAtMs = diskFresh?.fetchedAtMs ?: System.currentTimeMillis()
+            mutex.withLock {
+                entries[key] = Entry(fetchedAtMs, value)
+                inFlight.remove(key)?.complete(value)
+            }
+            if (diskFresh == null) writeDisk(key, fetchedAtMs, value)
+            value
+        } catch (error: Throwable) {
+            mutex.withLock { inFlight.remove(key)?.completeExceptionally(error) }
+            throw error
+        }
+    }
+
+    private fun isFresh(fetchedAtMs: Long): Boolean =
+        fetchedAtMs > 0L && System.currentTimeMillis() - fetchedAtMs in 0 until ttlMs
+
+    private suspend fun readDisk(key: K): DiskEntry? = withContext(Dispatchers.IO) {
+        val file = File(directory, fileName(key))
+        if (!file.isFile) return@withContext null
+        runCatching {
+            val root = JSONObject(file.readText())
+            DiskEntry(root.optLong("fetchedAt", 0L), root.getString("payload"))
+        }.getOrNull()
+    }
+
+    private suspend fun writeDisk(key: K, fetchedAtMs: Long, value: String) = withContext(Dispatchers.IO) {
+        runCatching {
+            directory.mkdirs()
+            val file = File(directory, fileName(key))
+            val temp = File(directory, "${file.name}.tmp")
+            temp.writeText(JSONObject().apply {
+                put("fetchedAt", fetchedAtMs)
+                put("payload", value)
+            }.toString())
+            if (!temp.renameTo(file)) {
+                file.delete()
+                if (!temp.renameTo(file)) temp.delete()
+            }
+        }
+    }
+}
 
 /** Structured, versioned last-good catalog storage for one playback channel. */
 class TwitchChatCatalogCache(
@@ -374,26 +481,36 @@ class TwitchChatCatalogCache(
         channelId.replace(Regex("[^A-Za-z0-9._-]"), "_") + ".json",
     )
 
-    override suspend fun read(): ChatCatalogSnapshot? = withContext(Dispatchers.IO) {
+    override suspend fun read(): ChatCatalogSnapshot? = readEntry()?.snapshot
+
+    override suspend fun readEntry(): ChatCatalogCacheEntry? = withContext(Dispatchers.IO) {
         if (!file.isFile) return@withContext null
-        runCatching { decode(JSONObject(file.readText())) }.getOrNull()
+        runCatching {
+            val root = JSONObject(file.readText())
+            ChatCatalogCacheEntry(
+                snapshot = decode(root),
+                fetchedAtMs = root.optLong("fetchedAt", 0L),
+            )
+        }.getOrNull()
     }
 
-    override suspend fun write(snapshot: ChatCatalogSnapshot) = withContext(Dispatchers.IO) {
+    override suspend fun write(snapshot: ChatCatalogSnapshot) = write(snapshot, System.currentTimeMillis())
+
+    override suspend fun write(snapshot: ChatCatalogSnapshot, fetchedAtMs: Long) = withContext(Dispatchers.IO) {
         file.parentFile?.mkdirs()
         val temp = File(file.parentFile, "${file.name}.tmp")
-        temp.writeText(encode(snapshot).toString())
+        temp.writeText(encode(snapshot, fetchedAtMs).toString())
         if (!temp.renameTo(file)) {
             file.delete()
             check(temp.renameTo(file)) { "Unable to publish chat catalog cache" }
         }
     }
 
-    private fun encode(snapshot: ChatCatalogSnapshot): JSONObject = JSONObject().apply {
+    private fun encode(snapshot: ChatCatalogSnapshot, fetchedAtMs: Long): JSONObject = JSONObject().apply {
         put("schemaVersion", 5)
         put("revision", snapshot.revision)
         put("provider", "combined")
-        put("fetchedAt", System.currentTimeMillis())
+        put("fetchedAt", fetchedAtMs)
         put("twitch", encodeEmotes(snapshot.twitch))
         put("sevenTv", encodeScopedEmotes(snapshot.sevenTv))
         putOpt("sevenTvChannelSetId", snapshot.sevenTvChannelSetId)

@@ -12,12 +12,10 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog
-import com.github.andreyasadchy.xtra.ui.chat.v2.domain.requiresInitialRewardMetadata
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogState
-import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.isReadyForChatPublication
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatColorResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationResolver
@@ -269,11 +267,13 @@ class ChatV2RendererController(
 
     private suspend fun publish(publication: PresentationPublication) {
         if (!rendererVisible.value) return
+        val previousPublication = latestPublication
+        val previousRows = latestRows
         withContext(Dispatchers.Main.immediate) {
             if (!rendererVisible.value) return@withContext
             latestPublication = publication
         }
-        val rows = compileCurrent(publication)
+        val rows = compileCurrent(publication, previousPublication, previousRows)
         if (!rendererVisible.value) return
         withContext(Dispatchers.Main.immediate) {
             if (!rendererVisible.value) return@withContext
@@ -302,7 +302,11 @@ class ChatV2RendererController(
         }
     }
 
-    private suspend fun compileCurrent(publication: PresentationPublication): List<ChatRowUiModel> {
+    private suspend fun compileCurrent(
+        publication: PresentationPublication,
+        previousPublication: PresentationPublication? = null,
+        previousRows: List<ChatRowUiModel> = emptyList(),
+    ): List<ChatRowUiModel> {
         while (true) {
             val compiler = presentation.snapshot()
             val catalogs = presentationSnapshot.catalogsFor(
@@ -314,8 +318,22 @@ class ChatV2RendererController(
             val rows = withContext(Dispatchers.Default) {
                 if (BuildConfig.PERF_DIAGNOSTICS) Trace.beginSection("Xtra.ChatV2.compileCurrent")
                 try {
-                    publication.messages.zip(catalogs).map { (message, catalog) ->
-                        compiler.resolve(message, catalog)
+                    val previousMessages = if (previousPublication?.key == publication.key) {
+                        previousPublication.messages.associateBy { it.id }
+                    } else {
+                        emptyMap()
+                    }
+                    val reusableRows = if (previousPublication?.key == publication.key) {
+                        previousRows.associateBy { it.id }
+                    } else {
+                        emptyMap()
+                    }
+                    publication.messages.mapIndexed { index, message ->
+                        if (previousMessages[message.id] == message) {
+                            reusableRows[message.id]
+                        } else {
+                            null
+                        } ?: compiler.resolve(message, catalogs[index])
                     }
                 } finally {
                     if (BuildConfig.PERF_DIAGNOSTICS) Trace.endSection()
@@ -414,5 +432,4 @@ internal fun isReadyForChatPublication(
     showBadges: Boolean,
     messages: List<ChatMessage>,
     rewardCatalogSettled: Boolean,
-): Boolean = catalogState.isReadyForChatPublication(showBadges) &&
-    (rewardCatalogSettled || messages.none { it.requiresInitialRewardMetadata() })
+): Boolean = catalogState.hydrated
