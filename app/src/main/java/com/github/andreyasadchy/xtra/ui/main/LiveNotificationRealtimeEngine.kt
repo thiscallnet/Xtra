@@ -63,7 +63,11 @@ object LiveNotificationRealtimeEngine {
     }
 
     internal fun hasHealthyOwner(): Boolean = synchronized(lock) {
-        current?.runner?.isRunning() == true
+        current?.runner?.isHealthy() == true
+    }
+
+    internal fun requestImmediateReconciliation(reason: String): Boolean = synchronized(lock) {
+        current?.runner?.requestImmediateReconciliation(reason) == true
     }
 
     private data class OwnedRunner(

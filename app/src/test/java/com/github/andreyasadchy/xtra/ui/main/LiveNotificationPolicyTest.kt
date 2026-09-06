@@ -48,7 +48,7 @@ class LiveNotificationPolicyTest {
             reconcileIntervalMs(10, 10, eventSubConnected = true, eventSubSuspended = true),
         )
         assertEquals(
-            PARTIAL_EVENTSUB_RECONCILE_INTERVAL_MS,
+            NO_CHANNELS_RECONCILE_INTERVAL_MS,
             reconcileIntervalMs(0, 0, eventSubConnected = false, eventSubSuspended = false),
         )
     }
@@ -106,6 +106,24 @@ class LiveNotificationPolicyTest {
     }
 
     @Test
+    fun failedNetworkWakeRegistrationKeepsOfflineRecoveryBounded() {
+        assertEquals(
+            NETWORK_RETRY_INTERVAL_MS,
+            offlineLiveNotificationRetryDelayMs(
+                cachedChannelCount = 0,
+                networkWakeAvailable = false,
+            ),
+        )
+        assertEquals(
+            NO_CHANNELS_RECONCILE_INTERVAL_MS,
+            offlineLiveNotificationRetryDelayMs(
+                cachedChannelCount = 0,
+                networkWakeAvailable = true,
+            ),
+        )
+    }
+
+    @Test
     fun coverageExposesCompleteAndPartialStates() {
         assertTrue(
             LiveEventSubCoverage(10, 10, connected = true, suspended = false).complete,
@@ -115,6 +133,40 @@ class LiveNotificationPolicyTest {
         )
         assertFalse(
             LiveEventSubCoverage(10, 0, connected = false, suspended = false).partial,
+        )
+    }
+
+    @Test
+    fun coverageSeparatesIdleFromIncompleteMonitoring() {
+        assertEquals(
+            LiveNotificationCoverageState.NO_CHANNELS,
+            liveNotificationCoverageState(0, 0, eventSubConnected = false, eventSubSuspended = false),
+        )
+        assertEquals(
+            LiveNotificationCoverageState.PARTIAL,
+            liveNotificationCoverageState(10, 8, eventSubConnected = true, eventSubSuspended = false),
+        )
+        assertEquals(
+            LiveNotificationCoverageState.COMPLETE,
+            liveNotificationCoverageState(10, 10, eventSubConnected = true, eventSubSuspended = false),
+        )
+    }
+
+    @Test
+    fun notificationUserSyncWaitsUntilTheActualNextMeaningfulDeadline() {
+        val now = 100_000L
+        assertEquals(0L, nextNotificationUserSyncDelayMs(0L, 0L, now))
+        assertEquals(
+            LIVE_NOTIFICATION_FOLLOW_SYNC_RETRY_INTERVAL_MS,
+            nextNotificationUserSyncDelayMs(
+                now - LIVE_NOTIFICATION_FOLLOW_SYNC_INTERVAL_MS,
+                now,
+                now,
+            ),
+        )
+        assertEquals(
+            LIVE_NOTIFICATION_FOLLOW_SYNC_INTERVAL_MS,
+            nextNotificationUserSyncDelayMs(now, 0L, now),
         )
     }
 }

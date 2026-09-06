@@ -15,6 +15,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import androidx.core.content.edit
 
+internal const val LIVE_NOTIFICATION_FOLLOW_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000L
+internal const val LIVE_NOTIFICATION_FOLLOW_SYNC_RETRY_INTERVAL_MS = 30 * 60 * 1000L
+
 /**
  * Runs one notification reconciliation against the durable Room-backed queue.
  *
@@ -92,13 +95,24 @@ class LiveNotificationMonitor(context: Context) {
         PollResult(delivered, channelCount, apiUsed)
     }
 
-    private fun shouldSyncNotificationUsers(): Boolean {
+    internal fun nextNotificationUserSyncDelayMs(now: Long = System.currentTimeMillis()): Long {
         val prefs = context.prefs()
-        val now = System.currentTimeMillis()
+        val useLocalFollows = (prefs.getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0) != 0
+        if (useLocalFollows) return NO_CHANNELS_RECONCILE_INTERVAL_MS
+        return nextNotificationUserSyncDelayMs(
+            lastSuccessMs = prefs.getLong(C.LIVE_NOTIFICATION_LAST_SYNC_SUCCESS, 0L),
+            lastAttemptMs = prefs.getLong(C.LIVE_NOTIFICATION_LAST_SYNC_ATTEMPT, 0L),
+            nowMs = now,
+        )
+    }
+
+    private fun shouldSyncNotificationUsers(): Boolean = shouldSyncNotificationUsers(System.currentTimeMillis())
+
+    private fun shouldSyncNotificationUsers(now: Long): Boolean {
+        val prefs = context.prefs()
         val lastSuccess = prefs.getLong(C.LIVE_NOTIFICATION_LAST_SYNC_SUCCESS, 0L)
         val lastAttempt = prefs.getLong(C.LIVE_NOTIFICATION_LAST_SYNC_ATTEMPT, 0L)
-        return (lastSuccess == 0L || now - lastSuccess >= FOLLOW_SYNC_INTERVAL_MS) &&
-            (lastAttempt == 0L || now - lastAttempt >= FOLLOW_SYNC_RETRY_INTERVAL_MS)
+        return nextNotificationUserSyncDelayMs(lastSuccess, lastAttempt, now) == 0L
     }
 
     data class PollResult(
@@ -109,8 +123,24 @@ class LiveNotificationMonitor(context: Context) {
 
     companion object {
         private const val TAG = "LiveNotificationMonitor"
-        private const val FOLLOW_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000L
-        private const val FOLLOW_SYNC_RETRY_INTERVAL_MS = 30 * 60 * 1000L
         private val mutex = Mutex()
     }
+}
+
+internal fun nextNotificationUserSyncDelayMs(
+    lastSuccessMs: Long,
+    lastAttemptMs: Long,
+    nowMs: Long,
+): Long {
+    val successDeadline = if (lastSuccessMs > 0L) {
+        lastSuccessMs + LIVE_NOTIFICATION_FOLLOW_SYNC_INTERVAL_MS
+    } else {
+        nowMs
+    }
+    val attemptDeadline = if (lastAttemptMs > 0L) {
+        lastAttemptMs + LIVE_NOTIFICATION_FOLLOW_SYNC_RETRY_INTERVAL_MS
+    } else {
+        nowMs
+    }
+    return (maxOf(nowMs, successDeadline, attemptDeadline) - nowMs).coerceAtLeast(0L)
 }

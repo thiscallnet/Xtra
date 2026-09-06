@@ -5,6 +5,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -74,5 +75,24 @@ class LiveNotificationRunnerTest {
         assertFalse(isLiveNotificationRetryInterruptible(TwitchApiException(429, null, message = "rate limited")))
         assertFalse(isLiveNotificationRetryInterruptible(TwitchApiException(500, 123L, message = "server error")))
         assertTrue(isLiveNotificationRetryInterruptible(TwitchApiException(500, null, message = "server error")))
+    }
+
+    @Test
+    fun staleRunnerCannotClaimAnImmediateWake() {
+        val wakeController = LiveNotificationWakeController()
+
+        assertFalse(wakeController.request(isRunnerActive = false, reason = "notification_users_changed"))
+        assertTrue(wakeController.signal.tryReceive().isFailure)
+    }
+
+    @Test
+    fun immediateWakeReasonsAreConflated() = runBlocking {
+        val wakeController = LiveNotificationWakeController()
+
+        assertTrue(wakeController.request(isRunnerActive = true, reason = "first"))
+        assertTrue(wakeController.request(isRunnerActive = true, reason = "latest"))
+        wakeController.signal.receive()
+        assertEquals("latest", wakeController.consumeReason())
+        assertTrue(wakeController.signal.tryReceive().isFailure)
     }
 }

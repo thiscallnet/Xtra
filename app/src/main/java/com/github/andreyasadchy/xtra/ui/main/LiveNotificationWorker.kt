@@ -22,23 +22,21 @@ class LiveNotificationWorker(
     override suspend fun doWork(): Result {
         val startedAt = System.currentTimeMillis()
         val startElapsed = SystemClock.elapsedRealtime()
-        val prefs = context.prefs()
-        prefs.edit {
-            putLong(C.LIVE_NOTIFICATION_LAST_RUN, startedAt)
-        }
-
         val baselineOnly = inputData.getBoolean(INPUT_BASELINE_ONLY, false)
 
         try {
-            val authMaintainer = (context.applicationContext as? XtraApp)?.xtraModule?.authSessionMaintainer
-            if (authMaintainer?.validateIfDue() == AuthSessionMaintenanceState.REAUTHORIZATION_REQUIRED) {
-                return Result.success()
-            }
             if (shouldSkipLiveNotificationWorker(
                     LiveNotificationScheduler.hasHealthyRealtimeOwner(context),
                 )
             ) {
                 Log.d(TAG, "Skipping fallback reconciliation because a realtime owner is healthy")
+                return Result.success()
+            }
+            context.prefs().edit {
+                putLong(C.LIVE_NOTIFICATION_LAST_RUN, startedAt)
+            }
+            val authMaintainer = (context.applicationContext as? XtraApp)?.xtraModule?.authSessionMaintainer
+            if (authMaintainer?.validateIfDue() == AuthSessionMaintenanceState.REAUTHORIZATION_REQUIRED) {
                 return Result.success()
             }
             val result = monitor.poll(baselineOnly = baselineOnly)

@@ -34,6 +34,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filter
 import okio.Buffer
 import okio.buffer
 import okio.source
@@ -80,6 +82,16 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         xtraModule = XtraModule(this)
         reconcilePendingAccountScopedState()
         xtraModule.authSessionMaintainer.start(applicationScope)
+        applicationScope.launch {
+            xtraModule.authSessionMaintainer.authenticationChangeGeneration
+                .filter { it > 0L }
+                .collect {
+                    LiveNotificationScheduler.requestImmediateReconciliation(
+                        this@XtraApp,
+                        reason = "authentication_changed",
+                    )
+                }
+        }
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 val wasInBackground = startedActivityCount == 0

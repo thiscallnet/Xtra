@@ -55,6 +55,20 @@ internal suspend fun awaitLiveNotificationRetry(
 internal fun isLiveNotificationRetryInterruptible(error: TwitchApiException): Boolean =
     error.statusCode != 429 && error.rateLimitResetEpochSeconds == null
 
+internal class LiveNotificationWakeController {
+    val signal = Channel<Unit>(Channel.CONFLATED)
+    private val pendingReason = AtomicReference<String?>(null)
+
+    fun request(isRunnerActive: Boolean, reason: String): Boolean {
+        if (!isRunnerActive) return false
+        pendingReason.set(reason)
+        signal.trySend(Unit)
+        return true
+    }
+
+    fun consumeReason(): String? = pendingReason.getAndSet(null)
+}
+
 /**
  * Shared Twitch monitoring runner used by Fast mode and Persistent real-time.
  * The owner controls Android process lifetime; this class owns EventSub,
@@ -70,11 +84,11 @@ class LiveNotificationRunner(
     private val xtraApp = applicationContext as XtraApp
     private val module = xtraApp.xtraModule
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val wakeSignal = Channel<Unit>(Channel.CONFLATED)
-    private val pendingWakeReason = AtomicReference<String?>(null)
+    private val wakeController = LiveNotificationWakeController()
     private val networkAvailable = AtomicBoolean(false)
     private val nextDelayMs = AtomicLong(PARTIAL_EVENTSUB_RECONCILE_INTERVAL_MS)
     private val eventSubStarted = AtomicBoolean(false)
+    private val networkCallbackRegistered = AtomicBoolean(false)
     private val monitor = LiveNotificationMonitor(applicationContext)
     private val eventSub = LiveNotificationEventSub(
         okHttpClient = module.okHttpClient,
@@ -106,7 +120,7 @@ class LiveNotificationRunner(
                 State.STOPPED -> return
                 State.RUNNING -> {
                     if (monitorJob?.isActive == true) {
-                        wakeSignal.trySend(Unit)
+                        wakeController.signal.trySend(Unit)
                         return
                     }
                     unregisterNetworkCallback()
@@ -131,7 +145,7 @@ class LiveNotificationRunner(
             monitorJob?.cancel()
             monitorJob = null
             eventSub.shutdown()
-            wakeSignal.close()
+            wakeController.signal.close()
             scope.cancel()
         }
     }
@@ -140,13 +154,30 @@ class LiveNotificationRunner(
         state == State.RUNNING && monitorJob?.isActive == true
     }
 
+    internal fun isHealthy(): Boolean = synchronized(lifecycleLock) {
+        liveNotificationOwnerIsHealthy(
+            runnerRunning = state == State.RUNNING && monitorJob?.isActive == true,
+            networkWakeAvailable = networkCallbackRegistered.get(),
+        )
+    }
+
     private suspend fun monitorLoop() {
         var notifyOwner = false
         var reconciliationReason = "startup"
         try {
             while (currentCoroutineContext().isActive && isMonitoringEnabled()) {
                 if (!networkAvailable.get()) {
-                    nextDelayMs.set(NETWORK_RETRY_INTERVAL_MS)
+                    if (!networkCallbackRegistered.get() && hasValidatedNetwork()) {
+                        networkAvailable.set(true)
+                        reconciliationReason = "network_recovered"
+                        continue
+                    }
+                    nextDelayMs.set(offlineLiveNotificationRetryDelayMs(
+                        cachedChannelCount = applicationContext.prefs()
+                            .getInt(C.LIVE_NOTIFICATION_CACHED_CHANNEL_COUNT, -1),
+                        networkWakeAvailable = networkCallbackRegistered.get(),
+                    )
+                    )
                     reconciliationReason = waitForNextPoll() ?: "network_retry"
                     continue
                 }
@@ -228,21 +259,17 @@ class LiveNotificationRunner(
                     } else {
                         coverage.copy(connected = false, suspended = true)
                     }
-                    nextDelayMs.set(
-                        applyHelixMinimumDelay(
-                            coverageDelayMs = reconcileIntervalMs(
-                                desiredChannelCount = coverage.desiredChannelCount,
-                                activeEventSubChannelCount = coverage.activeSubscriptionCount,
-                                eventSubConnected = coverage.connected,
-                                eventSubSuspended = coverage.suspended,
-                            ),
-                            helixMinimumDelayMs = helixMinimumDelayMs,
-                        )
-                    )
+                    nextDelayMs.set(nextReconciliationDelay(coverage, helixMinimumDelayMs))
                     if (BuildConfig.PERF_DIAGNOSTICS) {
+                        val coverageState = liveNotificationCoverageState(
+                            desiredChannelCount = coverage.desiredChannelCount,
+                            activeEventSubChannelCount = coverage.activeSubscriptionCount,
+                            eventSubConnected = coverage.connected,
+                            eventSubSuspended = coverage.suspended,
+                        )
                         Log.i(
                             TAG,
-                            "eventSub coverage desired=${coverage.desiredChannelCount} " +
+                            "eventSub state=$coverageState desired=${coverage.desiredChannelCount} " +
                                 "active=${coverage.activeSubscriptionCount} " +
                                 "connected=${coverage.connected} suspended=${coverage.suspended}",
                         )
@@ -251,8 +278,8 @@ class LiveNotificationRunner(
                     }
                 }
                 if (retryDelayMs != null) {
-                    awaitLiveNotificationRetry(retryDelayMs, retryDelayInterruptible, wakeSignal)
-                    reconciliationReason = pendingWakeReason.getAndSet(null) ?: "rate_limit_retry"
+                    awaitLiveNotificationRetry(retryDelayMs, retryDelayInterruptible, wakeController.signal)
+                    reconciliationReason = wakeController.consumeReason() ?: "rate_limit_retry"
                 } else {
                     reconciliationReason = waitForNextPoll()
                         ?: if (coverage.complete) "periodic_safety" else "periodic_partial_coverage"
@@ -281,15 +308,41 @@ class LiveNotificationRunner(
 
     private suspend fun waitForNextPoll(timeoutMs: Long = nextDelayMs.get()): String? {
         val woke = withTimeoutOrNull(timeoutMs) {
-            wakeSignal.receiveCatching()
+            wakeController.signal.receiveCatching()
             true
         } ?: false
-        return if (woke) pendingWakeReason.getAndSet(null) else null
+        return if (woke) wakeController.consumeReason() else null
     }
 
-    private fun requestImmediateReconciliation(reason: String) {
-        pendingWakeReason.set(reason)
-        wakeSignal.trySend(Unit)
+    internal fun requestImmediateReconciliation(reason: String): Boolean = synchronized(lifecycleLock) {
+        if (state != State.RUNNING || monitorJob?.isActive != true) {
+            false
+        } else {
+            wakeController.request(isRunnerActive = true, reason = reason)
+        }
+    }
+
+    private fun nextReconciliationDelay(
+        coverage: LiveEventSubCoverage,
+        helixMinimumDelayMs: Long?,
+    ): Long {
+        val coverageState = liveNotificationCoverageState(
+            desiredChannelCount = coverage.desiredChannelCount,
+            activeEventSubChannelCount = coverage.activeSubscriptionCount,
+            eventSubConnected = coverage.connected,
+            eventSubSuspended = coverage.suspended,
+        )
+        val coverageDelayMs = if (coverageState == LiveNotificationCoverageState.NO_CHANNELS) {
+            monitor.nextNotificationUserSyncDelayMs()
+        } else {
+            reconcileIntervalMs(
+                desiredChannelCount = coverage.desiredChannelCount,
+                activeEventSubChannelCount = coverage.activeSubscriptionCount,
+                eventSubConnected = coverage.connected,
+                eventSubSuspended = coverage.suspended,
+            )
+        }
+        return applyHelixMinimumDelay(coverageDelayMs, helixMinimumDelayMs)
     }
 
     private suspend fun ensureEventSubStarted() {
@@ -377,6 +430,7 @@ class LiveNotificationRunner(
             }
         }
         networkCallback = null
+        networkCallbackRegistered.set(false)
     }
 
     private fun registerNetworkCallback() {
@@ -414,7 +468,10 @@ class LiveNotificationRunner(
                     .build(),
                 networkCallback!!,
             )
+            networkCallbackRegistered.set(true)
         }.onFailure {
+            networkCallbackRegistered.set(false)
+            networkCallback = null
             Log.w(TAG, "Unable to register validated network callback", it)
         }
     }

@@ -23,6 +23,7 @@ import com.github.andreyasadchy.xtra.repository.MissingAuthenticationException
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
+import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -479,9 +480,9 @@ class PlayerViewModel(
                             _isFollowing.value = true
                             follow.value = Pair(true, null)
                             if (!disableNotifications) {
-                                notificationsRepository.saveUser(NotificationUser(channelId))
+                                saveNotificationUser(channelId)
                             } else {
-                                notificationsRepository.deleteUser(NotificationUser(channelId))
+                                deleteNotificationUser(channelId)
                             }
                             if (liveNotificationsEnabled) {
                                 startedAt.takeUnless { it.isNullOrBlank() }?.let {
@@ -497,7 +498,7 @@ class PlayerViewModel(
                         _isFollowing.value = true
                         follow.value = Pair(true, null)
                         if (!disableNotifications) {
-                            notificationsRepository.saveUser(NotificationUser(channelId))
+                            saveNotificationUser(channelId)
                         }
                         if (liveNotificationsEnabled) {
                             startedAt.takeUnless { it.isNullOrBlank() }?.let {
@@ -529,14 +530,14 @@ class PlayerViewModel(
                         } else {
                             _isFollowing.value = false
                             follow.value = Pair(false, null)
-                            notificationsRepository.deleteUser(NotificationUser(channelId))
+                            deleteNotificationUser(channelId)
                             streamFeedRefreshCoordinator.invalidateFollowedFeeds()
                         }
                     } else {
                         localChannelFollowsRepository.getById(channelId)?.let { localChannelFollowsRepository.delete(it) }
                         _isFollowing.value = false
                         follow.value = Pair(false, null)
-                        notificationsRepository.deleteUser(NotificationUser(channelId))
+                        deleteNotificationUser(channelId)
                     }
                 }
             } catch (e: CancellationException) {
@@ -546,6 +547,22 @@ class PlayerViewModel(
             } catch (e: Exception) {
             }
         }
+    }
+
+    private suspend fun saveNotificationUser(channelId: String) {
+        notificationsRepository.saveUser(NotificationUser(channelId))
+        LiveNotificationScheduler.requestImmediateReconciliation(
+            XtraApp.INSTANCE,
+            reason = "notification_users_changed",
+        )
+    }
+
+    private suspend fun deleteNotificationUser(channelId: String) {
+        notificationsRepository.deleteUser(NotificationUser(channelId))
+        LiveNotificationScheduler.requestImmediateReconciliation(
+            XtraApp.INSTANCE,
+            reason = "notification_users_changed",
+        )
     }
 
     companion object {
