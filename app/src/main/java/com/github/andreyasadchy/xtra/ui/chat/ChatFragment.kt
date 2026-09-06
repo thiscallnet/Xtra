@@ -975,6 +975,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                         )
                                         ChatUserClearReason.BAN -> getString(R.string.chat_moderation_ban)
                                         ChatUserClearReason.MESSAGES_CLEARED -> getString(R.string.chat_moderation_messages_cleared)
+                                        ChatUserClearReason.MESSAGE_DELETED -> "(${getString(R.string.chat_message_deleted)})"
                                     }
                                 },
                             ),

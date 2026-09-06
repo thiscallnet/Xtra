@@ -64,8 +64,10 @@ data class TwitchChatTransportConfig(
     val helixHeaders: Map<String, String> = emptyMap(),
     val networkLibrary: String? = null,
     val showUserNotices: Boolean = true,
+    /** Master toggle for single-message deletion notices and retained deleted rows. */
     val showClearMessages: Boolean = true,
     val showClearChat: Boolean = true,
+    /** Shared display policy for single deletions and user-level moderation clears. */
     val moderationDisplayMode: () -> ChatModerationDisplayMode = { ChatModerationDisplayMode.NOTICE },
     val joinedMessage: String? = null,
     val messageDeletedMessage: String? = null,
@@ -121,9 +123,10 @@ class TwitchChatTransport(
                 }
 
                 override suspend fun onClearMessage(message: ChatUtils.IRCMessage) {
-                    TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event ->
+                    TwitchChatEventParser.fromIrc(message, config.channelId)?.let { parsedEvent ->
+                        val event = applyDeletionDisplay(parsedEvent)
                         send(event)
-                        if (config.showClearMessages) {
+                        if (shouldShowDeletionNotice(event)) {
                             val eventKey = message.tags["target-msg-id"]
                                 ?: message.tags["tmi-sent-ts"]
                                 ?: System.nanoTime().toString()
@@ -225,9 +228,11 @@ class TwitchChatTransport(
                 }
 
                 override suspend fun onMessageDelete(event: org.json.JSONObject, timestamp: String?) {
-                    val deleteEvent = TwitchChatEventParser.fromEventSubClear(event, timestamp)
+                    val deleteEvent = applyDeletionDisplay(
+                        TwitchChatEventParser.fromEventSubClear(event, timestamp),
+                    )
                     flowScope.send(deleteEvent)
-                    if (config.showClearMessages) {
+                    if (shouldShowDeletionNotice(deleteEvent)) {
                         systemMessage(session, "delete-${deleteEvent.eventId ?: timestamp ?: System.nanoTime()}", config.messageDeletedMessage)?.let { flowScope.send(it) }
                     }
                 }
@@ -442,6 +447,7 @@ class TwitchChatTransport(
                     ChatUserClearReason.BAN -> config.chatBanMessage?.invoke(target)
                         ?: config.chatUserMessagesClearedMessage?.invoke(target)
                     ChatUserClearReason.MESSAGES_CLEARED -> config.chatUserMessagesClearedMessage?.invoke(target)
+                    ChatUserClearReason.MESSAGE_DELETED -> config.messageDeletedMessage
                 }
             }
             else -> null
@@ -461,6 +467,24 @@ class TwitchChatTransport(
         } else {
             event
         }
+
+    private fun applyDeletionDisplay(event: ChatEvent): ChatEvent =
+        if (event is ChatEvent.Delete) {
+            event.copy(
+                displayMode = if (config.showClearMessages) {
+                    config.moderationDisplayMode()
+                } else {
+                    ChatModerationDisplayMode.HIDE
+                },
+            )
+        } else {
+            event
+        }
+
+    private fun shouldShowDeletionNotice(event: ChatEvent): Boolean =
+        event is ChatEvent.Delete &&
+            config.showClearMessages &&
+            event.displayMode != ChatModerationDisplayMode.STRIKETHROUGH
 
     private fun systemMessage(
         session: ChatSessionKey,

@@ -38,6 +38,7 @@ data class ChatPresentationLabels(
                 "(${moderation.timeoutSeconds ?: 0}s Timeout)"
             ChatUserClearReason.BAN -> "(Ban)"
             ChatUserClearReason.MESSAGES_CLEARED -> "(Messages cleared)"
+            ChatUserClearReason.MESSAGE_DELETED -> "(Message deleted)"
         }
     },
     val announcement: String = "Announcement",

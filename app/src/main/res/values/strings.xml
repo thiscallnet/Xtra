@@ -485,12 +485,12 @@
     <string name="settings_chat_history_page">History</string>
     <string name="settings_chat_translation_page">Translation</string>
     <string name="settings_chat_visibility">Message visibility</string>
-    <string name="chat_moderation_display">Moderated message display</string>
-    <string name="chat_moderation_display_notice">Notice only</string>
+    <string name="chat_moderation_display">Deleted &amp; moderated messages</string>
+    <string name="chat_moderation_display_notice">Keep message + notice</string>
     <string name="chat_moderation_display_strikethrough">Strike-through message</string>
     <string name="chat_moderation_display_hide">Hide message</string>
     <string name="chat_moderation_display_preview_title">Preview</string>
-    <string name="chat_moderation_preview_summary">Preview after moderation clears a user\'s messages. IRC may include timeout or ban details.</string>
+    <string name="chat_moderation_preview_summary">Preview of the selected deleted and moderated message style.</string>
     <string name="settings_username_appearance">Username appearance</string>
     <string name="settings_7tv_appearance">7TV appearance</string>
     <string name="settings_chat_size">Chat size</string>

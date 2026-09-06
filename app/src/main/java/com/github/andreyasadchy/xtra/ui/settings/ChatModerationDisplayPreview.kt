@@ -67,11 +67,11 @@ class ChatModerationDisplayPreviewView @JvmOverloads constructor(
         when (mode) {
             ChatModerationDisplayMode.NOTICE -> {
                 addMessage(previewMessage())
-                addNotice(moderationNotice())
+                addNotice(deletedMessageNotice())
             }
             ChatModerationDisplayMode.STRIKETHROUGH -> {
                 val body = previewMessage()
-                val suffix = " ${context.getString(R.string.chat_moderation_messages_cleared)}"
+                val suffix = " (${deletedMessageNotice()})"
                 val text = SpannableString(body + suffix).apply {
                     setSpan(StrikethroughSpan(), 0, body.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     setSpan(ForegroundColorSpan(secondaryColor), 0, body.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -80,8 +80,8 @@ class ChatModerationDisplayPreviewView @JvmOverloads constructor(
                 addLine(text, secondary = false)
             }
             ChatModerationDisplayMode.HIDE -> {
+                addNotice(deletedMessageNotice())
                 addMessage(context.getString(R.string.chat_moderation_preview_new_message).let { "${previewUsername()}: $it" })
-                addNotice(moderationNotice())
             }
         }
         contentDescription = context.getString(R.string.chat_moderation_preview_summary)
@@ -97,10 +97,7 @@ class ChatModerationDisplayPreviewView @JvmOverloads constructor(
         R.string.chat_moderation_preview_message,
     ).let { "${previewUsername()}: $it" }
 
-    private fun moderationNotice(): String = context.getString(
-        R.string.chat_clear_user,
-        previewUsername(),
-    )
+    private fun deletedMessageNotice(): String = context.getString(R.string.chat_message_deleted)
 
     private fun addLine(value: CharSequence, secondary: Boolean) {
         addView(TextView(context).apply {

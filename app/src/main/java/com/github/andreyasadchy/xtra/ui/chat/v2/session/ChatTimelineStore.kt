@@ -5,6 +5,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModeration
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModerationDisplayMode
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
@@ -17,7 +18,11 @@ import kotlin.math.abs
 sealed interface TimelineOperation {
     data class Append(val items: List<ChatMessage>) : TimelineOperation
     data class Prepend(val items: List<ChatMessage>) : TimelineOperation
-    data class Delete(val id: ChatMessageId, val atMs: Long) : TimelineOperation
+    data class Delete(
+        val id: ChatMessageId,
+        val atMs: Long,
+        val displayMode: ChatModerationDisplayMode = ChatModerationDisplayMode.NOTICE,
+    ) : TimelineOperation
     data class ClearUser(
         val userId: String?,
         val userLogin: String?,
@@ -49,7 +54,7 @@ class ChatTimelineStore(
             val ids = HashSet<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId>(maxSize * 2)
             // These tombstones belong to the active generation. Replace(emptyList()) is the
             // processor's generation boundary and resets them before a new channel is accepted.
-            val deletedMessageIds = LinkedHashSet<ChatMessageId>(MODERATION_TOMBSTONE_LIMIT)
+            val deletedMessages = LinkedHashMap<ChatMessageId, ChatModerationDisplayMode>(MODERATION_TOMBSTONE_LIMIT)
             val clearedUsers = ArrayDeque<UserModeration>(MODERATION_TOMBSTONE_LIMIT)
             var globallyClearedAt: Long? = null
             for (operation in operations) {
@@ -63,19 +68,40 @@ class ChatTimelineStore(
                         continue
                     }
                     is TimelineOperation.Append -> operation.items.forEach { item ->
-                        if (isSuppressed(item, deletedMessageIds, clearedUsers, globallyClearedAt)) continue
+                        if (isSuppressed(item, deletedMessages, clearedUsers, globallyClearedAt)) continue
                         if (isDuplicateReward(item, items)) continue
-                        if (ids.add(item.id)) items.addLast(decorate(item, clearedUsers))
+                        if (ids.add(item.id)) items.addLast(decorate(item, deletedMessages, clearedUsers))
                     }
                     is TimelineOperation.Prepend -> operation.items.asReversed().forEach { item ->
-                        if (isSuppressed(item, deletedMessageIds, clearedUsers, globallyClearedAt)) continue
+                        if (isSuppressed(item, deletedMessages, clearedUsers, globallyClearedAt)) continue
                         if (isDuplicateReward(item, items)) continue
-                        if (ids.add(item.id)) items.addFirst(decorate(item, clearedUsers))
+                        if (ids.add(item.id)) items.addFirst(decorate(item, deletedMessages, clearedUsers))
                     }
                     is TimelineOperation.Delete -> {
-                        deletedMessageIds.add(operation.id)
-                        trimModerationTombstones(deletedMessageIds, clearedUsers)
-                        if (ids.remove(operation.id)) items.removeIf { it.id == operation.id }
+                        when (operation.displayMode) {
+                            // NOTICE leaves no tombstone: a message which was deleted before
+                            // recent-history reconciliation must still be rendered with its
+                            // notice when it eventually arrives.
+                            ChatModerationDisplayMode.NOTICE -> Unit
+                            ChatModerationDisplayMode.HIDE -> {
+                                deletedMessages[operation.id] = ChatModerationDisplayMode.HIDE
+                                if (ids.remove(operation.id)) items.removeIf { it.id == operation.id }
+                            }
+                            ChatModerationDisplayMode.STRIKETHROUGH -> {
+                                deletedMessages[operation.id] = ChatModerationDisplayMode.STRIKETHROUGH
+                                val deleted = ChatModeration(ChatUserClearReason.MESSAGE_DELETED)
+                                val decorated = items.map { item ->
+                                    if (item.id == operation.id && item.moderation == null) {
+                                        item.copy(moderation = deleted)
+                                    } else {
+                                        item
+                                    }
+                                }
+                                items.clear()
+                                items.addAll(decorated)
+                            }
+                        }
+                        trimModerationTombstones(deletedMessages, clearedUsers)
                     }
                     is TimelineOperation.ClearUser -> {
                         if (operation.userId == null && operation.userLogin == null) continue
@@ -89,7 +115,7 @@ class ChatTimelineStore(
                                 displayMode = operation.displayMode,
                             ),
                         )
-                        trimModerationTombstones(deletedMessageIds, clearedUsers)
+                        trimModerationTombstones(deletedMessages, clearedUsers)
                         when (operation.displayMode) {
                             ChatModerationDisplayMode.NOTICE -> Unit
                             ChatModerationDisplayMode.HIDE -> items.removeIf { item ->
@@ -119,15 +145,15 @@ class ChatTimelineStore(
                     }
                     is TimelineOperation.Replace -> {
                         items.clear(); ids.clear()
-                        deletedMessageIds.clear()
+                        deletedMessages.clear()
                         clearedUsers.clear()
                         globallyClearedAt = null
                         operation.items.takeLast(maxSize).forEach { if (ids.add(it.id)) items.addLast(it) }
                     }
                     is TimelineOperation.Reconcile -> {
                         val merged = (items.toList() + operation.recent.mapNotNull {
-                            if (isSuppressed(it, deletedMessageIds, clearedUsers, globallyClearedAt)) null
-                            else decorate(it, clearedUsers)
+                            if (isSuppressed(it, deletedMessages, clearedUsers, globallyClearedAt)) null
+                            else decorate(it, deletedMessages, clearedUsers)
                         })
                             .distinctBy { it.id }
                             .sortedBy { it.timestampMs }
@@ -146,19 +172,26 @@ class ChatTimelineStore(
 
     private fun isSuppressed(
         message: ChatMessage,
-        deletedMessageIds: Set<ChatMessageId>,
+        deletedMessages: Map<ChatMessageId, ChatModerationDisplayMode>,
         clearedUsers: Collection<UserModeration>,
         globallyClearedAt: Long?,
     ): Boolean {
-        if (message.id in deletedMessageIds) return true
+        if (deletedMessages[message.id] == ChatModerationDisplayMode.HIDE) return true
         if (globallyClearedAt?.let { message.timestampMs <= it } == true) return true
         return clearedUsers.any {
             it.displayMode == ChatModerationDisplayMode.HIDE && it.matches(message)
         }
     }
 
-    private fun decorate(message: ChatMessage, clearedUsers: Collection<UserModeration>): ChatMessage {
+    private fun decorate(
+        message: ChatMessage,
+        deletedMessages: Map<ChatMessageId, ChatModerationDisplayMode>,
+        clearedUsers: Collection<UserModeration>,
+    ): ChatMessage {
         if (message.moderation != null) return message
+        if (deletedMessages[message.id] == ChatModerationDisplayMode.STRIKETHROUGH) {
+            return message.copy(moderation = ChatModeration(ChatUserClearReason.MESSAGE_DELETED))
+        }
         val moderation = clearedUsers.asSequence()
             .filter { it.displayMode == ChatModerationDisplayMode.STRIKETHROUGH }
             .lastOrNull { it.matches(message) }
@@ -188,11 +221,11 @@ class ChatTimelineStore(
     }
 
     private fun trimModerationTombstones(
-        deletedMessageIds: LinkedHashSet<ChatMessageId>,
+        deletedMessages: LinkedHashMap<ChatMessageId, ChatModerationDisplayMode>,
         clearedUsers: ArrayDeque<UserModeration>,
     ) {
-        while (deletedMessageIds.size > MODERATION_TOMBSTONE_LIMIT) {
-            deletedMessageIds.remove(deletedMessageIds.first())
+        while (deletedMessages.size > MODERATION_TOMBSTONE_LIMIT) {
+            deletedMessages.remove(deletedMessages.entries.first().key)
         }
         while (clearedUsers.size > MODERATION_TOMBSTONE_LIMIT) clearedUsers.removeFirst()
     }
@@ -238,7 +271,13 @@ class ChatTimelineStore(
         when (event) {
             is ChatEvent.Message -> apply(TimelineOperation.Append(listOf(event.message)))
             is ChatEvent.Notice -> apply(TimelineOperation.Append(listOf(event.message)))
-            is ChatEvent.Delete -> apply(TimelineOperation.Delete(event.messageId, event.receivedAtMs))
+            is ChatEvent.Delete -> apply(
+                TimelineOperation.Delete(
+                    id = event.messageId,
+                    atMs = event.receivedAtMs,
+                    displayMode = event.displayMode,
+                ),
+            )
             // Notice-only moderation keeps the timeline unchanged. Other display modes are
             // applied here so append/reconcile and live events share the same user boundary.
             is ChatEvent.ClearUser -> apply(
