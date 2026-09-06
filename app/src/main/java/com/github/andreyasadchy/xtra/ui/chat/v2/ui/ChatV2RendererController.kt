@@ -24,7 +24,6 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLabels
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
-import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
 import com.github.andreyasadchy.xtra.ui.chat.ChatRenderStyle
 import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
@@ -65,7 +64,7 @@ internal fun countNewLiveMessages(
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatV2RendererController(
     private val recyclerView: RecyclerView,
-    private val manager: ChatSessionManager,
+    private val activeSessions: Flow<ActiveChatSession?>,
     private val assets: ChatAssetRepository,
     private val expectedChannelId: String,
     private val expectedChannelLogin: String,
@@ -169,7 +168,7 @@ class ChatV2RendererController(
                         if (!visible) {
                             emptyFlow()
                         } else {
-                            manager.active.flatMapLatest { active ->
+                            activeSessions.flatMapLatest { active ->
                                 if (active == null ||
                                     active.spec.channelId != expectedChannelId ||
                                     !active.spec.channelLogin.equals(expectedChannelLogin, ignoreCase = true)

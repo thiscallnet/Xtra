@@ -114,7 +114,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendationEngine
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendationState
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteUsageKeys
-import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -160,18 +160,6 @@ import java.util.zip.DeflaterOutputStream
 import java.util.zip.InflaterOutputStream
 import javax.net.ssl.X509TrustManager
 import kotlin.time.Instant
-
-internal fun shouldResumeLiveChat(
-    liveChatInitialized: Boolean,
-    chatReadJobActive: Boolean?,
-    channelLogin: String?,
-    autoReconnect: Boolean,
-): Boolean {
-    return liveChatInitialized &&
-            chatReadJobActive != true &&
-            channelLogin != null &&
-            autoReconnect
-}
 
 internal fun resolveCurrentLiveStreamId(currentStreamId: String?, initialStreamId: String?): String? =
     currentStreamId ?: initialStreamId
@@ -312,7 +300,6 @@ class ChatViewModel(
     private val emoteUsageRepository: EmoteUsageRepository,
     private val trustManager: Lazy<X509TrustManager>,
     private val json: Json,
-    private val chatSessionManager: ChatSessionManager,
 ) : ViewModel() {
 
     private val emoteRecommendationEngine = EmoteRecommendationEngine()
@@ -324,13 +311,31 @@ class ChatViewModel(
             }
         }
 
+    /**
+     * The player uses the process-owned manager, while each Multiview tile binds its own
+     * session flow here. All v2 catalog/reward/usage consumers must use this source so they
+     * cannot accidentally operate on another tile's active session.
+     */
+    private val boundV2SessionSource = MutableStateFlow<Flow<ActiveChatSession?>?>(null)
+    private val v2ActiveSession: StateFlow<ActiveChatSession?> = boundV2SessionSource
+        .flatMapLatest { source -> source ?: flowOf(null) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     private fun currentEmoteUsageViewerId(): String =
         EmoteUsageKeys.normalizeViewerId(applicationContext.tokenPrefs().getString(C.USER_ID, null))
+
+    fun bindV2SessionSource(source: Flow<ActiveChatSession?>) {
+        boundV2SessionSource.value = source
+    }
+
+    fun clearV2SessionSource() {
+        boundV2SessionSource.value = null
+    }
 
     init {
         applicationContext.tokenPrefs().registerOnSharedPreferenceChangeListener(emoteUsageViewerPreferenceListener)
         viewModelScope.launch {
-            chatSessionManager.active
+            v2ActiveSession
                 .flatMapLatest { active ->
                     active?.session?.communityGifts ?: flowOf<ChatCommunityGift>()
                 }
@@ -375,7 +380,7 @@ class ChatViewModel(
     ): Flow<PickerCatalog?> = if (!useV2) {
         flowOf(null)
     } else {
-        chatSessionManager.active.flatMapLatest { active ->
+        v2ActiveSession.flatMapLatest { active ->
             val session = active ?: return@flatMapLatest flowOf(null)
             if (!matchesV2PickerSession(session.spec, expectedChannelId, expectedChannelLogin)) {
                 flowOf(null)
@@ -399,7 +404,7 @@ class ChatViewModel(
         if (!useV2) {
             flowOf(null)
         } else {
-            chatSessionManager.active.flatMapLatest { active ->
+            v2ActiveSession.flatMapLatest { active ->
                 val session = active ?: return@flatMapLatest flowOf(null)
                 if (!matchesV2PickerSession(session.spec, expectedChannelId, expectedChannelLogin)) {
                     flowOf(null)
@@ -425,7 +430,7 @@ class ChatViewModel(
         expectedChannelId: String?,
         expectedChannelLogin: String?,
         useV2: Boolean = true,
-    ): Flow<ThirdPartyPickerState?> = if (!useV2) flowOf(null) else chatSessionManager.active.flatMapLatest { active ->
+    ): Flow<ThirdPartyPickerState?> = if (!useV2) flowOf(null) else v2ActiveSession.flatMapLatest { active ->
         val session = active ?: return@flatMapLatest flowOf(null)
         if (!matchesV2PickerSession(session.spec, expectedChannelId, expectedChannelLogin)) {
             flowOf(null)
@@ -600,7 +605,6 @@ class ChatViewModel(
     private var predictionSubscriptionSessionToken: Long? = null
     private var started = false
     private var liveChatReadOnly = false
-    private var liveChatInitialized = false
     private var activeChannelId: String? = null
     private var activeChannelLogin: String? = null
     // v2 owns the message transport and canonical timeline. This marker keeps
@@ -698,7 +702,7 @@ class ChatViewModel(
     private val pickerCatalogRevision = MutableStateFlow(0L)
     private val pickerCatalogUpdates: Flow<Unit> = merge(
         pickerCatalogRevision.map { Unit },
-        chatSessionManager.active.flatMapLatest { active ->
+        v2ActiveSession.flatMapLatest { active ->
             active?.catalog?.state?.map { Unit } ?: flowOf(Unit)
         },
     )
@@ -1084,19 +1088,15 @@ class ChatViewModel(
     }
 
     fun startLive(
-        networkLibrary: String?,
-        recentMessagesUrl: String?,
         channelId: String?,
         channelLogin: String?,
-        channelName: String?,
         streamId: String?,
         readOnly: Boolean = false,
-        useChatV2: Boolean = false,
     ) {
         activeChatMode = ActiveChatMode.Live
-        if (chatReadIRCSocket == null && chatReadWebSocket == null && eventSub == null && channelLogin != null) {
-            if (useChatV2 && channelId.isNullOrBlank()) return
-            if (useChatV2 && v2LiveChannelId == channelId && v2LiveChannelLogin == channelLogin && started) return
+        if (channelLogin != null) {
+            if (channelId.isNullOrBlank()) return
+            if (v2LiveChannelId == channelId && v2LiveChannelLogin == channelLogin && started) return
             messageLimit = 600
             this.streamId = streamId
             val useApiChatMessages = applicationContext.prefs().getBoolean(C.DEBUG_API_CHAT_MESSAGES, true)
@@ -1104,29 +1104,11 @@ class ChatViewModel(
                 channelId,
                 channelLogin,
                 readOnly = readOnly,
-                startMessageTransport = !useChatV2,
-                startWriteTransport = !useChatV2 || !useApiChatMessages,
-                useChatV2 = useChatV2,
+                startWriteTransport = !useApiChatMessages,
             )
-            val isLoggedIn = !applicationContext.tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
-                    (!TwitchApiHelper.getGQLHeaders(applicationContext, true)[C.HEADER_TOKEN].isNullOrBlank() ||
-                            !TwitchApiHelper.getHelixHeaders(applicationContext)[C.HEADER_TOKEN].isNullOrBlank())
-            if (isLoggedIn && !useChatV2) {
-                // The v2 catalog owns Twitch user emotes as well as third-party emotes. The
-                // legacy path still loads them through its existing picker pipeline.
-                loadUserEmotes(channelId)
-            }
-            if (useChatV2) {
-                v2LiveChannelId = channelId
-                v2LiveChannelLogin = channelLogin
-                markPickerCatalogChanged()
-            } else {
-                addChatter(channelName)
-                loadEmotes(channelId, channelLogin)
-                if (applicationContext.prefs().getBoolean(C.CHAT_RECENT, true)) {
-                    loadRecentMessages(networkLibrary, recentMessagesUrl, channelLogin)
-                }
-            }
+            v2LiveChannelId = channelId
+            v2LiveChannelLogin = channelLogin
+            markPickerCatalogChanged()
         }
     }
 
@@ -1145,19 +1127,25 @@ class ChatViewModel(
 
     fun resumeLive(channelId: String?, channelLogin: String?) {
         val login = channelLogin ?: return
-        if (v2LiveChannelId == channelId && v2LiveChannelLogin == login) return
-        if (shouldResumeLiveChat(liveChatInitialized, chatReadJob?.isActive, login, autoReconnect)) {
-            startLiveChat(channelId, login, readOnly = liveChatReadOnly)
-        }
+        startLive(
+            channelId = channelId,
+            channelLogin = login,
+            streamId = streamId,
+            readOnly = liveChatReadOnly,
+        )
     }
 
     fun retryLiveChat() {
-        if (v2LiveChannelId != null) return
         val channelId = activeChannelId
         val channelLogin = activeChannelLogin
         if (!channelLogin.isNullOrBlank()) {
             autoReconnect = true
-            startLiveChat(channelId, channelLogin, readOnly = liveChatReadOnly)
+            startLive(
+                channelId = channelId,
+                channelLogin = channelLogin,
+                streamId = streamId,
+                readOnly = liveChatReadOnly,
+            )
         }
     }
 
@@ -2965,7 +2953,7 @@ class ChatViewModel(
     }
 
     private fun currentV2PickerCatalog(): PickerCatalog? {
-        val session = chatSessionManager.active.value ?: return null
+        val session = v2ActiveSession.value ?: return null
         if (v2LiveChannelId != session.spec.channelId ||
             !v2LiveChannelLogin.equals(session.spec.channelLogin, ignoreCase = true)
         ) return null
@@ -3088,15 +3076,12 @@ class ChatViewModel(
         return true
     }
 
-    fun startLiveChat(
+    private fun startLiveChat(
         channelId: String?,
         channelLogin: String,
         readOnly: Boolean = liveChatReadOnly,
-        startMessageTransport: Boolean = true,
-        startWriteTransport: Boolean = startMessageTransport,
-        useChatV2: Boolean = false,
+        startWriteTransport: Boolean = true,
     ) {
-        liveChatInitialized = true
         val channelChanged = activeChannelId != channelId ||
                 !activeChannelLogin.equals(channelLogin, ignoreCase = true)
         stopLiveChat()
@@ -3149,12 +3134,8 @@ class ChatViewModel(
         loggedInUserLogin = accountLogin
         val isLoggedIn = !accountLogin.isNullOrBlank() && (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank())
         val usePubSub = true
-        val showUserNotice = applicationContext.prefs().getBoolean(C.CHAT_SHOW_USER_NOTICE, true)
-        val showClearMsg = applicationContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_MSG, true)
-        val showClearChat = applicationContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_CHAT, true)
         val showPolls = applicationContext.prefs().getBoolean(C.CHAT_POLLS_SHOW, true)
         val showPredictions = applicationContext.prefs().getBoolean(C.CHAT_PREDICTIONS_SHOW, true)
-        val nameDisplay = applicationContext.prefs().getString(C.UI_NAME_DISPLAY, "0")
         val useApiChatMessages = applicationContext.prefs().getBoolean(C.DEBUG_API_CHAT_MESSAGES, true)
         val showWebSocketDebugInfo = applicationContext.prefs().getBoolean(C.DEBUG_WEBSOCKET_INFO, false)
         val isOwnChannel = !channelId.isNullOrBlank() && channelId == accountId
@@ -3205,23 +3186,12 @@ class ChatViewModel(
         }
         val gqlToken = gqlHeaders[C.HEADER_TOKEN]?.removePrefix("OAuth ")
         val helixToken = helixHeaders[C.HEADER_TOKEN]?.removePrefix("Bearer ")
-        val useEventSubChat = applicationContext.prefs().getBoolean(C.DEBUG_EVENT_SUB_CHAT, false) &&
-                !helixHeaders[C.HEADER_TOKEN].isNullOrBlank()
-        if (startMessageTransport) {
-            if (useEventSubChat) {
-                eventSub = EventSubWebSocket(trustManager, EventSubListener(helixHeaders, gqlHeaders, channelLogin, showUserNotice, showClearChat, usePubSub, networkLibrary, isLoggedIn, accountId, channelId))
-                chatReadJob = eventSub?.connect(viewModelScope)
-            } else {
-                chatReadWebSocket = ChatReadWebSocket(channelLogin, trustManager, ChatReadListener(channelLogin, nameDisplay, showUserNotice, showClearMsg, showClearChat, usePubSub, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId))
-                chatReadJob = chatReadWebSocket?.connect(viewModelScope)
-            }
-        }
         if (shouldStartLegacyChatWriteTransport(
-                startMessageTransport = startMessageTransport,
+                startMessageTransport = false,
                 startWriteTransport = startWriteTransport,
                 readOnly = readOnly,
                 isLoggedIn = isLoggedIn,
-                useEventSubChat = useEventSubChat,
+                useEventSubChat = false,
                 hasGqlToken = !gqlToken.isNullOrBlank(),
                 hasHelixToken = !helixHeaders[C.HEADER_TOKEN].isNullOrBlank(),
                 useApiChatMessages = useApiChatMessages,
@@ -3271,33 +3241,6 @@ class ChatViewModel(
             }
             if (showPredictions) {
                 loadLatestPrediction(networkLibrary, helixHeaders, channelId)
-            }
-        }
-        val showNamePaints = applicationContext.prefs().getBoolean(C.CHAT_SHOW_PAINTS, true)
-        val showSTVBadges = applicationContext.prefs().getBoolean(C.CHAT_SHOW_STV_BADGES, true)
-        val showPersonalEmotes = applicationContext.prefs().getBoolean(C.CHAT_SHOW_PERSONAL_EMOTES, true)
-        val stvLiveUpdates = true
-        if (!useChatV2 && (showNamePaints || showSTVBadges || showPersonalEmotes || stvLiveUpdates) && !channelId.isNullOrBlank()) {
-            val useWebp = true
-            stvEventApi = STVEventApiWebSocket(
-                channelId = channelId,
-                trustManager = trustManager,
-                listener = STVEventApiListener(useWebp, showNamePaints, showSTVBadges, showPersonalEmotes, stvLiveUpdates, networkLibrary, isLoggedIn, accountId, channelId, showWebSocketDebugInfo)
-            )
-            stvEventApiJob = stvEventApi?.connect(viewModelScope)
-            if (isLoggedIn && !accountId.isNullOrBlank()) {
-                viewModelScope.launch {
-                    try {
-                        stvUserId = playerRepository.getSTVUser(networkLibrary, accountId).takeIf { !it.isNullOrBlank() }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-
-                    }
-                }
-                if (showPersonalEmotes) {
-                    hydratePersonalSevenTvEmotes(networkLibrary, accountId)
-                }
             }
         }
     }
@@ -4575,11 +4518,6 @@ class ChatViewModel(
         override suspend fun onRewardMessage(message: JSONObject) {
             val chatMessage = PubSubUtils.parseRewardMessage(message)
             forwardLegacyRewardToV2(chatMessage, channelId)
-            if (!chatMessage.message.isNullOrBlank()) {
-                onRewardMessage(chatMessage, networkLibrary, isLoggedIn, accountId, channelId)
-            } else {
-                onChatMessage(chatMessage, networkLibrary, isLoggedIn, accountId, channelId)
-            }
         }
 
         override suspend fun onPointsEarned(message: JSONObject) {
@@ -5135,7 +5073,7 @@ class ChatViewModel(
     /** The legacy player keeps Hermes for polls/predictions/raids; v2 receives its reward events. */
     private suspend fun forwardLegacyRewardToV2(message: ChatMessage, channelId: String?) {
         val targetChannelId = channelId ?: return
-        val active = chatSessionManager.active.value ?: return
+        val active = v2ActiveSession.value ?: return
         if (!active.spec.legacySupplementalSockets || active.spec.channelId != targetChannelId) return
         try {
             active.session.submit(
@@ -5512,7 +5450,7 @@ class ChatViewModel(
     ) {
         val usageViewerId = accountId?.trim()?.takeIf(String::isNotEmpty)
             ?: applicationContext.tokenPrefs().getString(C.USER_ID, null)?.trim()?.takeIf(String::isNotEmpty)
-        val usageSnapshot = chatSessionManager.active.value
+        val usageSnapshot = v2ActiveSession.value
             ?.takeIf { it.spec.channelId == channelId }
             ?.catalog
             ?.state
@@ -5594,7 +5532,7 @@ class ChatViewModel(
         snapshot: ChatCatalogSnapshot?,
     ) {
         val normalizedViewerId = viewerId?.trim()?.takeIf(String::isNotEmpty) ?: return
-        val active = chatSessionManager.active.value ?: return
+        val active = v2ActiveSession.value ?: return
         val targetChannelId = channelId?.takeIf { it == active.spec.channelId } ?: return
         val usageSnapshot = snapshot ?: return
         val increments = emoteRecommendationEngine.usageInMessage(
@@ -6313,22 +6251,16 @@ class ChatViewModel(
     fun returnToLiveChat(
         channelId: String?,
         channelLogin: String?,
-        channelName: String?,
         streamId: String?,
-        useChatV2: Boolean = false,
     ) {
         activeChatMode = ActiveChatMode.Live
         stopReplayChat()
         clearChatMessages()
         startLive(
-            networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-            recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
             channelId = channelId,
             channelLogin = channelLogin,
-            channelName = channelName,
             streamId = streamId,
             readOnly = liveChatReadOnly,
-            useChatV2 = useChatV2,
         )
     }
 
@@ -7062,7 +6994,7 @@ class ChatViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                ChatViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.dropsRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.emoteUsageRepository, xtraModule.trustManager, xtraModule.json, xtraModule.chatSessionManager)
+                ChatViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.dropsRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.emoteUsageRepository, xtraModule.trustManager, xtraModule.json)
             }
         }
     }

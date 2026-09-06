@@ -26,7 +26,8 @@ import com.github.andreyasadchy.xtra.databinding.CombinedChatListItemBinding
 import com.github.andreyasadchy.xtra.databinding.FragmentCombinedChatBinding
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage as LegacyChatMessage
 import com.github.andreyasadchy.xtra.model.ui.Stream
-import com.github.andreyasadchy.xtra.ui.chat.ChatAdapter
+import com.github.andreyasadchy.xtra.ui.chat.ChatAdapterConfiguration
+import com.github.andreyasadchy.xtra.ui.chat.ChatInteractionAdapterFactory
 import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
 import com.github.andreyasadchy.xtra.ui.chat.ImageClickedDialog
@@ -75,7 +76,7 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
     private lateinit var adapter: CombinedChatAdapter
     private var filterIdentity: String? = null
     private var currentStreams: List<Stream> = emptyList()
-    private var interactionAdapter: ChatAdapter? = null
+    private var interactionAdapter: ChatInteractionAdapterFactory? = null
     private var interactionIdentity: String? = null
     private var selectedV2Message: V2ChatMessage? = null
     private var languageIdentifier: LanguageIdentifier? = null
@@ -255,7 +256,7 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
         }
     }
 
-    fun openReplyInteraction(chatAdapter: ChatAdapter) {
+    internal fun openReplyInteraction(chatAdapter: ChatInteractionAdapterFactory) {
         interactionAdapter = chatAdapter
         if (childFragmentManager.findFragmentByTag(COMBINED_REPLY_DIALOG_TAG) == null) {
             ReplyClickedDialog.newInstance(false)
@@ -480,7 +481,7 @@ private class CombinedChatAdapter(
         if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
     }
 
-    fun createInteractionAdapter(identity: String, messages: List<V2ChatMessage>): ChatAdapter? {
+    fun createInteractionAdapter(identity: String, messages: List<V2ChatMessage>): ChatInteractionAdapterFactory? {
         val renderer = renderer(identity) ?: return null
         return renderer.createInteractionAdapter(messages.map(renderer::toLegacy))
     }
@@ -725,13 +726,12 @@ private class CombinedChatAdapter(
             }
         }
 
-        fun createInteractionAdapter(initialMessages: List<LegacyChatMessage>): ChatAdapter {
+        fun createInteractionAdapter(initialMessages: List<LegacyChatMessage>): ChatInteractionAdapterFactory {
             val size = context.resources.displayMetrics.density
             val isLightTheme = context.obtainStyledAttributes(intArrayOf(androidx.appcompat.R.attr.isLightTheme)).let { attributes ->
                 try { attributes.getBoolean(0, false) } finally { attributes.recycle() }
             }
-            return ChatAdapter(
-                initialMessages = initialMessages,
+            return ChatInteractionAdapterFactory(ChatAdapterConfiguration(
                 localTwitchEmotes = emptyList(),
                 thirdPartyEmotes = emptyList(),
                 globalBadges = emptyList(),
@@ -780,7 +780,7 @@ private class CombinedChatAdapter(
                     fragment.openImageInteraction(url, name, format, animated, source, thirdParty, emoteId)
                 },
                 profilePopoutGesture = profileGesture,
-            )
+            ), initialMessages)
         }
     }
 
