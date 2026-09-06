@@ -72,7 +72,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 @OptIn(UnstableApi::class)
-class Media3Fragment : Media3PlayerFragment() {
+class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private val player: MediaController?
@@ -1198,6 +1198,43 @@ class Media3Fragment : Media3PlayerFragment() {
                         }.show()
                     }
                 }
+            }, ContextCompat.getMainExecutor(requireContext()))
+        }
+    }
+
+    override fun showVideoInfoDialog() {
+        if (childFragmentManager.isStateSaved ||
+            childFragmentManager.findFragmentByTag("videoInfo") != null
+        ) {
+            return
+        }
+        VideoInfoDialogFragment().show(childFragmentManager, "videoInfo")
+    }
+
+    override fun requestVideoInfo(
+        onInfo: (PlaybackVideoInfo, PlaybackVideoViewMetrics) -> Unit,
+    ) {
+        val currentPlayer = player ?: return
+        currentPlayer.sendCustomCommand(
+            SessionCommand(PlaybackService.GET_VIDEO_INFO, Bundle.EMPTY),
+            Bundle.EMPTY,
+        ).let { result ->
+            result.addListener({
+                val sessionResult = runCatching { result.get() }.getOrNull()
+                if (!isAdded || view == null ||
+                    !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
+                    sessionResult?.resultCode != SessionResult.RESULT_SUCCESS
+                ) {
+                    return@addListener
+                }
+                onInfo(
+                    PlaybackVideoInfo.fromBundle(sessionResult.extras),
+                    PlaybackVideoViewMetrics(
+                        viewportWidth = binding.playerSurface.width.takeIf { it > 0 },
+                        viewportHeight = binding.playerSurface.height.takeIf { it > 0 },
+                        renderSurface = "SurfaceView",
+                    ),
+                )
             }, ContextCompat.getMainExecutor(requireContext()))
         }
     }

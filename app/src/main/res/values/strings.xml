@@ -858,6 +858,7 @@
     <string name="volume">Volume</string>
     <string name="aspect_ratio">Aspect ratio</string>
     <string name="player_menu">Player menu</string>
+    <string name="video_info" translatable="false">Video info</string>
     <string name="restart_player">Restart player</string>
     <string name="sub_only_summary">For sub-only content</string>
     <string name="follow_button">Follow button</string>

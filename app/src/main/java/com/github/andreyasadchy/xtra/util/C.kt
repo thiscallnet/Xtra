@@ -198,6 +198,7 @@ object C {
     const val PLAYER_MENU_CHAT_DISCONNECT = "player_menu_chat_disconnect"
     const val PLAYER_MENU_RESTART = "player_menu_restart"
     const val PLAYER_MENU_RELOAD_EMOTES = "player_menu_reload_emotes"
+    const val PLAYER_MENU_VIDEO_INFO = "player_menu_video_info"
     const val PLAYER_USE_VIDEO_POSITIONS = "player_use_videopositions"
     const val PLAYER_DEFAULT_QUALITY = "player_defaultquality"
     const val PLAYER_DEFAULT_CELLULAR_QUALITY = "player_default_cellular_quality"

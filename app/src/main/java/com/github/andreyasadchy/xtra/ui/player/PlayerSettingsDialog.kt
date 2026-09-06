@@ -142,6 +142,16 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 (parentFragment as? Media3PlayerFragment)?.setQualityText() ?:
                 (parentFragment as? PlayerFragment)?.setQualityText()
             }
+            val videoInfoParent = parentFragment as? PlaybackVideoInfoHost
+            if (videoInfoParent != null &&
+                requireContext().prefs().getBoolean(C.PLAYER_MENU_VIDEO_INFO, false)
+            ) {
+                menuVideoInfo.visibility = View.VISIBLE
+                menuVideoInfo.setOnClickListener {
+                    videoInfoParent.showVideoInfoDialog()
+                    dismiss()
+                }
+            }
             if (type == BasePlaybackService.STREAM) {
                 val media3Parent = parentFragment as? Media3PlayerFragment
                 if (media3Parent != null) {
@@ -392,6 +402,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                     "chat" to menuChatToggle,
                     "reload_emotes" to menuReloadEmotes,
                     "disconnect_chat" to menuChatDisconnect,
+                    "video_info" to menuVideoInfo,
                 ),
             )
         }

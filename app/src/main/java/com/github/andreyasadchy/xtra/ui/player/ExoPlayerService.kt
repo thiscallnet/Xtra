@@ -52,7 +52,9 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
@@ -60,6 +62,8 @@ import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParserFactory
 import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.ParsingLoadable
@@ -164,6 +168,7 @@ class ExoPlayerService : BasePlaybackService() {
     private var liveClipPreparation: Deferred<ClipPreparationRepository.PreparedLiveClip>? = null
     private var vodClipSnapshot: ClipSnapshot? = null
     private var vodClipPreparation: Deferred<ClipPreparationRepository.PreparedLiveClip>? = null
+    private val diagnostics = PlaybackVideoDiagnosticsStore()
 
     private data class PlaybackSourceSnapshot(
         val sourceUrl: String,
@@ -180,6 +185,9 @@ class ExoPlayerService : BasePlaybackService() {
     override fun isViewingPlaybackPlaying(): Boolean = player?.isPlaying == true
 
     override fun isViewingPlaybackBuffering(): Boolean = player?.playbackState == Player.STATE_BUFFERING
+
+    fun videoDiagnosticsSnapshot(): PlaybackVideoInfo =
+        player?.let(diagnostics::snapshot) ?: diagnostics.snapshot()
 
     val vaftActive: Boolean
         get() = type == STREAM && prefs().shouldAvoidTwitchAds() && (playingAds || usingAlternateStream || hidden)
@@ -220,6 +228,21 @@ class ExoPlayerService : BasePlaybackService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    diagnostics.resetForNewMedia()
+                    if (mediaItem != null) {
+                        diagnostics.update {
+                            it.copy(
+                                contentProtocol = when (type) {
+                                    STREAM, VIDEO -> "HLS"
+                                    CLIP -> "Progressive"
+                                    else -> null
+                                },
+                                isLiveContent = type == STREAM,
+                                lowLatencyRequested = type == STREAM &&
+                                    prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+                            )
+                        }
+                    }
                     updatePlaybackState()
                     updateMetadata()
                 }
@@ -637,6 +660,93 @@ class ExoPlayerService : BasePlaybackService() {
             }.build()
             this.player = player
             player.addListener(playerListener)
+            player.addAnalyticsListener(object : AnalyticsListener {
+                override fun onVideoDecoderInitialized(
+                    eventTime: AnalyticsListener.EventTime,
+                    decoderName: String,
+                    initializedTimestampMs: Long,
+                    initializationDurationMs: Long,
+                ) {
+                    val classification = classifyVideoDecoder(decoderName)
+                    diagnostics.update {
+                        it.copy(
+                            videoDecoderName = decoderName,
+                            videoDecoderHardwareAccelerated = classification.hardwareAccelerated,
+                        )
+                    }
+                }
+
+                override fun onDroppedVideoFrames(
+                    eventTime: AnalyticsListener.EventTime,
+                    droppedFrames: Int,
+                    elapsedMs: Long,
+                ) {
+                    diagnostics.recordDroppedVideoFrames(droppedFrames)
+                }
+
+                override fun onDownstreamFormatChanged(
+                    eventTime: AnalyticsListener.EventTime,
+                    mediaLoadData: MediaLoadData,
+                ) {
+                    val format = mediaLoadData.trackFormat ?: return
+                    when (mediaLoadData.trackType) {
+                        androidx.media3.common.C.TRACK_TYPE_VIDEO -> diagnostics.update {
+                            it.copy(
+                                selectedVideoWidth = format.width.takeIf { value -> value > 0 },
+                                selectedVideoHeight = format.height.takeIf { value -> value > 0 },
+                                videoFrameRate = format.frameRate.takeIf { value -> value > 0f },
+                                videoBitrate = firstPositiveBitrate(
+                                    format.averageBitrate,
+                                    format.peakBitrate,
+                                    format.bitrate,
+                                ),
+                                videoCodec = format.codecs,
+                                videoMimeType = format.sampleMimeType,
+                            )
+                        }
+                        androidx.media3.common.C.TRACK_TYPE_AUDIO -> diagnostics.update {
+                            it.copy(
+                                audioCodec = format.codecs,
+                                audioMimeType = format.sampleMimeType,
+                            )
+                        }
+                    }
+                }
+
+                override fun onBandwidthEstimate(
+                    eventTime: AnalyticsListener.EventTime,
+                    totalLoadTimeMs: Int,
+                    totalBytesLoaded: Long,
+                    bitrateEstimate: Long,
+                ) {
+                    diagnostics.update {
+                        it.copy(
+                            bandwidthEstimateBitsPerSecond = bitrateEstimate.takeIf { value -> value > 0L },
+                        )
+                    }
+                }
+
+                override fun onLoadCompleted(
+                    eventTime: AnalyticsListener.EventTime,
+                    loadEventInfo: LoadEventInfo,
+                    mediaLoadData: MediaLoadData,
+                ) {
+                    diagnostics.recordLoad(mediaLoadData.dataType, loadEventInfo.bytesLoaded)
+                }
+
+                override fun onAudioInputFormatChanged(
+                    eventTime: AnalyticsListener.EventTime,
+                    format: Format,
+                    decoderReuseEvaluation: DecoderReuseEvaluation?,
+                ) {
+                    diagnostics.update {
+                        it.copy(
+                            audioCodec = format.codecs,
+                            audioMimeType = format.sampleMimeType,
+                        )
+                    }
+                }
+            })
             val session = MediaSession(this, "ExoPlayerService")
             this.session = session
             session.setCallback(sessionCallback)

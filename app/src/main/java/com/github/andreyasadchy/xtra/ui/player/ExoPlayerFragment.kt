@@ -59,7 +59,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 @OptIn(UnstableApi::class)
-class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
+class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, PlaybackVideoInfoHost {
 
     override val supportsLiveClipping = true
     override val supportsLiveCaptions = true
@@ -557,6 +557,31 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host {
 
     override fun requestLiveClipStatus() {
         refreshClipAvailability()
+    }
+
+    override fun showVideoInfoDialog() {
+        if (childFragmentManager.isStateSaved ||
+            childFragmentManager.findFragmentByTag("videoInfo") != null
+        ) {
+            return
+        }
+        VideoInfoDialogFragment().show(childFragmentManager, "videoInfo")
+    }
+
+    override fun requestVideoInfo(
+        onInfo: (PlaybackVideoInfo, PlaybackVideoViewMetrics) -> Unit,
+    ) {
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+        val service = playbackService ?: return
+        if (service.player == null) return
+        onInfo(
+            service.videoDiagnosticsSnapshot(),
+            PlaybackVideoViewMetrics(
+                viewportWidth = binding.playerSurface.width.takeIf { it > 0 },
+                viewportHeight = binding.playerSurface.height.takeIf { it > 0 },
+                renderSurface = "SurfaceView",
+            ),
+        )
     }
 
     override fun createVodClipPreviewMediaSource(uri: String): MediaSource =
