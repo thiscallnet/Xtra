@@ -77,6 +77,7 @@ internal class HappeningNowView @JvmOverloads constructor(
         state: RenderState,
         onOpenChannelPoints: () -> Unit,
         onOpenHistoricalPrediction: (Prediction) -> Unit,
+        onOpenGiftProfile: (HappeningNowGift) -> Unit,
         onDismiss: (String) -> Unit,
     ) {
         cards.removeAllViews()
@@ -90,7 +91,7 @@ internal class HappeningNowView @JvmOverloads constructor(
         state.gift?.let { gift ->
             val key = HappeningNowKeys.gift(gift.stableId)
             if (key !in state.dismissedIds) {
-                addGiftCard(gift)
+                addGiftCard(gift, onOpenGiftProfile)
                 visibleKeys += key
             }
         }
@@ -213,12 +214,21 @@ internal class HappeningNowView @JvmOverloads constructor(
         )
     }
 
-    private fun addGiftCard(gift: HappeningNowGift) {
+    private fun addGiftCard(
+        gift: HappeningNowGift,
+        onOpenGiftProfile: (HappeningNowGift) -> Unit,
+    ) {
         val view = inflater.inflate(
             R.layout.view_happening_now_gift_card,
             cards,
             false,
         )
+
+        // Keep the overlay in the touch hierarchy even when the gift is anonymous.
+        // Otherwise a tap can fall through to the chat row underneath it.
+        view.setOnClickListener {
+            onOpenGiftProfile(gift)
+        }
 
         val giftText = view.findViewById<TextView>(R.id.happeningGiftText)
         val giftCount = view.findViewById<TextView>(R.id.happeningGiftCount)

@@ -20,6 +20,8 @@ class HappeningNowGiftParserTest {
                 {
                   "notice_type":"community_sub_gift",
                   "community_sub_gift":{"id":"abc","total":5},
+                  "chatter_user_id":"123",
+                  "chatter_user_login":"merc_unleashed",
                   "chatter_user_name":"MeRc_UnLeAsHeD"
                 }
                 """.trimIndent(),
@@ -32,6 +34,8 @@ class HappeningNowGiftParserTest {
         assertEquals("abc", gift?.stableId)
         assertEquals(5, gift?.count)
         assertEquals("MeRc_UnLeAsHeD", gift?.gifterDisplayName)
+        assertEquals("123", gift?.gifterUserId)
+        assertEquals("merc_unleashed", gift?.gifterLogin)
         assertEquals(123L, gift?.occurredAt)
     }
 
@@ -44,6 +48,8 @@ class HappeningNowGiftParserTest {
                   "notice_type":"community_sub_gift",
                   "community_sub_gift":{"id":"abc","total":5},
                   "chatter_is_anonymous":true,
+                  "chatter_user_id":"123",
+                  "chatter_user_login":"ignored_login",
                   "chatter_user_name":"ignored"
                 }
                 """.trimIndent(),
@@ -53,6 +59,8 @@ class HappeningNowGiftParserTest {
 
         assertTrue(gift?.isAnonymous == true)
         assertNull(gift?.gifterDisplayName)
+        assertNull(gift?.gifterUserId)
+        assertNull(gift?.gifterLogin)
     }
 
     @Test
@@ -63,6 +71,8 @@ class HappeningNowGiftParserTest {
                 {
                   "notice_type":"shared_chat_community_sub_gift",
                   "shared_chat_community_sub_gift":{"id":"shared-abc","total":5},
+                  "chatter_user_id":"123",
+                  "chatter_user_login":"merc_unleashed",
                   "chatter_user_name":"MeRc_UnLeAsHeD"
                 }
                 """.trimIndent(),
@@ -75,6 +85,8 @@ class HappeningNowGiftParserTest {
         assertEquals("shared-abc", gift?.stableId)
         assertEquals(5, gift?.count)
         assertEquals("MeRc_UnLeAsHeD", gift?.gifterDisplayName)
+        assertEquals("123", gift?.gifterUserId)
+        assertEquals("merc_unleashed", gift?.gifterLogin)
         assertEquals(123L, gift?.occurredAt)
     }
 
@@ -98,7 +110,7 @@ class HappeningNowGiftParserTest {
     @Test
     fun `irc community gift uses mass gift count`() {
         val message = ChatUtils.parseIRCMessage(
-            "@display-name=MeRc_UnLeAsHeD;id=gift-id;login=merc_unleashed;msg-id=submysterygift;msg-param-mass-gift-count=5;tmi-sent-ts=1700000000000 :user!user@tmi.twitch.tv USERNOTICE #channel :gift",
+            "@display-name=MeRc_UnLeAsHeD;id=gift-id;login=merc_unleashed;user-id=123;msg-id=submysterygift;msg-param-mass-gift-count=5;tmi-sent-ts=1700000000000 :user!user@tmi.twitch.tv USERNOTICE #channel :gift",
         )
 
         val gift = HappeningNowGiftParser.fromIrc(message)
@@ -106,6 +118,8 @@ class HappeningNowGiftParserTest {
         assertNotNull(gift)
         assertEquals(5, gift?.count)
         assertEquals("gift-id", gift?.stableId)
+        assertEquals("123", gift?.gifterUserId)
+        assertEquals("merc_unleashed", gift?.gifterLogin)
     }
 
     @Test

@@ -333,6 +333,8 @@ class TwitchChatTransport(
             stableId = stableId,
             occurredAt = occurredAt,
             gifterDisplayName = gifterDisplayName,
+            gifterUserId = gifterUserId,
+            gifterLogin = gifterLogin,
             isAnonymous = isAnonymous,
             count = count,
             source = source,
