@@ -144,6 +144,46 @@ object LiveNotificationScheduler {
         }
     }
 
+    /** Wakes the current realtime owner, or uses the existing WorkManager fallback when needed. */
+    fun requestImmediateReconciliation(context: Context, reason: String): Boolean =
+        synchronized(transitionLock) {
+            if (!context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) ||
+                !canPostNotifications(context)
+            ) {
+                return false
+            }
+            val mode = mode(context)
+            routeImmediateReconciliation(
+                mode = mode,
+                wakePersistentOwner = {
+                    LiveNotificationService.requestImmediateReconciliation(reason)
+                },
+                wakeProcessOwner = {
+                    LiveNotificationRealtimeEngine.requestImmediateReconciliation(reason)
+                },
+                enqueueFallback = {
+                    enqueueImmediateWork(context, baselineOnly = false)
+                },
+            )
+        }
+
+    /** Keeps owner selection testable without constructing Android services or WorkManager. */
+    internal fun routeImmediateReconciliation(
+        mode: String,
+        wakePersistentOwner: () -> Boolean,
+        wakeProcessOwner: () -> Boolean,
+        enqueueFallback: () -> Unit,
+    ): Boolean {
+        val wokeOwner = when (mode) {
+            C.LIVE_NOTIFICATIONS_MODE_PERSISTENT ->
+                wakePersistentOwner() || wakeProcessOwner()
+            C.LIVE_NOTIFICATIONS_MODE_FAST -> wakeProcessOwner()
+            else -> false
+        }
+        if (!wokeOwner) enqueueFallback()
+        return true
+    }
+
     fun migrateMode(context: Context): String {
         val preferences = context.prefs()
         val stored = preferences.getString(C.LIVE_NOTIFICATIONS_MODE, null)

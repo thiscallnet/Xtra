@@ -27,6 +27,7 @@ import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.resolveChannelFallback
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.ui.common.LoadRequestCoalescer
+import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -254,7 +255,7 @@ class ChannelPagerViewModel(
                         if (!errorMessage.isNullOrBlank()) {
                             notifications.value = Pair(true, errorMessage)
                         } else {
-                            notificationsRepository.saveUser(NotificationUser(channelId))
+                            saveNotificationUser(channelId)
                             _notificationsEnabled.value = true
                             notifications.value = Pair(true, errorMessage)
                             if (notificationsEnabled) {
@@ -266,7 +267,7 @@ class ChannelPagerViewModel(
                             }
                         }
                     } else {
-                        notificationsRepository.saveUser(NotificationUser(channelId))
+                        saveNotificationUser(channelId)
                         _notificationsEnabled.value = true
                         notifications.value = Pair(true, null)
                         if (notificationsEnabled) {
@@ -297,12 +298,12 @@ class ChannelPagerViewModel(
                         if (!errorMessage.isNullOrBlank()) {
                             notifications.value = Pair(false, errorMessage)
                         } else {
-                            notificationsRepository.deleteUser(NotificationUser(channelId))
+                            deleteNotificationUser(channelId)
                             _notificationsEnabled.value = false
                             notifications.value = Pair(false, errorMessage)
                         }
                     } else {
-                        notificationsRepository.deleteUser(NotificationUser(channelId))
+                        deleteNotificationUser(channelId)
                         _notificationsEnabled.value = false
                         notifications.value = Pair(false, null)
                     }
@@ -369,10 +370,10 @@ class ChannelPagerViewModel(
                             _isFollowing.value = true
                             follow.value = Pair(true, null)
                             if (!disableNotifications) {
-                                notificationsRepository.saveUser(NotificationUser(channelId))
+                                saveNotificationUser(channelId)
                                 _notificationsEnabled.value = true
                             } else {
-                                notificationsRepository.deleteUser(NotificationUser(channelId))
+                                deleteNotificationUser(channelId)
                             }
                             if (liveNotificationsEnabled) {
                                 _stream.value?.createdAt.takeUnless { it.isNullOrBlank() }?.let {
@@ -388,7 +389,7 @@ class ChannelPagerViewModel(
                         _isFollowing.value = true
                         follow.value = Pair(true, null)
                         if (!disableNotifications) {
-                            notificationsRepository.saveUser(NotificationUser(channelId))
+                            saveNotificationUser(channelId)
                             _notificationsEnabled.value = true
                         }
                         if (liveNotificationsEnabled) {
@@ -422,14 +423,14 @@ class ChannelPagerViewModel(
                             _isFollowing.value = false
                             follow.value = Pair(false, null)
                             _notificationsEnabled.value = false
-                            notificationsRepository.deleteUser(NotificationUser(channelId))
+                            deleteNotificationUser(channelId)
                             streamFeedRefreshCoordinator.invalidateFollowedFeeds()
                         }
                     } else {
                         localChannelFollowsRepository.getById(channelId)?.let { localChannelFollowsRepository.delete(it) }
                         _isFollowing.value = false
                         follow.value = Pair(false, null)
-                        notificationsRepository.deleteUser(NotificationUser(channelId))
+                        deleteNotificationUser(channelId)
                         _notificationsEnabled.value = false
                     }
                 }
@@ -440,6 +441,22 @@ class ChannelPagerViewModel(
             } catch (e: Exception) {
             }
         }
+    }
+
+    private suspend fun saveNotificationUser(channelId: String) {
+        notificationsRepository.saveUser(NotificationUser(channelId))
+        LiveNotificationScheduler.requestImmediateReconciliation(
+            XtraApp.INSTANCE,
+            reason = "notification_users_changed",
+        )
+    }
+
+    private suspend fun deleteNotificationUser(channelId: String) {
+        notificationsRepository.deleteUser(NotificationUser(channelId))
+        LiveNotificationScheduler.requestImmediateReconciliation(
+            XtraApp.INSTANCE,
+            reason = "notification_users_changed",
+        )
     }
 
     fun updateLocalUser(networkLibrary: String?, filesDir: String, user: User) {

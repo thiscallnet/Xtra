@@ -2,7 +2,9 @@ package com.github.andreyasadchy.xtra.repository.auth
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import com.github.andreyasadchy.xtra.model.id.ValidationResponse
 import com.github.andreyasadchy.xtra.repository.AuthRepository
 import com.github.andreyasadchy.xtra.util.C
@@ -13,15 +15,55 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
+
+internal const val AUTH_SESSION_VALIDATION_INTERVAL_MILLIS = 60 * 60 * 1_000L
+internal const val AUTH_SESSION_TRANSIENT_RETRY_DELAY_MILLIS = 5 * 60 * 1_000L
+internal const val AUTH_SESSION_NETWORK_RETRY_DELAY_MILLIS = 5 * 60 * 1_000L
+
+/** Returns null when only an explicit wake can make the next validation meaningful. */
+internal fun authSessionValidationWaitMs(
+    sessionPresent: Boolean,
+    webTokenPresent: Boolean,
+    maintenanceState: AuthSessionMaintenanceState,
+    validatedNetwork: Boolean,
+    validationChecked: Boolean,
+    lastValidatedAtMs: Long,
+    nowMs: Long,
+    transientRetryDeadlineMs: Long? = null,
+    networkWakeAvailable: Boolean = true,
+): Long? {
+    if (!sessionPresent || !webTokenPresent ||
+        maintenanceState == AuthSessionMaintenanceState.REAUTHORIZATION_REQUIRED
+    ) return null
+    if (!validatedNetwork) {
+        return if (networkWakeAvailable) null else AUTH_SESSION_NETWORK_RETRY_DELAY_MILLIS
+    }
+    transientRetryDeadlineMs?.let { return (it - nowMs).coerceAtLeast(0L) }
+    if (!validationChecked || lastValidatedAtMs <= 0L) return 0L
+    return (lastValidatedAtMs + AUTH_SESSION_VALIDATION_INTERVAL_MILLIS - nowMs)
+        .coerceAtLeast(0L)
+}
+
+internal class AuthSessionChangeSignal {
+    private val _generation = MutableStateFlow(0L)
+    val generation: StateFlow<Long> = _generation.asStateFlow()
+
+    fun signal() {
+        _generation.update { it + 1L }
+    }
+}
 
 /** Public lifecycle states retained for the existing foreground/background consumers. */
 enum class AuthSessionMaintenanceState {
@@ -49,30 +91,115 @@ class AuthSessionMaintainer(
     private val validationMutex = Mutex()
     private val _state = MutableStateFlow(AuthSessionMaintenanceState.IDLE)
     private val _authHealth = MutableStateFlow(AuthHealth.SIGNED_OUT)
+    private val authenticationChangeSignal = AuthSessionChangeSignal()
+    private val wakeSignal = Channel<Unit>(Channel.CONFLATED)
     private var promptedReauthorization = false
     private var schedulerJob: Job? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile
+    private var networkCallbackRegistered = false
 
     val state: StateFlow<AuthSessionMaintenanceState> = _state.asStateFlow()
     val authHealth: StateFlow<AuthHealth> = _authHealth.asStateFlow()
+    val authenticationChangeGeneration: StateFlow<Long> = authenticationChangeSignal.generation
 
     init {
-        onAuthenticationStateChanged()
+        refreshAuthenticationState()
     }
 
     @Synchronized
     fun start(scope: CoroutineScope) {
         if (schedulerJob?.isActive == true) return
+        registerNetworkCallback()
         schedulerJob = scope.launch(Dispatchers.IO) {
-            while (isActive) {
-                try {
-                    validateIfDue()
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (_: Exception) {
-                    publish(AuthSessionMaintenanceState.TRANSIENT_FAILURE, AuthHealth.UNKNOWN)
-                }
-                delay(VALIDATION_CHECK_INTERVAL_MILLIS)
+            schedulerLoop()
+        }.also { job ->
+            job.invokeOnCompletion { unregisterNetworkCallback() }
+        }
+    }
+
+    private suspend fun schedulerLoop() {
+        var transientRetryDeadlineMs: Long? = null
+        while (currentCoroutineContext().isActive) {
+            val tokenPrefs = applicationContext.tokenPrefs()
+            val sessionPresent = AuthSessionStore(applicationContext.prefs(), tokenPrefs).read() != null
+            val waitMs = authSessionValidationWaitMs(
+                sessionPresent = sessionPresent,
+                webTokenPresent = !tokenPrefs.getString(C.GQL_TOKEN_WEB, null).isNullOrBlank(),
+                maintenanceState = _state.value,
+                validatedNetwork = hasValidatedNetwork(),
+                validationChecked = TwitchApiHelper.checkedValidation,
+                lastValidatedAtMs = tokenPrefs.getLong(C.TOKEN_VALIDATED_AT, 0L),
+                nowMs = nowMillis(),
+                transientRetryDeadlineMs = transientRetryDeadlineMs,
+                networkWakeAvailable = networkCallbackRegistered,
+            )
+            if (waitMs == null) {
+                wakeSignal.receive()
+                transientRetryDeadlineMs = null
+                continue
             }
+            if (waitMs > 0L) {
+                val woke = withTimeoutOrNull(waitMs) { wakeSignal.receive() }
+                if (woke != null) transientRetryDeadlineMs = null
+                continue
+            }
+            val result = try {
+                validateIfDue()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                publish(AuthSessionMaintenanceState.TRANSIENT_FAILURE, AuthHealth.UNKNOWN)
+                AuthSessionMaintenanceState.TRANSIENT_FAILURE
+            }
+            transientRetryDeadlineMs = if (result == AuthSessionMaintenanceState.TRANSIENT_FAILURE) {
+                nowMillis() + AUTH_SESSION_TRANSIENT_RETRY_DELAY_MILLIS
+            } else null
+        }
+    }
+
+    private fun registerNetworkCallback() {
+        val connectivityManager = applicationContext
+            .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                wakeSignal.trySend(Unit)
+            }
+
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                    wakeSignal.trySend(Unit)
+                }
+            }
+
+            override fun onLost(network: Network) {
+                wakeSignal.trySend(Unit)
+            }
+        }
+        networkCallback = callback
+        runCatching {
+            connectivityManager.registerNetworkCallback(
+                NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    .build(),
+                callback,
+            )
+        }.onSuccess {
+            networkCallbackRegistered = true
+        }.onFailure {
+            networkCallback = null
+            networkCallbackRegistered = false
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        val callback = networkCallback ?: return
+        networkCallback = null
+        networkCallbackRegistered = false
+        runCatching {
+            (applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
+                ?.unregisterNetworkCallback(callback)
         }
     }
 
@@ -117,6 +244,12 @@ class AuthSessionMaintainer(
 
     /** Refreshes the in-memory state after the Gecko manager commits a web session. */
     fun onAuthenticationStateChanged() {
+        refreshAuthenticationState()
+        authenticationChangeSignal.signal()
+        wakeSignal.trySend(Unit)
+    }
+
+    private fun refreshAuthenticationState() {
         val sessionStore = AuthSessionStore(applicationContext.prefs(), applicationContext.tokenPrefs())
         promptedReauthorization = false
         if (sessionStore.read() == null) {
@@ -184,7 +317,4 @@ class AuthSessionMaintainer(
         TRANSIENT,
     }
 
-    private companion object {
-        const val VALIDATION_CHECK_INTERVAL_MILLIS = 60_000L
-    }
 }

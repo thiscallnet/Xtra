@@ -59,12 +59,14 @@ class LiveNotificationService : Service() {
             // pending or retried. Make the ownership handoff explicit.
             LiveNotificationRealtimeEngine.stop()
             running = true
-            runner = LiveNotificationRunner(
+            val newRunner = LiveNotificationRunner(
                 context = applicationContext,
                 shouldContinue = ::shouldRunPersistentMode,
                 onMonitoringStopped = { stopSelf() },
-            ).also { it.start() }
-            activeRunner = runner
+            )
+            runner = newRunner
+            activeRunner = newRunner
+            newRunner.start()
         }
         return START_STICKY
     }
@@ -148,7 +150,12 @@ class LiveNotificationService : Service() {
 
         fun isRunning(): Boolean = running
 
-        internal fun hasHealthyRunner(): Boolean = running && activeRunner?.isRunning() == true
+        internal fun hasHealthyRunner(): Boolean = running && activeRunner?.isHealthy() == true
+
+        internal fun requestImmediateReconciliation(reason: String): Boolean {
+            val currentRunner = activeRunner ?: return false
+            return currentRunner.requestImmediateReconciliation(reason)
+        }
 
         fun ensureNotificationChannel(context: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
