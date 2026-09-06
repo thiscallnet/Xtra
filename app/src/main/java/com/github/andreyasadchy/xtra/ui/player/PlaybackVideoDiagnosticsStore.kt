@@ -3,6 +3,9 @@ package com.github.andreyasadchy.xtra.ui.player
 import androidx.media3.common.C
 import androidx.media3.common.MediaLibraryInfo
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
+import androidx.media3.exoplayer.hls.playlist.HlsPlaylist
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import java.util.concurrent.atomic.AtomicReference
 
 /** Small lock-free snapshot store shared by Media3 callbacks and the service command path. */
@@ -80,7 +83,9 @@ class PlaybackVideoDiagnosticsStore {
                 lowLatencyRequested = false,
                 twitchPrefetchPresent = null,
                 twitchPrefetchActive = null,
+                twitchPrefetchSuppressed = null,
                 declaredTargetDurationMs = null,
+                effectiveReloadTargetDurationMs = null,
                 averageSegmentDurationMs = null,
                 partTargetDurationMs = null,
                 manifestLoadCount = 0L,
@@ -89,5 +94,36 @@ class PlaybackVideoDiagnosticsStore {
                 mediaBytesLoaded = 0L,
             )
         }
+    }
+
+    fun recordTwitchHlsDiagnostics(diagnostics: TwitchHlsPlaylistDiagnostics) {
+        update { current ->
+            current.copy(
+                hlsContainer = diagnostics.container ?: current.hlsContainer,
+                twitchPrefetchPresent = diagnostics.twitchPrefetchDetected,
+                twitchPrefetchActive = diagnostics.twitchPrefetchActive,
+                twitchPrefetchSuppressed = diagnostics.twitchPrefetchSuppressed,
+                declaredTargetDurationMs = diagnostics.declaredTargetDurationMs,
+                effectiveReloadTargetDurationMs = diagnostics.effectiveReloadTargetDurationMs,
+                averageSegmentDurationMs = diagnostics.averageSegmentDurationMs,
+                partTargetDurationMs = diagnostics.partTargetDurationMs,
+            )
+        }
+    }
+
+    fun recordTwitchHlsPlaylist(
+        diagnostics: TwitchHlsPlaylistDiagnostics,
+        parsed: HlsPlaylist,
+    ) {
+        val mediaPlaylist = parsed as? HlsMediaPlaylist
+        val partTargetDurationMs = mediaPlaylist?.partTargetDurationUs
+            ?.takeIf { it != C.TIME_UNSET }
+            ?.div(1_000L)
+        recordTwitchHlsDiagnostics(
+            diagnostics.copy(
+                twitchPrefetchActive = diagnostics.twitchPrefetchActive,
+                partTargetDurationMs = partTargetDurationMs,
+            ),
+        )
     }
 }

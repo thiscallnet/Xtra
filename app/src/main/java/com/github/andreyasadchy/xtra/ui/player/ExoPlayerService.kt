@@ -57,23 +57,19 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.hls.HlsMediaSource
-import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
-import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
-import androidx.media3.exoplayer.hls.playlist.HlsPlaylist
-import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParserFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.LoadEventInfo
 import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
-import androidx.media3.exoplayer.upstream.ParsingLoadable
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
-import com.github.andreyasadchy.xtra.player.lowlatency.HlsPlaylistParser
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsDiagnosticsSink
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.common.logVideoTracks
@@ -188,6 +184,17 @@ class ExoPlayerService : BasePlaybackService() {
 
     fun videoDiagnosticsSnapshot(): PlaybackVideoInfo =
         player?.let(diagnostics::snapshot) ?: diagnostics.snapshot()
+
+    private fun twitchHlsPlaylistParserFactory(): TwitchHlsPlaylistParserFactory =
+        TwitchHlsPlaylistParserFactory(
+            lowLatencyEnabled = type == STREAM &&
+                prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+            diagnostics = TwitchHlsDiagnosticsSink { hlsDiagnostics, parsed ->
+                if (parsed is androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist) {
+                    diagnostics.recordTwitchHlsPlaylist(hlsDiagnostics, parsed)
+                }
+            },
+        )
 
     val vaftActive: Boolean
         get() = type == STREAM && prefs().shouldAvoidTwitchAds() && (playingAds || usingAlternateStream || hidden)
@@ -469,7 +476,7 @@ class ExoPlayerService : BasePlaybackService() {
                                                     hlsClipDataSourceFactory = dataSourceFactory
                                                     player.setMediaSource(
                                                         HlsMediaSource.Factory(dataSourceFactory).apply {
-                                                            setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+                                                            setPlaylistParserFactory(twitchHlsPlaylistParserFactory())
                                                         }.createMediaSource(
                                                             MediaItem.fromUri(url)
                                                         )
@@ -864,7 +871,7 @@ class ExoPlayerService : BasePlaybackService() {
                                     hlsClipDataSourceFactory = dataSourceFactory
                                     player.setMediaSource(
                                         HlsMediaSource.Factory(dataSourceFactory).apply {
-                                            setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+                                            setPlaylistParserFactory(twitchHlsPlaylistParserFactory())
                                         }.createMediaSource(
                                             MediaItem.fromUri(url)
                                         )
@@ -1398,7 +1405,7 @@ class ExoPlayerService : BasePlaybackService() {
                     liveClipSourceMediaId = "live-clip-${liveClipBufferManager.currentGeneration()}"
                     player.setMediaSource(
                         HlsMediaSource.Factory(dataSourceFactory).apply {
-                            setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+                            setPlaylistParserFactory(twitchHlsPlaylistParserFactory())
                             setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))
                         }.createMediaSource(
                             MediaItem.Builder().apply {
@@ -1621,7 +1628,7 @@ class ExoPlayerService : BasePlaybackService() {
                 .build()
             player.setMediaSource(
                 HlsMediaSource.Factory(snapshot.dataSourceFactory)
-                    .apply { setPlaylistParserFactory(CustomHlsPlaylistParserFactory()) }
+                    .apply { setPlaylistParserFactory(twitchHlsPlaylistParserFactory()) }
                     .createMediaSource(mediaItem),
             )
             player.trackSelectionParameters = snapshot.trackSelectionParameters
@@ -1687,7 +1694,7 @@ class ExoPlayerService : BasePlaybackService() {
                     hlsClipDataSourceFactory = dataSourceFactory
                     player.setMediaSource(
                         HlsMediaSource.Factory(dataSourceFactory).apply {
-                            setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+                            setPlaylistParserFactory(twitchHlsPlaylistParserFactory())
                         }.createMediaSource(
                             MediaItem.fromUri(url)
                         )
@@ -1949,7 +1956,7 @@ class ExoPlayerService : BasePlaybackService() {
             .build()
         return HlsMediaSource.Factory(factory)
             .apply {
-                setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+                setPlaylistParserFactory(twitchHlsPlaylistParserFactory())
             }
             .createMediaSource(mediaItem)
     }
@@ -2127,7 +2134,7 @@ class ExoPlayerService : BasePlaybackService() {
         if ((type == STREAM || type == VIDEO) && dataSourceFactory != null) {
             player.setMediaSource(
                 HlsMediaSource.Factory(dataSourceFactory).apply {
-                    setPlaylistParserFactory(CustomHlsPlaylistParserFactory())
+                    setPlaylistParserFactory(twitchHlsPlaylistParserFactory())
                     setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))
                 }.createMediaSource(updatedMediaItem)
             )
@@ -2959,16 +2966,6 @@ class ExoPlayerService : BasePlaybackService() {
         bitmapLoadJob?.cancel()
         notificationManager?.cancel(NOTIFICATION_ID)
         super.onDestroy()
-    }
-
-    class CustomHlsPlaylistParserFactory: HlsPlaylistParserFactory {
-        override fun createPlaylistParser(): ParsingLoadable.Parser<HlsPlaylist> {
-            return HlsPlaylistParser()
-        }
-
-        override fun createPlaylistParser(multivariantPlaylist: HlsMultivariantPlaylist, previousMediaPlaylist: HlsMediaPlaylist?): ParsingLoadable.Parser<HlsPlaylist> {
-            return HlsPlaylistParser(multivariantPlaylist, previousMediaPlaylist)
-        }
     }
 
     companion object {

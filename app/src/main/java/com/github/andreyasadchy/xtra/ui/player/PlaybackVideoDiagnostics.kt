@@ -34,7 +34,9 @@ data class PlaybackVideoInfo(
     val lowLatencyRequested: Boolean = false,
     val twitchPrefetchPresent: Boolean? = null,
     val twitchPrefetchActive: Boolean? = null,
+    val twitchPrefetchSuppressed: Boolean? = null,
     val declaredTargetDurationMs: Long? = null,
+    val effectiveReloadTargetDurationMs: Long? = null,
     val averageSegmentDurationMs: Long? = null,
     val partTargetDurationMs: Long? = null,
     val manifestLoadCount: Long = 0L,
@@ -69,7 +71,9 @@ data class PlaybackVideoInfo(
         putBoolean(KEY_LOW_LATENCY_REQUESTED, lowLatencyRequested)
         putNullableBoolean(KEY_TWITCH_PREFETCH_PRESENT, twitchPrefetchPresent)
         putNullableBoolean(KEY_TWITCH_PREFETCH_ACTIVE, twitchPrefetchActive)
+        putNullableBoolean(KEY_TWITCH_PREFETCH_SUPPRESSED, twitchPrefetchSuppressed)
         putNullableLong(KEY_DECLARED_TARGET_DURATION, declaredTargetDurationMs)
+        putNullableLong(KEY_EFFECTIVE_RELOAD_TARGET_DURATION, effectiveReloadTargetDurationMs)
         putNullableLong(KEY_AVERAGE_SEGMENT_DURATION, averageSegmentDurationMs)
         putNullableLong(KEY_PART_TARGET_DURATION, partTargetDurationMs)
         putLong(KEY_MANIFEST_LOAD_COUNT, manifestLoadCount)
@@ -104,7 +108,9 @@ data class PlaybackVideoInfo(
         private const val KEY_LOW_LATENCY_REQUESTED = "lowLatencyRequested"
         private const val KEY_TWITCH_PREFETCH_PRESENT = "twitchPrefetchPresent"
         private const val KEY_TWITCH_PREFETCH_ACTIVE = "twitchPrefetchActive"
+        private const val KEY_TWITCH_PREFETCH_SUPPRESSED = "twitchPrefetchSuppressed"
         private const val KEY_DECLARED_TARGET_DURATION = "declaredTargetDurationMs"
+        private const val KEY_EFFECTIVE_RELOAD_TARGET_DURATION = "effectiveReloadTargetDurationMs"
         private const val KEY_AVERAGE_SEGMENT_DURATION = "averageSegmentDurationMs"
         private const val KEY_PART_TARGET_DURATION = "partTargetDurationMs"
         private const val KEY_MANIFEST_LOAD_COUNT = "manifestLoadCount"
@@ -138,7 +144,10 @@ data class PlaybackVideoInfo(
             lowLatencyRequested = bundle.getBoolean(KEY_LOW_LATENCY_REQUESTED, false),
             twitchPrefetchPresent = bundle.getNullableBoolean(KEY_TWITCH_PREFETCH_PRESENT),
             twitchPrefetchActive = bundle.getNullableBoolean(KEY_TWITCH_PREFETCH_ACTIVE),
+            twitchPrefetchSuppressed = bundle.getNullableBoolean(KEY_TWITCH_PREFETCH_SUPPRESSED),
             declaredTargetDurationMs = bundle.getNullableLong(KEY_DECLARED_TARGET_DURATION),
+            effectiveReloadTargetDurationMs =
+                bundle.getNullableLong(KEY_EFFECTIVE_RELOAD_TARGET_DURATION),
             averageSegmentDurationMs = bundle.getNullableLong(KEY_AVERAGE_SEGMENT_DURATION),
             partTargetDurationMs = bundle.getNullableLong(KEY_PART_TARGET_DURATION),
             manifestLoadCount = bundle.getLong(KEY_MANIFEST_LOAD_COUNT, 0L),

@@ -19,6 +19,9 @@ import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import com.github.andreyasadchy.xtra.XtraModule
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsDiagnosticsSink
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
@@ -44,6 +47,9 @@ import java.util.concurrent.ConcurrentHashMap
 class StreamProxyState {
     @Volatile
     var proxyMediaPlaylist: Boolean = false
+
+    @Volatile
+    var twitchHlsDiagnostics: TwitchHlsPlaylistDiagnostics? = null
 }
 
 /**
@@ -73,8 +79,19 @@ class StreamHlsMediaSourceFactory(
             return defaultMediaSourceFactory.createMediaSource(mediaItem)
         }
         val state = proxyStates.getOrPut(mediaItem.mediaId) { StreamProxyState() }
+        val lowLatencyEnabled = configuration.lowLatency &&
+            mediaItem.liveConfiguration.targetOffsetMs != androidx.media3.common.C.TIME_UNSET
         return HlsMediaSource.Factory(DefaultDataSource.Factory(context, dataSourceFactory(state))).apply {
-            setPlaylistParserFactory(ExoPlayerService.CustomHlsPlaylistParserFactory())
+            setPlaylistParserFactory(
+                TwitchHlsPlaylistParserFactory(
+                    lowLatencyEnabled = lowLatencyEnabled,
+                    diagnostics = TwitchHlsDiagnosticsSink { diagnostics, parsed ->
+                        if (parsed is androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist) {
+                            state.twitchHlsDiagnostics = diagnostics
+                        }
+                    },
+                ),
+            )
             setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             drmSessionManagerProvider?.let(::setDrmSessionManagerProvider)
         }.createMediaSource(mediaItem)
@@ -145,6 +162,9 @@ class StreamHlsMediaSourceFactory(
     fun stateFor(mediaId: String): StreamProxyState = proxyStates.getOrPut(mediaId) { StreamProxyState() }
 
     fun findState(mediaId: String): StreamProxyState? = proxyStates[mediaId]
+
+    fun hlsDiagnosticsFor(mediaId: String): TwitchHlsPlaylistDiagnostics? =
+        proxyStates[mediaId]?.twitchHlsDiagnostics
 
     private fun dataSourceFactory(state: StreamProxyState): DataSource.Factory {
         val proxyHost = configuration.proxyHost

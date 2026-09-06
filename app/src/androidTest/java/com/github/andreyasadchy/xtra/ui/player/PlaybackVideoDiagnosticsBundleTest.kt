@@ -36,6 +36,7 @@ class PlaybackVideoDiagnosticsBundleTest {
             twitchPrefetchPresent = true,
             twitchPrefetchActive = false,
             declaredTargetDurationMs = 6_000L,
+            effectiveReloadTargetDurationMs = 2_000L,
             averageSegmentDurationMs = 2_001L,
             partTargetDurationMs = 2_001L,
             manifestLoadCount = 4L,

@@ -32,10 +32,10 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.model.stats.mergeViewingCategoryPatch
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
-import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
 import com.github.andreyasadchy.xtra.ui.common.logVideoSurfaceBinding
 import com.github.andreyasadchy.xtra.ui.player.TwitchAdController
 import com.github.andreyasadchy.xtra.util.C
@@ -463,7 +463,14 @@ class MultiviewPlaybackCoordinator(
                     .setMediaMetadata(metadata(slot.stream))
                     .build()
                 val source = HlsMediaSource.Factory(createDataSourceFactory(slot))
-                    .setPlaylistParserFactory(ExoPlayerService.CustomHlsPlaylistParserFactory())
+                    .setPlaylistParserFactory(
+                        TwitchHlsPlaylistParserFactory(
+                            lowLatencyEnabled = applicationContext.prefs().getBoolean(
+                                C.PLAYER_LOW_LATENCY,
+                                C.DEFAULT_PLAYER_LOW_LATENCY,
+                            ),
+                        ),
+                    )
                     .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))
                     .createMediaSource(mediaItem)
                 slot.player.setMediaSource(source)
