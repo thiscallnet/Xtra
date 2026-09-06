@@ -98,6 +98,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaintShadow
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatUserDecoration
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionHandle
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatV2RendererController
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatViewportState
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLabels
@@ -318,7 +319,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private val binding get() = _binding!!
     private val viewModel: ChatViewModel by viewModels { ChatViewModelFactory }
     private var adapter: ChatAdapter? = null
+    private var interactionAdapterFactory: ChatInteractionAdapterFactory? = null
     private var chatV2Renderer: ChatV2RendererController? = null
+    private val chatV2SessionSlot = ChatV2SessionSlot()
     private var chatV2ViewportState = ChatViewportState()
     private var useChatV2 = false
     private var chatV2RendererVisible = true
@@ -860,11 +863,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 val channelId = args.getString(KEY_CHANNEL_ID)
                 val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
                 val isLive = args.getBoolean(KEY_IS_LIVE)
-                useChatV2 = isLive &&
-                        !channelId.isNullOrBlank() &&
-                        !channelLogin.isNullOrBlank() &&
-                        parentFragment !is MultiviewFragment &&
-                        requireContext().prefs().getBoolean(C.CHAT_V2_ENABLED, true)
+                useChatV2 = shouldUseChatV2ForLive(isLive, channelId, channelLogin)
                 val accountLogin = requireContext().tokenPrefs().getString(C.USERNAME, null)
                 val isLoggedIn = !accountLogin.isNullOrBlank() &&
                         (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
@@ -889,15 +888,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         emoteHeightPx = chatStyle.emoteHeightPx,
                         badgeHeightPx = chatStyle.badgeHeightPx,
                     )
-                    val initialMessages = if (useChatV2) {
+                    val initialMessages = if (isLive) {
                         emptyList()
                     } else {
                         viewModel.chatSnapshot().also { chatMutationRevision = it.revision }.messages
                     }
-                    adapter = ChatAdapter(
-                        // The initial snapshot is rendered off-main before the adapter is attached.
-                        // This prevents RecyclerView from ever binding an uncached message.
-                        initialMessages = emptyList(),
+                    val interactionConfiguration = ChatAdapterConfiguration(
                         localTwitchEmotes = viewModel.localTwitchEmotes,
                         thirdPartyEmotes = viewModel.thirdPartyEmotes,
                         globalBadges = viewModel.globalBadges,
@@ -970,16 +966,27 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         },
                         profilePopoutGesture = profilePopoutGesture,
                     )
-                    adapter?.onMessagesPublished = ::onChatMessagesPublished
+                    interactionAdapterFactory = ChatInteractionAdapterFactory(interactionConfiguration)
+                    adapter = if (isLive) {
+                        null
+                    } else {
+                        // The initial snapshot is rendered off-main before the adapter is attached.
+                        // This prevents RecyclerView from ever binding an uncached message.
+                        ChatAdapter(initialMessages = emptyList(), configuration = interactionConfiguration).also {
+                            it.onMessagesPublished = ::onChatMessagesPublished
+                        }
+                    }
                     if (useChatV2) {
                         val app = requireContext().applicationContext as XtraApp
                         val chatBackground = MaterialColors.getColor(
                             requireView(),
                             com.google.android.material.R.attr.colorSurface,
                         )
+                        val activeSessionSource = chatV2ActiveSessions()
+                        viewModel.bindV2SessionSource(activeSessionSource)
                         chatV2Renderer = ChatV2RendererController(
                             recyclerView = recyclerView,
-                            manager = app.xtraModule.chatSessionManager,
+                            activeSessions = activeSessionSource,
                             assets = app.xtraModule.chatAssetRepository,
                             expectedChannelId = channelId!!,
                             expectedChannelLogin = channelLogin!!,
@@ -1138,7 +1145,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     }
                     val chatAdapter = adapter
                     viewLifecycleOwner.lifecycleScope.launch {
-                        if (!useChatV2 && _binding?.recyclerView === recyclerView && chatAdapter === adapter) {
+                        if (!isLive && _binding?.recyclerView === recyclerView && chatAdapter === adapter) {
                             recyclerView.adapter = chatAdapter
                             chatAdapterReady = true
                             pendingChatPublicationFollowBottom = !recyclerView.canScrollVertically(1)
@@ -1993,21 +2000,43 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private fun currentLiveStreamId(): String? =
         resolveCurrentLiveStreamId(viewModel.streamId, requireArguments().getString(KEY_STREAM_ID))
 
-    /** Requests a process/playback-owned session; this Fragment never owns its lifetime. */
+    private fun liveV2Spec(channelId: String, channelLogin: String) = LiveChatSessionSpec(
+        channelId = channelId,
+        channelLogin = channelLogin,
+        streamId = currentLiveStreamId(),
+        legacySupplementalSockets = true,
+    )
+
+    private fun chatV2ActiveSessions(): Flow<com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession?> {
+        val app = requireContext().applicationContext as XtraApp
+        if (parentFragment !is MultiviewFragment) return app.xtraModule.chatSessionManager.active
+        return chatV2SessionSlot.activeSession
+    }
+
+    private fun ensureMultiviewChatV2Handle(spec: LiveChatSessionSpec): ChatSessionHandle {
+        val app = requireContext().applicationContext as XtraApp
+        return chatV2SessionSlot.getOrCreate(spec, app.xtraModule.chatSessionManager::createLive)
+    }
+
+    /** Requests a process/playback-owned session. Multiview owns an independent handle per tile. */
     private fun startChatV2Session(channelId: String, channelLogin: String) {
         val app = requireContext().applicationContext as XtraApp
-        app.applicationScope.launch {
-            runCatching {
-                app.xtraModule.chatSessionManager.start(
-                    LiveChatSessionSpec(
-                        channelId = channelId,
-                        channelLogin = channelLogin,
-                        streamId = currentLiveStreamId(),
-                        legacySupplementalSockets = true,
-                    ),
-                )
-            }.onFailure { error ->
-                Log.e("ChatV2", "Unable to start live v2 chat", error)
+        val spec = liveV2Spec(channelId, channelLogin)
+        val isMultiview = parentFragment is MultiviewFragment
+        val multiviewHandle = if (isMultiview) ensureMultiviewChatV2Handle(spec) else null
+        val sessionGeneration = chatV2SessionSlot.generation()
+        if (multiviewHandle != null) {
+            if (chatV2SessionSlot.isCurrent(multiviewHandle, sessionGeneration)) {
+                chatV2SessionSlot.requestStart { error ->
+                    Log.e("ChatV2", "Unable to start live v2 chat", error)
+                }
+            }
+        } else {
+            app.applicationScope.launch {
+                runCatching { app.xtraModule.chatSessionManager.start(spec) }
+                    .onFailure { error ->
+                        Log.e("ChatV2", "Unable to start live v2 chat", error)
+                    }
             }
         }
     }
@@ -2021,16 +2050,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 ChatViewModel.ActiveChatMode.Live -> if (args.getBoolean(KEY_IS_LIVE)) {
                     if (useChatV2 && channelId != null && channelLogin != null) {
                         startChatV2Session(channelId, channelLogin)
+                        viewModel.startLive(
+                            channelId = channelId,
+                            channelLogin = channelLogin,
+                            streamId = currentLiveStreamId(),
+                        )
                     }
-                    viewModel.startLive(
-                        requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        if (useChatV2) null else "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
-                        channelId,
-                        channelLogin,
-                        args.getString(KEY_CHANNEL_NAME),
-                        currentLiveStreamId(),
-                        useChatV2 = useChatV2,
-                    )
                 }
                 is ChatViewModel.ActiveChatMode.VideoReplay -> {
                     viewModel.resumeTemporaryReplay(
@@ -2070,7 +2095,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         adapter?.refreshChatHighlightSettings()
         if (useChatV2) {
             chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext()))
-            (requireContext().applicationContext as XtraApp).xtraModule.chatSessionManager.active.value?.catalog?.refresh(force = false)
+            if (parentFragment is MultiviewFragment) {
+                chatV2SessionSlot.current()?.active?.catalog?.refresh(force = false)
+            } else {
+                (requireContext().applicationContext as XtraApp).xtraModule.chatSessionManager.active.value?.catalog?.refresh(force = false)
+            }
         }
         if (useChatV2 && chatV2RendererVisible) chatV2Renderer?.setVisible(true)
         val args = requireArguments()
@@ -2125,6 +2154,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     fun isActive(): Boolean? {
         if (useChatV2) {
             val app = requireContext().applicationContext as XtraApp
+            if (parentFragment is MultiviewFragment) {
+                return chatV2SessionSlot.current()?.active?.let { active ->
+                    active.spec.channelId == requireArguments().getString(KEY_CHANNEL_ID) && active.session.isActive
+                }
+            }
             return app.xtraModule.chatSessionManager.active.value?.let { active ->
                 active.spec.channelId == requireArguments().getString(KEY_CHANNEL_ID) && active.session.isActive
             }
@@ -2135,6 +2169,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     fun disconnect() {
         if (useChatV2) {
             val app = requireContext().applicationContext as XtraApp
+            if (parentFragment is MultiviewFragment) {
+                val handle = chatV2SessionSlot.current()
+                if (handle != null) {
+                    chatV2SessionSlot.requestStop()
+                }
+                viewModel.stopLiveChat()
+                return
+            }
             val active = app.xtraModule.chatSessionManager.active.value
                 ?.takeIf { it.spec.channelId == requireArguments().getString(KEY_CHANNEL_ID) }
             active?.let { matching ->
@@ -2181,24 +2223,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 requireArguments().getString(KEY_CHANNEL_ID)?.let { channelId ->
                     startChatV2Session(channelId, channelLogin)
                     viewModel.startLive(
-                        networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        recentMessagesUrl = null,
                         channelId = channelId,
                         channelLogin = channelLogin,
-                        channelName = requireArguments().getString(KEY_CHANNEL_NAME),
                         streamId = currentLiveStreamId(),
-                        useChatV2 = true,
                     )
                 }
-            } else {
-                viewModel.startLive(
-                    networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    recentMessagesUrl = "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel",
-                    channelId = requireArguments().getString(KEY_CHANNEL_ID),
-                    channelLogin = channelLogin,
-                    channelName = requireArguments().getString(KEY_CHANNEL_NAME),
-                    streamId = currentLiveStreamId(),
-                )
             }
         }
         viewModel.autoReconnect = true
@@ -2207,8 +2236,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     fun reloadEmotes() {
         if (useChatV2) {
             val app = requireContext().applicationContext as XtraApp
-            app.xtraModule.chatSessionManager.active.value?.catalog?.refresh(force = true)
-        } else {
+            if (parentFragment is MultiviewFragment) {
+                chatV2SessionSlot.current()?.active?.catalog?.refresh(force = true)
+            } else {
+                app.xtraModule.chatSessionManager.active.value?.catalog?.refresh(force = true)
+            }
+        } else if (!requireArguments().getBoolean(KEY_IS_LIVE)) {
             viewModel.reloadEmotes(
                 requireArguments().getString(KEY_CHANNEL_ID),
                 requireArguments().getString(KEY_CHANNEL_LOGIN)
@@ -2261,9 +2294,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         viewModel.returnToLiveChat(
             channelId = args.getString(KEY_CHANNEL_ID),
             channelLogin = args.getString(KEY_CHANNEL_LOGIN),
-            channelName = args.getString(KEY_CHANNEL_NAME),
             streamId = currentLiveStreamId(),
-            useChatV2 = useChatV2,
         )
         if (useChatV2) {
             val channelId = args.getString(KEY_CHANNEL_ID)
@@ -3268,9 +3299,16 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     override fun onCreateMessageClickedChatAdapter(): MessageClickedChatAdapter? {
         selectedPinnedMessage?.let { pinnedMessage ->
             selectedPinnedMessage = null
-            return adapter?.createMessageClickedChatAdapter(
-                selectedMessageOverride = pinnedMessage,
-            )
+            return if (useChatV2) {
+                interactionAdapterFactory?.createMessageClickedChatAdapter(
+                    sourceMessages = listOf(pinnedMessage),
+                    selectedMessageOverride = pinnedMessage,
+                )
+            } else {
+                adapter?.createMessageClickedChatAdapter(
+                    selectedMessageOverride = pinnedMessage,
+                )
+            }
         }
         val clicked = selectedV2Message
         if (!useChatV2 || clicked == null) return adapter?.createMessageClickedChatAdapter()
@@ -3285,7 +3323,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val historyIds = history.mapTo(HashSet()) { it.id }
         val rows = chatV2Renderer?.currentRows().orEmpty().filter { it.id in historyIds }
         val app = requireContext().applicationContext as XtraApp
-        return adapter?.createMessageClickedChatAdapter(
+        return interactionAdapterFactory?.createMessageClickedChatAdapter(
             sourceMessages = messages,
             selectedMessageOverride = selected,
             v2Rows = rows,
@@ -3296,7 +3334,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onCreateReplyClickedChatAdapter(): ReplyClickedChatAdapter? {
-        return adapter?.createReplyClickedChatAdapter()
+        if (!useChatV2) return adapter?.createReplyClickedChatAdapter()
+        return interactionAdapterFactory?.createReplyClickedChatAdapter(
+            sourceMessages = chatV2Renderer?.currentMessages().orEmpty().map(::v2MessageToLegacy),
+        )
     }
 
     override fun onReplyClicked(replyId: String?, userLogin: String?, userName: String?, message: String?) {
@@ -3563,6 +3604,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         chatV2ViewportState = chatV2Renderer?.state ?: chatV2ViewportState
         chatV2Renderer?.detach()
         chatV2Renderer = null
+        viewModel.clearV2SessionSource()
+        adapter = null
+        interactionAdapterFactory = null
         chatIdentityPopup?.dismiss()
         chatIdentityPopup = null
         chatIdentityBadgeRequest?.dispose()
@@ -3664,6 +3708,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onDestroy() {
+        chatV2SessionSlot.invalidate()
         super.onDestroy()
         languageIdentifier?.close()
         translators.forEach {

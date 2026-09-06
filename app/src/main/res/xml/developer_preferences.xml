@@ -8,7 +8,6 @@
     <SwitchPreferenceCompat android:defaultValue="false" android:key="debug_api_chat_messages" android:title="@string/use_api_chat_messages" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:key="debug_websocket_info" android:title="@string/show_more_websocket_info" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:key="debug_eventsub_chat" android:title="@string/use_eventsub_chat_experimental" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_v2_enabled" android:title="@string/use_chat_v2_renderer" app:iconSpaceReserved="false" />
     <PreferenceCategory android:title="@string/settings_playback_diagnostics" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="debug_use_custom_playback_service_v2" android:summary="@string/use_legacy_exoplayer_service_summary" android:title="@string/use_legacy_exoplayer_service" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="ExoPlayer" android:entries="@array/playerEntries" android:entryValues="@array/playerEntryValues" android:key="player" android:summary="%s" android:title="@string/legacy_playback_engine" app:iconSpaceReserved="false" />

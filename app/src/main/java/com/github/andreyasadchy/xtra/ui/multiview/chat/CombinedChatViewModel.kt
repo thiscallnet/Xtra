@@ -156,7 +156,11 @@ class CombinedChatViewModel(
     }
 
     private fun replaceSession(session: ChannelSession, incoming: List<ChatMessage>) {
+        // A removed tile can still have one queued snapshot callback racing with release().
+        // Never let that old channel repopulate the combined timeline after replacement.
+        if (sessions[session.identity] !== session) return
         synchronized(messages) {
+            if (sessions[session.identity] !== session) return
             // Session snapshots are complete, but most publications are a one-message append.
             // Keep the channel index and mutate only IDs that changed so Multiview does not
             // remove/reinsert and globally sort every retained row on each message.
