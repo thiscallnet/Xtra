@@ -69,6 +69,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.session.RecentChatHistoryPage
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.RecentChatHistorySource
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.paginateRecentChatPages
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.toV2
+import com.github.andreyasadchy.xtra.model.gql.video.nextCursor
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreview
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewRepository
 import com.github.andreyasadchy.xtra.ui.player.findCurrentRecordingVod
@@ -843,15 +844,15 @@ class XtraModule(application: Application) {
                                 RecentChatHistoryPage(
                                     items = comments?.edges.orEmpty(),
                                     hasNextPage = comments?.pageInfo?.hasNextPage == true,
-                                    nextCursor = comments?.edges?.lastOrNull()?.cursor,
+                                    nextCursor = comments?.nextCursor,
                                 )
                             },
                             isAtLiveEdge = { comment ->
-                                comment.node.contentOffsetSeconds?.let { it >= currentOffset } == true
+                                comment?.node?.contentOffsetSeconds?.let { it >= currentOffset } == true
                             },
                         )
                         if (!pagination.reachedLiveEdge) return@RecentChatHistorySource emptyList()
-                        pagination.items.mapNotNull { it.node.toV2(liveSpec.channelId, vodStartTimestampMs = vodStartMs) }
+                        pagination.items.mapNotNull { it?.node?.toV2(liveSpec.channelId, vodStartTimestampMs = vodStartMs) }
                             .filter { it.timestampMs <= System.currentTimeMillis() }
                             .sortedBy { it.timestampMs }
                             .takeLast(100)
