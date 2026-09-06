@@ -41,6 +41,16 @@ class TwitchChatCatalogSource(
 
     override val hasIndependentBadgeProvider: Boolean = true
 
+    override val catalogConfigFingerprint: String
+        get() = listOf(
+            context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+            context.prefs().getBoolean(C.CHAT_ENABLE_STV, true),
+            context.prefs().getBoolean(C.CHAT_ENABLE_BTTV, true),
+            context.prefs().getBoolean(C.CHAT_ENABLE_FFZ, true),
+            context.prefs().getBoolean(C.ANIMATED_EMOTES, true),
+            context.tokenPrefs().getString(C.USER_ID, null),
+        ).joinToString("|")
+
     suspend fun loadPersonalEmoteSet(setId: String): Map<String, ChatCatalogEmote> {
         return PersonalEmoteSetCache.get(setId) {
             val network = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
@@ -490,6 +500,9 @@ class TwitchChatCatalogCache(
             ChatCatalogCacheEntry(
                 snapshot = decode(root),
                 fetchedAtMs = root.optLong("fetchedAt", 0L),
+                badgesFetchedAtMs = root.optLong("badgesFetchedAt", 0L),
+                catalogConfigFingerprint = root.optString("catalogConfigFingerprint").takeIf { it.isNotBlank() },
+                badgeConfigFingerprint = root.optString("badgeConfigFingerprint").takeIf { it.isNotBlank() },
             )
         }.getOrNull()
     }
@@ -497,20 +510,47 @@ class TwitchChatCatalogCache(
     override suspend fun write(snapshot: ChatCatalogSnapshot) = write(snapshot, System.currentTimeMillis())
 
     override suspend fun write(snapshot: ChatCatalogSnapshot, fetchedAtMs: Long) = withContext(Dispatchers.IO) {
+        write(snapshot, fetchedAtMs, 0L, null, null)
+    }
+
+    override suspend fun write(
+        snapshot: ChatCatalogSnapshot,
+        fetchedAtMs: Long,
+        badgesFetchedAtMs: Long,
+        catalogConfigFingerprint: String?,
+        badgeConfigFingerprint: String?,
+    ) = withContext(Dispatchers.IO) {
         file.parentFile?.mkdirs()
         val temp = File(file.parentFile, "${file.name}.tmp")
-        temp.writeText(encode(snapshot, fetchedAtMs).toString())
+        temp.writeText(
+            encode(
+                snapshot,
+                fetchedAtMs,
+                badgesFetchedAtMs,
+                catalogConfigFingerprint,
+                badgeConfigFingerprint,
+            ).toString(),
+        )
         if (!temp.renameTo(file)) {
             file.delete()
             check(temp.renameTo(file)) { "Unable to publish chat catalog cache" }
         }
     }
 
-    private fun encode(snapshot: ChatCatalogSnapshot, fetchedAtMs: Long): JSONObject = JSONObject().apply {
-        put("schemaVersion", 5)
+    private fun encode(
+        snapshot: ChatCatalogSnapshot,
+        fetchedAtMs: Long,
+        badgesFetchedAtMs: Long,
+        catalogConfigFingerprint: String?,
+        badgeConfigFingerprint: String?,
+    ): JSONObject = JSONObject().apply {
+        put("schemaVersion", 6)
         put("revision", snapshot.revision)
         put("provider", "combined")
         put("fetchedAt", fetchedAtMs)
+        put("badgesFetchedAt", badgesFetchedAtMs)
+        putOpt("catalogConfigFingerprint", catalogConfigFingerprint)
+        putOpt("badgeConfigFingerprint", badgeConfigFingerprint)
         put("twitch", encodeEmotes(snapshot.twitch))
         put("sevenTv", encodeScopedEmotes(snapshot.sevenTv))
         putOpt("sevenTvChannelSetId", snapshot.sevenTvChannelSetId)
@@ -570,7 +610,7 @@ class TwitchChatCatalogCache(
 
     private fun decode(root: JSONObject): ChatCatalogSnapshot {
         val schemaVersion = root.optInt("schemaVersion")
-        check(schemaVersion in 1..5)
+        check(schemaVersion in 1..6)
         fun emoteArray(
             array: JSONArray?,
             legacyCombined: Boolean = false,

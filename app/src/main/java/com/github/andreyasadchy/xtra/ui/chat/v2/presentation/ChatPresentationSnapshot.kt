@@ -29,6 +29,8 @@ internal class ChatPresentationSnapshot {
         messages: List<ChatMessage>,
         catalog: ChatCatalogSnapshot,
         captureBadges: Boolean = true,
+        metadataSettled: Boolean = true,
+        forceUpgrade: Boolean = false,
     ): List<ChatCatalogSnapshot> {
         if (sessionKey != key) {
             sessionKey = key
@@ -39,9 +41,13 @@ internal class ChatPresentationSnapshot {
         return messages.map { message ->
             val frozen = catalogsByMessage[message.id]
             if (frozen == null) {
-                val created = FrozenCatalog.from(catalog, captureBadges)
+                val created = FrozenCatalog.from(catalog, captureBadges, provisional = !metadataSettled)
                 catalogsByMessage[message.id] = created
                 created.toCatalog(catalog)
+            } else if (forceUpgrade || metadataSettled && frozen.provisional) {
+                val upgraded = FrozenCatalog.from(catalog, captureBadges, provisional = false)
+                catalogsByMessage[message.id] = upgraded
+                upgraded.toCatalog(catalog)
             } else {
                 if (captureBadges) frozen.captureBadges(catalog)
                 frozen.toCatalog(catalog)
@@ -69,6 +75,7 @@ internal class ChatPresentationSnapshot {
         private val channelPointRewards: Map<String, ChatReward>,
         private val automaticChannelPointRewards: Map<String, ChatReward>,
         private val channelPointRewardsRevision: Int,
+        var provisional: Boolean,
     ) {
         fun captureBadges(catalog: ChatCatalogSnapshot) {
             if (badges == null) badges = catalog.badges
@@ -91,7 +98,7 @@ internal class ChatPresentationSnapshot {
         )
 
         companion object {
-            fun from(catalog: ChatCatalogSnapshot, captureBadges: Boolean): FrozenCatalog = FrozenCatalog(
+            fun from(catalog: ChatCatalogSnapshot, captureBadges: Boolean, provisional: Boolean): FrozenCatalog = FrozenCatalog(
                 twitch = catalog.twitch,
                 sevenTv = catalog.sevenTv,
                 sevenTvChannelSetId = catalog.sevenTvChannelSetId,
@@ -105,6 +112,7 @@ internal class ChatPresentationSnapshot {
                 channelPointRewards = catalog.channelPointRewards,
                 automaticChannelPointRewards = catalog.automaticChannelPointRewards,
                 channelPointRewardsRevision = catalog.channelPointRewardsRevision,
+                provisional = provisional,
             )
         }
     }

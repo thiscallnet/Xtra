@@ -219,6 +219,45 @@ class ChatV2PublicationSemanticsTest {
     }
 
     @Test
+    fun provisionalThirdPartyCatalogRecoveryUpgradesExistingMessage() {
+        val session = ChatSessionKey("channel", 20L)
+        val message = message("first", 1L).copy(segments = listOf(ChatSegment.Text("OMEGALUL")))
+        val emote = ChatCatalogEmote(
+            name = "OMEGALUL",
+            asset = ChatAssetSpec(ChatAssetKey("https://cdn.example/omegalul.png"), 28, 28, 28),
+            provider = ChatAssetProvider.SEVEN_TV,
+            animated = false,
+        )
+        val compiler = ChatRowCompiler()
+        val presentation = ChatPresentationSnapshot()
+
+        val provisionalRow = compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(revision = 1),
+                metadataSettled = false,
+            ).single(),
+        )
+        val enrichedRow = compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(
+                    revision = 2,
+                    sevenTv = ScopedEmoteCatalog(global = mapOf(emote.name to emote)),
+                ),
+                metadataSettled = true,
+            ).single(),
+        )
+
+        assertTrue(provisionalRow.pieces.none { it is ChatPiece.Emote })
+        assertTrue(enrichedRow.pieces.any { it is ChatPiece.Emote })
+    }
+
+    @Test
     fun lateSevenTvBadgeDoesNotRetrofitExistingMessage() {
         val session = ChatSessionKey("channel", 3L)
         val user = ChatUser("user", "user", "User", null)
@@ -256,6 +295,111 @@ class ChatV2PublicationSemanticsTest {
         assertTrue(firstRow.pieces.none { it is ChatPiece.Badge })
         assertEquals(firstRow, existingRowAfterRecovery)
         assertTrue(newRowAfterRecovery.pieces.any { it is ChatPiece.Badge })
+    }
+
+    @Test
+    fun provisionalBadgeRecoveryUpgradesExistingMessage() {
+        val session = ChatSessionKey("channel", 21L)
+        val badgeRef = ChatBadgeRef("subscriber", "1")
+        val message = message("first", 1L, badgeRef)
+        val badge = ChatCatalogBadge(
+            name = "subscriber:1",
+            asset = ChatAssetSpec(ChatAssetKey("https://cdn.example/subscriber.png"), 18, 18, 18),
+            provider = ChatAssetProvider.TWITCH,
+            setId = badgeRef.setId,
+            versionId = badgeRef.versionId,
+        )
+        val compiler = ChatRowCompiler()
+        val presentation = ChatPresentationSnapshot()
+
+        val provisionalRow = compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(revision = 1),
+                metadataSettled = false,
+            ).single(),
+        )
+        val enrichedRow = compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(revision = 2, badges = mapOf(badgeRef.catalogKey to badge)),
+                metadataSettled = true,
+            ).single(),
+        )
+
+        assertTrue(provisionalRow.pieces.none { it is ChatPiece.Badge })
+        assertTrue(enrichedRow.pieces.any { it is ChatPiece.Badge })
+    }
+
+    @Test
+    fun provisionalRewardRecoveryUpgradesExistingMessage() {
+        val session = ChatSessionKey("channel", 22L)
+        val message = message("first", 1L).copy(rewardId = "reward-id")
+        val reward = ChatReward("Super Reward", cost = 1_000, imageUrl = "https://cdn.example/reward.png")
+        val compiler = ChatRowCompiler()
+        val presentation = ChatPresentationSnapshot()
+
+        val provisionalRow = compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(revision = 1),
+                metadataSettled = false,
+            ).single(),
+        )
+        val enrichedRow = compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(
+                    revision = 2,
+                    channelPointRewards = mapOf("reward-id" to reward),
+                ),
+                metadataSettled = true,
+            ).single(),
+        )
+
+        assertTrue(provisionalRow.pieces.none { it is ChatPiece.RewardIcon })
+        assertTrue(enrichedRow.pieces.any { it is ChatPiece.RewardIcon })
+    }
+
+    @Test
+    fun explicitCatalogRefreshUpgradesFrozenMessage() {
+        val session = ChatSessionKey("channel", 23L)
+        val message = message("first", 1L).copy(segments = listOf(ChatSegment.Text("OMEGALUL")))
+        val emote = emote("OMEGALUL", ChatAssetProvider.SEVEN_TV)
+        val compiler = ChatRowCompiler()
+        val presentation = ChatPresentationSnapshot()
+
+        val frozenRow = compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(revision = 1),
+            ).single(),
+        )
+        val refreshedRow = compiler.compile(
+            message,
+            presentation.catalogsFor(
+                session,
+                listOf(message),
+                ChatCatalogSnapshot(
+                    revision = 2,
+                    sevenTv = ScopedEmoteCatalog(global = mapOf(emote.name to emote)),
+                ),
+                forceUpgrade = true,
+            ).single(),
+        )
+
+        assertTrue(frozenRow.pieces.none { it is ChatPiece.Emote })
+        assertTrue(refreshedRow.pieces.any { it is ChatPiece.Emote })
     }
 
     @Test
@@ -333,6 +477,13 @@ class ChatV2PublicationSemanticsTest {
         badges = emptyList(),
         segments = emptyList(),
         kind = ChatMessageKind.CHAT,
+    )
+
+    private fun emote(name: String, provider: ChatAssetProvider) = ChatCatalogEmote(
+        name = name,
+        asset = ChatAssetSpec(ChatAssetKey("https://cdn.example/$name.png"), 28, 28, 28),
+        provider = provider,
+        animated = false,
     )
 
     private fun message(id: String, timestampMs: Long) = ChatMessage(

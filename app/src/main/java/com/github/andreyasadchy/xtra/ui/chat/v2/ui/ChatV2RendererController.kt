@@ -309,21 +309,33 @@ class ChatV2RendererController(
     ): List<ChatRowUiModel> {
         while (true) {
             val compiler = presentation.snapshot()
+            val forceCatalogUpgrade = previousPublication?.let { previous ->
+                publication.forceRefreshRevision != previous.forceRefreshRevision
+            } == true
             val catalogs = presentationSnapshot.catalogsFor(
                 publication.key,
                 publication.messages,
                 publication.catalog,
                 captureBadges = renderStyle.showBadges,
+                metadataSettled = publication.initialMetadataSettled,
+                forceUpgrade = forceCatalogUpgrade,
             )
+            val metadataSettlementChanged = previousPublication?.initialMetadataSettled !=
+                    publication.initialMetadataSettled
+            val reusablePublication = previousPublication?.takeIf {
+                !forceCatalogUpgrade &&
+                        !metadataSettlementChanged &&
+                        it.key == publication.key
+            }
             val rows = withContext(Dispatchers.Default) {
                 if (BuildConfig.PERF_DIAGNOSTICS) Trace.beginSection("Xtra.ChatV2.compileCurrent")
                 try {
-                    val previousMessages = if (previousPublication?.key == publication.key) {
-                        previousPublication.messages.associateBy { it.id }
+                    val previousMessages = if (reusablePublication != null) {
+                        reusablePublication.messages.associateBy { it.id }
                     } else {
                         emptyMap()
                     }
-                    val reusableRows = if (previousPublication?.key == publication.key) {
+                    val reusableRows = if (reusablePublication != null) {
                         previousRows.associateBy { it.id }
                     } else {
                         emptyMap()
@@ -339,7 +351,9 @@ class ChatV2RendererController(
                     if (BuildConfig.PERF_DIAGNOSTICS) Trace.endSection()
                 }
             }
-            if (presentation.isCurrent(compiler)) return rows
+            if (presentation.isCurrent(compiler)) {
+                return rows
+            }
         }
     }
 
@@ -406,6 +420,10 @@ class ChatV2RendererController(
                 PresentationPublication(
                     key,
                     snapshot.messages,
+                    initialMetadataSettled = catalogState.structuralCatalogSettled &&
+                            (!renderStyle.showBadges || catalogState.badgesSettled) &&
+                            rewardsSettled,
+                    forceRefreshRevision = catalogState.forceRefreshRevision,
                     catalogState.snapshot.copy(
                         channelPointRewards = rewards.byId,
                         automaticChannelPointRewards = rewards.automaticByType,
@@ -423,6 +441,8 @@ class ChatV2RendererController(
     private data class PresentationPublication(
         val key: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey,
         val messages: List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>,
+        val initialMetadataSettled: Boolean,
+        val forceRefreshRevision: Long,
         val catalog: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot,
     )
 }

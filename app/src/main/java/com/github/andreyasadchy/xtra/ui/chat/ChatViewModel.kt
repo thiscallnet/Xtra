@@ -389,17 +389,6 @@ class ChatViewModel(
         }
     }
 
-    fun forceRefreshThirdPartyCatalog(
-        expectedChannelId: String?,
-        expectedChannelLogin: String?,
-        useV2: Boolean = true,
-    ) {
-        if (!useV2) return
-        val active = chatSessionManager.active.value ?: return
-        if (!matchesV2PickerSession(active.spec, expectedChannelId, expectedChannelLogin)) return
-        active.catalog.refresh(force = true)
-    }
-
     private fun thirdPartyPickerStateFor(
         snapshot: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot,
         refreshFailed: Boolean,
