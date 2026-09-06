@@ -20,6 +20,8 @@ data class ScopedEmoteCatalog(
     val pending: Map<String, Map<String, ChatCatalogEmote>> = emptyMap(),
     /** Entries from the pre-v2 combined cache, whose original scope is unknown. */
     val legacyCombined: Map<String, ChatCatalogEmote> = emptyMap(),
+    /** 7TV personal sets actually entitled to the logged-in viewer. */
+    val viewerPersonalSetIds: Set<String> = emptySet(),
 ) {
     private val personalProjection: Map<String, ChatCatalogEmote> by lazy(LazyThreadSafetyMode.PUBLICATION) {
         buildMap {
@@ -48,6 +50,20 @@ data class ScopedEmoteCatalog(
     /** Builds the merged projection once for consumers such as the picker. */
     fun effectiveValues(): Collection<ChatCatalogEmote> =
         (legacyCombined + global + personalProjection + channel).values
+
+    fun viewerPersonalValues(): Collection<ChatCatalogEmote> =
+        viewerPersonalSetIds.asSequence().flatMap { personal[it].orEmpty().values.asSequence() }.toList()
+
+    /**
+     * The viewer-sendable name projection. The first entry wins because chat sends a textual
+     * token, so exposing more than one entry for a name would not preserve the selected ID.
+     */
+    fun sendableValues(): Collection<ChatCatalogEmote> = buildList {
+        addAll(channel.values)
+        addAll(viewerPersonalSetIds.asSequence().sorted().flatMap { personal[it].orEmpty().values.asSequence() })
+        addAll(global.values)
+        addAll(legacyCombined.values)
+    }.distinctBy(ChatCatalogEmote::name)
 
     fun isEmpty(): Boolean =
         global.isEmpty() && channel.isEmpty() && personal.isEmpty() && pending.isEmpty() && legacyCombined.isEmpty()
@@ -158,6 +174,19 @@ data class ChatCatalogSnapshot(
     /** Changes when runtime reward metadata changes without a provider catalog refresh. */
     val channelPointRewardsRevision: Int = 0,
 )
+
+/**
+ * Resolves viewer-sendable textual names in the same order as successful chat sends:
+ * Twitch, then 7TV, BTTV, and FFZ. Each provider projection already applies its
+ * channel > viewer-personal > global > legacy precedence.
+ */
+fun ChatCatalogSnapshot.viewerSendableValues(): List<ChatCatalogEmote> = buildList {
+    addAll(twitch.values)
+    addAll(sevenTv.sendableValues())
+    addAll(bttv.sendableValues())
+    addAll(ffz.sendableValues())
+}.filter { it.name.isNotBlank() && it.id.isNotBlank() }
+    .distinctBy(ChatCatalogEmote::name)
 
 /**
  * The catalog and its local-cache hydration status are one observable state transition.

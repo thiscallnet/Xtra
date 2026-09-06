@@ -5,6 +5,7 @@ import android.graphics.Color
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
+import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
@@ -24,6 +25,21 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
+/**
+ * Unknown Twitch restriction metadata is kept global: without a reliable restriction we cannot
+ * safely split usage by channel. Helix uses `channelpoints`; GraphQL may expose `CHANNEL_POINTS`.
+ */
+internal fun twitchEmoteScope(restrictionType: String?): ChatEmoteScope {
+    val normalized = restrictionType.orEmpty().replace("_", "").replace("-", "")
+    return if (normalized.equals("follower", ignoreCase = true) ||
+        normalized.equals("channelpoints", ignoreCase = true)
+    ) {
+        ChatEmoteScope.CHANNEL
+    } else {
+        ChatEmoteScope.GLOBAL
+    }
+}
 
 /**
  * Bridges the already-used catalog endpoints into the immutable v2 catalog.
@@ -76,6 +92,23 @@ class TwitchChatCatalogSource(
             val sevenTv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_STV, true)) loadSevenTv(network, useWebp, force) else emptyProviderUpdate() }
             val bttv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_BTTV, true)) loadBttv(network, useWebp, force) else emptyProviderUpdate() }
             val ffz = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_FFZ, true)) loadFfz(network, useWebp, force) else emptyProviderUpdate() }
+            val twitch = async<ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>>?> {
+                try {
+                    val emotes = playerRepository.loadUserEmotes(
+                        network,
+                        helix,
+                        gql,
+                        channelId,
+                        context.tokenPrefs().getString(C.USER_ID, null),
+                        animateGifs = context.prefs().getBoolean(C.ANIMATED_EMOTES, true),
+                    )
+                    ChatCatalogProviderUpdate(twitchEmoteMap(emotes))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Throwable) {
+                    null
+                }
+            }
             val cheermotes = async { provider {
                 playerRepository.loadCheerEmotes(
                     network,
@@ -87,7 +120,7 @@ class TwitchChatCatalogSource(
                 ).mapNotNull { it.toCatalog() }.toMap()
             } }
             ChatCatalogLoadResult(
-                twitch = ChatCatalogProviderUpdate(emptyMap()),
+                twitch = twitch.await(),
                 sevenTv = sevenTv.await(),
                 bttv = bttv.await(),
                 ffz = ffz.await(),
@@ -143,11 +176,14 @@ class TwitchChatCatalogSource(
                 ).second
             } else emptyList()
         }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.CHANNEL) }
+        var viewerPersonalSetIds = emptySet<String>()
         val personal = context.tokenPrefs().getString(C.USER_ID, null)?.let { accountId ->
             // Personal emotes are optional. A missing entitlement query must not make the
             // channel catalog retry forever or hide the global/channel scopes.
             scopeUpdate(channel = true, emptyValue = emptyMap()) {
-                playerRepository.loadSTVEntitledEmoteSetIds(network, accountId).associateWith { setId ->
+                val entitledSetIds = playerRepository.loadSTVEntitledEmoteSetIds(network, accountId)
+                viewerPersonalSetIds = entitledSetIds.toSet()
+                entitledSetIds.associateWith { setId ->
                     try {
                         emoteMap(
                             playerRepository.loadSTVPersonalEmotes(
@@ -169,7 +205,13 @@ class TwitchChatCatalogSource(
                 }
             }
         } ?: ScopeUpdate.Success(emptyMap())
-        return scopedProviderUpdate(global, channel, personal, channelSetId)
+        return scopedProviderUpdate(
+            global = global,
+            channel = channel,
+            personal = personal,
+            channelSetId = channelSetId,
+            viewerPersonalSetIds = viewerPersonalSetIds,
+        )
     }
 
     private suspend fun loadBttv(
@@ -249,6 +291,31 @@ class TwitchChatCatalogSource(
         }
     }
 
+    private fun twitchEmoteMap(emotes: List<TwitchEmote>): Map<String, ChatCatalogEmote> = buildMap {
+        emotes.forEach { emote ->
+            val name = emote.name?.takeIf { it.isNotBlank() } ?: return@forEach
+            val id = emote.id?.takeIf { it.isNotBlank() } ?: return@forEach
+            if (name in this) return@forEach
+            val url = emote.url4x ?: emote.url3x ?: emote.url2x ?: emote.url1x ?: return@forEach
+            put(
+                name,
+                ChatCatalogEmote(
+                    name = name,
+                    id = id,
+                    asset = ChatAssetSpec(
+                        key = ChatAssetKey(url),
+                        sourceWidth = 56,
+                        sourceHeight = 56,
+                        targetHeight = 28,
+                    ),
+                    provider = ChatAssetProvider.TWITCH,
+                    animated = emote.isAnimated,
+                    scope = twitchEmoteScope(emote.restrictionType),
+                ),
+            )
+        }
+    }
+
     private fun TwitchBadge.toCatalog(): ChatCatalogBadge {
         val url = url4x ?: url3x ?: url2x ?: url1x
         return ChatCatalogBadge(
@@ -295,6 +362,7 @@ class TwitchChatCatalogSource(
         channel: ScopeUpdate<Map<String, ChatCatalogEmote>>,
         personal: ScopeUpdate<Map<String, Map<String, ChatCatalogEmote>>>? = null,
         channelSetId: String? = null,
+        viewerPersonalSetIds: Set<String> = emptySet(),
     ): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
         val value = buildMap {
             if (global is ScopeUpdate.Success) putAll(global.value)
@@ -306,6 +374,7 @@ class TwitchChatCatalogSource(
             global = global,
             channel = channel,
             personal = personal,
+            viewerPersonalSetIds = viewerPersonalSetIds,
             channelSetId = channelSetId,
         )
     }
@@ -544,7 +613,7 @@ class TwitchChatCatalogCache(
         catalogConfigFingerprint: String?,
         badgeConfigFingerprint: String?,
     ): JSONObject = JSONObject().apply {
-        put("schemaVersion", 6)
+        put("schemaVersion", 7)
         put("revision", snapshot.revision)
         put("provider", "combined")
         put("fetchedAt", fetchedAtMs)
@@ -583,6 +652,9 @@ class TwitchChatCatalogCache(
         put("pending", JSONObject().apply {
             scoped.pending.forEach { (setId, emotes) -> put(setId, encodeEmotes(emotes)) }
         })
+        put("viewerPersonalSetIds", JSONArray().apply {
+            scoped.viewerPersonalSetIds.forEach(::put)
+        })
     }
 
     private fun encodeBadges(map: Map<String, ChatCatalogBadge>) = JSONArray().apply {
@@ -610,7 +682,7 @@ class TwitchChatCatalogCache(
 
     private fun decode(root: JSONObject): ChatCatalogSnapshot {
         val schemaVersion = root.optInt("schemaVersion")
-        check(schemaVersion in 1..6)
+        check(schemaVersion in 1..7)
         fun emoteArray(
             array: JSONArray?,
             legacyCombined: Boolean = false,
@@ -657,6 +729,13 @@ class TwitchChatCatalogCache(
                         buildMap {
                             pending.keys().forEach { setId ->
                                 put(setId, emoteArray(pending.optJSONArray(setId)))
+                            }
+                        }
+                    }.orEmpty(),
+                    viewerPersonalSetIds = value.optJSONArray("viewerPersonalSetIds")?.let { ids ->
+                        buildSet {
+                            for (index in 0 until ids.length()) {
+                                ids.optString(index).takeIf { it.isNotBlank() }?.let(::add)
                             }
                         }
                     }.orEmpty(),

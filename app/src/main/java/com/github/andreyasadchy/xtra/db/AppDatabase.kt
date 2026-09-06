@@ -9,6 +9,7 @@ import com.github.andreyasadchy.xtra.model.ShownNotification
 import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmote
+import com.github.andreyasadchy.xtra.model.chat.EmoteUsage
 import com.github.andreyasadchy.xtra.model.chat.RecentEmote
 import com.github.andreyasadchy.xtra.model.stats.ViewingInterval
 import com.github.andreyasadchy.xtra.model.stats.ViewingSession
@@ -27,6 +28,7 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
     entities = [
         OfflineVideo::class,
         RecentEmote::class,
+        EmoteUsage::class,
         FavoriteEmote::class,
         VideoPosition::class,
         VideoHistory::class,
@@ -51,18 +53,19 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
         GameFeedState::class,
         MetadataCacheEntry::class,
     ],
-    version = 51,
+    version = 52,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
 
     companion object {
-        const val VERSION = 51
-        const val IDENTITY_HASH = "3ddfbd1373044465dbcacbc3383eced6"
+        const val VERSION = 52
+        const val IDENTITY_HASH = "e85fd19d9972cb60eeb55d0a35edbebb"
     }
 
     abstract fun offlineVideos(): OfflineVideosDao
     abstract fun recentEmotes(): RecentEmotesDao
+    abstract fun emoteUsage(): EmoteUsageDao
     abstract fun favoriteEmotes(): FavoriteEmotesDao
     abstract fun videoPositions(): VideoPositionsDao
     abstract fun videoHistory(): VideoHistoryDao
