@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogCache
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogCacheEntry
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogBadge
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogLoadResult
@@ -368,6 +369,121 @@ class ChatCatalogRepositoryTest {
         withTimeout(1_000) { while (!repository.state.value.badgesSettled) delay(1) }
         assertTrue(repository.state.value.badgesSettled)
         assertTrue(repository.state.value.structuralCatalogSettled)
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun freshStructuralCacheStillRefreshesStaleIndependentBadges() = runBlocking {
+        val aggregateCalls = AtomicInteger()
+        val badgeCalls = AtomicInteger()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = object : ChatCatalogSource {
+                override val hasIndependentBadgeProvider = true
+                override val catalogConfigFingerprint = "config"
+
+                override suspend fun load(): ChatCatalogLoadResult {
+                    aggregateCalls.incrementAndGet()
+                    return ChatCatalogLoadResult()
+                }
+
+                override suspend fun loadBadges(): ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>> {
+                    badgeCalls.incrementAndGet()
+                    return ChatCatalogProviderUpdate(emptyMap())
+                }
+            },
+            cache = object : ChatCatalogCache {
+                override suspend fun read() = null
+
+                override suspend fun readEntry() = ChatCatalogCacheEntry(
+                    snapshot = ChatCatalogSnapshot(revision = 3),
+                    fetchedAtMs = System.currentTimeMillis(),
+                    catalogConfigFingerprint = "config",
+                    badgeConfigFingerprint = "config",
+                )
+
+                override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
+            },
+        )
+
+        repository.refresh(force = false)
+        withTimeout(1_000) { while (badgeCalls.get() == 0) delay(1) }
+        assertEquals(0, aggregateCalls.get())
+        assertEquals(1, badgeCalls.get())
+
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun providerConfigChangeInvalidatesFreshStructuralCache() = runBlocking {
+        val aggregateCalls = AtomicInteger()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = object : ChatCatalogSource {
+                override val catalogConfigFingerprint = "new-config"
+
+                override suspend fun load(): ChatCatalogLoadResult {
+                    aggregateCalls.incrementAndGet()
+                    return ChatCatalogLoadResult(
+                        twitch = ChatCatalogProviderUpdate(emptyMap()),
+                        sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                        bttv = ChatCatalogProviderUpdate(emptyMap()),
+                        ffz = ChatCatalogProviderUpdate(emptyMap()),
+                        badges = ChatCatalogProviderUpdate(emptyMap()),
+                        cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                    )
+                }
+            },
+            cache = object : ChatCatalogCache {
+                override suspend fun read() = null
+
+                override suspend fun readEntry() = ChatCatalogCacheEntry(
+                    snapshot = ChatCatalogSnapshot(revision = 3),
+                    fetchedAtMs = System.currentTimeMillis(),
+                    catalogConfigFingerprint = "old-config",
+                    badgeConfigFingerprint = "old-config",
+                )
+
+                override suspend fun write(snapshot: ChatCatalogSnapshot) = Unit
+            },
+        )
+
+        repository.refresh(force = false)
+        withTimeout(1_000) { while (!repository.state.value.structuralCatalogSettled) delay(1) }
+        assertEquals(1, aggregateCalls.get())
+
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun forcedRefreshPublishesUpgradeMarkerOnlyAfterProviderResult() = runBlocking {
+        val loadStarted = CompletableDeferred<Unit>()
+        val releaseLoad = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                loadStarted.complete(Unit)
+                releaseLoad.await()
+                ChatCatalogLoadResult(twitch = ChatCatalogProviderUpdate(emptyMap()))
+            },
+        )
+
+        repository.refresh(force = true)
+        loadStarted.await()
+        assertEquals(0L, repository.state.value.forceRefreshRevision)
+
+        releaseLoad.complete(Unit)
+        withTimeout(1_000) {
+            while (repository.state.value.forceRefreshRevision == 0L) delay(1)
+        }
+        assertEquals(1L, repository.state.value.forceRefreshRevision)
+
         repository.close()
         scope.cancel()
     }

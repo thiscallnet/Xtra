@@ -63,18 +63,46 @@ data class ChatCatalogLoadResult(
 fun interface ChatCatalogSource {
     suspend fun load(): ChatCatalogLoadResult
 
+    suspend fun load(force: Boolean): ChatCatalogLoadResult = load()
+
+    /** Changes when provider-related settings or the signed-in emote scope changes. */
+    val catalogConfigFingerprint: String
+        get() = ""
+
     /** True when Twitch badges are published independently of the aggregate catalog request. */
     val hasIndependentBadgeProvider: Boolean
         get() = false
 
     /** Returns the Twitch badge result as soon as that provider finishes. */
     suspend fun loadBadges(): ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>>? = null
+
+    suspend fun loadBadges(force: Boolean): ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>>? = loadBadges()
 }
+
+data class ChatCatalogCacheEntry(
+    val snapshot: ChatCatalogSnapshot,
+    val fetchedAtMs: Long,
+    val badgesFetchedAtMs: Long = 0L,
+    val catalogConfigFingerprint: String? = null,
+    val badgeConfigFingerprint: String? = null,
+)
 
 /** A last-good cache. A provider is absent from a result when its refresh failed. */
 interface ChatCatalogCache {
     suspend fun read(): ChatCatalogSnapshot?
+    suspend fun readFetchedAtMs(): Long = 0L
+    suspend fun readEntry(): ChatCatalogCacheEntry? = read()?.let { snapshot ->
+        ChatCatalogCacheEntry(snapshot, readFetchedAtMs())
+    }
     suspend fun write(snapshot: ChatCatalogSnapshot)
+    suspend fun write(snapshot: ChatCatalogSnapshot, fetchedAtMs: Long) = write(snapshot)
+    suspend fun write(
+        snapshot: ChatCatalogSnapshot,
+        fetchedAtMs: Long,
+        badgesFetchedAtMs: Long,
+        catalogConfigFingerprint: String?,
+        badgeConfigFingerprint: String?,
+    ) = write(snapshot, fetchedAtMs)
 }
 
 /** Replaces scattered mutable provider lists with one atomically published catalog revision. */
@@ -84,6 +112,7 @@ class ChatCatalogRepository(
     private val cache: ChatCatalogCache? = null,
     private val wait: suspend (Long) -> Unit = { delay(it) },
     private val personalEmoteSetLoader: (suspend (String) -> Map<String, ChatCatalogEmote>)? = null,
+    private val cacheFreshnessMs: Long = 60 * 60 * 1000L,
 ) {
     private enum class Provider { TWITCH, SEVEN_TV, BTTV, FFZ, BADGES, CHEERMOTES }
 
@@ -103,6 +132,10 @@ class ChatCatalogRepository(
     private var closed = false
     private var cacheJob: Job? = null
     private var persistenceJob: Job? = null
+    private var cacheFetchedAtMs: Long? = null
+    private var badgesFetchedAtMs: Long? = null
+    private var cacheCatalogConfigFingerprint: String? = null
+    private var cacheBadgeConfigFingerprint: String? = null
     private val personalEmoteSetJobs = mutableMapOf<String, Job>()
     private val loadedPersonalEmoteSets = mutableSetOf<String>()
     private var networkProvidersObserved = emptySet<Provider>()
@@ -251,7 +284,7 @@ class ChatCatalogRepository(
         cache?.let { persistence ->
             cacheJob = scope.launch {
                 val cached = try {
-                    persistence.read()
+                    persistence.readEntry()
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Throwable) {
@@ -261,46 +294,60 @@ class ChatCatalogRepository(
                     if (!closed) {
                         val currentState = _state.value
                         val current = currentState.snapshot
-                        if (cached != null) {
+                        val cacheConfigMatches = cached == null ||
+                                cached.catalogConfigFingerprint == null ||
+                                cached.catalogConfigFingerprint == source.catalogConfigFingerprint
+                        if (cached != null && cacheConfigMatches) {
+                            cacheFetchedAtMs = cached.fetchedAtMs.takeIf { it > 0L }
+                            badgesFetchedAtMs = cached.badgesFetchedAtMs.takeIf { it > 0L }
+                            cacheCatalogConfigFingerprint = cached.catalogConfigFingerprint
+                            cacheBadgeConfigFingerprint = cached.badgeConfigFingerprint
+                            val cachedSnapshot = cached.snapshot
+                            val cachedBadgesSettled = !source.hasIndependentBadgeProvider ||
+                                    (cached.badgesFetchedAtMs > 0L &&
+                                            isFresh(cached.badgesFetchedAtMs, cacheFreshnessMs) &&
+                                            cached.badgeConfigFingerprint == source.catalogConfigFingerprint)
                             if (networkProvidersObserved.isEmpty() && networkEmoteScopesObserved.isEmpty()) {
                                 // A refresh may already be in flight while disk hydration is pending.
                                 // Publish the last-good cache before that refresh completes.
                                 _state.value = ChatCatalogState(
-                                    cached.withRuntimeDecorations(runtimeDecorations),
+                                    cachedSnapshot.withRuntimeDecorations(runtimeDecorations),
                                     hydrated = true,
-                                    badgesSettled = currentState.badgesSettled || cached.badges.isNotEmpty(),
+                                    badgesSettled = currentState.badgesSettled || cachedBadgesSettled,
                                     structuralCatalogSettled = currentState.structuralCatalogSettled,
                                     refreshFailed = currentState.refreshFailed,
                                     thirdPartyRefreshFailed = currentState.thirdPartyRefreshFailed,
+                                    forceRefreshRevision = currentState.forceRefreshRevision,
                                 )
                             } else {
                                 // Hydrate only providers that have not produced a network result yet.
                                 // A partial refresh must not erase cached data for providers that are
                                 // still retrying, while a successful provider must remain authoritative.
                                 val merged = current.copy(
-                                    twitch = if (Provider.TWITCH in networkProvidersObserved) current.twitch else cached.twitch,
-                                    sevenTv = hydrateUnobservedScopes(current.sevenTv, cached.sevenTv, Provider.SEVEN_TV),
+                                    twitch = if (Provider.TWITCH in networkProvidersObserved) current.twitch else cachedSnapshot.twitch,
+                                    sevenTv = hydrateUnobservedScopes(current.sevenTv, cachedSnapshot.sevenTv, Provider.SEVEN_TV),
                                     sevenTvChannelSetId = if (
                                         ChatEmoteScope.CHANNEL in networkEmoteScopesObserved[Provider.SEVEN_TV].orEmpty()
-                                    ) current.sevenTvChannelSetId else cached.sevenTvChannelSetId,
-                                    bttv = hydrateUnobservedScopes(current.bttv, cached.bttv, Provider.BTTV),
-                                    ffz = hydrateUnobservedScopes(current.ffz, cached.ffz, Provider.FFZ),
-                                    badges = if (Provider.BADGES in networkProvidersObserved) current.badges else cached.badges,
-                                    cheermotes = if (Provider.CHEERMOTES in networkProvidersObserved) current.cheermotes else cached.cheermotes,
+                                    ) current.sevenTvChannelSetId else cachedSnapshot.sevenTvChannelSetId,
+                                    bttv = hydrateUnobservedScopes(current.bttv, cachedSnapshot.bttv, Provider.BTTV),
+                                    ffz = hydrateUnobservedScopes(current.ffz, cachedSnapshot.ffz, Provider.FFZ),
+                                    badges = if (Provider.BADGES in networkProvidersObserved) current.badges else cachedSnapshot.badges,
+                                    cheermotes = if (Provider.CHEERMOTES in networkProvidersObserved) current.cheermotes else cachedSnapshot.cheermotes,
                                 )
                                 if (merged != current) {
                                     _state.value = ChatCatalogState(
                                         merged.copy(revision = current.revision + 1),
                                         hydrated = true,
-                                        badgesSettled = currentState.badgesSettled || cached.badges.isNotEmpty(),
+                                        badgesSettled = currentState.badgesSettled || cachedBadgesSettled,
                                         structuralCatalogSettled = currentState.structuralCatalogSettled,
                                         refreshFailed = currentState.refreshFailed,
                                         thirdPartyRefreshFailed = currentState.thirdPartyRefreshFailed,
+                                        forceRefreshRevision = currentState.forceRefreshRevision,
                                     )
                                 } else {
                                     _state.value = currentState.copy(
                                         hydrated = true,
-                                        badgesSettled = currentState.badgesSettled || cached.badges.isNotEmpty(),
+                                        badgesSettled = currentState.badgesSettled || cachedBadgesSettled,
                                     )
                                 }
                             }
@@ -313,13 +360,52 @@ class ChatCatalogRepository(
         }
     }
 
-    @Synchronized fun refresh() {
+    /** Refreshes immediately by default. Pass false for the normal stale-while-revalidate path. */
+    @Synchronized fun refresh(force: Boolean = true) {
         if (closed) return
         val requestGeneration = ++generation
+        val currentState = _state.value
+        val forceRefreshRevision = if (force) {
+            currentState.forceRefreshRevision + 1L
+        } else {
+            null
+        }
         refreshJob?.cancel()
         badgeRefreshJob?.cancel()
         badgeRefreshGeneration = null
-        refreshJob = launchRefresh(requestGeneration, attempt = 1, delayMs = 0L)
+        refreshJob = scope.launch {
+            if (!force) cacheJob?.join()
+            synchronized(this@ChatCatalogRepository) {
+                if (closed || requestGeneration != generation) return@synchronized
+                val structuralCacheFresh = isCacheFresh()
+                val badgeCacheFresh = isBadgeCacheFresh()
+                if (!force && structuralCacheFresh) {
+                    _state.value = _state.value.copy(
+                        structuralCatalogSettled = true,
+                        badgesSettled = if (source.hasIndependentBadgeProvider) badgeCacheFresh else true,
+                    )
+                    if (source.hasIndependentBadgeProvider && !badgeCacheFresh && badgeRefreshJob?.isActive != true) {
+                        badgeRefreshGeneration = requestGeneration
+                        badgeRefreshJob = launchBadgeRefresh(
+                            requestGeneration,
+                            attempt = 1,
+                            delayMs = 0L,
+                            force = false,
+                            forceRefreshRevision = null,
+                        )
+                    }
+                    refreshJob = null
+                    return@synchronized
+                }
+                refreshJob = launchRefresh(
+                    requestGeneration,
+                    attempt = 1,
+                    delayMs = 0L,
+                    force = force,
+                    forceRefreshRevision = forceRefreshRevision,
+                )
+            }
+        }
     }
 
     /** Stops provider refresh/retry work while an owning session is paused. */
@@ -346,17 +432,30 @@ class ChatCatalogRepository(
         personalEmoteSetJobs.clear()
     }
 
-    private fun launchRefresh(requestGeneration: Long, attempt: Int, delayMs: Long): Job = scope.launch {
+    private fun launchRefresh(
+        requestGeneration: Long,
+        attempt: Int,
+        delayMs: Long,
+        force: Boolean,
+        forceRefreshRevision: Long?,
+    ): Job = scope.launch {
         if (delayMs > 0) wait(delayMs)
         if (source.hasIndependentBadgeProvider &&
+            (force || !isBadgeCacheFresh()) &&
             badgeRefreshGeneration != requestGeneration &&
             badgeRefreshJob?.isActive != true
         ) {
             badgeRefreshGeneration = requestGeneration
-            badgeRefreshJob = launchBadgeRefresh(requestGeneration, attempt, delayMs = 0L)
+            badgeRefreshJob = launchBadgeRefresh(
+                requestGeneration,
+                attempt,
+                delayMs = 0L,
+                force = force,
+                forceRefreshRevision = forceRefreshRevision,
+            )
         }
         val result = try {
-            source.load()
+            source.load(force)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Throwable) {
@@ -377,7 +476,13 @@ class ChatCatalogRepository(
                         thirdPartyRefreshFailed = true,
                     )
                 }
-                refreshJob = launchRefresh(requestGeneration, attempt + 1, retryDelay(attempt))
+                refreshJob = launchRefresh(
+                    requestGeneration,
+                    attempt + 1,
+                    retryDelay(attempt),
+                    force = false,
+                    forceRefreshRevision = forceRefreshRevision,
+                )
                 return@synchronized
             }
             networkProvidersObserved = buildSet {
@@ -420,35 +525,57 @@ class ChatCatalogRepository(
                     result.hasFailedProvider
                 },
                 thirdPartyRefreshFailed = result.hasFailedThirdPartyProvider,
+                forceRefreshRevision = currentState.forceRefreshRevision,
             )
-            if (changed) {
-                _state.value = nextState
-                enqueuePersistence(next)
-            } else if (
-                currentState.refreshFailed != nextState.refreshFailed ||
-                currentState.thirdPartyRefreshFailed != nextState.thirdPartyRefreshFailed ||
-                currentState.badgesSettled != nextState.badgesSettled ||
-                currentState.structuralCatalogSettled != nextState.structuralCatalogSettled
-            ) {
-                _state.value = nextState
-            }
+            val nextForceRefreshRevision = currentState.forceRefreshRevision +
+                    if (forceRefreshRevision != null) 1L else 0L
+            val nextStateWithRefresh = nextState.copy(forceRefreshRevision = nextForceRefreshRevision)
             val aggregateFailed = if (source.hasIndependentBadgeProvider) {
                 result.hasFailedProviderIgnoringBadges()
             } else {
                 result.hasFailedProvider
             }
+            if (!aggregateFailed) {
+                cacheFetchedAtMs = System.currentTimeMillis()
+                cacheCatalogConfigFingerprint = source.catalogConfigFingerprint
+            }
+            if (changed) {
+                _state.value = nextStateWithRefresh
+                enqueuePersistence(next)
+            } else if (
+                currentState.refreshFailed != nextState.refreshFailed ||
+                currentState.thirdPartyRefreshFailed != nextState.thirdPartyRefreshFailed ||
+                currentState.badgesSettled != nextState.badgesSettled ||
+                currentState.structuralCatalogSettled != nextState.structuralCatalogSettled ||
+                currentState.forceRefreshRevision != nextStateWithRefresh.forceRefreshRevision
+            ) {
+                _state.value = nextStateWithRefresh
+            }
+            if (!aggregateFailed && !changed) enqueuePersistence(next)
             refreshJob = if (aggregateFailed) {
-                launchRefresh(requestGeneration, attempt + 1, retryDelay(attempt))
+                launchRefresh(
+                    requestGeneration,
+                    attempt + 1,
+                    retryDelay(attempt),
+                    force = false,
+                    forceRefreshRevision = forceRefreshRevision,
+                )
             } else {
                 null
             }
         }
     }
 
-    private fun launchBadgeRefresh(requestGeneration: Long, attempt: Int, delayMs: Long): Job = scope.launch {
+    private fun launchBadgeRefresh(
+        requestGeneration: Long,
+        attempt: Int,
+        delayMs: Long,
+        force: Boolean,
+        forceRefreshRevision: Long?,
+    ): Job = scope.launch {
         if (delayMs > 0) wait(delayMs)
         val result = try {
-            source.loadBadges()
+            source.loadBadges(force)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Throwable) {
@@ -458,6 +585,8 @@ class ChatCatalogRepository(
             if (closed || requestGeneration != generation) return@synchronized
             if (result != null) {
                 networkProvidersObserved = networkProvidersObserved + Provider.BADGES
+                badgesFetchedAtMs = System.currentTimeMillis()
+                cacheBadgeConfigFingerprint = source.catalogConfigFingerprint
                 val currentState = _state.value
                 val current = currentState.snapshot
                 val next = current.copy(
@@ -467,6 +596,8 @@ class ChatCatalogRepository(
                 _state.value = currentState.copy(
                     snapshot = next,
                     badgesSettled = true,
+                    forceRefreshRevision = currentState.forceRefreshRevision +
+                            if (forceRefreshRevision != null) 1L else 0L,
                 )
                 enqueuePersistence(next)
                 badgeRefreshJob = null
@@ -475,7 +606,13 @@ class ChatCatalogRepository(
                     badgesSettled = true,
                     refreshFailed = true,
                 )
-                badgeRefreshJob = launchBadgeRefresh(requestGeneration, attempt + 1, retryDelay(attempt))
+                badgeRefreshJob = launchBadgeRefresh(
+                    requestGeneration,
+                    attempt + 1,
+                    retryDelay(attempt),
+                    force = false,
+                    forceRefreshRevision = forceRefreshRevision,
+                )
             }
         }
     }
@@ -486,11 +623,21 @@ class ChatCatalogRepository(
      */
     private fun enqueuePersistence(next: ChatCatalogSnapshot) {
         val persistence = cache ?: return
+        val fetchedAtMs = cacheFetchedAtMs ?: 0L
+        val badgeFetchedAtMs = badgesFetchedAtMs ?: 0L
+        val catalogConfigFingerprint = cacheCatalogConfigFingerprint
+        val badgeConfigFingerprint = cacheBadgeConfigFingerprint
         val previous = persistenceJob
         persistenceJob = scope.launch {
             previous?.join()
             try {
-                persistence.write(next)
+                persistence.write(
+                    next,
+                    fetchedAtMs,
+                    badgeFetchedAtMs,
+                    catalogConfigFingerprint,
+                    badgeConfigFingerprint,
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Throwable) {
@@ -506,6 +653,23 @@ class ChatCatalogRepository(
         4 -> 30_000L
         else -> 60_000L
     }
+
+    private fun isCacheFresh(nowMs: Long = System.currentTimeMillis()): Boolean =
+        cacheFetchedAtMs?.let { fetchedAt ->
+            cacheConfigIsCurrent() && isFresh(fetchedAt, cacheFreshnessMs, nowMs)
+        } == true
+
+    private fun isBadgeCacheFresh(nowMs: Long = System.currentTimeMillis()): Boolean {
+        val fetchedAt = badgesFetchedAtMs ?: return false
+        if (cacheBadgeConfigFingerprint != source.catalogConfigFingerprint) return false
+        return isFresh(fetchedAt, cacheFreshnessMs, nowMs)
+    }
+
+    private fun cacheConfigIsCurrent(): Boolean =
+        cacheCatalogConfigFingerprint == source.catalogConfigFingerprint
+
+    private fun isFresh(fetchedAtMs: Long, ttlMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
+        nowMs - fetchedAtMs in 0 until ttlMs
 
     private fun mergeEmoteScopes(
         current: ScopedEmoteCatalog,

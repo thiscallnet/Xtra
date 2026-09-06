@@ -382,7 +382,9 @@ class ChatViewModel(
                 thirdPartyEmotesUpdated.onStart { emit(Unit) },
             ) { state, _ ->
                 if (!state.hydrated) ThirdPartyPickerState.Loading
-                else thirdPartyPickerStateFor(state.snapshot, state.thirdPartyRefreshFailed) { session.catalog.refresh() }
+                else thirdPartyPickerStateFor(state.snapshot, state.thirdPartyRefreshFailed) {
+                    session.catalog.refresh(force = true)
+                }
             }
         }
     }

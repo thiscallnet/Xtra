@@ -12,12 +12,18 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 
+internal data class ChatMetadataSettlement(
+    val structuralSettled: Boolean,
+    val badgesSettled: Boolean,
+    val rewardsSettled: Boolean,
+)
+
 /**
- * Keeps structural catalog inputs stable for every message already published in a session.
+ * Keeps settled catalog inputs stable for every message already published in a session.
  *
- * Catalog retries and live decoration updates are allowed to improve the presentation of new
- * messages. They must not insert a new span into an existing row, because the row may already
- * have been revealed by the atomic asset gate.
+ * A message published before all metadata is available remains component-wise provisional. Each
+ * settled component may upgrade the existing row once; later retries and live decoration updates
+ * do not insert a new span into an already settled row.
  */
 internal class ChatPresentationSnapshot {
     private var sessionKey: ChatSessionKey? = null
@@ -29,6 +35,10 @@ internal class ChatPresentationSnapshot {
         messages: List<ChatMessage>,
         catalog: ChatCatalogSnapshot,
         captureBadges: Boolean = true,
+        structuralSettled: Boolean = true,
+        badgesSettled: Boolean = true,
+        rewardsSettled: Boolean = true,
+        forceUpgrade: Boolean = false,
     ): List<ChatCatalogSnapshot> {
         if (sessionKey != key) {
             sessionKey = key
@@ -36,14 +46,24 @@ internal class ChatPresentationSnapshot {
         }
         val messageIds = messages.asSequence().map(ChatMessage::id).toSet()
         catalogsByMessage.keys.retainAll(messageIds)
+        val settlement = ChatMetadataSettlement(structuralSettled, badgesSettled, rewardsSettled)
         return messages.map { message ->
             val frozen = catalogsByMessage[message.id]
             if (frozen == null) {
-                val created = FrozenCatalog.from(catalog, captureBadges)
+                val created = FrozenCatalog.from(
+                    catalog = catalog,
+                    captureBadges = captureBadges,
+                    settlement = settlement,
+                )
                 catalogsByMessage[message.id] = created
                 created.toCatalog(catalog)
             } else {
-                if (captureBadges) frozen.captureBadges(catalog)
+                frozen.update(
+                    catalog = catalog,
+                    captureBadges = captureBadges,
+                    settlement = settlement,
+                    forceUpgrade = forceUpgrade,
+                )
                 frozen.toCatalog(catalog)
             }
         }
@@ -56,22 +76,62 @@ internal class ChatPresentationSnapshot {
     }
 
     private class FrozenCatalog(
-        private val twitch: Map<String, ChatCatalogEmote>,
-        private val sevenTv: ScopedEmoteCatalog,
-        private val sevenTvChannelSetId: String?,
-        private val bttv: ScopedEmoteCatalog,
-        private val ffz: ScopedEmoteCatalog,
+        private var twitch: Map<String, ChatCatalogEmote>,
+        private var sevenTv: ScopedEmoteCatalog,
+        private var sevenTvChannelSetId: String?,
+        private var bttv: ScopedEmoteCatalog,
+        private var ffz: ScopedEmoteCatalog,
         private var badges: Map<String, ChatCatalogBadge>?,
-        private val cheermotes: Map<String, ChatCatalogCheermote>,
-        private val userDecorations: Map<String, ChatUserDecoration>,
-        private val namePaints: Map<String, ChatNamePaint>,
-        private val sevenTvBadges: Map<String, ChatCatalogBadge>,
-        private val channelPointRewards: Map<String, ChatReward>,
-        private val automaticChannelPointRewards: Map<String, ChatReward>,
-        private val channelPointRewardsRevision: Int,
+        private var cheermotes: Map<String, ChatCatalogCheermote>,
+        private var userDecorations: Map<String, ChatUserDecoration>,
+        private var namePaints: Map<String, ChatNamePaint>,
+        private var sevenTvBadges: Map<String, ChatCatalogBadge>,
+        private var channelPointRewards: Map<String, ChatReward>,
+        private var automaticChannelPointRewards: Map<String, ChatReward>,
+        private var channelPointRewardsRevision: Int,
+        private var structuralSettled: Boolean,
+        private var badgesSettled: Boolean,
+        private var rewardsSettled: Boolean,
     ) {
-        fun captureBadges(catalog: ChatCatalogSnapshot) {
-            if (badges == null) badges = catalog.badges
+        fun update(
+            catalog: ChatCatalogSnapshot,
+            captureBadges: Boolean,
+            settlement: ChatMetadataSettlement,
+            forceUpgrade: Boolean,
+        ) {
+            if (captureBadges && badges == null) badges = catalog.badges
+
+            if (forceUpgrade || !structuralSettled && settlement.structuralSettled) {
+                captureStructural(catalog)
+            }
+            if (captureBadges && (forceUpgrade || !badgesSettled && settlement.badgesSettled)) {
+                badges = catalog.badges
+            }
+            if (forceUpgrade || !rewardsSettled && settlement.rewardsSettled) {
+                captureRewards(catalog)
+            }
+
+            structuralSettled = structuralSettled || settlement.structuralSettled
+            badgesSettled = badgesSettled || settlement.badgesSettled
+            rewardsSettled = rewardsSettled || settlement.rewardsSettled
+        }
+
+        private fun captureStructural(catalog: ChatCatalogSnapshot) {
+            twitch = catalog.twitch
+            sevenTv = catalog.sevenTv
+            sevenTvChannelSetId = catalog.sevenTvChannelSetId
+            bttv = catalog.bttv
+            ffz = catalog.ffz
+            cheermotes = catalog.cheermotes
+            userDecorations = catalog.userDecorations
+            namePaints = catalog.namePaints
+            sevenTvBadges = catalog.sevenTvBadges
+        }
+
+        private fun captureRewards(catalog: ChatCatalogSnapshot) {
+            channelPointRewards = catalog.channelPointRewards
+            automaticChannelPointRewards = catalog.automaticChannelPointRewards
+            channelPointRewardsRevision = catalog.channelPointRewardsRevision
         }
 
         fun toCatalog(current: ChatCatalogSnapshot): ChatCatalogSnapshot = current.copy(
@@ -91,7 +151,11 @@ internal class ChatPresentationSnapshot {
         )
 
         companion object {
-            fun from(catalog: ChatCatalogSnapshot, captureBadges: Boolean): FrozenCatalog = FrozenCatalog(
+            fun from(
+                catalog: ChatCatalogSnapshot,
+                captureBadges: Boolean,
+                settlement: ChatMetadataSettlement,
+            ): FrozenCatalog = FrozenCatalog(
                 twitch = catalog.twitch,
                 sevenTv = catalog.sevenTv,
                 sevenTvChannelSetId = catalog.sevenTvChannelSetId,
@@ -105,6 +169,9 @@ internal class ChatPresentationSnapshot {
                 channelPointRewards = catalog.channelPointRewards,
                 automaticChannelPointRewards = catalog.automaticChannelPointRewards,
                 channelPointRewardsRevision = catalog.channelPointRewardsRevision,
+                structuralSettled = settlement.structuralSettled,
+                badgesSettled = settlement.badgesSettled,
+                rewardsSettled = settlement.rewardsSettled,
             )
         }
     }

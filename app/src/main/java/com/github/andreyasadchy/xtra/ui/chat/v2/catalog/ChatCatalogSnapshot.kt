@@ -172,6 +172,8 @@ data class ChatCatalogState(
     val structuralCatalogSettled: Boolean = false,
     val refreshFailed: Boolean = false,
     val thirdPartyRefreshFailed: Boolean = false,
+    /** Monotonic marker for explicit refresh results published to the renderer. */
+    val forceRefreshRevision: Long = 0L,
 )
 
 internal fun ChatCatalogState.isReadyForChatPublication(showBadges: Boolean): Boolean =
