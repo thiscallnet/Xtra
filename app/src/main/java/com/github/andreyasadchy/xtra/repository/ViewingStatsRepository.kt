@@ -26,6 +26,13 @@ interface ViewingStatsStore {
     suspend fun updateSession(session: ViewingSession)
     suspend fun insertInterval(metadata: ViewingPlaybackMetadata, sessionId: Long, startAt: Long): Long
     suspend fun updateInterval(interval: ViewingInterval)
+    suspend fun updateCheckpoints(
+        intervals: List<ViewingInterval>,
+        sessions: List<ViewingSession>,
+    ) {
+        intervals.forEach { updateInterval(it) }
+        sessions.forEach { updateSession(it) }
+    }
     suspend fun resetAll()
 }
 
@@ -57,6 +64,13 @@ class ViewingStatsRepository(
         dao.updateInterval(interval)
     }
 
+    override suspend fun updateCheckpoints(
+        intervals: List<ViewingInterval>,
+        sessions: List<ViewingSession>,
+    ) {
+        dao.updateCheckpoints(intervals, sessions)
+    }
+
     override suspend fun resetAll() {
         dao.deleteAll()
     }
@@ -86,7 +100,7 @@ class ViewingStatsRepository(
             if (previousTo <= previousFrom) {
                 0L
             } else {
-                dao.getOverview(
+                dao.getUnfilteredOverview(
                     fromInclusive = previousFrom,
                     toExclusive = previousTo,
                 ).totalWatchMs
@@ -179,7 +193,7 @@ class ViewingStatsRepository(
     ): Long {
         val earliest = dao.getEarliestRecordedAt() ?: return 0L
         val bounds = ViewingStatsRanges.bounds(range, now, earliest, timeZone)
-        return dao.getTotalWatchMs(
+        return dao.getUnfilteredTotalWatchMs(
             fromInclusive = bounds.fromInclusive,
             toExclusive = bounds.toExclusive,
         )
@@ -292,7 +306,7 @@ class ViewingStatsRepository(
         topLimit: Int,
         earliestRecordedAt: Long,
     ): ViewingStatsSnapshot {
-        val overview = dao.getOverview(
+        val overview = dao.getUnfilteredOverview(
             fromInclusive = filter.fromInclusive,
             toExclusive = filter.toExclusive,
         )
