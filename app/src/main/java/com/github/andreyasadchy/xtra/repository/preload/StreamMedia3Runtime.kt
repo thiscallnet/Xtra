@@ -61,6 +61,7 @@ class StreamMedia3Runtime(
     context: Context,
     private val xtraModule: XtraModule,
     private val elapsedRealtimeMs: () -> Long = { SystemClock.elapsedRealtime() },
+    private val configurationStore: StreamPlaybackConfigurationStore = StreamPlaybackConfigurationStore(context),
 ) {
     companion object {
         private const val TAG = "StreamMedia3"
@@ -283,7 +284,7 @@ class StreamMedia3Runtime(
                 entry = MediaPreloadPlanEntry(entry.channelLogin, entry.url, entry.rank, entry.samplesLoadedAtMs, entry.addedAtMs),
                 requestedChannelLogin = login,
                 requestedUrl = url,
-                configurationMatches = generation.configuration.fingerprint == StreamPlaybackConfiguration.from(context).fingerprint,
+                configurationMatches = generation.configuration.fingerprint == configurationStore.current.fingerprint,
                 nowMs = now,
         )) return null
         val age = now - (entry.samplesLoadedAtMs ?: entry.addedAtMs)
@@ -399,7 +400,7 @@ class StreamMedia3Runtime(
     }
 
     private fun ensureGeneration(): Generation {
-        val configuration = StreamPlaybackConfiguration.from(context)
+        val configuration = configurationStore.current
         currentGeneration?.takeIf { it.configuration.fingerprint == configuration.fingerprint }?.let { return it }
         currentGeneration?.let { old ->
             if (shouldResetPreloadManager(old.player != null)) {

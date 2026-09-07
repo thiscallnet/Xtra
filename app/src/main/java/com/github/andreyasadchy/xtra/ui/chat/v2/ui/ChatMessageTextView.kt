@@ -155,6 +155,16 @@ open class ChatMessageTextView private constructor(
     private val latchedFailedCompositionKeys = HashSet<String>()
     private val latchedFailedDirectKeys = HashSet<ChatAssetKey>()
     private val latchedFailedClipMetadataSlugs = HashSet<String>()
+    private val clipFillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val clipAccentPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val clipTitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val clipSecondaryPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val clipCardRect = RectF()
+    private val clipAccentRect = RectF()
+    private var clipDrawCards = emptyList<ClipDrawCard>()
+    private var clipDrawCacheWidth = -1
+    private var clipDrawCacheTimeBucket = Long.MIN_VALUE
+    private var clipRelativeTimeRefresh: Runnable? = null
 
     fun setInteractionCallbacks(
         onMessageLongClick: ((ChatMessageId) -> Unit)?,
@@ -177,6 +187,7 @@ open class ChatMessageTextView private constructor(
 
     fun setMessageTextSizeSp(value: Float) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, value)
+        invalidateClipDrawCache()
     }
 
     fun setAnimateGifs(value: Boolean) {
@@ -257,6 +268,7 @@ open class ChatMessageTextView private constructor(
     }
 
     private fun bindRow(row: ChatRowUiModel) {
+        invalidateClipDrawCache()
         val sameRevealedMessage = boundMessageId == row.id && !awaitingInitialAssetFrame
         if (!sameRevealedMessage) {
             awaitingInitialAssetFrame = true
@@ -327,6 +339,7 @@ open class ChatMessageTextView private constructor(
             observeClipMetadata(slug)
         }
         refreshClipPreviewAssets()
+        invalidateClipDrawCache()
         latchTerminalAssetFailures()
         val density = resources.displayMetrics.density
         val event = row.eventPresentation
@@ -565,6 +578,7 @@ open class ChatMessageTextView private constructor(
         requiresLayout = maybeApplyStagedRow() || requiresLayout
         requiresLayout = latchFailedClipMetadata() || requiresLayout
         refreshClipPreviewAssets()
+        invalidateClipDrawCache()
         if (requiresLayout) {
             ChatRenderDiagnostics.recordLayoutAndDrawInvalidation()
             requestLayout()
@@ -692,13 +706,13 @@ open class ChatMessageTextView private constructor(
         }
         try {
             super.onDraw(canvas)
-            val previews = resolvedClipPreviews()
-            if (previews.isEmpty()) return
+            ensureClipDrawCache()
+            if (clipDrawCards.isEmpty()) return
             val left = totalPaddingLeft.toFloat()
             val right = (width - totalPaddingRight).toFloat()
             var top = (paddingTop + layout?.height.orZero() + clipPreviewGap()).toFloat()
-            previews.forEach { (link, preview) ->
-                drawClipPreview(canvas, left, top, right, link, preview)
+            clipDrawCards.forEach { card ->
+                drawClipPreview(canvas, left, top, right, card)
                 top += clipPreviewBlockHeight() + clipPreviewGap()
             }
         } finally {
@@ -706,64 +720,117 @@ open class ChatMessageTextView private constructor(
         }
     }
 
+    private data class ClipDrawCard(
+        val thumbnailSpec: ChatAssetSpec?,
+        val title: String,
+        val subtitle: String,
+        val attribution: String,
+        val hasRelativeTime: Boolean,
+    )
+
+    private fun invalidateClipDrawCache() {
+        clipDrawCacheWidth = -1
+        clipDrawCacheTimeBucket = Long.MIN_VALUE
+        clipDrawCards = emptyList()
+    }
+
+    private fun ensureClipDrawCache() {
+        val width = width
+        val timeBucket = System.currentTimeMillis() / DateUtils.MINUTE_IN_MILLIS
+        if (width <= 0 || (clipDrawCacheWidth == width && clipDrawCacheTimeBucket == timeBucket)) return
+        val density = resources.displayMetrics.density
+        val left = totalPaddingLeft.toFloat()
+        val right = (width - totalPaddingEnd).toFloat()
+        val thumbRight = left + 6 * density + 72 * density
+        val textLeft = thumbRight + 6 * density
+        val textRight = right - 9 * density
+        clipFillPaint.color = com.google.android.material.color.MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorSurfaceContainerHigh,
+        )
+        clipAccentPaint.color = com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageSpecialAccentColor)
+        clipTitlePaint.color = com.google.android.material.color.MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorOnSurface,
+        )
+        clipTitlePaint.textSize = paint.textSize
+        clipTitlePaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        clipSecondaryPaint.color = com.google.android.material.color.MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorOnSurfaceVariant,
+        )
+        clipSecondaryPaint.textSize = paint.textSize
+        val availableTextWidth = (textRight - textLeft).coerceAtLeast(0f)
+        clipDrawCards = buildList {
+            boundRow?.clipPreviews.orEmpty().forEach { link ->
+                if (link.slug in latchedFailedClipMetadataSlugs) return@forEach
+                val preview = clipPreviews?.peek(link.slug) ?: return@forEach
+                val imageUrl = preview.thumbnailUrl?.takeIf { it.isNotBlank() }
+                val thumbnailSpec = imageUrl?.let { url ->
+                    ChatAssetSpec(ChatAssetKey(url), 16, 9, (clipPreviewCardHeight() - 12 * density).toInt())
+                }
+                val title = preview.title?.takeIf { it.isNotBlank() } ?: link.slug
+                val subtitle = clipSubtitle(preview)
+                val attribution = clipAttribution(preview)
+                add(
+                    ClipDrawCard(
+                        thumbnailSpec = thumbnailSpec,
+                        title = TextUtils.ellipsize(title, clipTitlePaint, availableTextWidth, TextUtils.TruncateAt.END).toString(),
+                        subtitle = TextUtils.ellipsize(subtitle, clipSecondaryPaint, availableTextWidth, TextUtils.TruncateAt.END).toString(),
+                        attribution = TextUtils.ellipsize(attribution, clipSecondaryPaint, availableTextWidth, TextUtils.TruncateAt.END).toString(),
+                        hasRelativeTime = parseClipTimestamp(preview.createdAt) != null,
+                    ),
+                )
+            }
+        }
+        clipDrawCacheWidth = width
+        clipDrawCacheTimeBucket = timeBucket
+        scheduleClipRelativeTimeRefresh()
+    }
+
+    private fun scheduleClipRelativeTimeRefresh() {
+        clipRelativeTimeRefresh?.let(mainHandler::removeCallbacks)
+        clipRelativeTimeRefresh = null
+        if (!windowAttached || clipDrawCards.none { it.hasRelativeTime }) return
+        val now = System.currentTimeMillis()
+        val delayMs = (DateUtils.MINUTE_IN_MILLIS - (now % DateUtils.MINUTE_IN_MILLIS) + 50L)
+        clipRelativeTimeRefresh = Runnable {
+            clipRelativeTimeRefresh = null
+            invalidateClipDrawCache()
+            postInvalidateOnAnimation()
+        }.also { mainHandler.postDelayed(it, delayMs) }
+    }
+
     private fun drawClipPreview(
         canvas: Canvas,
         left: Float,
         top: Float,
         right: Float,
-        link: ChatClipPreviewLink,
-        preview: ChatClipPreview,
+        card: ClipDrawCard,
     ) {
         val density = resources.displayMetrics.density
         val height = clipPreviewCardHeight().toFloat()
         val radius = (3 * density)
-        val card = RectF(left, top, right, top + height)
-        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = com.google.android.material.color.MaterialColors.getColor(
-                this@ChatMessageTextView,
-                com.google.android.material.R.attr.colorSurfaceContainerHigh,
-            )
-        }
-        canvas.drawRoundRect(card, radius, radius, fill)
-        fill.color = com.google.android.material.color.MaterialColors.getColor(this, R.attr.chatMessageSpecialAccentColor)
-        canvas.drawRoundRect(RectF(right - 4 * density, top, right, top + height), radius, radius, fill)
+        clipCardRect.set(left, top, right, top + height)
+        canvas.drawRoundRect(clipCardRect, radius, radius, clipFillPaint)
+        clipAccentRect.set(right - 4 * density, top, right, top + height)
+        canvas.drawRoundRect(clipAccentRect, radius, radius, clipAccentPaint)
 
-        val imageUrl = preview.thumbnailUrl?.takeIf { it.isNotBlank() }
         val thumbLeft = left + 6 * density
         val thumbTop = top + 6 * density
         val thumbRight = thumbLeft + 72 * density
         val thumbBottom = top + height - 6 * density
-        if (imageUrl != null) {
-            val spec = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec(
-                ChatAssetKey(imageUrl), 16, 9, (thumbBottom - thumbTop).toInt(),
-            )
-            val key = ChatAssetKey(imageUrl)
-            if (!isDirectAssetFailureLatched(key)) drawableFor(key, spec)?.let { drawable ->
+        card.thumbnailSpec?.let { spec ->
+            if (!isDirectAssetFailureLatched(spec.key)) drawableFor(spec.key, spec)?.let { drawable ->
                 drawable.setBounds(thumbLeft.toInt(), thumbTop.toInt(), thumbRight.toInt(), thumbBottom.toInt())
                 drawable.draw(canvas)
             }
         }
 
         val textLeft = thumbRight + 6 * density
-        val textRight = right - 9 * density
-        val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = com.google.android.material.color.MaterialColors.getColor(
-                this@ChatMessageTextView,
-                com.google.android.material.R.attr.colorOnSurface,
-            )
-            textSize = paint.textSize
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        val secondaryPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = com.google.android.material.color.MaterialColors.getColor(
-                this@ChatMessageTextView,
-                com.google.android.material.R.attr.colorOnSurfaceVariant,
-            )
-            textSize = paint.textSize
-        }
-        drawClipLine(canvas, preview.title?.takeIf { it.isNotBlank() } ?: link.slug, titlePaint, textLeft, textRight, top + 18 * density)
-        drawClipLine(canvas, clipSubtitle(preview), secondaryPaint, textLeft, textRight, top + 36 * density)
-        drawClipLine(canvas, clipAttribution(preview), secondaryPaint, textLeft, textRight, top + 54 * density)
+        drawClipLine(canvas, card.title, clipTitlePaint, textLeft, top + 18 * density)
+        drawClipLine(canvas, card.subtitle, clipSecondaryPaint, textLeft, top + 36 * density)
+        drawClipLine(canvas, card.attribution, clipSecondaryPaint, textLeft, top + 54 * density)
     }
 
     private fun clipSubtitle(preview: ChatClipPreview): String {
@@ -786,8 +853,8 @@ open class ChatMessageTextView private constructor(
         return DateUtils.getRelativeTimeSpanString(epochMs, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
     }
 
-    private fun drawClipLine(canvas: Canvas, value: String, paint: TextPaint, left: Float, right: Float, baseline: Float) {
-        canvas.drawText(TextUtils.ellipsize(value, paint, (right - left).coerceAtLeast(0f), TextUtils.TruncateAt.END).toString(), left, baseline, paint)
+    private fun drawClipLine(canvas: Canvas, value: String, paint: TextPaint, left: Float, baseline: Float) {
+        canvas.drawText(value, left, baseline, paint)
     }
 
     private fun clipPreviewCardHeight() = (68 * resources.displayMetrics.density).roundToInt()
@@ -850,6 +917,7 @@ open class ChatMessageTextView private constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        if (w != oldw) invalidateClipDrawCache()
         if (w != oldw && !bindingRow && boundRow?.pieces?.any { it is ChatPiece.Reply } == true) {
             boundRow?.let { bindInternal(it, stagePendingCandidate = false) }
         }
@@ -1155,6 +1223,9 @@ open class ChatMessageTextView private constructor(
         animatedAssetKeys = emptySet()
         clipPreviewSlugs = emptySet()
         clipPreviewAssetKeys = emptySet()
+        clipRelativeTimeRefresh?.let(mainHandler::removeCallbacks)
+        clipRelativeTimeRefresh = null
+        invalidateClipDrawCache()
         stagedRow = null
         stagedBindGeneration = 0L
         stagedAssetKeys = emptySet()
@@ -1248,6 +1319,8 @@ open class ChatMessageTextView private constructor(
 
     override fun onDetachedFromWindow() {
         windowAttached = false
+        clipRelativeTimeRefresh?.let(mainHandler::removeCallbacks)
+        clipRelativeTimeRefresh = null
         // Detach only unregisters callbacks. Keep the bind generation so a staged row can survive
         // a detach/reattach cycle and still be applied when its assets finish loading.
         longPressRunnable?.let(mainHandler::removeCallbacks)
@@ -1263,6 +1336,7 @@ open class ChatMessageTextView private constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         windowAttached = true
+        invalidateClipDrawCache()
         if (renderingActive) {
             keys.forEach(::observeAsset)
             stagedObservedAssetKeys.forEach(::observeStagedAsset)

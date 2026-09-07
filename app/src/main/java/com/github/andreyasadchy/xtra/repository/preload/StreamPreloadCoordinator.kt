@@ -45,6 +45,7 @@ class StreamPreloadCoordinator(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val elapsedRealtimeMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val mediaPreloadRuntime: StreamMedia3Runtime? = null,
+    private val configurationStore: StreamPlaybackConfigurationStore = StreamPlaybackConfigurationStore(context),
 ) {
     private val context = context.applicationContext
     private val cache = StreamPreloadUrlCache(elapsedRealtimeMs = elapsedRealtimeMs)
@@ -355,7 +356,7 @@ class StreamPreloadCoordinator(
                 return@scheduleMediaOperation
             }
 
-            val currentConfig = StreamPlaybackConfiguration.from(context)
+            val currentConfig = configurationStore.current
             if (configuration?.fingerprint != currentConfig.fingerprint) {
                 refreshConfiguration()
                 return@scheduleMediaOperation
@@ -472,7 +473,7 @@ class StreamPreloadCoordinator(
     }
 
     private fun refreshConfiguration(): StreamPlaybackConfiguration {
-        val next = StreamPlaybackConfiguration.from(context)
+        val next = configurationStore.current
         if (configuration?.fingerprint != next.fingerprint) {
             cache.setConfiguration(next.fingerprint)
             vodPreviewUrls.clear()

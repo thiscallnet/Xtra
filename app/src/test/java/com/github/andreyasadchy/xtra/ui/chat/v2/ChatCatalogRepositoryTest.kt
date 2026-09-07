@@ -73,6 +73,94 @@ class ChatCatalogRepositoryTest {
     }
 
     @Test
+    fun liveDecorationBurstPublishesOneCatalogRevision() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource { ChatCatalogLoadResult() },
+        )
+        val initialRevision = repository.state.value.snapshot.revision
+        repeat(20) { index ->
+            repository.applyDecorationUpdate(
+                ChatDecorationUpdate.User(
+                    userId = "user",
+                    paintId = "paint-$index",
+                ),
+            )
+        }
+
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.revision == initialRevision) delay(1)
+        }
+        delay(32)
+        assertEquals(initialRevision + 1L, repository.state.value.snapshot.revision)
+        assertEquals("paint-19", repository.state.value.snapshot.userDecorations["user"]?.paintId)
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun catalogPersistenceKeepsOnlyTheLatestPendingRevision() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val firstWriteStarted = CompletableDeferred<Unit>()
+        val releaseFirstWrite = CompletableDeferred<Unit>()
+        val writes = CopyOnWriteArrayList<ChatCatalogSnapshot>()
+        val cache = object : ChatCatalogCache {
+            override suspend fun read(): ChatCatalogSnapshot? = null
+
+            override suspend fun write(snapshot: ChatCatalogSnapshot) {
+                writes += snapshot
+                if (writes.size == 1) {
+                    firstWriteStarted.complete(Unit)
+                    releaseFirstWrite.await()
+                }
+            }
+        }
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource {
+                ChatCatalogLoadResult(
+                    twitch = ChatCatalogProviderUpdate(emptyMap()),
+                    sevenTv = ChatCatalogProviderUpdate(emptyMap()),
+                    bttv = ChatCatalogProviderUpdate(emptyMap()),
+                    ffz = ChatCatalogProviderUpdate(emptyMap()),
+                    badges = ChatCatalogProviderUpdate(emptyMap()),
+                    cheermotes = ChatCatalogProviderUpdate(emptyMap()),
+                )
+            },
+            cache = cache,
+        )
+        repository.refresh()
+        withTimeout(1_000) { firstWriteStarted.await() }
+
+        repository.applyDecorationUpdate(
+            ChatDecorationUpdate.EmoteSet(
+                setId = "set",
+                added = mapOf("first" to emote("first", ChatAssetProvider.SEVEN_TV)),
+            ),
+        )
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTv.pending["set"]?.containsKey("first") != true) delay(1)
+        }
+        repository.applyDecorationUpdate(
+            ChatDecorationUpdate.EmoteSet(
+                setId = "set",
+                added = mapOf("second" to emote("second", ChatAssetProvider.SEVEN_TV)),
+            ),
+        )
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTv.pending["set"]?.containsKey("second") != true) delay(1)
+        }
+
+        repository.close()
+        releaseFirstWrite.complete(Unit)
+        withTimeout(1_000) { while (writes.size < 2) delay(1) }
+        assertEquals(2, writes.size)
+        assertTrue(writes.last().sevenTv.pending["set"]?.containsKey("second") == true)
+        scope.cancel()
+    }
+
+    @Test
     fun independentBadgeSettlementDoesNotWaitForUnrelatedProviders() = runBlocking {
         val aggregateStarted = CompletableDeferred<Unit>()
         val releaseUnrelatedProviders = CompletableDeferred<Unit>()
@@ -743,6 +831,9 @@ class ChatCatalogRepositoryTest {
             setId = "channel-set",
             added = mapOf("ChannelLive" to emote("ChannelLive", ChatAssetProvider.SEVEN_TV)),
         ))
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTv.channel["ChannelLive"] == null) delay(1)
+        }
         assertEquals(ChatEmoteScope.CHANNEL, repository.state.value.snapshot.sevenTv.channel["ChannelLive"]?.scope)
         assertTrue(repository.state.value.snapshot.sevenTv.pending.isEmpty())
 
@@ -751,6 +842,9 @@ class ChatCatalogRepositoryTest {
             setId = "personal-set",
             added = mapOf("PersonalLive" to emote("PersonalLive", ChatAssetProvider.SEVEN_TV)),
         ))
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTv.personal["personal-set"]?.get("PersonalLive") == null) delay(1)
+        }
         assertEquals(ChatEmoteScope.PERSONAL, repository.state.value.snapshot.sevenTv.personal["personal-set"]?.get("PersonalLive")?.scope)
         assertTrue(repository.state.value.snapshot.sevenTv.channel["PersonalLive"] == null)
 
@@ -758,10 +852,16 @@ class ChatCatalogRepositoryTest {
             setId = "unseen-personal-set",
             added = mapOf("PendingLive" to emote("PendingLive", ChatAssetProvider.SEVEN_TV)),
         ))
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTv.pending["unseen-personal-set"]?.containsKey("PendingLive") != true) delay(1)
+        }
         assertTrue(repository.state.value.snapshot.sevenTv.channel["PendingLive"] == null)
         assertTrue(repository.state.value.snapshot.sevenTv.pending["unseen-personal-set"]?.containsKey("PendingLive") == true)
 
         repository.applyDecorationUpdate(ChatDecorationUpdate.User("other-user", personalEmoteSetId = "unseen-personal-set"))
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTv.personal["unseen-personal-set"]?.get("PendingLive") == null) delay(1)
+        }
         assertEquals(ChatEmoteScope.PERSONAL, repository.state.value.snapshot.sevenTv.personal["unseen-personal-set"]?.get("PendingLive")?.scope)
         assertTrue(repository.state.value.snapshot.sevenTv.pending["unseen-personal-set"].isNullOrEmpty())
 
