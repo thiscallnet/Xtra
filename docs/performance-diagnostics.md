@@ -38,13 +38,47 @@ After the trace completes:
 During a live freeze, capture the process ID and Java stacks without killing the app:
 
 ```powershell
-$pid = (& $adb shell pidof $pkg).Trim()
-& $adb shell kill -3 $pid
+$appPid = (& $adb shell pidof $pkg).Trim()
+& $adb shell kill -3 $appPid
 Start-Sleep -Seconds 1
-& $adb shell kill -3 $pid
+& $adb shell kill -3 $appPid
 & $adb logcat -d -v threadtime | Out-File "xtra-freeze-threads-$stamp.txt"
-& $adb shell top -H -p $pid -n 1 | Out-File "xtra-top-$stamp.txt"
+& $adb shell top -H -p $appPid -n 1 | Out-File "xtra-top-$stamp.txt"
 ```
+
+For a stream battery investigation, keep the target stream and device state fixed, then capture
+the app-level spans, sampled stacks, system scheduling, and Android power counters together:
+
+```powershell
+$device = "emulator-5554"
+$appPid = (& $adb -s $device shell pidof $pkg).Trim()
+$tracePath = "/data/misc/perfetto-traces/xtra-$stamp.perfetto-trace"
+
+& $adb -s $device logcat -c
+& $adb -s $device shell dumpsys gfxinfo $pkg reset
+& $adb -s $device shell dumpsys batterystats --reset
+& $adb -s $device shell am profile start --sampling 10000 --streaming $appPid `
+    "/data/local/tmp/xtra-$stamp.method.trace"
+& $adb -s $device shell perfetto -o $tracePath -t 30s `
+    sched freq idle am wm gfx view binder_driver input dalvik memory
+& $adb -s $device shell am profile stop $appPid
+
+& $adb -s $device pull $tracePath ".\xtra-$stamp.perfetto-trace"
+& $adb -s $device pull "/data/local/tmp/xtra-$stamp.method.trace" ".\xtra-$stamp.method.trace"
+& $adb -s $device logcat -d -v threadtime | Out-File "xtra-logcat-$stamp.txt"
+& $adb -s $device shell dumpsys gfxinfo $pkg framestats | Out-File "xtra-gfxinfo-$stamp.txt"
+& $adb -s $device shell dumpsys meminfo $pkg | Out-File "xtra-meminfo-$stamp.txt"
+& $adb -s $device shell dumpsys batterystats --charged | Out-File "xtra-batterystats-$stamp.txt"
+& $adb -s $device shell top -H -p $appPid -n 1 | Out-File "xtra-top-$stamp.txt"
+```
+
+The debug and perf variants export `XtraFrameMetrics`, `XtraMainStall`, `XtraPlaybackPerf`,
+`XtraFrameMetrics: chatRender`, and `XtraFrameMetrics: namedSpans` log lines. The named spans
+cover the chat parser, event processor, timeline operations, UI snapshots, and Media3 load
+callbacks. `chatRender` also groups animated-drawable invalidations by asset key, drawable class,
+animation state, view lifecycle state, and last bound message ID. `dumpsys gfxinfo` supplies
+Android frame deadlines; the method and Perfetto traces provide full call stacks and scheduler
+context for later inspection.
 
 If Android reports an actual ANR, collect the bug report before restarting the app:
 

@@ -85,6 +85,7 @@ import com.github.andreyasadchy.xtra.util.MediaButtonReceiver
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.readBytesLimited
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
+import com.github.andreyasadchy.xtra.util.PerfTraceDiagnostics
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
@@ -674,6 +675,7 @@ class ExoPlayerService : BasePlaybackService() {
                     initializedTimestampMs: Long,
                     initializationDurationMs: Long,
                 ) {
+                    PerfTraceDiagnostics.recordCount("Xtra.Media3.onVideoDecoderInitialized")
                     val classification = classifyVideoDecoder(decoderName)
                     diagnostics.update {
                         it.copy(
@@ -688,6 +690,7 @@ class ExoPlayerService : BasePlaybackService() {
                     droppedFrames: Int,
                     elapsedMs: Long,
                 ) {
+                    PerfTraceDiagnostics.recordCount("Xtra.Media3.onDroppedVideoFrames")
                     diagnostics.recordDroppedVideoFrames(droppedFrames)
                 }
 
@@ -738,7 +741,9 @@ class ExoPlayerService : BasePlaybackService() {
                     loadEventInfo: LoadEventInfo,
                     mediaLoadData: MediaLoadData,
                 ) {
-                    diagnostics.recordLoad(mediaLoadData.dataType, loadEventInfo.bytesLoaded)
+                    PerfTraceDiagnostics.section("Xtra.Media3.onLoadCompleted") {
+                        diagnostics.recordLoad(mediaLoadData.dataType, loadEventInfo.bytesLoaded)
+                    }
                 }
 
                 override fun onAudioInputFormatChanged(
@@ -746,6 +751,7 @@ class ExoPlayerService : BasePlaybackService() {
                     format: Format,
                     decoderReuseEvaluation: DecoderReuseEvaluation?,
                 ) {
+                    PerfTraceDiagnostics.recordCount("Xtra.Media3.onAudioInputFormatChanged")
                     diagnostics.update {
                         it.copy(
                             audioCodec = format.codecs,

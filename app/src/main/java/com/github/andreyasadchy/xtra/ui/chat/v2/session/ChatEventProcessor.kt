@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.session
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
+import com.github.andreyasadchy.xtra.util.PerfTraceDiagnostics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -45,11 +46,22 @@ class ChatEventProcessor(scope: CoroutineScope, private val store: ChatTimelineS
                     }
                     is Command.Event -> {
                         if (command.value.key != activeKey) continue
+                        val eventStartedAt = if (com.github.andreyasadchy.xtra.BuildConfig.PERF_DIAGNOSTICS) {
+                            android.os.SystemClock.elapsedRealtimeNanos()
+                        } else {
+                            0L
+                        }
                         val event = command.value.event
                         val dedupeKey = eventDedupeKey(event)
                         if (dedupeKey != null && !seen.add(dedupeKey)) continue
                         if (seen.size > 4096) seen.remove(seen.first())
                         store.accept(event)
+                        if (eventStartedAt != 0L) {
+                            PerfTraceDiagnostics.recordDuration(
+                                "Xtra.ChatV2.processorEvent",
+                                android.os.SystemClock.elapsedRealtimeNanos() - eventStartedAt,
+                            )
+                        }
                     }
                     is Command.Reconcile -> {
                         if (command.key == activeKey) store.apply(TimelineOperation.Reconcile(command.recent))

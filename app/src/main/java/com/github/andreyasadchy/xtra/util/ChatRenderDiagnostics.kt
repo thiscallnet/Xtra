@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.util
 
 import com.github.andreyasadchy.xtra.BuildConfig
+import java.util.HashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -8,6 +9,8 @@ internal data class ChatRenderDiagnosticsSnapshot(
     val binds: Long,
     val draws: Long,
     val animationInvalidations: Long,
+    val animationInvalidationsWhileRunning: Long,
+    val animationInvalidationSources: String,
     val animationStarts: Long,
     val animationStops: Long,
     val activeAnimations: Int,
@@ -44,6 +47,8 @@ internal data class ChatRenderDiagnosticsSnapshot(
 ) {
     override fun toString(): String =
         "binds=$binds draws=$draws animationInvalidations=$animationInvalidations " +
+            "animationInvalidationsWhileRunning=$animationInvalidationsWhileRunning " +
+            "animationInvalidationSources=$animationInvalidationSources " +
             "animationStarts=$animationStarts animationStops=$animationStops " +
             "activeAnimations=$activeAnimations publications=$publications " +
             "publicationMessages=$publicationMessages maxPublicationMessages=$maxPublicationMessages " +
@@ -69,6 +74,10 @@ internal object ChatRenderDiagnostics {
     private val binds = AtomicLong()
     private val draws = AtomicLong()
     private val animationInvalidations = AtomicLong()
+    private val animationInvalidationsWhileRunning = AtomicLong()
+    private data class AnimationInvalidationSource(var count: Long, var lastMessageId: String?)
+    private val animationInvalidationSources = HashMap<String, AnimationInvalidationSource>()
+    private val animationInvalidationSourcesLock = Any()
     private val animationStarts = AtomicLong()
     private val animationStops = AtomicLong()
     private val activeAnimations = AtomicInteger()
@@ -111,8 +120,28 @@ internal object ChatRenderDiagnostics {
         if (BuildConfig.PERF_DIAGNOSTICS) draws.incrementAndGet()
     }
 
-    fun recordAnimationInvalidation() {
-        if (BuildConfig.PERF_DIAGNOSTICS) animationInvalidations.incrementAndGet()
+    fun recordAnimationInvalidation(
+        assetKey: String?,
+        drawableClass: String,
+        running: Boolean,
+        animateGifs: Boolean,
+        renderingActive: Boolean,
+        windowAttached: Boolean,
+        messageId: String?,
+    ) {
+        if (!BuildConfig.PERF_DIAGNOSTICS) return
+        animationInvalidations.incrementAndGet()
+        if (running) animationInvalidationsWhileRunning.incrementAndGet()
+        val sourceKey = "asset=${assetKey ?: "<unknown>"} " +
+            "class=$drawableClass running=$running animateGifs=$animateGifs " +
+            "renderingActive=$renderingActive windowAttached=$windowAttached"
+        synchronized(animationInvalidationSourcesLock) {
+            val source = animationInvalidationSources.getOrPut(sourceKey) {
+                AnimationInvalidationSource(count = 0, lastMessageId = null)
+            }
+            source.count++
+            source.lastMessageId = messageId
+        }
     }
 
     fun recordAnimationStarted() {
@@ -225,6 +254,8 @@ internal object ChatRenderDiagnostics {
         binds = binds.getAndSet(0),
         draws = draws.getAndSet(0),
         animationInvalidations = animationInvalidations.getAndSet(0),
+        animationInvalidationsWhileRunning = animationInvalidationsWhileRunning.getAndSet(0),
+        animationInvalidationSources = snapshotAnimationInvalidationSources(),
         animationStarts = animationStarts.getAndSet(0),
         animationStops = animationStops.getAndSet(0),
         activeAnimations = activeAnimations.get(),
@@ -259,4 +290,17 @@ internal object ChatRenderDiagnostics {
         clipEvictions = clipEvictions.getAndSet(0),
         clipNegativeCacheHits = clipNegativeCacheHits.getAndSet(0),
     )
+
+    private fun snapshotAnimationInvalidationSources(): String {
+        val snapshot = synchronized(animationInvalidationSourcesLock) {
+            val result = animationInvalidationSources
+                .map { (source, stats) -> source to stats.copy() }
+                .sortedByDescending { (_, stats) -> stats.count }
+            animationInvalidationSources.clear()
+            result
+        }
+        return snapshot.joinToString("|") { (source, stats) ->
+            "$source count=${stats.count} lastMessageId=${stats.lastMessageId ?: "<none>"}"
+        }.ifEmpty { "none" }
+    }
 }

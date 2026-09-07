@@ -1,5 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.session
 
+import android.os.SystemClock
+import android.os.Trace
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
@@ -13,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
+import com.github.andreyasadchy.xtra.util.PerfTraceDiagnostics
 import kotlin.math.abs
 
 sealed interface TimelineOperation {
@@ -58,7 +62,11 @@ class ChatTimelineStore(
             val clearedUsers = ArrayDeque<UserModeration>(MODERATION_TOMBSTONE_LIMIT)
             var globallyClearedAt: Long? = null
             for (operation in operations) {
-                when (operation) {
+                val traceEnabled = BuildConfig.PERF_DIAGNOSTICS
+                val traceStartedAt = if (traceEnabled) SystemClock.elapsedRealtimeNanos() else 0L
+                if (traceEnabled) Trace.beginSection("Xtra.ChatV2.timelineOperation")
+                try {
+                    when (operation) {
                     is TimelineOperation.RequestSnapshot -> {
                         operation.result.complete(items.toList())
                         continue
@@ -163,9 +171,18 @@ class ChatTimelineStore(
                             result
                         }.takeLast(maxSize).forEach { if (ids.add(it.id)) items.addLast(it) }
                     }
+                    }
+                    while (items.size > maxSize) items.removeFirst().also { ids.remove(it.id) }
+                    _version.value++
+                } finally {
+                    if (traceEnabled) {
+                        Trace.endSection()
+                        PerfTraceDiagnostics.recordDuration(
+                            "Xtra.ChatV2.timelineOperation",
+                            SystemClock.elapsedRealtimeNanos() - traceStartedAt,
+                        )
+                    }
                 }
-                while (items.size > maxSize) items.removeFirst().also { ids.remove(it.id) }
-                _version.value++
             }
         }
     }

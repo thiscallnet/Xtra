@@ -1,18 +1,28 @@
 package com.github.andreyasadchy.xtra.ui.player
 
+import android.os.SystemClock
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaLibraryInfo
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylist
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
+import com.github.andreyasadchy.xtra.BuildConfig
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /** Small lock-free snapshot store shared by Media3 callbacks and the service command path. */
 class PlaybackVideoDiagnosticsStore {
+    private companion object {
+        const val TAG = "XtraPlaybackPerf"
+        const val LOG_INTERVAL_MS = 5_000L
+    }
+
     private val state = AtomicReference(
         PlaybackVideoInfo(media3Version = MediaLibraryInfo.VERSION),
     )
+    private val lastLogAtMs = AtomicLong(0L)
 
     fun update(block: (PlaybackVideoInfo) -> PlaybackVideoInfo) {
         state.updateAndGet(block)
@@ -55,9 +65,17 @@ class PlaybackVideoDiagnosticsStore {
                 current
             }
         }
+        if (BuildConfig.PERF_DIAGNOSTICS) {
+            val now = SystemClock.elapsedRealtime()
+            val previous = lastLogAtMs.get()
+            if (now - previous >= LOG_INTERVAL_MS && lastLogAtMs.compareAndSet(previous, now)) {
+                Log.i(TAG, "loadDataType=$dataType bytes=$safeBytes video=${snapshot()}")
+            }
+        }
     }
 
     fun resetForNewMedia() {
+        lastLogAtMs.set(0L)
         update { current ->
             current.copy(
                 selectedVideoWidth = null,

@@ -1133,6 +1133,7 @@ class ChatMessageTextViewTest {
             animated.scheduleSelf({}, 0L)
             view.detachedForTest()
             assertTrue(animated.stopCount > 0)
+            assertTrue(animated.stopSawNullCallback)
             assertEquals(null, animated.callback)
             val starts = animated.startCount
             view.attachedForTest()
@@ -1163,6 +1164,43 @@ class ChatMessageTextViewTest {
             view.detachedForTest()
             view.attachedForTest()
             assertEquals(0, animated.startCount)
+            assertEquals(null, animated.callback)
+        }
+        scope.cancel()
+    }
+
+    @Test
+    fun disablingAnimationStopsAndDisconnectsAttachedDrawable() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        lateinit var animated: RecordingAnimatedDrawable
+        val repository = ChatAssetRepository(scope, ChatAssetLoader {
+            ChatImageHandle { RecordingAnimatedDrawable().also { animated = it } }
+        })
+        val view = TestTextView(context, repository)
+        val spec = ChatAssetSpec(ChatAssetKey("disable-while-attached"), 20, 20, 28)
+
+        runOnMain {
+            view.bind(row(spec))
+            val spanned = view.text as Spanned
+            val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+            draw(span, spanned, Paint.FontMetricsInt())
+            view.attachedForTest()
+            assertTrue(animated.isRunning())
+            assertTrue(animated.callback === view)
+
+            view.setAnimateGifs(false)
+            assertEquals(1, animated.stopCount)
+            assertEquals(null, animated.callback)
+
+            val stops = animated.stopCount
+            animated.invalidateSelf()
+            assertEquals(stops, animated.stopCount)
+
+            view.setAnimateGifs(true)
+            assertTrue(animated.isRunning())
+            assertTrue(animated.callback === view)
+            assertTrue(animated.startCount > 1)
         }
         scope.cancel()
     }
@@ -1721,13 +1759,17 @@ class ChatMessageTextViewTest {
     private class RecordingAnimatedDrawable : Drawable(), Animatable {
         var startCount = 0
         var stopCount = 0
+        var stopSawNullCallback = false
 
         override fun draw(canvas: Canvas) = Unit
         override fun setAlpha(alpha: Int) = Unit
         override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) = Unit
         override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
         override fun start() { startCount++ }
-        override fun stop() { stopCount++ }
+        override fun stop() {
+            stopSawNullCallback = callback == null
+            stopCount++
+        }
         override fun isRunning(): Boolean = stopCount < startCount
     }
 

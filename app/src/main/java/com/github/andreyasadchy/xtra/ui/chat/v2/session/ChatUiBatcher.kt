@@ -1,5 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.session
 
+import android.os.SystemClock
+import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.util.PerfTraceDiagnostics
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -18,7 +21,14 @@ class ChatUiBatcher<T>(
     /** Cold and collection-owned. No collector means no version collection or snapshot work. */
     fun flow(): Flow<T> = flow {
         coroutineScope {
+            val initialStartedAt = if (BuildConfig.PERF_DIAGNOSTICS) SystemClock.elapsedRealtimeNanos() else 0L
             val initial = snapshot()
+            if (initialStartedAt != 0L) {
+                PerfTraceDiagnostics.recordDuration(
+                    "Xtra.ChatV2.uiSnapshot",
+                    SystemClock.elapsedRealtimeNanos() - initialStartedAt,
+                )
+            }
             emit(initial)
             var materializedVersion = versionOf(initial)
             val dirty = Channel<Long>(Channel.CONFLATED)
@@ -31,7 +41,14 @@ class ChatUiBatcher<T>(
                 for (dirtyVersion in dirty) {
                     if (dirtyVersion <= materializedVersion) continue
                     delay(frameMs)
+                    val snapshotStartedAt = if (BuildConfig.PERF_DIAGNOSTICS) SystemClock.elapsedRealtimeNanos() else 0L
                     val current = snapshot()
+                    if (snapshotStartedAt != 0L) {
+                        PerfTraceDiagnostics.recordDuration(
+                            "Xtra.ChatV2.uiSnapshot",
+                            SystemClock.elapsedRealtimeNanos() - snapshotStartedAt,
+                        )
+                    }
                     materializedVersion = versionOf(current)
                     emit(current)
                 }

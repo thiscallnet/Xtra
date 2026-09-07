@@ -8,6 +8,7 @@ import com.github.andreyasadchy.xtra.BuildConfig
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /** Debug-only diagnostics for stalls that are long enough to delay input. */
 internal object MainLooperStallWatchdog {
@@ -25,8 +26,11 @@ internal object MainLooperStallWatchdog {
         },
     )
 
-    @Volatile
-    private var lastHeartbeatMs = SystemClock.uptimeMillis()
+    /** Non-zero only while the main thread still has a heartbeat callback queued. */
+    private val pendingHeartbeatPostedAtMs = AtomicLong(0L)
+
+    /** Prevents duplicate reports for the same delayed heartbeat. */
+    private val reportedHeartbeatPostedAtMs = AtomicLong(0L)
 
     @Volatile
     private var lastReportMs = 0L
@@ -38,12 +42,29 @@ internal object MainLooperStallWatchdog {
         executor.scheduleAtFixedRate(
             {
                 val now = SystemClock.uptimeMillis()
-                mainHandler.post { lastHeartbeatMs = SystemClock.uptimeMillis() }
-                val stallMs = now - lastHeartbeatMs
-                if (stallMs < REPORT_AFTER_MS || now - lastReportMs < REPORT_INTERVAL_MS) return@scheduleAtFixedRate
-                recordStall(stallMs)
-                lastReportMs = now
-                report(stallMs)
+                val pendingAt = pendingHeartbeatPostedAtMs.get()
+                if (pendingAt == 0L) {
+                    if (pendingHeartbeatPostedAtMs.compareAndSet(0L, now)) {
+                        mainHandler.post {
+                            if (pendingHeartbeatPostedAtMs.compareAndSet(now, 0L)) {
+                                reportedHeartbeatPostedAtMs.compareAndSet(now, 0L)
+                            }
+                        }
+                    }
+                    return@scheduleAtFixedRate
+                }
+
+                val stallMs = now - pendingAt
+                if (stallMs < REPORT_AFTER_MS || now - lastReportMs < REPORT_INTERVAL_MS) {
+                    return@scheduleAtFixedRate
+                }
+                if (reportedHeartbeatPostedAtMs.compareAndSet(0L, pendingAt) ||
+                    now - lastReportMs >= REPORT_INTERVAL_MS
+                ) {
+                    recordStall(stallMs)
+                    lastReportMs = now
+                    report(stallMs)
+                }
             },
             CHECK_INTERVAL_MS,
             CHECK_INTERVAL_MS,

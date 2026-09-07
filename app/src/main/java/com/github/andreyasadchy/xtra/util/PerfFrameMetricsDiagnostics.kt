@@ -47,6 +47,7 @@ internal object PerfFrameMetricsDiagnostics {
                     "worstMs=$worstFrameMs budgetBuckets=${buckets.joinToString(",")}",
             )
             Log.i(TAG, "chatRender=${ChatRenderDiagnostics.snapshotAndReset()}")
+            Log.i(TAG, "namedSpans=${PerfTraceDiagnostics.snapshotAndReset()}")
             Log.i(TAG, "keystorePrefs=${KeystorePreferenceDiagnostics.snapshot()}")
             buckets.fill(0)
             frameCount = 0L

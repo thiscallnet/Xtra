@@ -50,6 +50,7 @@ import com.github.andreyasadchy.xtra.util.chat.isWatchStreakNotice
 import com.github.andreyasadchy.xtra.util.chat.isSubscriptionNotice
 import com.github.andreyasadchy.xtra.util.chat.chatMessageBackgroundResource
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.PerfTraceDiagnostics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -520,7 +521,9 @@ class ChatAdapter(
             result.userName, result.userNameStartIndex, backgroundColor,
             emoteSize, badgeSize, inlineIconSize,
         )
-        holder.bind(chatMessage, cacheKey, result)
+        PerfTraceDiagnostics.section("Xtra.LegacyChat.bind") {
+            holder.bind(chatMessage, cacheKey, result)
+        }
         // A failed clip request stays retryable: revisiting the row re-arms observation.
         clipLinksOf(chatMessage.message).forEach { ensureClipSlugObserved(it.slug) }
         if (animateGifs && holder.canAnimate(bindGeneration)) {

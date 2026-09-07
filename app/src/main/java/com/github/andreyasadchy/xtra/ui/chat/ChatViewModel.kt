@@ -16,6 +16,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.util.PerfTraceDiagnostics
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.chat.Badge
@@ -1855,6 +1856,7 @@ class ChatViewModel(
     }
 
     suspend fun onMessage(message: ChatMessage) {
+        val messageStartedAt = if (BuildConfig.PERF_DIAGNOSTICS) SystemClock.elapsedRealtimeNanos() else 0L
         if (message.type == ChatMessage.USER_MESSAGE && message.message != null && message.msgId == null && isOwnChatMessage(message)) {
             updateSlowModeApplicabilityFromBadges(message.badges)
             onAcceptedOwnChatMessage(
@@ -1863,6 +1865,12 @@ class ChatViewModel(
                     message = message.message,
                     replyId = message.reply?.threadParentId,
                 ),
+            )
+        }
+        if (messageStartedAt != 0L) {
+            PerfTraceDiagnostics.recordDuration(
+                "Xtra.LegacyChat.onMessage",
+                SystemClock.elapsedRealtimeNanos() - messageStartedAt,
             )
         }
         synchronized(chatMessages) {
@@ -3624,7 +3632,9 @@ class ChatViewModel(
                 )
             }
             if (!userNotice || showUserNotice) {
-                val chatMessage = ChatUtils.parseChatMessage(message)
+                val chatMessage = PerfTraceDiagnostics.section("Xtra.LegacyChat.parseChatMessage") {
+                    ChatUtils.parseChatMessage(message)
+                }
                 if (chatMessage.reply?.message != null) {
                     onMessage(ChatMessage(
                         type = ChatMessage.REPLY_MESSAGE,

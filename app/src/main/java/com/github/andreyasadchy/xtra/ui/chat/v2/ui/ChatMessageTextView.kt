@@ -285,7 +285,7 @@ open class ChatMessageTextView private constructor(
         isLongClickable = onMessageLongClick != null
         val oldKeys = keys
         val oldClipPreviewSlugs = clipPreviewSlugs
-        drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
+        drawables.values.forEach(Drawable::disconnectAndStopIfNeeded)
         drawables.clear()
         drawableHandles.clear()
         val newKeys = row.assetKeys()
@@ -1191,7 +1191,7 @@ open class ChatMessageTextView private constructor(
     private fun drawableFor(key: ChatAssetKey, spec: ChatAssetSpec): Drawable? {
         val handle = (assets.peek(key) as? ChatAssetState.Ready)?.image ?: return null
         val drawable = if (drawableHandles[key] !== handle) {
-            drawables.remove(key)?.also { it.stopIfNeeded(); it.callback = null }
+            drawables.remove(key)?.also(Drawable::disconnectAndStopIfNeeded)
             drawableHandles[key] = handle
             val created = handle.newDrawable()
             if (created == null) {
@@ -1216,7 +1216,7 @@ open class ChatMessageTextView private constructor(
         stagedAssetObservers.keys.toList().forEach(::removeStagedAssetObserver)
         clipMetadataObservers.keys.toList().forEach(::removeClipMetadataObserver)
         clipThumbnailObservers.keys.toList().forEach(::removeClipThumbnailObserver)
-        drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
+        drawables.values.forEach(Drawable::disconnectAndStopIfNeeded)
         drawables.clear()
         drawableHandles.clear()
         keys = emptySet()
@@ -1271,24 +1271,40 @@ open class ChatMessageTextView private constructor(
     }
 
     private fun updateDrawableAnimations() {
+        var stoppedAnimation = false
         drawables.forEach { (key, drawable) ->
-            updateAnimationState(key, drawable)
+            stoppedAnimation = updateAnimationState(key, drawable) || stoppedAnimation
+        }
+        if (stoppedAnimation && renderingActive && windowAttached) {
+            // Stopping an Animatable can leave its last frame dirty. Refresh once after all
+            // callbacks have been disconnected so the static frame remains visible.
+            invalidate()
         }
     }
 
-    private fun updateAnimationState(key: ChatAssetKey, drawable: Drawable) {
-        drawable.callback = if (renderingActive && windowAttached) this else null
-        val animatable = drawable as? Animatable ?: return
+    private fun updateAnimationState(key: ChatAssetKey, drawable: Drawable): Boolean {
+        val animatable = drawable as? Animatable
+        if (animatable == null) {
+            drawable.callback = if (renderingActive && windowAttached) this else null
+            return false
+        }
         val shouldRun = animateGifs && renderingActive && windowAttached && key in animatedAssetKeys
         if (shouldRun) {
+            drawable.callback = this
             if (!animatable.isRunning) {
                 animatable.start()
                 ChatRenderDiagnostics.recordAnimationStarted()
             }
-        } else if (animatable.isRunning) {
+            return false
+        }
+
+        drawable.callback = null
+        if (animatable.isRunning) {
             animatable.stop()
             ChatRenderDiagnostics.recordAnimationStopped()
+            return true
         }
+        return false
     }
 
     private fun isDirectAssetFailureLatched(key: ChatAssetKey): Boolean = key in latchedFailedDirectKeys
@@ -1329,7 +1345,7 @@ open class ChatMessageTextView private constructor(
         stagedAssetObservers.keys.toList().forEach(::removeStagedAssetObserver)
         clipMetadataObservers.keys.toList().forEach(::removeClipMetadataObserver)
         clipThumbnailObservers.keys.toList().forEach(::removeClipThumbnailObserver)
-        drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
+        drawables.values.forEach(Drawable::disconnectAndStopIfNeeded)
         super.onDetachedFromWindow()
     }
 
@@ -1354,7 +1370,15 @@ open class ChatMessageTextView private constructor(
 
     override fun invalidateDrawable(drawable: Drawable) {
         if (BuildConfig.PERF_DIAGNOSTICS && drawable is Animatable) {
-            ChatRenderDiagnostics.recordAnimationInvalidation()
+            ChatRenderDiagnostics.recordAnimationInvalidation(
+                assetKey = drawables.entries.firstOrNull { it.value === drawable }?.key?.value,
+                drawableClass = drawable.javaClass.name,
+                running = drawable.isRunning,
+                animateGifs = animateGifs,
+                renderingActive = renderingActive,
+                windowAttached = windowAttached,
+                messageId = boundMessageId?.value,
+            )
         }
         super.invalidateDrawable(drawable)
     }
@@ -1425,7 +1449,8 @@ private fun blendColors(baseColor: Int, overlayColor: Int, overlayAlpha: Int): I
 
 private fun Int?.orZero(): Int = this ?: 0
 
-private fun Drawable.stopIfNeeded() {
+private fun Drawable.disconnectAndStopIfNeeded() {
+    callback = null
     (this as? Animatable)?.let { animatable ->
         if (animatable.isRunning) {
             animatable.stop()

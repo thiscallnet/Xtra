@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.SharedChatSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
+import com.github.andreyasadchy.xtra.util.PerfTraceDiagnostics
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.time.Instant
@@ -33,161 +34,172 @@ import kotlin.time.Instant
  * current-catalog presentation resolution.
  */
 object TwitchChatEventParser {
-    fun fromIrc(message: ChatUtils.IRCMessage, channelId: String): ChatEvent? = when (message.command) {
-        "PRIVMSG" -> {
-            val legacy = ChatUtils.parseChatMessage(message)
-            ChatEvent.Message(fromLegacy(legacy, channelId, gifTag = message.tags["gifs"]))
-        }
-        "USERNOTICE" -> ChatEvent.Message(
-            fromLegacy(
-                ChatUtils.parseChatMessage(message),
-                channelId,
-                forceNotice = true,
-                subscriptionPlan = message.tags["msg-param-sub-plan"]
-                    ?: message.tags["msg-param-sub-plan-name"],
-                subscriptionTier = message.tags["msg-param-sub-plan"],
-                isPrimeSubscription = message.tags["msg-param-sub-plan"]
-                    ?.equals("Prime", ignoreCase = true),
-                subscription = subscriptionFromIrc(message.tags),
-            ),
-        )
-        "CLEARMSG" -> ChatEvent.Delete(
-            messageId = ChatMessageId(message.tags["target-msg-id"] ?: return null),
-            eventId = message.tags["target-msg-id"],
-            receivedAtMs = timestamp(message.tags["tmi-sent-ts"]),
-        )
-        "CLEARCHAT" -> {
-            val userId = message.tags["target-user-id"]?.takeIf { it.isNotBlank() }
-            val userLogin = message.params.getOrNull(1)?.takeIf { it.isNotBlank() }
-            if (userId != null || userLogin != null) {
-                val timeoutSeconds = message.tags["ban-duration"]?.toIntOrNull()?.takeIf { it > 0 }
-                ChatEvent.ClearUser(
-                    userId = userId,
-                    eventId = message.tags["tmi-sent-ts"] ?: userLogin,
-                    receivedAtMs = timestamp(message.tags["tmi-sent-ts"]),
-                    userLogin = userLogin,
-                    reason = if (timeoutSeconds != null) ChatUserClearReason.TIMEOUT else ChatUserClearReason.BAN,
-                    timeoutSeconds = timeoutSeconds,
+    fun fromIrc(message: ChatUtils.IRCMessage, channelId: String): ChatEvent? =
+        PerfTraceDiagnostics.section("Xtra.ChatV2.parseIrc") {
+            when (message.command) {
+                "PRIVMSG" -> {
+                    val legacy = PerfTraceDiagnostics.section("Xtra.ChatV2.parseLegacyMessage") {
+                        ChatUtils.parseChatMessage(message)
+                    }
+                    ChatEvent.Message(fromLegacy(legacy, channelId, gifTag = message.tags["gifs"]))
+                }
+                "USERNOTICE" -> ChatEvent.Message(
+                    fromLegacy(
+                        ChatUtils.parseChatMessage(message),
+                        channelId,
+                        forceNotice = true,
+                        subscriptionPlan = message.tags["msg-param-sub-plan"]
+                            ?: message.tags["msg-param-sub-plan-name"],
+                        subscriptionTier = message.tags["msg-param-sub-plan"],
+                        isPrimeSubscription = message.tags["msg-param-sub-plan"]
+                            ?.equals("Prime", ignoreCase = true),
+                        subscription = subscriptionFromIrc(message.tags),
+                    ),
                 )
-            } else {
-                ChatEvent.Clear(message.tags["id"], timestamp(message.tags["tmi-sent-ts"]))
+                "CLEARMSG" -> ChatEvent.Delete(
+                    messageId = ChatMessageId(message.tags["target-msg-id"] ?: return@section null),
+                    eventId = message.tags["target-msg-id"],
+                    receivedAtMs = timestamp(message.tags["tmi-sent-ts"]),
+                )
+                "CLEARCHAT" -> {
+                    val userId = message.tags["target-user-id"]?.takeIf { it.isNotBlank() }
+                    val userLogin = message.params.getOrNull(1)?.takeIf { it.isNotBlank() }
+                    if (userId != null || userLogin != null) {
+                        val timeoutSeconds = message.tags["ban-duration"]?.toIntOrNull()?.takeIf { it > 0 }
+                        ChatEvent.ClearUser(
+                            userId = userId,
+                            eventId = message.tags["tmi-sent-ts"] ?: userLogin,
+                            receivedAtMs = timestamp(message.tags["tmi-sent-ts"]),
+                            userLogin = userLogin,
+                            reason = if (timeoutSeconds != null) ChatUserClearReason.TIMEOUT else ChatUserClearReason.BAN,
+                            timeoutSeconds = timeoutSeconds,
+                        )
+                    } else {
+                        ChatEvent.Clear(message.tags["id"], timestamp(message.tags["tmi-sent-ts"]))
+                    }
+                }
+                "NOTICE" -> ChatEvent.Notice(
+                    fromLegacy(ChatUtils.parseNotice(message), channelId),
+                    message.tags["id"],
+                    timestamp(message.tags["tmi-sent-ts"]),
+                )
+                "ROOMSTATE" -> ChatEvent.SettingsUpdated(
+                    channelId = channelId,
+                    slowModeSeconds = message.tags["slow"]?.toIntOrNull()?.takeIf { it >= 0 },
+                    followerOnlyDurationMinutes = message.tags["followers-only"]?.toIntOrNull()?.takeIf { it >= 0 },
+                    subscriberOnly = message.tags["subs-only"] == "1",
+                    emoteOnly = message.tags["emote-only"] == "1",
+                    uniqueChatMode = message.tags["r9k"] == "1",
+                    eventId = message.tags["id"],
+                    receivedAtMs = timestamp(message.tags["tmi-sent-ts"]),
+                )
+                else -> null
             }
         }
-        "NOTICE" -> ChatEvent.Notice(
-            fromLegacy(ChatUtils.parseNotice(message), channelId),
-            message.tags["id"],
-            timestamp(message.tags["tmi-sent-ts"]),
-        )
-        "ROOMSTATE" -> ChatEvent.SettingsUpdated(
-            channelId = channelId,
-            slowModeSeconds = message.tags["slow"]?.toIntOrNull()?.takeIf { it >= 0 },
-            followerOnlyDurationMinutes = message.tags["followers-only"]?.toIntOrNull()?.takeIf { it >= 0 },
-            subscriberOnly = message.tags["subs-only"] == "1",
-            emoteOnly = message.tags["emote-only"] == "1",
-            uniqueChatMode = message.tags["r9k"] == "1",
-            eventId = message.tags["id"],
-            receivedAtMs = timestamp(message.tags["tmi-sent-ts"]),
-        )
-        else -> null
-    }
 
-    fun fromEventSub(event: JSONObject, timestamp: String?, notice: Boolean = false): ChatEvent.Message {
-        val message = eventMessage(event, timestamp, notice)
-        return ChatEvent.Message(message, eventId = message.id.value, receivedAtMs = System.currentTimeMillis())
-    }
+    fun fromEventSub(event: JSONObject, timestamp: String?, notice: Boolean = false): ChatEvent.Message =
+        PerfTraceDiagnostics.section("Xtra.ChatV2.parseEventSub") {
+            val message = eventMessage(event, timestamp, notice)
+            ChatEvent.Message(message, eventId = message.id.value, receivedAtMs = System.currentTimeMillis())
+        }
 
-    fun fromEventSubRewardRedemption(event: JSONObject, timestamp: String?): ChatEvent.Message {
-        val reward = event.optJSONObject("reward")
-        val userInput = event.optString("user_input")
-        val redeemedAt = timestamp ?: event.optString("redeemed_at").takeIf { it.isNotBlank() }
-        val message = ChatMessage(
-            id = ChatMessageId(event.optString("id").takeIf { it.isNotBlank() } ?: "redemption-${event.hashCode()}"),
-            channelId = event.optString("broadcaster_user_id").takeIf { it.isNotBlank() }.orEmpty(),
-            timestampMs = parseTimestamp(redeemedAt),
-            user = ChatUser(
-                id = event.optString("user_id").takeIf { it.isNotBlank() },
-                login = event.optString("user_login").takeIf { it.isNotBlank() },
-                displayName = event.optString("user_name").takeIf { it.isNotBlank() },
-                color = null,
-            ),
-            badges = emptyList(),
-            segments = userInput.takeIf { it.isNotEmpty() }?.let { listOf(ChatSegment.Text(it)) }.orEmpty(),
-            rawText = userInput.takeIf { it.isNotEmpty() },
-            kind = ChatMessageKind.REWARD,
-            rewardId = reward?.optString("id")?.takeIf { it.isNotBlank() },
-            rewardTitle = reward?.optString("title")?.takeIf { it.isNotBlank() },
-            rewardCost = reward?.optInt("cost")?.takeIf { it > 0 },
-            rewardImageUrl = reward?.optJSONObject("image")?.optString("url_1x")?.takeIf { it.isNotBlank() }
-                ?: reward?.optString("image")?.takeIf { it.startsWith("http") },
-            rewardRedemptionId = event.optString("id").takeIf { it.isNotBlank() },
-            systemText = reward?.optString("title")?.takeIf { it.isNotBlank() },
-            noticeType = "channel_points_custom_reward_redemption",
-        )
-        return ChatEvent.Message(message, eventId = message.id.value, receivedAtMs = System.currentTimeMillis())
-    }
+    fun fromEventSubRewardRedemption(event: JSONObject, timestamp: String?): ChatEvent.Message =
+        PerfTraceDiagnostics.section("Xtra.ChatV2.parseReward") {
+            val reward = event.optJSONObject("reward")
+            val userInput = event.optString("user_input")
+            val redeemedAt = timestamp ?: event.optString("redeemed_at").takeIf { it.isNotBlank() }
+            val message = ChatMessage(
+                id = ChatMessageId(event.optString("id").takeIf { it.isNotBlank() } ?: "redemption-${event.hashCode()}"),
+                channelId = event.optString("broadcaster_user_id").takeIf { it.isNotBlank() }.orEmpty(),
+                timestampMs = parseTimestamp(redeemedAt),
+                user = ChatUser(
+                    id = event.optString("user_id").takeIf { it.isNotBlank() },
+                    login = event.optString("user_login").takeIf { it.isNotBlank() },
+                    displayName = event.optString("user_name").takeIf { it.isNotBlank() },
+                    color = null,
+                ),
+                badges = emptyList(),
+                segments = userInput.takeIf { it.isNotEmpty() }?.let { listOf(ChatSegment.Text(it)) }.orEmpty(),
+                rawText = userInput.takeIf { it.isNotEmpty() },
+                kind = ChatMessageKind.REWARD,
+                rewardId = reward?.optString("id")?.takeIf { it.isNotBlank() },
+                rewardTitle = reward?.optString("title")?.takeIf { it.isNotBlank() },
+                rewardCost = reward?.optInt("cost")?.takeIf { it > 0 },
+                rewardImageUrl = reward?.optJSONObject("image")?.optString("url_1x")?.takeIf { it.isNotBlank() }
+                    ?: reward?.optString("image")?.takeIf { it.startsWith("http") },
+                rewardRedemptionId = event.optString("id").takeIf { it.isNotBlank() },
+                systemText = reward?.optString("title")?.takeIf { it.isNotBlank() },
+                noticeType = "channel_points_custom_reward_redemption",
+            )
+            ChatEvent.Message(message, eventId = message.id.value, receivedAtMs = System.currentTimeMillis())
+        }
 
     /** Normalizes the legacy unrestricted Hermes redemption event for v2 sessions. */
-    fun fromPubSubReward(message: LegacyChatMessage, channelId: String): ChatEvent.Message {
-        val base = fromLegacy(message, channelId)
-        val reward = message.reward
-        val redemptionId = message.fullMsg?.let { raw ->
-            runCatching {
-                JSONObject(raw).optJSONObject("data")?.optJSONObject("redemption")
-                    ?.optString("id")?.takeIf { it.isNotBlank() }
-            }.getOrNull()
-        }
-        val id = redemptionId?.let { "reward-$it" }
-            ?: message.id?.let { "reward-$it" }
-            ?: "reward-${message.userId}-${message.timestamp ?: System.currentTimeMillis()}"
-        return ChatEvent.Message(
-            base.copy(
-                id = ChatMessageId(id),
-                kind = ChatMessageKind.REWARD,
-                segments = if (message.message.isNullOrBlank()) emptyList() else base.segments,
-                rawText = message.message?.takeIf { it.isNotEmpty() },
-                rewardTitle = reward?.title,
-                rewardCost = reward?.cost,
-                rewardImageUrl = reward?.url4x ?: reward?.url2x ?: reward?.url1x,
-                rewardRedemptionId = redemptionId,
-                systemText = reward?.title,
-                noticeType = "channel_points_custom_reward_redemption",
-            ),
-            eventId = redemptionId ?: id,
-            receivedAtMs = System.currentTimeMillis(),
-        )
-    }
-
-    fun fromEventSubClear(event: JSONObject, timestamp: String?, notificationId: String? = null): ChatEvent {
-        val receivedAt = parseTimestamp(timestamp)
-        val eventId = notificationId?.takeIf { it.isNotBlank() }
-        val messageId = event.optString("message_id").takeIf { it.isNotBlank() }
-        val userId = event.optString("target_user_id").takeIf { it.isNotBlank() }
-        val userLogin = event.optString("target_user_login").takeIf { it.isNotBlank() }
-        val userName = event.optString("target_user_name").takeIf { it.isNotBlank() }
-        return when {
-            messageId != null -> ChatEvent.Delete(ChatMessageId(messageId), messageId, receivedAt)
-            userId != null || userLogin != null -> ChatEvent.ClearUser(
-                userId = userId,
-                eventId = eventId ?: "${userId ?: userLogin}-$receivedAt",
-                receivedAtMs = receivedAt,
-                userLogin = userLogin,
-                userName = userName,
+    fun fromPubSubReward(message: LegacyChatMessage, channelId: String): ChatEvent.Message =
+        PerfTraceDiagnostics.section("Xtra.ChatV2.parsePubSubReward") {
+            val base = fromLegacy(message, channelId)
+            val reward = message.reward
+            val redemptionId = message.fullMsg?.let { raw ->
+                runCatching {
+                    JSONObject(raw).optJSONObject("data")?.optJSONObject("redemption")
+                        ?.optString("id")?.takeIf { it.isNotBlank() }
+                }.getOrNull()
+            }
+            val id = redemptionId?.let { "reward-$it" }
+                ?: message.id?.let { "reward-$it" }
+                ?: "reward-${message.userId}-${message.timestamp ?: System.currentTimeMillis()}"
+            ChatEvent.Message(
+                base.copy(
+                    id = ChatMessageId(id),
+                    kind = ChatMessageKind.REWARD,
+                    segments = if (message.message.isNullOrBlank()) emptyList() else base.segments,
+                    rawText = message.message?.takeIf { it.isNotEmpty() },
+                    rewardTitle = reward?.title,
+                    rewardCost = reward?.cost,
+                    rewardImageUrl = reward?.url4x ?: reward?.url2x ?: reward?.url1x,
+                    rewardRedemptionId = redemptionId,
+                    systemText = reward?.title,
+                    noticeType = "channel_points_custom_reward_redemption",
+                ),
+                eventId = redemptionId ?: id,
+                receivedAtMs = System.currentTimeMillis(),
             )
-            else -> ChatEvent.Clear(eventId, receivedAt)
         }
-    }
+
+    fun fromEventSubClear(event: JSONObject, timestamp: String?, notificationId: String? = null): ChatEvent =
+        PerfTraceDiagnostics.section("Xtra.ChatV2.parseEventSubClear") {
+            val receivedAt = parseTimestamp(timestamp)
+            val eventId = notificationId?.takeIf { it.isNotBlank() }
+            val messageId = event.optString("message_id").takeIf { it.isNotBlank() }
+            val userId = event.optString("target_user_id").takeIf { it.isNotBlank() }
+            val userLogin = event.optString("target_user_login").takeIf { it.isNotBlank() }
+            val userName = event.optString("target_user_name").takeIf { it.isNotBlank() }
+            when {
+                messageId != null -> ChatEvent.Delete(ChatMessageId(messageId), messageId, receivedAt)
+                userId != null || userLogin != null -> ChatEvent.ClearUser(
+                    userId = userId,
+                    eventId = eventId ?: "${userId ?: userLogin}-$receivedAt",
+                    receivedAtMs = receivedAt,
+                    userLogin = userLogin,
+                    userName = userName,
+                )
+                else -> ChatEvent.Clear(eventId, receivedAt)
+            }
+        }
 
     fun fromEventSubSettings(event: JSONObject, timestamp: String?, channelId: String): ChatEvent.SettingsUpdated =
-        ChatEvent.SettingsUpdated(
-            channelId = channelId,
-            slowModeSeconds = event.optIntOrNull("slow_mode_wait_time_seconds"),
-            followerOnlyDurationMinutes = event.optIntOrNull("follower_mode_duration_minutes"),
-            subscriberOnly = event.optBoolean("subscriber_mode", false),
-            emoteOnly = event.optBoolean("emote_mode", false),
-            uniqueChatMode = event.optBoolean("unique_chat_mode", false),
-            eventId = null,
-            receivedAtMs = parseTimestamp(timestamp),
-        )
+        PerfTraceDiagnostics.section("Xtra.ChatV2.parseEventSubSettings") {
+            ChatEvent.SettingsUpdated(
+                channelId = channelId,
+                slowModeSeconds = event.optIntOrNull("slow_mode_wait_time_seconds"),
+                followerOnlyDurationMinutes = event.optIntOrNull("follower_mode_duration_minutes"),
+                subscriberOnly = event.optBoolean("subscriber_mode", false),
+                emoteOnly = event.optBoolean("emote_mode", false),
+                uniqueChatMode = event.optBoolean("unique_chat_mode", false),
+                eventId = null,
+                receivedAtMs = parseTimestamp(timestamp),
+            )
+        }
 
     private fun eventMessage(event: JSONObject, timestamp: String?, notice: Boolean): ChatMessage {
         val messageObject = event.optJSONObject("message")
