@@ -233,6 +233,10 @@ fun SharedPreferences.isChatEnabled(): Boolean = if (contains(C.SETTINGS_CHAT_EN
     !getBoolean(C.CHAT_DISABLE, false)
 }
 
+/** Matches chat_history_preferences.xml when the preference has not been stored yet. */
+fun SharedPreferences.isRecentChatHistoryEnabled(): Boolean =
+    getBoolean(C.CHAT_RECENT, C.CHAT_RECENT_DEFAULT)
+
 /** HTTP proxy credentials are retained when disabled so the user can turn the proxy back on later. */
 fun SharedPreferences.httpProxyEnabled(): Boolean = if (contains(C.SETTINGS_HTTP_PROXY_ENABLED)) {
     getBoolean(C.SETTINGS_HTTP_PROXY_ENABLED, false)
