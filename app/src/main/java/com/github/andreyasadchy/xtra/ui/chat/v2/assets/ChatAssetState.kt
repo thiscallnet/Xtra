@@ -14,7 +14,18 @@ sealed interface ChatAssetState {
     }
 }
 
-fun interface ChatImageHandle { fun newDrawable(): Drawable }
+/**
+ * Lightweight reference to an image owned by the image loader. Shareable implementations must
+ * not retain the decoded image themselves. A drawable is created per consumer where the image
+ * format provides an independent drawable factory; Coil's non-shareable animated fallback is
+ * the documented exception because Coil does not cache that decoded value.
+ */
+fun interface ChatImageHandle {
+    fun newDrawable(): Drawable?
+
+    /** True only for Coil formats which cannot be recreated from Coil's decoded memory cache. */
+    fun holdsDecodedImage(): Boolean = false
+}
 
 class ChatAssetLoadException(val statusCode: Int? = null, cause: Throwable? = null) : Exception(cause)
 

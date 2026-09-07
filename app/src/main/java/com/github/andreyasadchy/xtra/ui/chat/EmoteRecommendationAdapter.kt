@@ -50,8 +50,15 @@ class EmoteRecommendationAdapter(
                     if (binding.image.tag != key) return@post
                     when (val state = assets.peek(key)) {
                         is ChatAssetState.Ready -> {
-                            binding.image.setImageDrawable(state.image.newDrawable())
-                            binding.image.isVisible = true
+                            val drawable = state.image.newDrawable()
+                            if (drawable == null) {
+                                assets.retryIfDrawableUnavailable(key)
+                                binding.image.setImageDrawable(null)
+                                binding.image.isVisible = false
+                            } else {
+                                binding.image.setImageDrawable(drawable)
+                                binding.image.isVisible = true
+                            }
                         }
                         else -> {
                             binding.image.setImageDrawable(null)

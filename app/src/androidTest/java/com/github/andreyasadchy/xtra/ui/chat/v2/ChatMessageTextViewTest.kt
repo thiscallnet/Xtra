@@ -963,17 +963,21 @@ class ChatMessageTextViewTest {
     fun failedClipMetadataDoesNotGrowLaterOnSameBinding() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val loads = AtomicInteger()
-        val clipRepository = ChatClipPreviewRepository(scope) {
-            if (loads.incrementAndGet() == 1) null else ChatClipPreview(
-                title = "clip",
-                broadcasterName = "broadcaster",
-                creatorName = "creator",
-                thumbnailUrl = null,
-                gameName = null,
-                durationSeconds = null,
-                createdAt = null,
-            )
-        }
+        val clipRepository = ChatClipPreviewRepository(
+            scope = scope,
+            loader = {
+                if (loads.incrementAndGet() == 1) null else ChatClipPreview(
+                    title = "clip",
+                    broadcasterName = "broadcaster",
+                    creatorName = "creator",
+                    thumbnailUrl = null,
+                    gameName = null,
+                    durationSeconds = null,
+                    createdAt = null,
+                )
+            },
+            negativeTtlMs = 0,
+        )
         val assetRepository = ChatAssetRepository(scope, ChatAssetLoader { null })
         val attached = attachView(assetRepository, clipRepository)
         val view = attached.view
@@ -1431,6 +1435,25 @@ class ChatMessageTextViewTest {
             view.bind(row(second))
             assertEquals(0, repository.observerCount(first.key))
             assertEquals(1, repository.observerCount(second.key))
+        }
+        scope.cancel()
+    }
+
+    @Test
+    fun attachingAlreadyBoundViewDoesNotDuplicateAssetObservers() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        val spec = ChatAssetSpec(ChatAssetKey("bound-before-attach"), 16, 16, 24)
+
+        runOnMain {
+            view.bind(row(spec))
+            assertEquals(1, repository.observerCount(spec.key))
+            view.attachedForTest()
+            assertEquals(1, repository.observerCount(spec.key))
+            view.detachedForTest()
+            assertEquals(0, repository.observerCount(spec.key))
         }
         scope.cancel()
     }
