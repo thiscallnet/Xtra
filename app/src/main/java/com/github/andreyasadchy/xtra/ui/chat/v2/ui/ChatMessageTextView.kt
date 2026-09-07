@@ -124,6 +124,7 @@ open class ChatMessageTextView private constructor(
     private var renderingActive = true
     private var animateGifs = true
     private var windowAttached = false
+    private var aggregatedVisible = false
     private var animatedAssetKeys = emptySet<ChatAssetKey>()
     private var boundMessageId: ChatMessageId? = null
     private var longPressConsumed = false
@@ -684,6 +685,7 @@ open class ChatMessageTextView private constructor(
     }
 
     private fun ensureClipDrawCache() {
+        if (boundRow?.clipPreviews.isNullOrEmpty()) return
         val width = width
         val timeBucket = System.currentTimeMillis() / DateUtils.MINUTE_IN_MILLIS
         if (width <= 0 || (clipDrawCacheWidth == width && clipDrawCacheTimeBucket == timeBucket)) return
@@ -740,7 +742,7 @@ open class ChatMessageTextView private constructor(
     private fun scheduleClipRelativeTimeRefresh() {
         clipRelativeTimeRefresh?.let(mainHandler::removeCallbacks)
         clipRelativeTimeRefresh = null
-        if (!windowAttached || clipDrawCards.none { it.hasRelativeTime }) return
+        if (!windowAttached || !renderingActive || !aggregatedVisible || clipDrawCards.none { it.hasRelativeTime }) return
         val now = System.currentTimeMillis()
         val delayMs = (DateUtils.MINUTE_IN_MILLIS - (now % DateUtils.MINUTE_IN_MILLIS) + 50L)
         clipRelativeTimeRefresh = Runnable {
@@ -770,9 +772,12 @@ open class ChatMessageTextView private constructor(
         val thumbRight = thumbLeft + 72 * density
         val thumbBottom = top + height - 6 * density
         card.thumbnailSpec?.let { spec ->
-            if (!isDirectAssetFailureLatched(spec.key)) drawableFor(spec.key, spec)?.let { drawable ->
-                drawable.setBounds(thumbLeft.toInt(), thumbTop.toInt(), thumbRight.toInt(), thumbBottom.toInt())
+            if (!isDirectAssetFailureLatched(spec.key)) drawableFor(spec.key)?.let { drawable ->
+                drawable.setBounds(0, 0, thumbRight.toInt() - thumbLeft.toInt(), thumbBottom.toInt() - thumbTop.toInt())
+                val saveCount = canvas.save()
+                canvas.translate(thumbLeft.toInt().toFloat(), thumbTop.toInt().toFloat())
                 drawable.draw(canvas)
+                canvas.restoreToCount(saveCount)
             }
         }
 
@@ -872,6 +877,14 @@ open class ChatMessageTextView private constructor(
         }
     }
 
+    override fun performClick(): Boolean {
+        val handled = super.performClick()
+        val id = boundMessageId ?: return handled
+        val callback = onMessageClick ?: return handled
+        callback(id)
+        return true
+    }
+
     /**
      * TextView's normal long-click is intentionally the row action. In particular,
      * it must win over LinkMovementMethod when the pointer goes down on an emote.
@@ -944,7 +957,7 @@ open class ChatMessageTextView private constructor(
                     return true
                 }
                 if (shouldOpenProfile) {
-                    onMessageClick?.invoke(messageId)
+                    performClick()
                     return true
                 }
             }
@@ -1109,7 +1122,7 @@ open class ChatMessageTextView private constructor(
                 spec,
                 fallback,
                 layerSpecs,
-                { layerSpec -> drawableFor(layerSpec.key, layerSpec) },
+                { layerSpec -> drawableFor(layerSpec.key) },
                 { assetRenderState(compositionKey, layerSpecs) },
                 fallbackMode,
             ),
@@ -1137,7 +1150,7 @@ open class ChatMessageTextView private constructor(
         }
     }
 
-    private fun drawableFor(key: ChatAssetKey, spec: ChatAssetSpec): Drawable? {
+    private fun drawableFor(key: ChatAssetKey): Drawable? {
         val handle = (assets.peek(key) as? ChatAssetState.Ready)?.image ?: return null
         val drawable = if (drawableHandles[key] !== handle) {
             drawables.remove(key)?.also { it.stopIfNeeded(); it.callback = null }
@@ -1152,7 +1165,6 @@ open class ChatMessageTextView private constructor(
         } else {
             drawables[key] ?: return null
         }
-        drawable.setBounds(0, 0, spec.computedWidth, spec.targetHeight)
         updateAnimationState(key, drawable)
         return drawable
     }
@@ -1224,9 +1236,9 @@ open class ChatMessageTextView private constructor(
     }
 
     private fun updateAnimationState(key: ChatAssetKey, drawable: Drawable) {
-        drawable.callback = if (renderingActive && windowAttached) this else null
+        drawable.callback = if (renderingActive && windowAttached && aggregatedVisible) this else null
         val animatable = drawable as? Animatable ?: return
-        val shouldRun = animateGifs && renderingActive && windowAttached && key in animatedAssetKeys
+        val shouldRun = animateGifs && renderingActive && windowAttached && aggregatedVisible && key in animatedAssetKeys
         if (shouldRun) {
             if (!animatable.isRunning) {
                 animatable.start()
@@ -1254,7 +1266,11 @@ open class ChatMessageTextView private constructor(
                 maybeApplyStagedRow()
             }
             if (isAttachedToWindow) updateDrawableAnimations()
+            invalidateClipDrawCache()
+            invalidate()
         } else {
+            clipRelativeTimeRefresh?.let(mainHandler::removeCallbacks)
+            clipRelativeTimeRefresh = null
             assetObservers.keys.toList().forEach(::removeAssetObserver)
             stagedAssetObservers.keys.toList().forEach(::removeStagedAssetObserver)
             clipMetadataObservers.keys.toList().forEach(::removeClipMetadataObserver)
@@ -1263,8 +1279,24 @@ open class ChatMessageTextView private constructor(
         }
     }
 
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        aggregatedVisible = isVisible
+        updateDrawableAnimations()
+        if (isVisible) {
+            invalidateClipDrawCache()
+            invalidate()
+        } else {
+            clipRelativeTimeRefresh?.let(mainHandler::removeCallbacks)
+            clipRelativeTimeRefresh = null
+            longPressRunnable?.let(mainHandler::removeCallbacks)
+            longPressRunnable = null
+        }
+    }
+
     override fun onDetachedFromWindow() {
         windowAttached = false
+        aggregatedVisible = false
         clipRelativeTimeRefresh?.let(mainHandler::removeCallbacks)
         clipRelativeTimeRefresh = null
         // Detach only unregisters callbacks. Keep the bind generation so a staged row can survive
@@ -1423,6 +1455,7 @@ private class ChatNamePaintSpan(
 ) : CharacterStyle() {
     private var imageHandle: Any? = null
     private var imageShader: Shader? = null
+    private val gradientShader: Shader? by lazy(LazyThreadSafetyMode.NONE, ::createGradientShader)
 
     override fun updateDrawState(textPaint: TextPaint) {
         textPaint.clearShadowLayer()
@@ -1448,40 +1481,42 @@ private class ChatNamePaintSpan(
                 return
             }
         }
-        textPaint.shader = when {
-            paintSpec.colors.size >= 2 -> {
-                val shader = if (paintSpec.type == "RADIAL_GRADIENT") {
-                    android.graphics.RadialGradient(
-                        140f,
-                        14f,
-                        140f,
-                        paintSpec.colors.toIntArray(),
-                        paintSpec.colorPositions.takeIf { it.size == paintSpec.colors.size }?.toFloatArray(),
-                        if (paintSpec.repeat) Shader.TileMode.REPEAT else Shader.TileMode.CLAMP,
-                    )
-                } else {
-                    LinearGradient(
-                        0f,
-                        0f,
-                        280f,
-                        0f,
-                        paintSpec.colors.toIntArray(),
-                        paintSpec.colorPositions.takeIf { it.size == paintSpec.colors.size }?.toFloatArray(),
-                        if (paintSpec.repeat) Shader.TileMode.REPEAT else Shader.TileMode.CLAMP,
-                    ).also { value ->
-                        paintSpec.angle?.let { angle ->
-                            value.setLocalMatrix(android.graphics.Matrix().apply {
-                                setRotate((angle - 90).toFloat(), 140f, 14f)
-                            })
-                        }
-                    }
-                }
-                shader
-            }
-            else -> null
-        }
+        textPaint.shader = gradientShader
         if (paintSpec.colors.size == 1) textPaint.color = paintSpec.colors.single()
         applyShadow(textPaint)
+    }
+
+    private fun createGradientShader(): Shader? = when {
+        paintSpec.colors.size >= 2 -> {
+            val shader = if (paintSpec.type == "RADIAL_GRADIENT") {
+                android.graphics.RadialGradient(
+                    140f,
+                    14f,
+                    140f,
+                    paintSpec.colors.toIntArray(),
+                    paintSpec.colorPositions.takeIf { it.size == paintSpec.colors.size }?.toFloatArray(),
+                    if (paintSpec.repeat) Shader.TileMode.REPEAT else Shader.TileMode.CLAMP,
+                )
+            } else {
+                LinearGradient(
+                    0f,
+                    0f,
+                    280f,
+                    0f,
+                    paintSpec.colors.toIntArray(),
+                    paintSpec.colorPositions.takeIf { it.size == paintSpec.colors.size }?.toFloatArray(),
+                    if (paintSpec.repeat) Shader.TileMode.REPEAT else Shader.TileMode.CLAMP,
+                ).also { value ->
+                    paintSpec.angle?.let { angle ->
+                        value.setLocalMatrix(android.graphics.Matrix().apply {
+                            setRotate((angle - 90).toFloat(), 140f, 14f)
+                        })
+                    }
+                }
+            }
+            shader
+        }
+        else -> null
     }
 
     private fun applyShadow(textPaint: TextPaint) {
@@ -1548,8 +1583,13 @@ private class ChatAssetSpan(
             val height = layerSpec.targetHeight
             val left = (centerX - width / 2f).roundToInt()
             val layerTop = (centerY - height / 2f).roundToInt()
-            drawable.setBounds(left, layerTop, left + width, layerTop + height)
+            // Repeated emotes share a drawable within the row. Move the canvas instead
+            // of invalidating its bounds at every occurrence on every animation frame.
+            drawable.setBounds(0, 0, width, height)
+            val saveCount = canvas.save()
+            canvas.translate(left.toFloat(), layerTop.toFloat())
             drawable.draw(canvas)
+            canvas.restoreToCount(saveCount)
         }
     }
 

@@ -49,7 +49,7 @@ data class ScopedEmoteCatalog(
 
     /** Builds the merged projection once for consumers such as the picker. */
     fun effectiveValues(): Collection<ChatCatalogEmote> =
-        (legacyCombined + global + personalProjection + channel).values
+        effectiveProjection.values
 
     fun viewerPersonalValues(): Collection<ChatCatalogEmote> =
         viewerPersonalSetIds.asSequence().flatMap { personal[it].orEmpty().values.asSequence() }.toList()

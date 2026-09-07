@@ -2676,19 +2676,45 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             if (compact) 40f else 48f,
             resources.displayMetrics,
         ).toInt()
+        // This method is called from a layout-change listener. Reassigning identical params
+        // here schedules another layout pass and can create a permanent invalidation loop.
         listOf(binding.chatIdentity, binding.clear, binding.emotes, binding.send).forEach { control ->
-            control.updateLayoutParams<LinearLayout.LayoutParams> {
-                width = controlSize
-                height = ViewGroup.LayoutParams.MATCH_PARENT
+            val params = control.layoutParams as? LinearLayout.LayoutParams
+            if (params != null) {
+                var paramsChanged = false
+                if (params.width != controlSize) {
+                    params.width = controlSize
+                    paramsChanged = true
+                }
+                if (params.height != ViewGroup.LayoutParams.MATCH_PARENT) {
+                    params.height = ViewGroup.LayoutParams.MATCH_PARENT
+                    paramsChanged = true
+                }
+                if (paramsChanged) control.layoutParams = params
             }
-            control.minimumWidth = controlSize
+            if (control.minimumWidth != controlSize) control.minimumWidth = controlSize
         }
-        binding.channelPointsText.isVisible = binding.channelPoints.isVisible && !compact
-        binding.channelPoints.updateLayoutParams<LinearLayout.LayoutParams> {
-            width = if (compact) controlSize else ViewGroup.LayoutParams.WRAP_CONTENT
-            height = ViewGroup.LayoutParams.MATCH_PARENT
+        val channelPointsTextVisible = binding.channelPoints.isVisible && !compact
+        if (binding.channelPointsText.isVisible != channelPointsTextVisible) {
+            binding.channelPointsText.isVisible = channelPointsTextVisible
         }
-        binding.channelPoints.minimumWidth = controlSize
+        val channelPointsWidth = if (compact) controlSize else ViewGroup.LayoutParams.WRAP_CONTENT
+        val channelPointsParams = binding.channelPoints.layoutParams as? LinearLayout.LayoutParams
+        if (channelPointsParams != null) {
+            var paramsChanged = false
+            if (channelPointsParams.width != channelPointsWidth) {
+                channelPointsParams.width = channelPointsWidth
+                paramsChanged = true
+            }
+            if (channelPointsParams.height != ViewGroup.LayoutParams.MATCH_PARENT) {
+                channelPointsParams.height = ViewGroup.LayoutParams.MATCH_PARENT
+                paramsChanged = true
+            }
+            if (paramsChanged) binding.channelPoints.layoutParams = channelPointsParams
+        }
+        if (binding.channelPoints.minimumWidth != controlSize) {
+            binding.channelPoints.minimumWidth = controlSize
+        }
     }
 
     private fun setupEmotePickerSizing() {

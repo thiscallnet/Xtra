@@ -41,6 +41,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationCatalog
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -145,6 +148,7 @@ class ChatV2RendererController(
     private val latestMessages = ArrayDeque<ChatMessage>()
     private val latestRows = ArrayList<ChatRowUiModel>()
     private var latestPublication: PresentationPublication? = null
+    private var committedPublication: PresentationPublication? = null
     private val reuseIndex = ChatPresentationReuseIndex()
     private val presentationSnapshot = ChatPresentationSnapshot()
     private val rendererVisible = MutableStateFlow(true)
@@ -170,24 +174,29 @@ class ChatV2RendererController(
         lifecycleOwner = owner
         collectionJob = owner.lifecycleScope.launch {
             owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                rendererVisible
-                    .flatMapLatest { visible ->
-                        if (!visible) {
-                            emptyFlow()
-                        } else {
-                            activeSessions.flatMapLatest { active ->
-                                if (active == null ||
-                                    active.spec.channelId != expectedChannelId ||
-                                    !active.spec.channelLogin.equals(expectedChannelLogin, ignoreCase = true)
-                                ) {
-                                    emptyFlow()
-                                } else {
-                                    active.presentationFlow()
+                updateRenderingActive(rendererVisible.value)
+                try {
+                    rendererVisible
+                        .flatMapLatest { visible ->
+                            if (!visible) {
+                                emptyFlow()
+                            } else {
+                                activeSessions.flatMapLatest { active ->
+                                    if (active == null ||
+                                        active.spec.channelId != expectedChannelId ||
+                                        !active.spec.channelLogin.equals(expectedChannelLogin, ignoreCase = true)
+                                    ) {
+                                        emptyFlow()
+                                    } else {
+                                        active.presentationFlow()
+                                    }
                                 }
                             }
                         }
-                    }
-                    .collect { publication -> publish(publication) }
+                        .collect { publication -> publish(publication) }
+                } finally {
+                    updateRenderingActive(false)
+                }
             }
         }
     }
@@ -196,8 +205,13 @@ class ChatV2RendererController(
     fun setVisible(visible: Boolean) {
         if (rendererVisible.value == visible) return
         rendererVisible.value = visible
+        updateRenderingActive(visible && lifecycleOwner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true)
+    }
+
+    private fun updateRenderingActive(active: Boolean) {
+        adapter.renderingActive = active
         for (index in 0 until recyclerView.childCount) {
-            (recyclerView.getChildAt(index) as? ChatMessageTextView)?.setRenderingActive(visible)
+            (recyclerView.getChildAt(index) as? ChatMessageTextView)?.setRenderingActive(active)
         }
     }
 
@@ -215,6 +229,7 @@ class ChatV2RendererController(
         adapter.dispose()
         latestMessages.clear()
         latestRows.clear()
+        committedPublication = null
         previousIds.clear()
         hasPreviousIds = false
         previousTailId = null
@@ -296,6 +311,19 @@ class ChatV2RendererController(
 
     private suspend fun publish(publication: PresentationPublication) {
         if (!rendererVisible.value) return
+        val committed = committedPublication
+        if (styleRefreshJob?.isActive != true && committed != null && committed.key == publication.key &&
+            committed.timelineVersion == publication.timelineVersion &&
+            committed.forceRefreshRevision == publication.forceRefreshRevision &&
+            committed.metadataSettlement == publication.metadataSettlement &&
+            publication.metadataSettlement.let { it.structuralSettled && it.badgesSettled && it.rewardsSettled }
+        ) {
+            // Settled rows deliberately freeze their metadata. A new 7TV entitlement
+            // affects future messages, so it must not rescan the entire visible history.
+            latestPublication = publication
+            committedPublication = publication
+            return
+        }
         val previousPublication = latestPublication
         val previousRows = latestRows
         val previousMessageCount = latestMessages.size
@@ -413,6 +441,7 @@ class ChatV2RendererController(
                 latestMessages.addAll(requireNotNull(currentMessages))
             }
             previousTailId = latestMessages.lastOrNull()?.id
+            committedPublication = preparedPublication
             ChatRenderDiagnostics.recordPublication(
                 messageCount = latestMessages.size,
                 changed = compiled.result.messagesChanged,
@@ -648,8 +677,9 @@ class ChatV2RendererController(
             highlightSettings = highlightSettings,
         )
 
-    private fun ActiveChatSession.presentationFlow() =
-        combine(
+    private fun ActiveChatSession.presentationFlow() = flow {
+        val presentationCatalog = ChatPresentationCatalog()
+        emitAll(combine(
             session.attachUi(
                 batchIntervalMsFlow = ChatBatchingPreferences.intervalMs(recyclerView.context),
             ),
@@ -679,19 +709,11 @@ class ChatV2RendererController(
                         rewardsSettled = rewardsSettled,
                     ),
                     forceRefreshRevision = catalogState.forceRefreshRevision,
-                    catalogState.snapshot.copy(
-                        channelPointRewards = rewards.byId,
-                        automaticChannelPointRewards = rewards.automaticByType,
-                        channelPointRewardsRevision = rewards.hashCode(),
-                        // The v2 catalog owns live 7TV updates. Keep the legacy snapshot as a
-                        // compatibility fallback without allowing it to erase newer v2 data.
-                        userDecorations = decorations.users + catalogState.snapshot.userDecorations,
-                        namePaints = decorations.paints + catalogState.snapshot.namePaints,
-                        sevenTvBadges = decorations.badges + catalogState.snapshot.sevenTvBadges,
-                    ),
+                    presentationCatalog.resolve(catalogState.snapshot, rewards, decorations),
                 )
             }
-        }.filter { it != null }.map { it!! }
+        }.filter { it != null }.map { it!! })
+    }
 
     private data class PresentationPublication(
         val key: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey,
