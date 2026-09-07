@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -21,50 +22,106 @@ internal class ProcessLocalFeedSnapshot<T> {
         val items: List<T> = emptyList(),
     )
 
-    private val snapshots = ConcurrentHashMap<String, MutableStateFlow<Snapshot<T>>>()
-    private val loadLocks = ConcurrentHashMap<String, Mutex>()
-    private val revisions = ConcurrentHashMap<String, AtomicLong>()
+    private class Entry<T> {
+        val state = MutableStateFlow(Snapshot<T>())
+        val loadLock = Mutex()
+        val revision = AtomicLong()
+        val collectors = AtomicInteger()
+        var evictionPending = false
+    }
+
+    private val entries = ConcurrentHashMap<String, Entry<T>>()
 
     fun flow(
         key: String,
         limit: Int,
         load: suspend () -> List<T>,
     ): Flow<List<T>> = flow {
-        val state = snapshots.computeIfAbsent(key) { MutableStateFlow(Snapshot()) }
-        val revision = revisions.computeIfAbsent(key) { AtomicLong() }
-        if (!state.value.loaded) {
-            loadLocks.computeIfAbsent(key) { Mutex() }.withLock {
-                if (!state.value.loaded) {
-                    val revisionAtStart = revision.get()
-                    val items = load()
-                    // A refresh can publish while the bootstrap query is in
-                    // flight. Never overwrite that newer process-local state
-                    // with the older Room result.
-                    if (!state.value.loaded && revision.get() == revisionAtStart) {
-                        state.value = Snapshot(loaded = true, items = items.toList())
+        val entry = acquire(key)
+        try {
+            if (!entry.state.value.loaded) {
+                entry.loadLock.withLock {
+                    if (!entry.state.value.loaded) {
+                        val revisionAtStart = entry.revision.get()
+                        val items = load()
+                        // A refresh or eviction can publish while the bootstrap query is in
+                        // flight. Never overwrite that newer process-local state with Room data.
+                        synchronized(entry) {
+                            if (
+                                !entry.state.value.loaded &&
+                                !entry.evictionPending &&
+                                entry.revision.get() == revisionAtStart
+                            ) {
+                                entry.state.value = Snapshot(loaded = true, items = items.toList())
+                            }
+                        }
                     }
                 }
             }
+            emitAll(entry.state.map { snapshot -> snapshot.items.take(limit) })
+        } finally {
+            release(key, entry)
         }
-        emitAll(state.map { snapshot -> snapshot.items.take(limit) })
     }
 
     fun publish(key: String, items: List<T>) {
-        val state = snapshots.computeIfAbsent(key) { MutableStateFlow(Snapshot()) }
-        revisions.computeIfAbsent(key) { AtomicLong() }.incrementAndGet()
-        state.value = Snapshot(loaded = true, items = items.toList())
+        while (true) {
+            val entry = entries.computeIfAbsent(key) { Entry() }
+            synchronized(entry) {
+                if (entries[key] !== entry) continue
+                if (entry.evictionPending && entry.collectors.get() == 0) {
+                    entries.remove(key, entry)
+                    continue
+                }
+                entry.revision.incrementAndGet()
+                entry.state.value = Snapshot(loaded = true, items = items.toList())
+                return
+            }
+        }
     }
 
     /** Returns the full in-process snapshot without applying a UI limit. */
-    fun current(key: String): List<T>? = snapshots[key]
-        ?.value
-        ?.takeIf { it.loaded }
-        ?.items
+    fun current(key: String): List<T>? {
+        val entry = entries[key] ?: return null
+        return synchronized(entry) {
+            if (entries[key] !== entry) return@synchronized null
+            entry.state.value.takeIf { it.loaded }?.items
+        }
+    }
 
-    fun clear(key: String) {
-        snapshots[key]?.let { state ->
-            revisions.computeIfAbsent(key) { AtomicLong() }.incrementAndGet()
-            state.value = Snapshot(loaded = true)
+    /** Removes all process-local state for a feed after durable cleanup. */
+    fun evict(key: String) {
+        val entry = entries[key] ?: return
+        synchronized(entry) {
+            if (entries[key] !== entry) return
+            entry.revision.incrementAndGet()
+            entry.evictionPending = true
+            entry.state.value = Snapshot(loaded = true)
+            if (entry.collectors.get() == 0) {
+                entries.remove(key, entry)
+            }
+        }
+    }
+
+    private fun acquire(key: String): Entry<T> {
+        while (true) {
+            val entry = entries.computeIfAbsent(key) { Entry() }
+            synchronized(entry) {
+                if (entries[key] !== entry) continue
+                if (!entry.evictionPending || entry.collectors.get() > 0) {
+                    entry.collectors.incrementAndGet()
+                    return entry
+                }
+            }
+        }
+    }
+
+    private fun release(key: String, entry: Entry<T>) {
+        synchronized(entry) {
+            val remaining = entry.collectors.decrementAndGet()
+            if (remaining == 0 && entry.evictionPending) {
+                entries.remove(key, entry)
+            }
         }
     }
 }

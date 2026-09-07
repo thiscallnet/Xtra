@@ -403,6 +403,6 @@ class StreamFeedCache(
                     removedKeys += state.feedKey
                 }
         }
-        removedKeys.forEach(activeSnapshot::clear)
+        removedKeys.forEach(activeSnapshot::evict)
     }
 }

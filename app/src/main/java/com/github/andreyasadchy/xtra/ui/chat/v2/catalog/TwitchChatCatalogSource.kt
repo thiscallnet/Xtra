@@ -18,6 +18,7 @@ import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.LinkedHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
@@ -425,9 +426,17 @@ private enum class GlobalCatalogKey {
 }
 
 /** Process-scoped single-flight cache for provider data shared by every live chat session. */
-internal class ExpiringSingleFlightCache<K>(private val ttlMs: Long = 5 * 60 * 1000L) {
+internal class ExpiringSingleFlightCache<K>(
+    private val ttlMs: Long = 5 * 60 * 1000L,
+    private val maxSize: Int = 128,
+) {
+    init {
+        require(ttlMs > 0L) { "Cache TTL must be positive" }
+        require(maxSize > 0) { "Cache size must be positive" }
+    }
+
     private val mutex = Mutex()
-    private val entries = mutableMapOf<K, Entry>()
+    private val entries = LinkedHashMap<K, Entry>(0, 0.75f, true)
     private val inFlight = mutableMapOf<K, CompletableDeferred<Any>>()
 
     @Suppress("UNCHECKED_CAST")
@@ -435,6 +444,10 @@ internal class ExpiringSingleFlightCache<K>(private val ttlMs: Long = 5 * 60 * 1
         data class Lookup(val deferred: CompletableDeferred<Any>, val owner: Boolean)
         val lookup = mutex.withLock {
             val now = System.currentTimeMillis()
+            val iterator = entries.entries.iterator()
+            while (iterator.hasNext()) {
+                if (now - iterator.next().value.createdAtMs >= ttlMs) iterator.remove()
+            }
             entries[key]?.takeIf { !force && now - it.createdAtMs < ttlMs }?.let {
                 return@withLock Lookup(CompletableDeferred(it.value), owner = false)
             }
@@ -448,6 +461,9 @@ internal class ExpiringSingleFlightCache<K>(private val ttlMs: Long = 5 * 60 * 1
             val value = loader()
             mutex.withLock {
                 entries[key] = Entry(System.currentTimeMillis(), value)
+                while (entries.size > maxSize) {
+                    entries.entries.iterator().apply { next(); remove() }
+                }
                 inFlight.remove(key)?.complete(value)
             }
             value
@@ -461,7 +477,7 @@ internal class ExpiringSingleFlightCache<K>(private val ttlMs: Long = 5 * 60 * 1
 }
 
 private val GlobalBadgeCache = ExpiringSingleFlightCache<GlobalCatalogKey>()
-private val PersonalEmoteSetCache = ExpiringSingleFlightCache<String>()
+private val PersonalEmoteSetCache = ExpiringSingleFlightCache<String>(maxSize = 128)
 
 private object GlobalCatalogCacheRegistry {
     @Volatile

@@ -1390,9 +1390,13 @@ class ChatMessageTextViewTest {
             onMessageLongClick = { clickedIds += it },
         )
         lateinit var holder: ChatTimelineAdapter.Holder
+        val firstCommitted = CountDownLatch(1)
         runOnMain {
             holder = adapter.onCreateViewHolder(FrameLayout(context), 0)
-            adapter.submitList(listOf(textRow("first", ChatMessageId("first"))))
+            adapter.submitList(listOf(textRow("first", ChatMessageId("first")))) { firstCommitted.countDown() }
+        }
+        assertTrue(firstCommitted.await(1, TimeUnit.SECONDS))
+        runOnMain {
             adapter.onBindViewHolder(holder, 0)
             assertTrue(holder.view.performLongClick())
         }
