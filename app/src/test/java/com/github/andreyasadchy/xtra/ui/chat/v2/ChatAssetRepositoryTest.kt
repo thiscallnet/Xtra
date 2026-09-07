@@ -171,4 +171,48 @@ class ChatAssetRepositoryTest {
         assertTrue(!secondStarted.isCompleted)
         scope.cancel()
     }
+
+    @Test
+    fun readyStateCanReloadWhenCoilHasEvictedTheDecodedImage() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val key = ChatAssetKey("evicted")
+            var attempts = 0
+            val repository = ChatAssetRepository(scope, ChatAssetLoader {
+                if (++attempts == 1) ChatImageHandle { null } else ChatImageHandle { ColorDrawable(1) }
+            })
+            val listener: () -> Unit = {}
+            repository.observe(key, listener)
+            withTimeout(2_000) { while (repository.peek(key) !is ChatAssetState.Ready) delay(1) }
+
+            repository.retryIfDrawableUnavailable(key)
+            withTimeout(2_000) { while (attempts < 2) delay(1) }
+            assertTrue(repository.peek(key) is ChatAssetState.Ready)
+            assertEquals(2, attempts)
+            repository.removeObserver(key, listener)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun nonShareableDecodedHandleIsReleasedWithItsLastObserver() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val key = ChatAssetKey("animated")
+            val decodedHandle = object : ChatImageHandle {
+                override fun newDrawable() = ColorDrawable(1)
+                override fun holdsDecodedImage() = true
+            }
+            val repository = ChatAssetRepository(scope, ChatAssetLoader { decodedHandle })
+            val listener: () -> Unit = {}
+            repository.observe(key, listener)
+            withTimeout(2_000) { while (repository.peek(key) !is ChatAssetState.Ready) delay(1) }
+            repository.removeObserver(key, listener)
+
+            assertEquals(ChatAssetState.Missing, repository.peek(key))
+        } finally {
+            scope.cancel()
+        }
+    }
 }

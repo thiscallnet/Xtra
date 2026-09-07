@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.ui
 
+import android.os.SystemClock
 import android.os.Trace
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -27,6 +28,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
 import com.github.andreyasadchy.xtra.ui.chat.ChatRenderStyle
 import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
+import com.github.andreyasadchy.xtra.util.ChatRenderDiagnostics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
@@ -135,10 +137,12 @@ class ChatV2RendererController(
     private var styleRefreshJob: Job? = null
     private var lifecycleOwner: LifecycleOwner? = null
     private var currentKey: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey? = null
-    private var previousIds: Set<ChatMessageId>? = null
+    private val previousIds = HashSet<ChatMessageId>()
+    private var hasPreviousIds = false
     private var previousTailId: ChatMessageId? = null
     private var latestRows: List<ChatRowUiModel> = emptyList()
     private var latestPublication: PresentationPublication? = null
+    private val reuseIndex = ChatPresentationReuseIndex()
     private val presentationSnapshot = ChatPresentationSnapshot()
     private val rendererVisible = MutableStateFlow(true)
     private var translateAllMessages = translateAllMessages
@@ -207,9 +211,11 @@ class ChatV2RendererController(
         recyclerView.adapter = null
         adapter.submitList(emptyList())
         latestRows = emptyList()
-        previousIds = null
+        previousIds.clear()
+        hasPreviousIds = false
         previousTailId = null
         currentKey = null
+        reuseIndex.clear()
         presentationSnapshot.clear()
         requestedTranslationIds.clear()
     }
@@ -250,12 +256,26 @@ class ChatV2RendererController(
         presentation.invalidate()
         styleRefreshJob?.cancel()
         styleRefreshJob = owner.lifecycleScope.launch {
-            val rows = compileCurrent(publication)
+            val compiled = compileCurrent(publication)
+            val rows = compiled.result.rows
             withContext(Dispatchers.Main.immediate) {
                 if (!rendererVisible.value || latestPublication !== publication) return@withContext
+                val uiChanged = !sameRows(latestRows, rows)
                 latestRows = rows
-                onPublicationChanged(publication.messages, rows)
-                adapter.submitList(rows)
+                reuseIndex.replace(publication.messages, rows)
+                ChatRenderDiagnostics.recordPublication(
+                    messageCount = publication.messages.size,
+                    changed = compiled.result.messagesChanged,
+                    compiled = compiled.result.rowsCompiled,
+                    reused = compiled.result.rowsReused,
+                    compileNanos = compiled.durationNanos,
+                    fullRebuild = compiled.fullRebuild,
+                    uiChanged = uiChanged,
+                )
+                if (uiChanged) {
+                    onPublicationChanged(publication.messages, rows)
+                    adapter.submitList(rows)
+                }
             }
         }
     }
@@ -273,7 +293,9 @@ class ChatV2RendererController(
             if (!rendererVisible.value) return@withContext
             latestPublication = publication
         }
-        val rows = compileCurrent(publication, previousPublication, previousRows)
+        styleRefreshJob?.cancel()
+        val compiled = compileCurrent(publication, previousPublication)
+        val rows = compiled.result.rows
         if (!rendererVisible.value) return
         withContext(Dispatchers.Main.immediate) {
             if (!rendererVisible.value) return@withContext
@@ -281,32 +303,59 @@ class ChatV2RendererController(
             if (currentKey != publication.key) {
                 if (currentKey != null) viewport.resetForNewSession()
                 currentKey = publication.key
-                previousIds = null
+                hasPreviousIds = false
+                previousIds.clear()
                 previousTailId = null
+                reuseIndex.clear()
             }
             latestPublication = publication
             requestTranslations(publication.messages)
             val oldIds = previousIds
-            val previousAnchor = if (oldIds == null) null else viewport.captureAnchor(adapter)
+            val previousAnchor = if (!hasPreviousIds) null else viewport.captureAnchor(adapter)
             // Reconciliation can insert older messages into the middle/front of the timeline.
             // Only messages newer than the previous tail are live appends.
-            val appendedCount = countNewLiveMessages(oldIds, previousTailId, publication.messages)
-            previousIds = rows.asSequence().map(ChatRowUiModel::id).toSet()
+            val appendedCount = countNewLiveMessages(
+                oldIds.takeIf { hasPreviousIds },
+                previousTailId,
+                publication.messages,
+            )
+            previousIds.clear()
+            rows.forEach { previousIds += it.id }
+            hasPreviousIds = true
             previousTailId = publication.messages.lastOrNull()?.id
             latestRows = rows
-            onPublicationChanged(publication.messages, rows)
-            adapter.submitList(rows) {
-                viewport.onSnapshotCommitted(previousAnchor, rows, appendedCount)
-                onStateChanged(viewport.state)
+            reuseIndex.replace(publication.messages, rows)
+            val uiChanged = !sameRows(previousRows, rows)
+            ChatRenderDiagnostics.recordPublication(
+                messageCount = publication.messages.size,
+                changed = compiled.result.messagesChanged,
+                compiled = compiled.result.rowsCompiled,
+                reused = compiled.result.rowsReused,
+                compileNanos = compiled.durationNanos,
+                fullRebuild = compiled.fullRebuild,
+                uiChanged = uiChanged,
+            )
+            if (uiChanged) {
+                onPublicationChanged(publication.messages, rows)
+                adapter.submitList(rows) {
+                    viewport.onSnapshotCommitted(previousAnchor, rows, appendedCount)
+                    onStateChanged(viewport.state)
+                }
             }
         }
     }
 
+    private data class CompiledRows(
+        val result: ChatRowCompileResult,
+        val durationNanos: Long,
+        val fullRebuild: Boolean,
+    )
+
     private suspend fun compileCurrent(
         publication: PresentationPublication,
         previousPublication: PresentationPublication? = null,
-        previousRows: List<ChatRowUiModel> = emptyList(),
-    ): List<ChatRowUiModel> {
+    ): CompiledRows {
+        val startedAt = SystemClock.elapsedRealtimeNanos()
         while (true) {
             val compiler = presentation.snapshot()
             val forceCatalogUpgrade = previousPublication?.let { previous ->
@@ -332,29 +381,21 @@ class ChatV2RendererController(
             val rows = withContext(Dispatchers.Default) {
                 if (BuildConfig.PERF_DIAGNOSTICS) Trace.beginSection("Xtra.ChatV2.compileCurrent")
                 try {
-                    val previousMessages = if (reusablePublication != null) {
-                        reusablePublication.messages.associateBy { it.id }
-                    } else {
-                        emptyMap()
-                    }
-                    val reusableRows = if (reusablePublication != null) {
-                        previousRows.associateBy { it.id }
-                    } else {
-                        emptyMap()
-                    }
-                    publication.messages.mapIndexed { index, message ->
-                        if (previousMessages[message.id] == message) {
-                            reusableRows[message.id]
-                        } else {
-                            null
-                        } ?: compiler.resolve(message, catalogs[index])
-                    }
+                    compileChatRows(
+                        messages = publication.messages,
+                        reuseIndex = reuseIndex.takeIf { reusablePublication != null },
+                        resolve = { message, index -> compiler.resolve(message, catalogs[index]) },
+                    )
                 } finally {
                     if (BuildConfig.PERF_DIAGNOSTICS) Trace.endSection()
                 }
             }
             if (presentation.isCurrent(compiler)) {
-                return rows
+                return CompiledRows(
+                    result = rows,
+                    durationNanos = SystemClock.elapsedRealtimeNanos() - startedAt,
+                    fullRebuild = reusablePublication == null,
+                )
             }
         }
     }
@@ -365,6 +406,16 @@ class ChatV2RendererController(
             if (translation(message).isNullOrBlank() && requestedTranslationIds.add(message.id)) {
                 onTranslateMessage(message)
             }
+        }
+    }
+
+    private fun sameRows(previous: List<ChatRowUiModel>, current: List<ChatRowUiModel>): Boolean {
+        if (previous === current) return true
+        if (previous.size != current.size) return false
+        return previous.indices.all { index ->
+            val before = previous[index]
+            val after = current[index]
+            before === after || before == after
         }
     }
 

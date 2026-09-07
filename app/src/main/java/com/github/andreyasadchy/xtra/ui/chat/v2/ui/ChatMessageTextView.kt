@@ -47,6 +47,7 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetState
+import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatImageHandle
 import com.github.andreyasadchy.xtra.util.ChatRenderDiagnostics
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
@@ -109,32 +110,18 @@ open class ChatMessageTextView private constructor(
     private val initialLineSpacingMultiplier = lineSpacingMultiplier
     private var keys = emptySet<ChatAssetKey>()
     private val drawables = HashMap<ChatAssetKey, Drawable>()
-    private val drawableHandles = HashMap<ChatAssetKey, Any>()
-    private val assetInvalidator: () -> Unit = {
-        post {
-            latchTerminalAssetFailures()
-            maybeApplyStagedRow()
-            requestLayout()
-            postInvalidateOnAnimation()
-            maybeRevealInitialAssetFrame()
-        }
-    }
-    private val clipMetadataInvalidator: () -> Unit = {
-        post {
-            refreshClipPreviewAssets()
-            requestLayout()
-            postInvalidateOnAnimation()
-            maybeRevealInitialAssetFrame()
-        }
-    }
-    private val clipThumbnailInvalidator: () -> Unit = {
-        post {
-            latchTerminalAssetFailures()
-            requestLayout()
-            postInvalidateOnAnimation()
-            maybeRevealInitialAssetFrame()
-        }
-    }
+    private val drawableHandles = HashMap<ChatAssetKey, ChatImageHandle>()
+    private val assetObservers = HashMap<ChatAssetKey, ChatObserverRegistration>()
+    private val stagedAssetObservers = HashMap<ChatAssetKey, ChatObserverRegistration>()
+    private val clipMetadataObservers = HashMap<String, ChatObserverRegistration>()
+    private val clipThumbnailObservers = HashMap<ChatAssetKey, ChatObserverRegistration>()
+    private val visualRefreshes = ChatVisualRefreshCoalescer(
+        scheduleFrame = { runnable -> postOnAnimation(runnable) },
+        currentGeneration = { externalBindGeneration },
+        onRefresh = ::applyVisualRefresh,
+        onCoalesced = ChatRenderDiagnostics::recordAssetCallbackCoalesced,
+        onStale = ChatRenderDiagnostics::recordStaleCallbackDiscarded,
+    )
     private var renderingActive = true
     private var animateGifs = true
     private var windowAttached = false
@@ -163,6 +150,7 @@ open class ChatMessageTextView private constructor(
     private var stagedObservedAssetKeys = emptySet<ChatAssetKey>()
     private var externalBindGeneration = 0L
     private var initialAssetSpecs = emptyList<ChatAssetSpec>()
+    private var geometryChangingCompositionKeys = emptySet<String>()
     private var initialDirectAssetKeys = emptySet<ChatAssetKey>()
     private val latchedFailedCompositionKeys = HashSet<String>()
     private val latchedFailedDirectKeys = HashSet<ChatAssetKey>()
@@ -230,34 +218,38 @@ open class ChatMessageTextView private constructor(
         previousObservedKeys
             .filterNot(nextKeys::contains)
             .filterNot(keys::contains)
-            .forEach { assets.removeObserver(it, assetInvalidator) }
+            .forEach(::removeStagedAssetObserver)
 
         stagedRow = row
         stagedBindGeneration = externalBindGeneration
         stagedAssetKeys = nextKeys
         stagedObservedAssetKeys = nextKeys - keys
         stagedObservedAssetKeys
+            .filter(previousObservedKeys::contains)
+            .forEach { stagedAssetObservers[it]?.rebind(externalBindGeneration) }
+        stagedObservedAssetKeys
             .filterNot(previousObservedKeys::contains)
-            .forEach { assets.observe(it, assetInvalidator) }
+            .forEach(::observeStagedAsset)
         maybeApplyStagedRow()
     }
 
-    private fun maybeApplyStagedRow() {
-        val row = stagedRow ?: return
+    private fun maybeApplyStagedRow(): Boolean {
+        val row = stagedRow ?: return false
         if (stagedBindGeneration != externalBindGeneration) {
             clearStagedRow()
-            return
+            return false
         }
-        if (hasPendingAssets(stagedAssetKeys)) return
+        if (hasPendingAssets(stagedAssetKeys)) return false
         clearStagedRow()
         bindRow(row)
+        return true
     }
 
     private fun clearStagedRow() {
         val activeKeys = keys
         stagedObservedAssetKeys
             .filterNot(activeKeys::contains)
-            .forEach { assets.removeObserver(it, assetInvalidator) }
+            .forEach(::removeStagedAssetObserver)
         stagedRow = null
         stagedBindGeneration = 0L
         stagedAssetKeys = emptySet()
@@ -285,9 +277,12 @@ open class ChatMessageTextView private constructor(
         drawables.clear()
         drawableHandles.clear()
         val newKeys = row.assetKeys()
-        oldKeys.filterNot(newKeys::contains).forEach { assets.removeObserver(it, assetInvalidator) }
-        newKeys.filterNot(oldKeys::contains).forEach { assets.observe(it, assetInvalidator) }
+        oldKeys.filterNot(newKeys::contains).forEach(::removeAssetObserver)
         keys = newKeys
+        newKeys
+            .filter(oldKeys::contains)
+            .forEach { assetObservers[it]?.rebind(externalBindGeneration) }
+        newKeys.filterNot(oldKeys::contains).forEach(::observeAsset)
         animatedAssetKeys = row.pieces.flatMap { piece ->
             val spec = when (piece) {
                 is ChatPiece.Emote -> piece.asset.takeIf { piece.animated }
@@ -308,19 +303,29 @@ open class ChatMessageTextView private constructor(
                 else -> null
             }
         }
+        geometryChangingCompositionKeys = row.pieces.mapNotNull { piece ->
+            when (piece) {
+                is ChatPiece.Emote -> piece.asset.compositionKey
+                is ChatPiece.Gif -> piece.asset.compositionKey
+                else -> null
+            }
+        }.toSet()
         initialDirectAssetKeys = row.pieces.mapNotNull { piece ->
             (piece as? ChatPiece.Username)?.paint?.imageUrl
                 ?.takeIf { it.isNotBlank() }
                 ?.let(::ChatAssetKey)
         }.toSet()
         val newClipPreviewSlugs = row.clipPreviews.map { it.slug }.toSet()
-        oldClipPreviewSlugs.filterNot(newClipPreviewSlugs::contains).forEach { slug ->
-            clipPreviews?.removeObserver(slug, clipMetadataInvalidator)
-        }
-        newClipPreviewSlugs.filterNot(oldClipPreviewSlugs::contains).forEach { slug ->
-            clipPreviews?.observe(slug, clipMetadataInvalidator)
-        }
         clipPreviewSlugs = newClipPreviewSlugs
+        oldClipPreviewSlugs.filterNot(newClipPreviewSlugs::contains).forEach { slug ->
+            removeClipMetadataObserver(slug)
+        }
+        newClipPreviewSlugs
+            .filter(oldClipPreviewSlugs::contains)
+            .forEach { clipMetadataObservers[it]?.rebind(externalBindGeneration) }
+        newClipPreviewSlugs.filterNot(oldClipPreviewSlugs::contains).forEach { slug ->
+            observeClipMetadata(slug)
+        }
         refreshClipPreviewAssets()
         latchTerminalAssetFailures()
         val density = resources.displayMetrics.density
@@ -510,23 +515,31 @@ open class ChatMessageTextView private constructor(
         }
     }
 
-    private fun latchTerminalAssetFailures() {
+    private fun latchTerminalAssetFailures(): Boolean {
+        var geometryChanged = false
         initialAssetSpecs
             .filter { assetRenderState(it) == ChatAssetRenderState.FAILED }
-            .forEach { latchedFailedCompositionKeys += it.compositionKey }
+            .forEach { spec ->
+                if (latchedFailedCompositionKeys.add(spec.compositionKey) &&
+                    spec.compositionKey in geometryChangingCompositionKeys
+                ) {
+                    geometryChanged = true
+                }
+            }
         (initialDirectAssetKeys + clipPreviewAssetKeys).forEach { key ->
             val state = assets.peek(key)
             if (state is ChatAssetState.Failed && state.isPresentationTerminal) {
                 latchedFailedDirectKeys += key
             }
         }
+        return geometryChanged
     }
 
-    private fun latchFailedClipMetadata() {
+    private fun latchFailedClipMetadata(): Boolean {
         val failed = clipPreviewSlugs.filter { slug ->
             clipPreviews?.peekState(slug) == ChatClipPreviewState.Ready(null)
         }
-        if (latchedFailedClipMetadataSlugs.addAll(failed)) requestLayout()
+        return latchedFailedClipMetadataSlugs.addAll(failed)
     }
 
     private fun refreshClipPreviewAssets() {
@@ -534,11 +547,126 @@ open class ChatMessageTextView private constructor(
             clipPreviews?.peek(link.slug)?.thumbnailUrl?.takeIf { it.isNotBlank() }?.let(::ChatAssetKey)
         }.toSet()
         initialDirectAssetKeys = (initialDirectAssetKeys - clipPreviewAssetKeys) + nextKeys
-        clipPreviewAssetKeys.filterNot(nextKeys::contains).forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
-        if (isAttachedToWindow && renderingActive) {
-            nextKeys.filterNot(clipPreviewAssetKeys::contains).forEach { assets.observe(it, clipThumbnailInvalidator) }
-        }
+        val previousKeys = clipPreviewAssetKeys
+        previousKeys.filterNot(nextKeys::contains).forEach(::removeClipThumbnailObserver)
         clipPreviewAssetKeys = nextKeys
+        nextKeys
+            .filter(previousKeys::contains)
+            .forEach { clipThumbnailObservers[it]?.rebind(externalBindGeneration) }
+        if (isAttachedToWindow && renderingActive) {
+            nextKeys.filterNot(previousKeys::contains).forEach(::observeClipThumbnail)
+        }
+    }
+
+    private fun applyVisualRefresh(kind: ChatVisualRefreshKind) {
+        if (!renderingActive || !isAttachedToWindow || boundRow == null) return
+        var requiresLayout = kind == ChatVisualRefreshKind.LAYOUT_AND_DRAW
+        requiresLayout = latchTerminalAssetFailures() || requiresLayout
+        requiresLayout = maybeApplyStagedRow() || requiresLayout
+        requiresLayout = latchFailedClipMetadata() || requiresLayout
+        refreshClipPreviewAssets()
+        if (requiresLayout) {
+            ChatRenderDiagnostics.recordLayoutAndDrawInvalidation()
+            requestLayout()
+        } else {
+            ChatRenderDiagnostics.recordDrawOnlyInvalidation()
+        }
+        postInvalidateOnAnimation()
+        maybeRevealInitialAssetFrame()
+    }
+
+    private fun observeAsset(key: ChatAssetKey) {
+        observeAsset(key, staged = false)
+    }
+
+    private fun observeStagedAsset(key: ChatAssetKey) {
+        observeAsset(key, staged = true)
+    }
+
+    private fun observeAsset(key: ChatAssetKey, staged: Boolean) {
+        val observers = if (staged) stagedAssetObservers else assetObservers
+        val registration = ChatObserverRegistration(
+            initialGeneration = externalBindGeneration,
+            onValid = { generation ->
+                ChatRenderDiagnostics.recordAssetCallbackReceived()
+                visualRefreshes.request(ChatVisualRefreshKind.DRAW, generation)
+            },
+            onStale = ChatRenderDiagnostics::recordStaleCallbackDiscarded,
+        )
+        synchronized(observers) {
+            if (observers.containsKey(key)) return
+            observers[key] = registration
+        }
+        assets.observe(key, registration.listener)
+    }
+
+    private fun removeAssetObserver(key: ChatAssetKey) {
+        removeObserver(assetObservers, key) { listener -> assets.removeObserver(key, listener) }
+        removeStagedAssetObserver(key)
+    }
+
+    private fun removeStagedAssetObserver(key: ChatAssetKey) {
+        removeObserver(stagedAssetObservers, key) { listener -> assets.removeObserver(key, listener) }
+    }
+
+    private fun observeClipMetadata(slug: String) {
+        val repository = clipPreviews ?: return
+        val registration = ChatObserverRegistration(
+            initialGeneration = externalBindGeneration,
+            onValid = { generation ->
+                ChatRenderDiagnostics.recordAssetCallbackReceived()
+                val kind = if (repository.peekState(slug) == ChatClipPreviewState.Ready(null)) {
+                    ChatVisualRefreshKind.LAYOUT_AND_DRAW
+                } else {
+                    ChatVisualRefreshKind.DRAW
+                }
+                visualRefreshes.request(kind, generation)
+            },
+            onStale = ChatRenderDiagnostics::recordStaleCallbackDiscarded,
+        )
+        synchronized(clipMetadataObservers) {
+            if (clipMetadataObservers.containsKey(slug)) return
+            clipMetadataObservers[slug] = registration
+        }
+        repository.observe(slug, registration.listener)
+    }
+
+    private fun removeClipMetadataObserver(slug: String) {
+        val registration = synchronized(clipMetadataObservers) {
+            clipMetadataObservers.remove(slug)
+        } ?: return
+        registration.deactivate()
+        clipPreviews?.removeObserver(slug, registration.listener)
+    }
+
+    private fun observeClipThumbnail(key: ChatAssetKey) {
+        val registration = ChatObserverRegistration(
+            initialGeneration = externalBindGeneration,
+            onValid = { generation ->
+                ChatRenderDiagnostics.recordAssetCallbackReceived()
+                visualRefreshes.request(ChatVisualRefreshKind.DRAW, generation)
+            },
+            onStale = ChatRenderDiagnostics::recordStaleCallbackDiscarded,
+        )
+        synchronized(clipThumbnailObservers) {
+            if (clipThumbnailObservers.containsKey(key)) return
+            clipThumbnailObservers[key] = registration
+        }
+        assets.observe(key, registration.listener)
+    }
+
+    private fun removeClipThumbnailObserver(key: ChatAssetKey) {
+        removeObserver(clipThumbnailObservers, key) { listener -> assets.removeObserver(key, listener) }
+    }
+
+    private fun removeObserver(
+        observers: MutableMap<ChatAssetKey, ChatObserverRegistration>,
+        key: ChatAssetKey,
+        remove: (() -> Unit) -> Unit,
+    ) {
+        val registration = synchronized(observers) { observers.remove(key) } ?: return
+        registration.deactivate()
+        remove(registration.listener)
     }
 
     private fun resolvedClipPreviews(): List<Pair<ChatClipPreviewLink, ChatClipPreview>> =
@@ -997,7 +1125,13 @@ open class ChatMessageTextView private constructor(
         val drawable = if (drawableHandles[key] !== handle) {
             drawables.remove(key)?.also { it.stopIfNeeded(); it.callback = null }
             drawableHandles[key] = handle
-            handle.newDrawable().also { drawables[key] = it }
+            val created = handle.newDrawable()
+            if (created == null) {
+                drawableHandles.remove(key)
+                assets.retryIfDrawableUnavailable(key)
+                return null
+            }
+            created.also { drawables[key] = it }
         } else {
             drawables[key] ?: return null
         }
@@ -1010,9 +1144,10 @@ open class ChatMessageTextView private constructor(
         longPressRunnable?.let(mainHandler::removeCallbacks)
         longPressRunnable = null
         clearStagedRow()
-        keys.forEach { assets.removeObserver(it, assetInvalidator) }
-        clipPreviewSlugs.forEach { slug -> clipPreviews?.removeObserver(slug, clipMetadataInvalidator) }
-        clipPreviewAssetKeys.forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
+        assetObservers.keys.toList().forEach(::removeAssetObserver)
+        stagedAssetObservers.keys.toList().forEach(::removeStagedAssetObserver)
+        clipMetadataObservers.keys.toList().forEach(::removeClipMetadataObserver)
+        clipThumbnailObservers.keys.toList().forEach(::removeClipThumbnailObserver)
         drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
         drawables.clear()
         drawableHandles.clear()
@@ -1026,6 +1161,7 @@ open class ChatMessageTextView private constructor(
         stagedObservedAssetKeys = emptySet()
         externalBindGeneration++
         initialAssetSpecs = emptyList()
+        geometryChangingCompositionKeys = emptySet()
         initialDirectAssetKeys = emptySet()
         latchedFailedCompositionKeys.clear()
         latchedFailedDirectKeys.clear()
@@ -1091,10 +1227,10 @@ open class ChatMessageTextView private constructor(
         if (renderingActive == active) return
         renderingActive = active
         if (active) {
-            if (isAttachedToWindow) keys.forEach { assets.observe(it, assetInvalidator) }
-            if (isAttachedToWindow) stagedObservedAssetKeys.forEach { assets.observe(it, assetInvalidator) }
-            if (isAttachedToWindow) clipPreviewSlugs.forEach { slug -> clipPreviews?.observe(slug, clipMetadataInvalidator) }
-            if (isAttachedToWindow) clipPreviewAssetKeys.forEach { assets.observe(it, clipThumbnailInvalidator) }
+            if (isAttachedToWindow) keys.forEach(::observeAsset)
+            if (isAttachedToWindow) stagedObservedAssetKeys.forEach(::observeStagedAsset)
+            if (isAttachedToWindow) clipPreviewSlugs.forEach(::observeClipMetadata)
+            if (isAttachedToWindow) clipPreviewAssetKeys.forEach(::observeClipThumbnail)
             if (isAttachedToWindow) {
                 refreshClipPreviewAssets()
                 maybeApplyStagedRow()
@@ -1102,22 +1238,24 @@ open class ChatMessageTextView private constructor(
             }
             if (isAttachedToWindow) updateDrawableAnimations()
         } else {
-            keys.forEach { assets.removeObserver(it, assetInvalidator) }
-            stagedObservedAssetKeys.forEach { assets.removeObserver(it, assetInvalidator) }
-            clipPreviewSlugs.forEach { slug -> clipPreviews?.removeObserver(slug, clipMetadataInvalidator) }
-            clipPreviewAssetKeys.forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
+            assetObservers.keys.toList().forEach(::removeAssetObserver)
+            stagedAssetObservers.keys.toList().forEach(::removeStagedAssetObserver)
+            clipMetadataObservers.keys.toList().forEach(::removeClipMetadataObserver)
+            clipThumbnailObservers.keys.toList().forEach(::removeClipThumbnailObserver)
             drawables.forEach { (key, drawable) -> updateAnimationState(key, drawable) }
         }
     }
 
     override fun onDetachedFromWindow() {
         windowAttached = false
+        // Detach only unregisters callbacks. Keep the bind generation so a staged row can survive
+        // a detach/reattach cycle and still be applied when its assets finish loading.
         longPressRunnable?.let(mainHandler::removeCallbacks)
         longPressRunnable = null
-        keys.forEach { assets.removeObserver(it, assetInvalidator) }
-        stagedObservedAssetKeys.forEach { assets.removeObserver(it, assetInvalidator) }
-        clipPreviewSlugs.forEach { slug -> clipPreviews?.removeObserver(slug, clipMetadataInvalidator) }
-        clipPreviewAssetKeys.forEach { assets.removeObserver(it, clipThumbnailInvalidator) }
+        assetObservers.keys.toList().forEach(::removeAssetObserver)
+        stagedAssetObservers.keys.toList().forEach(::removeStagedAssetObserver)
+        clipMetadataObservers.keys.toList().forEach(::removeClipMetadataObserver)
+        clipThumbnailObservers.keys.toList().forEach(::removeClipThumbnailObserver)
         drawables.values.forEach { it.stopIfNeeded(); it.callback = null }
         super.onDetachedFromWindow()
     }
@@ -1126,10 +1264,10 @@ open class ChatMessageTextView private constructor(
         super.onAttachedToWindow()
         windowAttached = true
         if (renderingActive) {
-            keys.forEach { assets.observe(it, assetInvalidator) }
-            stagedObservedAssetKeys.forEach { assets.observe(it, assetInvalidator) }
-            clipPreviewSlugs.forEach { slug -> clipPreviews?.observe(slug, clipMetadataInvalidator) }
-            clipPreviewAssetKeys.forEach { assets.observe(it, clipThumbnailInvalidator) }
+            keys.forEach(::observeAsset)
+            stagedObservedAssetKeys.forEach(::observeStagedAsset)
+            clipPreviewSlugs.forEach(::observeClipMetadata)
+            clipPreviewAssetKeys.forEach(::observeClipThumbnail)
             refreshClipPreviewAssets()
             maybeApplyStagedRow()
             maybeRevealInitialAssetFrame()
@@ -1279,7 +1417,9 @@ private class ChatNamePaintSpan(
             }
             if (handle !== imageHandle) {
                 imageHandle = handle
-                imageShader = (handle?.newDrawable() as? BitmapDrawable)?.bitmap?.let { bitmap ->
+                val drawable = handle?.newDrawable()
+                if (handle != null && drawable == null) assets.retryIfDrawableUnavailable(key)
+                imageShader = (drawable as? BitmapDrawable)?.bitmap?.let { bitmap ->
                     android.graphics.BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
                 }
             }

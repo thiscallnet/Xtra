@@ -28,6 +28,7 @@ internal data class ChatMetadataSettlement(
 internal class ChatPresentationSnapshot {
     private var sessionKey: ChatSessionKey? = null
     private val catalogsByMessage = HashMap<ChatMessageId, FrozenCatalog>()
+    private val activeMessageIds = HashSet<ChatMessageId>()
 
     @Synchronized
     fun catalogsFor(
@@ -44,8 +45,9 @@ internal class ChatPresentationSnapshot {
             sessionKey = key
             catalogsByMessage.clear()
         }
-        val messageIds = messages.asSequence().map(ChatMessage::id).toSet()
-        catalogsByMessage.keys.retainAll(messageIds)
+        activeMessageIds.clear()
+        messages.forEach { activeMessageIds += it.id }
+        catalogsByMessage.keys.retainAll(activeMessageIds)
         val settlement = ChatMetadataSettlement(structuralSettled, badgesSettled, rewardsSettled)
         return messages.map { message ->
             val frozen = catalogsByMessage[message.id]
@@ -93,27 +95,50 @@ internal class ChatPresentationSnapshot {
         private var badgesSettled: Boolean,
         private var rewardsSettled: Boolean,
     ) {
+        private var resolvedCatalog: ChatCatalogSnapshot? = null
+        private var resolvedRevision: Long? = null
+        private var resolvedCurrentBadges: Map<String, ChatCatalogBadge>? = null
+
         fun update(
             catalog: ChatCatalogSnapshot,
             captureBadges: Boolean,
             settlement: ChatMetadataSettlement,
             forceUpgrade: Boolean,
         ) {
-            if (captureBadges && badges == null) badges = catalog.badges
+            var changed = false
+            if (captureBadges && badges == null) {
+                badges = catalog.badges
+                changed = true
+            }
 
             if (forceUpgrade || !structuralSettled && settlement.structuralSettled) {
                 captureStructural(catalog)
+                changed = true
             }
             if (captureBadges && (forceUpgrade || !badgesSettled && settlement.badgesSettled)) {
                 badges = catalog.badges
+                changed = true
             }
             if (forceUpgrade || !rewardsSettled && settlement.rewardsSettled) {
                 captureRewards(catalog)
+                changed = true
             }
 
-            structuralSettled = structuralSettled || settlement.structuralSettled
-            badgesSettled = badgesSettled || settlement.badgesSettled
-            rewardsSettled = rewardsSettled || settlement.rewardsSettled
+            val nextStructuralSettled = structuralSettled || settlement.structuralSettled
+            val nextBadgesSettled = badgesSettled || settlement.badgesSettled
+            val nextRewardsSettled = rewardsSettled || settlement.rewardsSettled
+            changed = changed ||
+                structuralSettled != nextStructuralSettled ||
+                badgesSettled != nextBadgesSettled ||
+                rewardsSettled != nextRewardsSettled
+            structuralSettled = nextStructuralSettled
+            badgesSettled = nextBadgesSettled
+            rewardsSettled = nextRewardsSettled
+            if (changed) {
+                resolvedCatalog = null
+                resolvedRevision = null
+                resolvedCurrentBadges = null
+            }
         }
 
         private fun captureStructural(catalog: ChatCatalogSnapshot) {
@@ -134,21 +159,33 @@ internal class ChatPresentationSnapshot {
             channelPointRewardsRevision = catalog.channelPointRewardsRevision
         }
 
-        fun toCatalog(current: ChatCatalogSnapshot): ChatCatalogSnapshot = current.copy(
-            twitch = twitch,
-            sevenTv = sevenTv,
-            sevenTvChannelSetId = sevenTvChannelSetId,
-            bttv = bttv,
-            ffz = ffz,
-            badges = badges ?: current.badges,
-            cheermotes = cheermotes,
-            userDecorations = userDecorations,
-            namePaints = namePaints,
-            sevenTvBadges = sevenTvBadges,
-            channelPointRewards = channelPointRewards,
-            automaticChannelPointRewards = automaticChannelPointRewards,
-            channelPointRewardsRevision = channelPointRewardsRevision,
-        )
+        fun toCatalog(current: ChatCatalogSnapshot): ChatCatalogSnapshot {
+            val cached = resolvedCatalog
+            if (cached != null && resolvedRevision == current.revision &&
+                (badges != null || resolvedCurrentBadges === current.badges)
+            ) {
+                return cached
+            }
+            return current.copy(
+                twitch = twitch,
+                sevenTv = sevenTv,
+                sevenTvChannelSetId = sevenTvChannelSetId,
+                bttv = bttv,
+                ffz = ffz,
+                badges = badges ?: current.badges,
+                cheermotes = cheermotes,
+                userDecorations = userDecorations,
+                namePaints = namePaints,
+                sevenTvBadges = sevenTvBadges,
+                channelPointRewards = channelPointRewards,
+                automaticChannelPointRewards = automaticChannelPointRewards,
+                channelPointRewardsRevision = channelPointRewardsRevision,
+            ).also {
+                resolvedCatalog = it
+                resolvedRevision = current.revision
+                resolvedCurrentBadges = current.badges
+            }
+        }
 
         companion object {
             fun from(
