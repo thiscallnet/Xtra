@@ -11,6 +11,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
+import com.github.andreyasadchy.xtra.util.ChatRenderDiagnostics
 
 internal data class ChatMetadataSettlement(
     val structuralSettled: Boolean,
@@ -29,6 +30,7 @@ internal class ChatPresentationSnapshot {
     private var sessionKey: ChatSessionKey? = null
     private val catalogsByMessage = HashMap<ChatMessageId, FrozenCatalog>()
     private val activeMessageIds = HashSet<ChatMessageId>()
+    private val orderedMessageIds = ArrayDeque<ChatMessageId>()
 
     @Synchronized
     fun catalogsFor(
@@ -40,14 +42,45 @@ internal class ChatPresentationSnapshot {
         badgesSettled: Boolean = true,
         rewardsSettled: Boolean = true,
         forceUpgrade: Boolean = false,
+        appendOnly: Boolean = false,
+        appendedCount: Int = 0,
+        evictedCount: Int = 0,
     ): List<ChatCatalogSnapshot> {
         if (sessionKey != key) {
             sessionKey = key
             catalogsByMessage.clear()
+            activeMessageIds.clear()
+            orderedMessageIds.clear()
         }
-        activeMessageIds.clear()
-        messages.forEach { activeMessageIds += it.id }
-        catalogsByMessage.keys.retainAll(activeMessageIds)
+        val canAppend = appendOnly && !forceUpgrade && appendedCount > 0 &&
+            orderedMessageIds.size - evictedCount == messages.size - appendedCount
+        ChatRenderDiagnostics.recordCatalogIndexUpdate(canAppend)
+        if (canAppend) {
+            repeat(evictedCount.coerceAtMost(orderedMessageIds.size)) {
+                val evicted = orderedMessageIds.removeFirst()
+                activeMessageIds.remove(evicted)
+                catalogsByMessage.remove(evicted)
+            }
+            val start = (messages.size - appendedCount).coerceAtLeast(0)
+            for (index in start until messages.size) {
+                val message = messages[index]
+                activeMessageIds += message.id
+                orderedMessageIds += message.id
+                catalogsByMessage[message.id] = FrozenCatalog.from(
+                    catalog = catalog,
+                    captureBadges = captureBadges,
+                    settlement = ChatMetadataSettlement(structuralSettled, badgesSettled, rewardsSettled),
+                )
+            }
+        } else {
+            activeMessageIds.clear()
+            orderedMessageIds.clear()
+            messages.forEach {
+                activeMessageIds += it.id
+                orderedMessageIds += it.id
+            }
+            catalogsByMessage.keys.retainAll(activeMessageIds)
+        }
         val settlement = ChatMetadataSettlement(structuralSettled, badgesSettled, rewardsSettled)
         return messages.map { message ->
             val frozen = catalogsByMessage[message.id]
@@ -75,6 +108,8 @@ internal class ChatPresentationSnapshot {
     fun clear() {
         sessionKey = null
         catalogsByMessage.clear()
+        activeMessageIds.clear()
+        orderedMessageIds.clear()
     }
 
     private class FrozenCatalog(

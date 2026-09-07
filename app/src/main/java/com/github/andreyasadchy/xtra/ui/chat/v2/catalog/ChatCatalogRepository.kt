@@ -134,6 +134,7 @@ class ChatCatalogRepository(
     private var closed = false
     private var cacheJob: Job? = null
     private var persistenceJob: Job? = null
+    private var pendingPersistence: PersistenceRequest? = null
     private var cacheFetchedAtMs: Long? = null
     private var badgesFetchedAtMs: Long? = null
     private var cacheCatalogConfigFingerprint: String? = null
@@ -143,38 +144,84 @@ class ChatCatalogRepository(
     private var networkProvidersObserved = emptySet<Provider>()
     private val networkEmoteScopesObserved = mutableMapOf<Provider, MutableSet<ChatEmoteScope>>()
     private var runtimeDecorations = ChatDecorationSnapshot()
+    private var pendingDecorationUpdates = ArrayList<ChatDecorationUpdate>()
+    private var decorationPublishJob: Job? = null
 
     /** Applies live 7TV cosmetics without replacing the provider-loaded emote catalog. */
     @Synchronized
     fun applyDecorationUpdate(update: ChatDecorationUpdate) {
         if (closed) return
-        if (update is ChatDecorationUpdate.EmoteSet) {
-            applyEmoteSetUpdate(update)
-            return
-        }
-        runtimeDecorations = runtimeDecorations.apply(update)
-        val currentState = _state.value
-        val current = currentState.snapshot
-        val next = current.withRuntimeDecorations(runtimeDecorations)
-        if (next != current) {
-            _state.value = currentState.copy(snapshot = next.copy(revision = current.revision + 1))
+        pendingDecorationUpdates += update
+        if (decorationPublishJob?.isActive != true) {
+            decorationPublishJob = scope.launch {
+                delay(16L)
+                publishPendingDecorationUpdates()
+            }
         }
         update.userPersonalEmoteSetId()?.let { setId ->
-            promotePendingPersonalSet(setId)
             loadPersonalEmoteSet(setId)
         }
     }
 
-    private fun applyEmoteSetUpdate(update: ChatDecorationUpdate.EmoteSet) {
-        val currentState = _state.value
-        val current = currentState.snapshot
+    private fun publishPendingDecorationUpdates() {
+        synchronized(this) {
+            if (closed || pendingDecorationUpdates.isEmpty()) {
+                decorationPublishJob = null
+                return
+            }
+            val updates = pendingDecorationUpdates
+            pendingDecorationUpdates = ArrayList()
+            decorationPublishJob = null
+            var working = _state.value.snapshot
+            val mutableRuntime = MutableDecorationSnapshot(runtimeDecorations)
+            var persistedChange = false
+            updates.forEach { update ->
+                when (update) {
+                    is ChatDecorationUpdate.EmoteSet -> {
+                        val next = applyEmoteSetSnapshot(
+                            current = working,
+                            update = update,
+                            runtimeUsers = mutableRuntime.users,
+                        )
+                        if (next !== working && next != working) {
+                            working = next
+                            persistedChange = true
+                        }
+                    }
+                    else -> mutableRuntime.apply(update)
+                }
+                update.userPersonalEmoteSetId()?.let { setId ->
+                    val promoted = promotePendingPersonalSetSnapshot(working, setId)
+                    if (promoted !== working && promoted != working) {
+                        working = promoted
+                        persistedChange = true
+                    }
+                }
+            }
+            val nextRuntime = mutableRuntime.snapshot()
+            val next = working.withRuntimeDecorations(nextRuntime)
+            val currentState = _state.value
+            if (next != currentState.snapshot) {
+                runtimeDecorations = nextRuntime
+                _state.value = currentState.copy(snapshot = next.copy(revision = currentState.snapshot.revision + 1))
+                if (persistedChange) enqueuePersistence(_state.value.snapshot)
+            }
+        }
+    }
+
+    private fun applyEmoteSetSnapshot(
+        current: ChatCatalogSnapshot,
+        update: ChatDecorationUpdate.EmoteSet,
+        runtimeUsers: Map<String, ChatUserDecoration>,
+    ): ChatCatalogSnapshot {
         val sevenTv = current.sevenTv
         val channelSet = !current.sevenTvChannelSetId.isNullOrBlank() &&
                 update.setId == current.sevenTvChannelSetId
         val personalSet = !channelSet && (
-                update.setId in sevenTv.personal ||
-                        current.userDecorations.values.any { it.personalEmoteSetId == update.setId }
-                )
+            update.setId in sevenTv.personal ||
+                    current.userDecorations.values.any { it.personalEmoteSetId == update.setId } ||
+                    runtimeUsers.values.any { it.personalEmoteSetId == update.setId }
+        )
         val pending = sevenTv.pending[update.setId].orEmpty()
         val addedFor = { scope: ChatEmoteScope ->
             update.added.mapValues { (_, emote) -> emote.copy(scope = scope) }
@@ -201,20 +248,19 @@ class ChatCatalogRepository(
                         )),
             )
         }
-        if (nextSevenTv == sevenTv) return
-        val next = current.copy(revision = current.revision + 1, sevenTv = nextSevenTv)
-        _state.value = currentState.copy(snapshot = next)
-        enqueuePersistence(next)
+        if (nextSevenTv == sevenTv) return current
+        return current.copy(revision = current.revision + 1, sevenTv = nextSevenTv)
     }
 
-    private fun promotePendingPersonalSet(setId: String) {
-        if (setId.isBlank()) return
-        val currentState = _state.value
-        val current = currentState.snapshot
+    private fun promotePendingPersonalSetSnapshot(
+        current: ChatCatalogSnapshot,
+        setId: String,
+    ): ChatCatalogSnapshot {
+        if (setId.isBlank()) return current
         val pending = current.sevenTv.pending[setId].orEmpty()
-        if (pending.isEmpty()) return
+        if (pending.isEmpty()) return current
         val personal = current.sevenTv.personal[setId].orEmpty()
-        val next = current.copy(
+        return current.copy(
             revision = current.revision + 1,
             sevenTv = current.sevenTv.copy(
                 personal = current.sevenTv.personal + (setId to (personal + pending.mapValues { (_, emote) ->
@@ -223,8 +269,34 @@ class ChatCatalogRepository(
                 pending = current.sevenTv.pending - setId,
             ),
         )
-        _state.value = currentState.copy(snapshot = next)
-        enqueuePersistence(next)
+    }
+
+    private class MutableDecorationSnapshot(initial: ChatDecorationSnapshot) {
+        val users = HashMap(initial.users)
+        private val paints = HashMap(initial.paints)
+        private val badges = HashMap(initial.badges)
+
+        fun apply(update: ChatDecorationUpdate) {
+            when (update) {
+                is ChatDecorationUpdate.EmoteSet -> Unit
+                is ChatDecorationUpdate.Paint -> paints[update.id] = update.paint
+                is ChatDecorationUpdate.Badge -> badges[update.id] = update.badge
+                is ChatDecorationUpdate.User -> {
+                    val previous = users[update.userId] ?: ChatUserDecoration()
+                    users[update.userId] = previous.copy(
+                        paintId = update.paintId ?: previous.paintId,
+                        badgeId = update.badgeId ?: previous.badgeId,
+                        personalEmoteSetId = update.personalEmoteSetId ?: previous.personalEmoteSetId,
+                    )
+                }
+            }
+        }
+
+        fun snapshot() = ChatDecorationSnapshot(
+            users = users.toMap(),
+            paints = paints.toMap(),
+            badges = badges.toMap(),
+        )
     }
 
     /** Loads a sender's 7TV set once when the live decoration stream reveals it. */
@@ -425,6 +497,9 @@ class ChatCatalogRepository(
         closed = true
         cacheJob?.cancel()
         cacheJob = null
+        decorationPublishJob?.cancel()
+        decorationPublishJob = null
+        pendingDecorationUpdates.clear()
         refreshJob?.cancel()
         refreshJob = null
         badgeRefreshJob?.cancel()
@@ -619,26 +694,54 @@ class ChatCatalogRepository(
         }
     }
 
-    /**
-     * Serialize writes in publication order. Independent launches allow an older slow write to
-     * finish after a newer one and leave stale metadata on disk.
-     */
+    private data class PersistenceRequest(
+        val snapshot: ChatCatalogSnapshot,
+        val fetchedAtMs: Long,
+        val badgeFetchedAtMs: Long,
+        val catalogConfigFingerprint: String?,
+        val badgeConfigFingerprint: String?,
+    )
+
+    /** One writer plus one latest pending snapshot. Intermediate cache revisions are disposable. */
     private fun enqueuePersistence(next: ChatCatalogSnapshot) {
         val persistence = cache ?: return
-        val fetchedAtMs = cacheFetchedAtMs ?: 0L
-        val badgeFetchedAtMs = badgesFetchedAtMs ?: 0L
-        val catalogConfigFingerprint = cacheCatalogConfigFingerprint
-        val badgeConfigFingerprint = cacheBadgeConfigFingerprint
-        val previous = persistenceJob
-        persistenceJob = scope.launch {
-            previous?.join()
+        val request = PersistenceRequest(
+            snapshot = next,
+            fetchedAtMs = cacheFetchedAtMs ?: 0L,
+            badgeFetchedAtMs = badgesFetchedAtMs ?: 0L,
+            catalogConfigFingerprint = cacheCatalogConfigFingerprint,
+            badgeConfigFingerprint = cacheBadgeConfigFingerprint,
+        )
+        synchronized(this) {
+            pendingPersistence = request
+            if (persistenceJob?.isActive == true) return
+            persistenceJob = scope.launch {
+                drainPersistence(persistence)
+            }
+        }
+    }
+
+    private suspend fun drainPersistence(persistence: ChatCatalogCache) {
+        while (true) {
+            val request = synchronized(this) {
+                pendingPersistence.also { pendingPersistence = null }
+            }
+            if (request == null) {
+                synchronized(this) {
+                    if (pendingPersistence == null) {
+                        persistenceJob = null
+                        return
+                    }
+                }
+                continue
+            }
             try {
                 persistence.write(
-                    next,
-                    fetchedAtMs,
-                    badgeFetchedAtMs,
-                    catalogConfigFingerprint,
-                    badgeConfigFingerprint,
+                    request.snapshot,
+                    request.fetchedAtMs,
+                    request.badgeFetchedAtMs,
+                    request.catalogConfigFingerprint,
+                    request.badgeConfigFingerprint,
                 )
             } catch (e: CancellationException) {
                 throw e

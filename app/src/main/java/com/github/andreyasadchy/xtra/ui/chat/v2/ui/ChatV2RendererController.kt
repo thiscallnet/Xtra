@@ -263,6 +263,7 @@ class ChatV2RendererController(
                 val uiChanged = !sameRows(latestRows, rows)
                 latestRows = rows
                 reuseIndex.replace(publication.messages, rows)
+                ChatRenderDiagnostics.recordReuseIndexUpdate(incremental = false)
                 ChatRenderDiagnostics.recordPublication(
                     messageCount = publication.messages.size,
                     changed = compiled.result.messagesChanged,
@@ -319,12 +320,33 @@ class ChatV2RendererController(
                 previousTailId,
                 publication.messages,
             )
-            previousIds.clear()
-            rows.forEach { previousIds += it.id }
+            val appendInfo = previousPublication
+                ?.takeIf { it.key == publication.key }
+                ?.let { findChatAppendInfo(it.messages, publication.messages) }
+            if (appendInfo != null && hasPreviousIds) {
+                repeat(appendInfo.evictedCount) {
+                    previousPublication.messages.getOrNull(it)?.id?.let(previousIds::remove)
+                }
+                publication.messages.takeLast(appendInfo.appendedCount).forEach { previousIds += it.id }
+            } else {
+                previousIds.clear()
+                publication.messages.forEach { previousIds += it.id }
+            }
             hasPreviousIds = true
             previousTailId = publication.messages.lastOrNull()?.id
             latestRows = rows
-            reuseIndex.replace(publication.messages, rows)
+            val incrementallyUpdated = appendInfo?.let {
+                reuseIndex.append(
+                    messages = publication.messages,
+                    rows = rows,
+                    appendedCount = it.appendedCount,
+                    evictedCount = it.evictedCount,
+                )
+            } == true
+            if (!incrementallyUpdated) {
+                reuseIndex.replace(publication.messages, rows)
+            }
+            ChatRenderDiagnostics.recordReuseIndexUpdate(incrementallyUpdated)
             val uiChanged = !sameRows(previousRows, rows)
             ChatRenderDiagnostics.recordPublication(
                 messageCount = publication.messages.size,
@@ -361,6 +383,16 @@ class ChatV2RendererController(
             val forceCatalogUpgrade = previousPublication?.let { previous ->
                 publication.forceRefreshRevision != previous.forceRefreshRevision
             } == true
+            val appendInfo = previousPublication
+                ?.takeIf { it.key == publication.key && !forceCatalogUpgrade }
+                ?.let { findChatAppendInfo(it.messages, publication.messages) }
+            val metadataSettlementChanged = previousPublication?.metadataSettlement !=
+                    publication.metadataSettlement
+            val reusablePublication = previousPublication?.takeIf {
+                !forceCatalogUpgrade &&
+                        !metadataSettlementChanged &&
+                        it.key == publication.key
+            }
             val catalogs = presentationSnapshot.catalogsFor(
                 publication.key,
                 publication.messages,
@@ -370,14 +402,10 @@ class ChatV2RendererController(
                 badgesSettled = publication.metadataSettlement.badgesSettled,
                 rewardsSettled = publication.metadataSettlement.rewardsSettled,
                 forceUpgrade = forceCatalogUpgrade,
+                appendOnly = reusablePublication != null && appendInfo != null,
+                appendedCount = appendInfo?.appendedCount ?: 0,
+                evictedCount = appendInfo?.evictedCount ?: 0,
             )
-            val metadataSettlementChanged = previousPublication?.metadataSettlement !=
-                    publication.metadataSettlement
-            val reusablePublication = previousPublication?.takeIf {
-                !forceCatalogUpgrade &&
-                        !metadataSettlementChanged &&
-                        it.key == publication.key
-            }
             val rows = withContext(Dispatchers.Default) {
                 if (BuildConfig.PERF_DIAGNOSTICS) Trace.beginSection("Xtra.ChatV2.compileCurrent")
                 try {

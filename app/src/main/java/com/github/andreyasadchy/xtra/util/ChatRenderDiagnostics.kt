@@ -19,6 +19,10 @@ internal data class ChatRenderDiagnosticsSnapshot(
     val rowsReused: Long,
     val compileCurrentNanos: Long,
     val fullPresentationRebuilds: Long,
+    val incrementalReuseIndexUpdates: Long,
+    val fullReuseIndexRebuilds: Long,
+    val incrementalCatalogIndexUpdates: Long,
+    val fullCatalogIndexRebuilds: Long,
     val unchangedPublications: Long,
     val assetCallbacks: Long,
     val assetCallbacksCoalesced: Long,
@@ -45,6 +49,10 @@ internal data class ChatRenderDiagnosticsSnapshot(
             "publicationMessages=$publicationMessages maxPublicationMessages=$maxPublicationMessages " +
             "messagesChanged=$messagesChanged rowsCompiled=$rowsCompiled rowsReused=$rowsReused " +
             "compileCurrentNanos=$compileCurrentNanos fullPresentationRebuilds=$fullPresentationRebuilds " +
+            "incrementalReuseIndexUpdates=$incrementalReuseIndexUpdates " +
+            "fullReuseIndexRebuilds=$fullReuseIndexRebuilds " +
+            "incrementalCatalogIndexUpdates=$incrementalCatalogIndexUpdates " +
+            "fullCatalogIndexRebuilds=$fullCatalogIndexRebuilds " +
             "unchangedPublications=$unchangedPublications assetCallbacks=$assetCallbacks " +
             "assetCallbacksCoalesced=$assetCallbacksCoalesced drawOnlyInvalidations=$drawOnlyInvalidations " +
             "layoutAndDrawInvalidations=$layoutAndDrawInvalidations staleCallbacksDiscarded=$staleCallbacksDiscarded " +
@@ -72,6 +80,10 @@ internal object ChatRenderDiagnostics {
     private val rowsReused = AtomicLong()
     private val compileCurrentNanos = AtomicLong()
     private val fullPresentationRebuilds = AtomicLong()
+    private val incrementalReuseIndexUpdates = AtomicLong()
+    private val fullReuseIndexRebuilds = AtomicLong()
+    private val incrementalCatalogIndexUpdates = AtomicLong()
+    private val fullCatalogIndexRebuilds = AtomicLong()
     private val unchangedPublications = AtomicLong()
     private val assetCallbacks = AtomicLong()
     private val assetCallbacksCoalesced = AtomicLong()
@@ -136,6 +148,18 @@ internal object ChatRenderDiagnostics {
         compileCurrentNanos.addAndGet(compileNanos)
         if (fullRebuild) fullPresentationRebuilds.incrementAndGet()
         if (!uiChanged) unchangedPublications.incrementAndGet()
+    }
+
+    fun recordReuseIndexUpdate(incremental: Boolean) {
+        if (!BuildConfig.PERF_DIAGNOSTICS) return
+        if (incremental) incrementalReuseIndexUpdates.incrementAndGet()
+        else fullReuseIndexRebuilds.incrementAndGet()
+    }
+
+    fun recordCatalogIndexUpdate(incremental: Boolean) {
+        if (!BuildConfig.PERF_DIAGNOSTICS) return
+        if (incremental) incrementalCatalogIndexUpdates.incrementAndGet()
+        else fullCatalogIndexRebuilds.incrementAndGet()
     }
 
     fun recordAssetCallbackReceived() {
@@ -212,6 +236,10 @@ internal object ChatRenderDiagnostics {
         rowsReused = rowsReused.getAndSet(0),
         compileCurrentNanos = compileCurrentNanos.getAndSet(0),
         fullPresentationRebuilds = fullPresentationRebuilds.getAndSet(0),
+        incrementalReuseIndexUpdates = incrementalReuseIndexUpdates.getAndSet(0),
+        fullReuseIndexRebuilds = fullReuseIndexRebuilds.getAndSet(0),
+        incrementalCatalogIndexUpdates = incrementalCatalogIndexUpdates.getAndSet(0),
+        fullCatalogIndexRebuilds = fullCatalogIndexRebuilds.getAndSet(0),
         unchangedPublications = unchangedPublications.getAndSet(0),
         assetCallbacks = assetCallbacks.getAndSet(0),
         assetCallbacksCoalesced = assetCallbacksCoalesced.getAndSet(0),

@@ -9,6 +9,7 @@ import java.util.HashMap
 internal class ChatPresentationReuseIndex {
     private val messagesById = HashMap<ChatMessageId, ChatMessage>()
     private val rowsById = HashMap<ChatMessageId, ChatRowUiModel>()
+    private val orderedIds = ArrayDeque<ChatMessageId>()
 
     fun rowFor(message: ChatMessage): ChatRowUiModel? =
         rowsById[message.id]?.takeIf { messagesById[message.id] == message }
@@ -17,16 +18,80 @@ internal class ChatPresentationReuseIndex {
     fun replace(messages: List<ChatMessage>, rows: List<ChatRowUiModel>) {
         messagesById.clear()
         rowsById.clear()
+        orderedIds.clear()
         messages.forEachIndexed { index, message ->
             messagesById[message.id] = message
-            rows.getOrNull(index)?.let { row -> rowsById[row.id] = row }
+            rows.getOrNull(index)?.let { row ->
+                rowsById[row.id] = row
+                orderedIds += row.id
+            }
         }
+    }
+
+    /** Updates only the head evictions and newly appended rows for the common live-chat path. */
+    fun append(
+        messages: List<ChatMessage>,
+        rows: List<ChatRowUiModel>,
+        appendedCount: Int,
+        evictedCount: Int,
+    ): Boolean {
+        if (orderedIds.size != messages.size - appendedCount + evictedCount) return false
+        repeat(evictedCount.coerceAtMost(orderedIds.size)) {
+            val evicted = orderedIds.removeFirst()
+            messagesById.remove(evicted)
+            rowsById.remove(evicted)
+        }
+        val start = (messages.size - appendedCount).coerceAtLeast(0)
+        for (index in 0 until start) {
+            val message = messages[index]
+            if (messagesById[message.id] != message) {
+                messagesById[message.id] = message
+                rows.getOrNull(index)?.let { row -> rowsById[row.id] = row }
+            }
+        }
+        for (index in start until messages.size) {
+            val message = messages[index]
+            val row = rows.getOrNull(index) ?: continue
+            messagesById[message.id] = message
+            rowsById[row.id] = row
+            orderedIds += row.id
+        }
+        return true
     }
 
     fun clear() {
         messagesById.clear()
         rowsById.clear()
+        orderedIds.clear()
     }
+}
+
+internal data class ChatAppendInfo(
+    val appendedCount: Int,
+    val evictedCount: Int,
+)
+
+/**
+ * Recognizes the stable tail append shape without allocating a second ID map. All other
+ * publications use the existing full reconciliation path.
+ */
+internal fun findChatAppendInfo(
+    previous: List<ChatMessage>,
+    current: List<ChatMessage>,
+): ChatAppendInfo? {
+    if (previous.isEmpty() || current.isEmpty()) return null
+    val previousTail = previous.last().id
+    val retainedTailIndex = current.indexOfFirst { it.id == previousTail }
+    if (retainedTailIndex < 0 || retainedTailIndex >= current.lastIndex) return null
+    val evictedCount = previous.size - retainedTailIndex - 1
+    if (evictedCount < 0 || evictedCount > previous.size) return null
+    val retainedCount = previous.size - evictedCount
+    if (retainedCount == 0) return null
+    for (index in 0 until retainedCount) {
+        if (previous[index + evictedCount].id != current[index].id) return null
+    }
+    val appendedCount = current.size - retainedCount
+    return ChatAppendInfo(appendedCount, evictedCount)
 }
 
 internal data class ChatRowCompileResult(

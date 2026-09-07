@@ -36,6 +36,7 @@ import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadCoordinator
 import com.github.andreyasadchy.xtra.repository.preload.StreamMedia3Runtime
+import com.github.andreyasadchy.xtra.repository.preload.StreamPlaybackConfigurationStore
 import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.SavedFiltersRepository
@@ -148,7 +149,11 @@ class XtraModule(application: Application) {
     }
 
     val streamMedia3Runtime by lazy {
-        StreamMedia3Runtime(application, this)
+        StreamMedia3Runtime(application, this, configurationStore = streamPlaybackConfigurationStore)
+    }
+
+    val streamPlaybackConfigurationStore by lazy {
+        StreamPlaybackConfigurationStore(application)
     }
 
     private val streamPreloadCoordinatorLazy = lazy {
@@ -157,6 +162,7 @@ class XtraModule(application: Application) {
             playerRepository = playerRepository,
             streamFeedRefreshCoordinator = streamFeedRefreshCoordinator,
             mediaPreloadRuntime = streamMedia3Runtime,
+            configurationStore = streamPlaybackConfigurationStore,
         )
     }
 
