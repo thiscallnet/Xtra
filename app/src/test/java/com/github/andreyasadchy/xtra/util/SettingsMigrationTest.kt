@@ -78,6 +78,35 @@ class SettingsMigrationTest {
     }
 
     @Test
+    fun `missing chat history preference uses the enabled default and is seeded`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION),
+        )
+
+        assertTrue(preferences.isRecentChatHistoryEnabled())
+        assertTrue(!preferences.contains(C.CHAT_RECENT))
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        assertTrue(preferences.contains(C.CHAT_RECENT))
+        assertTrue(preferences.isRecentChatHistoryEnabled())
+    }
+
+    @Test
+    fun `explicitly disabled chat history is preserved by migration`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION,
+                C.CHAT_RECENT to false,
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        assertTrue(!preferences.isRecentChatHistoryEnabled())
+    }
+
+    @Test
     fun `a preference set without a schema marker is still treated as an upgrade`() {
         val preferences = MemoryPreferences(mutableMapOf(C.UI_LANGUAGE to "en"))
 
