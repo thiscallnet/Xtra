@@ -282,7 +282,7 @@ class ChatV2RendererController(
                 )
                 if (uiChanged) {
                     onPublicationChanged(currentMessages, rows)
-                    adapter.submitList(rows)
+                    adapter.replaceAll(rows)
                 }
             }
         }
@@ -444,7 +444,7 @@ class ChatV2RendererController(
                     viewport.onSnapshotCommitted(previousAnchor, latestRows, appendedCount)
                     onStateChanged(viewport.state)
                 } else {
-                    adapter.submitList(latestRows) {
+                    adapter.replaceAll(latestRows) {
                         viewport.onSnapshotCommitted(previousAnchor, latestRows, appendedCount)
                         onStateChanged(viewport.state)
                     }

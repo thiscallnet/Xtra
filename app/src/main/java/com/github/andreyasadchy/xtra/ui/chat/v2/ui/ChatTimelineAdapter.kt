@@ -1,20 +1,12 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.ui
 
 import android.view.ViewGroup
-import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class ChatTimelineAdapter(
     private val assets: ChatAssetRepository,
@@ -24,11 +16,8 @@ class ChatTimelineAdapter(
     private val onEmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
     private val onGifClick: ((ChatGifInteraction) -> Unit)? = null,
     private val onMessageClick: ((ChatMessageId) -> Unit)? = null,
-    private val diffDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : RecyclerView.Adapter<ChatTimelineAdapter.Holder>() {
     private val rows = ArrayList<ChatRowUiModel>()
-    private val diffScope = CoroutineScope(SupervisorJob() + diffDispatcher)
-    private var submitGeneration = 0L
 
     val currentList: List<ChatRowUiModel>
         get() = rows
@@ -50,33 +39,13 @@ class ChatTimelineAdapter(
         holder.bind(rows[position])
     }
 
-    /**
-     * Correctness fallback for reconciliation, session changes, and presentation-wide updates.
-     * The common live append path uses [append] and never reaches DiffUtil.
-     */
-    fun submitList(newRows: List<ChatRowUiModel>, commitCallback: (() -> Unit)? = null) {
-        val oldRows = rows.toList()
+    /** Replaces the complete snapshot for reconciliation and presentation-wide changes. */
+    fun replaceAll(newRows: List<ChatRowUiModel>, commitCallback: (() -> Unit)? = null) {
         val nextRows = newRows.toList()
-        val generation = ++submitGeneration
-        diffScope.launch {
-            val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
-                override fun getOldListSize(): Int = oldRows.size
-                override fun getNewListSize(): Int = nextRows.size
-
-                override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
-                    oldRows[oldItemPosition].id == nextRows[newItemPosition].id
-
-                override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
-                    oldRows[oldItemPosition] == nextRows[newItemPosition]
-            })
-            withContext(Dispatchers.Main.immediate) {
-                if (generation != submitGeneration) return@withContext
-                rows.clear()
-                rows.addAll(nextRows)
-                diff.dispatchUpdatesTo(this@ChatTimelineAdapter)
-                commitCallback?.invoke()
-            }
-        }
+        rows.clear()
+        rows.addAll(nextRows)
+        notifyDataSetChanged()
+        commitCallback?.invoke()
     }
 
     /**
@@ -88,7 +57,6 @@ class ChatTimelineAdapter(
         evictedHeadCount: Int,
         appendedCount: Int,
     ): Boolean {
-        ++submitGeneration
         if (evictedHeadCount < 0 || appendedCount < 0 || appendedCount > newRows.size) return false
         val retainedCount = newRows.size - appendedCount
         if (rows.size != retainedCount + evictedHeadCount || evictedHeadCount > rows.size) return false
@@ -96,12 +64,15 @@ class ChatTimelineAdapter(
             if (rows[index + evictedHeadCount] != newRows[index]) return false
         }
 
-        rows.subList(0, evictedHeadCount).clear()
-        if (appendedCount > 0) {
-            rows.addAll(newRows.subList(retainedCount, newRows.size))
+        if (evictedHeadCount > 0) {
+            rows.subList(0, evictedHeadCount).clear()
+            notifyItemRangeRemoved(0, evictedHeadCount)
         }
-        if (evictedHeadCount > 0) notifyItemRangeRemoved(0, evictedHeadCount)
-        if (appendedCount > 0) notifyItemRangeInserted(retainedCount, appendedCount)
+        if (appendedCount > 0) {
+            val insertionPosition = rows.size
+            rows.addAll(newRows.subList(retainedCount, newRows.size))
+            notifyItemRangeInserted(insertionPosition, appendedCount)
+        }
         return true
     }
 
@@ -111,21 +82,23 @@ class ChatTimelineAdapter(
         evictedHeadCount: Int,
         expectedSize: Int,
     ): Boolean {
-        ++submitGeneration
         if (evictedHeadCount < 0 || evictedHeadCount > rows.size) return false
         if (rows.size - evictedHeadCount + appendedRows.size != expectedSize) return false
 
-        val retainedCount = rows.size - evictedHeadCount
-        rows.subList(0, evictedHeadCount).clear()
-        rows.addAll(appendedRows)
-        if (evictedHeadCount > 0) notifyItemRangeRemoved(0, evictedHeadCount)
-        if (appendedRows.isNotEmpty()) notifyItemRangeInserted(retainedCount, appendedRows.size)
+        if (evictedHeadCount > 0) {
+            rows.subList(0, evictedHeadCount).clear()
+            notifyItemRangeRemoved(0, evictedHeadCount)
+        }
+        if (appendedRows.isNotEmpty()) {
+            val insertionPosition = rows.size
+            rows.addAll(appendedRows)
+            notifyItemRangeInserted(insertionPosition, appendedRows.size)
+        }
         return true
     }
 
     /** Clears the adapter synchronously when its RecyclerView is being detached. */
     fun clear() {
-        ++submitGeneration
         if (rows.isEmpty()) return
         val oldSize = rows.size
         rows.clear()
@@ -133,7 +106,6 @@ class ChatTimelineAdapter(
     }
 
     fun dispose() {
-        diffScope.cancel()
         clear()
     }
 
