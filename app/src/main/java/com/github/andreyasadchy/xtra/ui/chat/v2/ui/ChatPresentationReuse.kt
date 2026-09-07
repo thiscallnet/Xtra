@@ -11,6 +11,9 @@ internal class ChatPresentationReuseIndex {
     private val rowsById = HashMap<ChatMessageId, ChatRowUiModel>()
     private val orderedIds = ArrayDeque<ChatMessageId>()
 
+    val size: Int
+        get() = orderedIds.size
+
     fun rowFor(message: ChatMessage): ChatRowUiModel? =
         rowsById[message.id]?.takeIf { messagesById[message.id] == message }
 
@@ -59,6 +62,30 @@ internal class ChatPresentationReuseIndex {
         return true
     }
 
+    /** Updates the reuse tables from a timeline delta without visiting retained messages. */
+    fun appendDelta(
+        appendedMessages: List<ChatMessage>,
+        appendedRows: List<ChatRowUiModel>,
+        evictedCount: Int,
+        expectedSize: Int,
+    ): Boolean {
+        if (evictedCount < 0 || evictedCount > orderedIds.size) return false
+        if (appendedMessages.size != appendedRows.size) return false
+        if (orderedIds.size - evictedCount + appendedMessages.size != expectedSize) return false
+        repeat(evictedCount) {
+            val evicted = orderedIds.removeFirst()
+            messagesById.remove(evicted)
+            rowsById.remove(evicted)
+        }
+        appendedMessages.forEachIndexed { index, message ->
+            val row = appendedRows[index]
+            messagesById[message.id] = message
+            rowsById[row.id] = row
+            orderedIds += row.id
+        }
+        return true
+    }
+
     fun clear() {
         messagesById.clear()
         rowsById.clear()
@@ -99,6 +126,8 @@ internal data class ChatRowCompileResult(
     val messagesChanged: Int,
     val rowsCompiled: Int,
     val rowsReused: Int,
+    val rowsVisited: Int,
+    val rowsAllocated: Int,
 )
 
 internal fun compileChatRows(
@@ -121,5 +150,32 @@ internal fun compileChatRows(
             rows += resolve(message, index)
         }
     }
-    return ChatRowCompileResult(rows, changed, compiled, reused)
+    return ChatRowCompileResult(
+        rows = rows,
+        messagesChanged = changed,
+        rowsCompiled = compiled,
+        rowsReused = reused,
+        rowsVisited = messages.size,
+        rowsAllocated = rows.size,
+    )
+}
+
+internal fun compileChatRowAppend(
+    messages: List<ChatMessage>,
+    startIndex: Int,
+    retainedRows: Int,
+    resolve: (ChatMessage, Int) -> ChatRowUiModel,
+): ChatRowCompileResult {
+    val rows = ArrayList<ChatRowUiModel>(messages.size)
+    messages.forEachIndexed { index, message ->
+        rows += resolve(message, startIndex + index)
+    }
+    return ChatRowCompileResult(
+        rows = rows,
+        messagesChanged = messages.size,
+        rowsCompiled = messages.size,
+        rowsReused = retainedRows,
+        rowsVisited = messages.size,
+        rowsAllocated = rows.size,
+    )
 }

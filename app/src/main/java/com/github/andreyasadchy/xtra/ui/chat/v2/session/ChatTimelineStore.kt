@@ -6,6 +6,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModeration
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModerationDisplayMode
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
+import com.github.andreyasadchy.xtra.util.ChatRenderDiagnostics
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
@@ -33,11 +34,33 @@ sealed interface TimelineOperation {
     data class Clear(val atMs: Long) : TimelineOperation
     data class Replace(val items: List<ChatMessage>) : TimelineOperation
     class RequestSnapshot(val result: CompletableDeferred<List<ChatMessage>>) : TimelineOperation
-    class RequestVersionedSnapshot(val result: CompletableDeferred<VersionedTimelineSnapshot>) : TimelineOperation
+    class RequestVersionedSnapshot(
+        val result: CompletableDeferred<VersionedTimelineSnapshot>,
+        val afterVersion: Long? = null,
+    ) : TimelineOperation
     data class Reconcile(val recent: List<ChatMessage>) : TimelineOperation
 }
 
-data class VersionedTimelineSnapshot(val version: Long, val messages: List<ChatMessage>)
+sealed interface ChatTimelineDelta {
+    /** The messages list is the tail to append, not a replacement for the current window. */
+    data class Append(
+        val messages: List<ChatMessage>,
+        val evictedCount: Int,
+        val resultingSize: Int,
+    ) : ChatTimelineDelta
+
+    data object Full : ChatTimelineDelta
+}
+
+/**
+ * For an append delta, [messages] is intentionally empty. Consumers keep their own window and
+ * use the delta; initial snapshots and full reconciliations contain the complete window.
+ */
+data class VersionedTimelineSnapshot(
+    val version: Long,
+    val messages: List<ChatMessage>,
+    val delta: ChatTimelineDelta? = null,
+)
 
 /** The only mutable owner of the live message tail. Asset work is deliberately absent here. */
 class ChatTimelineStore(
@@ -56,21 +79,60 @@ class ChatTimelineStore(
             // processor's generation boundary and resets them before a new channel is accepted.
             val deletedMessages = LinkedHashMap<ChatMessageId, ChatModerationDisplayMode>(MODERATION_TOMBSTONE_LIMIT)
             val clearedUsers = ArrayDeque<UserModeration>(MODERATION_TOMBSTONE_LIMIT)
+            val changes = ArrayDeque<TimelineChange>(TIMELINE_CHANGE_HISTORY_LIMIT)
             var globallyClearedAt: Long? = null
+            var version = 0L
             for (operation in operations) {
                 when (operation) {
                     is TimelineOperation.RequestSnapshot -> {
-                        operation.result.complete(items.toList())
+                        val snapshot = items.toList()
+                        ChatRenderDiagnostics.recordTimelineSnapshot(items.size, snapshot.size)
+                        operation.result.complete(snapshot)
                         continue
                     }
                     is TimelineOperation.RequestVersionedSnapshot -> {
-                        operation.result.complete(VersionedTimelineSnapshot(_version.value, items.toList()))
+                        val delta = operation.afterVersion?.let {
+                            deltaSince(it, version, items.size, changes)
+                        }
+                        val messages = if (delta is ChatTimelineDelta.Append) {
+                            ChatRenderDiagnostics.recordTimelineSnapshot(0, 0)
+                            emptyList()
+                        } else {
+                            val snapshot = items.toList()
+                            ChatRenderDiagnostics.recordTimelineSnapshot(items.size, snapshot.size)
+                            snapshot
+                        }
+                        operation.result.complete(
+                            VersionedTimelineSnapshot(
+                                version = version,
+                                messages = messages,
+                                delta = delta,
+                            ),
+                        )
                         continue
                     }
-                    is TimelineOperation.Append -> operation.items.forEach { item ->
-                        if (isSuppressed(item, deletedMessages, clearedUsers, globallyClearedAt)) continue
-                        if (isDuplicateReward(item, items)) continue
-                        if (ids.add(item.id)) items.addLast(decorate(item, deletedMessages, clearedUsers))
+                    is TimelineOperation.Append -> {
+                        val appended = ArrayList<ChatMessage>(operation.items.size)
+                        operation.items.forEach { item ->
+                            if (isSuppressed(item, deletedMessages, clearedUsers, globallyClearedAt)) return@forEach
+                            if (isDuplicateReward(item, items)) return@forEach
+                            if (ids.add(item.id)) {
+                                val decorated = decorate(item, deletedMessages, clearedUsers)
+                                items.addLast(decorated)
+                                appended += decorated
+                            }
+                        }
+                        val evicted = trimToSize(items, ids)
+                        version++
+                        recordChange(
+                            changes,
+                            TimelineChange(
+                                version,
+                                ChatTimelineDelta.Append(appended, evicted, items.size),
+                            ),
+                        )
+                        _version.value = version
+                        continue
                     }
                     is TimelineOperation.Prepend -> operation.items.asReversed().forEach { item ->
                         if (isSuppressed(item, deletedMessages, clearedUsers, globallyClearedAt)) continue
@@ -165,8 +227,60 @@ class ChatTimelineStore(
                     }
                 }
                 while (items.size > maxSize) items.removeFirst().also { ids.remove(it.id) }
-                _version.value++
+                version++
+                recordChange(changes, TimelineChange(version, ChatTimelineDelta.Full))
+                _version.value = version
             }
+        }
+    }
+
+    private fun trimToSize(
+        items: ArrayDeque<ChatMessage>,
+        ids: HashSet<ChatMessageId>,
+    ): Int {
+        var evicted = 0
+        while (items.size > maxSize) {
+            items.removeFirst().also { ids.remove(it.id) }
+            evicted++
+        }
+        return evicted
+    }
+
+    private fun recordChange(changes: ArrayDeque<TimelineChange>, change: TimelineChange) {
+        changes.addLast(change)
+        while (changes.size > TIMELINE_CHANGE_HISTORY_LIMIT) changes.removeFirst()
+    }
+
+    private fun deltaSince(
+        afterVersion: Long,
+        currentVersion: Long,
+        currentSize: Int,
+        changes: ArrayDeque<TimelineChange>,
+    ): ChatTimelineDelta {
+        if (afterVersion == currentVersion) return ChatTimelineDelta.Append(emptyList(), 0, currentSize)
+        if (afterVersion > currentVersion) return ChatTimelineDelta.Full
+        val required = currentVersion - afterVersion
+        if (required > changes.size) return ChatTimelineDelta.Full
+
+        var expectedVersion = afterVersion + 1
+        var evictedCount = 0
+        val appended = ArrayList<ChatMessage>()
+        changes.forEach { change ->
+            if (change.version < expectedVersion) return@forEach
+            if (change.version != expectedVersion) return ChatTimelineDelta.Full
+            when (val delta = change.delta) {
+                ChatTimelineDelta.Full -> return ChatTimelineDelta.Full
+                is ChatTimelineDelta.Append -> {
+                    appended.addAll(delta.messages)
+                    evictedCount += delta.evictedCount
+                }
+            }
+            expectedVersion++
+        }
+        return if (expectedVersion == currentVersion + 1) {
+            ChatTimelineDelta.Append(appended, evictedCount, currentSize)
+        } else {
+            ChatTimelineDelta.Full
         }
     }
 
@@ -251,7 +365,15 @@ class ChatTimelineStore(
     private companion object {
         const val MODERATION_TOMBSTONE_LIMIT = 4096
         const val REWARD_DUPLICATE_WINDOW_MS = 3_000L
+        // At the measured 11.7 messages/sec this covers roughly 90 seconds while retaining at
+        // most 1,024 append records. Collectors outside that window safely request a full tail.
+        const val TIMELINE_CHANGE_HISTORY_LIMIT = 1024
     }
+
+    private data class TimelineChange(
+        val version: Long,
+        val delta: ChatTimelineDelta,
+    )
 
     suspend fun apply(operation: TimelineOperation) = operations.send(operation)
 
@@ -264,6 +386,12 @@ class ChatTimelineStore(
     suspend fun versionedSnapshot(): VersionedTimelineSnapshot {
         val result = CompletableDeferred<VersionedTimelineSnapshot>()
         operations.send(TimelineOperation.RequestVersionedSnapshot(result))
+        return result.await()
+    }
+
+    suspend fun versionedSnapshotAfter(afterVersion: Long): VersionedTimelineSnapshot {
+        val result = CompletableDeferred<VersionedTimelineSnapshot>()
+        operations.send(TimelineOperation.RequestVersionedSnapshot(result, afterVersion))
         return result.await()
     }
 

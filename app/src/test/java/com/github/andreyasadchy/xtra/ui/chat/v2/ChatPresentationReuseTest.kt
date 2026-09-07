@@ -9,6 +9,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatPresentationReuseIndex
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatAppendInfo
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.compileChatRows
+import com.github.andreyasadchy.xtra.ui.chat.v2.ui.compileChatRowAppend
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.findChatAppendInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -16,6 +17,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatPresentationReuseTest {
+    @Test
+    fun appendCompilationVisitsAndAllocatesOnlyTheAppendedRows() {
+        val appended = listOf(message(600), message(601))
+        val result = compileChatRowAppend(
+            messages = appended,
+            startIndex = 600,
+            retainedRows = 600,
+            resolve = { message, _ -> row(message) },
+        )
+
+        assertEquals(2, result.rowsVisited)
+        assertEquals(2, result.rowsAllocated)
+        assertEquals(2, result.rowsCompiled)
+        assertEquals(600, result.rowsReused)
+        assertEquals(appended.map { it.id }, result.rows.map { it.id })
+    }
+
     @Test
     fun normalAppendCompilesOnlyTheChangedRow() {
         val previous = (0 until 600).map(::message)

@@ -8,12 +8,13 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 
-/** Coalesces complete truth snapshots to at most one UI publication per frame. */
+/** Coalesces timeline publications to at most one UI publication per frame. */
 class ChatUiBatcher<T>(
     private val versions: Flow<Long>,
     private val snapshot: suspend () -> T,
     private val versionOf: (T) -> Long,
     private val frameMs: Long = 16L,
+    private val snapshotAfter: (suspend (Long) -> T)? = null,
 ) {
     /** Cold and collection-owned. No collector means no version collection or snapshot work. */
     fun flow(): Flow<T> = flow {
@@ -31,7 +32,7 @@ class ChatUiBatcher<T>(
                 for (dirtyVersion in dirty) {
                     if (dirtyVersion <= materializedVersion) continue
                     delay(frameMs)
-                    val current = snapshot()
+                    val current = snapshotAfter?.invoke(materializedVersion) ?: snapshot()
                     materializedVersion = versionOf(current)
                     emit(current)
                 }

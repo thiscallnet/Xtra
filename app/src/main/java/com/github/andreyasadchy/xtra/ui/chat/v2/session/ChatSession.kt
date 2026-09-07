@@ -100,7 +100,12 @@ class ChatSession(
 
     suspend fun snapshot(): List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage> = timeline.snapshot()
 
-    fun attachUi() = ChatUiBatcher(timeline.versions, timeline::versionedSnapshot, VersionedTimelineSnapshot::version).flow()
+    fun attachUi() = ChatUiBatcher(
+        versions = timeline.versions,
+        snapshot = timeline::versionedSnapshot,
+        versionOf = VersionedTimelineSnapshot::version,
+        snapshotAfter = timeline::versionedSnapshotAfter,
+    ).flow()
 
     suspend fun reconcile(key: ChatSessionKey, recent: List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>) = processor.reconcile(key, recent)
 

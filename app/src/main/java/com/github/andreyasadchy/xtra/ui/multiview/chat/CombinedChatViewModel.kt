@@ -12,6 +12,7 @@ import com.github.andreyasadchy.xtra.ui.multiview.CombinedChatPresentationPolicy
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionHandle
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineDelta
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
@@ -127,10 +128,24 @@ class CombinedChatViewModel(
 
     private fun observe(session: ChannelSession) {
         session.jobs += ownerScope.launch {
-            // The v2 batcher publishes a complete, ordered snapshot. Keeping one collector per
-            // handle means a second Multiview channel cannot stop or overwrite the first one.
+            // Keeping one collector per handle means a second Multiview channel cannot stop or
+            // overwrite the first one. Append publications are applied to the channel index.
             session.handle.active.session.attachUi().collect { snapshot ->
-                replaceSession(session, snapshot.messages)
+                val delta = snapshot.delta as? ChatTimelineDelta.Append
+                if (delta != null &&
+                    snapshot.version > session.timelineVersion &&
+                    delta.evictedCount <= session.renderedMessages.size &&
+                    delta.resultingSize == session.renderedMessages.size - delta.evictedCount + delta.messages.size
+                ) {
+                    appendSession(session, delta, snapshot.version)
+                } else {
+                    val incoming = if (delta != null && snapshot.messages.isEmpty()) {
+                        session.handle.active.session.snapshot()
+                    } else {
+                        snapshot.messages
+                    }
+                    replaceSession(session, incoming, snapshot.version)
+                }
             }
         }
         session.jobs += ownerScope.launch {
@@ -155,7 +170,37 @@ class CombinedChatViewModel(
         }
     }
 
-    private fun replaceSession(session: ChannelSession, incoming: List<ChatMessage>) {
+    private fun appendSession(
+        session: ChannelSession,
+        delta: ChatTimelineDelta.Append,
+        version: Long,
+    ) {
+        // A removed tile can still have one queued snapshot callback racing with release().
+        // Never let that old channel repopulate the combined timeline after replacement.
+        if (sessions[session.identity] !== session) return
+        synchronized(messages) {
+            if (sessions[session.identity] !== session) return
+            repeat(delta.evictedCount) {
+                val id = session.renderedMessages.keys.firstOrNull() ?: return
+                messages.remove(session.renderedMessages.remove(id))
+            }
+            delta.messages.forEach { message ->
+                val added = CombinedChatMessage(
+                    identity = session.identity,
+                    channelName = displayName(session.stream),
+                    message = message,
+                    sequence = sequence++,
+                )
+                session.renderedMessages[message.id] = added
+                messages.add(added)
+            }
+            session.timelineVersion = version
+            while (messages.size > MAX_MESSAGES) messages.pollFirst()
+        }
+        _updates.tryEmit(Unit)
+    }
+
+    private fun replaceSession(session: ChannelSession, incoming: List<ChatMessage>, version: Long) {
         // A removed tile can still have one queued snapshot callback racing with release().
         // Never let that old channel repopulate the combined timeline after replacement.
         if (sessions[session.identity] !== session) return
@@ -193,6 +238,7 @@ class CombinedChatViewModel(
                 // every subsequent publication.
                 messages.pollFirst()
             }
+            session.timelineVersion = version
         }
         _updates.tryEmit(Unit)
     }
@@ -237,6 +283,7 @@ class CombinedChatViewModel(
         var rewardCatalog: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog =
             com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog()
         val renderedMessages = linkedMapOf<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId, CombinedChatMessage>()
+        var timelineVersion: Long = -1L
 
         fun pause(scope: kotlinx.coroutines.CoroutineScope) {
             if (!networkActive) return
@@ -254,6 +301,7 @@ class CombinedChatViewModel(
             controlJob?.cancel()
             controlJob = null
             renderedMessages.clear()
+            timelineVersion = -1L
             handle.closeAsync()
         }
 

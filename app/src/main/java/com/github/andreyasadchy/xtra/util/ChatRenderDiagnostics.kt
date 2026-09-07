@@ -17,6 +17,10 @@ internal data class ChatRenderDiagnosticsSnapshot(
     val messagesChanged: Long,
     val rowsCompiled: Long,
     val rowsReused: Long,
+    val rowsVisited: Long,
+    val rowsAllocated: Long,
+    val timelineRowsVisited: Long,
+    val timelineRowsAllocated: Long,
     val compileCurrentNanos: Long,
     val fullPresentationRebuilds: Long,
     val incrementalReuseIndexUpdates: Long,
@@ -48,6 +52,8 @@ internal data class ChatRenderDiagnosticsSnapshot(
             "activeAnimations=$activeAnimations publications=$publications " +
             "publicationMessages=$publicationMessages maxPublicationMessages=$maxPublicationMessages " +
             "messagesChanged=$messagesChanged rowsCompiled=$rowsCompiled rowsReused=$rowsReused " +
+            "rowsVisited=$rowsVisited rowsAllocated=$rowsAllocated " +
+            "timelineRowsVisited=$timelineRowsVisited timelineRowsAllocated=$timelineRowsAllocated " +
             "compileCurrentNanos=$compileCurrentNanos fullPresentationRebuilds=$fullPresentationRebuilds " +
             "incrementalReuseIndexUpdates=$incrementalReuseIndexUpdates " +
             "fullReuseIndexRebuilds=$fullReuseIndexRebuilds " +
@@ -78,6 +84,10 @@ internal object ChatRenderDiagnostics {
     private val messagesChanged = AtomicLong()
     private val rowsCompiled = AtomicLong()
     private val rowsReused = AtomicLong()
+    private val rowsVisited = AtomicLong()
+    private val rowsAllocated = AtomicLong()
+    private val timelineRowsVisited = AtomicLong()
+    private val timelineRowsAllocated = AtomicLong()
     private val compileCurrentNanos = AtomicLong()
     private val fullPresentationRebuilds = AtomicLong()
     private val incrementalReuseIndexUpdates = AtomicLong()
@@ -134,6 +144,8 @@ internal object ChatRenderDiagnostics {
         changed: Int,
         compiled: Int,
         reused: Int,
+        visited: Int,
+        allocated: Int,
         compileNanos: Long,
         fullRebuild: Boolean,
         uiChanged: Boolean,
@@ -145,6 +157,8 @@ internal object ChatRenderDiagnostics {
         messagesChanged.addAndGet(changed.toLong())
         rowsCompiled.addAndGet(compiled.toLong())
         rowsReused.addAndGet(reused.toLong())
+        rowsVisited.addAndGet(visited.toLong())
+        rowsAllocated.addAndGet(allocated.toLong())
         compileCurrentNanos.addAndGet(compileNanos)
         if (fullRebuild) fullPresentationRebuilds.incrementAndGet()
         if (!uiChanged) unchangedPublications.incrementAndGet()
@@ -154,6 +168,12 @@ internal object ChatRenderDiagnostics {
         if (!BuildConfig.PERF_DIAGNOSTICS) return
         if (incremental) incrementalReuseIndexUpdates.incrementAndGet()
         else fullReuseIndexRebuilds.incrementAndGet()
+    }
+
+    fun recordTimelineSnapshot(visited: Int, allocated: Int) {
+        if (!BuildConfig.PERF_DIAGNOSTICS) return
+        timelineRowsVisited.addAndGet(visited.toLong())
+        timelineRowsAllocated.addAndGet(allocated.toLong())
     }
 
     fun recordCatalogIndexUpdate(incremental: Boolean) {
@@ -234,6 +254,10 @@ internal object ChatRenderDiagnostics {
         messagesChanged = messagesChanged.getAndSet(0),
         rowsCompiled = rowsCompiled.getAndSet(0),
         rowsReused = rowsReused.getAndSet(0),
+        rowsVisited = rowsVisited.getAndSet(0),
+        rowsAllocated = rowsAllocated.getAndSet(0),
+        timelineRowsVisited = timelineRowsVisited.getAndSet(0),
+        timelineRowsAllocated = timelineRowsAllocated.getAndSet(0),
         compileCurrentNanos = compileCurrentNanos.getAndSet(0),
         fullPresentationRebuilds = fullPresentationRebuilds.getAndSet(0),
         incrementalReuseIndexUpdates = incrementalReuseIndexUpdates.getAndSet(0),
