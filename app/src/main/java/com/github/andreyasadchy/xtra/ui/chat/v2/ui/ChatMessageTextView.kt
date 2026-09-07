@@ -40,7 +40,6 @@ import android.widget.TextView
 import android.util.TypedValue
 import android.util.AttributeSet
 import androidx.core.content.ContextCompat
-import androidx.core.view.doOnPreDraw
 import androidx.appcompat.widget.AppCompatTextView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
@@ -142,8 +141,6 @@ open class ChatMessageTextView private constructor(
     private var touchMoved = false
     private var clipPreviewSlugs = emptySet<String>()
     private var clipPreviewAssetKeys = emptySet<ChatAssetKey>()
-    private var awaitingInitialAssetFrame = false
-    private var revealOnPreDrawPosted = false
     private var stagedRow: ChatRowUiModel? = null
     private var stagedBindGeneration = 0L
     private var stagedAssetKeys = emptySet<ChatAssetKey>()
@@ -220,7 +217,6 @@ open class ChatMessageTextView private constructor(
 
     private fun shouldStageRow(row: ChatRowUiModel): Boolean =
         boundMessageId == row.id &&
-            !awaitingInitialAssetFrame &&
             hasPendingAssets(row.assetKeys())
 
     private fun stageRow(row: ChatRowUiModel) {
@@ -269,14 +265,12 @@ open class ChatMessageTextView private constructor(
 
     private fun bindRow(row: ChatRowUiModel) {
         invalidateClipDrawCache()
-        val sameRevealedMessage = boundMessageId == row.id && !awaitingInitialAssetFrame
-        if (!sameRevealedMessage) {
-            awaitingInitialAssetFrame = true
-            alpha = 0f
+        if (boundMessageId != row.id) {
             latchedFailedCompositionKeys.clear()
             latchedFailedDirectKeys.clear()
             latchedFailedClipMetadataSlugs.clear()
         }
+        alpha = 1f
         boundRow = row
         boundMessageId = row.id
         longPressConsumed = false
@@ -472,50 +466,6 @@ open class ChatMessageTextView private constructor(
         if (row.isAction) output.setSpan(StyleSpan(android.graphics.Typeface.ITALIC), 0, output.length, 0)
         contentDescription = row.accessibilityText
         text = output
-        maybeRevealInitialAssetFrame()
-    }
-
-    private fun maybeRevealInitialAssetFrame() {
-        if (!awaitingInitialAssetFrame) return
-
-        latchFailedClipMetadata()
-
-        if (hasPendingAssets(keys + clipPreviewAssetKeys)) return
-        if (clipPreviewSlugs.any { slug ->
-                when (clipPreviews?.peekState(slug)) {
-                    ChatClipPreviewState.Missing,
-                    ChatClipPreviewState.Loading -> true
-                    is ChatClipPreviewState.Ready,
-                    null -> false
-                }
-            }
-        ) return
-
-        if (!isAttachedToWindow || revealOnPreDrawPosted) return
-        revealOnPreDrawPosted = true
-        doOnPreDraw {
-            revealOnPreDrawPosted = false
-            revealInitialAssetFrameIfReady()
-        }
-    }
-
-    private fun revealInitialAssetFrameIfReady() {
-        if (!awaitingInitialAssetFrame) return
-        latchFailedClipMetadata()
-        if (hasPendingAssets(keys + clipPreviewAssetKeys) || clipPreviewSlugs.any { slug ->
-                when (clipPreviews?.peekState(slug)) {
-                    ChatClipPreviewState.Missing,
-                    ChatClipPreviewState.Loading -> true
-                    is ChatClipPreviewState.Ready,
-                    null -> false
-                }
-            }
-        ) return
-
-        latchTerminalAssetFailures()
-
-        awaitingInitialAssetFrame = false
-        alpha = 1f
     }
 
     private fun hasPendingAssets(assetKeys: Set<ChatAssetKey>): Boolean = assetKeys.any { key ->
@@ -586,7 +536,6 @@ open class ChatMessageTextView private constructor(
             ChatRenderDiagnostics.recordDrawOnlyInvalidation()
         }
         postInvalidateOnAnimation()
-        maybeRevealInitialAssetFrame()
     }
 
     private fun observeAsset(key: ChatAssetKey) {
@@ -1240,8 +1189,6 @@ open class ChatMessageTextView private constructor(
         text = null
         boundMessageId = null
         boundRow = null
-        awaitingInitialAssetFrame = false
-        revealOnPreDrawPosted = false
         alpha = 1f
     }
 
@@ -1305,7 +1252,6 @@ open class ChatMessageTextView private constructor(
             if (isAttachedToWindow) {
                 refreshClipPreviewAssets()
                 maybeApplyStagedRow()
-                maybeRevealInitialAssetFrame()
             }
             if (isAttachedToWindow) updateDrawableAnimations()
         } else {
@@ -1344,7 +1290,6 @@ open class ChatMessageTextView private constructor(
             clipPreviewAssetKeys.forEach(::observeClipThumbnail)
             refreshClipPreviewAssets()
             maybeApplyStagedRow()
-            maybeRevealInitialAssetFrame()
             updateDrawableAnimations()
         }
     }

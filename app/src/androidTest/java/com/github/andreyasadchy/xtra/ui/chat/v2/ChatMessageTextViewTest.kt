@@ -222,7 +222,7 @@ class ChatMessageTextViewTest {
     }
 
     @Test
-    fun pendingAssetKeepsFinalGeometryAndRowIsNotExposed() = runBlocking {
+    fun pendingAssetKeepsFinalGeometryAndRowRemainsVisible() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val asset = CompletableDeferred<ChatImageHandle?>()
@@ -237,7 +237,8 @@ class ChatMessageTextViewTest {
                 val spanned = view.text as Spanned
                 val usernameColor = spanned.getSpans(0, 5, ForegroundColorSpan::class.java).single().foregroundColor
                 assertNotEquals(Color.WHITE, usernameColor)
-                assertEquals(0f, view.alpha)
+                assertEquals(1f, view.alpha)
+                assertTrue(view.text.toString().contains("login"))
                 span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
                 val metrics = Paint.FontMetricsInt()
                 assertEquals(spec.compositionWidth, span.getSize(Paint(), spanned, 0, 1, metrics))
@@ -255,6 +256,33 @@ class ChatMessageTextViewTest {
                 assertEquals(1f, view.alpha)
                 assertEquals(spec.compositionWidth, span.getSize(Paint(), spanned, 0, 1, metrics))
                 assertTrue(containsColor(draw(span, spanned, metrics), Color.RED))
+            }
+        } finally {
+            attached.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun pendingAssetsNeverHideRecycledRows() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val release = CompletableDeferred<ChatImageHandle?>()
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { release.await() })
+        val attached = attachView(repository)
+        val view = attached.view
+        try {
+            repeat(100) { index ->
+                runOnMain {
+                    view.bind(
+                        row(
+                            ChatAssetSpec(ChatAssetKey("pending-$index"), 20, 20, 28),
+                            username = "login",
+                        ),
+                    )
+                    assertEquals(1f, view.alpha)
+                    assertTrue(view.text.toString().contains("login"))
+                    view.recycle()
+                }
             }
         } finally {
             attached.close()
@@ -556,7 +584,7 @@ class ChatMessageTextViewTest {
     }
 
     @Test
-    fun failedEmoteUsesTextOnlyAfterFailure() = runBlocking {
+    fun failedEmoteUsesTextOnlyAfterFailureWithoutHidingRow() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val releaseFailure = CompletableDeferred<Unit>()
@@ -573,7 +601,7 @@ class ChatMessageTextViewTest {
                 view.bind(row(spec, fallback = "OMEGALUL"))
                 val spanned = view.text as Spanned
                 span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
-                assertEquals(0f, view.alpha)
+                assertEquals(1f, view.alpha)
                 assertFalse(hasVisiblePixels(draw(span, spanned, Paint.FontMetricsInt())))
             }
 
@@ -593,7 +621,7 @@ class ChatMessageTextViewTest {
     }
 
     @Test
-    fun rowRevealsOnlyAfterAllInitialAssetsSettle() = runBlocking {
+    fun rowRemainsVisibleWhileInitialAssetsSettle() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val first = CompletableDeferred<ChatImageHandle?>()
@@ -629,13 +657,13 @@ class ChatMessageTextViewTest {
         try {
             runOnMain {
                 view.bind(row)
-                assertEquals(0f, view.alpha)
+                assertEquals(1f, view.alpha)
             }
 
             first.complete(ChatImageHandle { SolidDrawable(Color.RED) })
             awaitSettled(repository, listOf(firstSpec.key))
             awaitPreDraw(view)
-            runOnMain { assertEquals(0f, view.alpha) }
+            runOnMain { assertEquals(1f, view.alpha) }
 
             second.complete(null)
             awaitPresentationTerminal(repository, listOf(secondSpec.key))
@@ -648,7 +676,7 @@ class ChatMessageTextViewTest {
     }
 
     @Test
-    fun retryableFailureKeepsInitialRowHiddenUntilRecovery() = runBlocking {
+    fun retryableFailureKeepsRowVisibleUntilRecovery() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val firstFailed = CompletableDeferred<Unit>()
         val secondStarted = CompletableDeferred<Unit>()
@@ -680,7 +708,7 @@ class ChatMessageTextViewTest {
             runOnMain {
                 val spanned = view.text as Spanned
                 val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
-                assertEquals(0f, view.alpha)
+                assertEquals(1f, view.alpha)
                 assertFalse(hasVisiblePixels(draw(span, spanned, Paint.FontMetricsInt())))
             }
 
@@ -689,7 +717,7 @@ class ChatMessageTextViewTest {
             runOnMain {
                 val spanned = view.text as Spanned
                 val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
-                assertEquals(0f, view.alpha)
+                assertEquals(1f, view.alpha)
                 assertFalse(hasVisiblePixels(draw(span, spanned, Paint.FontMetricsInt())))
             }
 
@@ -786,7 +814,7 @@ class ChatMessageTextViewTest {
     }
 
     @Test
-    fun recycledRowGetsANewInitialGate() = runBlocking {
+    fun recycledRowRemainsVisibleWithPendingAssets() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val first = CompletableDeferred<ChatImageHandle?>()
         val second = CompletableDeferred<ChatImageHandle?>()
@@ -800,10 +828,10 @@ class ChatMessageTextViewTest {
             val secondSpec = ChatAssetSpec(ChatAssetKey("second-row"), 20, 20, 28)
             runOnMain {
                 view.bind(row(firstSpec))
-                assertEquals(0f, view.alpha)
+                assertEquals(1f, view.alpha)
                 view.recycle()
                 view.bind(row(secondSpec))
-                assertEquals(0f, view.alpha)
+                assertEquals(1f, view.alpha)
             }
             second.complete(ChatImageHandle { SolidDrawable(Color.RED) })
             withTimeout(2_000) {
@@ -818,7 +846,7 @@ class ChatMessageTextViewTest {
     }
 
     @Test
-    fun clipRowReservesGeometryAndWaitsForMetadataAndThumbnail() = runBlocking {
+    fun clipRowReservesGeometryWhileMetadataAndThumbnailLoad() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val releaseMetadata = CompletableDeferred<ChatClipPreview?>()
         val releaseThumbnail = CompletableDeferred<ChatImageHandle?>()
@@ -842,7 +870,7 @@ class ChatMessageTextViewTest {
         try {
             runOnMain {
                 view.bind(row)
-                assertEquals(0f, view.alpha)
+                assertEquals(1f, view.alpha)
             }
             awaitPreDraw(view)
             val reservedHeight = view.measuredHeight
@@ -860,7 +888,7 @@ class ChatMessageTextViewTest {
             }
             awaitPreDraw(view)
             runOnMain {
-                assertEquals(0f, view.alpha)
+                assertEquals(1f, view.alpha)
                 assertEquals(reservedHeight, view.measuredHeight)
             }
             releaseThumbnail.complete(ChatImageHandle { SolidDrawable(Color.RED) })
@@ -1202,7 +1230,7 @@ class ChatMessageTextViewTest {
 
         runOnMain {
             holder = adapter.onCreateViewHolder(FrameLayout(context), 0)
-            adapter.submitList(listOf(row)) { submitted.countDown() }
+            adapter.replaceAll(listOf(row)) { submitted.countDown() }
         }
         assertTrue(submitted.await(1, TimeUnit.SECONDS))
 
@@ -1393,7 +1421,7 @@ class ChatMessageTextViewTest {
         val firstCommitted = CountDownLatch(1)
         runOnMain {
             holder = adapter.onCreateViewHolder(FrameLayout(context), 0)
-            adapter.submitList(listOf(textRow("first", ChatMessageId("first")))) { firstCommitted.countDown() }
+            adapter.replaceAll(listOf(textRow("first", ChatMessageId("first")))) { firstCommitted.countDown() }
         }
         assertTrue(firstCommitted.await(1, TimeUnit.SECONDS))
         runOnMain {
@@ -1402,7 +1430,7 @@ class ChatMessageTextViewTest {
         }
         val committed = CountDownLatch(1)
         runOnMain {
-            adapter.submitList(listOf(textRow("second", ChatMessageId("second")))) { committed.countDown() }
+            adapter.replaceAll(listOf(textRow("second", ChatMessageId("second")))) { committed.countDown() }
         }
         assertTrue(committed.await(1, TimeUnit.SECONDS))
         runOnMain {
@@ -1484,9 +1512,9 @@ class ChatMessageTextViewTest {
         val first = ChatAssetSpec(ChatAssetKey("first"), 16, 16, 24)
         val second = ChatAssetSpec(ChatAssetKey("second"), 16, 16, 24)
         runOnMain {
-            view.bind(row(first))
+            view.bind(row(first, id = ChatMessageId("first-row")))
             assertEquals(1, repository.observerCount(first.key))
-            view.bind(row(second))
+            view.bind(row(second, id = ChatMessageId("second-row")))
             assertEquals(0, repository.observerCount(first.key))
             assertEquals(1, repository.observerCount(second.key))
         }
@@ -1518,8 +1546,9 @@ class ChatMessageTextViewTest {
         interaction: ChatEmoteInteraction? = null,
         fallback: String = ":asset:",
         animated: Boolean = true,
+        id: ChatMessageId = ChatMessageId("row"),
     ) = ChatRowUiModel(
-        id = ChatMessageId("row"), channelId = "channel", timestampText = null,
+        id = id, channelId = "channel", timestampText = null,
         pieces = buildList {
             username?.let { add(ChatPiece.Username(it, 0xffff8a80.toInt())) }
             add(ChatPiece.Emote(spec, fallback, animated = animated, interaction = interaction))

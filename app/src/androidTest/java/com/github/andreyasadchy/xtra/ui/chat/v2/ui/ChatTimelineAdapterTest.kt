@@ -8,7 +8,6 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,7 +30,7 @@ class ChatTimelineAdapterTest {
         val adapter = adapter(scope)
         try {
             submitAndWait(adapter, listOf(row("a"), row("b"), row("c")))
-            val observer = RecordingObserver()
+            val observer = RecordingObserver(adapter)
             onMain { adapter.registerAdapterDataObserver(observer) }
 
             var applied = false
@@ -81,7 +80,7 @@ class ChatTimelineAdapterTest {
     }
 
     @Test
-    fun reconciliationFallbackReplacesRowsByStableId() {
+    fun replaceAllReplacesRowsForReconciliation() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = adapter(scope)
         try {
@@ -94,21 +93,72 @@ class ChatTimelineAdapterTest {
     }
 
     @Test
-    fun staleFallbackDiffCannotOverwriteNewerSubmission() {
+    fun replaceAllCommitsBeforeAHighVolumeDeltaBurst() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val dispatcher = ManualDispatcher()
-        val adapter = adapter(scope, dispatcher)
+        val adapter = adapter(scope)
         try {
-            val oldRows = (0 until 600).map { row("old-$it") }
-            val newRows = listOf(row("new"))
-            val committed = CountDownLatch(1)
-            onMain { adapter.submitList(oldRows) }
-            onMain { adapter.submitList(newRows) { committed.countDown() } }
+            onMain { adapter.replaceAll((0 until 600).map { row("initial-$it") }) }
+            repeat(100) { index ->
+                var applied = false
+                onMain {
+                    applied = adapter.appendDelta(
+                        appendedRows = listOf(row("tail-$index")),
+                        evictedHeadCount = 1,
+                        expectedSize = 600,
+                    )
+                }
+                assertTrue(applied)
+            }
+            assertEquals(600, adapter.itemCount)
+            assertEquals("tail-99", adapter.currentList.last().id.value)
+        } finally {
+            dispose(adapter, scope)
+        }
+    }
 
-            dispatcher.runNext()
-            dispatcher.runNext()
-            assertTrue(committed.await(1, TimeUnit.SECONDS))
-            assertEquals(newRows, adapter.currentList)
+    @Test
+    fun rejectedDeltaLeavesRowsUntouchedAndTheNextDeltaApplies() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val adapter = adapter(scope)
+        try {
+            onMain { adapter.replaceAll(listOf(row("a"), row("b"), row("c"))) }
+            var applied = true
+            onMain {
+                applied = adapter.appendDelta(
+                    appendedRows = listOf(row("d")),
+                    evictedHeadCount = 1,
+                    expectedSize = 99,
+                )
+            }
+            assertFalse(applied)
+            assertEquals(listOf("a", "b", "c"), adapter.currentList.map { it.id.value })
+
+            onMain {
+                applied = adapter.appendDelta(
+                    appendedRows = listOf(row("d")),
+                    evictedHeadCount = 1,
+                    expectedSize = 3,
+                )
+            }
+            assertTrue(applied)
+            assertEquals(listOf("b", "c", "d"), adapter.currentList.map { it.id.value })
+        } finally {
+            dispose(adapter, scope)
+        }
+    }
+
+    @Test
+    fun rangeNotificationsSeeTheMatchingIntermediateSnapshots() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val adapter = adapter(scope)
+        try {
+            onMain { adapter.replaceAll(listOf(row("a"), row("b"), row("c"))) }
+            val observer = RecordingObserver(adapter)
+            onMain { adapter.registerAdapterDataObserver(observer) }
+
+            onMain { adapter.appendDelta(listOf(row("d")), evictedHeadCount = 1, expectedSize = 3) }
+
+            assertEquals(listOf("b,c", "b,c,d"), observer.snapshots.toList())
         } finally {
             dispose(adapter, scope)
         }
@@ -133,19 +183,15 @@ class ChatTimelineAdapterTest {
         assertEquals(FollowMode.USER_SCROLLED_UP, controller.state.followMode)
     }
 
-    private fun adapter(
-        scope: CoroutineScope,
-        diffDispatcher: CoroutineDispatcher = Dispatchers.Default,
-    ) = ChatTimelineAdapter(
+    private fun adapter(scope: CoroutineScope) = ChatTimelineAdapter(
         assets = ChatAssetRepository(scope, ChatAssetLoader { null }),
         textSizeSp = 14f,
         animateGifs = false,
-        diffDispatcher = diffDispatcher,
     )
 
     private fun submitAndWait(adapter: ChatTimelineAdapter, rows: List<ChatRowUiModel>) {
         val committed = CountDownLatch(1)
-        onMain { adapter.submitList(rows) { committed.countDown() } }
+        onMain { adapter.replaceAll(rows) { committed.countDown() } }
         assertTrue(committed.await(1, TimeUnit.SECONDS))
     }
 
@@ -170,28 +216,18 @@ class ChatTimelineAdapterTest {
         isAction = false,
     )
 
-    private class RecordingObserver : RecyclerView.AdapterDataObserver() {
+    private class RecordingObserver(private val adapter: ChatTimelineAdapter) : RecyclerView.AdapterDataObserver() {
         val events = ConcurrentLinkedQueue<String>()
+        val snapshots = ConcurrentLinkedQueue<String>()
 
         override fun onItemRangeRemoved(positionStart: Int, itemCount: Int) {
             events += "remove:$positionStart:$itemCount"
+            snapshots += adapter.currentList.joinToString(",") { it.id.value }
         }
 
         override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
             events += "insert:$positionStart:$itemCount"
-        }
-    }
-
-    private class ManualDispatcher : CoroutineDispatcher() {
-        private val queue = ConcurrentLinkedQueue<Runnable>()
-
-        override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
-            queue += block
-        }
-
-        fun runNext() {
-            val task = checkNotNull(queue.poll()) { "No queued diff" }
-            task.run()
+            snapshots += adapter.currentList.joinToString(",") { it.id.value }
         }
     }
 }
