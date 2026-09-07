@@ -105,6 +105,24 @@ class ChatTimelineAdapter(
         return true
     }
 
+    /** Applies a known tail append without validating or traversing the retained rows. */
+    fun appendDelta(
+        appendedRows: List<ChatRowUiModel>,
+        evictedHeadCount: Int,
+        expectedSize: Int,
+    ): Boolean {
+        ++submitGeneration
+        if (evictedHeadCount < 0 || evictedHeadCount > rows.size) return false
+        if (rows.size - evictedHeadCount + appendedRows.size != expectedSize) return false
+
+        val retainedCount = rows.size - evictedHeadCount
+        rows.subList(0, evictedHeadCount).clear()
+        rows.addAll(appendedRows)
+        if (evictedHeadCount > 0) notifyItemRangeRemoved(0, evictedHeadCount)
+        if (appendedRows.isNotEmpty()) notifyItemRangeInserted(retainedCount, appendedRows.size)
+        return true
+    }
+
     /** Clears the adapter synchronously when its RecyclerView is being detached. */
     fun clear() {
         ++submitGeneration

@@ -7,6 +7,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModerationDisplayMode
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatEventProcessor
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineDelta
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineStore
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
 import kotlinx.coroutines.CoroutineScope
@@ -19,9 +20,45 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatTimelineArchitectureTest {
+    @Test
+    fun appendDeltasAreRepeatableForIndependentUiCollectors() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 2)
+        val baseline = store.versionedSnapshot()
+
+        store.apply(com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.Append(listOf(message(1), message(2))))
+        val first = store.versionedSnapshotAfter(baseline.version)
+        val second = store.versionedSnapshotAfter(baseline.version)
+        val firstDelta = first.delta
+        val secondDelta = second.delta
+        assertTrue(firstDelta is ChatTimelineDelta.Append)
+        assertEquals(firstDelta, secondDelta)
+        assertEquals(listOf("1", "2"), (firstDelta as ChatTimelineDelta.Append).messages.map { it.id.value })
+        assertTrue(first.messages.isEmpty())
+        assertEquals(2, firstDelta.resultingSize)
+
+        store.apply(com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.Append(listOf(message(3))))
+        val tail = store.versionedSnapshotAfter(first.version)
+        assertEquals(ChatTimelineDelta.Append(listOf(message(3)), 1, 2), tail.delta)
+        assertTrue(tail.messages.isEmpty())
+
+        store.apply(
+            com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.Delete(
+                id = ChatMessageId("2"),
+                atMs = 4,
+                displayMode = ChatModerationDisplayMode.HIDE,
+            ),
+        )
+        val full = store.versionedSnapshotAfter(tail.version)
+        assertEquals(ChatTimelineDelta.Full, full.delta)
+        assertEquals(listOf("3"), full.messages.map { it.id.value })
+        scope.cancel()
+    }
+
     @Test
     fun processorKeepsOrderAndDeduplicatesDelivery() = runBlocking {
         val scope = CoroutineScope(Dispatchers.Default)

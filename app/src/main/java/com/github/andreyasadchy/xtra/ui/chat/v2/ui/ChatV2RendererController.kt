@@ -25,6 +25,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLabels
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineDelta
 import com.github.andreyasadchy.xtra.ui.chat.ChatRenderStyle
 import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
@@ -122,12 +123,12 @@ class ChatV2RendererController(
         renderStyle.textSizeSp,
         renderStyle.animateGifs,
         onMessageLongClick = if (profilePopoutGesture.allowsHold) {
-            { id -> latestPublication?.messages?.firstOrNull { it.id == id }?.let(onMessageLongClick) }
+            { id -> latestMessages.firstOrNull { it.id == id }?.let(onMessageLongClick) }
         } else null,
         onEmoteClick = onEmoteClick,
         onGifClick = onGifClick,
         onMessageClick = if (profilePopoutGesture.allowsTap) {
-            { id -> latestPublication?.messages?.firstOrNull { it.id == id }?.let(onMessageLongClick) }
+            { id -> latestMessages.firstOrNull { it.id == id }?.let(onMessageLongClick) }
         } else null,
     )
     private val viewport = ChatViewportController(recyclerView, initialState)
@@ -140,7 +141,8 @@ class ChatV2RendererController(
     private val previousIds = HashSet<ChatMessageId>()
     private var hasPreviousIds = false
     private var previousTailId: ChatMessageId? = null
-    private var latestRows: List<ChatRowUiModel> = emptyList()
+    private val latestMessages = ArrayDeque<ChatMessage>()
+    private val latestRows = ArrayList<ChatRowUiModel>()
     private var latestPublication: PresentationPublication? = null
     private val reuseIndex = ChatPresentationReuseIndex()
     private val presentationSnapshot = ChatPresentationSnapshot()
@@ -159,7 +161,7 @@ class ChatV2RendererController(
     val state: ChatViewportState
         get() = viewport.state
 
-    internal fun currentMessages(): List<ChatMessage> = latestPublication?.messages.orEmpty()
+    internal fun currentMessages(): List<ChatMessage> = latestMessages.toList()
     internal fun currentRows(): List<ChatRowUiModel> = latestRows
 
     fun attach(owner: LifecycleOwner) {
@@ -210,7 +212,8 @@ class ChatV2RendererController(
         }
         recyclerView.adapter = null
         adapter.dispose()
-        latestRows = emptyList()
+        latestMessages.clear()
+        latestRows.clear()
         previousIds.clear()
         hasPreviousIds = false
         previousTailId = null
@@ -246,35 +249,39 @@ class ChatV2RendererController(
     fun setTranslateAllMessages(enabled: Boolean) {
         if (translateAllMessages == enabled) return
         translateAllMessages = enabled
-        if (enabled) latestPublication?.let { requestTranslations(it.messages) }
+        if (enabled) requestTranslations(latestMessages)
     }
 
     /** Recompiles the current snapshot after an external presentation-only update. */
     fun invalidatePresentation() {
         val publication = latestPublication ?: return
         val owner = lifecycleOwner ?: return
+        val currentMessages = latestMessages.toList()
         presentation.invalidate()
         styleRefreshJob?.cancel()
         styleRefreshJob = owner.lifecycleScope.launch {
-            val compiled = compileCurrent(publication)
+            val compiled = compileCurrent(publication, fullMessages = currentMessages)
             val rows = compiled.result.rows
             withContext(Dispatchers.Main.immediate) {
                 if (!rendererVisible.value || latestPublication !== publication) return@withContext
                 val uiChanged = !sameRows(latestRows, rows)
-                latestRows = rows
-                reuseIndex.replace(publication.messages, rows)
+                latestRows.clear()
+                latestRows.addAll(rows)
+                reuseIndex.replace(currentMessages, rows)
                 ChatRenderDiagnostics.recordReuseIndexUpdate(incremental = false)
                 ChatRenderDiagnostics.recordPublication(
-                    messageCount = publication.messages.size,
+                    messageCount = currentMessages.size,
                     changed = compiled.result.messagesChanged,
                     compiled = compiled.result.rowsCompiled,
                     reused = compiled.result.rowsReused,
+                    visited = compiled.result.rowsVisited,
+                    allocated = compiled.result.rowsAllocated,
                     compileNanos = compiled.durationNanos,
                     fullRebuild = compiled.fullRebuild,
                     uiChanged = uiChanged,
                 )
                 if (uiChanged) {
-                    onPublicationChanged(publication.messages, rows)
+                    onPublicationChanged(currentMessages, rows)
                     adapter.submitList(rows)
                 }
             }
@@ -290,88 +297,155 @@ class ChatV2RendererController(
         if (!rendererVisible.value) return
         val previousPublication = latestPublication
         val previousRows = latestRows
+        val previousMessageCount = latestMessages.size
         withContext(Dispatchers.Main.immediate) {
             if (!rendererVisible.value) return@withContext
             latestPublication = publication
         }
         styleRefreshJob?.cancel()
-        val compiled = compileCurrent(publication, previousPublication)
+        var preparedPublication = materializeFullPublicationIfNeeded(
+            publication = publication,
+            previousPublication = previousPublication,
+            previousRows = previousRows,
+            previousMessageCount = previousMessageCount,
+        )
+        var fullMessages = preparedPublication.messages.takeIf {
+            preparedPublication.timelineDelta !is ChatTimelineDelta.Append
+        }
+        var compiled = compileCurrent(
+            publication = preparedPublication,
+            previousPublication = previousPublication,
+            previousRows = previousRows,
+            previousMessageCount = previousMessageCount,
+            fullMessages = fullMessages,
+        )
+        if (fullMessages == null && compiled.appendInfo == null) {
+            preparedPublication = preparedPublication.copy(
+                messages = preparedPublication.fullSnapshot(),
+                timelineDelta = ChatTimelineDelta.Full,
+            )
+            fullMessages = preparedPublication.messages
+            compiled = compileCurrent(
+                publication = preparedPublication,
+                previousPublication = previousPublication,
+                previousRows = previousRows,
+                previousMessageCount = previousMessageCount,
+                fullMessages = fullMessages,
+            )
+        }
         val rows = compiled.result.rows
         if (!rendererVisible.value) return
         withContext(Dispatchers.Main.immediate) {
             if (!rendererVisible.value) return@withContext
             if (latestPublication !== publication) return@withContext
-            if (currentKey != publication.key) {
+            latestPublication = preparedPublication
+            if (currentKey != preparedPublication.key) {
                 if (currentKey != null) viewport.resetForNewSession()
-                currentKey = publication.key
+                currentKey = preparedPublication.key
                 hasPreviousIds = false
                 previousIds.clear()
                 previousTailId = null
                 reuseIndex.clear()
             }
-            latestPublication = publication
-            requestTranslations(publication.messages)
+            val delta = compiled.appendInfo?.let {
+                preparedPublication.timelineDelta as? ChatTimelineDelta.Append
+            }
+            val currentMessages = fullMessages
+            requestTranslations(delta?.messages ?: currentMessages.orEmpty())
             val oldIds = previousIds
             val previousAnchor = if (!hasPreviousIds) null else viewport.captureAnchor(adapter)
             // Reconciliation can insert older messages into the middle/front of the timeline.
             // Only messages newer than the previous tail are live appends.
-            val appendedCount = countNewLiveMessages(
+            val appendInfo = compiled.appendInfo ?: previousPublication
+                ?.takeIf { it.key == preparedPublication.key }
+                ?.let { currentMessages?.let { messages -> findChatAppendInfo(latestMessages, messages) } }
+            val appendedCount = compiled.appendInfo?.appendedCount ?: countNewLiveMessages(
                 oldIds.takeIf { hasPreviousIds },
                 previousTailId,
-                publication.messages,
+                currentMessages.orEmpty(),
             )
-            val appendInfo = previousPublication
-                ?.takeIf { it.key == publication.key }
-                ?.let { findChatAppendInfo(it.messages, publication.messages) }
             if (appendInfo != null && hasPreviousIds) {
                 repeat(appendInfo.evictedCount) {
-                    previousPublication.messages.getOrNull(it)?.id?.let(previousIds::remove)
+                    latestMessages.getOrNull(it)?.id?.let(previousIds::remove)
                 }
-                publication.messages.takeLast(appendInfo.appendedCount).forEach { previousIds += it.id }
+                (delta?.messages ?: currentMessages.orEmpty().takeLast(appendInfo.appendedCount))
+                    .forEach { previousIds += it.id }
             } else {
                 previousIds.clear()
-                publication.messages.forEach { previousIds += it.id }
+                currentMessages.orEmpty().forEach { previousIds += it.id }
             }
             hasPreviousIds = true
-            previousTailId = publication.messages.lastOrNull()?.id
-            latestRows = rows
-            val incrementallyUpdated = appendInfo?.let {
-                reuseIndex.append(
-                    messages = publication.messages,
-                    rows = rows,
-                    appendedCount = it.appendedCount,
-                    evictedCount = it.evictedCount,
+            val incrementallyUpdated = if (delta != null) {
+                reuseIndex.appendDelta(
+                    appendedMessages = delta.messages,
+                    appendedRows = rows,
+                    evictedCount = delta.evictedCount,
+                    expectedSize = delta.resultingSize,
                 )
-            } == true
-            if (!incrementallyUpdated) {
-                reuseIndex.replace(publication.messages, rows)
+            } else {
+                appendInfo?.let {
+                    reuseIndex.append(
+                        messages = requireNotNull(currentMessages),
+                        rows = rows,
+                        appendedCount = it.appendedCount,
+                        evictedCount = it.evictedCount,
+                    )
+                } == true
             }
+            if (!incrementallyUpdated) reuseIndex.replace(requireNotNull(currentMessages), rows)
             ChatRenderDiagnostics.recordReuseIndexUpdate(incrementallyUpdated)
-            val uiChanged = !sameRows(previousRows, rows)
+            val uiChanged: Boolean
+            if (delta != null) {
+                latestRows.subList(0, delta.evictedCount).clear()
+                latestRows.addAll(rows)
+                uiChanged = delta.evictedCount > 0 || rows.isNotEmpty()
+            } else {
+                uiChanged = !sameRows(previousRows, rows)
+                latestRows.clear()
+                latestRows.addAll(rows)
+            }
+            if (delta != null) {
+                repeat(delta.evictedCount) { latestMessages.removeFirst() }
+                latestMessages.addAll(delta.messages)
+            } else {
+                latestMessages.clear()
+                latestMessages.addAll(requireNotNull(currentMessages))
+            }
+            previousTailId = latestMessages.lastOrNull()?.id
             ChatRenderDiagnostics.recordPublication(
-                messageCount = publication.messages.size,
+                messageCount = latestMessages.size,
                 changed = compiled.result.messagesChanged,
                 compiled = compiled.result.rowsCompiled,
                 reused = compiled.result.rowsReused,
+                visited = compiled.result.rowsVisited,
+                allocated = compiled.result.rowsAllocated,
                 compileNanos = compiled.durationNanos,
                 fullRebuild = compiled.fullRebuild,
                 uiChanged = uiChanged,
             )
             if (uiChanged) {
-                onPublicationChanged(publication.messages, rows)
-                val appliedIncrementally = appendInfo?.let {
-                    adapter.append(
-                        newRows = rows,
-                        evictedHeadCount = it.evictedCount,
-                        appendedCount = it.appendedCount,
+                onPublicationChanged(latestMessages, latestRows)
+                val appliedIncrementally = if (delta != null) {
+                    adapter.appendDelta(
+                        appendedRows = rows,
+                        evictedHeadCount = delta.evictedCount,
+                        expectedSize = delta.resultingSize,
                     )
-                } == true
+                } else {
+                    appendInfo?.let {
+                        adapter.append(
+                            newRows = rows,
+                            evictedHeadCount = it.evictedCount,
+                            appendedCount = it.appendedCount,
+                        )
+                    } == true
+                }
                 if (appliedIncrementally) {
-                    viewport.onSnapshotCommitted(previousAnchor, rows, appendedCount)
+                    viewport.onSnapshotCommitted(previousAnchor, latestRows, appendedCount)
                     onStateChanged(viewport.state)
                 } else {
-                    adapter.submitList(rows) {
-                        viewport.onSnapshotCommitted(previousAnchor, rows, appendedCount)
+                    adapter.submitList(latestRows) {
+                        viewport.onSnapshotCommitted(previousAnchor, latestRows, appendedCount)
                         onStateChanged(viewport.state)
                     }
                 }
@@ -379,15 +453,59 @@ class ChatV2RendererController(
         }
     }
 
+    private suspend fun materializeFullPublicationIfNeeded(
+        publication: PresentationPublication,
+        previousPublication: PresentationPublication?,
+        previousRows: List<ChatRowUiModel>,
+        previousMessageCount: Int,
+    ): PresentationPublication {
+        if (publication.timelineDelta !is ChatTimelineDelta.Append ||
+            canApplyTimelineAppend(publication, previousPublication, previousRows, previousMessageCount)
+        ) {
+            return publication
+        }
+        return publication.copy(
+            messages = publication.fullSnapshot(),
+            timelineDelta = ChatTimelineDelta.Full,
+        )
+    }
+
+    private fun canApplyTimelineAppend(
+        publication: PresentationPublication,
+        previousPublication: PresentationPublication?,
+        previousRows: List<ChatRowUiModel>,
+        previousMessageCount: Int,
+    ): Boolean {
+        val delta = publication.timelineDelta as? ChatTimelineDelta.Append ?: return false
+        val forceCatalogUpgrade = previousPublication?.let { previous ->
+            publication.forceRefreshRevision != previous.forceRefreshRevision
+        } == true
+        val metadataSettlementChanged = previousPublication?.metadataSettlement !=
+            publication.metadataSettlement
+        return previousPublication != null &&
+            previousPublication.key == publication.key &&
+            publication.timelineVersion > previousPublication.timelineVersion &&
+            !forceCatalogUpgrade &&
+            !metadataSettlementChanged &&
+            previousRows.size == previousMessageCount &&
+            reuseIndex.size == previousMessageCount &&
+            delta.evictedCount <= previousMessageCount &&
+            delta.resultingSize == previousMessageCount - delta.evictedCount + delta.messages.size
+    }
+
     private data class CompiledRows(
         val result: ChatRowCompileResult,
         val durationNanos: Long,
         val fullRebuild: Boolean,
+        val appendInfo: ChatAppendInfo? = null,
     )
 
     private suspend fun compileCurrent(
         publication: PresentationPublication,
         previousPublication: PresentationPublication? = null,
+        previousRows: List<ChatRowUiModel> = latestRows,
+        previousMessageCount: Int = latestMessages.size,
+        fullMessages: List<ChatMessage>? = publication.messages,
     ): CompiledRows {
         val startedAt = SystemClock.elapsedRealtimeNanos()
         while (true) {
@@ -395,9 +513,6 @@ class ChatV2RendererController(
             val forceCatalogUpgrade = previousPublication?.let { previous ->
                 publication.forceRefreshRevision != previous.forceRefreshRevision
             } == true
-            val appendInfo = previousPublication
-                ?.takeIf { it.key == publication.key && !forceCatalogUpgrade }
-                ?.let { findChatAppendInfo(it.messages, publication.messages) }
             val metadataSettlementChanged = previousPublication?.metadataSettlement !=
                     publication.metadataSettlement
             val reusablePublication = previousPublication?.takeIf {
@@ -405,27 +520,65 @@ class ChatV2RendererController(
                         !metadataSettlementChanged &&
                         it.key == publication.key
             }
-            val catalogs = presentationSnapshot.catalogsFor(
-                publication.key,
-                publication.messages,
-                publication.catalog,
-                captureBadges = renderStyle.showBadges,
-                structuralSettled = publication.metadataSettlement.structuralSettled,
-                badgesSettled = publication.metadataSettlement.badgesSettled,
-                rewardsSettled = publication.metadataSettlement.rewardsSettled,
-                forceUpgrade = forceCatalogUpgrade,
-                appendOnly = reusablePublication != null && appendInfo != null,
-                appendedCount = appendInfo?.appendedCount ?: 0,
-                evictedCount = appendInfo?.evictedCount ?: 0,
-            )
+            val timelineAppend = publication.timelineDelta as? ChatTimelineDelta.Append
+            val appendInfo = timelineAppend
+                ?.takeIf { delta ->
+                    canApplyTimelineAppend(
+                        publication = publication,
+                        previousPublication = previousPublication,
+                        previousRows = previousRows,
+                        previousMessageCount = previousMessageCount,
+                    ) && delta.resultingSize == previousMessageCount - delta.evictedCount + delta.messages.size
+                }
+                ?.let { delta -> ChatAppendInfo(delta.messages.size, delta.evictedCount) }
+            val appendCatalogs = appendInfo?.let {
+                val delta = requireNotNull(timelineAppend)
+                if (delta.messages.isEmpty() && delta.evictedCount == 0) {
+                    emptyList()
+                } else {
+                    presentationSnapshot.catalogsForAppend(
+                        key = publication.key,
+                        appendedMessages = delta.messages,
+                        evictedCount = delta.evictedCount,
+                        newMessageCount = delta.resultingSize,
+                        catalog = publication.catalog,
+                        captureBadges = renderStyle.showBadges,
+                        structuralSettled = publication.metadataSettlement.structuralSettled,
+                        badgesSettled = publication.metadataSettlement.badgesSettled,
+                        rewardsSettled = publication.metadataSettlement.rewardsSettled,
+                    )
+                }
+            }
             val rows = withContext(Dispatchers.Default) {
                 if (BuildConfig.PERF_DIAGNOSTICS) Trace.beginSection("Xtra.ChatV2.compileCurrent")
                 try {
-                    compileChatRows(
-                        messages = publication.messages,
-                        reuseIndex = reuseIndex.takeIf { reusablePublication != null },
-                        resolve = { message, index -> compiler.resolve(message, catalogs[index]) },
-                    )
+                    if (appendInfo != null && appendCatalogs != null) {
+                        val delta = requireNotNull(timelineAppend)
+                        val startIndex = delta.resultingSize - delta.messages.size
+                        compileChatRowAppend(
+                            messages = delta.messages,
+                            startIndex = startIndex,
+                            retainedRows = previousRows.size - delta.evictedCount,
+                            resolve = { message, index -> compiler.resolve(message, appendCatalogs[index - startIndex]) },
+                        )
+                    } else {
+                        val messages = requireNotNull(fullMessages)
+                        val catalogs = presentationSnapshot.catalogsFor(
+                            publication.key,
+                            messages,
+                            publication.catalog,
+                            captureBadges = renderStyle.showBadges,
+                            structuralSettled = publication.metadataSettlement.structuralSettled,
+                            badgesSettled = publication.metadataSettlement.badgesSettled,
+                            rewardsSettled = publication.metadataSettlement.rewardsSettled,
+                            forceUpgrade = forceCatalogUpgrade,
+                        )
+                        compileChatRows(
+                            messages = messages,
+                            reuseIndex = reuseIndex.takeIf { reusablePublication != null },
+                            resolve = { message, index -> compiler.resolve(message, catalogs[index]) },
+                        )
+                    }
                 } finally {
                     if (BuildConfig.PERF_DIAGNOSTICS) Trace.endSection()
                 }
@@ -434,7 +587,8 @@ class ChatV2RendererController(
                 return CompiledRows(
                     result = rows,
                     durationNanos = SystemClock.elapsedRealtimeNanos() - startedAt,
-                    fullRebuild = reusablePublication == null,
+                    fullRebuild = appendInfo == null && reusablePublication == null,
+                    appendInfo = appendInfo?.takeIf { appendCatalogs != null },
                 )
             }
         }
@@ -513,6 +667,9 @@ class ChatV2RendererController(
                 PresentationPublication(
                     key,
                     snapshot.messages,
+                    fullSnapshot = session::snapshot,
+                    timelineVersion = snapshot.version,
+                    timelineDelta = snapshot.delta,
                     metadataSettlement = ChatMetadataSettlement(
                         structuralSettled = catalogState.structuralCatalogSettled,
                         badgesSettled = !renderStyle.showBadges || catalogState.badgesSettled,
@@ -536,6 +693,9 @@ class ChatV2RendererController(
     private data class PresentationPublication(
         val key: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey,
         val messages: List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>,
+        val fullSnapshot: suspend () -> List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>,
+        val timelineVersion: Long,
+        val timelineDelta: ChatTimelineDelta?,
         val metadataSettlement: ChatMetadataSettlement,
         val forceRefreshRevision: Long,
         val catalog: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot,

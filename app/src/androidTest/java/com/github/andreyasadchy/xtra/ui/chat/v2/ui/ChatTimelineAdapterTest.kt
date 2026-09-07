@@ -46,6 +46,23 @@ class ChatTimelineAdapterTest {
     }
 
     @Test
+    fun deltaAppendDoesNotValidateRetainedRows() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val adapter = adapter(scope)
+        try {
+            submitAndWait(adapter, listOf(row("a"), row("b"), row("c")))
+
+            var applied = false
+            onMain { applied = adapter.appendDelta(listOf(row("d")), evictedHeadCount = 1, expectedSize = 3) }
+
+            assertTrue(applied)
+            assertEquals(listOf("b", "c", "d"), adapter.currentList.map { it.id.value })
+        } finally {
+            dispose(adapter, scope)
+        }
+    }
+
+    @Test
     fun retainedRowMutationRejectsDirectAppendAndUsesFallback() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = adapter(scope)

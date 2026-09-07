@@ -83,24 +83,49 @@ internal class ChatPresentationSnapshot {
         }
         val settlement = ChatMetadataSettlement(structuralSettled, badgesSettled, rewardsSettled)
         return messages.map { message ->
-            val frozen = catalogsByMessage[message.id]
-            if (frozen == null) {
-                val created = FrozenCatalog.from(
-                    catalog = catalog,
-                    captureBadges = captureBadges,
-                    settlement = settlement,
-                )
-                catalogsByMessage[message.id] = created
-                created.toCatalog(catalog)
-            } else {
-                frozen.update(
-                    catalog = catalog,
-                    captureBadges = captureBadges,
-                    settlement = settlement,
-                    forceUpgrade = forceUpgrade,
-                )
-                frozen.toCatalog(catalog)
+            catalogForMessage(message, catalog, captureBadges, settlement, forceUpgrade)
+        }
+    }
+
+    /** Applies a known tail append without walking the retained message window. */
+    @Synchronized
+    fun catalogsForAppend(
+        key: ChatSessionKey,
+        appendedMessages: List<ChatMessage>,
+        evictedCount: Int,
+        newMessageCount: Int,
+        catalog: ChatCatalogSnapshot,
+        captureBadges: Boolean = true,
+        structuralSettled: Boolean = true,
+        badgesSettled: Boolean = true,
+        rewardsSettled: Boolean = true,
+    ): List<ChatCatalogSnapshot>? {
+        if (sessionKey != key || evictedCount < 0 || evictedCount > orderedMessageIds.size) return null
+        val appendedStart = newMessageCount - appendedMessages.size
+        val alreadyApplied = orderedMessageIds.size == newMessageCount &&
+            appendedStart >= 0 &&
+            appendedMessages.indices.all { index ->
+                orderedMessageIds[appendedStart + index] == appendedMessages[index].id
             }
+        if (alreadyApplied) {
+            val settlement = ChatMetadataSettlement(structuralSettled, badgesSettled, rewardsSettled)
+            return appendedMessages.map { message ->
+                catalogForMessage(message, catalog, captureBadges, settlement, forceUpgrade = false)
+            }
+        }
+        repeat(evictedCount) {
+            val evicted = orderedMessageIds.removeFirst()
+            activeMessageIds.remove(evicted)
+            catalogsByMessage.remove(evicted)
+        }
+        val settlement = ChatMetadataSettlement(structuralSettled, badgesSettled, rewardsSettled)
+        appendedMessages.forEach { message ->
+            activeMessageIds += message.id
+            orderedMessageIds += message.id
+        }
+        ChatRenderDiagnostics.recordCatalogIndexUpdate(incremental = true)
+        return appendedMessages.map { message ->
+            catalogForMessage(message, catalog, captureBadges, settlement, forceUpgrade = false)
         }
     }
 
@@ -110,6 +135,32 @@ internal class ChatPresentationSnapshot {
         catalogsByMessage.clear()
         activeMessageIds.clear()
         orderedMessageIds.clear()
+    }
+
+    private fun catalogForMessage(
+        message: ChatMessage,
+        catalog: ChatCatalogSnapshot,
+        captureBadges: Boolean,
+        settlement: ChatMetadataSettlement,
+        forceUpgrade: Boolean,
+    ): ChatCatalogSnapshot {
+        val frozen = catalogsByMessage[message.id]
+        if (frozen == null) {
+            val created = FrozenCatalog.from(
+                catalog = catalog,
+                captureBadges = captureBadges,
+                settlement = settlement,
+            )
+            catalogsByMessage[message.id] = created
+            return created.toCatalog(catalog)
+        }
+        frozen.update(
+            catalog = catalog,
+            captureBadges = captureBadges,
+            settlement = settlement,
+            forceUpgrade = forceUpgrade,
+        )
+        return frozen.toCatalog(catalog)
     }
 
     private class FrozenCatalog(
