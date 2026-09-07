@@ -118,7 +118,8 @@ jobs:
           '{versionName: $version_name, versionCode: $version_code, buildNumber: $build_number}' \
           > xtra-release-metadata.json
     - name: Run JVM tests
-      run: ./gradlew testDebugUnitTest
+      timeout-minutes: 12
+      run: ./gradlew testDebugUnitTest --console=plain
 
     - name: Check resource localization hygiene
       run: python3 .github/scripts/check-resources.py

@@ -196,6 +196,12 @@ tasks.register<PrintVersionInfoTask>("printVersionInfo") {
     versionCode.set(printVersionCode)
 }
 
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging {
+        events("started", "failed", "skipped")
+    }
+}
+
 dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

@@ -576,22 +576,17 @@ class ChatSessionManagerIntegrationTest {
         private val deliveryGate: MessageDeliveryGate? = null,
     ) : ChatTransport {
         private val feeds = ConcurrentHashMap<ChatSessionKey, MutableSharedFlow<ChatEvent>>()
-        private val active = AtomicInteger()
-        val activeCollectors: Int get() = active.get()
+        val activeCollectors: Int
+            get() = feeds.values.sumOf { it.subscriptionCount.value }
         val requested = CopyOnWriteArrayList<ChatSessionKey>()
 
         override fun events(session: ChatSessionKey): Flow<ChatEvent> = flow {
             requested += session
-            active.incrementAndGet()
-            try {
-                feeds.computeIfAbsent(session) { MutableSharedFlow(extraBufferCapacity = 1_024) }
-                    .collect {
-                        emit(it)
-                        deliveryGate?.after(it)
-                    }
-            } finally {
-                active.decrementAndGet()
-            }
+            feeds.computeIfAbsent(session) { MutableSharedFlow(extraBufferCapacity = 1_024) }
+                .collect {
+                    emit(it)
+                    deliveryGate?.after(it)
+                }
         }
 
         suspend fun send(key: ChatSessionKey, message: ChatMessage) = send(key, ChatEvent.Message(message))
