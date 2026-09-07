@@ -2,9 +2,11 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.assets
 
 import android.content.Context
 import android.net.Uri
+import coil3.Image
 import coil3.ImageLoader
 import coil3.asDrawable
 import coil3.imageLoader
+import coil3.memory.MemoryCache
 import coil3.network.HttpException
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
@@ -31,7 +33,7 @@ class CoilChatAssetLoader(
         val result = imageLoader.execute(
             ImageRequest.Builder(context)
                 .data(url)
-                .memoryCacheKey("xtra:chat-v2:$url")
+                .memoryCacheKey(memoryCacheKey(url))
                 .diskCacheKey(url)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .diskCachePolicy(CachePolicy.ENABLED)
@@ -48,14 +50,36 @@ class CoilChatAssetLoader(
         )
         return when (result) {
             is SuccessResult -> {
-                // Keep the decoded image handle, not a mutable Drawable. Every bound TextView
-                // asks Coil for its own Drawable instance, which is required for animated assets.
-                ChatImageHandle {
-                    result.image.asDrawable(context.resources).mutate()
+                val image = result.image
+                if (image.shareable) {
+                    // Shareable images are retained by Coil. The repository keeps only this
+                    // cache key, and each bound TextView creates its own drawable instance.
+                    ChatImageHandle {
+                        imageLoader.memoryCache
+                            ?.get(MemoryCache.Key(memoryCacheKey(url)))
+                            ?.image
+                            ?.let(::newIndependentDrawable)
+                    }
+                } else {
+                    // Coil deliberately does not put non-shareable animated DrawableImages in
+                    // memory cache. Retain this one decoded handle as the current animated
+                    // fallback, matching the old behavior, and clone through ConstantState when
+                    // the platform drawable supports it.
+                    object : ChatImageHandle {
+                        override fun newDrawable() = newIndependentDrawable(image)
+                        override fun holdsDecodedImage() = true
+                    }
                 }
             }
             is ErrorResult -> throw ChatAssetLoadException(result.throwable.httpStatusCode(), result.throwable)
         }
+    }
+
+    private fun memoryCacheKey(url: String): String = "xtra:chat-v2:$url"
+
+    private fun newIndependentDrawable(image: Image): android.graphics.drawable.Drawable? {
+        val drawable = image.asDrawable(context.resources)
+        return drawable.constantState?.newDrawable(context.resources)?.mutate() ?: drawable.mutate()
     }
 
     private fun isHttpUrl(value: String): Boolean {

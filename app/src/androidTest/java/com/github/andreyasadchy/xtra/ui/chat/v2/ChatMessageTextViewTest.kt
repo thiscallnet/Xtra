@@ -337,6 +337,56 @@ class ChatMessageTextViewTest {
     }
 
     @Test
+    fun stagedRowSurvivesDetachAndReattachUntilItsAssetCompletes() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val releaseCandidate = CompletableDeferred<ChatImageHandle?>()
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { key ->
+            when (key.value) {
+                "visible-staged" -> ChatImageHandle { SolidDrawable(Color.RED) }
+                "pending-staged" -> releaseCandidate.await()
+                else -> null
+            }
+        })
+        val attached = attachView(repository)
+        val view = attached.view
+        val id = ChatMessageId("detach-reattach-staged")
+        val visibleSpec = ChatAssetSpec(ChatAssetKey("visible-staged"), 16, 16, 24)
+        val pendingSpec = ChatAssetSpec(ChatAssetKey("pending-staged"), 16, 16, 24)
+        try {
+            runOnMain { view.bind(row(visibleSpec, fallback = "VISIBLE", animated = false).copy(id = id)) }
+            awaitSettled(repository, listOf(visibleSpec.key))
+            awaitPreDraw(view)
+            runOnMain {
+                val spanned = view.text as Spanned
+                val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+                assertTrue(containsColor(draw(span, spanned, Paint.FontMetricsInt()), Color.RED))
+            }
+
+            runOnMain {
+                view.bind(row(pendingSpec, fallback = "STAGED", animated = false).copy(id = id))
+                view.detachedForTest()
+                view.attachedForTest()
+            }
+            awaitAssetRequested(repository, pendingSpec.key)
+
+            releaseCandidate.complete(ChatImageHandle { SolidDrawable(Color.BLUE) })
+            withTimeout(2_000) {
+                while (repository.peek(pendingSpec.key) !is ChatAssetState.Ready) delay(1)
+            }
+            awaitPreDraw(view)
+
+            runOnMain {
+                val spanned = view.text as Spanned
+                val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+                assertTrue(containsColor(draw(span, spanned, Paint.FontMetricsInt()), Color.BLUE))
+            }
+        } finally {
+            attached.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun sameIdRebindStagesComposedOverlayUntilTheOverlayIsReady() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -963,17 +1013,21 @@ class ChatMessageTextViewTest {
     fun failedClipMetadataDoesNotGrowLaterOnSameBinding() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val loads = AtomicInteger()
-        val clipRepository = ChatClipPreviewRepository(scope) {
-            if (loads.incrementAndGet() == 1) null else ChatClipPreview(
-                title = "clip",
-                broadcasterName = "broadcaster",
-                creatorName = "creator",
-                thumbnailUrl = null,
-                gameName = null,
-                durationSeconds = null,
-                createdAt = null,
-            )
-        }
+        val clipRepository = ChatClipPreviewRepository(
+            scope = scope,
+            loader = {
+                if (loads.incrementAndGet() == 1) null else ChatClipPreview(
+                    title = "clip",
+                    broadcasterName = "broadcaster",
+                    creatorName = "creator",
+                    thumbnailUrl = null,
+                    gameName = null,
+                    durationSeconds = null,
+                    createdAt = null,
+                )
+            },
+            negativeTtlMs = 0,
+        )
         val assetRepository = ChatAssetRepository(scope, ChatAssetLoader { null })
         val attached = attachView(assetRepository, clipRepository)
         val view = attached.view
@@ -1431,6 +1485,25 @@ class ChatMessageTextViewTest {
             view.bind(row(second))
             assertEquals(0, repository.observerCount(first.key))
             assertEquals(1, repository.observerCount(second.key))
+        }
+        scope.cancel()
+    }
+
+    @Test
+    fun attachingAlreadyBoundViewDoesNotDuplicateAssetObservers() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        val spec = ChatAssetSpec(ChatAssetKey("bound-before-attach"), 16, 16, 24)
+
+        runOnMain {
+            view.bind(row(spec))
+            assertEquals(1, repository.observerCount(spec.key))
+            view.attachedForTest()
+            assertEquals(1, repository.observerCount(spec.key))
+            view.detachedForTest()
+            assertEquals(0, repository.observerCount(spec.key))
         }
         scope.cancel()
     }
