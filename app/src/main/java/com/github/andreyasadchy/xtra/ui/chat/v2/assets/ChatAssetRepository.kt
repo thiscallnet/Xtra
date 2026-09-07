@@ -1,7 +1,9 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.assets
 
 import android.os.SystemClock
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.util.ChatRenderDiagnostics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +45,7 @@ class ChatAssetRepository(
             listeners.getOrPut(key) { LinkedHashSet() }.add(listener)
             if (states[key] == null) states[key] = ChatAssetState.Missing
             trimCacheLocked()
+            updateDiagnosticsLocked()
         }
         request(key)
     }
@@ -56,8 +59,12 @@ class ChatAssetRepository(
                 retryJobs.remove(key)?.cancel()
                 loadJob = loadJobs.remove(key)
                 if (states[key] is ChatAssetState.Loading) states.remove(key)
+                if ((states[key] as? ChatAssetState.Ready)?.image?.holdsDecodedImage() == true) {
+                    states.remove(key)
+                }
             }
             trimCacheLocked()
+            updateDiagnosticsLocked()
         }
         loadJob?.cancel()
     }
@@ -67,6 +74,7 @@ class ChatAssetRepository(
         val interested = synchronized(this) {
             keys.forEach { key -> if (states[key] is ChatAssetState.Failed) states.remove(key) }
             trimCacheLocked()
+            updateDiagnosticsLocked()
             keys.filter { !listeners[it].isNullOrEmpty() }
         }
         interested.forEach(::request)
@@ -128,6 +136,7 @@ class ChatAssetRepository(
                             states[key] = state
                             retryJobs.remove(key)
                             trimCacheLocked()
+                            updateDiagnosticsLocked()
                             listeners[key]?.toList().orEmpty()
                         }
                     } ?: return@launch
@@ -136,10 +145,16 @@ class ChatAssetRepository(
                     if (state is ChatAssetState.Failed) scheduleRetry(key, state.nextRetryAtMs - nowMs())
                 } finally {
                     synchronized(this@ChatAssetRepository) {
-                        if (loadJobs[key] === currentJob) loadJobs.remove(key)
+                        if (loadJobs[key] === currentJob) {
+                            loadJobs.remove(key)
+                            updateDiagnosticsLocked()
+                        }
                     }
                 }
-            }.also { loadJobs[key] = it }
+            }.also {
+                loadJobs[key] = it
+                updateDiagnosticsLocked()
+            }
         }
         if (!loadJob.start()) {
             synchronized(this) {
@@ -148,9 +163,24 @@ class ChatAssetRepository(
                     if (listeners[key].isNullOrEmpty() && states[key] is ChatAssetState.Loading) {
                         states.remove(key)
                     }
+                    updateDiagnosticsLocked()
                 }
             }
         }
+    }
+
+    /** Reopens a Ready state if Coil evicted the decoded value before this row needed a drawable. */
+    internal fun retryIfDrawableUnavailable(key: ChatAssetKey) {
+        val shouldRequest = synchronized(this) {
+            if (listeners[key].isNullOrEmpty() || states[key] !is ChatAssetState.Ready) {
+                false
+            } else {
+                states[key] = ChatAssetState.Missing
+                updateDiagnosticsLocked()
+                true
+            }
+        }
+        if (shouldRequest) request(key)
     }
 
     private fun scheduleRetry(key: ChatAssetKey, delayMs: Long) {
@@ -180,5 +210,17 @@ class ChatAssetRepository(
                 iterator.remove()
             }
         }
+    }
+
+    private fun updateDiagnosticsLocked() {
+        if (!BuildConfig.PERF_DIAGNOSTICS) return
+        ChatRenderDiagnostics.setAssetRepositoryState(
+            activeObservers = listeners.values.sumOf { it.size },
+            inFlightLoads = loadJobs.size,
+            cachedStates = states.size,
+            decodedHandles = states.values.count { state ->
+                (state as? ChatAssetState.Ready)?.image?.holdsDecodedImage() == true
+            },
+        )
     }
 }
