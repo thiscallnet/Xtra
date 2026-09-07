@@ -79,6 +79,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransportCon
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.SevenTvPresenceReporter
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.isRecentChatHistoryEnabled
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
@@ -102,6 +103,7 @@ import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 private const val RECENT_HISTORY_WINDOW_SECONDS = 10 * 60
+private const val RECENT_HISTORY_LOG_TAG = "RecentChatHistory"
 
 @OptIn(UnstableApi::class)
 class XtraModule(application: Application) {
@@ -861,13 +863,18 @@ class XtraModule(application: Application) {
                         val url = liveSpec.recentMessagesUrl
                             ?: "https://recent-messages.robotty.de/api/v2/recent-messages/\$channel"
                         val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-                        playerRepository.loadRecentMessages(network, url, liveSpec.channelLogin, "100")
-                            .messages.asSequence()
+                        val rawMessages = playerRepository
+                            .loadRecentMessages(network, url, liveSpec.channelLogin, "100")
+                            .messages
+                        Log.d(RECENT_HISTORY_LOG_TAG, "history stage=robotty raw_count=${rawMessages.size}")
+                        val parsedMessages = rawMessages.asSequence()
                             .mapNotNull { raw -> TwitchChatEventParser.fromIrc(com.github.andreyasadchy.xtra.util.chat.ChatUtils.parseIRCMessage(raw), liveSpec.channelId) }
                             .mapNotNull { (it as? com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent.Message)?.message }
                             .toList()
+                        Log.d(RECENT_HISTORY_LOG_TAG, "history stage=robotty parsed_count=${parsedMessages.size}")
+                        parsedMessages
                     },
-                    enabled = { appContext.prefs().getBoolean(C.CHAT_RECENT, true) },
+                    enabled = { appContext.prefs().isRecentChatHistoryEnabled() },
                 ).load(spec)
             },
             initialSettings = { spec ->

@@ -388,6 +388,13 @@ object SettingsMigration {
         // marker already says current; AndroidX ListPreference requires a
         // String and reads the raw SharedPreferences value directly.
         normalizeCaptionIntervalPreference(preferences)
+        if (!preferences.contains(C.CHAT_RECENT)) {
+            // chat_history_preferences.xml enables recent history by default. Seed the
+            // key here because this app does not initialize PreferenceManager defaults.
+            preferences.edit {
+                putBoolean(C.CHAT_RECENT, C.CHAT_RECENT_DEFAULT)
+            }
+        }
         if (preferences.getInt(C.SETTINGS_VERSION, 0) >= C.SETTINGS_SCHEMA_VERSION) return
         val isFreshInstall = freshInstall ?: inferFreshInstall(preferences)
 

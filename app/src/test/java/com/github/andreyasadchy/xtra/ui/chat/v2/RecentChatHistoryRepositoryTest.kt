@@ -51,14 +51,30 @@ class RecentChatHistoryRepositoryTest {
 
     @Test fun disabledHistoryDoesNotQueryEitherSource() = runBlocking {
         var calls = 0
+        val logs = mutableListOf<String>()
         val result = RecentChatHistoryRepository(
             twitch = RecentChatHistorySource { calls++; listOf(message) },
             robotty = RecentChatHistorySource { calls++; listOf(message) },
             enabled = { false },
-            log = {},
+            log = logs::add,
         ).load(spec)
         assertTrue(result.isEmpty())
         assertEquals(0, calls)
+        assertEquals(listOf("history disabled"), logs)
+    }
+
+    @Test fun logsSourceAndFinalHistoryCounts() = runBlocking {
+        val logs = mutableListOf<String>()
+        val result = RecentChatHistoryRepository(
+            twitch = RecentChatHistorySource { emptyList() },
+            robotty = RecentChatHistorySource { listOf(message) },
+            log = logs::add,
+        ).load(spec)
+
+        assertEquals(listOf(message), result)
+        assertTrue(logs.contains("history stage=twitch result_count=0"))
+        assertTrue(logs.contains("history stage=robotty parsed_count=1"))
+        assertTrue(logs.contains("history stage=final reconciled_count=1"))
     }
 
     @Test fun twitchTimeoutFallsBackToRobotty() = runBlocking {

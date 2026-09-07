@@ -61,11 +61,17 @@ class RecentChatHistoryRepository(
     private val robottyTimeoutMs: Long = 10_000,
 ) : RecentChatHistorySource {
     override suspend fun load(spec: LiveChatSessionSpec): List<ChatMessage> {
-        if (!enabled()) return emptyList()
+        if (!enabled()) {
+            log("history disabled")
+            return emptyList()
+        }
         try {
             val result = withTimeout(twitchTimeoutMs) { twitch.load(spec) }
-            log("history source=twitch count=${result.size}")
-            if (result.isNotEmpty()) return result
+            log("history stage=twitch result_count=${result.size}")
+            if (result.isNotEmpty()) {
+                log("history stage=final reconciled_count=${result.size}")
+                return result
+            }
             log("history fallback=twitch-empty")
         } catch (error: TimeoutCancellationException) {
             log("history fallback=twitch-timeout")
@@ -76,15 +82,18 @@ class RecentChatHistoryRepository(
         }
         return try {
             val result = withTimeout(robottyTimeoutMs) { robotty.load(spec) }
-            log("history source=robotty count=${result.size}")
+            log("history stage=robotty parsed_count=${result.size}")
+            log("history stage=final reconciled_count=${result.size}")
             result
         } catch (error: TimeoutCancellationException) {
             log("history unavailable reason=robotty-timeout")
+            log("history stage=final reconciled_count=0")
             emptyList()
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
             log("history unavailable reason=${error.javaClass.simpleName}")
+            log("history stage=final reconciled_count=0")
             emptyList()
         }
     }
