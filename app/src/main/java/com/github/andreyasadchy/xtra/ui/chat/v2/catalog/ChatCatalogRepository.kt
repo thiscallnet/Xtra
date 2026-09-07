@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import java.util.LinkedHashMap
 
 sealed interface ScopeUpdate<out T> {
     data class Success<T>(val value: T) : ScopeUpdate<T>
@@ -115,6 +116,7 @@ class ChatCatalogRepository(
     private val wait: suspend (Long) -> Unit = { delay(it) },
     private val personalEmoteSetLoader: (suspend (String) -> Map<String, ChatCatalogEmote>)? = null,
     private val cacheFreshnessMs: Long = 60 * 60 * 1000L,
+    private val personalEmoteFailureTtlMs: Long = 60_000L,
 ) {
     private enum class Provider { TWITCH, SEVEN_TV, BTTV, FFZ, BADGES, CHEERMOTES }
 
@@ -141,6 +143,7 @@ class ChatCatalogRepository(
     private var cacheBadgeConfigFingerprint: String? = null
     private val personalEmoteSetJobs = mutableMapOf<String, Job>()
     private val loadedPersonalEmoteSets = mutableSetOf<String>()
+    private val failedPersonalEmoteSets = LinkedHashMap<String, Long>(16, 0.75f, true)
     private var networkProvidersObserved = emptySet<Provider>()
     private val networkEmoteScopesObserved = mutableMapOf<Provider, MutableSet<ChatEmoteScope>>()
     private var runtimeDecorations = ChatDecorationSnapshot()
@@ -304,6 +307,9 @@ class ChatCatalogRepository(
     private fun loadPersonalEmoteSet(setId: String) {
         val loader = personalEmoteSetLoader ?: return
         if (setId.isBlank() || setId in loadedPersonalEmoteSets || setId in personalEmoteSetJobs) return
+        val now = System.currentTimeMillis()
+        pruneFailedPersonalEmoteSets(now)
+        if (failedPersonalEmoteSets[setId] != null) return
         personalEmoteSetJobs[setId] = scope.launch {
             val emotes = try {
                 loader(setId)
@@ -314,7 +320,17 @@ class ChatCatalogRepository(
             }
             synchronized(this@ChatCatalogRepository) {
                 personalEmoteSetJobs.remove(setId)
-                if (closed || emotes.isEmpty()) return@synchronized
+                if (closed) return@synchronized
+                if (emotes.isEmpty()) {
+                    val failedAt = System.currentTimeMillis()
+                    pruneFailedPersonalEmoteSets(failedAt)
+                    failedPersonalEmoteSets[setId] = failedAt
+                    while (failedPersonalEmoteSets.size > MAX_FAILED_PERSONAL_EMOTE_SETS) {
+                        failedPersonalEmoteSets.remove(failedPersonalEmoteSets.entries.first().key)
+                    }
+                    return@synchronized
+                }
+                failedPersonalEmoteSets.remove(setId)
                 loadedPersonalEmoteSets += setId
                 val currentState = _state.value
                 val current = currentState.snapshot
@@ -331,6 +347,18 @@ class ChatCatalogRepository(
         }
     }
 
+    private fun pruneFailedPersonalEmoteSets(now: Long) {
+        val iterator = failedPersonalEmoteSets.entries.iterator()
+        while (iterator.hasNext()) {
+            if (now - iterator.next().value >= personalEmoteFailureTtlMs) iterator.remove()
+        }
+        while (failedPersonalEmoteSets.size > MAX_FAILED_PERSONAL_EMOTE_SETS) {
+            val oldest = failedPersonalEmoteSets.entries.iterator()
+            oldest.next()
+            oldest.remove()
+        }
+    }
+
     private fun ChatDecorationUpdate.userPersonalEmoteSetId(): String? =
         (this as? ChatDecorationUpdate.User)?.personalEmoteSetId
 
@@ -339,6 +367,10 @@ class ChatCatalogRepository(
         namePaints = namePaints + value.paints,
         sevenTvBadges = sevenTvBadges + value.badges,
     )
+
+    private companion object {
+        const val MAX_FAILED_PERSONAL_EMOTE_SETS = 128
+    }
 
     private fun ChatDecorationSnapshot.apply(update: ChatDecorationUpdate): ChatDecorationSnapshot = when (update) {
         is ChatDecorationUpdate.EmoteSet -> this

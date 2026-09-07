@@ -16,7 +16,7 @@ enum class StreamPreviewMode(val preferenceValue: String) {
 
     companion object {
         fun fromPreference(value: String?): StreamPreviewMode =
-            entries.firstOrNull { it.preferenceValue == value } ?: if (value == null) WIFI_AND_MOBILE else OFF
+            entries.firstOrNull { it.preferenceValue == value } ?: if (value == null) WIFI_ONLY else OFF
     }
 }
 
@@ -58,7 +58,7 @@ object StreamPreviewPolicy {
         return if (preferences.contains(C.STREAM_PREVIEW_MODE)) {
             StreamPreviewMode.fromPreference(preferences.getString(C.STREAM_PREVIEW_MODE, null))
         } else {
-            StreamPreviewMode.WIFI_AND_MOBILE
+            StreamPreviewMode.WIFI_ONLY
         }
     }
 

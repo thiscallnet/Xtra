@@ -209,7 +209,7 @@ class ChatV2RendererController(
             (recyclerView.getChildAt(index) as? ChatMessageTextView)?.setRenderingActive(false)
         }
         recyclerView.adapter = null
-        adapter.submitList(emptyList())
+        adapter.dispose()
         latestRows = emptyList()
         previousIds.clear()
         hasPreviousIds = false
@@ -359,9 +359,21 @@ class ChatV2RendererController(
             )
             if (uiChanged) {
                 onPublicationChanged(publication.messages, rows)
-                adapter.submitList(rows) {
+                val appliedIncrementally = appendInfo?.let {
+                    adapter.append(
+                        newRows = rows,
+                        evictedHeadCount = it.evictedCount,
+                        appendedCount = it.appendedCount,
+                    )
+                } == true
+                if (appliedIncrementally) {
                     viewport.onSnapshotCommitted(previousAnchor, rows, appendedCount)
                     onStateChanged(viewport.state)
+                } else {
+                    adapter.submitList(rows) {
+                        viewport.onSnapshotCommitted(previousAnchor, rows, appendedCount)
+                        onStateChanged(viewport.state)
+                    }
                 }
             }
         }

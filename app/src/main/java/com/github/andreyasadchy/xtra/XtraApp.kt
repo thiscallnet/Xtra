@@ -37,8 +37,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
 import okio.Buffer
-import okio.buffer
-import okio.source
 import org.chromium.net.apihelpers.UploadDataProviders
 import org.conscrypt.Conscrypt
 import java.security.Security
@@ -199,11 +197,11 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                                         }
                                         val requestMillis = System.currentTimeMillis()
                                         val response = suspendCancellableCoroutine { continuation ->
-                                            val timeout = NetworkUtils.HttpEngineTimeout()
+                                            val timeout = NetworkUtils.HttpEngineStreamingTimeout()
                                             val request = xtraModule.httpEngine.value!!.newUrlRequestBuilder(
                                                 request.url,
                                                 xtraModule.cronetExecutor.value,
-                                                NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
+                                                NetworkUtils.StreamingUrlCallback(continuation, timeout)
                                             ).apply {
                                                 request.headers.asMap().forEach { entry ->
                                                     entry.value.forEach {
@@ -215,7 +213,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                                                 }
                                                 setHttpMethod(request.method)
                                             }.build()
-                                            timeout.start(request, continuation)
+                                            timeout.start(request)
                                             request.start()
                                             continuation.invokeOnCancellation {
                                                 request.cancel()
@@ -233,7 +231,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                                                         add(it.key, it.value)
                                                     }
                                                 }.build(),
-                                                body = response.body.inputStream().source().buffer().let(::NetworkResponseBody),
+                                                body = response.body.let(::NetworkResponseBody),
                                             )
                                         )
                                     }
@@ -254,10 +252,10 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                                         }
                                         val requestMillis = System.currentTimeMillis()
                                         val response = suspendCancellableCoroutine { continuation ->
-                                            val timeout = NetworkUtils.CronetTimeout()
+                                            val timeout = NetworkUtils.CronetStreamingTimeout()
                                             val request = xtraModule.cronetEngine.value!!.newUrlRequestBuilder(
                                                 request.url,
-                                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
+                                                NetworkUtils.StreamingCronetCallback(continuation, timeout),
                                                 xtraModule.cronetExecutor.value
                                             ).apply {
                                                 request.headers.asMap().forEach { entry ->
@@ -270,7 +268,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                                                 }
                                                 setHttpMethod(request.method)
                                             }.build()
-                                            timeout.start(request, continuation)
+                                            timeout.start(request)
                                             request.start()
                                             continuation.invokeOnCancellation {
                                                 request.cancel()
@@ -288,7 +286,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                                                         add(it.key, it.value)
                                                     }
                                                 }.build(),
-                                                body = response.body.inputStream().source().buffer().let(::NetworkResponseBody),
+                                                body = response.body.let(::NetworkResponseBody),
                                             )
                                         )
                                     }

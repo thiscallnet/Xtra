@@ -6,8 +6,8 @@ import org.junit.Test
 
 class StreamPreviewPolicyTest {
     @Test
-    fun missingPreviewModeUsesAConservativeBrowsingDefault() {
-        assertEquals(StreamPreviewMode.WIFI_AND_MOBILE, StreamPreviewMode.fromPreference(null))
+    fun missingPreviewModeUsesAWifiOnlyBrowsingDefault() {
+        assertEquals(StreamPreviewMode.WIFI_ONLY, StreamPreviewMode.fromPreference(null))
         assertEquals(StreamPreviewQuality.P360, StreamPreviewQuality.fromPreference(null))
         assertEquals(StreamPreviewDelay.FAST, StreamPreviewDelay.fromPreference(null))
         assertEquals(750L, StreamPreviewDelay.FAST.delayMs)

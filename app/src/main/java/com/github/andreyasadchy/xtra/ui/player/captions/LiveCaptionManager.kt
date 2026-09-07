@@ -60,6 +60,8 @@ internal class CaptionAudioQueue(capacity: Int = 128) {
 
     fun clear() = queue.clear()
 
+    fun isFull(): Boolean = queue.remainingCapacity() == 0
+
     val size: Int get() = queue.size
 }
 
@@ -198,6 +200,13 @@ class LiveCaptionManager(
                     if (format.encoding != C.ENCODING_PCM_16BIT &&
                         format.encoding != C.ENCODING_PCM_FLOAT
                     ) return
+
+                    // Admission must happen before copying PCM. The queue is intentionally
+                    // lossy under ASR overload, so a full queue has no use for another buffer.
+                    if (audioQueue.isFull()) {
+                        droppedAudioBuffers.incrementAndGet()
+                        return
+                    }
 
                     val copy = ByteArray(buffer.remaining())
                     buffer.duplicate().get(copy)

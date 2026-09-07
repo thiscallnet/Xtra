@@ -285,7 +285,7 @@ class GameFeedCache(
                 removedKeys += state.feedKey
             }
         }
-        removedKeys.forEach(activeSnapshot::clear)
+        removedKeys.forEach(activeSnapshot::evict)
     }
 
     private fun staleTailExpired(state: GameFeedState?, nowMs: Long): Boolean = state != null &&

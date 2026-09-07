@@ -759,6 +759,21 @@ class ChatCatalogRepositoryTest {
     }
 
     @Test
+    fun singleFlightCacheEvictsTheLeastRecentlyUsedPersonalSet() = runBlocking {
+        val cache = ExpiringSingleFlightCache<String>(ttlMs = 60_000L, maxSize = 2)
+        val calls = AtomicInteger()
+
+        cache.get("a") { calls.incrementAndGet(); "a" }
+        cache.get("b") { calls.incrementAndGet(); "b" }
+        cache.get("a") { calls.incrementAndGet(); "unexpected" }
+        cache.get("c") { calls.incrementAndGet(); "c" }
+
+        assertEquals("a", cache.get("a") { calls.incrementAndGet(); "unexpected" })
+        assertEquals("reloaded-b", cache.get("b") { calls.incrementAndGet(); "reloaded-b" })
+        assertEquals(4, calls.get())
+    }
+
+    @Test
     fun newlyObservedPersonalSetIsLoadedOnceAndAttachedToItsSetId() = runBlocking {
         val calls = AtomicInteger()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -796,6 +811,40 @@ class ChatCatalogRepositoryTest {
 
         assertEquals(1, calls.get())
         assertEquals(personal, repository.state.value.snapshot.sevenTv.personal["set-a"]?.get("VIPWave"))
+        repository.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun failedPersonalSetLoadIsSuppressedUntilTheNegativeTtlExpires() = runBlocking {
+        val calls = AtomicInteger()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val loadedEmote = emote("Recovered", ChatAssetProvider.SEVEN_TV).copy(scope = ChatEmoteScope.PERSONAL)
+        val repository = ChatCatalogRepository(
+            scope = scope,
+            source = ChatCatalogSource { ChatCatalogLoadResult() },
+            personalEmoteFailureTtlMs = 50L,
+            personalEmoteSetLoader = {
+                if (calls.incrementAndGet() == 1) emptyMap() else mapOf(loadedEmote.name to loadedEmote)
+            },
+        )
+        val update = ChatDecorationUpdate.User("user", personalEmoteSetId = "failed-set")
+
+        repository.applyDecorationUpdate(update)
+        withTimeout(1_000) { while (calls.get() < 1) delay(1) }
+        delay(20)
+        repository.applyDecorationUpdate(update)
+        delay(20)
+        assertEquals(1, calls.get())
+
+        delay(60)
+        repository.applyDecorationUpdate(update)
+        withTimeout(1_000) { while (calls.get() < 2) delay(1) }
+        withTimeout(1_000) {
+            while (repository.state.value.snapshot.sevenTv.personal["failed-set"].isNullOrEmpty()) delay(1)
+        }
+        assertEquals(loadedEmote, repository.state.value.snapshot.sevenTv.personal["failed-set"]?.get("Recovered"))
+
         repository.close()
         scope.cancel()
     }

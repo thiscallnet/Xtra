@@ -18,6 +18,8 @@ import okhttp3.internal.closeQuietly
 import okio.Buffer
 import okio.BufferedSource
 import okio.ForwardingSource
+import okio.Pipe
+import okio.Sink
 import okio.buffer
 import org.chromium.net.CronetException
 import java.io.ByteArrayOutputStream
@@ -47,6 +49,7 @@ object NetworkUtils {
     private const val DEFAULT_MAX_BODY_BYTES = 64 * 1024 * 1024
     internal const val MAX_STREAM_BYTES = 8L * 1024 * 1024 * 1024
     private const val BYTE_BUFFER_CAPACITY = 32 * 1024
+    private const val STREAM_PIPE_BUFFER_BYTES = 256L * 1024L
 
     /** Copies a streaming response without allowing an unknown-length body to fill storage. */
     fun copyToLimited(input: InputStream, output: OutputStream, maxBytes: Long = MAX_STREAM_BYTES): Long {
@@ -84,6 +87,248 @@ object NetworkUtils {
         val info: UrlResponseInfo,
         val bytes: Long,
     )
+
+    class HttpEngineStreamingResponse(
+        val info: UrlResponseInfo,
+        val body: BufferedSource,
+    )
+
+    class CronetStreamingResponse(
+        val info: org.chromium.net.UrlResponseInfo,
+        val body: BufferedSource,
+    )
+
+    /** A bounded handoff from a network callback to a consumer-owned response source. */
+    internal class StreamingResponseBody(
+        maxBytes: Long,
+        onSourceClosed: () -> Unit,
+    ) {
+        private val maxBytes = maxBytes.coerceAtLeast(0L)
+        private val pipe = Pipe(STREAM_PIPE_BUFFER_BYTES)
+        private val sink: Sink = pipe.sink
+        val source: BufferedSource = object : ForwardingSource(pipe.source) {
+            override fun close() {
+                onSourceClosed()
+                super.close()
+            }
+        }.buffer()
+        private var bytes = 0L
+
+        fun write(byteBuffer: ByteBuffer) {
+            val count = byteBuffer.remaining().toLong()
+            if (count > maxBytes - bytes) {
+                throw IOException("Response body exceeds the $maxBytes byte limit")
+            }
+            val chunk = Buffer()
+            chunk.write(byteBuffer)
+            sink.write(chunk, count)
+            bytes += count
+        }
+
+        fun complete() {
+            sink.close()
+        }
+
+        fun cancel() {
+            pipe.cancel()
+        }
+    }
+
+    @RequiresExtension(extension = Build.VERSION_CODES.S, version = 7)
+    class HttpEngineStreamingTimeout(timeout: Long = DEFAULT_TIMEOUT_MS): Timeout(timeout) {
+        lateinit var request: UrlRequest
+        var onTimeout: (() -> Unit)? = null
+
+        fun start(request: UrlRequest) {
+            this.request = request
+            updateTimeout()
+        }
+
+        override fun timeout() {
+            complete {
+                onTimeout?.invoke()
+                request.cancel()
+            }
+        }
+    }
+
+    class CronetStreamingTimeout(timeout: Long = DEFAULT_TIMEOUT_MS): Timeout(timeout) {
+        lateinit var request: org.chromium.net.UrlRequest
+        var onTimeout: (() -> Unit)? = null
+
+        fun start(request: org.chromium.net.UrlRequest) {
+            this.request = request
+            updateTimeout()
+        }
+
+        override fun timeout() {
+            complete {
+                onTimeout?.invoke()
+                request.cancel()
+            }
+        }
+    }
+
+    /** Resumes at response headers and lets Coil consume the body through a bounded pipe. */
+    @RequiresExtension(extension = Build.VERSION_CODES.S, version = 7)
+    class StreamingUrlCallback(
+        private val continuation: CancellableContinuation<HttpEngineStreamingResponse>,
+        private val timeout: HttpEngineStreamingTimeout,
+        private val maxBodyBytes: Int = DEFAULT_MAX_BODY_BYTES,
+        private val throwOnHttpError: Boolean = false,
+    ): UrlRequest.Callback {
+        private var body: StreamingResponseBody? = null
+
+        @Volatile
+        private var responseDelivered = false
+
+        init {
+            timeout.onTimeout = ::onTimeout
+        }
+
+        override fun onRedirectReceived(request: UrlRequest, info: UrlResponseInfo, newLocationUrl: String) {
+            request.followRedirect()
+        }
+
+        override fun onResponseStarted(request: UrlRequest, info: UrlResponseInfo) {
+            if (throwOnHttpError && info.httpStatusCode !in 200..299) {
+                request.cancel()
+                fail(HttpStatusException(info.httpStatusCode))
+                return
+            }
+            val bodyLength = info.headers.asMap[CONTENT_LENGTH_HEADER_NAME]
+                ?.singleOrNull()
+                ?.toLongOrNull()
+                ?: -1L
+            if (bodyLength > maxBodyBytes || bodyLength > MAX_ARRAY_SIZE) {
+                request.cancel()
+                fail(IOException("Response body exceeds the $maxBodyBytes byte limit"))
+                return
+            }
+            val responseBody = StreamingResponseBody(maxBodyBytes.toLong(), request::cancel)
+            body = responseBody
+            responseDelivered = true
+            continuation.resume(HttpEngineStreamingResponse(info, responseBody.source))
+            request.read(ByteBuffer.allocateDirect(BYTE_BUFFER_CAPACITY))
+        }
+
+        override fun onReadCompleted(request: UrlRequest, info: UrlResponseInfo, byteBuffer: ByteBuffer) {
+            byteBuffer.flip()
+            try {
+                body?.write(byteBuffer) ?: throw IOException("Response body was not initialized")
+                timeout.updateTimeout()
+                byteBuffer.clear()
+                request.read(byteBuffer)
+            } catch (error: Throwable) {
+                request.cancel()
+                fail(error)
+            }
+        }
+
+        override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
+            timeout.complete { body?.complete() }
+        }
+
+        override fun onFailed(request: UrlRequest, info: UrlResponseInfo?, error: HttpException) {
+            fail(error)
+        }
+
+        override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) {
+            fail(IOException("Request canceled"))
+        }
+
+        private fun onTimeout() {
+            body?.cancel()
+            if (!responseDelivered) continuation.resumeWithException(IOException("Timed out"))
+        }
+
+        private fun fail(error: Throwable) {
+            timeout.complete {
+                body?.cancel()
+                if (!responseDelivered) continuation.resumeWithException(error)
+            }
+        }
+    }
+
+    /** Cronet counterpart to [StreamingUrlCallback]. */
+    class StreamingCronetCallback(
+        private val continuation: CancellableContinuation<CronetStreamingResponse>,
+        private val timeout: CronetStreamingTimeout,
+        private val maxBodyBytes: Int = DEFAULT_MAX_BODY_BYTES,
+        private val throwOnHttpError: Boolean = false,
+    ): org.chromium.net.UrlRequest.Callback() {
+        private var body: StreamingResponseBody? = null
+
+        @Volatile
+        private var responseDelivered = false
+
+        init {
+            timeout.onTimeout = ::onTimeout
+        }
+
+        override fun onRedirectReceived(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo, newLocationUrl: String) {
+            request.followRedirect()
+        }
+
+        override fun onResponseStarted(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo) {
+            if (throwOnHttpError && info.httpStatusCode !in 200..299) {
+                request.cancel()
+                fail(HttpStatusException(info.httpStatusCode))
+                return
+            }
+            val bodyLength = info.allHeaders[CONTENT_LENGTH_HEADER_NAME]
+                ?.singleOrNull()
+                ?.toLongOrNull()
+                ?: -1L
+            if (bodyLength > maxBodyBytes || bodyLength > MAX_ARRAY_SIZE) {
+                request.cancel()
+                fail(IOException("Response body exceeds the $maxBodyBytes byte limit"))
+                return
+            }
+            val responseBody = StreamingResponseBody(maxBodyBytes.toLong(), request::cancel)
+            body = responseBody
+            responseDelivered = true
+            continuation.resume(CronetStreamingResponse(info, responseBody.source))
+            request.read(ByteBuffer.allocateDirect(BYTE_BUFFER_CAPACITY))
+        }
+
+        override fun onReadCompleted(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo, byteBuffer: ByteBuffer) {
+            byteBuffer.flip()
+            try {
+                body?.write(byteBuffer) ?: throw IOException("Response body was not initialized")
+                timeout.updateTimeout()
+                byteBuffer.clear()
+                request.read(byteBuffer)
+            } catch (error: Throwable) {
+                request.cancel()
+                fail(error)
+            }
+        }
+
+        override fun onSucceeded(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo) {
+            timeout.complete { body?.complete() }
+        }
+
+        override fun onFailed(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo?, error: CronetException) {
+            fail(error)
+        }
+
+        override fun onCanceled(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo?) {
+            fail(IOException("Request canceled"))
+        }
+
+        private fun onTimeout() {
+            body?.cancel()
+            if (!responseDelivered) continuation.resumeWithException(IOException("Timed out"))
+        }
+
+        private fun fail(error: Throwable) {
+            timeout.complete {
+                body?.cancel()
+                if (!responseDelivered) continuation.resumeWithException(error)
+            }
+        }
+    }
 
     @RequiresExtension(extension = Build.VERSION_CODES.S, version = 7)
     class ByteArrayUrlCallback(
