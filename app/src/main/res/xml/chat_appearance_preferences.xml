@@ -1,5 +1,6 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
     <SeekBarPreference android:defaultValue="100" android:key="chat_size_modifier" android:max="200" android:summary="@string/settings_chat_size_summary" android:title="@string/settings_chat_size" app:iconSpaceReserved="false" app:min="50" app:showSeekBarValue="true" />
+    <EditTextPreference android:inputType="number" android:key="chat_ui_batch_interval_ms" android:title="@string/settings_chat_batch_interval" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="14" android:entries="@array/chatTextSizeEntries" android:entryValues="@array/chatTextSizeValues" android:key="chat_text_size" android:summary="%s" android:title="@string/text_size" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="29.5" android:entries="@array/chatEmoteSizeEntries" android:entryValues="@array/chatEmoteSizeValues" android:key="chat_emote_size" android:summary="%s" android:title="@string/chat_emote_size" app:iconSpaceReserved="false" />
     <EditTextPreference android:defaultValue="18.5" android:inputType="numberDecimal" android:key="chat_badge_size" android:title="@string/chat_badge_size" app:iconSpaceReserved="false" app:useSimpleSummaryProvider="true" />

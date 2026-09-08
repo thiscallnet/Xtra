@@ -127,7 +127,9 @@ import com.github.andreyasadchy.xtra.util.updater.UpdateTimeFormatter
 import com.github.andreyasadchy.xtra.util.updater.UpdateVersionDisplay
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
+import com.github.andreyasadchy.xtra.util.DEFAULT_CHAT_UI_BATCH_INTERVAL_MS
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.util.parseChatUiBatchIntervalMs
 import com.github.andreyasadchy.xtra.ui.chat.parseChatHighlightColor
 import com.github.andreyasadchy.xtra.ui.player.captions.formatCaptionTextOffset
 import com.github.andreyasadchy.xtra.ui.player.captions.MoonshineModelState
@@ -1426,6 +1428,32 @@ class SettingsActivity : AppCompatActivity() {
         private fun configureChatSizePreferences() {
             appendCustomListValue(findPreference(C.CHAT_TEXT_SIZE), "sp")
             appendCustomListValue(findPreference(C.CHAT_EMOTE_SIZE), "dp")
+            findPreference<EditTextPreference>(C.CHAT_UI_BATCH_INTERVAL_MS)?.apply {
+                if (text == null) {
+                    text = DEFAULT_CHAT_UI_BATCH_INTERVAL_MS.toString()
+                }
+                fun updateSummary(value: String?) {
+                    val interval = parseChatUiBatchIntervalMs(value)
+                    summary = if (interval == 0L) {
+                        getString(R.string.settings_chat_batch_interval_off)
+                    } else {
+                        getString(R.string.settings_chat_batch_interval_summary, interval)
+                    }
+                }
+                updateSummary(text)
+                setOnBindEditTextListener {
+                    it.inputType = InputType.TYPE_CLASS_NUMBER
+                    it.selectAll()
+                }
+                setOnPreferenceChangeListener { _, value ->
+                    val valid = value.toString().trim().toLongOrNull()?.let { it >= 0L } == true
+                    if (valid) {
+                        updateSummary(value.toString())
+                        (requireActivity() as? SettingsActivity)?.setResult()
+                    }
+                    valid
+                }
+            }
             val chatAppearanceChangeListener = Preference.OnPreferenceChangeListener { _, _ ->
                 (requireActivity() as? SettingsActivity)?.setResult()
                 true

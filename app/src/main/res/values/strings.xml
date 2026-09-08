@@ -495,6 +495,9 @@
     <string name="settings_7tv_appearance">7TV appearance</string>
     <string name="settings_chat_size">Chat size</string>
     <string name="settings_chat_size_summary">Scale the overall chat interface.</string>
+    <string name="settings_chat_batch_interval">Fast chat update interval (ms)</string>
+    <string name="settings_chat_batch_interval_summary">%1$d ms between chat UI updates</string>
+    <string name="settings_chat_batch_interval_off">0 ms, no batching delay</string>
     <string name="settings_translate_summary">Translate chat messages on-device using Google ML Kit. Language models can be downloaded for offline use.</string>
     <string name="settings_chat_recent">Load recent messages</string>
     <string name="settings_chat_recent_summary">Show messages sent shortly before you opened the stream.</string>

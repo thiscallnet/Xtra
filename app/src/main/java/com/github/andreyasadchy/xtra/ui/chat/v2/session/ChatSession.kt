@@ -5,8 +5,10 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.ChatTransport
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationUpdate
+import com.github.andreyasadchy.xtra.util.DEFAULT_CHAT_UI_BATCH_INTERVAL_MS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CoroutineStart
@@ -100,11 +102,15 @@ class ChatSession(
 
     suspend fun snapshot(): List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage> = timeline.snapshot()
 
-    fun attachUi() = ChatUiBatcher(
+    fun attachUi(
+        batchIntervalMsFlow: StateFlow<Long>? = null,
+    ) = ChatUiBatcher(
         versions = timeline.versions,
         snapshot = timeline::versionedSnapshot,
         versionOf = VersionedTimelineSnapshot::version,
         snapshotAfter = timeline::versionedSnapshotAfter,
+        batchIntervalMs = DEFAULT_CHAT_UI_BATCH_INTERVAL_MS,
+        batchIntervalMsFlow = batchIntervalMsFlow,
     ).flow()
 
     suspend fun reconcile(key: ChatSessionKey, recent: List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>) = processor.reconcile(key, recent)
