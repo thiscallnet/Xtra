@@ -339,7 +339,8 @@ private fun streamMetadataSame(oldItem: Stream, newItem: Stream): Boolean {
 }
 
 internal fun streamContentsSame(oldItem: Stream, newItem: Stream): Boolean {
-    return streamMetadataSame(oldItem, newItem)
+    return streamMetadataSame(oldItem, newItem) &&
+            oldItem.thumbnailGeneration == newItem.thumbnailGeneration
 }
 
 internal fun streamThumbnailOnlyChanged(oldItem: Stream, newItem: Stream): Boolean {

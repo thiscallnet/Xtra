@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.common
 
+import androidx.recyclerview.widget.DiffUtil
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import coil3.decode.DataSource
 import coil3.request.CachePolicy
@@ -7,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -158,7 +160,7 @@ class ThumbnailImageRequestTest {
     }
 
     @Test
-    fun refreshGenerationDoesNotMakeIdenticalStreamMetadataChangedForDiffUtil() {
+    fun refreshGenerationIsDiffUtilContentAndProducesThumbnailPayload() {
         val oldItem = Stream(
             id = "broadcast-1",
             channelId = "channel-42",
@@ -174,8 +176,21 @@ class ThumbnailImageRequestTest {
             thumbnailGeneration = 11L,
         )
 
+        val diffCallback = object : DiffUtil.ItemCallback<Stream>() {
+            override fun areItemsTheSame(oldItem: Stream, newItem: Stream): Boolean =
+                oldItem.streamIdentity() == newItem.streamIdentity()
+
+            override fun areContentsTheSame(oldItem: Stream, newItem: Stream): Boolean =
+                streamContentsSame(oldItem, newItem)
+
+            override fun getChangePayload(oldItem: Stream, newItem: Stream): Any? =
+                if (streamThumbnailOnlyChanged(oldItem, newItem)) StreamThumbnailChangedPayload else null
+        }
+
         assertEquals(oldItem.streamIdentity(), newItem.streamIdentity())
-        org.junit.Assert.assertTrue(streamContentsSame(oldItem, newItem))
+        assertTrue(diffCallback.areItemsTheSame(oldItem, newItem))
+        assertFalse(diffCallback.areContentsTheSame(oldItem, newItem))
+        assertSame(StreamThumbnailChangedPayload, diffCallback.getChangePayload(oldItem, newItem))
     }
 
     @Test

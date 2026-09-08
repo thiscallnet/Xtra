@@ -2,16 +2,45 @@ package com.github.andreyasadchy.xtra.ui.following.overview
 
 import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.gql.schedule.StreamScheduleResponse
+import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
 import com.github.andreyasadchy.xtra.repository.TwitchApiException
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FollowingOverviewContentTest {
+
+    @Test
+    fun thumbnailGenerationRefreshesAnOtherwiseUnchangedStreamSection() {
+        val oldSection = FollowingOverviewSection(
+            key = "live",
+            titleRes = 0,
+            emptyRes = 0,
+            streams = listOf(
+                Stream(
+                    channelId = "channel-42",
+                    thumbnailURL = "https://cdn.example/preview.jpg",
+                    thumbnailGeneration = 1L,
+                ),
+            ),
+        )
+        val refreshedSection = oldSection.copy(
+            streams = listOf(
+                Stream(
+                    channelId = "channel-42",
+                    thumbnailURL = "https://cdn.example/preview.jpg",
+                    thumbnailGeneration = 2L,
+                ),
+            ),
+        )
+
+        assertFalse(followingOverviewSectionContentsSame(oldSection, refreshedSection))
+    }
 
     @Test
     fun recentFollowedVideosFillAnEmptyContinueWatchingShelf() {
