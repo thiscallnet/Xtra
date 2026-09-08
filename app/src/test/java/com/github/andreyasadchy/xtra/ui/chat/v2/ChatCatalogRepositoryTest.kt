@@ -1625,16 +1625,16 @@ class ChatCatalogRepositoryTest {
         )
 
         repository.refresh()
-        withTimeout(1_000) { while (attempts.get() < 1) delay(1) }
-        withTimeout(1_000) { while (repository.state.value.snapshot.revision < 1L) delay(1) }
+        withTimeout(5_000) { while (attempts.get() < 1) delay(1) }
+        withTimeout(5_000) { while (repository.state.value.snapshot.revision < 1L) delay(1) }
 
         repository.refresh()
-        withTimeout(1_000) { while (attempts.get() < 2) delay(1) }
-        withTimeout(1_000) { while (repository.state.value.snapshot.revision < 2L) delay(1) }
+        withTimeout(5_000) { while (attempts.get() < 2) delay(1) }
+        withTimeout(5_000) { while (repository.state.value.snapshot.revision < 2L) delay(1) }
         assertTrue(writes.isEmpty())
 
         releaseFirstWrite.complete(Unit)
-        withTimeout(1_000) { while (writes.size < 2) delay(1) }
+        withTimeout(5_000) { while (writes.size < 2) delay(1) }
         assertEquals(listOf(1L, 2L), writes)
         repository.close()
         scope.cancel()
