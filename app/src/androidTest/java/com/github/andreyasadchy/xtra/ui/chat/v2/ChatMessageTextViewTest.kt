@@ -1330,6 +1330,7 @@ class ChatMessageTextViewTest {
             animated.scheduleSelf({}, 0L)
             view.detachedForTest()
             assertTrue(animated.stopCount > 0)
+            assertEquals(null, animated.callbackAtStop)
             assertEquals(null, animated.callback)
             val starts = animated.startCount
             view.attachedForTest()
@@ -1960,6 +1961,7 @@ class ChatMessageTextViewTest {
     private class RecordingAnimatedDrawable : Drawable(), Animatable {
         var startCount = 0
         var stopCount = 0
+        var callbackAtStop: Drawable.Callback? = null
         var boundsChangeCount = 0
 
         override fun onBoundsChange(bounds: android.graphics.Rect) { boundsChangeCount++ }
@@ -1969,7 +1971,10 @@ class ChatMessageTextViewTest {
         override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) = Unit
         override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
         override fun start() { startCount++ }
-        override fun stop() { stopCount++ }
+        override fun stop() {
+            callbackAtStop = callback
+            stopCount++
+        }
         override fun isRunning(): Boolean = stopCount < startCount
     }
 

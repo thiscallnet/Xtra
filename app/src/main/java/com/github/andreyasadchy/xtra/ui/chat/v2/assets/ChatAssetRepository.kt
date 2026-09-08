@@ -31,6 +31,8 @@ class ChatAssetRepository(
     private val listeners = HashMap<ChatAssetKey, MutableSet<() -> Unit>>()
     private val retryJobs = HashMap<ChatAssetKey, Job>()
     private val loadJobs = HashMap<ChatAssetKey, Job>()
+    /** Loads that have acquired a permit and are inside the loader. */
+    private val activeLoads = HashSet<ChatAssetKey>()
     private val loadPermits = Semaphore(maxConcurrentLoads.coerceAtLeast(1))
     private val _changes = MutableStateFlow<ChatAssetKey?>(null)
     val changes: StateFlow<ChatAssetKey?> = _changes.asStateFlow()
@@ -57,8 +59,13 @@ class ChatAssetRepository(
             if (listeners[key].isNullOrEmpty()) {
                 listeners.remove(key)
                 retryJobs.remove(key)?.cancel()
-                loadJob = loadJobs.remove(key)
-                if (states[key] is ChatAssetState.Loading) states.remove(key)
+                // RecyclerView can briefly recycle the last row using this asset while a
+                // batched publication is being applied. Keep an already-started request alive
+                // so the next bind can reuse its result; queued work is still canceled promptly.
+                if (key !in activeLoads) {
+                    loadJob = loadJobs.remove(key)
+                    if (states[key] is ChatAssetState.Loading) states.remove(key)
+                }
                 if ((states[key] as? ChatAssetState.Ready)?.image?.holdsDecodedImage() == true) {
                     states.remove(key)
                 }
@@ -97,7 +104,14 @@ class ChatAssetRepository(
                 try {
                     var completedAt: Long
                     val state = try {
-                        val loaded = loadPermits.withPermit { loader.load(key) }
+                        val loaded = loadPermits.withPermit {
+                            synchronized(this@ChatAssetRepository) { activeLoads += key }
+                            try {
+                                loader.load(key)
+                            } finally {
+                                synchronized(this@ChatAssetRepository) { activeLoads -= key }
+                            }
+                        }
                         completedAt = nowMs()
                         loaded?.let(ChatAssetState::Ready)
                             ?: ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
@@ -133,11 +147,21 @@ class ChatAssetRepository(
                     }
                     val callbacks = synchronized(this@ChatAssetRepository) {
                         if (loadJobs[key] !== currentJob) null else {
-                            states[key] = state
+                            val observers = listeners[key]?.toList().orEmpty()
+                            if (
+                                observers.isEmpty() &&
+                                (state as? ChatAssetState.Ready)?.image?.holdsDecodedImage() == true
+                            ) {
+                                // Do not retain a non-shareable decoded handle after a transient
+                                // observer disappears while its request is completing.
+                                states.remove(key)
+                            } else {
+                                states[key] = state
+                            }
                             retryJobs.remove(key)
                             trimCacheLocked()
                             updateDiagnosticsLocked()
-                            listeners[key]?.toList().orEmpty()
+                            observers
                         }
                     } ?: return@launch
                     _changes.value = key

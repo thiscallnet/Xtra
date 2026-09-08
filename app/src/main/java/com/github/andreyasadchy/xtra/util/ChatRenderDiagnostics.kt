@@ -8,6 +8,8 @@ internal data class ChatRenderDiagnosticsSnapshot(
     val binds: Long,
     val draws: Long,
     val animationInvalidations: Long,
+    val runningAnimationInvalidations: Long,
+    val stoppedAnimationInvalidations: Long,
     val animationStarts: Long,
     val animationStops: Long,
     val activeAnimations: Int,
@@ -48,6 +50,8 @@ internal data class ChatRenderDiagnosticsSnapshot(
 ) {
     override fun toString(): String =
         "binds=$binds draws=$draws animationInvalidations=$animationInvalidations " +
+            "runningAnimationInvalidations=$runningAnimationInvalidations " +
+            "stoppedAnimationInvalidations=$stoppedAnimationInvalidations " +
             "animationStarts=$animationStarts animationStops=$animationStops " +
             "activeAnimations=$activeAnimations publications=$publications " +
             "publicationMessages=$publicationMessages maxPublicationMessages=$maxPublicationMessages " +
@@ -75,6 +79,8 @@ internal object ChatRenderDiagnostics {
     private val binds = AtomicLong()
     private val draws = AtomicLong()
     private val animationInvalidations = AtomicLong()
+    private val runningAnimationInvalidations = AtomicLong()
+    private val stoppedAnimationInvalidations = AtomicLong()
     private val animationStarts = AtomicLong()
     private val animationStops = AtomicLong()
     private val activeAnimations = AtomicInteger()
@@ -121,8 +127,11 @@ internal object ChatRenderDiagnostics {
         if (BuildConfig.PERF_DIAGNOSTICS) draws.incrementAndGet()
     }
 
-    fun recordAnimationInvalidation() {
-        if (BuildConfig.PERF_DIAGNOSTICS) animationInvalidations.incrementAndGet()
+    fun recordAnimationInvalidation(running: Boolean) {
+        if (!BuildConfig.PERF_DIAGNOSTICS) return
+        animationInvalidations.incrementAndGet()
+        if (running) runningAnimationInvalidations.incrementAndGet()
+        else stoppedAnimationInvalidations.incrementAndGet()
     }
 
     fun recordAnimationStarted() {
@@ -245,6 +254,8 @@ internal object ChatRenderDiagnostics {
         binds = binds.getAndSet(0),
         draws = draws.getAndSet(0),
         animationInvalidations = animationInvalidations.getAndSet(0),
+        runningAnimationInvalidations = runningAnimationInvalidations.getAndSet(0),
+        stoppedAnimationInvalidations = stoppedAnimationInvalidations.getAndSet(0),
         animationStarts = animationStarts.getAndSet(0),
         animationStops = animationStops.getAndSet(0),
         activeAnimations = activeAnimations.get(),
