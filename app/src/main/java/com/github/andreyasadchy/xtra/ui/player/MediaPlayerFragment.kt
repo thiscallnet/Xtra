@@ -300,7 +300,7 @@ class MediaPlayerFragment : PlayerFragment() {
             setPipActions(isPlaying)
             controllerAutoHide = !requireContext().isTelevision() && isPlaying
             if (useController) {
-                showController(show = playbackService?.type != BasePlaybackService.STREAM && ended)
+                showController(show = !isPlaying || (playbackService?.type != BasePlaybackService.STREAM && ended))
             }
             updateProgress()
             if (isAdded && view != null) {

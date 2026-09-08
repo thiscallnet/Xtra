@@ -154,11 +154,17 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var isAnimating = false
     private var moveAnimation: ViewPropertyAnimator? = null
     protected var useController = true
+    private val controllerVisibility = ControllerVisibilityState()
     protected var controllerAutoHide = true
+        set(value) {
+            field = value
+            controllerVisibility.setAutoHideEnabled(value)
+        }
     private var controllerHideOnTouch = true
     private val controllerHideAction = Runnable { if (view != null) hideController() }
     private var controllerIsAnimating = false
     private var controllerAnimation: ViewPropertyAnimator? = null
+    private var controllerAnimationGeneration = 0L
     private var backgroundColor: Int? = null
     private var backgroundVisible = false
     private var pipPlaying = false
@@ -569,17 +575,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 object : GestureDetector.SimpleOnGestureListener() {
                     override fun onSingleTapUp(e: MotionEvent): Boolean {
                         return if (!doubleTap || isPortrait) {
-                            val visible = playerControls.root.isVisible
-                            if (visible) {
-                                if (controllerHideOnTouch) {
-                                    hideController()
-                                }
-                            } else {
-                                showController()
-                            }
-                            if (!visible) {
-                                updateProgress()
-                            }
+                            toggleController()
                             true
                         } else {
                             false
@@ -588,17 +584,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
                     override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                         return if (doubleTap && !isPortrait) {
-                            val visible = playerControls.root.isVisible
-                            if (visible) {
-                                if (controllerHideOnTouch) {
-                                    hideController()
-                                }
-                            } else {
-                                showController()
-                            }
-                            if (!visible) {
-                                updateProgress()
-                            }
+                            toggleController()
                             true
                         } else {
                             false
@@ -627,6 +613,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 if (isMaximized) {
                     if (playerControls.root.isVisible) {
                         controlTouchActive = playerControls.root.dispatchTouchEvent(event)
+                        if (!controlTouchActive) {
+                            controllerTapDetector.onTouchEvent(event)
+                        }
                     } else {
                         controllerTapDetector.onTouchEvent(event)
                     }
@@ -663,11 +652,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         if (slidingLayout.translationY in touchSlopRange) {
                             if (playerControls.root.isVisible) {
                                 playerControls.root.dispatchTouchEvent(event)
+                                controllerTapDetector.onTouchEvent(event)
                             } else {
                                 controllerTapDetector.onTouchEvent(event)
-                                if (isTap && (!doubleTap || isPortrait)) {
-                                    showController()
-                                }
                             }
                         }
                         val minimizeThreshold = slidingLayout.height / 5
@@ -923,6 +910,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 progressBar.addListener(
                     object : TimeBar.OnScrubListener {
                         override fun onScrubStart(timeBar: TimeBar, position: Long) {
+                            controllerVisibility.onScrubStart()
+                            binding.playerControls.root.removeCallbacks(controllerHideAction)
                             if (isLiveRewindAvailable()) {
                                 liveRewindScrubPositionMs = position
                                 showLiveRewindPreview(position)
@@ -950,6 +939,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         }
 
                         override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
+                            controllerVisibility.onScrubStop()
                             if (isLiveRewindAvailable()) {
                                 liveRewindScrubPositionMs = null
                                 hideLiveRewindPreview()
@@ -958,15 +948,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                 } else {
                                     updateLiveRewindProgress()
                                 }
+                                scheduleControllerHideAfterScrub()
                                 return
                             }
                             if (!canceled) {
                                 seek(position)
-                            } else {
-                                if (controllerAutoHide && controllerHideOnTouch) {
-                                    binding.playerControls.root.postDelayed(controllerHideAction, 3000)
-                                }
                             }
+                            scheduleControllerHideAfterScrub()
                         }
                     }
                 )
@@ -2373,7 +2361,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 }
             } else {
                 controllerHideOnTouch = false
-                showController(true)
+                showController(force = true)
                 updateProgress()
                 requireView().keepScreenOn = true
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
@@ -2406,81 +2394,132 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         binding.playerErrorRetry.setOnClickListener(null)
     }
 
-    protected fun showController(force: Boolean = false) {
-        if (!controllerIsAnimating) {
-            if (!binding.playerControls.root.isVisible) {
-                binding.playerControls.root.removeCallbacks(controllerHideAction)
-                controllerAnimation = binding.playerControls.root.animate().apply {
-                    alpha(1f)
-                    setDuration(250L)
-                    setListener(
-                        object : AnimatorListenerAdapter() {
-                            override fun onAnimationStart(animation: Animator) {
-                                controllerIsAnimating = true
-                                if (view != null) {
-                                    binding.playerControls.root.visibility = View.VISIBLE
-                                }
-                            }
-
-                            override fun onAnimationEnd(animation: Animator) {
-                                controllerIsAnimating = false
-                                setListener(null)
-                                if (view != null && controllerAutoHide && controllerHideOnTouch && !binding.playerControls.progressBar.isPressed) {
-                                    binding.playerControls.root.postDelayed(controllerHideAction, 3000)
-                                }
-                            }
-                        }
-                    )
-                    start()
-                }
-            } else {
-                binding.playerControls.root.removeCallbacks(controllerHideAction)
-                if (controllerAutoHide && controllerHideOnTouch && !binding.playerControls.progressBar.isPressed) {
-                    binding.playerControls.root.postDelayed(controllerHideAction, 3000)
-                }
-            }
+    private fun toggleController() {
+        if (requireContext().isTelevision() || !controllerHideOnTouch) {
+            controllerVisibility.show()
+            showController(force = true)
+            updateProgress()
+        } else if (controllerVisibility.toggle(hideOnTouch = true)) {
+            showController()
+            updateProgress()
         } else {
-            if (force) {
-                controllerAnimation?.cancel()
-                binding.playerControls.root.removeCallbacks(controllerHideAction)
-                binding.playerControls.root.alpha = 1f
-                binding.playerControls.root.visibility = View.VISIBLE
-                if (controllerAutoHide && controllerHideOnTouch && !binding.playerControls.progressBar.isPressed) {
-                    binding.playerControls.root.postDelayed(controllerHideAction, 3000)
-                }
+            hideController()
+        }
+    }
+
+    private fun scheduleControllerHide() {
+        binding.playerControls.root.removeCallbacks(controllerHideAction)
+        if (controllerVisibility.shouldScheduleHide(
+                hideOnTouch = controllerHideOnTouch,
+                interactionLocked = false,
+                progressPressed = binding.playerControls.progressBar.isPressed,
+                rootVisible = binding.playerControls.root.isVisible,
+            )
+        ) {
+            binding.playerControls.root.postDelayed(controllerHideAction, CONTROLLER_AUTO_HIDE_DELAY_MS)
+        }
+    }
+
+    private fun scheduleControllerHideAfterScrub() {
+        binding.playerControls.root.post {
+            if (view != null) {
+                scheduleControllerHide()
             }
+        }
+    }
+
+    private fun cancelControllerAnimation() {
+        controllerAnimationGeneration++
+        controllerAnimation?.setListener(null)
+        controllerAnimation?.cancel()
+        controllerAnimation = null
+        controllerIsAnimating = false
+    }
+
+    protected fun showController(show: Boolean = true, force: Boolean = false) {
+        if (!useController) return
+
+        if (!show) {
+            scheduleControllerHide()
+            return
+        }
+        controllerVisibility.show()
+        binding.playerControls.root.removeCallbacks(controllerHideAction)
+        cancelControllerAnimation()
+        if (force) {
+            binding.playerControls.root.alpha = 1f
+            binding.playerControls.root.visibility = View.VISIBLE
+            scheduleControllerHide()
+            return
+        }
+        if (binding.playerControls.root.isVisible) {
+            binding.playerControls.root.alpha = 1f
+            scheduleControllerHide()
+            return
+        }
+
+        val animationGeneration = controllerAnimationGeneration
+        binding.playerControls.root.alpha = 0f
+        binding.playerControls.root.visibility = View.VISIBLE
+        controllerIsAnimating = true
+        controllerAnimation = binding.playerControls.root.animate().apply {
+            alpha(1f)
+            setDuration(CONTROLLER_ANIMATION_DURATION_MS)
+            setListener(
+                object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        if (animationGeneration != controllerAnimationGeneration) return
+                        controllerIsAnimating = false
+                        controllerAnimation = null
+                        setListener(null)
+                        if (view != null) {
+                            scheduleControllerHide()
+                        }
+                    }
+                }
+            )
+            start()
         }
     }
 
     private fun hideController(force: Boolean = false) {
         if (requireContext().isTelevision() && !force) return
-        if (!controllerIsAnimating && binding.playerControls.root.isVisible) {
-            controllerAnimation = binding.playerControls.root.animate().apply {
-                alpha(0f)
-                setDuration(250L)
-                setListener(
-                    object : AnimatorListenerAdapter() {
-                        override fun onAnimationStart(animation: Animator) {
-                            controllerIsAnimating = true
-                        }
 
-                        override fun onAnimationEnd(animation: Animator) {
-                            controllerIsAnimating = false
-                            setListener(null)
-                            if (view != null) {
-                                binding.playerControls.root.visibility = View.GONE
-                            }
-                        }
-                    }
-                )
-                start()
-            }
-        } else {
+        binding.playerControls.root.removeCallbacks(controllerHideAction)
+        controllerVisibility.hide()
+        cancelControllerAnimation()
+        if (!binding.playerControls.root.isVisible) {
             if (force) {
-                controllerAnimation?.cancel()
                 binding.playerControls.root.alpha = 0f
                 binding.playerControls.root.visibility = View.GONE
             }
+            return
+        }
+        if (force) {
+            binding.playerControls.root.alpha = 0f
+            binding.playerControls.root.visibility = View.GONE
+            return
+        }
+
+        val animationGeneration = controllerAnimationGeneration
+        controllerIsAnimating = true
+        controllerAnimation = binding.playerControls.root.animate().apply {
+            alpha(0f)
+            setDuration(CONTROLLER_ANIMATION_DURATION_MS)
+            setListener(
+                object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        if (animationGeneration != controllerAnimationGeneration) return
+                        controllerIsAnimating = false
+                        controllerAnimation = null
+                        setListener(null)
+                        if (view != null) {
+                            binding.playerControls.root.visibility = View.GONE
+                        }
+                    }
+                }
+            )
+            start()
         }
     }
 
@@ -3377,9 +3416,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     hideChatLayout()
                 }
                 useController = false
-                controllerAnimation?.cancel()
-                binding.playerControls.root.alpha = 0f
-                binding.playerControls.root.visibility = View.GONE
+                hideController(force = true)
                 // player dialog
                 (childFragmentManager.findFragmentByTag("closeOnPip") as? BottomSheetDialogFragment)?.dismiss()
                 // player chat message dialog
@@ -3396,7 +3433,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     override fun onStop() {
         super.onStop()
-        binding.playerControls.root.removeCallbacks(controllerHideAction)
+        _binding?.let {
+            controllerVisibility.onScrubStop()
+            it.playerControls.root.removeCallbacks(controllerHideAction)
+            hideController(force = true)
+        }
     }
 
     protected fun savePosition() {
@@ -3516,7 +3557,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             }
             useController = true
             if (!controllerHideOnTouch) {
-                showController(true)
+                showController(force = true)
                 updateProgress()
             }
             if (isPortrait) {
@@ -3770,6 +3811,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     companion object {
+        private const val CONTROLLER_ANIMATION_DURATION_MS = 250L
+        private const val CONTROLLER_AUTO_HIDE_DELAY_MS = 3_000L
         protected const val AUTO_QUALITY = "auto"
         protected const val SOURCE_QUALITY = "source"
         protected const val AUDIO_ONLY_QUALITY = "audio_only"
