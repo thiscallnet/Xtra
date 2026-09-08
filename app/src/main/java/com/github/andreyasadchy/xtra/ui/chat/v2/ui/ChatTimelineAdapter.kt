@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.ui
 
 import android.graphics.Rect
+import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.children
 import androidx.recyclerview.widget.RecyclerView
@@ -28,6 +29,21 @@ class ChatTimelineAdapter(
     }
     private val animationBudgetScrollListener = object : RecyclerView.OnScrollListener() {
         override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+            scheduleAnimationBudgetUpdate()
+        }
+    }
+    private val animationBudgetLayoutChangeListener = object : View.OnLayoutChangeListener {
+        override fun onLayoutChange(
+            view: View,
+            left: Int,
+            top: Int,
+            right: Int,
+            bottom: Int,
+            oldLeft: Int,
+            oldTop: Int,
+            oldRight: Int,
+            oldBottom: Int,
+        ) {
             scheduleAnimationBudgetUpdate()
         }
     }
@@ -198,11 +214,13 @@ class ChatTimelineAdapter(
         super.onAttachedToRecyclerView(recyclerView)
         attachedRecyclerView = recyclerView
         recyclerView.addOnScrollListener(animationBudgetScrollListener)
+        recyclerView.addOnLayoutChangeListener(animationBudgetLayoutChangeListener)
         scheduleAnimationBudgetUpdate()
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
         recyclerView.removeOnScrollListener(animationBudgetScrollListener)
+        recyclerView.removeOnLayoutChangeListener(animationBudgetLayoutChangeListener)
         recyclerView.removeCallbacks(animationBudgetUpdateRunnable)
         animationBudgetUpdatePosted = false
         if (attachedRecyclerView === recyclerView) attachedRecyclerView = null

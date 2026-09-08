@@ -6,6 +6,7 @@ import android.graphics.Rect
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.Drawable
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
 import android.widget.FrameLayout
@@ -39,6 +40,10 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class ChatTimelineAdapterTest {
+    private class ExtraLayoutLinearLayoutManager(context: Context) : LinearLayoutManager(context) {
+        override fun getExtraLayoutSpace(state: RecyclerView.State): Int = 200
+    }
+
     @Test
     fun appendOnlyNotifiesHeadRemovalAndTailInsertion() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -218,7 +223,7 @@ class ChatTimelineAdapterTest {
         lateinit var recyclerView: RecyclerView
         scenario.onActivity { activity ->
             recyclerView = RecyclerView(activity).apply {
-                layoutManager = LinearLayoutManager(activity)
+                layoutManager = ExtraLayoutLinearLayoutManager(activity)
                 adapter = timelineAdapter
             }
             activity.root.addView(recyclerView, FrameLayout.LayoutParams(320, 160))
@@ -240,6 +245,7 @@ class ChatTimelineAdapterTest {
             val attachedClipped = onMainResult {
                 attachedPositions(recyclerView).filterNot(visiblePositions::contains)
             }
+            assertTrue(attachedClipped.isNotEmpty())
             assertTrue(attachedClipped.all { drawables["budget-$it"]?.isRunning != true })
             onMain { timelineAdapter.setAnimationBudget(0) }
             awaitUiIdle()
