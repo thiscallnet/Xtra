@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.ComponentName
 import android.content.Intent
 import android.app.Activity
@@ -1210,15 +1211,97 @@ class ChatMessageTextViewTest {
         try {
             runOnMain {
                 val view = TestTextView(context, repository)
-                var clicked: ChatMessageId? = null
-                view.setMessageClickCallback { clicked = it }
+                val clicked = mutableListOf<ChatMessageId>()
+                view.setMessageClickCallback { clicked += it }
                 view.bind(textRow("hello", ChatMessageId("first")))
                 view.bind(textRow("hello again", ChatMessageId("second")))
                 assertTrue(view.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK, null))
-                assertEquals(ChatMessageId("second"), clicked)
+                assertEquals(listOf(ChatMessageId("second")), clicked)
                 view.recycle()
             }
         } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun plainRowTapOpensTheProfileExactlyOnce() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        var clicks = 0
+        try {
+            runOnMain {
+                view.setMessageClickCallback { clicks++ }
+                view.layoutParams = ViewGroup.LayoutParams(600, 200)
+                view.bind(textRow("plain row", ChatMessageId("plain")))
+                layoutForTouch(view)
+                dispatchTap(view, 12f, 12f)
+            }
+            assertEquals(1, clicks)
+        } finally {
+            runOnMain { view.recycle() }
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun urlTapInvokesOnlyTheUrlSpan() {
+        val recordingContext = RecordingContext(InstrumentationRegistry.getInstrumentation().targetContext)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(recordingContext, repository)
+        var profileClicks = 0
+        try {
+            runOnMain {
+                view.setMessageClickCallback { profileClicks++ }
+                view.layoutParams = ViewGroup.LayoutParams(600, 200)
+                view.bind(textRow("https://example.com/watch?v=42"))
+                layoutForTouch(view)
+                val spanned = view.text as Spanned
+                val url = spanned.getSpans(0, spanned.length, URLSpan::class.java).single()
+                dispatchTapOnSpan(view, url)
+            }
+            assertEquals(0, profileClicks)
+            assertEquals("https://example.com/watch?v=42", recordingContext.startedIntent?.data?.toString())
+        } finally {
+            runOnMain { view.recycle() }
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun emoteTapInvokesOnlyTheEmoteSpan() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        val interaction = ChatEmoteInteraction(
+            id = "tap-emote",
+            name = "Tap",
+            url = "https://cdn.example.test/tap.webp",
+            animated = false,
+            provider = ChatAssetProvider.BTTV,
+            scope = ChatEmoteScope.CHANNEL,
+        )
+        var profileClicks = 0
+        var emoteClicks = 0
+        try {
+            runOnMain {
+                view.setMessageClickCallback { profileClicks++ }
+                view.setInteractionCallbacks(null, { emoteClicks++ })
+                view.layoutParams = ViewGroup.LayoutParams(600, 200)
+                view.bind(row(ChatAssetSpec(ChatAssetKey("tap-emote"), 16, 16, 24), interaction = interaction))
+                layoutForTouch(view)
+                val spanned = view.text as Spanned
+                val emote = spanned.getSpans(0, spanned.length, ClickableSpan::class.java).single()
+                dispatchTapOnSpan(view, emote)
+            }
+            assertEquals(0, profileClicks)
+            assertEquals(1, emoteClicks)
+        } finally {
+            runOnMain { view.recycle() }
             scope.cancel()
         }
     }
@@ -1789,6 +1872,32 @@ class ChatMessageTextViewTest {
     private fun runOnMain(block: () -> Unit) =
         InstrumentationRegistry.getInstrumentation().runOnMainSync(block)
 
+    private fun layoutForTouch(view: View) {
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.AT_MOST),
+        )
+        view.layout(0, 0, 600, view.measuredHeight)
+    }
+
+    private fun dispatchTap(view: View, x: Float, y: Float) {
+        val downTime = android.os.SystemClock.uptimeMillis()
+        check(view.dispatchTouchEvent(MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0)))
+        check(view.dispatchTouchEvent(MotionEvent.obtain(downTime, downTime + 20, MotionEvent.ACTION_UP, x, y, 0)))
+    }
+
+    private fun dispatchTapOnSpan(view: ChatMessageTextView, span: ClickableSpan) {
+        val spanned = view.text as Spanned
+        val textLayout = checkNotNull(view.layout)
+        val start = spanned.getSpanStart(span)
+        val end = spanned.getSpanEnd(span)
+        val line = textLayout.getLineForOffset(start)
+        val x = view.totalPaddingLeft +
+            (textLayout.getPrimaryHorizontal(start) + textLayout.getPrimaryHorizontal(end)) / 2f
+        val y = view.totalPaddingTop + (textLayout.getLineTop(line) + textLayout.getLineBottom(line)) / 2f
+        dispatchTap(view, x, y)
+    }
+
     private fun awaitPreDraw(view: View) {
         val drawn = CountDownLatch(1)
         runOnMain {
@@ -1838,6 +1947,14 @@ class ChatMessageTextViewTest {
         }
         fun detachedForTest() = onDetachedFromWindow()
         fun verifyForTest(drawable: Drawable) = verifyDrawable(drawable)
+    }
+
+    private class RecordingContext(base: Context) : ContextWrapper(base) {
+        var startedIntent: Intent? = null
+
+        override fun startActivity(intent: Intent) {
+            startedIntent = intent
+        }
     }
 
     private class RecordingAnimatedDrawable : Drawable(), Animatable {

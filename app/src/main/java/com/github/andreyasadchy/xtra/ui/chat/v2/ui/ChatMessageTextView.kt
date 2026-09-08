@@ -130,6 +130,8 @@ open class ChatMessageTextView private constructor(
     private var longPressConsumed = false
     private var touchDownX = 0f
     private var touchDownY = 0f
+    /** True while TextView is dispatching a pointer gesture that belongs to a span. */
+    private var touchStartedOnClickableSpan = false
     private var longPressRunnable: Runnable? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var onMessageLongClick: ((ChatMessageId) -> Unit)? = null
@@ -879,6 +881,9 @@ open class ChatMessageTextView private constructor(
 
     override fun performClick(): Boolean {
         val handled = super.performClick()
+        // LinkMovementMethod can reach performClick while it is finishing a pointer
+        // gesture.  A span owns that gesture; never turn it into a row/profile click.
+        if (touchStartedOnClickableSpan) return handled
         val id = boundMessageId ?: return handled
         val callback = onMessageClick ?: return handled
         callback(id)
@@ -908,6 +913,7 @@ open class ChatMessageTextView private constructor(
             MotionEvent.ACTION_DOWN -> {
                 longPressConsumed = false
                 touchMoved = false
+                touchStartedOnClickableSpan = hasClickableSpanAt(event)
                 touchDownX = event.x
                 touchDownY = event.y
                 longPressRunnable?.let(mainHandler::removeCallbacks)
@@ -931,16 +937,21 @@ open class ChatMessageTextView private constructor(
 
             MotionEvent.ACTION_CANCEL -> {
                 touchMoved = true
+                touchStartedOnClickableSpan = false
                 longPressRunnable?.let(mainHandler::removeCallbacks)
                 longPressRunnable = null
             }
 
             MotionEvent.ACTION_UP -> {
+                // The layout can be unavailable at DOWN (for example during a rebound),
+                // so check UP as well before TextView gets a chance to call performClick.
+                touchStartedOnClickableSpan = touchStartedOnClickableSpan || hasClickableSpanAt(event)
                 hasClipPreviewAt(event)?.let { url ->
                     if (!touchMoved && !longPressConsumed) {
                         openClipUrl(url)
                         longPressRunnable?.let(mainHandler::removeCallbacks)
                         longPressRunnable = null
+                        touchStartedOnClickableSpan = false
                         return true
                     }
                 }
@@ -949,30 +960,32 @@ open class ChatMessageTextView private constructor(
                     onMessageClick != null &&
                     !touchMoved &&
                     !longPressConsumed &&
-                    !hasClickableSpanAt(event)
+                    !touchStartedOnClickableSpan
                 longPressRunnable?.let(mainHandler::removeCallbacks)
                 longPressRunnable = null
                 if (longPressConsumed) {
                     longPressConsumed = false
+                    touchStartedOnClickableSpan = false
                     return true
                 }
                 if (shouldOpenProfile) {
                     performClick()
+                    touchStartedOnClickableSpan = false
                     return true
                 }
             }
         }
         if (event.actionMasked == MotionEvent.ACTION_UP && longPressConsumed) {
             longPressConsumed = false
+            touchStartedOnClickableSpan = false
             return true
         }
         val handled = super.onTouchEvent(event)
-        return if (event.actionMasked == MotionEvent.ACTION_UP && longPressConsumed) {
+        if (event.actionMasked == MotionEvent.ACTION_UP) {
             longPressConsumed = false
-            true
-        } else {
-            handled
+            touchStartedOnClickableSpan = false
         }
+        return handled
     }
 
     private fun appendStyled(output: SpannableStringBuilder, value: String, color: Int?, bold: Boolean = false) {
@@ -1201,6 +1214,7 @@ open class ChatMessageTextView private constructor(
         text = null
         boundMessageId = null
         boundRow = null
+        touchStartedOnClickableSpan = false
         alpha = 1f
     }
 
