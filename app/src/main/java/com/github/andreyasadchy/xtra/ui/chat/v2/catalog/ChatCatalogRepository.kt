@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.util.LinkedHashMap
 
 sealed interface ScopeUpdate<out T> {
@@ -117,6 +119,7 @@ class ChatCatalogRepository(
     private val personalEmoteSetLoader: (suspend (String) -> Map<String, ChatCatalogEmote>)? = null,
     private val cacheFreshnessMs: Long = 60 * 60 * 1000L,
     private val personalEmoteFailureTtlMs: Long = 60_000L,
+    maxConcurrentPersonalEmoteLoads: Int = 4,
 ) {
     private enum class Provider { TWITCH, SEVEN_TV, BTTV, FFZ, BADGES, CHEERMOTES }
 
@@ -142,6 +145,7 @@ class ChatCatalogRepository(
     private var cacheCatalogConfigFingerprint: String? = null
     private var cacheBadgeConfigFingerprint: String? = null
     private val personalEmoteSetJobs = mutableMapOf<String, Job>()
+    private val personalEmoteLoadPermits = Semaphore(maxConcurrentPersonalEmoteLoads.coerceAtLeast(1))
     private val loadedPersonalEmoteSets = mutableSetOf<String>()
     private val failedPersonalEmoteSets = LinkedHashMap<String, Long>(16, 0.75f, true)
     private var networkProvidersObserved = emptySet<Provider>()
@@ -312,7 +316,7 @@ class ChatCatalogRepository(
         if (failedPersonalEmoteSets[setId] != null) return
         personalEmoteSetJobs[setId] = scope.launch {
             val emotes = try {
-                loader(setId)
+                personalEmoteLoadPermits.withPermit { loader(setId) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Throwable) {

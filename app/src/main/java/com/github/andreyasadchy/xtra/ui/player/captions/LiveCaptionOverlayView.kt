@@ -197,6 +197,11 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         applySavedPosition()
     }
 
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        if (changed) applySavedPosition()
+    }
+
     override fun onDetachedFromWindow() {
         preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener)
         cancelLineAnimations()
@@ -295,7 +300,10 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     private fun applySavedPosition() {
         val parent = parent as? android.view.ViewGroup ?: return
         if (width == 0 || height == 0 || parent.width == 0 || parent.height == 0) {
-            post { applySavedPosition() }
+            // The overlay starts GONE and can be measured before its parent has a
+            // size. Retrying with post() here creates an unbounded main-thread loop
+            // until captions become visible. onSizeChanged/onLayout call this again
+            // once both dimensions are available.
             return
         }
         if (!preferences.contains(C.PLAYER_LIVE_CAPTION_POSITION_CENTER_X) ||

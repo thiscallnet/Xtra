@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.ComponentName
 import android.content.Intent
 import android.app.Activity
@@ -1138,6 +1139,174 @@ class ChatMessageTextViewTest {
     }
 
     @Test
+    fun parentVisibilityPausesAndResumesAnimatedEmotes() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        lateinit var animated: RecordingAnimatedDrawable
+        val repository = ChatAssetRepository(scope, ChatAssetLoader {
+            ChatImageHandle { RecordingAnimatedDrawable().also { animated = it } }
+        })
+        val attached = attachView(repository)
+        try {
+            runOnMain {
+                attached.view.bind(row(ChatAssetSpec(ChatAssetKey("visibility-animation"), 20, 20, 28)))
+            }
+            awaitPreDraw(attached.view)
+            runOnMain {
+                assertTrue(animated.isRunning)
+                val parent = attached.view.parent as View
+                parent.visibility = View.GONE
+                assertTrue(!animated.isRunning)
+                assertEquals(null, animated.callback)
+                parent.visibility = View.VISIBLE
+                assertTrue(animated.isRunning)
+                attached.view.setRenderingActive(false)
+                parent.visibility = View.GONE
+                parent.visibility = View.VISIBLE
+                assertTrue(!animated.isRunning)
+                attached.view.setRenderingActive(true)
+                assertTrue(animated.isRunning)
+            }
+        } finally {
+            attached.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun repeatedEmotesDoNotChangeDrawableBoundsEveryFrame() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        lateinit var animated: RecordingAnimatedDrawable
+        val repository = ChatAssetRepository(scope, ChatAssetLoader {
+            ChatImageHandle { RecordingAnimatedDrawable().also { animated = it } }
+        })
+        val view = TestTextView(context, repository)
+        val spec = ChatAssetSpec(ChatAssetKey("repeated-animation"), 20, 20, 28)
+        try {
+            runOnMain {
+                view.bind(emoteSpamRow(ChatMessageId("repeated"), listOf(spec, spec, spec)))
+                val text = view.text as Spanned
+                val spans = text.getSpans(0, text.length, ReplacementSpan::class.java)
+                val bitmap = Bitmap.createBitmap(200, 60, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                repeat(10) {
+                    spans.forEachIndexed { index, span ->
+                        span.draw(canvas, text, 0, text.length, index * 40f, 0, 28, 40, Paint())
+                    }
+                }
+                assertEquals(1, animated.boundsChangeCount)
+                view.recycle()
+                bitmap.recycle()
+            }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun accessibilityClickUsesTheCurrentMessage() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        try {
+            runOnMain {
+                val view = TestTextView(context, repository)
+                val clicked = mutableListOf<ChatMessageId>()
+                view.setMessageClickCallback { clicked += it }
+                view.bind(textRow("hello", ChatMessageId("first")))
+                view.bind(textRow("hello again", ChatMessageId("second")))
+                assertTrue(view.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK, null))
+                assertEquals(listOf(ChatMessageId("second")), clicked)
+                view.recycle()
+            }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun plainRowTapOpensTheProfileExactlyOnce() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        var clicks = 0
+        try {
+            runOnMain {
+                view.setMessageClickCallback { clicks++ }
+                view.layoutParams = ViewGroup.LayoutParams(600, 200)
+                view.bind(textRow("plain row", ChatMessageId("plain")))
+                layoutForTouch(view)
+                dispatchTap(view, 12f, 12f)
+            }
+            assertEquals(1, clicks)
+        } finally {
+            runOnMain { view.recycle() }
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun urlTapInvokesOnlyTheUrlSpan() {
+        val recordingContext = RecordingContext(InstrumentationRegistry.getInstrumentation().targetContext)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(recordingContext, repository)
+        var profileClicks = 0
+        try {
+            runOnMain {
+                view.setMessageClickCallback { profileClicks++ }
+                view.layoutParams = ViewGroup.LayoutParams(600, 200)
+                view.bind(textRow("https://example.com/watch?v=42"))
+                layoutForTouch(view)
+                val spanned = view.text as Spanned
+                val url = spanned.getSpans(0, spanned.length, URLSpan::class.java).single()
+                dispatchTapOnSpan(view, url)
+            }
+            assertEquals(0, profileClicks)
+            assertEquals("https://example.com/watch?v=42", recordingContext.startedIntent?.data?.toString())
+        } finally {
+            runOnMain { view.recycle() }
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun emoteTapInvokesOnlyTheEmoteSpan() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        val interaction = ChatEmoteInteraction(
+            id = "tap-emote",
+            name = "Tap",
+            url = "https://cdn.example.test/tap.webp",
+            animated = false,
+            provider = ChatAssetProvider.BTTV,
+            scope = ChatEmoteScope.CHANNEL,
+        )
+        var profileClicks = 0
+        var emoteClicks = 0
+        try {
+            runOnMain {
+                view.setMessageClickCallback { profileClicks++ }
+                view.setInteractionCallbacks(null, { emoteClicks++ })
+                view.layoutParams = ViewGroup.LayoutParams(600, 200)
+                view.bind(row(ChatAssetSpec(ChatAssetKey("tap-emote"), 16, 16, 24), interaction = interaction))
+                layoutForTouch(view)
+                val spanned = view.text as Spanned
+                val emote = spanned.getSpans(0, spanned.length, ClickableSpan::class.java).single()
+                dispatchTapOnSpan(view, emote)
+            }
+            assertEquals(0, profileClicks)
+            assertEquals(1, emoteClicks)
+        } finally {
+            runOnMain { view.recycle() }
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun animatedDrawableIsVerifiedAndFollowsAttachDetachLifecycle() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -1703,6 +1872,32 @@ class ChatMessageTextViewTest {
     private fun runOnMain(block: () -> Unit) =
         InstrumentationRegistry.getInstrumentation().runOnMainSync(block)
 
+    private fun layoutForTouch(view: View) {
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.AT_MOST),
+        )
+        view.layout(0, 0, 600, view.measuredHeight)
+    }
+
+    private fun dispatchTap(view: View, x: Float, y: Float) {
+        val downTime = android.os.SystemClock.uptimeMillis()
+        check(view.dispatchTouchEvent(MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0)))
+        check(view.dispatchTouchEvent(MotionEvent.obtain(downTime, downTime + 20, MotionEvent.ACTION_UP, x, y, 0)))
+    }
+
+    private fun dispatchTapOnSpan(view: ChatMessageTextView, span: ClickableSpan) {
+        val spanned = view.text as Spanned
+        val textLayout = checkNotNull(view.layout)
+        val start = spanned.getSpanStart(span)
+        val end = spanned.getSpanEnd(span)
+        val line = textLayout.getLineForOffset(start)
+        val x = view.totalPaddingLeft +
+            (textLayout.getPrimaryHorizontal(start) + textLayout.getPrimaryHorizontal(end)) / 2f
+        val y = view.totalPaddingTop + (textLayout.getLineTop(line) + textLayout.getLineBottom(line)) / 2f
+        dispatchTap(view, x, y)
+    }
+
     private fun awaitPreDraw(view: View) {
         val drawn = CountDownLatch(1)
         runOnMain {
@@ -1746,14 +1941,28 @@ class ChatMessageTextViewTest {
         repository: ChatAssetRepository,
         clipPreviews: ChatClipPreviewRepository? = null,
     ) : ChatMessageTextView(context, repository, clipPreviews) {
-        fun attachedForTest() = onAttachedToWindow()
+        fun attachedForTest() {
+            onAttachedToWindow()
+            onVisibilityAggregated(true)
+        }
         fun detachedForTest() = onDetachedFromWindow()
         fun verifyForTest(drawable: Drawable) = verifyDrawable(drawable)
+    }
+
+    private class RecordingContext(base: Context) : ContextWrapper(base) {
+        var startedIntent: Intent? = null
+
+        override fun startActivity(intent: Intent) {
+            startedIntent = intent
+        }
     }
 
     private class RecordingAnimatedDrawable : Drawable(), Animatable {
         var startCount = 0
         var stopCount = 0
+        var boundsChangeCount = 0
+
+        override fun onBoundsChange(bounds: android.graphics.Rect) { boundsChangeCount++ }
 
         override fun draw(canvas: Canvas) = Unit
         override fun setAlpha(alpha: Int) = Unit

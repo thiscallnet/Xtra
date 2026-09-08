@@ -64,18 +64,20 @@ internal class PcmPresentationDelayBuffer(capacityBytes: Int) {
     }
 
     private fun append(input: ByteBuffer) {
-        require(input.remaining() <= bytes.size - size)
-        while (input.hasRemaining()) {
-            bytes[(readIndex + size) % bytes.size] = input.get()
-            size++
-        }
+        val count = input.remaining()
+        require(count <= bytes.size - size)
+        val writeIndex = (readIndex + size) % bytes.size
+        val firstCount = minOf(count, bytes.size - writeIndex)
+        input.get(bytes, writeIndex, firstCount)
+        if (count > firstCount) input.get(bytes, 0, count - firstCount)
+        size += count
     }
 
     private fun read(output: ByteBuffer, count: Int) {
-        repeat(count) {
-            output.put(bytes[readIndex])
-            readIndex = (readIndex + 1) % bytes.size
-            size--
-        }
+        val firstCount = minOf(count, bytes.size - readIndex)
+        output.put(bytes, readIndex, firstCount)
+        if (count > firstCount) output.put(bytes, 0, count - firstCount)
+        readIndex = (readIndex + count) % bytes.size
+        size -= count
     }
 }

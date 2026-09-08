@@ -18,6 +18,7 @@ class ChatTimelineAdapter(
     private val onMessageClick: ((ChatMessageId) -> Unit)? = null,
 ) : RecyclerView.Adapter<ChatTimelineAdapter.Holder>() {
     private val rows = ArrayList<ChatRowUiModel>()
+    var renderingActive = true
 
     val currentList: List<ChatRowUiModel>
         get() = rows
@@ -34,12 +35,13 @@ class ChatTimelineAdapter(
         },
     )
     override fun onBindViewHolder(holder: Holder, position: Int) {
+        holder.view.setRenderingActive(renderingActive)
         holder.view.setMessageTextSizeSp(textSizeSp)
         holder.view.setAnimateGifs(animateGifs)
         holder.bind(rows[position])
     }
 
-    /** Replaces the complete snapshot for reconciliation and presentation-wide changes. */
+    /** Replaces the complete snapshot for reconciliation and presentation-wide updates. */
     fun replaceAll(newRows: List<ChatRowUiModel>, commitCallback: (() -> Unit)? = null) {
         val nextRows = newRows.toList()
         rows.clear()
@@ -110,13 +112,20 @@ class ChatTimelineAdapter(
     }
 
     fun setMessageTextSizeSp(value: Float) {
+        if (textSizeSp == value) return
         textSizeSp = value
         if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
     }
     fun setAnimateGifs(value: Boolean) {
+        if (animateGifs == value) return
         animateGifs = value
         if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
     }
+    override fun onViewAttachedToWindow(holder: Holder) {
+        super.onViewAttachedToWindow(holder)
+        holder.view.setRenderingActive(renderingActive)
+    }
+
     override fun onViewRecycled(holder: Holder) { holder.view.recycle(); super.onViewRecycled(holder) }
 
     class Holder(val view: ChatMessageTextView) : RecyclerView.ViewHolder(view) {

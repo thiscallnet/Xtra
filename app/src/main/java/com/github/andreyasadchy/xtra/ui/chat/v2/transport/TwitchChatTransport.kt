@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -159,8 +161,10 @@ class TwitchChatTransport(
         val sevenTv = attachSevenTv(this) { event -> send(event) }
         val hermes = attachHermesRewards(this) { event -> send(event) }
         val connectionJob = socket.connect(this)
-        awaitClose {
-            flowScope.launch {
+        try {
+            awaitClose()
+        } finally {
+            withContext(NonCancellable) {
                 socket.disconnect(connectionJob)
                 sevenTv?.let { (stv, job) -> stv.disconnect(job) }
                 hermes?.let { (hermesSocket, job) -> hermesSocket.disconnect(job) }
@@ -249,8 +253,10 @@ class TwitchChatTransport(
         val sevenTv = attachSevenTv(this) { event -> send(event) }
         val hermes = attachHermesRewards(this) { event -> send(event) }
         val connectionJob = socket.connect(this)
-        awaitClose {
-            flowScope.launch {
+        try {
+            awaitClose()
+        } finally {
+            withContext(NonCancellable) {
                 socket.disconnect(connectionJob)
                 sevenTv?.let { (stv, job) -> stv.disconnect(job) }
                 hermes?.let { (hermesSocket, job) -> hermesSocket.disconnect(job) }

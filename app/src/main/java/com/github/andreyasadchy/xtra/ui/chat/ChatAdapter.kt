@@ -383,7 +383,10 @@ class ChatAdapter(
     private var visibleRenderQueue = Channel<RenderRequest>(VISIBLE_RENDER_QUEUE_CAPACITY)
     private var prewarmRenderQueue = Channel<RenderRequest>(PREWARM_QUEUE_CAPACITY)
     /** One signal represents one queued request; this keeps both workers fed during bursts. */
-    private var renderSignal = Channel<Unit>(Channel.UNLIMITED)
+    // Keep the wake-up queue bounded with the work queues. A signal is paired with every
+    // queued request, so this cannot lose work, while a burst of distinct emotes/messages
+    // cannot grow an unbounded list of Unit objects behind the two workers.
+    private var renderSignal = Channel<Unit>(VISIBLE_RENDER_QUEUE_CAPACITY + PREWARM_QUEUE_CAPACITY)
     private var renderWorkers = emptyList<Job>()
     private val imagePrefetchTracker = ChatAdapterUtils.ChatImagePrefetchTracker()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -412,7 +415,10 @@ class ChatAdapter(
         revision = 0,
         indexes = initialCatalogIndexes,
         translateAllMessages = false,
-        highlightSettings = resolveChatHighlightSettings(fragment.requireContext()),
+        // Direct/combined holders can be created before their Fragment is attached. Use the
+        // defaults until a real Fragment context is available and the settings are refreshed.
+        highlightSettings = fragment.context?.let(::resolveChatHighlightSettings)
+            ?: ChatHighlightSettings(),
     )
     @Volatile
     private var pendingConfiguration: ChatRenderConfiguration? = null
@@ -438,7 +444,7 @@ class ChatAdapter(
         }
 
     fun refreshChatHighlightSettings() {
-        val next = resolveChatHighlightSettings(fragment.requireContext())
+        val next = fragment.context?.let(::resolveChatHighlightSettings) ?: return
         val base = pendingConfiguration ?: activeConfiguration
         if (next == base.highlightSettings) return
         scheduleConfigurationSwitch(
@@ -1443,7 +1449,7 @@ class ChatAdapter(
             renderScope = newRenderScope()
             visibleRenderQueue = Channel(VISIBLE_RENDER_QUEUE_CAPACITY)
             prewarmRenderQueue = Channel(PREWARM_QUEUE_CAPACITY)
-            renderSignal = Channel(Channel.UNLIMITED)
+            renderSignal = Channel(VISIBLE_RENDER_QUEUE_CAPACITY + PREWARM_QUEUE_CAPACITY)
         }
         renderWorkers = startRenderWorkers()
     }
