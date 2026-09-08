@@ -45,6 +45,10 @@ class ChatClipPreviewRepositoryTest {
             val second = CompletableDeferred<Unit>()
             repository.observe("slug") { second.complete(Unit) }
             withTimeout(5_000) { second.await() }
+            // observe() reports the cached negative result before the retry completes.
+            withTimeout(5_000) {
+                while (repository.peek("slug") == null) delay(1)
+            }
             assertEquals(preview, repository.peek("slug"))
             assertEquals(2, attempts)
         } finally {
