@@ -93,6 +93,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     private var qualityRequestInFlight = false
     private var qualityRequestGeneration = 0
     private val pendingQualityCallbacks = mutableListOf<() -> Unit>()
+    private val pendingSourceSwitchQuality = SourceSwitchQualityState()
     private var nativeCues: List<Cue> = emptyList()
     private var shownLiveCaptionError: String? = null
     private var renderedPositionSecond = Long.MIN_VALUE
@@ -765,6 +766,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         adAvoidanceJob = null
         primaryStreamRestoreJob?.cancel()
         primaryStreamRestoreJob = null
+        pendingSourceSwitchQuality.capture(viewModel.quality?.name)
         viewModel.usingAlternateStream = false
         viewModel.resetAdController()
         viewModel.playingAds = false
@@ -928,6 +930,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         } catch (_: Exception) {
             null
         } ?: return false
+        val oldQualities = viewModel.qualities
+        val oldQuality = viewModel.quality
+        val oldUpdateQualities = viewModel.updateQualities
+        pendingSourceSwitchQuality.capture(viewModel.quality?.name)
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
         primaryStreamRestoreJob?.cancel()
@@ -950,14 +956,31 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
             ),
             Bundle.EMPTY,
         )
-        return withContext(Dispatchers.IO) {
-            runCatching { result.get().resultCode == SessionResult.RESULT_SUCCESS }.getOrDefault(false)
+        val success = try {
+            withContext(Dispatchers.IO) {
+                result.get().resultCode == SessionResult.RESULT_SUCCESS
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
         }
+        if (!success) {
+            restoreQualityAfterSourceSwitchFailure(
+                qualities = oldQualities,
+                quality = oldQuality,
+                updateQualities = oldUpdateQualities,
+            )
+        }
+        return success
     }
 
     override suspend fun returnToLivePlayback(): Boolean {
         val controller = player ?: return false
         val wasPlaying = controller.playWhenReady
+        val oldQualities = viewModel.qualities
+        val oldQuality = viewModel.quality
+        val oldUpdateQualities = viewModel.updateQualities
         val login = requireArguments().getString(KEY_CHANNEL_LOGIN) ?: return false
         val proxyUrl = requireContext().prefs().getString(C.PLAYER_PROXY_URL, "")
         val url = if (viewModel.useCustomProxy && !proxyUrl.isNullOrBlank()) {
@@ -969,10 +992,43 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 null
             }
         } ?: return false
-        val result = startStreamInternal(url, wasPlaying) ?: return false
-        return withContext(Dispatchers.IO) {
-            runCatching { result.get().resultCode == SessionResult.RESULT_SUCCESS }.getOrDefault(false)
+        val result = startStreamInternal(url, wasPlaying) ?: run {
+            restoreQualityAfterSourceSwitchFailure(
+                qualities = oldQualities,
+                quality = oldQuality,
+                updateQualities = oldUpdateQualities,
+            )
+            return false
         }
+        val success = try {
+            withContext(Dispatchers.IO) {
+                result.get().resultCode == SessionResult.RESULT_SUCCESS
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
+        if (!success) {
+            restoreQualityAfterSourceSwitchFailure(
+                qualities = oldQualities,
+                quality = oldQuality,
+                updateQualities = oldUpdateQualities,
+            )
+        }
+        return success
+    }
+
+    private fun restoreQualityAfterSourceSwitchFailure(
+        qualities: List<VideoQuality>?,
+        quality: VideoQuality?,
+        updateQualities: Boolean,
+    ) {
+        viewModel.qualities = qualities
+        viewModel.quality = quality
+        viewModel.updateQualities = updateQualities
+        pendingSourceSwitchQuality.clear()
+        setQualityText()
     }
 
     override suspend fun getLiveRewindVodId(): String? {
@@ -1565,8 +1621,16 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                         }
                     viewModel.updateQualities = false
                     setDefaultQuality()
+                    val pendingQualityName = pendingSourceSwitchQuality.consume()
+                    val restoredQuality = pendingQualityName?.let { name ->
+                        viewModel.qualities?.firstOrNull {
+                            it.name.equals(name, ignoreCase = true)
+                        } ?: findQuality(name)
+                    }
                     changePlayerMode()
-                    if (viewModel.quality?.name == AUDIO_ONLY_QUALITY) {
+                    if (restoredQuality != null) {
+                        changeQuality(restoredQuality, persistSavedQuality = false)
+                    } else if (viewModel.quality?.name == AUDIO_ONLY_QUALITY) {
                         changeQuality(viewModel.quality, persistSavedQuality = false)
                     }
                     setQualityText()
@@ -1683,6 +1747,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     }
 
     override fun onDestroyView() {
+        pendingSourceSwitchQuality.clear()
         qualityRequestGeneration++
         qualityRequestInFlight = false
         nativeCues = emptyList()

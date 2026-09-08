@@ -1457,6 +1457,7 @@ class ExoPlayerService : BasePlaybackService() {
         val oldUpdateQualities = updateQualities
         val oldLiveClipSourceMediaId = liveClipSourceMediaId
         val wasPlaying = player.playWhenReady
+        rememberQualityForSourceSwitch()
         beginLiveRewindTransition()
         cancelLiveClipPreparation()
         adAvoidanceJob?.cancel()
@@ -1481,6 +1482,7 @@ class ExoPlayerService : BasePlaybackService() {
                 val loaded = !playlistUrl.isNullOrBlank()
                 videoId = oldVideoId
                 if (!loaded) {
+                    clearRememberedSourceSwitchQuality()
                     playlistUrl = oldPlaylistUrl
                     hlsClipDataSourceFactory = oldHlsClipDataSourceFactory
                     qualities = oldQualities
@@ -1509,8 +1511,11 @@ class ExoPlayerService : BasePlaybackService() {
                 }
                 loaded
             } catch (e: CancellationException) {
+                // The opposite-direction transition can immediately hand this
+                // selection off. The service clears it when playback is destroyed.
                 throw e
             } catch (e: Exception) {
+                clearRememberedSourceSwitchQuality()
                 videoId = oldVideoId
                 playlistUrl = oldPlaylistUrl
                 hlsClipDataSourceFactory = oldHlsClipDataSourceFactory
@@ -1556,6 +1561,7 @@ class ExoPlayerService : BasePlaybackService() {
         val oldHidden = hidden
         val oldUpdateQualities = updateQualities
         val oldLiveClipSourceMediaId = liveClipSourceMediaId
+        rememberQualityForSourceSwitch()
         beginLiveRewindTransition()
         cancelLiveClipPreparation()
         playlistUrl = null
@@ -1574,6 +1580,7 @@ class ExoPlayerService : BasePlaybackService() {
             if (success) {
                 clearLiveRewindState()
             } else {
+                clearRememberedSourceSwitchQuality()
                 playlistUrl = oldPlaylistUrl
                 hlsClipDataSourceFactory = oldHlsClipDataSourceFactory
                 qualities = oldQualities
@@ -2951,6 +2958,7 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     override fun onDestroy() {
+        clearRememberedSourceSwitchQuality()
         releaseViewingStats()
         clearLiveClipState()
         streamRecoveryJob?.cancel()

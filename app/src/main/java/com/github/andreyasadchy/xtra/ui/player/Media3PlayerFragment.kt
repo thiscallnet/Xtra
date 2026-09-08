@@ -2357,7 +2357,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         setQualityText()
     }
 
-    private fun findQuality(targetQualityString: String?): VideoQuality? {
+    protected fun findQuality(targetQualityString: String?): VideoQuality? {
         val targetQuality = targetQualityString?.split("p")
         return targetQuality?.getOrNull(0)?.takeWhile { it.isDigit() }?.toIntOrNull()?.let { targetResolution ->
             val targetFps = targetQuality.getOrNull(1)?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 30
