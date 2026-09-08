@@ -123,6 +123,7 @@ open class ChatMessageTextView private constructor(
     )
     private var renderingActive = true
     private var animateGifs = true
+    private var animationBudgetAllowed = true
     private var windowAttached = false
     private var aggregatedVisible = false
     private var animatedAssetKeys = emptySet<ChatAssetKey>()
@@ -194,6 +195,14 @@ open class ChatMessageTextView private constructor(
         animateGifs = value
         updateDrawableAnimations()
     }
+
+    fun setAnimationBudgetAllowed(value: Boolean) {
+        if (animationBudgetAllowed == value) return
+        animationBudgetAllowed = value
+        updateDrawableAnimations()
+    }
+
+    fun hasAnimatedAssets(): Boolean = animatedAssetKeys.isNotEmpty()
 
     fun bind(row: ChatRowUiModel) {
         externalBindGeneration++
@@ -1252,7 +1261,7 @@ open class ChatMessageTextView private constructor(
     private fun updateAnimationState(key: ChatAssetKey, drawable: Drawable) {
         drawable.callback = if (renderingActive && windowAttached && aggregatedVisible) this else null
         val animatable = drawable as? Animatable ?: return
-        val shouldRun = animateGifs && renderingActive && windowAttached && aggregatedVisible && key in animatedAssetKeys
+        val shouldRun = animateGifs && animationBudgetAllowed && renderingActive && windowAttached && aggregatedVisible && key in animatedAssetKeys
         if (shouldRun) {
             if (!animatable.isRunning) {
                 animatable.start()

@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.ui
 
 import android.view.ViewGroup
+import androidx.core.view.children
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
@@ -17,6 +18,18 @@ class ChatTimelineAdapter(
     private val onGifClick: ((ChatGifInteraction) -> Unit)? = null,
     private val onMessageClick: ((ChatMessageId) -> Unit)? = null,
 ) : RecyclerView.Adapter<ChatTimelineAdapter.Holder>() {
+    private var attachedRecyclerView: RecyclerView? = null
+    private var animationBudget = Int.MAX_VALUE
+    private var animationBudgetUpdatePosted = false
+    private val animationBudgetUpdateRunnable = Runnable {
+        animationBudgetUpdatePosted = false
+        updateAnimationBudget()
+    }
+    private val animationBudgetScrollListener = object : RecyclerView.OnScrollListener() {
+        override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+            scheduleAnimationBudgetUpdate()
+        }
+    }
     private val rows = ArrayList<ChatRowUiModel>()
     var renderingActive = true
 
@@ -38,7 +51,11 @@ class ChatTimelineAdapter(
         holder.view.setRenderingActive(renderingActive)
         holder.view.setMessageTextSizeSp(textSizeSp)
         holder.view.setAnimateGifs(animateGifs)
+        // A recycled holder may have been inside the budget for its previous row. Keep the new
+        // row stopped until the visible-child pass assigns the current budget.
+        holder.view.setAnimationBudgetAllowed(false)
         holder.bind(rows[position])
+        scheduleAnimationBudgetUpdate()
     }
 
     /** Replaces the complete snapshot for reconciliation and presentation-wide updates. */
@@ -47,6 +64,7 @@ class ChatTimelineAdapter(
         rows.clear()
         rows.addAll(nextRows)
         notifyDataSetChanged()
+        scheduleAnimationBudgetUpdate()
         commitCallback?.invoke()
     }
 
@@ -75,6 +93,7 @@ class ChatTimelineAdapter(
             rows.addAll(newRows.subList(retainedCount, newRows.size))
             notifyItemRangeInserted(insertionPosition, appendedCount)
         }
+        scheduleAnimationBudgetUpdate()
         return true
     }
 
@@ -96,6 +115,7 @@ class ChatTimelineAdapter(
             rows.addAll(appendedRows)
             notifyItemRangeInserted(insertionPosition, appendedRows.size)
         }
+        scheduleAnimationBudgetUpdate()
         return true
     }
 
@@ -105,6 +125,7 @@ class ChatTimelineAdapter(
         val oldSize = rows.size
         rows.clear()
         notifyItemRangeRemoved(0, oldSize)
+        scheduleAnimationBudgetUpdate()
     }
 
     fun dispose() {
@@ -121,9 +142,59 @@ class ChatTimelineAdapter(
         animateGifs = value
         if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
     }
+
+    fun setAnimationBudget(value: Int) {
+        val next = value.coerceAtLeast(0)
+        if (animationBudget == next) return
+        animationBudget = next
+        scheduleAnimationBudgetUpdate()
+    }
+
+    private fun scheduleAnimationBudgetUpdate() {
+        val recyclerView = attachedRecyclerView ?: return
+        if (animationBudgetUpdatePosted) return
+        animationBudgetUpdatePosted = true
+        recyclerView.post(animationBudgetUpdateRunnable)
+    }
+
+    private fun updateAnimationBudget() {
+        val recyclerView = attachedRecyclerView ?: return
+        // Sorting by adapter position keeps animation on the newest messages while older visible
+        // rows retain their current frame, even if RecyclerView changes child order.
+        var slots = animationBudget
+        recyclerView.children
+            .mapNotNull { child ->
+                val holder = recyclerView.getChildViewHolder(child) as? Holder ?: return@mapNotNull null
+                val position = recyclerView.getChildAdapterPosition(child)
+                position.takeIf { it != RecyclerView.NO_POSITION }?.let { it to holder }
+            }
+            .sortedByDescending { (position, _) -> position }
+            .forEach { (_, holder) ->
+                val allowed = holder.view.hasAnimatedAssets() && slots > 0
+                if (allowed) slots--
+                holder.view.setAnimationBudgetAllowed(allowed)
+            }
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        attachedRecyclerView = recyclerView
+        recyclerView.addOnScrollListener(animationBudgetScrollListener)
+        scheduleAnimationBudgetUpdate()
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        recyclerView.removeOnScrollListener(animationBudgetScrollListener)
+        recyclerView.removeCallbacks(animationBudgetUpdateRunnable)
+        animationBudgetUpdatePosted = false
+        if (attachedRecyclerView === recyclerView) attachedRecyclerView = null
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
+
     override fun onViewAttachedToWindow(holder: Holder) {
         super.onViewAttachedToWindow(holder)
         holder.view.setRenderingActive(renderingActive)
+        scheduleAnimationBudgetUpdate()
     }
 
     override fun onViewRecycled(holder: Holder) { holder.view.recycle(); super.onViewRecycled(holder) }
