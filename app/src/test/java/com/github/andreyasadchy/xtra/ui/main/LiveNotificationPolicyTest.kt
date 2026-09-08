@@ -51,6 +51,16 @@ class LiveNotificationPolicyTest {
             NO_CHANNELS_RECONCILE_INTERVAL_MS,
             reconcileIntervalMs(0, 0, eventSubConnected = false, eventSubSuspended = false),
         )
+        assertEquals(
+            PARTIAL_EVENTSUB_RECONCILE_INTERVAL_MS,
+            reconcileIntervalMs(
+                desiredChannelCount = 0,
+                activeEventSubChannelCount = 0,
+                eventSubConnected = false,
+                eventSubSuspended = false,
+                monitoredChannelCount = 12,
+            ),
+        )
     }
 
     @Test
@@ -141,6 +151,16 @@ class LiveNotificationPolicyTest {
         assertEquals(
             LiveNotificationCoverageState.NO_CHANNELS,
             liveNotificationCoverageState(0, 0, eventSubConnected = false, eventSubSuspended = false),
+        )
+        assertEquals(
+            LiveNotificationCoverageState.DISCONNECTED,
+            liveNotificationCoverageState(
+                desiredChannelCount = 0,
+                activeEventSubChannelCount = 0,
+                eventSubConnected = false,
+                eventSubSuspended = false,
+                monitoredChannelCount = 12,
+            ),
         )
         assertEquals(
             LiveNotificationCoverageState.PARTIAL,

@@ -259,13 +259,20 @@ class LiveNotificationRunner(
                     } else {
                         coverage.copy(connected = false, suspended = true)
                     }
-                    nextDelayMs.set(nextReconciliationDelay(coverage, helixMinimumDelayMs))
+                    nextDelayMs.set(
+                        nextReconciliationDelay(
+                            coverage = coverage,
+                            monitoredChannelCount = it.channelCount,
+                            helixMinimumDelayMs = helixMinimumDelayMs,
+                        )
+                    )
                     if (BuildConfig.PERF_DIAGNOSTICS) {
                         val coverageState = liveNotificationCoverageState(
                             desiredChannelCount = coverage.desiredChannelCount,
                             activeEventSubChannelCount = coverage.activeSubscriptionCount,
                             eventSubConnected = coverage.connected,
                             eventSubSuspended = coverage.suspended,
+                            monitoredChannelCount = it.channelCount,
                         )
                         Log.i(
                             TAG,
@@ -324,6 +331,7 @@ class LiveNotificationRunner(
 
     private fun nextReconciliationDelay(
         coverage: LiveEventSubCoverage,
+        monitoredChannelCount: Int,
         helixMinimumDelayMs: Long?,
     ): Long {
         val coverageState = liveNotificationCoverageState(
@@ -331,6 +339,7 @@ class LiveNotificationRunner(
             activeEventSubChannelCount = coverage.activeSubscriptionCount,
             eventSubConnected = coverage.connected,
             eventSubSuspended = coverage.suspended,
+            monitoredChannelCount = monitoredChannelCount,
         )
         val coverageDelayMs = if (coverageState == LiveNotificationCoverageState.NO_CHANNELS) {
             monitor.nextNotificationUserSyncDelayMs()
@@ -340,6 +349,7 @@ class LiveNotificationRunner(
                 activeEventSubChannelCount = coverage.activeSubscriptionCount,
                 eventSubConnected = coverage.connected,
                 eventSubSuspended = coverage.suspended,
+                monitoredChannelCount = monitoredChannelCount,
             )
         }
         return applyHelixMinimumDelay(coverageDelayMs, helixMinimumDelayMs)
