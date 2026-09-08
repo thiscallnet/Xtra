@@ -35,6 +35,7 @@
         android:defaultValue="true"
         android:key="chat_drops_show"
         android:title="@string/drops_show"
+        android:summary="@string/drops_show_summary"
         app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat
         android:defaultValue="false"

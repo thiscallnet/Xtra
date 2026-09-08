@@ -849,6 +849,8 @@ class PlayerRepository(
         streamId: String?,
         channelId: String?,
         channelLogin: String?,
+        game: String? = null,
+        gameId: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
         watchCreditMutex.withLock {
             if (userId.isNullOrBlank() || streamId.isNullOrBlank() || channelId.isNullOrBlank() || channelLogin.isNullOrBlank()) {
@@ -881,7 +883,11 @@ class PlayerRepository(
                 Log.d(WatchCreditTelemetry.LOG_TAG, "Spade URL discovered and cached host=${urlHost(spadeUrl)}")
             }
 
-            val body = WatchCreditTelemetry.buildMinuteWatchedPayload(session)
+            val body = WatchCreditTelemetry.buildMinuteWatchedPayload(
+                session = session,
+                game = game,
+                gameId = gameId,
+            )
             val spadeRequest = "data=" + Base64.encodeToString(body.toByteArray(), Base64.NO_WRAP)
             if (postMinuteWatched(networkLibrary, spadeUrl, spadeRequest)) {
                 return@withLock true

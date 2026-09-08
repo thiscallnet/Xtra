@@ -18,6 +18,8 @@ import kotlin.concurrent.scheduleAtFixedRate
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
+private const val MINUTE_WATCHED_INTERVAL_MILLIS = 59_000L
+
 class HermesWebSocket(
     private val channelId: String,
     private val userId: String?,
@@ -31,6 +33,7 @@ class HermesWebSocket(
     private val includeChannelTopics: Boolean = true,
     private val trustManager: Lazy<X509TrustManager>,
     private val listener: Listener,
+    private val listenForDrops: Boolean = false,
 ) {
     private var webSocket: WebSocket? = null
     private var pongTimer: Timer? = null
@@ -41,7 +44,7 @@ class HermesWebSocket(
     private var hasSubscribed = false
 
     fun connect(coroutineScope: CoroutineScope): Job {
-        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes connect requested channelIdPresent=${channelId.isNotBlank()} userIdPresent=${!userId.isNullOrBlank()} collectPoints=$collectPoints listenForPoints=$listenForPoints")
+        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes connect requested channelIdPresent=${channelId.isNotBlank()} userIdPresent=${!userId.isNullOrBlank()} collectPoints=$collectPoints listenForPoints=$listenForPoints listenForDrops=$listenForDrops")
         hasSubscribed = false
         webSocket = WebSocket("wss://hermes.twitch.tv/v1?clientId=${gqlClientId}", trustManager, WebSocketListener())
         webSocket?.coroutineScope = coroutineScope
@@ -60,7 +63,7 @@ class HermesWebSocket(
     }
 
     private suspend fun subscribe() = withContext(Dispatchers.IO) {
-        if (!userId.isNullOrBlank() && !gqlToken.isNullOrBlank() && listenForPoints) {
+        if (!userId.isNullOrBlank() && !gqlToken.isNullOrBlank() && (listenForPoints || listenForDrops)) {
             val authenticate = JSONObject().apply {
                 put("id", Uuid.random().toHexString().substring(0, 21))
                 put("type", "authenticate")
@@ -89,6 +92,9 @@ class HermesWebSocket(
                 if (listenForPoints) {
                     put(Uuid.random().toHexString().substring(0, 21), "community-points-user-v1.$userId")
                 }
+                if (listenForDrops) {
+                    put(Uuid.random().toHexString().substring(0, 21), "user-drop-events.$userId")
+                }
             }
         }
         topics.forEach {
@@ -108,6 +114,9 @@ class HermesWebSocket(
             if (it.value.startsWith("community-points-user")) {
                 Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes community-points-user subscription sent")
             }
+            if (it.value.startsWith("user-drop-events")) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes user-drop-events subscription sent")
+            }
         }
         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes subscriptions sent count=${topics.size}")
         val reconnected = hasSubscribed
@@ -126,9 +135,12 @@ class HermesWebSocket(
     }
 
     private suspend fun startMinuteWatchedTimer() = withContext(Dispatchers.IO) {
-        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer started intervalMs=60000")
+        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer started intervalMs=$MINUTE_WATCHED_INTERVAL_MILLIS")
         minuteWatchedTimer = Timer().apply {
-            scheduleAtFixedRate(60000, 60000) {
+            scheduleAtFixedRate(
+                MINUTE_WATCHED_INTERVAL_MILLIS,
+                MINUTE_WATCHED_INTERVAL_MILLIS,
+            ) {
                 val scope = webSocket?.coroutineScope
                 Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer fired scopePresent=${scope != null}")
                 scope?.launch {
@@ -148,6 +160,7 @@ class HermesWebSocket(
         suspend fun onPointsEarned(message: JSONObject) {}
         suspend fun onPointsSpent(message: JSONObject) {}
         suspend fun onClaimAvailable() {}
+        suspend fun onDropMessage(message: JSONObject) {}
         suspend fun onMinuteWatched() {}
         suspend fun onRaidUpdate(message: JSONObject, openStream: Boolean) {}
         suspend fun onPollUpdate(message: JSONObject) {}
@@ -219,6 +232,7 @@ class HermesWebSocket(
                                         }
                                     }
                                 }
+                                topic.startsWith("user-drop-events") -> listener.onDropMessage(message)
                                 topic.startsWith("raid") -> {
                                     when {
                                         messageType.startsWith("raid_update") -> listener.onRaidUpdate(message, false)
@@ -252,11 +266,11 @@ class HermesWebSocket(
                         }
                         pongTimer?.cancel()
                         startPongTimer()
-                        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes welcome received collectPoints=$collectPoints userIdPresent=${!userId.isNullOrBlank()} gqlTokenPresent=${!gqlToken.isNullOrBlank()}")
+                        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes welcome received collectPoints=$collectPoints listenForDrops=$listenForDrops userIdPresent=${!userId.isNullOrBlank()} gqlTokenPresent=${!gqlToken.isNullOrBlank()}")
                         subscribe()
-                        if (collectPoints && !userId.isNullOrBlank() && !gqlToken.isNullOrBlank() && minuteWatchedTimer == null) {
+                        if (listenForDrops && !userId.isNullOrBlank() && !gqlToken.isNullOrBlank() && minuteWatchedTimer == null) {
                             startMinuteWatchedTimer()
-                        } else if (collectPoints && minuteWatchedTimer == null) {
+                        } else if (listenForDrops && minuteWatchedTimer == null) {
                             Log.w(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer not started: missing userId or GQL token")
                         }
                     }

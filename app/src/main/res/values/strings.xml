@@ -1477,6 +1477,7 @@
     <string name="prediction_result_30s">30 seconds</string>
     <string name="prediction_result_60s">1 minute</string>
     <string name="drops_show">Show Drops</string>
+    <string name="drops_show_summary">Show live progress in chat and notify you when a Drop is ready.</string>
     <string name="drops">Drops</string>
     <string name="drops_inventory_tab">Inventory</string>
     <string name="drops_all_campaigns_tab">All Campaigns</string>

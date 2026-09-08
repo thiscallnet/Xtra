@@ -42,7 +42,12 @@ object PubSubUtils {
     fun parseStreamInfo(message: JSONObject): StreamInfo {
         return StreamInfo(
             title = if (!message.isNull("status")) message.optString("status").takeIf { it.isNotBlank() } else null,
-            gameId = if (!message.isNull("game_id")) message.optInt("game_id").takeIf { it > 0 }?.toString() else null,
+            // Hermes has emitted this value as both a JSON number and a string.
+            gameId = if (!message.isNull("game_id")) {
+                message.optString("game_id").takeIf { it.isNotBlank() }
+            } else {
+                null
+            },
             gameName = if (!message.isNull("game")) message.optString("game").takeIf { it.isNotBlank() } else null,
         )
     }

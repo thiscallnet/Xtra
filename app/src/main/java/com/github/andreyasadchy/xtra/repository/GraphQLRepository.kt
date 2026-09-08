@@ -460,7 +460,6 @@ class GraphQLRepository(
         networkLibrary: String?,
         headers: Map<String, String>,
         channelId: String,
-        channelLogin: String,
     ): String = withContext(Dispatchers.IO) {
         require(channelId.isNotBlank()) { "channelId is required" }
         sendDropsPersistedQuery(
@@ -470,7 +469,8 @@ class GraphQLRepository(
             TwitchGqlOperations.CURRENT_DROP_HASH,
             buildJsonObject {
                 put("channelID", channelId)
-                put("channelLogin", channelLogin)
+                // DropCurrentSessionContext currently requires this variable but ignores its value.
+                put("channelLogin", "")
             },
         )
     }

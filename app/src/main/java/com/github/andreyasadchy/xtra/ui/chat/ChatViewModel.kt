@@ -84,6 +84,8 @@ import com.github.andreyasadchy.xtra.util.chat.EventSubChatConnectionState
 import com.github.andreyasadchy.xtra.util.chat.EventSubChatConnectionStatus
 import com.github.andreyasadchy.xtra.util.chat.EventSubUtils
 import com.github.andreyasadchy.xtra.util.chat.EventSubWebSocket
+import com.github.andreyasadchy.xtra.util.chat.DropProgressUpdate
+import com.github.andreyasadchy.xtra.util.chat.GqlDropsParser
 import com.github.andreyasadchy.xtra.util.chat.GqlPredictionParser
 import com.github.andreyasadchy.xtra.util.chat.GqlPredictionSnapshot
 import com.github.andreyasadchy.xtra.util.chat.chooseGqlPredictionSnapshot
@@ -3221,8 +3223,9 @@ class ChatViewModel(
                 showRaids = showRaids,
                 showPolls = showPolls,
                 showPredictions = showPredictions,
+                listenForDrops = hasHermesUserAuth,
                 trustManager = trustManager,
-                listener = PubSubListener(channelLogin, collectPoints, notifyPoints, showRaids, showPolls, showPredictions, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId, showWebSocketDebugInfo, sessionToken)
+                listener = PubSubListener(channelLogin, collectPoints, notifyPoints, showRaids, showPolls, showPredictions, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId, showWebSocketDebugInfo, sessionToken),
             )
             if (isLoggedIn && !hasHermesUserAuth) {
                 Log.w(
@@ -3306,7 +3309,6 @@ class ChatViewModel(
                     val drops = if (showDropsNow) {
                         dropsRepository.refreshChannelDrops(
                             expectedChannelId,
-                            expectedChannelLogin,
                         )
                     } else {
                         emptyList()
@@ -3453,6 +3455,7 @@ class ChatViewModel(
         _connectionState.value = ConnectionState.IDLE
         watchStreakSession++
         lastWatchStreakReconciliationElapsedRealtime = null
+        _streamInfo.value = null
         activeChannelId = null
         activeChannelLogin = null
         if (applicationContext.tokenPrefs().getString(C.USER_ID, null).isNullOrBlank()) {
@@ -4639,6 +4642,92 @@ class ChatViewModel(
             }
         }
 
+        override suspend fun onDropMessage(message: JSONObject) {
+            if (!isActiveWatchCreditSession()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes Drops event ignored for inactive watch session")
+                return
+            }
+            when (message.optString("type").lowercase(Locale.US)) {
+                "drop-progress" -> {
+                    GqlDropsParser.parseDropProgressMessage(message)?.let { publishDropProgress(it) }
+                }
+                "drop-claim" -> refreshDropsAfterEvent()
+            }
+        }
+
+        private suspend fun publishDropProgress(update: DropProgressUpdate) {
+            val previous = _dropsUiState.value.drops.firstOrNull { it.id == update.dropId }
+            val showDrops = applicationContext.prefs().getBoolean(C.CHAT_DROPS_SHOW, true)
+            val autoClaimDrops = applicationContext.prefs().getBoolean(C.CHAT_DROPS_AUTO_CLAIM, false)
+            val changed = dropsRepository.applyDropProgress(update)
+            if (!changed) {
+                // The account inventory can lag behind Hermes when a campaign starts.
+                // Refresh instead of silently losing the first real progress event.
+                if (previous == null && (showDrops || autoClaimDrops)) {
+                    refreshDropsAfterEvent()
+                }
+                return
+            }
+
+            if (!showDrops) return
+
+            val required = update.requiredMinutesWatched ?: previous?.requiredMinutesWatched
+            val isComplete = required != null && update.currentMinutesWatched >= required
+            _dropsUiState.update { state ->
+                state.copy(
+                    drops = state.drops.map { drop ->
+                        if (drop.id != update.dropId) {
+                            drop
+                        } else {
+                            drop.copy(
+                                currentMinutesWatched = maxOf(
+                                    drop.currentMinutesWatched,
+                                    update.currentMinutesWatched,
+                                ),
+                                requiredMinutesWatched = update.requiredMinutesWatched
+                                    ?: drop.requiredMinutesWatched,
+                            )
+                        }
+                    },
+                    lastError = null,
+                )
+            }
+            Log.d(
+                WatchCreditTelemetry.LOG_TAG,
+                "Drops progress updated dropId=${update.dropId} currentMinutes=${update.currentMinutesWatched} requiredMinutes=${required ?: "unknown"}",
+            )
+
+            // The event does not include the claim instance id. Refresh once at completion so
+            // the existing claim UI can become actionable immediately.
+            if (previous == null || isComplete && previous.dropInstanceId.isNullOrBlank()) {
+                refreshDropsAfterEvent()
+            }
+        }
+
+        private suspend fun refreshDropsAfterEvent() {
+            if (!isActiveWatchCreditSession()) return
+            try {
+                val inventory = dropsRepository.refreshInventory(force = true)
+                if (inventory.error != null) return
+                val showDrops = applicationContext.prefs().getBoolean(C.CHAT_DROPS_SHOW, true)
+                val drops = if (showDrops) {
+                    dropsRepository.refreshChannelDrops(channelId)
+                } else {
+                    emptyList()
+                }
+                if (isActiveWatchCreditSession()) {
+                    _dropsUiState.update { it.copy(drops = drops, lastError = null) }
+                }
+                if (applicationContext.prefs().getBoolean(C.CHAT_DROPS_AUTO_CLAIM, false)) {
+                    dropsRepository.autoClaimCompletedDrops()
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(WatchCreditTelemetry.LOG_TAG, "Drops event refresh failed", error)
+            }
+        }
+
         private fun isActiveWatchCreditSession(): Boolean =
             sessionToken == predictionSessionToken &&
                     activeChannelLogin == channelLogin &&
@@ -4714,8 +4803,22 @@ class ChatViewModel(
                 return
             }
             try {
-                val success = playerRepository.sendMinuteWatched(networkLibrary, accountId, currentStreamId, channelId, channelLogin)
+                val success = playerRepository.sendMinuteWatched(
+                    networkLibrary = networkLibrary,
+                    userId = accountId,
+                    streamId = currentStreamId,
+                    channelId = channelId,
+                    channelLogin = channelLogin,
+                    game = _streamInfo.value?.gameName,
+                    gameId = _streamInfo.value?.gameId,
+                )
                 Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat completed success=$success")
+                val progress = dropsRepository.refreshCurrentDropProgress(channelId)
+                Log.d(
+                    WatchCreditTelemetry.LOG_TAG,
+                    "current drop progress queried dropId=${progress?.dropId ?: "none"} currentMinutes=${progress?.currentMinutesWatched ?: "none"} requiredMinutes=${progress?.requiredMinutesWatched ?: "none"}",
+                )
+                progress?.let { publishDropProgress(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

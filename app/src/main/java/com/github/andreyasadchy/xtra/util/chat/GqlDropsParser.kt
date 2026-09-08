@@ -7,6 +7,12 @@ import com.github.andreyasadchy.xtra.model.ui.TwitchDropCatalogItem
 import org.json.JSONArray
 import org.json.JSONObject
 
+data class DropProgressUpdate(
+    val dropId: String,
+    val currentMinutesWatched: Int,
+    val requiredMinutesWatched: Int? = null,
+)
+
 internal object GqlDropsParser {
 
     fun parseInventory(body: String): List<TwitchDrop>? {
@@ -187,6 +193,48 @@ internal object GqlDropsParser {
     }
 
     fun parseCurrentDropIds(body: String): Set<String>? = parseDropIds(body, "currentDrop")
+
+    fun parseCurrentDropProgress(body: String): DropProgressUpdate? {
+        val root = runCatching { JSONObject(body) }.getOrNull() ?: return null
+        if (hasErrors(root)) return null
+        val session = root
+            .optJSONObject("data")
+            ?.optJSONObject("currentUser")
+            ?.optJSONObject("dropCurrentSession")
+            ?: return null
+        return parseDropProgress(
+            dropId = session.optionalString("dropID", "dropId", "id"),
+            current = session.optionalInt("currentMinutesWatched", "current_progress_min"),
+            required = session.optionalInt("requiredMinutesWatched", "required_progress_min"),
+        )
+    }
+
+    fun parseDropProgressMessage(message: JSONObject): DropProgressUpdate? {
+        if (!message.optString("type").equals("drop-progress", ignoreCase = true)) {
+            return null
+        }
+        val data = message.optJSONObject("data") ?: return null
+        return parseDropProgress(
+            dropId = message.optionalString("drop_id", "dropID", "dropId")
+                ?: data.optionalString("drop_id", "dropID", "dropId"),
+            current = data.optionalInt("current_progress_min", "currentMinutesWatched"),
+            required = data.optionalInt("required_progress_min", "requiredMinutesWatched"),
+        )
+    }
+
+    private fun parseDropProgress(
+        dropId: String?,
+        current: Int?,
+        required: Int?,
+    ): DropProgressUpdate? {
+        val id = dropId?.takeIf { it.isNotBlank() } ?: return null
+        val currentMinutes = current?.takeIf { it >= 0 } ?: return null
+        return DropProgressUpdate(
+            dropId = id,
+            currentMinutesWatched = currentMinutes,
+            requiredMinutesWatched = required?.takeIf { it > 0 },
+        )
+    }
 
     private fun parseDropIds(body: String, preferredKey: String): Set<String>? {
         val root = runCatching { JSONObject(body) }.getOrNull() ?: return null
