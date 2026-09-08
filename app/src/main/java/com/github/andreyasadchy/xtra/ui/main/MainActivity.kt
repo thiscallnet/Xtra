@@ -1335,6 +1335,7 @@ class MainActivity : AppCompatActivity() {
 
     fun closePlayer() {
         onPlayerReturnedToBrowsing(playerStillOpen = false)
+        updateMiniPlayerExclusion(null)
         supportFragmentManager.findFragmentById(R.id.playerContainer)?.let { player ->
             supportFragmentManager.beginTransaction()
                 .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
@@ -1360,9 +1361,46 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun onPlayerEnteredPlayback(isLive: Boolean = true, channelLogin: String? = null) {
+        updateMiniPlayerExclusion(null)
         viewModel.isPlayerOpened = true
         (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackEntered(isLive)
         (application as XtraApp).xtraModule.streamPreviewCoordinator.onFullscreenPlaybackStarted(channelLogin)
+    }
+
+    fun updateMiniPlayerExclusion(playerView: View?) {
+        if (isTv) return
+        binding.navHostFragment.post {
+            if (playerView == null || !playerView.isShown || playerView.width <= 0 || playerView.height <= 0) {
+                binding.navHostFragment.updateLayoutParams<ViewGroup.MarginLayoutParams> { bottomMargin = 0 }
+                return@post
+            }
+            val navigationBounds = Rect()
+            val playerBounds = Rect()
+            if (!playerView.getGlobalVisibleRect(playerBounds)) {
+                binding.navHostFragment.updateLayoutParams<ViewGroup.MarginLayoutParams> { bottomMargin = 0 }
+                return@post
+            }
+            val navigationTop = if (binding.navBarContainer.getGlobalVisibleRect(navigationBounds)) {
+                navigationBounds.top
+            } else {
+                val hostBounds = Rect()
+                if (!binding.navHostFragment.getGlobalVisibleRect(hostBounds)) {
+                    binding.navHostFragment.updateLayoutParams<ViewGroup.MarginLayoutParams> { bottomMargin = 0 }
+                    return@post
+                }
+                hostBounds.bottom +
+                    ((binding.navHostFragment.layoutParams as? ViewGroup.MarginLayoutParams)?.bottomMargin ?: 0)
+            }
+            val gap = (16 * resources.displayMetrics.density).toInt()
+            val bottomExclusion = calculateMiniPlayerBottomExclusion(
+                navigationTop = navigationTop,
+                playerTop = playerBounds.top,
+                gap = gap,
+            )
+            binding.navHostFragment.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                bottomMargin = bottomExclusion
+            }
+        }
     }
 
     fun onPlayerChangedPlayback(isLive: Boolean) {

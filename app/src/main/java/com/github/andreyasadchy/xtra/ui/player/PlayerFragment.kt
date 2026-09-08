@@ -32,6 +32,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.ViewPropertyAnimator
+import android.view.ViewTreeObserver
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.FrameLayout
@@ -137,6 +138,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     protected var isMaximized = true
     private var isChatOpen = true
     private var isKeyboardShown = false
+    private var keyboardLayoutListener: ViewTreeObserver.OnGlobalLayoutListener? = null
     private var resizeMode = 0
     private var chatWidthLandscape = 0
 
@@ -661,6 +663,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             resizeMode = requireContext().prefs().getInt(C.ASPECT_RATIO_LANDSCAPE, AspectRatioFrameLayout.RESIZE_MODE_FIT)
             aspectRatioFrameLayout.setAspectRatio(16f / 9f)
             initLayout()
+            (activity as? MainActivity)?.updateMiniPlayerExclusion(if (isMaximized) null else slidingLayout)
             changePlayerMode()
             setupLiveCaptionOverlay()
             val viewConfiguration = ViewConfiguration.get(requireContext())
@@ -836,8 +839,18 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                             newX?.let { translationX(it) }
                                             newY?.let { translationY(it) }
                                             setDuration(250L)
+                                            setListener(
+                                                object : AnimatorListenerAdapter() {
+                                                    override fun onAnimationEnd(animation: Animator) {
+                                                        setListener(null)
+                                                        (activity as? MainActivity)?.updateMiniPlayerExclusion(slidingLayout)
+                                                    }
+                                                }
+                                            )
                                             start()
                                         }
+                                    } else {
+                                        (activity as? MainActivity)?.updateMiniPlayerExclusion(slidingLayout)
                                     }
                                 } else {
                                     val windowInsets = ViewCompat.getRootWindowInsets(requireView())
@@ -852,6 +865,14 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                         translationX(0f - scaledXDiff - ((insets?.left ?: 0) * slidingLayout.scaleX) + newX)
                                         translationY(0f - scaledYDiff - ((insets?.top ?: 0) * slidingLayout.scaleY) + newY)
                                         setDuration(250L)
+                                        setListener(
+                                            object : AnimatorListenerAdapter() {
+                                                override fun onAnimationEnd(animation: Animator) {
+                                                    setListener(null)
+                                                    (activity as? MainActivity)?.updateMiniPlayerExclusion(slidingLayout)
+                                                }
+                                            }
+                                        )
                                         start()
                                     }
                                 }
@@ -1760,21 +1781,24 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                 toggleChatBar()
                             }
                         }
-                        slidingLayout.viewTreeObserver.addOnGlobalLayoutListener {
-                            if (slidingLayout.isKeyboardShown) {
+                        keyboardLayoutListener?.let(slidingLayout.viewTreeObserver::removeOnGlobalLayoutListener)
+                        keyboardLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
+                            val currentBinding = _binding ?: return@OnGlobalLayoutListener
+                            val currentContext = context ?: return@OnGlobalLayoutListener
+                            if (currentBinding.slidingLayout.isKeyboardShown) {
                                 if (!isKeyboardShown) {
                                     isKeyboardShown = true
-                                    if (!isPortrait && !requireContext().isTelevision()) {
-                                        chatLayout.updateLayoutParams { width = (slidingLayout.width / 1.8f).toInt() }
+                                    if (!isPortrait && !currentContext.isTelevision()) {
+                                        currentBinding.chatLayout.updateLayoutParams { width = (currentBinding.slidingLayout.width / 1.8f).toInt() }
                                         showStatusBar()
                                     }
                                 }
                             } else {
                                 if (isKeyboardShown) {
                                     isKeyboardShown = false
-                                    chatLayout.clearFocus()
-                                    if (!isPortrait && !requireContext().isTelevision()) {
-                                        chatLayout.updateLayoutParams { width = effectiveLandscapeChatWidth() }
+                                    currentBinding.chatLayout.clearFocus()
+                                    if (!isPortrait && !currentContext.isTelevision()) {
+                                        currentBinding.chatLayout.updateLayoutParams { width = effectiveLandscapeChatWidth() }
                                         if (isMaximized) {
                                             hideStatusBar()
                                         }
@@ -1782,6 +1806,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                 }
                             }
                         }
+                        slidingLayout.viewTreeObserver.addOnGlobalLayoutListener(keyboardLayoutListener)
                     }
                     viewLifecycleOwner.lifecycleScope.launch {
                         viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -3365,6 +3390,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(chatLayout.windowToken, 0)
                 chatLayout.clearFocus()
                 initLayout()
+                (activity as? MainActivity)?.updateMiniPlayerExclusion(if (isMaximized) null else slidingLayout)
                 refreshPlayerControls()
                 applyControlLayout()
                 if (isInteractionLocked) {
@@ -3494,6 +3520,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                 isAnimating = false
                                 setListener(null)
                                 activePointerId = -1
+                                (activity as? MainActivity)?.updateMiniPlayerExclusion(slidingLayout)
                             }
                         }
                     )
@@ -3523,6 +3550,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     fun maximize() {
         with(binding) {
             isMaximized = true
+            (activity as? MainActivity)?.updateMiniPlayerExclusion(null)
             dismissPlayer.visibility = View.GONE
             dismissPlayer.scaleX = 1f
             dismissPlayer.scaleY = 1f
@@ -3704,6 +3732,11 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     }
 
     override fun onDestroyView() {
+        _binding?.let { binding ->
+            keyboardLayoutListener?.let(binding.slidingLayout.viewTreeObserver::removeOnGlobalLayoutListener)
+        }
+        keyboardLayoutListener = null
+        (activity as? MainActivity)?.updateMiniPlayerExclusion(null)
         _binding?.playerControls?.root?.let { root ->
             pendingTvFocusRequest?.let(root::removeCallbacks)
         }

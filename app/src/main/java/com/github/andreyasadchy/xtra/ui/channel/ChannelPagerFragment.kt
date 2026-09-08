@@ -110,7 +110,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
         with(binding) {
             val activity = requireActivity() as MainActivity
             if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                appBar.setExpanded(false, false)
+                appBar.setExpanded(true, false)
             }
             if (viewModel.stream.value == null) {
                 watchLive.setOnClickListener {
@@ -780,7 +780,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            binding.appBar.setExpanded(false, false)
+            binding.appBar.setExpanded(true, false)
         }
     }
 
