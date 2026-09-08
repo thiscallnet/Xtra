@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.NonCancellable
+import java.util.LinkedHashMap
 
 data class LiveChatSessionSpec(
     val channelId: String,
@@ -40,6 +41,37 @@ data class ActiveChatSession(
     val rewardCatalog: Flow<ChatRewardCatalog> = flowOf(ChatRewardCatalog()),
 )
 
+/** Limits invisible provider refreshes when a viewer rapidly reopens the same channel. */
+class ChatCatalogRefreshGate(
+    private val cooldownMs: Long = DEFAULT_COOLDOWN_MS,
+    private val nowMs: () -> Long = System::currentTimeMillis,
+) {
+    private val lastRefreshByChannel = LinkedHashMap<String, Long>(16, 0.75f, true)
+
+    init {
+        require(cooldownMs > 0L)
+    }
+
+    @Synchronized
+    fun shouldForceRefresh(channelId: String): Boolean {
+        val now = nowMs()
+        val lastRefresh = lastRefreshByChannel[channelId]
+        if (lastRefresh != null && now >= lastRefresh && now - lastRefresh < cooldownMs) {
+            return false
+        }
+        lastRefreshByChannel[channelId] = now
+        while (lastRefreshByChannel.size > MAX_TRACKED_CHANNELS) {
+            lastRefreshByChannel.remove(lastRefreshByChannel.entries.first().key)
+        }
+        return true
+    }
+
+    private companion object {
+        const val DEFAULT_COOLDOWN_MS = 10 * 60 * 1000L
+        const val MAX_TRACKED_CHANNELS = 128
+    }
+}
+
 /** Creates independent live sessions. The player and Multiview use separate handles. */
 class ChatSessionFactory(
     private val parentScope: CoroutineScope,
@@ -49,6 +81,7 @@ class ChatSessionFactory(
     private val initialSettings: suspend (LiveChatSessionSpec) -> ChatEvent.SettingsUpdated? = { null },
     private val rewardCatalogFactory: (LiveChatSessionSpec, CoroutineScope) -> Flow<ChatRewardCatalog> = { _, _ -> flowOf(ChatRewardCatalog()) },
     private val maxTimelineSize: Int = 600,
+    private val automaticCatalogRefreshGate: ChatCatalogRefreshGate = ChatCatalogRefreshGate(),
 ) {
     private var generation = 0L
 
@@ -85,6 +118,7 @@ class ChatSessionFactory(
             startRewardCatalog = { rewardScope -> rewardCatalogFactory(spec, rewardScope) },
             initialSettings = { initialSettings(spec) },
             rewardCatalogState = rewardCatalog,
+            automaticCatalogRefreshGate = automaticCatalogRefreshGate,
         )
     }
 }
@@ -96,6 +130,7 @@ class ChatSessionHandle internal constructor(
     private val startRewardCatalog: (CoroutineScope) -> Flow<ChatRewardCatalog>,
     private val initialSettings: suspend () -> ChatEvent.SettingsUpdated?,
     private val rewardCatalogState: MutableStateFlow<ChatRewardCatalog>,
+    private val automaticCatalogRefreshGate: ChatCatalogRefreshGate,
 ) {
     private val lifecycleMutex = Mutex()
     private var started = false
@@ -107,7 +142,7 @@ class ChatSessionHandle internal constructor(
             if (closed || started) return@withLock
             active.session.start(active.key)
             started = true
-            active.catalog.refresh(force = false)
+            active.catalog.refresh(force = automaticCatalogRefreshGate.shouldForceRefresh(active.spec.channelId))
             startupWork = scope.launch {
                 // Transport, catalog, history, settings, and reward metadata are independent.
                 launch { reconcileRecent() }
@@ -179,6 +214,7 @@ class ChatSessionManager(
     private val initialSettings: suspend (LiveChatSessionSpec) -> ChatEvent.SettingsUpdated? = { null },
     private val rewardCatalogFactory: (LiveChatSessionSpec, CoroutineScope) -> Flow<ChatRewardCatalog> = { _, _ -> flowOf(ChatRewardCatalog()) },
     private val maxTimelineSize: Int = 600,
+    private val automaticCatalogRefreshGate: ChatCatalogRefreshGate = ChatCatalogRefreshGate(),
 ) {
     private val managerJob = SupervisorJob(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + managerJob)
@@ -195,6 +231,7 @@ class ChatSessionManager(
         initialSettings = initialSettings,
         rewardCatalogFactory = rewardCatalogFactory,
         maxTimelineSize = maxTimelineSize,
+        automaticCatalogRefreshGate = automaticCatalogRefreshGate,
     )
 
     /** Multiview entry point. It does not touch [_active]. */
@@ -225,7 +262,7 @@ class ChatSessionManager(
         session.start(key)
         val active = ActiveChatSession(spec, key, session, catalog, rewardCatalogFactory(spec, scope))
         _active.value = active
-        catalog.refresh(force = false)
+        catalog.refresh(force = automaticCatalogRefreshGate.shouldForceRefresh(spec.channelId))
         // Reconcile startup/reconstruction history independently of transport startup. Live
         // events can arrive while this request is in flight; ChatEventProcessor serializes the
         // atomic merge with those events and rejects the work if this generation is no longer

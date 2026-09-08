@@ -13,6 +13,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModerationDisplayMode
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatCatalogRefreshGate
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionManager
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionFactory
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineDelta
@@ -42,6 +43,49 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 class ChatSessionManagerIntegrationTest {
+    @Test
+    fun newChatSessionRefreshesCatalogOnlyAfterTheChannelCooldown() = runBlocking {
+        val parent = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val refreshModes = CopyOnWriteArrayList<Boolean>()
+        val source = object : ChatCatalogSource {
+            override suspend fun load(): ChatCatalogLoadResult = EMPTY_CATALOG_SOURCE.load()
+
+            override suspend fun load(force: Boolean): ChatCatalogLoadResult {
+                refreshModes += force
+                return EMPTY_CATALOG_SOURCE.load()
+            }
+        }
+        var now = 0L
+        val manager = ChatSessionManager(
+            parentScope = parent,
+            transportFactory = { FakeTransport() },
+            catalogFactory = { _, scope -> ChatCatalogRepository(scope, source) },
+            automaticCatalogRefreshGate = ChatCatalogRefreshGate(
+                cooldownMs = 1_000L,
+                nowMs = { now },
+            ),
+        )
+        val spec = LiveChatSessionSpec("channel-id", "channel-login")
+
+        manager.start(spec)
+        withTimeout(1_000) { while (refreshModes.size < 1) delay(1) }
+        assertEquals(listOf(true), refreshModes.toList())
+
+        manager.stop()
+        manager.start(spec)
+        withTimeout(1_000) { while (refreshModes.size < 2) delay(1) }
+        assertEquals(listOf(true, false), refreshModes.toList())
+
+        now = 1_000L
+        manager.stop()
+        manager.start(spec)
+        withTimeout(1_000) { while (refreshModes.size < 3) delay(1) }
+        assertEquals(listOf(true, false, true), refreshModes.toList())
+
+        manager.close()
+        parent.cancel()
+    }
+
     @Test
     fun initialHistoryReconcilesLiveMessagesWithoutDuplicates() = runBlocking {
         val parent = CoroutineScope(SupervisorJob() + Dispatchers.Default)
