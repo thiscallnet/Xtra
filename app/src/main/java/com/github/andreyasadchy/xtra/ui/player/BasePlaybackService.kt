@@ -53,6 +53,7 @@ abstract class BasePlaybackService : LifecycleService() {
     var quality: VideoQuality? = null
     var previousQuality: VideoQuality? = null
     var restoreQuality = false
+    private val pendingSourceSwitchQuality = SourceSwitchQualityState()
     var playlistUrl: String? = null
     var restorePlaylist = false
     var useCustomProxy = false
@@ -321,7 +322,18 @@ abstract class BasePlaybackService : LifecycleService() {
         val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
         val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
-        quality = resolveDefaultQualityForNetwork(cellular)
+        quality = pendingSourceSwitchQuality.consume()?.let { name ->
+            qualities?.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                ?: findQuality(name)
+        } ?: resolveDefaultQualityForNetwork(cellular)
+    }
+
+    protected fun rememberQualityForSourceSwitch() {
+        pendingSourceSwitchQuality.capture(quality?.name)
+    }
+
+    protected fun clearRememberedSourceSwitchQuality() {
+        pendingSourceSwitchQuality.clear()
     }
 
     fun resolveDefaultQualityForNetwork(cellular: Boolean): VideoQuality? {
