@@ -74,6 +74,8 @@
                 android:paddingTop="2dp"
                 android:paddingEnd="4dp"
                 android:paddingBottom="2dp"
+                android:maxLines="1"
+                android:singleLine="true"
                 android:visibility="gone"
                 app:layout_constraintEnd_toEndOf="@id/thumbnail"
                 app:layout_constraintTop_toTopOf="@id/thumbnail"

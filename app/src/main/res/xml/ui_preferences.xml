@@ -2,7 +2,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <PreferenceCategory android:title="@string/settings_feed_previews" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="wifi" android:entries="@array/streamPreviewEntries" android:entryValues="@array/streamPreviewValues" android:key="stream_preview_mode" android:summary="%s" android:title="@string/settings_in_feed_previews" app:iconSpaceReserved="false" />
-    <SwitchPreferenceCompat android:defaultValue="false" android:key="stream_preview_multiple" android:summary="@string/settings_multiple_previews_summary" android:title="@string/settings_multiple_previews" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="stream_preview_multiple" android:summary="@string/settings_multiple_previews_summary" android:title="@string/settings_multiple_previews" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="360" android:entries="@array/previewQualityEntries" android:entryValues="@array/previewQualityValues" android:key="stream_preview_quality" android:summary="%s" android:title="@string/settings_preview_quality" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="fast" android:entries="@array/previewDelayEntries" android:entryValues="@array/previewDelayValues" android:key="stream_preview_delay" android:summary="%s" android:title="@string/settings_preview_delay" app:iconSpaceReserved="false" />
     <PreferenceCategory android:title="@string/settings_browsing_streams_videos" app:iconSpaceReserved="false" />

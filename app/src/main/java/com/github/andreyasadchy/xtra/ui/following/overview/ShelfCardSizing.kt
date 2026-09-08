@@ -24,10 +24,11 @@ internal object ShelfCardSizing {
         val availableWidth = (measuredWidth - shelf.paddingLeft - shelf.paddingRight).coerceAtLeast(1)
         val density = shelf.resources.displayMetrics.density
         val widthDp = availableWidth / density
+        val shelfItemGap = (8 * density).toInt()
         val cardWidthDp = when {
             widthDp < 600f -> (availableWidth / 1.45f / density).coerceIn(220f, 280f)
             widthDp < 840f -> (availableWidth / 2.6f / density).coerceIn(200f, 300f)
-            else -> (availableWidth / 4.0f / density).coerceIn(220f, 320f)
+            else -> ((availableWidth - shelfItemGap * 4) / 4.0f / density).coerceIn(220f, 320f)
         }
         return (cardWidthDp * density).toInt()
     }

@@ -63,7 +63,7 @@ object StreamPreviewPolicy {
     }
 
     fun allowsMultiplePreviews(context: Context): Boolean =
-        context.prefs().getBoolean(C.STREAM_PREVIEW_MULTIPLE, false)
+        context.prefs().getBoolean(C.STREAM_PREVIEW_MULTIPLE, true)
 
     fun quality(context: Context): StreamPreviewQuality =
         StreamPreviewQuality.fromPreference(context.prefs().getString(C.STREAM_PREVIEW_QUALITY, StreamPreviewQuality.P360.preferenceValue))

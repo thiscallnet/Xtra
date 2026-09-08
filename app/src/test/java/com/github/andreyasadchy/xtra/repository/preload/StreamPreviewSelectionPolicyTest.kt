@@ -76,6 +76,22 @@ class StreamPreviewSelectionPolicyTest {
     }
 
     @Test
+    fun allEligibleCardsCanBeSelectedForTheVisiblePreviewPool() {
+        val selected = StreamPreviewSelectionPolicy.select(
+            candidates = listOf(
+                StreamPreviewSelectionCandidate("first", 0.90f, 0.5f, 0),
+                StreamPreviewSelectionCandidate("second", 0.80f, 0.5f, 1),
+                StreamPreviewSelectionCandidate("third", 0.70f, 0.5f, 2),
+                StreamPreviewSelectionCandidate("fourth", 0.60f, 0.5f, 3),
+            ),
+            activeIdentities = emptySet(),
+            maxActivePreviews = 4,
+        )
+
+        assertEquals(listOf("first", "second", "third", "fourth"), selected)
+    }
+
+    @Test
     fun defaultSelectionUsesOnePreviewSlot() {
         val selected = StreamPreviewSelectionPolicy.select(
             candidates = listOf(
