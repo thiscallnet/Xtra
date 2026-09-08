@@ -49,7 +49,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 // Keep a small animated tail alive while preventing a busy chat from driving every visible row.
-private const val DEFAULT_ANIMATION_BUDGET = 4
+private const val DEFAULT_ANIMATION_BUDGET = 2
 
 internal fun countNewLiveMessages(
     previousIds: Set<ChatMessageId>?,

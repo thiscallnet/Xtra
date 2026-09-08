@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.ui
 
+import android.graphics.Rect
 import android.view.ViewGroup
 import androidx.core.view.children
 import androidx.recyclerview.widget.RecyclerView
@@ -154,26 +155,43 @@ class ChatTimelineAdapter(
         val recyclerView = attachedRecyclerView ?: return
         if (animationBudgetUpdatePosted) return
         animationBudgetUpdatePosted = true
-        recyclerView.post(animationBudgetUpdateRunnable)
+        recyclerView.postOnAnimation(animationBudgetUpdateRunnable)
     }
 
     private fun updateAnimationBudget() {
         val recyclerView = attachedRecyclerView ?: return
-        // Sorting by adapter position keeps animation on the newest messages while older visible
-        // rows retain their current frame, even if RecyclerView changes child order.
-        var slots = animationBudget
-        recyclerView.children
+        val layoutManager = recyclerView.layoutManager ?: return
+        val viewportLeft = recyclerView.paddingLeft
+        val viewportTop = recyclerView.paddingTop
+        val viewportRight = recyclerView.width - recyclerView.paddingRight
+        val viewportBottom = recyclerView.height - recyclerView.paddingBottom
+        val decoratedBounds = Rect()
+        val visibleHolders = recyclerView.children
             .mapNotNull { child ->
                 val holder = recyclerView.getChildViewHolder(child) as? Holder ?: return@mapNotNull null
+                layoutManager.getDecoratedBoundsWithMargins(child, decoratedBounds)
+                val visible = decoratedBounds.left < viewportRight &&
+                    decoratedBounds.right > viewportLeft &&
+                    decoratedBounds.top < viewportBottom &&
+                    decoratedBounds.bottom > viewportTop
+                if (!visible) {
+                    // Attached prefetch children must never keep an animation running.
+                    holder.view.setAnimationBudgetAllowed(false)
+                    return@mapNotNull null
+                }
                 val position = recyclerView.getChildAdapterPosition(child)
                 position.takeIf { it != RecyclerView.NO_POSITION }?.let { it to holder }
             }
             .sortedByDescending { (position, _) -> position }
-            .forEach { (_, holder) ->
-                val allowed = holder.view.hasAnimatedAssets() && slots > 0
-                if (allowed) slots--
-                holder.view.setAnimationBudgetAllowed(allowed)
-            }
+
+        // Sorting by adapter position keeps animation on the newest viewport-visible messages
+        // while older visible rows retain their current frame.
+        var slots = animationBudget
+        visibleHolders.forEach { (_, holder) ->
+            val allowed = holder.view.hasAnimatedAssets() && slots > 0
+            if (allowed) slots--
+            holder.view.setAnimationBudgetAllowed(allowed)
+        }
     }
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
@@ -197,7 +215,16 @@ class ChatTimelineAdapter(
         scheduleAnimationBudgetUpdate()
     }
 
-    override fun onViewRecycled(holder: Holder) { holder.view.recycle(); super.onViewRecycled(holder) }
+    override fun onViewDetachedFromWindow(holder: Holder) {
+        super.onViewDetachedFromWindow(holder)
+        scheduleAnimationBudgetUpdate()
+    }
+
+    override fun onViewRecycled(holder: Holder) {
+        holder.view.recycle()
+        holder.view.setAnimationBudgetAllowed(false)
+        super.onViewRecycled(holder)
+    }
 
     class Holder(val view: ChatMessageTextView) : RecyclerView.ViewHolder(view) {
         fun bind(row: ChatRowUiModel) = view.bind(row)
