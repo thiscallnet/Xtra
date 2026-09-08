@@ -168,7 +168,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                 updateProgress()
                 controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
                 if (useController) {
-                    showController(show = playbackService?.type != BasePlaybackService.STREAM && playbackState == Player.STATE_ENDED)
+                    showController(show = (playbackService?.type != BasePlaybackService.STREAM && playbackState == Player.STATE_ENDED) || showPlayButton)
                 }
                 if (playbackState == Player.STATE_READY && playbackService?.type == BasePlaybackService.VIDEO) {
                     refreshClipAvailability()
@@ -194,7 +194,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                 updateProgress()
                 controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
                 if (useController) {
-                    showController(show = playbackService?.type != BasePlaybackService.STREAM && playbackService?.player?.playbackState == Player.STATE_ENDED)
+                    showController(show = (playbackService?.type != BasePlaybackService.STREAM && playbackService?.player?.playbackState == Player.STATE_ENDED) || showPlayButton)
                 }
             }
 

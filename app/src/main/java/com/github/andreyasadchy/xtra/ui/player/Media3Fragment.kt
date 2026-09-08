@@ -220,8 +220,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                     setPipActions(!showPlayButton)
                     updateProgress()
                     controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
-                    if (videoType != STREAM && useController) {
-                        showController()
+                    if (useController) {
+                        showController(show = videoType != STREAM || showPlayButton)
                     }
                 }
 
@@ -231,8 +231,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                     setPipActions(!showPlayButton)
                     updateProgress()
                     controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
-                    if (videoType != STREAM && useController) {
-                        showController()
+                    if (useController) {
+                        showController(show = videoType != STREAM || showPlayButton)
                     }
                 }
 
