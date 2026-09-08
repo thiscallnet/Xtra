@@ -173,6 +173,11 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "chat_moderation_preview_username",
     "chat_moderation_preview_message",
     "chat_moderation_preview_new_message",
+    # Fast-chat batching settings use the default English wording until their
+    # translations are reviewed by native speakers.
+    "settings_chat_batch_interval",
+    "settings_chat_batch_interval_summary",
+    "settings_chat_batch_interval_off",
     # Chat event rows ship with the default English wording until their
     # translations are reviewed by native speakers. Android intentionally
     # falls back to values/ for these presentation labels.

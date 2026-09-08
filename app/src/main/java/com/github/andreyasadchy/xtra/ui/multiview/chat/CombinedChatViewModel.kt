@@ -14,6 +14,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionHandle
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineDelta
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
+import com.github.andreyasadchy.xtra.util.ChatBatchingPreferences
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.CoroutineScope
@@ -130,7 +131,9 @@ class CombinedChatViewModel(
         session.jobs += ownerScope.launch {
             // Keeping one collector per handle means a second Multiview channel cannot stop or
             // overwrite the first one. Append publications are applied to the channel index.
-            session.handle.active.session.attachUi().collect { snapshot ->
+            session.handle.active.session.attachUi(
+                batchIntervalMsFlow = ChatBatchingPreferences.intervalMs(applicationContext),
+            ).collect { snapshot ->
                 val delta = snapshot.delta as? ChatTimelineDelta.Append
                 if (delta != null &&
                     snapshot.version > session.timelineVersion &&

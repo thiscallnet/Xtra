@@ -29,6 +29,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineDelta
 import com.github.andreyasadchy.xtra.ui.chat.ChatRenderStyle
 import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
+import com.github.andreyasadchy.xtra.util.ChatBatchingPreferences
 import com.github.andreyasadchy.xtra.util.ChatRenderDiagnostics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -649,7 +650,9 @@ class ChatV2RendererController(
 
     private fun ActiveChatSession.presentationFlow() =
         combine(
-            session.attachUi(),
+            session.attachUi(
+                batchIntervalMsFlow = ChatBatchingPreferences.intervalMs(recyclerView.context),
+            ),
             catalog.state,
             rewardCatalog,
             rewardCatalogSettled,
