@@ -173,6 +173,41 @@ class ChatAssetRepositoryTest {
     }
 
     @Test
+    fun activeLoadSurvivesObserverChurn() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val key = ChatAssetKey("active")
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            var attempts = 0
+            var callbacks = 0
+            val repository = ChatAssetRepository(scope, ChatAssetLoader {
+                attempts++
+                started.complete(Unit)
+                release.await()
+                ChatImageHandle { ColorDrawable(1) }
+            })
+            val firstListener: () -> Unit = {}
+            val secondListener: () -> Unit = { callbacks++ }
+
+            repository.observe(key, firstListener)
+            withTimeout(2_000) { started.await() }
+            repository.removeObserver(key, firstListener)
+            repository.observe(key, secondListener)
+
+            release.complete(Unit)
+            withTimeout(2_000) {
+                while (repository.peek(key) !is ChatAssetState.Ready) delay(1)
+            }
+
+            assertEquals(1, attempts)
+            assertTrue(callbacks > 0)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun readyStateCanReloadWhenCoilHasEvictedTheDecodedImage() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
