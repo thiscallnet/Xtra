@@ -20,9 +20,14 @@ internal fun liveNotificationCoverageState(
     activeEventSubChannelCount: Int,
     eventSubConnected: Boolean,
     eventSubSuspended: Boolean,
+    monitoredChannelCount: Int = desiredChannelCount,
 ): LiveNotificationCoverageState {
-    if (desiredChannelCount <= 0) return LiveNotificationCoverageState.NO_CHANNELS
-    if (eventSubConnected && !eventSubSuspended && activeEventSubChannelCount >= desiredChannelCount) {
+    if (monitoredChannelCount <= 0) return LiveNotificationCoverageState.NO_CHANNELS
+    if (desiredChannelCount > 0 &&
+        eventSubConnected &&
+        !eventSubSuspended &&
+        activeEventSubChannelCount >= desiredChannelCount
+    ) {
         return LiveNotificationCoverageState.COMPLETE
     }
     return if (eventSubConnected && !eventSubSuspended) {
@@ -37,12 +42,14 @@ internal fun reconcileIntervalMs(
     activeEventSubChannelCount: Int,
     eventSubConnected: Boolean,
     eventSubSuspended: Boolean,
+    monitoredChannelCount: Int = desiredChannelCount,
 ): Long {
     return when (liveNotificationCoverageState(
         desiredChannelCount,
         activeEventSubChannelCount,
         eventSubConnected,
         eventSubSuspended,
+        monitoredChannelCount,
     )) {
         LiveNotificationCoverageState.NO_CHANNELS -> NO_CHANNELS_RECONCILE_INTERVAL_MS
         LiveNotificationCoverageState.COMPLETE -> FULL_EVENTSUB_RECONCILE_INTERVAL_MS
