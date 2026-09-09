@@ -41,21 +41,40 @@
             app:tabMaxWidth="0dp"
             app:tabMode="fixed" />
 
-        <com.google.android.material.chip.Chip
-            android:id="@+id/dropsFilter"
-            style="@style/Widget.Material3.Chip.Filter"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:id="@+id/dropsFilterRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/dropsFilterButton"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginTop="2dp"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="2dp"
+                android:text="@string/search_drops_filter_button"
+                android:textAllCaps="false"
+                android:visibility="gone"
+                app:icon="@drawable/ic_drops"
+                app:iconGravity="textStart"
+                app:iconPadding="8dp" />
+        </LinearLayout>
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/dropsFilterGroup"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:layout_marginTop="4dp"
             android:layout_marginEnd="8dp"
             android:layout_marginBottom="4dp"
-            android:ellipsize="end"
-            android:maxWidth="420dp"
-            android:maxLines="1"
-            android:textAppearance="?attr/textAppearanceBodyMedium"
             android:visibility="gone"
-            app:closeIconEnabled="true" />
+            app:chipSpacingHorizontal="4dp"
+            app:chipSpacingVertical="0dp" />
 
         <include
             android:id="@+id/sortBar"

@@ -37,13 +37,13 @@ class StreamSearchViewModel(
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query
-    private val _dropsFilter = MutableStateFlow<DropStreamFilter?>(null)
-    val dropsFilter: StateFlow<DropStreamFilter?> = _dropsFilter
+    private val _dropsFilters = MutableStateFlow<List<DropStreamFilter>>(emptyList())
+    val dropsFilters: StateFlow<List<DropStreamFilter>> = _dropsFilters
     val recentSearches = recentSearchesRepository.getAll(RecentSearch.TYPE_STREAM)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val flow = combine(_query, _dropsFilter) { query, dropsFilter -> query to dropsFilter }
-        .flatMapLatest { (query, dropsFilter) ->
+    val flow = combine(_query, _dropsFilters) { query, dropsFilters -> query to dropsFilters }
+        .flatMapLatest { (query, dropsFilters) ->
         Pager(
             if (applicationContext.prefs().getString(C.COMPACT_STREAMS, "disabled") == "all") {
                 PagingConfig(pageSize = 30, prefetchDistance = 10, initialLoadSize = 30)
@@ -58,7 +58,7 @@ class StreamSearchViewModel(
                 gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true),
                 graphQLRepository = graphQLRepository,
                 networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                dropsFilter = dropsFilter,
+                dropsFilters = dropsFilters,
                 dropsRepository = dropsRepository,
             )
         }.flow
@@ -71,9 +71,9 @@ class StreamSearchViewModel(
         return true
     }
 
-    fun setDropsFilter(filter: DropStreamFilter?) {
-        if (_dropsFilter.value != filter) {
-            _dropsFilter.value = filter
+    fun setDropsFilters(filters: List<DropStreamFilter>) {
+        if (_dropsFilters.value != filters) {
+            _dropsFilters.value = filters
         }
     }
 

@@ -7,10 +7,10 @@ import org.junit.Test
 
 class StreamDropsPreviewPolicyTest {
     @Test
-    fun onlyDropsEnabledStreamsReceiveThePreviewBadge() {
-        assertTrue(StreamDropsPreviewPolicy.hasDropsTag(Stream(tags = listOf("DropsEnabled"))))
-        assertTrue(StreamDropsPreviewPolicy.hasDropsTag(Stream(tags = listOf("dropsenabled"))))
-        assertFalse(StreamDropsPreviewPolicy.hasDropsTag(Stream(tags = listOf("English", "Gaming"))))
-        assertFalse(StreamDropsPreviewPolicy.hasDropsTag(Stream()))
+    fun onlyStreams_with_verified_channel_drops_receive_the_preview_badge() {
+        assertTrue(StreamDropsPreviewPolicy.hasVerifiedDrops(Stream(dropsAvailable = true)))
+        assertFalse(StreamDropsPreviewPolicy.hasVerifiedDrops(Stream(tags = listOf("DropsEnabled"))))
+        assertFalse(StreamDropsPreviewPolicy.hasVerifiedDrops(Stream(dropsAvailable = false)))
+        assertFalse(StreamDropsPreviewPolicy.hasVerifiedDrops(Stream()))
     }
 }

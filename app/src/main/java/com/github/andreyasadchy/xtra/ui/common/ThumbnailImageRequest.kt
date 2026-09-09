@@ -335,7 +335,8 @@ private fun streamMetadataSame(oldItem: Stream, newItem: Stream): Boolean {
             oldItem.thumbnailURL == newItem.thumbnailURL &&
             oldItem.createdAt == newItem.createdAt &&
             oldItem.viewerCount == newItem.viewerCount &&
-            oldItem.tags == newItem.tags
+            oldItem.tags == newItem.tags &&
+            oldItem.dropsAvailable == newItem.dropsAvailable
 }
 
 internal fun streamContentsSame(oldItem: Stream, newItem: Stream): Boolean {

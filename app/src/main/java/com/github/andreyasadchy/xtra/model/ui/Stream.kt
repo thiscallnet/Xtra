@@ -20,6 +20,8 @@ class Stream(
     var createdAt: String? = null,
     var viewerCount: Int? = null,
     val tags: List<String>? = null,
+    /** True only after Twitch's channel-specific AvailableDrops response confirms Drops. */
+    var dropsAvailable: Boolean? = null,
     /** Feed refresh generation used to revalidate live preview pixels. */
     @IgnoredOnParcel
     val thumbnailGeneration: Long = 0L,

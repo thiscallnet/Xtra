@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.MenuItem
+import androidx.appcompat.widget.SearchView
 import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.core.view.ViewCompat
@@ -25,6 +26,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentDropsBinding
+import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
@@ -49,11 +51,15 @@ class DropsFragment : Fragment() {
     }
     private lateinit var adapter: DropsAdapter
     private var selectedTab = TAB_INVENTORY
+    private var dropsQuery = ""
+    private var requestedCampaignId: String? = null
     private var campaignNavigationHandled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         selectedTab = restoreDropsTab(savedInstanceState?.getInt(SELECTED_TAB))
+        dropsQuery = savedInstanceState?.getString(SEARCH_QUERY).orEmpty()
+        requestedCampaignId = arguments?.getString(FOCUS_CAMPAIGN_ID)?.takeIf(String::isNotBlank)
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -119,10 +125,21 @@ class DropsFragment : Fragment() {
         binding.tabs.addTab(binding.tabs.newTab().setText(R.string.drops_inventory_tab))
         binding.tabs.addTab(binding.tabs.newTab().setText(R.string.drops_all_campaigns_tab))
         binding.tabs.addTab(binding.tabs.newTab().setText(R.string.drops_social_badge_tab))
+        binding.searchView.setQuery(dropsQuery, false)
+        binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+            override fun onQueryTextSubmit(query: String): Boolean = false
+
+            override fun onQueryTextChange(newText: String): Boolean {
+                dropsQuery = newText.trim()
+                render(viewModel.uiState.value)
+                return true
+            }
+        })
         adapter = DropsAdapter(
             onClaim = viewModel::claim,
             onCampaignClick = viewModel::loadCampaignDetails,
             onFindStreams = ::findStreamsForCampaign,
+            onFindStreamsForDrop = ::findStreamsForDrop,
             onImageClick = ::showDropImage,
         )
         binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
@@ -139,6 +156,14 @@ class DropsFragment : Fragment() {
                 if (selectedTab == TAB_INVENTORY) binding.recyclerView.scrollToPosition(0)
             }
         })
+        parentFragmentManager.setFragmentResultListener(FOCUS_RESULT, viewLifecycleOwner) { _, result ->
+            requestedCampaignId = result.getString(FOCUS_CAMPAIGN_ID)?.takeIf(String::isNotBlank)
+            campaignNavigationHandled = false
+            dropsQuery = ""
+            binding.searchView.setQuery("", false)
+            binding.tabs.getTabAt(TAB_ALL_CAMPAIGNS)?.select()
+            render(viewModel.uiState.value)
+        }
         // TabLayout starts with the first tab selected on every view recreation. Restore the
         // fragment's tab state before the first render so the tab label and rows cannot diverge.
         binding.tabs.getTabAt(selectedTab)?.select()
@@ -150,7 +175,7 @@ class DropsFragment : Fragment() {
             }
         }
         binding.swipeRefresh.setOnRefreshListener { viewModel.refresh() }
-        arguments?.getString("campaignId")?.takeIf(String::isNotBlank)?.let {
+        requestedCampaignId?.let {
             binding.tabs.getTabAt(TAB_ALL_CAMPAIGNS)?.select()
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -183,11 +208,12 @@ class DropsFragment : Fragment() {
             state.inventory.drops.map { it.copy(dropInstanceId = null) }
         }
         val drops = mergeDropsWithDashboard(safeInventory, state.campaigns)
-        val rows = when (selectedTab) {
+        val allRows = when (selectedTab) {
             TAB_ALL_CAMPAIGNS -> campaignRows(state)
             TAB_SOCIAL_BADGE -> emptyList()
             else -> inventoryRows(drops)
         }
+        val rows = filterRows(allRows, dropsQuery)
         if (state.inventory.authenticated) {
             binding.summary.text = getString(
                 R.string.drops_summary,
@@ -223,6 +249,7 @@ class DropsFragment : Fragment() {
             binding.emptyText.text = when {
                 !state.inventory.authenticated -> getString(R.string.drops_sign_in_required)
                 selectedTab == TAB_SOCIAL_BADGE -> getString(R.string.drops_social_badge_unavailable)
+                dropsQuery.isNotBlank() -> getString(R.string.drops_search_no_matches)
                 else -> getString(R.string.drops_no_rewards)
             }
         } else if (binding.retryButton.isVisible && !socialBadge) {
@@ -233,7 +260,7 @@ class DropsFragment : Fragment() {
 
     private fun focusRequestedCampaign(rows: List<DropsRow>) {
         if (campaignNavigationHandled || selectedTab != TAB_ALL_CAMPAIGNS) return
-        val requestedId = arguments?.getString("campaignId")?.takeIf(String::isNotBlank) ?: return
+        val requestedId = requestedCampaignId ?: return
         val rowIndex = rows.indexOfFirst { row ->
             row is DropsRow.Campaign &&
                 (row.value.id == requestedId || row.value.drops.any { it.id == requestedId })
@@ -250,6 +277,26 @@ class DropsFragment : Fragment() {
         findNavController().navigate(
             R.id.action_global_searchPagerFragment,
             SearchPagerFragment.dropsSearchArguments(campaign),
+        )
+    }
+
+    private fun findStreamsForDrop(drop: TwitchDrop) {
+        val campaignId = drop.campaignId?.takeIf(String::isNotBlank) ?: return
+        val gameName = drop.gameName?.takeIf(String::isNotBlank) ?: return
+        findNavController().navigate(
+            R.id.action_global_searchPagerFragment,
+            SearchPagerFragment.dropsSearchArguments(
+                listOf(
+                    DropStreamFilter(
+                        campaignId = campaignId,
+                        campaignName = drop.campaignName ?: gameName,
+                        gameId = null,
+                        gameName = gameName,
+                        dropIds = setOf(drop.id),
+                        dropNames = listOfNotNull(drop.name ?: drop.rewardName),
+                    ),
+                ),
+            ),
         )
     }
 
@@ -309,6 +356,28 @@ class DropsFragment : Fragment() {
         binding.toolbar.invalidate()
     }
 
+    private fun filterRows(rows: List<DropsRow>, query: String): List<DropsRow> {
+        if (query.isBlank()) return rows
+        val result = mutableListOf<DropsRow>()
+        var pendingSection: DropsRow.Section? = null
+        rows.forEach { row ->
+            when (row) {
+                is DropsRow.Section -> pendingSection = row
+                is DropsRow.Drop -> if (row.value.searchableText().contains(query, ignoreCase = true)) {
+                    pendingSection?.let(result::add)
+                    pendingSection = null
+                    result += row
+                }
+                is DropsRow.Campaign -> if (row.value.searchableText().contains(query, ignoreCase = true)) {
+                    pendingSection?.let(result::add)
+                    pendingSection = null
+                    result += row
+                }
+            }
+        }
+        return result
+    }
+
     override fun onDestroyView() {
         _binding = null
         super.onDestroyView()
@@ -316,14 +385,37 @@ class DropsFragment : Fragment() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt(SELECTED_TAB, selectedTab)
+        outState.putString(SEARCH_QUERY, dropsQuery)
         super.onSaveInstanceState(outState)
     }
 
-    private companion object {
+    companion object {
         const val TAB_INVENTORY = 0
         const val TAB_ALL_CAMPAIGNS = 1
         const val TAB_SOCIAL_BADGE = 2
         const val SELECTED_TAB = "selected_drops_tab"
+        const val SEARCH_QUERY = "drops_search_query"
         const val TWITCH_DROPS_URL = "https://www.twitch.tv/drops"
+        const val FOCUS_RESULT = "drops-focus-result"
+        const val FOCUS_CAMPAIGN_ID = "campaignId"
     }
 }
+
+private fun TwitchDrop.searchableText(): String = listOfNotNull(
+    campaignName,
+    gameName,
+    name,
+    rewardName,
+    benefits.joinToString(" ") { it.name.orEmpty() },
+).joinToString(" ")
+
+private fun TwitchDropCampaign.searchableText(): String = listOfNotNull(
+    name,
+    gameName,
+    drops.joinToString(" ") { drop ->
+        listOfNotNull(
+            drop.name,
+            drop.benefits.joinToString(" ") { it.name.orEmpty() },
+        ).joinToString(" ")
+    },
+).joinToString(" ")

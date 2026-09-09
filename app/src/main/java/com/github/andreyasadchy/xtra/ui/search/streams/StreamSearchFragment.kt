@@ -40,16 +40,8 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
     private val viewModel: StreamSearchViewModel by viewModels { StreamSearchViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
     private var recentSearchAdapter = RecentSearchAdapter({ (parentFragment as? SearchPagerFragment)?.setQuery(it.query) }, { viewModel.deleteRecentSearch(it) })
-    private val initialDropsFilter: DropStreamFilter?
-        get() = arguments?.getString(CAMPAIGN_ID)?.takeIf { it.isNotBlank() }?.let { campaignId ->
-            DropStreamFilter(
-                campaignId = campaignId,
-                campaignName = arguments?.getString(CAMPAIGN_NAME).orEmpty(),
-                gameId = arguments?.getString(GAME_ID),
-                gameName = arguments?.getString(GAME_NAME).orEmpty(),
-                dropIds = arguments?.getStringArrayList(DROP_IDS).orEmpty().toSet(),
-            )
-        }
+    private val initialDropsFilters: List<DropStreamFilter>
+        get() = arguments?.parcelableArrayList<DropStreamFilter>(FILTERS).orEmpty()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = CommonRecyclerViewLayoutBinding.inflate(inflater, container, false)
@@ -87,8 +79,8 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
 
     override fun initialize() {
         val searchPager = parentFragment as? SearchPagerFragment
-        viewModel.setDropsFilter(
-            if (searchPager != null) searchPager.currentDropsFilter() else initialDropsFilter,
+        viewModel.setDropsFilters(
+            if (searchPager != null) searchPager.currentDropsFilters() else initialDropsFilters,
         )
         with(binding) {
             setupPagingControls(binding, pagingAdapter)
@@ -146,27 +138,31 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
     }
 
     fun clearDropsFilter() {
-        viewModel.setDropsFilter(null)
+        viewModel.setDropsFilters(emptyList())
+    }
+
+    fun applyDropsFilters(filters: List<DropStreamFilter>) {
+        viewModel.setDropsFilters(filters)
     }
 
     companion object {
-        private const val CAMPAIGN_ID = "drops_campaign_id"
-        private const val CAMPAIGN_NAME = "drops_campaign_name"
-        private const val GAME_ID = "drops_game_id"
-        private const val GAME_NAME = "drops_game_name"
-        private const val DROP_IDS = "drops_drop_ids"
+        private const val FILTERS = "drops_filters"
 
-        fun newInstance(filter: DropStreamFilter?) = StreamSearchFragment().apply {
-            filter ?: return@apply
+        fun newInstance(filters: List<DropStreamFilter>) = StreamSearchFragment().apply {
+            if (filters.isEmpty()) return@apply
             arguments = Bundle().apply {
-                putString(CAMPAIGN_ID, filter.campaignId)
-                putString(CAMPAIGN_NAME, filter.campaignName)
-                putString(GAME_ID, filter.gameId)
-                putString(GAME_NAME, filter.gameName)
-                putStringArrayList(DROP_IDS, ArrayList(filter.dropIds))
+                putParcelableArrayList(FILTERS, ArrayList(filters))
             }
         }
     }
 }
+
+private inline fun <reified T : android.os.Parcelable> Bundle.parcelableArrayList(key: String): ArrayList<T>? =
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        getParcelableArrayList(key, T::class.java)
+    } else {
+        @Suppress("DEPRECATION")
+        getParcelableArrayList(key)
+    }
 
 

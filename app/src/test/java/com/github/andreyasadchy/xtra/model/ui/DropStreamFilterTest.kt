@@ -35,36 +35,84 @@ class DropStreamFilterTest {
 
     @Test
     fun `campaign and drop ids are matched against channel catalog`() {
-        val campaign = TwitchChannelDropCampaign(
+        val campaign = channelCampaign(
             id = "other-campaign",
-            name = "Other",
-            gameId = "game-1",
-            gameName = "Black Desert",
-            imageUrl = null,
-            detailsUrl = null,
-            startTime = null,
-            endTime = null,
-            includesWatchRequirement = true,
-            includesSubscriptionRequirement = false,
-            isSitewide = false,
-            isRewardCampaign = false,
-            localizedTitle = null,
-            earnInstructions = null,
-            drops = listOf(
-                TwitchChannelDrop(
-                    id = "drop-1",
-                    name = "Drop",
-                    startTime = null,
-                    endTime = null,
-                    requiredMinutesWatched = 30,
-                    requiredSubs = 0,
-                    benefits = emptyList(),
-                    isEventBased = false,
-                ),
-            ),
+            dropId = "drop-1",
         )
 
         assertTrue(filter.matchesChannelCampaigns(listOf(campaign)))
         assertFalse(filter.copy(dropIds = setOf("other-drop")).matchesChannelCampaigns(listOf(campaign)))
     }
+
+    @Test
+    fun `campaign id does not satisfy an explicit drop filter`() {
+        val campaign = channelCampaign(
+            id = "campaign",
+            dropId = "other-drop",
+        )
+
+        assertFalse(filter.matchesChannelCampaigns(listOf(campaign)))
+        assertTrue(
+            filter.matchesChannelCampaigns(
+                listOf(channelCampaign(id = "campaign", dropId = "drop-1")),
+            ),
+        )
+        assertFalse(filter.matchesAvailableDropIds(setOf("campaign", "other-drop")))
+        assertTrue(filter.matchesAvailableDropIds(setOf("campaign", "drop-1")))
+    }
+
+    @Test
+    fun `game and drop eligibility come from the same filter`() {
+        val gameBFilter = filter.copy(
+            campaignId = "campaign-b",
+            campaignName = "Campaign B",
+            gameId = "game-2",
+            gameName = "Game B",
+            dropIds = setOf("drop-b"),
+        )
+        val campaignB = channelCampaign(
+            id = "campaign-b",
+            dropId = "drop-b",
+        )
+
+        assertFalse(
+            listOf(filter, gameBFilter).matchesDropStream(
+                streamGameId = "game-1",
+                streamGameName = "Game A",
+                campaigns = listOf(campaignB),
+            ),
+        )
+    }
+
+    private fun channelCampaign(
+        id: String,
+        dropId: String,
+    ) = TwitchChannelDropCampaign(
+        id = id,
+        name = "Campaign",
+        gameId = "game-1",
+        gameName = "Black Desert",
+        imageUrl = null,
+        detailsUrl = null,
+        startTime = null,
+        endTime = null,
+        includesWatchRequirement = true,
+        includesSubscriptionRequirement = false,
+        isSitewide = false,
+        isRewardCampaign = false,
+        localizedTitle = null,
+        earnInstructions = null,
+        drops = listOf(
+            TwitchChannelDrop(
+                id = dropId,
+                name = "Drop",
+                startTime = null,
+                endTime = null,
+                requiredMinutesWatched = 30,
+                requiredSubs = 0,
+                benefits = emptyList(),
+                isEventBased = false,
+            ),
+        ),
+    )
 }

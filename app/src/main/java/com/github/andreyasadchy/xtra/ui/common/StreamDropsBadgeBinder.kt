@@ -23,7 +23,7 @@ class StreamDropsBadgeBinder(
             return
         }
 
-        renderHint(stream, StreamDropsPreviewPolicy.hasDropsTag(stream))
+        renderHint(stream, StreamDropsPreviewPolicy.hasVerifiedDrops(stream))
     }
 
     fun clear() {
@@ -50,9 +50,5 @@ class StreamDropsBadgeBinder(
 }
 
 internal object StreamDropsPreviewPolicy {
-    fun hasDropsTag(stream: Stream): Boolean = stream.tags.orEmpty().any {
-        it.equals(DROPS_ENABLED_TAG, ignoreCase = true)
-    }
-
-    private const val DROPS_ENABLED_TAG = "DropsEnabled"
+    fun hasVerifiedDrops(stream: Stream): Boolean = stream.dropsAvailable == true
 }

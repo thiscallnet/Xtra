@@ -32,6 +32,7 @@ class DropsAdapter(
     private val onClaim: (TwitchDrop) -> Unit,
     private val onCampaignClick: (String) -> Unit,
     private val onFindStreams: (TwitchDropCampaign) -> Unit,
+    private val onFindStreamsForDrop: (TwitchDrop) -> Unit,
     private val onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
     private var rows: List<DropsRow> = emptyList()
@@ -101,6 +102,7 @@ class DropsAdapter(
                 row.value,
                 claimingDropId,
                 onClaim,
+                onFindStreamsForDrop,
                 onImageClick,
             )
             is DropsRow.Campaign -> (holder as DropViewHolder).bind(
@@ -121,6 +123,7 @@ class DropsAdapter(
             drop: TwitchDrop,
             claimingDropId: String?,
             onClaim: (TwitchDrop) -> Unit,
+            onFindStreams: (TwitchDrop) -> Unit,
             onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
         ) {
             binding.title.text = drop.benefits.mapNotNull { it.name }
@@ -159,8 +162,8 @@ class DropsAdapter(
             binding.card.isClickable = false
             binding.card.isFocusable = false
             binding.expandIcon.isVisible = false
-            binding.findStreamsButton.isVisible = false
-            binding.findStreamsButton.setOnClickListener(null)
+            binding.findStreamsButton.isVisible = dropCanFindLiveStreams(drop)
+            binding.findStreamsButton.setOnClickListener { onFindStreams(drop) }
             binding.image.contentDescription = binding.root.context.getString(
                 R.string.drops_view_image,
                 drop.rewardName ?: drop.name ?: binding.root.context.getString(R.string.drops),
@@ -274,7 +277,7 @@ class DropsAdapter(
     }
 }
 
-private fun ImageView.loadDropImage(
+internal fun ImageView.loadDropImage(
     url: String?,
     source: TwitchDropImageSource,
 ) {

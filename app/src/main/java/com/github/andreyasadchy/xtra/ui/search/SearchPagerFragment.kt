@@ -27,6 +27,7 @@ import com.github.andreyasadchy.xtra.databinding.DialogUserResultBinding
 import com.github.andreyasadchy.xtra.databinding.FragmentSearchBinding
 import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
+import com.github.andreyasadchy.xtra.ui.drops.DropFiltersBottomSheet
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
@@ -73,7 +74,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     private val viewModel: SearchPagerViewModel by viewModels { SearchPagerViewModelFactory }
     private var firstLaunch = true
     private var liftTargetConnector: RecyclerViewLiftTargetConnector? = null
-    private var dropsFilter: DropStreamFilter? = null
+    private var dropsFilters: List<DropStreamFilter> = emptyList()
     private var initialQuery: String? = null
     private var initialTab = -1
     private var streamTabPosition = -1
@@ -87,18 +88,22 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
         firstLaunch = savedInstanceState == null
         initialQuery = if (savedInstanceState == null) arguments?.getString(INITIAL_QUERY) else null
         initialTab = if (savedInstanceState == null) arguments?.getInt(INITIAL_TAB, -1) ?: -1 else -1
-        dropsFilter = if (savedInstanceState?.getBoolean(DROPS_FILTER_ENABLED) == false) {
-            null
+        dropsFilters = if (savedInstanceState?.getBoolean(DROPS_FILTER_ENABLED) == false) {
+            emptyList()
         } else {
-            arguments?.getString(DROPS_CAMPAIGN_ID)?.takeIf { it.isNotBlank() }?.let { campaignId ->
-                DropStreamFilter(
-                    campaignId = campaignId,
-                    campaignName = arguments?.getString(DROPS_CAMPAIGN_NAME).orEmpty(),
-                    gameId = arguments?.getString(DROPS_GAME_ID),
-                    gameName = arguments?.getString(DROPS_GAME_NAME).orEmpty(),
-                    dropIds = arguments?.getStringArrayList(DROPS_DROP_IDS).orEmpty().toSet(),
-                )
-            }
+            savedInstanceState?.parcelableArrayList<DropStreamFilter>(DROPS_FILTERS)?.toList()
+                ?: arguments?.parcelableArrayList<DropStreamFilter>(DROPS_FILTERS)?.toList()
+                ?: arguments?.getString(DROPS_CAMPAIGN_ID)?.takeIf { it.isNotBlank() }?.let { campaignId ->
+                    listOf(
+                        DropStreamFilter(
+                            campaignId = campaignId,
+                            campaignName = arguments?.getString(DROPS_CAMPAIGN_NAME).orEmpty(),
+                            gameId = arguments?.getString(DROPS_GAME_ID),
+                            gameName = arguments?.getString(DROPS_GAME_NAME).orEmpty(),
+                            dropIds = arguments?.getStringArrayList(DROPS_DROP_IDS).orEmpty().toSet(),
+                        ),
+                    )
+                }.orEmpty()
         }
     }
 
@@ -110,6 +115,12 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         liftTargetConnector = RecyclerViewLiftTargetConnector(binding.appBar)
+        childFragmentManager.setFragmentResultListener(
+            DropFiltersBottomSheet.RESULT_KEY,
+            viewLifecycleOwner,
+        ) { _, result ->
+            applyDropsFilters(result.parcelableArrayList<DropStreamFilter>(DropFiltersBottomSheet.FILTERS_KEY).orEmpty())
+        }
         with(binding) {
             val tabList = requireContext().prefs().getString(C.UI_SEARCH_TABS, null).let { tabPref ->
                 val defaultTabs = C.DEFAULT_SEARCH_TABS.split(',')
@@ -137,7 +148,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             }
             val tabs = searchTabsForDropsFilter(
                 configuredTabs,
-                this@SearchPagerFragment.dropsFilter != null,
+                this@SearchPagerFragment.dropsFilters.isNotEmpty(),
             )
             streamTabPosition = tabs.indexOf("1")
             if (tabs.size <= 1) {
@@ -148,7 +159,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                     tabLayout.tabMode = TabLayout.MODE_SCROLLABLE
                 }
             }
-            val adapter = SearchPagerAdapter(this@SearchPagerFragment, tabs, this@SearchPagerFragment.dropsFilter)
+            val adapter = SearchPagerAdapter(this@SearchPagerFragment, tabs, this@SearchPagerFragment.dropsFilters)
             viewPager.adapter = adapter
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageScrollStateChanged(state: Int) {
@@ -193,11 +204,8 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                     else -> getString(R.string.channels)
                 }
             }.attach()
-            this@SearchPagerFragment.dropsFilter?.let { filter ->
-                binding.dropsFilter.text = getString(R.string.search_drops_filter, filter.campaignName)
-                binding.dropsFilter.contentDescription = getString(R.string.search_drops_filter, filter.campaignName)
-                binding.dropsFilter.setOnCloseIconClickListener { clearDropsFilter() }
-            }
+            binding.dropsFilterButton.setOnClickListener { showDropsFilterPicker() }
+            renderDropsFilters()
             updateDropsFilterVisibility()
             tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_SEARCH_TABS)
             val navController = findNavController()
@@ -326,19 +334,50 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
         binding.searchView.setQuery(query, true)
     }
 
-    fun currentDropsFilter(): DropStreamFilter? = dropsFilter
+    fun currentDropsFilter(): DropStreamFilter? = dropsFilters.firstOrNull()
+
+    fun currentDropsFilters(): List<DropStreamFilter> = dropsFilters
 
     private fun clearDropsFilter() {
-        dropsFilter = null
-        binding.dropsFilter.isVisible = false
+        applyDropsFilters(emptyList())
+    }
+
+    private fun applyDropsFilters(filters: List<DropStreamFilter>) {
+        dropsFilters = filters.distinctBy { it.campaignId to it.dropIds }
+        renderDropsFilters()
+        if (dropsFilters.isNotEmpty() && streamTabPosition >= 0 &&
+            binding.viewPager.currentItem != streamTabPosition
+        ) {
+            binding.viewPager.setCurrentItem(streamTabPosition, false)
+        }
         childFragmentManager.fragments
             .filterIsInstance<StreamSearchFragment>()
-            .forEach(StreamSearchFragment::clearDropsFilter)
+            .forEach { it.applyDropsFilters(dropsFilters) }
+    }
+
+    private fun renderDropsFilters() {
+        if (_binding == null) return
+        binding.dropsFilterGroup.removeAllViews()
+        dropsFilters.forEach { filter ->
+            binding.dropsFilterGroup.addView(
+                com.google.android.material.chip.Chip(requireContext()).apply {
+                    text = getString(R.string.search_drops_filter, filter.displayName)
+                    contentDescription = getString(R.string.search_drops_filter, filter.displayName)
+                    isCloseIconVisible = true
+                    setOnCloseIconClickListener {
+                        applyDropsFilters(dropsFilters - filter)
+                    }
+                },
+            )
+        }
+        binding.dropsFilterGroup.isVisible = dropsFilters.isNotEmpty() &&
+            binding.viewPager.currentItem == streamTabPosition
+        binding.dropsFilterButton.isVisible = streamTabPosition >= 0
     }
 
     private fun updateDropsFilterVisibility(position: Int = binding.viewPager.currentItem) {
-        binding.dropsFilter.isVisible = shouldShowDropsFilter(
-            filterActive = dropsFilter != null,
+        binding.dropsFilterGroup.isVisible = shouldShowDropsFilter(
+            filterActive = dropsFilters.isNotEmpty(),
             selectedTabPosition = position,
             streamTabPosition = streamTabPosition,
         )
@@ -376,14 +415,22 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean(DROPS_FILTER_ENABLED, dropsFilter != null)
+        outState.putBoolean(DROPS_FILTER_ENABLED, dropsFilters.isNotEmpty())
+        outState.putParcelableArrayList(DROPS_FILTERS, ArrayList(dropsFilters))
         super.onSaveInstanceState(outState)
+    }
+
+    private fun showDropsFilterPicker() {
+        if (!isAdded || childFragmentManager.isStateSaved) return
+        DropFiltersBottomSheet.newInstance(dropsFilters)
+            .show(childFragmentManager, DropFiltersBottomSheet.TAG)
     }
 
     companion object {
         const val INITIAL_QUERY = "initial_search_query"
         const val INITIAL_TAB = "initial_search_tab"
         const val DROPS_FILTER_ENABLED = "drops_filter_enabled"
+        const val DROPS_FILTERS = "drops_filters"
         const val DROPS_CAMPAIGN_ID = "drops_campaign_id"
         const val DROPS_CAMPAIGN_NAME = "drops_campaign_name"
         const val DROPS_GAME_ID = "drops_game_id"
@@ -398,8 +445,36 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             putString(DROPS_GAME_ID, campaign.gameId)
             putString(DROPS_GAME_NAME, campaign.gameName)
             putStringArrayList(DROPS_DROP_IDS, ArrayList(campaign.drops.map { it.id }))
+            putParcelableArrayList(
+                DROPS_FILTERS,
+                arrayListOf(
+                    DropStreamFilter(
+                        campaignId = campaign.id,
+                        campaignName = campaign.name ?: campaign.gameName.orEmpty(),
+                        gameId = campaign.gameId,
+                        gameName = campaign.gameName.orEmpty(),
+                        dropIds = campaign.drops.map { it.id }.toSet(),
+                        dropNames = campaign.drops.mapNotNull { it.name },
+                    ),
+                ),
+            )
+        }
+
+        fun dropsSearchArguments(filters: List<DropStreamFilter>) = Bundle().apply {
+            val first = filters.firstOrNull() ?: return@apply
+            putString(INITIAL_QUERY, first.gameName)
+            putInt(INITIAL_TAB, 1)
+            putParcelableArrayList(DROPS_FILTERS, ArrayList(filters))
         }
     }
 }
+
+private inline fun <reified T : android.os.Parcelable> Bundle.parcelableArrayList(key: String): ArrayList<T>? =
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        getParcelableArrayList(key, T::class.java)
+    } else {
+        @Suppress("DEPRECATION")
+        getParcelableArrayList(key)
+    }
 
 

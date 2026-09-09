@@ -4,9 +4,9 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
 import com.github.andreyasadchy.xtra.model.ui.Stream
-import com.github.andreyasadchy.xtra.model.ui.matchesChannelCampaigns
-import com.github.andreyasadchy.xtra.model.ui.matchesGame
+import com.github.andreyasadchy.xtra.model.ui.matchesDropStream
 import com.github.andreyasadchy.xtra.model.ui.matchesDropsEnabledTag
+import com.github.andreyasadchy.xtra.model.ui.matchesGame
 import com.github.andreyasadchy.xtra.repository.DropsRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
@@ -24,7 +24,7 @@ internal class SearchStreamsDataSource(
     private val helixHeaders: Map<String, String>,
     private val helixRepository: HelixRepository,
     private val networkLibrary: String?,
-    private val dropsFilter: DropStreamFilter? = null,
+    private val dropsFilters: List<DropStreamFilter> = emptyList(),
     private val dropsRepository: DropsRepository? = null,
 ) : PagingSource<SearchPageKey, Stream>() {
 
@@ -41,7 +41,7 @@ internal class SearchStreamsDataSource(
             val page = params.key?.let { key ->
                 loadFromApi(params.loadSize, key)
             } ?: loadFirstPage(params.loadSize)
-            if (dropsFilter == null) page else filterDropPage(page)
+            if (dropsFilters.isEmpty()) page else filterDropPage(page)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -61,11 +61,13 @@ internal class SearchStreamsDataSource(
     }
 
     private suspend fun filterEligibleStreams(streams: List<Stream>): List<Stream> {
-        val filter = dropsFilter ?: return streams
+        val filters = dropsFilters
         val repository = dropsRepository ?: return emptyList()
         val candidates = streams.filter { stream ->
-            filter.matchesGame(stream.gameId, stream.gameName) &&
-                filter.matchesDropsEnabledTag(stream.tags)
+            filters.any { filter ->
+                filter.matchesGame(stream.gameId, stream.gameName) &&
+                    filter.matchesDropsEnabledTag(stream.tags)
+            }
         }
         return coroutineScope {
             candidates.map { stream ->
@@ -73,7 +75,9 @@ internal class SearchStreamsDataSource(
                     val campaigns = stream.channelId?.let { channelId ->
                         repository.refreshChannelDropCatalog(channelId)
                     }
-                    stream.takeIf { campaigns?.let(filter::matchesChannelCampaigns) == true }
+                    stream.takeIf { campaigns?.let { available ->
+                        filters.matchesDropStream(stream.gameId, stream.gameName, available)
+                    } == true }?.also { it.dropsAvailable = true }
                 }
             }.awaitAll().filterNotNull()
         }
