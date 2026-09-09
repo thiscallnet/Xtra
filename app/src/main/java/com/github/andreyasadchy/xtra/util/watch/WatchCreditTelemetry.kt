@@ -40,16 +40,16 @@ object WatchCreditTelemetry {
                 put("channel_id", session.channelId)
                 put("channel", session.channelLogin)
                 put("client_time", formatClientTime(clientTimeMillis))
-                game?.let { put("game", it) }
-                gameId?.let { put("game_id", it) }
+                // Twitch's current minute-watched payload includes both category
+                // fields, even when the player has not received category metadata yet.
+                put("game", game.orEmpty())
+                put("game_id", gameId.orEmpty())
                 put("hidden", false)
                 put("is_live", true)
                 put("live", true)
-                put("location", "channel")
                 put("logged_in", true)
                 put("minutes_logged", 1)
                 put("muted", false)
-                put("player", "site")
                 put("user_id", session.userId)
             }
         })

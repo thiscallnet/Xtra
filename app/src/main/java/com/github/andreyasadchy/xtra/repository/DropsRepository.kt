@@ -6,6 +6,7 @@ import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.chat.DropProgressUpdate
 import com.github.andreyasadchy.xtra.util.chat.GqlDropsParser
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -34,6 +35,7 @@ class DropsRepository(
     private val claimMutex = Mutex()
     private val channelMutex = Mutex()
     private val campaignDetailsMutex = Mutex()
+    private val progressMutex = Mutex()
     private val cacheMutex = Mutex()
     private val cacheWriteMutex = Mutex()
     private val completedClaims = mutableSetOf<String>()
@@ -180,7 +182,6 @@ class DropsRepository(
 
     suspend fun refreshChannelDrops(
         channelId: String?,
-        channelLogin: String,
     ): List<TwitchDrop> {
         val id = channelId?.takeIf { it.isNotBlank() } ?: return emptyList()
         val headers = TwitchApiHelper.getGQLHeaders(context, true)
@@ -205,7 +206,7 @@ class DropsRepository(
             // channel projection unnecessarily stale.
             val current = try {
                 GqlDropsParser.parseCurrentDropIds(
-                    graphQLRepository.loadCurrentDrop(networkLibrary, headers, id, channelLogin),
+                    graphQLRepository.loadCurrentDrop(networkLibrary, headers, id),
                 )
             } catch (error: CancellationException) {
                 throw error
@@ -225,6 +226,56 @@ class DropsRepository(
         }
         if (availableIds.isEmpty()) return emptyList()
         return projectDropsForChannel(inventory.value.drops, availableIds)
+    }
+
+    suspend fun refreshCurrentDropProgress(
+        channelId: String?,
+    ): DropProgressUpdate? {
+        val id = channelId?.takeIf { it.isNotBlank() } ?: return null
+        val headers = TwitchApiHelper.getGQLHeaders(context, true)
+        if (headers[C.HEADER_TOKEN].isNullOrBlank()) return null
+
+        return try {
+            val body = graphQLRepository.loadCurrentDrop(
+                networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                headers = headers,
+                channelId = id,
+            )
+            GqlDropsParser.parseCurrentDropProgress(body)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun applyDropProgress(update: DropProgressUpdate): Boolean = progressMutex.withLock {
+        val current = _inventory.value
+        var changed = false
+        val drops = current.drops.map { drop ->
+            if (drop.id != update.dropId) {
+                drop
+            } else {
+                val currentMinutes = maxOf(drop.currentMinutesWatched, update.currentMinutesWatched)
+                val requiredMinutes = update.requiredMinutesWatched ?: drop.requiredMinutesWatched
+                if (currentMinutes != drop.currentMinutesWatched ||
+                    requiredMinutes != drop.requiredMinutesWatched
+                ) {
+                    changed = true
+                    drop.copy(
+                        currentMinutesWatched = currentMinutes,
+                        requiredMinutesWatched = requiredMinutes,
+                    )
+                } else {
+                    drop
+                }
+            }
+        }
+        if (changed) {
+            _inventory.value = current.copy(drops = drops, error = null)
+            persistCachedState(currentUserId())
+        }
+        changed
     }
 
     suspend fun claim(drop: TwitchDrop): Boolean {

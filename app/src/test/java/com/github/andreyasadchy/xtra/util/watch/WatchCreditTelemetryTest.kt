@@ -20,6 +20,8 @@ class WatchCreditTelemetryTest {
                 userId = "user-1",
             ),
             clientTimeMillis = 1_704_116_262_123L,
+            game = "Game",
+            gameId = "1234",
         )
 
         val root = Json.parseToJsonElement(payload)
@@ -32,8 +34,10 @@ class WatchCreditTelemetryTest {
         assertEquals("channel", properties["channel"]?.jsonPrimitive?.content)
         assertEquals("user-1", properties["user_id"]?.jsonPrimitive?.content)
         assertEquals("2024-01-01T13:37:42.123Z", properties["client_time"]?.jsonPrimitive?.content)
-        assertEquals("channel", properties["location"]?.jsonPrimitive?.content)
-        assertEquals("site", properties["player"]?.jsonPrimitive?.content)
+        assertEquals("Game", properties["game"]?.jsonPrimitive?.content)
+        assertEquals("1234", properties["game_id"]?.jsonPrimitive?.content)
+        assertFalse("location" in properties.keys)
+        assertFalse("player" in properties.keys)
         assertEquals("1", properties["minutes_logged"]?.jsonPrimitive?.content)
         assertEquals("true", properties["live"]?.jsonPrimitive?.content)
         assertEquals("true", properties["is_live"]?.jsonPrimitive?.content)

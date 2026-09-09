@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.util.chat
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -18,5 +19,17 @@ class HermesWebSocketTest {
             ),
             hermesChannelTopics("100", includeChannelTopics = true),
         )
+    }
+
+    @Test
+    fun streamInfoReadsStringCategoryIdFromHermes() {
+        val info = PubSubUtils.parseStreamInfo(
+            JSONObject(
+                """{"status":"Playing","game":"Game","game_id":"1234"}""",
+            ),
+        )
+
+        assertEquals("Game", info.gameName)
+        assertEquals("1234", info.gameId)
     }
 }

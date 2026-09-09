@@ -149,6 +149,37 @@ class GqlDropsParserTest {
     }
 
     @Test
+    fun `current drop progress parser reads the watched minutes`() {
+        assertEquals(
+            DropProgressUpdate("drop-1", 37, 60),
+            GqlDropsParser.parseCurrentDropProgress(
+                """{"data":{"currentUser":{"dropCurrentSession":{"dropID":"drop-1","currentMinutesWatched":37,"requiredMinutesWatched":60}}}}""",
+            ),
+        )
+    }
+
+    @Test
+    fun `user drop event parser reads progress updates`() {
+        assertEquals(
+            DropProgressUpdate("drop-1", 38, 60),
+            GqlDropsParser.parseDropProgressMessage(
+                org.json.JSONObject(
+                    """{"type":"drop-progress","data":{"drop_id":"drop-1","current_progress_min":38,"required_progress_min":60}}""",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `non-progress user drop events are ignored`() {
+        assertNull(
+            GqlDropsParser.parseDropProgressMessage(
+                org.json.JSONObject("""{"type":"drop-claim","data":{}}"""),
+            ),
+        )
+    }
+
+    @Test
     fun `inventory and dashboard merge by campaign and drop ids`() {
         val drop = GqlDropsParser.parseInventory(inventoryJson(30, 60, "instance-1"))!!.single()
         val merged = mergeDropsWithDashboard(

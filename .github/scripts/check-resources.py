@@ -45,6 +45,9 @@ ARRAY_REFERENCE = re.compile(r"^@string/([A-Za-z0-9_]+)$")
 # Android falls back to values/ for these keys; keeping the allowlist explicit
 # prevents this policy from hiding missing translations elsewhere in the app.
 INTENTIONAL_FALLBACK_RESOURCES = {
+    # Drops progress settings ship with the default English wording until their
+    # translations are reviewed by native speakers.
+    "drops_show_summary",
     "automatic_updates",
     "channel_points_prediction_outcome_description",
     "check_automatically",
