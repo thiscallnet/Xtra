@@ -66,4 +66,15 @@ class ChatInputTokenTest {
         assertNull(ChatInputToken.aroundCursor("", 0))
         assertNull(ChatInputToken.aroundCursor("   ", 1))
     }
+
+    @Test
+    fun `emote renderer tokens preserve whitespace positions`() {
+        assertEquals(
+            listOf(
+                ChatInputEmoteToken("Kappa", 2, 7),
+                ChatInputEmoteToken("Pog", 9, 12),
+            ),
+            chatInputEmoteTokens("  Kappa  Pog"),
+        )
+    }
 }

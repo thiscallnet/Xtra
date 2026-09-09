@@ -197,6 +197,7 @@ object SettingsMigration {
         C.PROXY_USER,
         C.PROXY_PASSWORD,
         C.ANIMATED_EMOTES,
+        C.CHAT_INPUT_EMOTES,
         C.CHAT_SIZE_MODIFIER,
         C.CHAT_TEXT_SIZE,
         C.CHAT_EMOTE_SIZE,
