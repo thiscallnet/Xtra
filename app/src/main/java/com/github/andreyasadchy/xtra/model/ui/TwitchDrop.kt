@@ -4,6 +4,12 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 
 @Serializable
+enum class TwitchDropImageSource {
+    ORIGINAL,
+    GAME_BOX_ART,
+}
+
+@Serializable
 data class TwitchDrop(
     val id: String,
     val campaignId: String?,
@@ -21,6 +27,7 @@ data class TwitchDrop(
     val benefits: List<TwitchDropBenefit> = emptyList(),
     val campaignStartTime: String? = null,
     val campaignEndTime: String? = null,
+    val imageSource: TwitchDropImageSource = TwitchDropImageSource.ORIGINAL,
 ) {
     val progressPercent: Int
         get() = if (requiredMinutesWatched <= 0) {
@@ -53,6 +60,9 @@ data class TwitchDropCampaign(
     val endTime: String?,
     val isUpcoming: Boolean,
     val drops: List<TwitchDropCatalogItem>,
+    val gameId: String? = null,
+    val imageSource: TwitchDropImageSource = TwitchDropImageSource.ORIGINAL,
+    val gameSlug: String? = null,
 )
 
 @Serializable

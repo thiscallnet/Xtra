@@ -6,6 +6,7 @@ import android.util.Log
 import com.github.andreyasadchy.xtra.model.ui.TwitchChannelDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
+import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.chat.DropProgressUpdate
@@ -444,10 +445,19 @@ internal fun mergeDropsWithDashboard(
 ): List<TwitchDrop> = drops.map { drop ->
     val campaign = campaigns.firstOrNull { it.id == drop.campaignId }
     val catalog = campaign?.drops?.firstOrNull { it.id == drop.id }
+    val catalogImage = catalog?.benefits?.firstOrNull()?.imageUrl
+    val useCatalogImage = drop.imageSource == TwitchDropImageSource.GAME_BOX_ART && catalogImage != null
+    val dashboardImage = if (useCatalogImage) catalogImage else drop.imageUrl ?: catalogImage ?: campaign?.imageUrl
     drop.copy(
         campaignName = drop.campaignName ?: campaign?.name,
         gameName = drop.gameName ?: campaign?.gameName,
-        imageUrl = drop.imageUrl ?: catalog?.benefits?.firstOrNull()?.imageUrl ?: campaign?.imageUrl,
+        imageUrl = dashboardImage,
+        imageSource = when {
+            drop.imageUrl != null && !useCatalogImage -> drop.imageSource
+            catalogImage != null -> TwitchDropImageSource.ORIGINAL
+            campaign?.imageUrl != null -> campaign.imageSource
+            else -> drop.imageSource
+        },
         benefits = drop.benefits.ifEmpty { catalog?.benefits.orEmpty() },
         campaignStartTime = drop.campaignStartTime ?: campaign?.startTime,
         campaignEndTime = drop.campaignEndTime ?: campaign?.endTime,

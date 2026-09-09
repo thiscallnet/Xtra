@@ -1,0 +1,70 @@
+package com.github.andreyasadchy.xtra.model.ui
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class DropStreamFilterTest {
+    private val filter = DropStreamFilter(
+        campaignId = "campaign",
+        campaignName = "Campaign",
+        gameId = "game-1",
+        gameName = "Black Desert",
+        dropIds = setOf("drop-1"),
+    )
+
+    @Test
+    fun `game id is preferred when both results provide it`() {
+        assertTrue(filter.matchesGame("game-1", "Different label"))
+        assertFalse(filter.matchesGame("game-2", "Black Desert"))
+    }
+
+    @Test
+    fun `game name is used when a result has no game id`() {
+        assertTrue(filter.matchesGame(null, "black desert"))
+        assertFalse(filter.matchesGame(null, "Another game"))
+    }
+
+    @Test
+    fun `only DropsEnabled streams reach exact campaign matching`() {
+        assertTrue(filter.matchesDropsEnabledTag(listOf("DropsEnabled", "English")))
+        assertTrue(filter.matchesDropsEnabledTag(listOf("dropsenabled")))
+        assertFalse(filter.matchesDropsEnabledTag(listOf("English")))
+        assertFalse(filter.matchesDropsEnabledTag(null))
+    }
+
+    @Test
+    fun `campaign and drop ids are matched against channel catalog`() {
+        val campaign = TwitchChannelDropCampaign(
+            id = "other-campaign",
+            name = "Other",
+            gameId = "game-1",
+            gameName = "Black Desert",
+            imageUrl = null,
+            detailsUrl = null,
+            startTime = null,
+            endTime = null,
+            includesWatchRequirement = true,
+            includesSubscriptionRequirement = false,
+            isSitewide = false,
+            isRewardCampaign = false,
+            localizedTitle = null,
+            earnInstructions = null,
+            drops = listOf(
+                TwitchChannelDrop(
+                    id = "drop-1",
+                    name = "Drop",
+                    startTime = null,
+                    endTime = null,
+                    requiredMinutesWatched = 30,
+                    requiredSubs = 0,
+                    benefits = emptyList(),
+                    isEventBased = false,
+                ),
+            ),
+        )
+
+        assertTrue(filter.matchesChannelCampaigns(listOf(campaign)))
+        assertFalse(filter.copy(dropIds = setOf("other-drop")).matchesChannelCampaigns(listOf(campaign)))
+    }
+}

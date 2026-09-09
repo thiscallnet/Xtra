@@ -48,6 +48,13 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # Drops progress settings ship with the default English wording until their
     # translations are reviewed by native speakers.
     "drops_show_summary",
+    # Drops browsing controls use the default English wording until translated.
+    "drops_progress_accessibility",
+    "drops_view_image",
+    "drops_close_image",
+    "drops_zoom_hint",
+    "drops_find_streams",
+    "search_drops_filter",
     "automatic_updates",
     "channel_points_prediction_outcome_description",
     "check_automatically",

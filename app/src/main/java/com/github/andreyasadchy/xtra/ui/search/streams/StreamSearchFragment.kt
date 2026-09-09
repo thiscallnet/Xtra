@@ -18,6 +18,7 @@ import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
+import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.StreamsAdapter
@@ -39,6 +40,16 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
     private val viewModel: StreamSearchViewModel by viewModels { StreamSearchViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
     private var recentSearchAdapter = RecentSearchAdapter({ (parentFragment as? SearchPagerFragment)?.setQuery(it.query) }, { viewModel.deleteRecentSearch(it) })
+    private val initialDropsFilter: DropStreamFilter?
+        get() = arguments?.getString(CAMPAIGN_ID)?.takeIf { it.isNotBlank() }?.let { campaignId ->
+            DropStreamFilter(
+                campaignId = campaignId,
+                campaignName = arguments?.getString(CAMPAIGN_NAME).orEmpty(),
+                gameId = arguments?.getString(GAME_ID),
+                gameName = arguments?.getString(GAME_NAME).orEmpty(),
+                dropIds = arguments?.getStringArrayList(DROP_IDS).orEmpty().toSet(),
+            )
+        }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = CommonRecyclerViewLayoutBinding.inflate(inflater, container, false)
@@ -75,6 +86,10 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
     }
 
     override fun initialize() {
+        val searchPager = parentFragment as? SearchPagerFragment
+        viewModel.setDropsFilter(
+            if (searchPager != null) searchPager.currentDropsFilter() else initialDropsFilter,
+        )
         with(binding) {
             setupPagingControls(binding, pagingAdapter)
             viewLifecycleOwner.lifecycleScope.launch {
@@ -117,6 +132,10 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
         }
     }
 
+    fun searchWithoutSaving(query: String) {
+        viewModel.setQuery(query)
+    }
+
     override fun onNetworkRestored() {
         pagingAdapter.retry()
     }
@@ -124,6 +143,29 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    fun clearDropsFilter() {
+        viewModel.setDropsFilter(null)
+    }
+
+    companion object {
+        private const val CAMPAIGN_ID = "drops_campaign_id"
+        private const val CAMPAIGN_NAME = "drops_campaign_name"
+        private const val GAME_ID = "drops_game_id"
+        private const val GAME_NAME = "drops_game_name"
+        private const val DROP_IDS = "drops_drop_ids"
+
+        fun newInstance(filter: DropStreamFilter?) = StreamSearchFragment().apply {
+            filter ?: return@apply
+            arguments = Bundle().apply {
+                putString(CAMPAIGN_ID, filter.campaignId)
+                putString(CAMPAIGN_NAME, filter.campaignName)
+                putString(GAME_ID, filter.gameId)
+                putString(GAME_NAME, filter.gameName)
+                putStringArrayList(DROP_IDS, ArrayList(filter.dropIds))
+            }
+        }
     }
 }
 

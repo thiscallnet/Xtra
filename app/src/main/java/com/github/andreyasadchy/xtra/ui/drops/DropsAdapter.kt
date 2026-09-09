@@ -4,16 +4,22 @@ import android.content.Context
 import android.text.format.DateUtils
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.RecyclerView
 import coil3.load
+import coil3.request.crossfade
+import coil3.request.error
+import coil3.request.fallback
+import coil3.request.placeholder
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ItemDropBinding
 import com.github.andreyasadchy.xtra.databinding.ItemDropRewardBinding
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropBenefit
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
+import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
 import kotlin.time.Instant
 
 sealed interface DropsRow {
@@ -25,6 +31,8 @@ sealed interface DropsRow {
 class DropsAdapter(
     private val onClaim: (TwitchDrop) -> Unit,
     private val onCampaignClick: (String) -> Unit,
+    private val onFindStreams: (TwitchDropCampaign) -> Unit,
+    private val onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
     private var rows: List<DropsRow> = emptyList()
     private var claimingDropId: String? = null
@@ -93,12 +101,15 @@ class DropsAdapter(
                 row.value,
                 claimingDropId,
                 onClaim,
+                onImageClick,
             )
             is DropsRow.Campaign -> (holder as DropViewHolder).bind(
                 row.value,
                 row.value.id in expandedCampaignIds,
                 row.value.id in campaignDetailsLoading,
                 ::toggleCampaign,
+                onFindStreams,
+                onImageClick,
             )
         }
     }
@@ -110,6 +121,7 @@ class DropsAdapter(
             drop: TwitchDrop,
             claimingDropId: String?,
             onClaim: (TwitchDrop) -> Unit,
+            onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
         ) {
             binding.title.text = drop.benefits.mapNotNull { it.name }
                 .distinct()
@@ -119,10 +131,22 @@ class DropsAdapter(
                 drop.campaignName,
                 "${drop.currentMinutesWatched}/${drop.requiredMinutesWatched} min",
             ).joinToString(" · ")
-            bindRewards(drop.benefits, visible = true)
+            bindRewards(
+                drop.benefits,
+                visible = drop.benefits.size > 1,
+                onImageClick = onImageClick,
+            )
             binding.detailsLoading.isVisible = false
             binding.progress.isVisible = true
             binding.progress.progress = drop.progressPercent
+            binding.progressLabel.isVisible = true
+            binding.progressLabel.text = binding.root.context.getString(
+                R.string.drops_progress_accessibility,
+                drop.currentMinutesWatched,
+                drop.requiredMinutesWatched,
+                drop.progressPercent,
+            )
+            binding.progress.contentDescription = binding.progressLabel.text
             binding.claimButton.isVisible = drop.isClaimable
             binding.claimButton.isEnabled = claimingDropId == null
             binding.claimButton.text = if (claimingDropId == drop.id) {
@@ -132,13 +156,23 @@ class DropsAdapter(
             }
             binding.claimButton.setOnClickListener { onClaim(drop) }
             binding.card.setOnClickListener(null)
+            binding.card.isClickable = false
+            binding.card.isFocusable = false
             binding.expandIcon.isVisible = false
-            binding.image.contentDescription = drop.rewardName ?: drop.name
-            if (drop.imageUrl.isNullOrBlank()) {
-                binding.image.setImageResource(R.drawable.ic_drops)
-            } else {
-                binding.image.load(drop.imageUrl)
+            binding.findStreamsButton.isVisible = false
+            binding.findStreamsButton.setOnClickListener(null)
+            binding.image.contentDescription = binding.root.context.getString(
+                R.string.drops_view_image,
+                drop.rewardName ?: drop.name ?: binding.root.context.getString(R.string.drops),
+            )
+            binding.image.isClickable = !drop.imageUrl.isNullOrBlank()
+            binding.image.isFocusable = binding.image.isClickable
+            binding.image.setOnClickListener {
+                drop.imageUrl?.takeIf { it.isNotBlank() }?.let {
+                    onImageClick(it, drop.rewardName ?: drop.name, drop.imageSource)
+                }
             }
+            binding.image.loadDropImage(drop.imageUrl, drop.imageSource)
         }
 
         fun bind(
@@ -146,6 +180,8 @@ class DropsAdapter(
             expanded: Boolean,
             detailsLoading: Boolean,
             onClick: (String) -> Unit,
+            onFindStreams: (TwitchDropCampaign) -> Unit,
+            onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
         ) {
             binding.title.text = campaign.name ?: campaign.gameName ?: binding.root.context.getString(R.string.drops)
             binding.subtitle.text = listOfNotNull(
@@ -160,28 +196,48 @@ class DropsAdapter(
                     listOf(TwitchDropBenefit(drop.name ?: "Drop", null))
                 }
             }
-            bindRewards(rewards, visible = expanded && !detailsLoading)
+            bindRewards(
+                rewards,
+                visible = expanded && !detailsLoading,
+                onImageClick = onImageClick,
+            )
             binding.detailsLoading.isVisible = expanded && detailsLoading
             binding.progress.isVisible = false
+            binding.progressLabel.isVisible = false
             binding.claimButton.isVisible = false
             binding.claimButton.isEnabled = true
             binding.claimButton.setOnClickListener(null)
             binding.card.setOnClickListener { onClick(campaign.id) }
+            binding.card.isClickable = true
+            binding.card.isFocusable = true
             binding.expandIcon.isVisible = true
             binding.expandIcon.rotation = if (expanded) 0f else 180f
             binding.expandIcon.contentDescription = binding.root.context.getString(
                 if (expanded) R.string.chat_identity_campaign_collapse
                 else R.string.chat_identity_campaign_expand,
             )
-            binding.image.contentDescription = campaign.gameName ?: campaign.name
-            if (campaign.imageUrl.isNullOrBlank()) {
-                binding.image.setImageResource(R.drawable.ic_drops)
-            } else {
-                binding.image.load(campaign.imageUrl)
+            binding.findStreamsButton.isVisible = expanded && !detailsLoading &&
+                campaignCanFindLiveStreams(campaign)
+            binding.findStreamsButton.setOnClickListener { onFindStreams(campaign) }
+            binding.image.contentDescription = binding.root.context.getString(
+                R.string.drops_view_image,
+                campaign.gameName ?: campaign.name ?: binding.root.context.getString(R.string.drops),
+            )
+            binding.image.isClickable = !campaign.imageUrl.isNullOrBlank()
+            binding.image.isFocusable = binding.image.isClickable
+            binding.image.setOnClickListener {
+                campaign.imageUrl?.takeIf { it.isNotBlank() }?.let {
+                    onImageClick(it, campaign.gameName ?: campaign.name, campaign.imageSource)
+                }
             }
+            binding.image.loadDropImage(campaign.imageUrl, campaign.imageSource)
         }
 
-        private fun bindRewards(rewards: List<TwitchDropBenefit>, visible: Boolean) {
+        private fun bindRewards(
+            rewards: List<TwitchDropBenefit>,
+            visible: Boolean,
+            onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
+        ) {
             binding.rewardStrip.removeAllViews()
             rewards.distinctBy { it.name to it.imageUrl }.forEach { reward ->
                 val rewardBinding = ItemDropRewardBinding.inflate(
@@ -190,12 +246,19 @@ class DropsAdapter(
                     false,
                 )
                 rewardBinding.title.text = reward.name
-                rewardBinding.image.contentDescription = reward.name
-                if (reward.imageUrl.isNullOrBlank()) {
-                    rewardBinding.image.setImageResource(R.drawable.ic_drops)
-                } else {
-                    rewardBinding.image.load(reward.imageUrl)
+                rewardBinding.root.contentDescription = binding.root.context.getString(
+                    R.string.drops_view_image,
+                    reward.name ?: binding.root.context.getString(R.string.drops),
+                )
+                rewardBinding.root.isClickable = !reward.imageUrl.isNullOrBlank()
+                rewardBinding.root.isFocusable = rewardBinding.root.isClickable
+                rewardBinding.root.setOnClickListener {
+                    reward.imageUrl?.takeIf { it.isNotBlank() }?.let {
+                        onImageClick(it, reward.name, TwitchDropImageSource.ORIGINAL)
+                    }
                 }
+                rewardBinding.image.contentDescription = reward.name
+                rewardBinding.image.loadDropImage(reward.imageUrl, TwitchDropImageSource.ORIGINAL)
                 binding.rewardStrip.addView(rewardBinding.root)
             }
             binding.rewardScroll.isVisible = visible && rewards.isNotEmpty()
@@ -208,6 +271,20 @@ class DropsAdapter(
     private companion object {
         const val SECTION = 0
         const val CARD = 1
+    }
+}
+
+private fun ImageView.loadDropImage(
+    url: String?,
+    source: TwitchDropImageSource,
+) {
+    setImageResource(R.drawable.ic_drops)
+    if (url.isNullOrBlank()) return
+    load(dropsImageUrl(url, source)) {
+        placeholder(R.drawable.ic_drops)
+        error(R.drawable.ic_thumbnail_error)
+        fallback(R.drawable.ic_thumbnail_error)
+        crossfade(true)
     }
 }
 

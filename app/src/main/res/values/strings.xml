@@ -1519,6 +1519,12 @@
         <item quantity="one">1 Drop</item>
         <item quantity="other">%d Drops</item>
     </plurals>
+    <string name="drops_progress_accessibility">%1$d of %2$d minutes watched, %3$d%% complete</string>
+    <string name="drops_view_image">View %s image</string>
+    <string name="drops_close_image">Close image</string>
+    <string name="drops_zoom_hint">Pinch or double-tap to zoom · Drag to move · Tap to hide controls</string>
+    <string name="drops_find_streams">Find live streams</string>
+    <string name="search_drops_filter">Drops: %s</string>
     <string name="prediction_title">Current prediction: %s</string>
     <string name="prediction_locked">Submissions closed · Waiting for result</string>
     <string name="prediction_refunded">Refunded</string>

@@ -26,6 +26,8 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentDropsBinding
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
+import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
+import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
 import com.github.andreyasadchy.xtra.repository.mergeDropsWithDashboard
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.main.ProfileMenuBinder
@@ -33,6 +35,7 @@ import com.github.andreyasadchy.xtra.ui.main.TwitchInboxMenuBinder
 import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
+import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.snackbar.Snackbar
@@ -47,6 +50,11 @@ class DropsFragment : Fragment() {
     private lateinit var adapter: DropsAdapter
     private var selectedTab = TAB_INVENTORY
     private var campaignNavigationHandled = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        selectedTab = restoreDropsTab(savedInstanceState?.getInt(SELECTED_TAB))
+    }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentDropsBinding.inflate(inflater, container, false)
@@ -111,6 +119,14 @@ class DropsFragment : Fragment() {
         binding.tabs.addTab(binding.tabs.newTab().setText(R.string.drops_inventory_tab))
         binding.tabs.addTab(binding.tabs.newTab().setText(R.string.drops_all_campaigns_tab))
         binding.tabs.addTab(binding.tabs.newTab().setText(R.string.drops_social_badge_tab))
+        adapter = DropsAdapter(
+            onClaim = viewModel::claim,
+            onCampaignClick = viewModel::loadCampaignDetails,
+            onFindStreams = ::findStreamsForCampaign,
+            onImageClick = ::showDropImage,
+        )
+        binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
+        binding.recyclerView.adapter = adapter
         binding.tabs.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab) {
                 selectedTab = tab.position
@@ -123,9 +139,9 @@ class DropsFragment : Fragment() {
                 if (selectedTab == TAB_INVENTORY) binding.recyclerView.scrollToPosition(0)
             }
         })
-        adapter = DropsAdapter(viewModel::claim, viewModel::loadCampaignDetails)
-        binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        binding.recyclerView.adapter = adapter
+        // TabLayout starts with the first tab selected on every view recreation. Restore the
+        // fragment's tab state before the first render so the tab label and rows cannot diverge.
+        binding.tabs.getTabAt(selectedTab)?.select()
         binding.retryButton.setOnClickListener {
             if (selectedTab == TAB_SOCIAL_BADGE) {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TWITCH_DROPS_URL)))
@@ -229,6 +245,23 @@ class DropsFragment : Fragment() {
         binding.recyclerView.post { binding.recyclerView.scrollToPosition(rowIndex) }
     }
 
+    private fun findStreamsForCampaign(campaign: TwitchDropCampaign) {
+        if (!campaignCanFindLiveStreams(campaign)) return
+        findNavController().navigate(
+            R.id.action_global_searchPagerFragment,
+            SearchPagerFragment.dropsSearchArguments(campaign),
+        )
+    }
+
+    private fun showDropImage(
+        url: String,
+        name: String?,
+        source: TwitchDropImageSource,
+    ) {
+        DropImageDialog.newInstance(url, name, source)
+            .show(childFragmentManager, DropImageDialog.TAG)
+    }
+
     private fun inventoryRows(drops: List<TwitchDrop>): List<DropsRow> = buildList {
         drops.filter(TwitchDrop::isClaimable).takeIf { it.isNotEmpty() }?.let {
             add(DropsRow.Section(getString(R.string.drops_ready_section).uppercase()))
@@ -281,10 +314,16 @@ class DropsFragment : Fragment() {
         super.onDestroyView()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt(SELECTED_TAB, selectedTab)
+        super.onSaveInstanceState(outState)
+    }
+
     private companion object {
         const val TAB_INVENTORY = 0
         const val TAB_ALL_CAMPAIGNS = 1
         const val TAB_SOCIAL_BADGE = 2
+        const val SELECTED_TAB = "selected_drops_tab"
         const val TWITCH_DROPS_URL = "https://www.twitch.tv/drops"
     }
 }

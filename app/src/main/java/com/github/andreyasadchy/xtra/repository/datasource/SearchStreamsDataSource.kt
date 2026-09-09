@@ -2,12 +2,20 @@ package com.github.andreyasadchy.xtra.repository.datasource
 
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
+import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.model.ui.matchesChannelCampaigns
+import com.github.andreyasadchy.xtra.model.ui.matchesGame
+import com.github.andreyasadchy.xtra.model.ui.matchesDropsEnabledTag
+import com.github.andreyasadchy.xtra.repository.DropsRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.util.C
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 internal class SearchStreamsDataSource(
     private val query: String,
@@ -16,6 +24,8 @@ internal class SearchStreamsDataSource(
     private val helixHeaders: Map<String, String>,
     private val helixRepository: HelixRepository,
     private val networkLibrary: String?,
+    private val dropsFilter: DropStreamFilter? = null,
+    private val dropsRepository: DropsRepository? = null,
 ) : PagingSource<SearchPageKey, Stream>() {
 
     override suspend fun load(params: LoadParams<SearchPageKey>): LoadResult<SearchPageKey, Stream> {
@@ -28,13 +38,44 @@ internal class SearchStreamsDataSource(
         }
 
         return try {
-            params.key?.let { key ->
+            val page = params.key?.let { key ->
                 loadFromApi(params.loadSize, key)
             } ?: loadFirstPage(params.loadSize)
+            if (dropsFilter == null) page else filterDropPage(page)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             LoadResult.Error(error)
+        }
+    }
+
+    private suspend fun filterDropPage(
+        page: LoadResult<SearchPageKey, Stream>,
+    ): LoadResult<SearchPageKey, Stream> {
+        val current = page as? LoadResult.Page ?: return page
+        return LoadResult.Page(
+            data = filterEligibleStreams(current.data),
+            prevKey = current.prevKey,
+            nextKey = current.nextKey,
+        )
+    }
+
+    private suspend fun filterEligibleStreams(streams: List<Stream>): List<Stream> {
+        val filter = dropsFilter ?: return streams
+        val repository = dropsRepository ?: return emptyList()
+        val candidates = streams.filter { stream ->
+            filter.matchesGame(stream.gameId, stream.gameName) &&
+                filter.matchesDropsEnabledTag(stream.tags)
+        }
+        return coroutineScope {
+            candidates.map { stream ->
+                async {
+                    val campaigns = stream.channelId?.let { channelId ->
+                        repository.refreshChannelDropCatalog(channelId)
+                    }
+                    stream.takeIf { campaigns?.let(filter::matchesChannelCampaigns) == true }
+                }
+            }.awaitAll().filterNotNull()
         }
     }
 

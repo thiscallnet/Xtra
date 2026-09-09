@@ -48,6 +48,8 @@ import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.error
+import coil3.request.fallback
+import coil3.request.placeholder
 import coil3.request.target
 import coil3.request.transformations
 import coil3.target.ImageViewTarget
@@ -73,10 +75,13 @@ import com.github.andreyasadchy.xtra.model.ui.ChannelPointReward
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRedemptionResult
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
+import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
 import com.github.andreyasadchy.xtra.model.ui.WatchStreak
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakShareResult
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewModelFactory
+import com.github.andreyasadchy.xtra.ui.drops.DropImageDialog
+import com.github.andreyasadchy.xtra.ui.drops.dropsImageUrl
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
@@ -345,6 +350,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var channelPointsIconLoaded = false
     private var channelPointsIconForeground: Int? = null
     private var dropImageUrl: String? = null
+    private var dropImageSource = TwitchDropImageSource.ORIGINAL
     private var dropImageTarget: ImageView? = null
     private var dropImageRequest: Disposable? = null
     private var dropImageRequestGeneration = 0
@@ -2954,6 +2960,17 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         dropTitleView = root.findViewById(R.id.dropTitle)
         dropSubtitleView = root.findViewById(R.id.dropSubtitle)
         dropProgressView = root.findViewById(R.id.dropProgress)
+        dropImageView?.setOnClickListener {
+            val drop = viewModel.dropsUiState.value.mostRelevantDrop ?: return@setOnClickListener
+            drop.imageUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                DropImageDialog.newInstance(
+                    url,
+                    drop.rewardName ?: drop.name,
+                    drop.imageSource,
+                )
+                    .show(childFragmentManager, DropImageDialog.TAG)
+            }
+        }
 
         dropCalloutView?.setOnClickListener {
             val state = viewModel.dropsUiState.value
@@ -3008,34 +3025,53 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             ).joinToString(" · ")
         }
         dropProgressView?.progress = drop.progressPercent
+        dropProgressView?.contentDescription = getString(
+            R.string.drops_progress_accessibility,
+            drop.currentMinutesWatched,
+            drop.requiredMinutesWatched,
+            drop.progressPercent,
+        )
+        dropImageView?.contentDescription = getString(
+            R.string.drops_view_image,
+            rewardName ?: getString(R.string.drops),
+        )
         callout.isClickable = !isClaiming
         callout.alpha = if (isClaiming) 0.65f else 1f
-        updateDropImage(drop.imageUrl)
+        updateDropImage(drop.imageUrl, drop.imageSource)
         callout.isVisible = true
     }
 
-    private fun updateDropImage(url: String?) {
+    private fun updateDropImage(
+        url: String?,
+        source: TwitchDropImageSource,
+    ) {
         val image = dropImageView ?: return
-        if (dropImageUrl == url && dropImageTarget === image) return
+        if (dropImageUrl == url && dropImageSource == source && dropImageTarget === image) return
         disposeDropImageRequest()
         dropImageUrl = url
+        dropImageSource = source
         dropImageTarget = image
         val requestGeneration = ++dropImageRequestGeneration
         image.setImageDrawable(null)
         image.isVisible = !url.isNullOrBlank()
+        image.isClickable = !url.isNullOrBlank()
+        image.isFocusable = image.isClickable
         if (url.isNullOrBlank()) return
 
         val context = requireContext()
         dropImageRequest = context.imageLoader.enqueue(
             ImageRequest.Builder(context)
-                .data(url)
+                .data(dropsImageUrl(url, source))
                 .diskCachePolicy(CachePolicy.ENABLED)
+                .placeholder(R.drawable.ic_drops)
+                .error(R.drawable.ic_thumbnail_error)
+                .fallback(R.drawable.ic_thumbnail_error)
                 .crossfade(true)
                 .target(image)
                 .listener(object : ImageRequest.Listener {
                     override fun onError(request: ImageRequest, result: coil3.request.ErrorResult) {
                         if (!isCurrentDropImageRequest(url, requestGeneration)) return
-                        image.setImageDrawable(null)
+                        image.setImageResource(R.drawable.ic_thumbnail_error)
                     }
                 })
                 .build(),
@@ -3653,6 +3689,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         disposeDropImageRequest()
         dropImageRequestGeneration++
         dropImageUrl = null
+        dropImageSource = TwitchDropImageSource.ORIGINAL
         dropImageTarget = null
         disposePinnedBadgeRequests()
         composerOverlayState = null
