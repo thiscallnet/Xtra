@@ -4535,11 +4535,13 @@ class ChatViewModel(
                 ChannelPointsBalanceEvent.Type.EARNED,
             )
             val messageChannelId = balanceEvent?.channelId ?: result.second
+            val channelMatches = matchesActiveChannel(channelId, channelLogin, messageChannelId)
+            val matchedChannelId = if (channelMatches) channelId else messageChannelId
             Log.d(
                 WatchCreditTelemetry.LOG_TAG,
-                "Hermes points-earned channelMatched=${channelId == messageChannelId} channelIdPresent=${!messageChannelId.isNullOrBlank()} reason=${points.reasonCode ?: "unknown"}",
+                "Hermes points-earned channelMatched=$channelMatches channelMatchType=${if (channelId == messageChannelId) "id" else if (channelLogin.equals(messageChannelId, ignoreCase = true)) "login" else "none"} channelIdPresent=${!messageChannelId.isNullOrBlank()} reason=${points.reasonCode ?: "unknown"}",
             )
-            if (channelId == messageChannelId && balanceEvent != null) {
+            if (channelMatches && balanceEvent != null) {
                 applyChannelPointsBalanceEvent(balanceEvent)
                 scheduleChannelPointsReconciliation(networkLibrary, gqlHeaders, channelLogin)
                 if (balanceEvent.reasonCode.equals("WATCH_STREAK", ignoreCase = true)) {
@@ -4550,7 +4552,7 @@ class ChatViewModel(
             }
             watchStreakInvalidationForPointsEarned(
                 activeChannelId = channelId,
-                messageChannelId = messageChannelId,
+                messageChannelId = matchedChannelId,
                 reasonCode = points.reasonCode,
                 currentCount = watchStreak.value?.streakCount,
                 nowMs = SystemClock.elapsedRealtime(),
@@ -4565,7 +4567,7 @@ class ChatViewModel(
                 )
             }
             if (notifyPoints) {
-                if (channelId == messageChannelId) {
+                if (channelMatches) {
                     onMessage(ChatMessage(
                         type = ChatMessage.NOTICE_MESSAGE,
                         systemMsg = ContextCompat.getString(applicationContext, R.string.points_earned).format(points.pointsGained),
@@ -4583,11 +4585,12 @@ class ChatViewModel(
             }
             val balanceEvent = PubSubUtils.parsePointsSpent(message)
             val messageChannelId = balanceEvent?.channelId
+            val channelMatches = matchesActiveChannel(channelId, channelLogin, messageChannelId)
             Log.d(
                 WatchCreditTelemetry.LOG_TAG,
-                "Hermes points-spent channelMatched=${channelId == messageChannelId} channelIdPresent=${!messageChannelId.isNullOrBlank()} amount=${balanceEvent?.delta}",
+                "Hermes points-spent channelMatched=$channelMatches channelMatchType=${if (channelId == messageChannelId) "id" else if (channelLogin.equals(messageChannelId, ignoreCase = true)) "login" else "none"} channelIdPresent=${!messageChannelId.isNullOrBlank()} amount=${balanceEvent?.delta}",
             )
-            if (channelId == messageChannelId && balanceEvent != null) {
+            if (channelMatches && balanceEvent != null) {
                 applyChannelPointsBalanceEvent(balanceEvent)
                 scheduleChannelPointsReconciliation(networkLibrary, gqlHeaders, channelLogin)
             }

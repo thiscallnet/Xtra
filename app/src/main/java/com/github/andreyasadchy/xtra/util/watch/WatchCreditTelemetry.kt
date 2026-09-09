@@ -48,8 +48,10 @@ object WatchCreditTelemetry {
                 put("is_live", true)
                 put("live", true)
                 put("logged_in", true)
+                put("location", "channel")
                 put("minutes_logged", 1)
                 put("muted", false)
+                put("player", "site")
                 put("user_id", session.userId)
             }
         })
