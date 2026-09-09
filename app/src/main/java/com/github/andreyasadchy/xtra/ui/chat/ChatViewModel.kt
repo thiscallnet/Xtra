@@ -641,6 +641,7 @@ class ChatViewModel(
 
     val userEmotes = mutableListOf<Emote>()
     private val channelEmotes = mutableListOf<Emote>()
+    private val channelPointEmotes = mutableListOf<Emote>()
     private val channelPointModifiedEmotes = mutableListOf<Emote>()
     private var loadedUserEmotes = false
     val localTwitchEmotes = mutableListOf<TwitchEmote>()
@@ -767,7 +768,7 @@ class ChatViewModel(
     val chatMutations: Flow<ChatMutation> = chatMutationEvents.receiveAsFlow()
     val updateUserMessages = MutableSharedFlow<String>()
     val userEmotesUpdated = MutableSharedFlow<Unit>()
-    private val channelPointModifiedEmotesUpdated = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val channelPointEmotesUpdated = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val thirdPartyEmotesUpdated = MutableSharedFlow<Unit>()
 
     private var messageLimit = 600
@@ -2102,7 +2103,7 @@ class ChatViewModel(
     ) {
         val channel = response.data?.community?.channel ?: return
         val settings = channel.communityPointsSettings
-        updateChannelPointModifiedEmotes(settings)
+        updateChannelPointEmotes(settings)
         val hasModifiedEmotes = synchronized(channelPointModifiedEmotes) {
             channelPointModifiedEmotes.isNotEmpty()
         }
@@ -2245,12 +2246,28 @@ class ChatViewModel(
             ?: defaultImage?.url4x ?: defaultImage?.url2x ?: defaultImage?.url1x ?: defaultImage?.url
     }
 
-    private fun updateChannelPointModifiedEmotes(
+    private fun updateChannelPointEmotes(
         settings: ChannelPointContextResponse.CommunityPointsSettings?,
     ) {
-        val emotes = settings?.emoteVariants.orEmpty()
+        val unlockableVariants = settings?.emoteVariants.orEmpty()
             .asSequence()
             .filter { it.isUnlockable != false }
+            .toList()
+        val emotes = unlockableVariants
+            .asSequence()
+            .mapNotNull { variant ->
+                val id = variant.emote?.id ?: variant.id
+                val name = variant.emote?.token ?: variant.id
+                if (id.isNullOrBlank() || name.isNullOrBlank()) {
+                    null
+                } else {
+                    TwitchEmote(id = id, name = name).toPickerEmote()
+                }
+            }
+            .distinctBy { it.id ?: it.name }
+            .sortedBy { it.name.orEmpty().lowercase() }
+            .toList()
+        val modifiedEmotes = unlockableVariants
             .flatMap { variant ->
                 variant.modifications.asSequence().mapNotNull { modification ->
                     val id = modification.emote?.id ?: modification.id
@@ -2267,11 +2284,15 @@ class ChatViewModel(
             .distinctBy { it.id ?: it.name }
             .sortedBy { it.name.orEmpty().lowercase() }
             .toList()
+        synchronized(channelPointEmotes) {
+            channelPointEmotes.clear()
+            channelPointEmotes.addAll(emotes)
+        }
         synchronized(channelPointModifiedEmotes) {
             channelPointModifiedEmotes.clear()
-            channelPointModifiedEmotes.addAll(emotes)
+            channelPointModifiedEmotes.addAll(modifiedEmotes)
         }
-        channelPointModifiedEmotesUpdated.tryEmit(Unit)
+        channelPointEmotesUpdated.tryEmit(Unit)
     }
 
     private fun automaticRewardTitle(type: String): String = when (type.uppercase()) {
@@ -2888,13 +2909,21 @@ class ChatViewModel(
         .distinctBy { it.name }
         .sortedBy { it.name.orEmpty().lowercase() }
 
+    fun channelPointEmotePickerItems(): List<Emote> = synchronized(channelPointEmotes) {
+        channelPointEmotes.toList()
+    }
+        .filter { !it.name.isNullOrBlank() && !it.id.isNullOrBlank() }
+        .sortedBy { it.name.orEmpty().lowercase() }
+
     fun channelPointModifiedEmotePickerItems(): List<Emote> = synchronized(channelPointModifiedEmotes) {
         channelPointModifiedEmotes.toList()
     }
         .filter { !it.name.isNullOrBlank() && !it.id.isNullOrBlank() }
         .sortedBy { it.name.orEmpty().lowercase() }
 
-    fun channelPointModifiedEmotePickerUpdates(): Flow<Unit> = channelPointModifiedEmotesUpdated
+    fun channelPointEmotePickerUpdates(): Flow<Unit> = channelPointEmotesUpdated
+
+    fun channelPointModifiedEmotePickerUpdates(): Flow<Unit> = channelPointEmotesUpdated
 
     fun channelEmotePickerUpdates(): Flow<Unit> = userEmotesUpdated
 
@@ -3474,6 +3503,9 @@ class ChatViewModel(
         _pinnedChatMessage.value = null
         synchronized(channelEmotes) {
             channelEmotes.clear()
+        }
+        synchronized(channelPointEmotes) {
+            channelPointEmotes.clear()
         }
         synchronized(channelPointModifiedEmotes) {
             channelPointModifiedEmotes.clear()

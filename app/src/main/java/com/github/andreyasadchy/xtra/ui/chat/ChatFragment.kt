@@ -684,6 +684,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun channelEmotePickerUpdates(): Flow<Unit> = viewModel.channelEmotePickerUpdates()
 
+    override fun channelPointEmotePickerItems(): List<Emote> = viewModel.channelPointEmotePickerItems()
+
+    override fun channelPointEmotePickerUpdates(): Flow<Unit> = viewModel.channelPointEmotePickerUpdates()
+
     override fun channelPointModifiedEmotePickerItems(): List<Emote> = viewModel.channelPointModifiedEmotePickerItems()
 
     override fun channelPointModifiedEmotePickerUpdates(): Flow<Unit> = viewModel.channelPointModifiedEmotePickerUpdates()
