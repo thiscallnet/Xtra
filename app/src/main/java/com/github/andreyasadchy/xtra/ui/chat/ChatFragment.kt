@@ -109,7 +109,9 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatV2RendererController
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatViewportState
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLabels
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.ChatInputToken
+import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.ChatInputEmoteRenderer
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendation
+import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendationCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendationEngine
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
@@ -471,6 +473,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private var autoCompleteAdapter: AutoCompleteAdapter<Any>? = null
     private var recommendationAdapter: EmoteRecommendationAdapter? = null
+    private var chatInputEmoteRenderer: ChatInputEmoteRenderer? = null
     private val recommendationEngine = EmoteRecommendationEngine()
     private val recommendationInput = MutableStateFlow(RecommendationInput())
     private var currentRecommendations = emptyList<EmoteRecommendation>()
@@ -484,6 +487,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private data class RecommendationResult(
         val query: String,
         val recommendations: List<EmoteRecommendation>,
+        val catalog: EmoteRecommendationCatalog? = null,
     )
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
@@ -1263,6 +1267,17 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             }
                         }
                         val app = requireContext().applicationContext as XtraApp
+                        chatInputEmoteRenderer = if (
+                            useChatV2 && requireContext().prefs().getBoolean(C.CHAT_INPUT_EMOTES, true)
+                        ) {
+                            ChatInputEmoteRenderer(
+                                textView = editText,
+                                assets = app.xtraModule.chatAssetRepository,
+                                animateGifs = requireContext().prefs().getBoolean(C.ANIMATED_EMOTES, true),
+                            )
+                        } else {
+                            null
+                        }
                         recommendationAdapter = EmoteRecommendationAdapter(
                             assets = app.xtraModule.chatAssetRepository,
                             clickListener = ::insertRecommendedEmote,
@@ -1294,7 +1309,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                         withContext(Dispatchers.Default) {
                                             val token = ChatInputToken.aroundCursor(input.text, input.cursor)
                                             if (token == null) {
-                                                RecommendationResult("", emptyList())
+                                                RecommendationResult("", emptyList(), catalog?.catalog)
                                             } else if (catalog == null) {
                                                 RecommendationResult(token.text, emptyList())
                                             } else {
@@ -1307,6 +1322,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                                         usage = catalog.usage,
                                                         viewerId = catalog.viewerId,
                                                     ),
+                                                    catalog = catalog.catalog,
                                                 )
                                             }
                                         }
@@ -1314,6 +1330,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                         val queryChanged = currentRecommendationQuery != result.query
                                         currentRecommendationQuery = result.query
                                         currentRecommendations = result.recommendations
+                                        chatInputEmoteRenderer?.setCatalog(result.catalog)
                                         if (queryChanged) {
                                             recommendationStrip.stopScroll()
                                             recommendationStrip.scrollToPosition(0)
@@ -1326,6 +1343,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         }
                         editText.addTextChangedListener(onTextChanged = { text, _, _, _ ->
                             updateRecommendationInput()
+                            chatInputEmoteRenderer?.render()
                             updateComposerButtons()
                         })
                         editText.onSelectionChangedListener = { _, _ -> updateRecommendationInput() }
@@ -3709,6 +3727,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         _binding?.recommendationStrip?.adapter = null
         recommendationAdapter?.submitList(emptyList())
         recommendationAdapter = null
+        chatInputEmoteRenderer?.dispose()
+        chatInputEmoteRenderer = null
         currentRecommendations = emptyList()
         currentRecommendationQuery = null
         chatAdapterUpdatePosted = false

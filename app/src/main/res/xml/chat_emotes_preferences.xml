@@ -4,5 +4,6 @@
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_enable_bttv" android:title="@string/enable_bttv" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_enable_ffz" android:title="@string/enable_ffz" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="animatedGifEmotes" android:title="@string/animated_emotes" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_input_emotes" android:title="@string/render_emotes_in_input" android:summary="@string/render_emotes_in_input_summary" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_zerowidth" android:title="@string/overlay_emotes" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>
