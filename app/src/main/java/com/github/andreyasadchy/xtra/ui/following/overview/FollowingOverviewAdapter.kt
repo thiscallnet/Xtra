@@ -40,6 +40,7 @@ class FollowingOverviewAdapter(
     private val onUpcomingClick: (UpcomingStream) -> Unit,
     private val onSeeAll: (String) -> Unit,
     private val onGameClick: (Game) -> Unit = {},
+    private val onStreamTagClick: (String) -> Unit = {},
     private val onStreamShelfAttached: ((String, RecyclerView, (Int) -> Stream?, Boolean) -> Unit)? = null,
     private val onStreamShelfDetached: ((String) -> Unit)? = null,
     private val onVideoShelfAttached: ((String, RecyclerView, (Int) -> VideoHistory?) -> Unit)? = null,
@@ -84,11 +85,11 @@ class FollowingOverviewAdapter(
         inner class ViewHolder(
         private val binding: ItemFollowingSectionBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
-        private val shelfAdapter = StreamShelfAdapter(fragment, onStreamClick)
-        private val videoShelfAdapter = VideoShelfAdapter(onVideoClick)
-        private val upcomingShelfAdapter = UpcomingStreamShelfAdapter(onUpcomingClick)
+        private val shelfAdapter = StreamShelfAdapter(fragment, onStreamClick, onStreamTagClick)
+        private val videoShelfAdapter = VideoShelfAdapter(fragment, onVideoClick)
+        private val upcomingShelfAdapter = UpcomingStreamShelfAdapter(fragment, onUpcomingClick)
         private val gameShelfAdapter = GameShelfAdapter(onGameClick)
-        private val featuredShelfAdapter = FeaturedStreamShelfAdapter(fragment, onStreamClick)
+        private val featuredShelfAdapter = FeaturedStreamShelfAdapter(fragment, onStreamClick, onStreamTagClick)
         private val skeletonShelfAdapter = ShelfSkeletonAdapter()
         private var shelfType: ShelfType? = null
         private var boundStreamShelfKey: String? = null

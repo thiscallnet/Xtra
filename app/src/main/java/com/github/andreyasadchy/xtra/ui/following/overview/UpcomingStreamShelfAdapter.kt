@@ -4,6 +4,8 @@ import android.text.format.DateUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -17,6 +19,7 @@ import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ItemUpcomingStreamShelfBinding
 import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
+import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
@@ -24,8 +27,10 @@ import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.common.thumbnailState
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
+import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 
 class UpcomingStreamShelfAdapter(
+    private val fragment: Fragment,
     private val onUpcomingClick: (UpcomingStream) -> Unit,
 ) : ListAdapter<UpcomingStream, UpcomingStreamShelfAdapter.ViewHolder>(DIFF_CALLBACK) {
 
@@ -73,6 +78,9 @@ class UpcomingStreamShelfAdapter(
         init {
             TvFocusHelper.install(binding.root)
             binding.root.setOnClickListener { boundItem?.let(onUpcomingClick) }
+            binding.avatar.setOnClickListener { boundItem?.let(::openChannel) }
+            binding.channel.setOnClickListener { boundItem?.let(::openChannel) }
+            binding.category.setOnClickListener { boundItem?.let(::openGame) }
         }
 
         fun beginImageBind(item: UpcomingStream) {
@@ -155,6 +163,26 @@ class UpcomingStreamShelfAdapter(
                 binding.previewImage.setImageDrawable(null)
                 binding.previewImage.tag = null
             }
+        }
+
+        private fun openChannel(item: UpcomingStream) {
+            fragment.findNavController().navigate(
+                ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                    channelId = item.channelId,
+                    channelLogin = item.channelLogin,
+                    channelName = item.channelName,
+                    channelImage = item.channelImageURL?.let(TwitchApiHelper::getProfileImage),
+                ),
+            )
+        }
+
+        private fun openGame(item: UpcomingStream) {
+            if (item.gameName.isNullOrBlank()) return
+            fragment.findNavController().navigate(
+                GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                    gameName = item.gameName,
+                ),
+            )
         }
     }
 

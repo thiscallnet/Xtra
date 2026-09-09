@@ -3,6 +3,8 @@ package com.github.andreyasadchy.xtra.ui.following.overview
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -17,6 +19,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.ItemVideoShelfBinding
 import com.github.andreyasadchy.xtra.model.VideoHistory
+import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
@@ -24,9 +27,11 @@ import com.github.andreyasadchy.xtra.ui.common.VideoHistoryCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.common.thumbnailState
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
+import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 
 class VideoShelfAdapter(
+    private val fragment: Fragment,
     private val onVideoClick: (VideoHistory) -> Unit,
 ) : ListAdapter<VideoHistory, VideoShelfAdapter.ViewHolder>(DIFF_CALLBACK) {
 
@@ -87,6 +92,9 @@ class VideoShelfAdapter(
 
         init {
             binding.root.setOnClickListener { boundItem?.let(onVideoClick) }
+            binding.avatar.setOnClickListener { boundItem?.let(::openChannel) }
+            binding.channel.setOnClickListener { boundItem?.let(::openChannel) }
+            binding.category.setOnClickListener { boundItem?.let(::openGame) }
             TvFocusHelper.install(binding.root)
         }
 
@@ -191,6 +199,28 @@ class VideoShelfAdapter(
         fun detachPreview() {
             streamPreviewCoordinator.detachSurface(previewSurface)
             boundPreviewIdentity = null
+        }
+
+        private fun openChannel(item: VideoHistory) {
+            fragment.findNavController().navigate(
+                ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                    channelId = item.channelId,
+                    channelLogin = item.channelLogin,
+                    channelName = item.channelName,
+                    channelImage = item.channelImageURL?.let(TwitchApiHelper::getProfileImage),
+                ),
+            )
+        }
+
+        private fun openGame(item: VideoHistory) {
+            if (item.gameName.isNullOrBlank()) return
+            fragment.findNavController().navigate(
+                GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                    gameId = item.gameId,
+                    gameSlug = item.gameSlug,
+                    gameName = item.gameName,
+                ),
+            )
         }
     }
 
