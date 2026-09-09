@@ -41,6 +41,41 @@
             app:tabMaxWidth="0dp"
             app:tabMode="fixed" />
 
+        <LinearLayout
+            android:id="@+id/dropsFilterRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/dropsFilterButton"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginTop="2dp"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="2dp"
+                android:text="@string/search_drops_filter_button"
+                android:textAllCaps="false"
+                android:visibility="gone"
+                app:icon="@drawable/ic_drops"
+                app:iconGravity="textStart"
+                app:iconPadding="8dp" />
+        </LinearLayout>
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/dropsFilterGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginBottom="4dp"
+            android:visibility="gone"
+            app:chipSpacingHorizontal="4dp"
+            app:chipSpacingVertical="0dp" />
+
         <include
             android:id="@+id/sortBar"
             layout="@layout/sort_bar" />

@@ -4,6 +4,7 @@ import com.github.andreyasadchy.xtra.repository.projectDropsForChannel
 import com.github.andreyasadchy.xtra.repository.mergeDropsWithDashboard
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCatalogItem
+import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -69,6 +70,60 @@ class GqlDropsParserTest {
         assertEquals(2, drop.benefits.size)
         assertEquals("Reward", drop.benefits[0].name)
         assertEquals("Bonus", drop.benefits[1].name)
+    }
+
+    @Test
+    fun `duplicate inventory rows merge progress claim state and benefits`() {
+        val drops = GqlDropsParser.parseInventory(
+            """{"data":{"currentUser":{"inventory":{"dropCampaignsInProgress":[
+                {"id":"campaign-1","timeBasedDrops":[{"id":"drop-1","requiredMinutesWatched":60,
+                    "self":{"dropInstanceID":"old","currentMinutesWatched":20,"isClaimed":false},
+                    "benefitEdges":[{"benefit":{"name":"Reward A"}}]}]},
+                {"id":"campaign-1","timeBasedDrops":[{"id":"drop-1","requiredMinutesWatched":90,
+                    "self":{"dropInstanceID":"new","currentMinutesWatched":45,"isClaimed":true},
+                    "benefitEdges":[{"benefit":{"name":"Reward B"}}]}]}
+            ]}}}}""",
+        )!!
+
+        assertEquals(1, drops.size)
+        assertEquals(45, drops.single().currentMinutesWatched)
+        assertEquals(90, drops.single().requiredMinutesWatched)
+        assertEquals("new", drops.single().dropInstanceId)
+        assertTrue(drops.single().isClaimed)
+        assertEquals(2, drops.single().benefits.size)
+    }
+
+    @Test
+    fun `duplicate dashboard campaigns merge catalog details`() {
+        val campaigns = GqlDropsParser.parseDashboard(
+            """{"data":{"viewerDropsDashboard":{"campaigns":[
+                {"id":"campaign-1","name":"","isUpcoming":false,
+                 "game":{"displayName":"Game"},"drops":[{"id":"drop-1","requiredMinutesWatched":60,
+                 "benefitEdges":[{"benefit":{"name":"Reward A"}}]}]},
+                {"id":"campaign-1","name":"Campaign","isUpcoming":true,
+                 "game":{"id":"game-1","displayName":"Game"},"drops":[{"id":"drop-1","requiredMinutesWatched":90,
+                 "benefitEdges":[{"benefit":{"name":"Reward B"}}]}]}
+            ]}}}""",
+        )!!
+
+        assertEquals(1, campaigns.size)
+        assertEquals("Campaign", campaigns.single().name)
+        assertFalse(campaigns.single().isUpcoming)
+        assertEquals("game-1", campaigns.single().gameId)
+        assertEquals(90, campaigns.single().drops.single().requiredMinutesWatched)
+        assertEquals(2, campaigns.single().drops.single().benefits.size)
+    }
+
+    @Test
+    fun `reward artwork is never treated as resizable game box art`() {
+        val drop = GqlDropsParser.parseInventory(
+            inventoryJson(30, 60, "instance-1").replace(
+                "https://example.com/reward.png",
+                "https://static-cdn.jtvnw.net/ttv-boxart/reward-160x160.jpg",
+            ),
+        )!!.single()
+
+        assertEquals(TwitchDropImageSource.ORIGINAL, drop.imageSource)
     }
 
     @Test

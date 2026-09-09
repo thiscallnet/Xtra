@@ -15,16 +15,21 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil3.load
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.DialogStreamDropsBinding
 import com.github.andreyasadchy.xtra.databinding.ItemStreamDropBinding
+import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.TwitchChannelDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchChannelDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
+import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
+import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
+import androidx.navigation.fragment.findNavController
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.CancellationException
@@ -58,7 +63,10 @@ class StreamDropsBottomSheet : BottomSheetDialogFragment() {
                 dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.let { sheet ->
                     BottomSheetBehavior.from(sheet).apply {
                         skipCollapsed = true
-                        state = BottomSheetBehavior.STATE_EXPANDED
+                        isFitToContents = false
+                        expandedOffset = 0
+                        peekHeight = resources.displayMetrics.heightPixels
+                        sheet.post { state = BottomSheetBehavior.STATE_EXPANDED }
                     }
                 }
             }
@@ -73,7 +81,8 @@ class StreamDropsBottomSheet : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        adapter = StreamDropsAdapter()
+        adapter = StreamDropsAdapter(::showDropImage)
+        binding.dropsList.layoutManager = LinearLayoutManager(requireContext())
         binding.dropsList.adapter = adapter
         binding.title.text = getString(
             R.string.stream_drops_title,
@@ -81,6 +90,8 @@ class StreamDropsBottomSheet : BottomSheetDialogFragment() {
         )
         binding.subtitle.text = stream.gameName.orEmpty()
         binding.subtitle.isVisible = binding.subtitle.text.isNotBlank()
+        binding.filterButton.setOnClickListener { openDropsSearch() }
+        binding.viewDropsButton.setOnClickListener { openDropsPage() }
         binding.retryButton.setOnClickListener {
             if (loading) return@setOnClickListener
             loading = true
@@ -145,16 +156,22 @@ class StreamDropsBottomSheet : BottomSheetDialogFragment() {
         if (_binding == null) return
         binding.loading.isVisible = loading
         if (loading) {
+            binding.dropSummaryCard.isVisible = false
             binding.empty.isVisible = false
             binding.retryButton.isVisible = false
+            binding.filterButton.isVisible = false
+            binding.viewDropsButton.isVisible = false
             binding.dropsList.isVisible = false
             return
         }
 
         val campaigns = catalog
         if (campaigns == null) {
+            binding.dropSummaryCard.isVisible = false
             binding.dropsList.isVisible = false
             binding.empty.isVisible = true
+            binding.filterButton.isVisible = false
+            binding.viewDropsButton.isVisible = false
             val authenticated = repository.inventory.value.authenticated
             binding.retryButton.isVisible = authenticated && stream.channelId?.isNotBlank() == true
             binding.empty.text = getString(
@@ -163,16 +180,100 @@ class StreamDropsBottomSheet : BottomSheetDialogFragment() {
             return
         }
         if (campaigns.isEmpty()) {
+            binding.dropSummaryCard.isVisible = false
             binding.dropsList.isVisible = false
             binding.empty.isVisible = true
             binding.retryButton.isVisible = false
+            binding.filterButton.isVisible = false
+            binding.viewDropsButton.isVisible = false
             binding.empty.text = getString(R.string.stream_drops_empty)
             return
         }
 
+        binding.dropSummaryCard.isVisible = true
         binding.empty.isVisible = false
         binding.dropsList.isVisible = true
+        val inProgress = campaigns.sumOf { campaign ->
+            campaign.drops.count { drop ->
+                inventory.firstOrNull { it.id == drop.id }?.let { accountDrop ->
+                    !accountDrop.isClaimed && accountDrop.currentMinutesWatched > 0
+                } == true
+            }
+        }
+        binding.summary.text = getString(
+            R.string.stream_drops_available_summary,
+            campaigns.sumOf { it.drops.size },
+            inProgress,
+        )
+        campaigns.firstOrNull()?.imageUrl?.takeIf(String::isNotBlank)?.let { image ->
+            binding.heroImage.loadDropImage(image, TwitchDropImageSource.ORIGINAL)
+            binding.heroImage.isClickable = true
+            binding.heroImage.isFocusable = true
+            binding.heroImage.setOnClickListener {
+                showDropImage(
+                    image,
+                    campaigns.firstNotNullOfOrNull { it.name ?: it.localizedTitle ?: it.gameName },
+                    TwitchDropImageSource.ORIGINAL,
+                )
+            }
+        } ?: run {
+            binding.heroImage.setImageResource(R.drawable.ic_drops)
+            binding.heroImage.isClickable = false
+            binding.heroImage.isFocusable = false
+            binding.heroImage.setOnClickListener(null)
+        }
+        binding.heroImage.contentDescription = getString(
+            R.string.stream_drops_campaign_image,
+            campaigns.firstNotNullOfOrNull { it.name ?: it.gameName } ?: getString(R.string.drops),
+        )
+        binding.filterButton.isVisible = campaigns.isNotEmpty()
+        binding.viewDropsButton.isVisible = campaigns.isNotEmpty()
         adapter.submitList(campaigns, inventory)
+    }
+
+    private fun openDropsSearch() {
+        val filters = catalog.orEmpty().map { campaign ->
+            DropStreamFilter(
+                campaignId = campaign.id,
+                campaignName = campaign.name ?: campaign.gameName.orEmpty(),
+                gameId = campaign.gameId,
+                gameName = campaign.gameName.orEmpty(),
+                dropIds = campaign.drops.map { it.id }.toSet(),
+                dropNames = campaign.drops.mapNotNull { it.name },
+            )
+        }
+        if (filters.isEmpty()) return
+        dismiss()
+        findNavController().navigate(
+            R.id.action_global_searchPagerFragment,
+            SearchPagerFragment.dropsSearchArguments(filters),
+        )
+    }
+
+    private fun showDropImage(
+        url: String,
+        name: String?,
+        source: TwitchDropImageSource,
+    ) {
+        if (!isAdded || childFragmentManager.isStateSaved) return
+        DropImageDialog.newInstance(url, name, source)
+            .show(childFragmentManager, DropImageDialog.TAG)
+    }
+
+    private fun openDropsPage() {
+        val campaignId = catalog.orEmpty().firstOrNull()?.id ?: return
+        requireActivity().supportFragmentManager
+            .findFragmentById(R.id.navHostFragment)
+            ?.childFragmentManager
+            ?.setFragmentResult(
+                DropsFragment.FOCUS_RESULT,
+                Bundle().apply { putString(DropsFragment.FOCUS_CAMPAIGN_ID, campaignId) },
+            )
+        dismiss()
+        findNavController().navigate(
+            R.id.action_global_dropsFragment,
+            Bundle().apply { putString("campaignId", campaignId) },
+        )
     }
 
     override fun onDestroyView() {
@@ -206,7 +307,9 @@ private sealed interface StreamDropsRow {
     ) : StreamDropsRow
 }
 
-private class StreamDropsAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+private class StreamDropsAdapter(
+    private val onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
+) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
     private var rows: List<StreamDropsRow> = emptyList()
 
     fun submitList(
@@ -241,7 +344,7 @@ private class StreamDropsAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val row = rows[position]) {
             is StreamDropsRow.Campaign -> (holder as CampaignViewHolder).bind(row.value)
-            is StreamDropsRow.Drop -> (holder as DropViewHolder).bind(row)
+            is StreamDropsRow.Drop -> (holder as DropViewHolder).bind(row, onImageClick)
         }
     }
 
@@ -258,7 +361,10 @@ private class StreamDropsAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>
     }
 
     private class DropViewHolder(private val binding: ItemStreamDropBinding) : RecyclerView.ViewHolder(binding.root) {
-        fun bind(row: StreamDropsRow.Drop) {
+        fun bind(
+            row: StreamDropsRow.Drop,
+            onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
+        ) {
             val context = binding.root.context
             val drop = row.value
             val accountDrop = row.accountDrop
@@ -274,7 +380,7 @@ private class StreamDropsAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>
             val isClaimed = accountDrop?.isClaimed == true
             val isClaimable = accountDrop?.isClaimable == true
             binding.progress.isVisible = hasWatchRequirement && accountDrop != null && !isClaimed
-            binding.progressText.isVisible = hasWatchRequirement
+            binding.progressText.isVisible = hasWatchRequirement && accountDrop != null
             binding.progressText.text = if (accountDrop == null) {
                 context.getString(R.string.stream_drops_watch_requirement, drop.requiredMinutesWatched)
             } else {
@@ -294,7 +400,15 @@ private class StreamDropsAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>
             binding.status.isVisible = binding.status.text.isNotBlank()
 
             val image = drop.benefits.firstOrNull()?.imageUrl ?: row.campaign.imageUrl
-            binding.image.contentDescription = rewardNames.firstOrNull() ?: drop.name
+            val imageName = drop.name ?: rewardNames.firstOrNull() ?: context.getString(R.string.drops)
+            binding.image.contentDescription = context.getString(R.string.stream_drops_drop_image, imageName)
+            binding.image.isClickable = !image.isNullOrBlank()
+            binding.image.isFocusable = binding.image.isClickable
+            binding.image.setOnClickListener {
+                image?.takeIf(String::isNotBlank)?.let {
+                    onImageClick(it, imageName, TwitchDropImageSource.ORIGINAL)
+                }
+            }
             if (image.isNullOrBlank()) binding.image.setImageResource(R.drawable.ic_drops) else binding.image.load(image)
         }
 

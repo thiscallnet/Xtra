@@ -50,6 +50,16 @@
                 android:layout_marginTop="2dp"
                 android:textAppearance="?attr/textAppearanceBodyMedium" />
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/findStreamsButton"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/drops_find_streams"
+                android:textAllCaps="false"
+                android:visibility="gone" />
+
             <HorizontalScrollView
                 android:id="@+id/rewardScroll"
                 android:layout_width="match_parent"
@@ -78,6 +88,14 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:max="100" />
+
+            <TextView
+                android:id="@+id/progressLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textAppearance="?attr/textAppearanceLabelSmall"
+                android:visibility="gone" />
         </LinearLayout>
 
         <ImageView

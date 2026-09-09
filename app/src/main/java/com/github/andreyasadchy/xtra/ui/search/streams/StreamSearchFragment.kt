@@ -18,6 +18,7 @@ import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
+import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.StreamsAdapter
@@ -39,6 +40,8 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
     private val viewModel: StreamSearchViewModel by viewModels { StreamSearchViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
     private var recentSearchAdapter = RecentSearchAdapter({ (parentFragment as? SearchPagerFragment)?.setQuery(it.query) }, { viewModel.deleteRecentSearch(it) })
+    private val initialDropsFilters: List<DropStreamFilter>
+        get() = arguments?.parcelableArrayList<DropStreamFilter>(FILTERS).orEmpty()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = CommonRecyclerViewLayoutBinding.inflate(inflater, container, false)
@@ -75,6 +78,10 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
     }
 
     override fun initialize() {
+        val searchPager = parentFragment as? SearchPagerFragment
+        viewModel.setDropsFilters(
+            if (searchPager != null) searchPager.currentDropsFilters() else initialDropsFilters,
+        )
         with(binding) {
             setupPagingControls(binding, pagingAdapter)
             viewLifecycleOwner.lifecycleScope.launch {
@@ -117,6 +124,10 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
         }
     }
 
+    fun searchWithoutSaving(query: String) {
+        viewModel.setQuery(query)
+    }
+
     override fun onNetworkRestored() {
         pagingAdapter.retry()
     }
@@ -125,6 +136,33 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
         super.onDestroyView()
         _binding = null
     }
+
+    fun clearDropsFilter() {
+        viewModel.setDropsFilters(emptyList())
+    }
+
+    fun applyDropsFilters(filters: List<DropStreamFilter>) {
+        viewModel.setDropsFilters(filters)
+    }
+
+    companion object {
+        private const val FILTERS = "drops_filters"
+
+        fun newInstance(filters: List<DropStreamFilter>) = StreamSearchFragment().apply {
+            if (filters.isEmpty()) return@apply
+            arguments = Bundle().apply {
+                putParcelableArrayList(FILTERS, ArrayList(filters))
+            }
+        }
+    }
 }
+
+private inline fun <reified T : android.os.Parcelable> Bundle.parcelableArrayList(key: String): ArrayList<T>? =
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        getParcelableArrayList(key, T::class.java)
+    } else {
+        @Suppress("DEPRECATION")
+        getParcelableArrayList(key)
+    }
 
 

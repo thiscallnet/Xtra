@@ -15,6 +15,7 @@ import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -48,6 +49,8 @@ import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.error
+import coil3.request.fallback
+import coil3.request.placeholder
 import coil3.request.target
 import coil3.request.transformations
 import coil3.target.ImageViewTarget
@@ -73,10 +76,13 @@ import com.github.andreyasadchy.xtra.model.ui.ChannelPointReward
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRedemptionResult
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
+import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
 import com.github.andreyasadchy.xtra.model.ui.WatchStreak
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakShareResult
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewModelFactory
+import com.github.andreyasadchy.xtra.ui.drops.DropImageDialog
+import com.github.andreyasadchy.xtra.ui.drops.dropsImageUrl
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
@@ -345,6 +351,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var channelPointsIconLoaded = false
     private var channelPointsIconForeground: Int? = null
     private var dropImageUrl: String? = null
+    private var dropImageSource = TwitchDropImageSource.ORIGINAL
     private var dropImageTarget: ImageView? = null
     private var dropImageRequest: Disposable? = null
     private var dropImageRequestGeneration = 0
@@ -398,6 +405,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var dropTitleView: TextView? = null
     private var dropSubtitleView: TextView? = null
     private var dropProgressView: com.google.android.material.progressindicator.LinearProgressIndicator? = null
+    private var dropMinimizeView: ImageButton? = null
+    private var dropCalloutMinimized = false
     private var chatAdapterUpdatePosted = false
     private var chatAdapterReady = false
     private var chatSnapshotSyncPending = false
@@ -706,6 +715,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         seenPinnedMessageId = savedInstanceState?.getString(KEY_SEEN_PINNED_MESSAGE_ID)
         displayedPinnedMessageId = savedInstanceState?.getString(KEY_DISPLAYED_PINNED_MESSAGE_ID)
         pinnedMessageMinimized = savedInstanceState?.getBoolean(KEY_PINNED_MESSAGE_MINIMIZED) ?: false
+        dropCalloutMinimized = savedInstanceState?.getBoolean(KEY_DROP_CALLOUT_MINIMIZED) ?: false
         setupEmotePickerSizing()
         setupDropCallout()
         binding.chatTopOverlays.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -2954,6 +2964,22 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         dropTitleView = root.findViewById(R.id.dropTitle)
         dropSubtitleView = root.findViewById(R.id.dropSubtitle)
         dropProgressView = root.findViewById(R.id.dropProgress)
+        dropMinimizeView = root.findViewById(R.id.dropMinimize)
+        dropMinimizeView?.setOnClickListener {
+            dropCalloutMinimized = !dropCalloutMinimized
+            updateDropCallout(viewModel.dropsUiState.value)
+        }
+        dropImageView?.setOnClickListener {
+            val drop = viewModel.dropsUiState.value.mostRelevantDrop ?: return@setOnClickListener
+            drop.imageUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                DropImageDialog.newInstance(
+                    url,
+                    drop.rewardName ?: drop.name,
+                    drop.imageSource,
+                )
+                    .show(childFragmentManager, DropImageDialog.TAG)
+            }
+        }
 
         dropCalloutView?.setOnClickListener {
             val state = viewModel.dropsUiState.value
@@ -3001,41 +3027,80 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 rewardName,
                 getString(R.string.drops_tap_to_claim),
             ).joinToString(" · ")
+            dropCalloutMinimized -> listOfNotNull(
+                rewardName,
+                "${drop.progressPercent}%",
+            ).joinToString(" · ")
             else -> listOfNotNull(
                 rewardName,
                 "${drop.progressPercent}%",
                 "${drop.currentMinutesWatched}/${drop.requiredMinutesWatched} min",
             ).joinToString(" · ")
         }
+        dropSubtitleView?.maxLines = if (dropCalloutMinimized) 1 else 2
         dropProgressView?.progress = drop.progressPercent
+        dropProgressView?.isGone = dropCalloutMinimized
+        dropMinimizeView?.setImageResource(
+            if (dropCalloutMinimized) {
+                R.drawable.baseline_expand_more_black_24
+            } else {
+                R.drawable.ic_expand_less
+            },
+        )
+        dropMinimizeView?.contentDescription = getString(
+            if (dropCalloutMinimized) {
+                R.string.drops_expand_progress
+            } else {
+                R.string.drops_minimize_progress
+            },
+        )
+        dropProgressView?.contentDescription = getString(
+            R.string.drops_progress_accessibility,
+            drop.currentMinutesWatched,
+            drop.requiredMinutesWatched,
+            drop.progressPercent,
+        )
+        dropImageView?.contentDescription = getString(
+            R.string.drops_view_image,
+            rewardName ?: getString(R.string.drops),
+        )
         callout.isClickable = !isClaiming
         callout.alpha = if (isClaiming) 0.65f else 1f
-        updateDropImage(drop.imageUrl)
+        updateDropImage(drop.imageUrl, drop.imageSource)
         callout.isVisible = true
     }
 
-    private fun updateDropImage(url: String?) {
+    private fun updateDropImage(
+        url: String?,
+        source: TwitchDropImageSource,
+    ) {
         val image = dropImageView ?: return
-        if (dropImageUrl == url && dropImageTarget === image) return
+        if (dropImageUrl == url && dropImageSource == source && dropImageTarget === image) return
         disposeDropImageRequest()
         dropImageUrl = url
+        dropImageSource = source
         dropImageTarget = image
         val requestGeneration = ++dropImageRequestGeneration
         image.setImageDrawable(null)
         image.isVisible = !url.isNullOrBlank()
+        image.isClickable = !url.isNullOrBlank()
+        image.isFocusable = image.isClickable
         if (url.isNullOrBlank()) return
 
         val context = requireContext()
         dropImageRequest = context.imageLoader.enqueue(
             ImageRequest.Builder(context)
-                .data(url)
+                .data(dropsImageUrl(url, source))
                 .diskCachePolicy(CachePolicy.ENABLED)
+                .placeholder(R.drawable.ic_drops)
+                .error(R.drawable.ic_thumbnail_error)
+                .fallback(R.drawable.ic_thumbnail_error)
                 .crossfade(true)
                 .target(image)
                 .listener(object : ImageRequest.Listener {
                     override fun onError(request: ImageRequest, result: coil3.request.ErrorResult) {
                         if (!isCurrentDropImageRequest(url, requestGeneration)) return
-                        image.setImageDrawable(null)
+                        image.setImageResource(R.drawable.ic_thumbnail_error)
                     }
                 })
                 .build(),
@@ -3614,6 +3679,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         outState.putString(KEY_SEEN_PINNED_MESSAGE_ID, seenPinnedMessageId)
         outState.putString(KEY_DISPLAYED_PINNED_MESSAGE_ID, displayedPinnedMessageId)
         outState.putBoolean(KEY_PINNED_MESSAGE_MINIMIZED, pinnedMessageMinimized)
+        outState.putBoolean(KEY_DROP_CALLOUT_MINIMIZED, dropCalloutMinimized)
         super.onSaveInstanceState(outState)
     }
 
@@ -3653,6 +3719,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         disposeDropImageRequest()
         dropImageRequestGeneration++
         dropImageUrl = null
+        dropImageSource = TwitchDropImageSource.ORIGINAL
         dropImageTarget = null
         disposePinnedBadgeRequests()
         composerOverlayState = null
@@ -3663,6 +3730,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         dropTitleView = null
         dropSubtitleView = null
         dropProgressView = null
+        dropMinimizeView = null
         super.onDestroyView()
         _binding = null
     }
@@ -3806,6 +3874,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         private const val KEY_SEEN_PINNED_MESSAGE_ID = "seenPinnedMessageId"
         private const val KEY_DISPLAYED_PINNED_MESSAGE_ID = "displayedPinnedMessageId"
         private const val KEY_PINNED_MESSAGE_MINIMIZED = "pinnedMessageMinimized"
+        private const val KEY_DROP_CALLOUT_MINIMIZED = "dropCalloutMinimized"
         private const val KEY_V2_FOLLOW_MODE = "chatV2FollowMode"
         private const val KEY_V2_NEW_MESSAGE_COUNT = "chatV2NewMessageCount"
         private const val KEY_V2_ANCHOR_ID = "chatV2AnchorId"

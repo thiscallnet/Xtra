@@ -6,6 +6,7 @@ import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCatalogItem
 import com.github.andreyasadchy.xtra.model.ui.TwitchChannelDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchChannelDropCampaign
+import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -74,6 +75,11 @@ internal object GqlDropsParser {
                             name = drop.optionalString("name"),
                             rewardName = benefit?.name,
                             imageUrl = benefit?.imageUrl ?: gameImageUrl,
+                            imageSource = if (benefit?.imageUrl != null) {
+                                TwitchDropImageSource.ORIGINAL
+                            } else {
+                                TwitchDropImageSource.GAME_BOX_ART
+                            },
                             dropInstanceId =
                                 self?.optionalString("dropInstanceID"),
                             currentMinutesWatched = current.coerceAtLeast(0),
@@ -87,7 +93,7 @@ internal object GqlDropsParser {
                     )
                 }
             }
-        }
+        }.mergeById(::mergeDrops)
     }
 
     fun parseDashboard(body: String): List<TwitchDropCampaign>? {
@@ -113,13 +119,18 @@ internal object GqlDropsParser {
                 val campaign = campaigns.optJSONObject(index) ?: continue
                 val id = campaign.optionalString("id") ?: continue
                 val game = campaign.optJSONObject("game")
-                val gameImage = game?.optionalString(
-                    "boxArtURL",
-                    "boxArtUrl",
+                val campaignImage = campaign.optionalString(
                     "imageURL",
                     "imageUrl",
                     "imageAssetURL",
-                ) ?: campaign.optionalString("imageURL", "imageUrl", "imageAssetURL", "thumbnailURL")
+                    "thumbnailURL",
+                )
+                val gameBoxArt = game?.optionalString("boxArtURL", "boxArtUrl")
+                val gameImage = campaignImage ?: gameBoxArt ?: game?.optionalString(
+                    "imageURL",
+                    "imageUrl",
+                    "imageAssetURL",
+                )
                 val drops = campaign.optJSONArray("timeBasedDrops")
                     ?: campaign.optJSONArray("drops")
                     ?: JSONArray()
@@ -137,10 +148,15 @@ internal object GqlDropsParser {
                             campaign.optionalString("status")?.equals("UPCOMING", true) == true,
                         ),
                         drops = catalog,
+                        gameId = game?.optionalString("id"),
+                        imageSource = if (campaignImage == null && gameBoxArt != null) {
+                            TwitchDropImageSource.GAME_BOX_ART
+                        } else TwitchDropImageSource.ORIGINAL,
+                        gameSlug = game?.optionalString("slug", "urlSlug"),
                     ),
                 )
             }
-        }
+        }.mergeById(::mergeCampaigns)
     }
 
     /** Parses lazy campaign enrichment without assuming the private schema is stable. */
@@ -154,18 +170,24 @@ internal object GqlDropsParser {
         val game = campaign.optJSONObject("game")
         val drops = campaign.optJSONArray("timeBasedDrops") ?: JSONArray()
         val catalog = parseCatalogDrops(drops)
+        val campaignImage = campaign.optionalString(
+            "imageURL",
+            "imageUrl",
+            "imageAssetURL",
+            "thumbnailURL",
+        )
+        val gameBoxArt = game?.optionalString("boxArtURL", "boxArtUrl")
+        val imageUrl = campaignImage ?: gameBoxArt ?: game?.optionalString(
+            "imageURL",
+            "imageUrl",
+            "imageAssetURL",
+        )
 
         return TwitchDropCampaign(
             id = campaign.optionalString("id") ?: fallbackCampaignId,
             name = campaign.optionalString("name"),
             gameName = game?.optionalString("displayName", "name"),
-            imageUrl = game?.optionalString(
-                "boxArtURL",
-                "boxArtUrl",
-                "imageURL",
-                "imageUrl",
-                "imageAssetURL",
-            ) ?: campaign.optionalString("imageURL", "imageUrl", "imageAssetURL", "thumbnailURL"),
+            imageUrl = imageUrl,
             startTime = campaign.optionalString("startTime", "startDate", "startAt"),
             endTime = campaign.optionalString("endTime", "endDate", "endAt"),
             isUpcoming = campaign.optBoolean(
@@ -173,7 +195,91 @@ internal object GqlDropsParser {
                 campaign.optionalString("status")?.equals("UPCOMING", true) == true,
             ),
             drops = catalog,
+            gameId = game?.optionalString("id"),
+            imageSource = if (campaignImage == null && gameBoxArt != null) {
+                TwitchDropImageSource.GAME_BOX_ART
+            } else TwitchDropImageSource.ORIGINAL,
+            gameSlug = game?.optionalString("slug", "urlSlug"),
         )
+    }
+
+    private fun mergeDrops(first: TwitchDrop, second: TwitchDrop): TwitchDrop {
+        val useFirstImage = first.imageUrl != null &&
+            (first.imageSource == TwitchDropImageSource.ORIGINAL || second.imageUrl == null)
+        return first.copy(
+            campaignId = first.campaignId ?: second.campaignId,
+            campaignName = first.campaignName ?: second.campaignName,
+            gameName = first.gameName ?: second.gameName,
+            name = first.name ?: second.name,
+            rewardName = first.rewardName ?: second.rewardName,
+            imageUrl = if (useFirstImage) first.imageUrl else second.imageUrl,
+            imageSource = if (useFirstImage) first.imageSource else second.imageSource,
+            dropInstanceId = when {
+                second.isClaimed && !first.isClaimed -> second.dropInstanceId ?: first.dropInstanceId
+                second.currentMinutesWatched > first.currentMinutesWatched ->
+                    second.dropInstanceId ?: first.dropInstanceId
+                else -> first.dropInstanceId ?: second.dropInstanceId
+            },
+            currentMinutesWatched = maxOf(first.currentMinutesWatched, second.currentMinutesWatched),
+            requiredMinutesWatched = maxOf(first.requiredMinutesWatched, second.requiredMinutesWatched),
+            isClaimed = first.isClaimed || second.isClaimed,
+            benefits = mergeBenefits(first.benefits, second.benefits),
+            campaignStartTime = first.campaignStartTime ?: second.campaignStartTime,
+            campaignEndTime = first.campaignEndTime ?: second.campaignEndTime,
+        )
+    }
+
+    private fun mergeCampaigns(
+        first: TwitchDropCampaign,
+        second: TwitchDropCampaign,
+    ): TwitchDropCampaign {
+        val useFirstImage = first.imageUrl != null &&
+            (first.imageSource == TwitchDropImageSource.ORIGINAL || second.imageUrl == null)
+        return first.copy(
+            name = first.name ?: second.name,
+            gameName = first.gameName ?: second.gameName,
+            imageUrl = if (useFirstImage) first.imageUrl else second.imageUrl,
+            imageSource = if (useFirstImage) first.imageSource else second.imageSource,
+            startTime = first.startTime ?: second.startTime,
+            endTime = first.endTime ?: second.endTime,
+            isUpcoming = first.isUpcoming && second.isUpcoming,
+            drops = (first.drops + second.drops).mergeById(::mergeCatalogDrops),
+            gameId = first.gameId ?: second.gameId,
+            gameSlug = first.gameSlug ?: second.gameSlug,
+        )
+    }
+
+    private fun mergeCatalogDrops(
+        first: TwitchDropCatalogItem,
+        second: TwitchDropCatalogItem,
+    ): TwitchDropCatalogItem = first.copy(
+        name = first.name ?: second.name,
+        requiredMinutesWatched = maxOf(first.requiredMinutesWatched, second.requiredMinutesWatched),
+        benefits = mergeBenefits(first.benefits, second.benefits),
+    )
+
+    private fun mergeBenefits(
+        first: List<TwitchDropBenefit>,
+        second: List<TwitchDropBenefit>,
+    ): List<TwitchDropBenefit> = (first + second).distinctBy { it.name to it.imageUrl }
+
+    private fun <T> List<T>.mergeById(merge: (T, T) -> T): List<T> = buildList {
+        val indexes = mutableMapOf<String, Int>()
+        for (item in this@mergeById) {
+            val id = when (item) {
+                is TwitchDrop -> item.id
+                is TwitchDropCampaign -> item.id
+                is TwitchDropCatalogItem -> item.id
+                else -> null
+            } ?: continue
+            val existingIndex = indexes[id]
+            if (existingIndex == null) {
+                indexes[id] = size
+                add(item)
+            } else {
+                set(existingIndex, merge(this[existingIndex], item))
+            }
+        }
     }
 
     /** Returns null for a private-API/schema failure, and an empty set for valid no-results. */

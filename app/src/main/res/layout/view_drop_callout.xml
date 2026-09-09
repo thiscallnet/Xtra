@@ -21,7 +21,7 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minHeight="88dp"
+        android:minHeight="72dp"
         android:padding="12dp">
 
         <ImageView
@@ -31,7 +31,8 @@
             android:contentDescription="@null"
             android:scaleType="centerInside"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
 
         <TextView
             android:id="@+id/dropTitle"
@@ -43,7 +44,7 @@
             android:maxLines="1"
             android:textAppearance="?attr/textAppearanceTitleMedium"
             android:textStyle="bold"
-            app:layout_constraintEnd_toStartOf="@id/dropClose"
+            app:layout_constraintEnd_toStartOf="@id/dropMinimize"
             app:layout_constraintStart_toEndOf="@id/dropImage"
             app:layout_constraintTop_toTopOf="@id/dropImage"
             tools:text="Watching earned you a Drop!" />
@@ -60,6 +61,18 @@
             app:layout_constraintStart_toStartOf="@id/dropTitle"
             app:layout_constraintTop_toBottomOf="@id/dropTitle"
             tools:text="Tap to claim" />
+
+        <ImageButton
+            android:id="@+id/dropMinimize"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:contentDescription="@string/drops_minimize_progress"
+            android:padding="12dp"
+            android:src="@drawable/ic_expand_less"
+            app:layout_constraintEnd_toStartOf="@id/dropClose"
+            app:layout_constraintTop_toTopOf="parent"
+            app:tint="?attr/colorOnSurfaceVariant" />
 
         <ImageButton
             android:id="@+id/dropClose"
@@ -82,7 +95,7 @@
             app:indicatorColor="?attr/colorPrimary"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/dropImage"
+            app:layout_constraintTop_toBottomOf="@id/dropSubtitle"
             tools:progress="100" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>

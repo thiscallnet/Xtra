@@ -1500,6 +1500,8 @@
     <string name="drops_claim_failed">Couldn’t claim Drop</string>
     <string name="drops_dismiss">Dismiss Drop notification</string>
     <string name="drops_progress_title">Drops progress</string>
+    <string name="drops_minimize_progress">Minimize Drops progress</string>
+    <string name="drops_expand_progress">Expand Drops progress</string>
     <string name="stream_drops_badge">Drops</string>
     <string name="stream_drops_badge_content_description">View Drops available on %1$s</string>
     <string name="stream_drops_title">Drops on %1$s</string>
@@ -1519,6 +1521,27 @@
         <item quantity="one">1 Drop</item>
         <item quantity="other">%d Drops</item>
     </plurals>
+    <string name="drops_progress_accessibility">%1$d of %2$d minutes watched, %3$d%% complete</string>
+    <string name="drops_view_image">View %s image</string>
+    <string name="drops_close_image">Close image</string>
+    <string name="drops_zoom_hint">Pinch or double-tap to zoom · Drag to move · Tap to hide controls</string>
+    <string name="drops_find_streams">Find live streams</string>
+    <string name="search_drops_filter">Drops: %s</string>
+    <string name="search_drops_filter_button">Filter by Drops</string>
+    <string name="search_drops_filter_title">Filter streams by Drops</string>
+    <string name="search_drops_filter_summary">Choose one or more rewards. Results only include channels that can advance them.</string>
+    <string name="search_drops_filter_hint">Search campaigns and rewards</string>
+    <string name="search_drops_filter_empty">No matching Drops found</string>
+    <string name="search_drops_filter_select">Select Drop filter</string>
+    <string name="search_drops_filter_apply">Apply filters</string>
+    <string name="drops_search_hint">Search Drops</string>
+    <string name="drops_search_no_matches">No Drops match your search</string>
+    <string name="stream_drops_available_summary">%1$d Drops available · %2$d in progress</string>
+    <string name="stream_drops_campaign_image">Campaign artwork for %s</string>
+    <string name="stream_drops_filter">Filter streams by these Drops</string>
+    <string name="stream_drops_image_hint">Tap an image to view it full screen</string>
+    <string name="stream_drops_view_in_drops">View in Drops</string>
+    <string name="stream_drops_drop_image">View image for %s</string>
     <string name="prediction_title">Current prediction: %s</string>
     <string name="prediction_locked">Submissions closed · Waiting for result</string>
     <string name="prediction_refunded">Refunded</string>

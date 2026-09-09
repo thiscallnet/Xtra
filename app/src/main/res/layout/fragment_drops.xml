@@ -20,6 +20,18 @@
         app:tabGravity="start"
         app:tabMode="scrollable" />
 
+    <androidx.appcompat.widget.SearchView
+        android:id="@+id/searchView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
+        android:imeOptions="flagNoFullscreen"
+        android:inputType="textAutoComplete"
+        app:iconifiedByDefault="false"
+        app:queryHint="@string/drops_search_hint"
+        app:queryBackground="@android:color/transparent" />
+
     <com.google.android.material.materialswitch.MaterialSwitch
         android:id="@+id/autoClaim"
         android:layout_width="match_parent"
