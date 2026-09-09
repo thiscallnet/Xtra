@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.core.view.MarginLayoutParamsCompat
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -14,6 +15,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.ItemFeaturedStreamShelfBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.loadStreamProfileImage
 import com.github.andreyasadchy.xtra.ui.common.loadStreamThumbnail
 import com.github.andreyasadchy.xtra.ui.common.prepareStreamProfileImage
@@ -35,6 +37,7 @@ import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
+import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.ui.drops.StreamDropsBottomSheet
 import com.github.andreyasadchy.xtra.util.C
@@ -46,6 +49,7 @@ import kotlin.math.max
 class FeaturedStreamShelfAdapter(
     private val fragment: Fragment,
     private val onStreamClick: (Stream) -> Unit,
+    private val onTagClick: (String) -> Unit,
 ) : ListAdapter<Stream, FeaturedStreamShelfAdapter.ViewHolder>(DIFF_CALLBACK) {
 
     private val thumbnailLoadScheduler = StreamThumbnailIdleScheduler()
@@ -217,6 +221,7 @@ class FeaturedStreamShelfAdapter(
         private var boundImageIdentity: String? = null
         private var boundThumbnailKey: String? = null
         private var boundStream: Stream? = null
+        private var boundTags: List<String> = emptyList()
         private var uptimeStartedAtMs: Long? = null
         private var uptimeEnabled = false
         private var lastRenderedUptimeSecond = Long.MIN_VALUE
@@ -226,6 +231,10 @@ class FeaturedStreamShelfAdapter(
 
         init {
             binding.root.setOnClickListener { boundStream?.let(onStreamClick) }
+            binding.avatar.setOnClickListener { boundStream?.let(::openChannel) }
+            binding.channel.setOnClickListener { boundStream?.let(::openChannel) }
+            binding.category.setOnClickListener { boundStream?.let(::openGame) }
+            binding.tagOne.setOnClickListener { boundTags.firstOrNull()?.let(onTagClick) }
             TvFocusHelper.install(binding.root)
         }
 
@@ -249,6 +258,7 @@ class FeaturedStreamShelfAdapter(
             boundImageIdentity = null
             boundThumbnailKey = null
             boundStream = null
+            boundTags = emptyList()
             dropsBadgeBinder.clear()
             clearUptime()
         }
@@ -314,6 +324,7 @@ class FeaturedStreamShelfAdapter(
 
                 val tags = presentation?.tags ?: if (uiPreferences.showTags) stream.tags.orEmpty() else emptyList()
                 val firstTag = tags.firstOrNull()?.trim()?.takeIf(String::isNotEmpty)
+                boundTags = listOfNotNull(firstTag)
                 tagOne.text = firstTag.orEmpty()
                 tagOne.visibility = if (firstTag != null) View.VISIBLE else View.GONE
 
@@ -348,9 +359,33 @@ class FeaturedStreamShelfAdapter(
                 category.text = presentation.gameName.orEmpty()
                 category.visibility = if (category.text.isNullOrBlank()) View.GONE else View.VISIBLE
                 val firstTag = presentation.tags.firstOrNull()?.trim()?.takeIf(String::isNotEmpty)
+                boundTags = listOfNotNull(firstTag)
                 tagOne.text = firstTag.orEmpty()
                 tagOne.visibility = if (firstTag != null) View.VISIBLE else View.GONE
             }
+        }
+
+        private fun openChannel(stream: Stream) {
+            fragment.findNavController().navigate(
+                ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                    channelId = stream.channelId,
+                    channelLogin = stream.channelLogin,
+                    channelName = stream.channelName,
+                    channelImage = stream.channelImage,
+                    streamId = stream.id,
+                ),
+            )
+        }
+
+        private fun openGame(stream: Stream) {
+            if (stream.gameName.isNullOrBlank()) return
+            fragment.findNavController().navigate(
+                GamePagerFragmentDirections.actionGlobalGamePagerFragment(
+                    gameId = stream.gameId,
+                    gameSlug = stream.gameSlug,
+                    gameName = stream.gameName,
+                ),
+            )
         }
 
         override fun updateUptime(nowMs: Long) {

@@ -32,6 +32,7 @@ import com.github.andreyasadchy.xtra.ui.following.FollowMediaFragment
 import com.github.andreyasadchy.xtra.ui.following.FollowPagerFragment
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.overview.OverviewFragment
+import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewViewModel.Companion.FollowingOverviewViewModelFactory
 import kotlinx.coroutines.flow.collectLatest
@@ -94,6 +95,11 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                 )
             },
             onSeeAll = ::showAll,
+            onStreamTagClick = { tag ->
+                findNavController().navigate(
+                    TopStreamsFragmentDirections.actionGlobalTopFragment(tags = arrayOf(tag)),
+                )
+            },
             onStreamShelfAttached = { key, recyclerView, streamAtPosition, _ ->
                 streamShelfPreloadControllers.remove(key)?.stop()
                 StreamPreloadViewportController(

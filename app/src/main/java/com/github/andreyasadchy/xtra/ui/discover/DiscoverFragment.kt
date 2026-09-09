@@ -34,6 +34,7 @@ import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
+import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -131,6 +132,11 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
                         gameName = game.name,
                         boxArt = game.boxArt,
                     ),
+                )
+            },
+            onStreamTagClick = { tag ->
+                navController.navigate(
+                    TopStreamsFragmentDirections.actionGlobalTopFragment(tags = arrayOf(tag)),
                 )
             },
             onStreamShelfAttached = { key, recyclerView, streamAtPosition, isFeatured ->
