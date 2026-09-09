@@ -11,6 +11,8 @@ class FFZResponse(
     class Emote(
         val id: Int? = null,
         val name: String? = null,
+        val width: Int? = null,
+        val height: Int? = null,
         val animated: Urls? = null,
         val urls: Urls? = null,
     )

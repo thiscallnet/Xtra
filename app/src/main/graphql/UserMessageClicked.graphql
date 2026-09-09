@@ -2,7 +2,7 @@ fragment UserMessageClickedUser on User {
     bannerImageURL
     createdAt
     displayName
-    follow(targetID: $targetId) {
+    follow(targetID: $targetId, targetLogin: $targetLogin) {
         followedAt
     }
     displayBadges(channelID: $targetId) {
@@ -49,7 +49,7 @@ query UserMessageClicked($id: ID, $login: String, $targetId: ID, $userLogin: Str
     }
 }
 
-query UserMessageClickedBasic($id: ID, $login: String, $targetId: ID) {
+query UserMessageClickedBasic($id: ID, $login: String, $targetId: ID, $targetLogin: String) {
     user(id: $id, login: $login, lookupType: ALL) {
         ...UserMessageClickedUser
     }

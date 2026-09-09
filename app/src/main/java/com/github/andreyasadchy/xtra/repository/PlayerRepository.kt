@@ -140,6 +140,41 @@ internal fun parseBTTVEmotes(response: List<BTTVResponse>, useWebp: Boolean, sou
     }
 }
 
+internal fun parseFFZEmotes(response: List<FFZResponse.Emote>, useWebp: Boolean, source: Int): List<Emote> {
+    return response.mapNotNull { emote ->
+        emote.name?.takeIf { it.isNotBlank() }?.let { name ->
+            val isAnimated = emote.animated != null
+            if (isAnimated) {
+                if (useWebp) {
+                    emote.animated
+                } else {
+                    FFZResponse.Urls(
+                        url1x = emote.animated.url1x + ".gif",
+                        url2x = emote.animated.url2x + ".gif",
+                        url4x = emote.animated.url4x + ".gif",
+                    )
+                }
+            } else {
+                emote.urls
+            }?.let { urls ->
+                Emote(
+                    name = name,
+                    id = emote.id?.toString(),
+                    url1x = urls.url1x,
+                    url2x = urls.url2x,
+                    url3x = urls.url2x,
+                    url4x = urls.url4x,
+                    format = if (isAnimated && useWebp) "webp" else null,
+                    isAnimated = isAnimated,
+                    source = source,
+                    width = emote.width,
+                    height = emote.height,
+                )
+            }
+        }
+    }
+}
+
 @OptIn(UnstableApi::class)
 class PlayerRepository(
     private val httpEngine: Lazy<HttpEngine?>,
@@ -1728,39 +1763,6 @@ class PlayerRepository(
         val response = json.decodeFromString<FFZChannelResponse>(response)
         response.sets.entries.flatMap {
             it.value.emoticons?.let { emotes -> parseFFZEmotes(emotes, useWebp, Emote.CHANNEL_FFZ) } ?: emptyList()
-        }
-    }
-
-    private fun parseFFZEmotes(response: List<FFZResponse.Emote>, useWebp: Boolean, source: Int): List<Emote> {
-        return response.mapNotNull { emote ->
-            emote.name?.takeIf { it.isNotBlank() }?.let { name ->
-                val isAnimated = emote.animated != null
-                if (isAnimated) {
-                    if (useWebp) {
-                        emote.animated
-                    } else {
-                        FFZResponse.Urls(
-                            url1x = emote.animated.url1x + ".gif",
-                            url2x = emote.animated.url2x + ".gif",
-                            url4x = emote.animated.url4x + ".gif",
-                        )
-                    }
-                } else {
-                    emote.urls
-                }?.let { urls ->
-                    Emote(
-                        name = name,
-                        id = emote.id?.toString(),
-                        url1x = urls.url1x,
-                        url2x = urls.url2x,
-                        url3x = urls.url2x,
-                        url4x = urls.url4x,
-                        format = if (isAnimated && useWebp) "webp" else null,
-                        isAnimated = isAnimated,
-                        source = source,
-                    )
-                }
-            }
         }
     }
 

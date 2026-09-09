@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.repository
 
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.misc.BTTVResponse
+import com.github.andreyasadchy.xtra.model.misc.FFZResponse
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -68,5 +69,25 @@ class PlayerRepositoryEmoteParserTest {
         assertEquals(72, emote.width)
         assertEquals(24, emote.height)
         assertTrue(emote.isOverlayEmote)
+    }
+
+    @Test
+    fun ffzParserPreservesAspectRatioMetadata() {
+        val emote = FFZResponse.Emote(
+            id = 9,
+            name = "WideWave",
+            width = 90,
+            height = 30,
+            urls = FFZResponse.Urls(url4x = "https://cdn.example/wide"),
+        )
+
+        val parsed = parseFFZEmotes(
+            listOf(emote),
+            useWebp = true,
+            source = Emote.GLOBAL_FFZ,
+        ).single()
+
+        assertEquals(90, parsed.width)
+        assertEquals(30, parsed.height)
     }
 }
