@@ -352,6 +352,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var channelPointsIconRequestGeneration = 0
     private var channelPointsIconLoaded = false
     private var channelPointsIconForeground: Int? = null
+    private var channelPointsBalanceAnimator: ChannelPointsBalanceAnimator? = null
+    private var lastChannelPointsBalance: Int? = null
     private var dropImageUrl: String? = null
     private var dropImageSource = TwitchDropImageSource.ORIGINAL
     private var dropImageTarget: ImageView? = null
@@ -712,6 +714,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentChatBinding.inflate(inflater, container, false)
+        channelPointsBalanceAnimator = ChannelPointsBalanceAnimator(
+            binding.channelPointsIcon,
+            binding.channelPointsText,
+            binding.channelPointsDelta,
+        )
+        lastChannelPointsBalance = null
         pinnedMessageBinding = ViewPinnedChatMessageBinding.bind(
             _binding!!.root.findViewById(R.id.pinnedMessageOverlay),
         )
@@ -1247,9 +1255,16 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                                 viewModel.predictionSecondsLeft.value,
                                             ),
                                         )
+                                        channelPointsBalanceAnimator?.animate(
+                                            previousBalance = lastChannelPointsBalance,
+                                            currentBalance = points.balance,
+                                        )
+                                        lastChannelPointsBalance = points.balance
                                         channelPoints.visibility = View.VISIBLE
                                         updateComposerDensity()
                                     } else {
+                                        channelPointsBalanceAnimator?.cancel()
+                                        lastChannelPointsBalance = null
                                         channelPointsAccessibilityLabel = null
                                         updateChannelPointsIcon(null)
                                         channelPoints.visibility = View.GONE
@@ -3774,6 +3789,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         chatSnapshotSyncPending = false
         pendingChatMutations.clear()
         disposeChannelPointsIconRequest()
+        channelPointsBalanceAnimator?.cancel()
+        channelPointsBalanceAnimator = null
+        lastChannelPointsBalance = null
         channelPointsIconRequestGeneration++
         channelPointsIconUrl = null
         channelPointsIconLoaded = false
