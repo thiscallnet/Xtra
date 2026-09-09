@@ -93,6 +93,32 @@
             tools:text="6.7K viewers"
             tools:visibility="visible" />
 
+        <TextView
+            android:id="@+id/dropsBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="54dp"
+            android:layout_marginBottom="6dp"
+            android:background="@drawable/bg_stream_overlay"
+            android:clickable="true"
+            android:drawableStart="@drawable/ic_drops"
+            android:drawableTint="@android:color/white"
+            android:drawablePadding="3dp"
+            android:ellipsize="end"
+            android:focusable="true"
+            android:maxLines="1"
+            android:paddingStart="4dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="4dp"
+            android:paddingBottom="2dp"
+            android:textColor="@android:color/white"
+            android:textSize="11sp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            tools:text="3 Drops"
+            tools:visibility="visible" />
+
         <ImageButton
             android:id="@+id/multiview"
             android:layout_width="48dp"

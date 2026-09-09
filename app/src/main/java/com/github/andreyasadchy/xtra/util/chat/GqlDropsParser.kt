@@ -4,6 +4,8 @@ import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropBenefit
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCatalogItem
+import com.github.andreyasadchy.xtra.model.ui.TwitchChannelDrop
+import com.github.andreyasadchy.xtra.model.ui.TwitchChannelDropCampaign
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -176,6 +178,12 @@ internal object GqlDropsParser {
 
     /** Returns null for a private-API/schema failure, and an empty set for valid no-results. */
     fun parseAvailableDropIds(body: String): Set<String>? {
+        parseAvailableDrops(body)?.let { campaigns ->
+            return campaigns.flatMap { campaign ->
+                listOf(campaign.id) + campaign.drops.map(TwitchChannelDrop::id)
+            }.toSet()
+        }
+
         val root = runCatching { JSONObject(body) }.getOrNull() ?: return null
         if (hasErrors(root)) return null
         val channel = root.optJSONObject("data")?.optJSONObject("channel")
@@ -190,6 +198,67 @@ internal object GqlDropsParser {
                 .toSet()
         }
         return parseDropIds(body, "availableDrops")
+    }
+
+    fun parseAvailableDrops(body: String): List<TwitchChannelDropCampaign>? {
+        val root = runCatching { JSONObject(body) }.getOrNull() ?: return null
+        if (hasErrors(root)) return null
+        val channel = root.optJSONObject("data")?.optJSONObject("channel") ?: return null
+        if (!channel.has("viewerDropCampaigns")) return null
+
+        val campaigns = channel.optJSONArray("viewerDropCampaigns") ?: return emptyList()
+        return campaigns.objects().mapNotNull { campaign ->
+            val id = campaign.optionalString("id") ?: return@mapNotNull null
+            val game = campaign.optJSONObject("game")
+            val summary = campaign.optJSONObject("summary")
+            val localizedContent = campaign.optJSONObject("localizedContent")
+            val drops = buildList {
+                listOf(
+                    "timeBasedDrops" to false,
+                    "eventBasedDrops" to true,
+                ).forEach { (key, isEventBased) ->
+                    campaign.optJSONArray(key).objects().forEach { drop ->
+                        val dropId = drop.optionalString("id") ?: return@forEach
+                        add(
+                            TwitchChannelDrop(
+                                id = dropId,
+                                name = drop.optionalString("name"),
+                                startTime = drop.optionalString("startAt", "startTime", "startDate"),
+                                endTime = drop.optionalString("endAt", "endTime", "endDate"),
+                                requiredMinutesWatched =
+                                    (drop.optionalInt("requiredMinutesWatched") ?: 0).coerceAtLeast(0),
+                                requiredSubs =
+                                    (drop.optionalInt("requiredSubs") ?: 0).coerceAtLeast(0),
+                                benefits = parseBenefits(drop),
+                                isEventBased = isEventBased,
+                            ),
+                        )
+                    }
+                }
+            }.distinctBy(TwitchChannelDrop::id)
+
+            TwitchChannelDropCampaign(
+                id = id,
+                name = campaign.optionalString("name"),
+                gameId = game?.optionalString("id"),
+                gameName = game?.optionalString("displayName", "name"),
+                imageUrl = campaign.optionalString(
+                    "imageURL",
+                    "imageUrl",
+                    "imageAssetURL",
+                ) ?: game?.optionalString("boxArtURL", "boxArtUrl"),
+                detailsUrl = campaign.optionalString("detailsURL", "detailsUrl"),
+                startTime = campaign.optionalString("startAt", "startTime", "startDate"),
+                endTime = campaign.optionalString("endAt", "endTime", "endDate"),
+                includesWatchRequirement = summary?.optBoolean("includesMWRequirement", false) == true,
+                includesSubscriptionRequirement = summary?.optBoolean("includesSubRequirement", false) == true,
+                isSitewide = summary?.optBoolean("isSitewide", false) == true,
+                isRewardCampaign = summary?.optBoolean("isRewardCampaign", false) == true,
+                localizedTitle = localizedContent?.optionalString("title"),
+                earnInstructions = localizedContent?.optionalString("earnInstructions"),
+                drops = drops,
+            )
+        }
     }
 
     fun parseCurrentDropIds(body: String): Set<String>? = parseDropIds(body, "currentDrop")

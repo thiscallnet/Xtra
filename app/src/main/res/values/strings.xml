@@ -1500,6 +1500,25 @@
     <string name="drops_claim_failed">Couldn’t claim Drop</string>
     <string name="drops_dismiss">Dismiss Drop notification</string>
     <string name="drops_progress_title">Drops progress</string>
+    <string name="stream_drops_badge">Drops</string>
+    <string name="stream_drops_badge_content_description">View Drops available on %1$s</string>
+    <string name="stream_drops_title">Drops on %1$s</string>
+    <string name="stream_drops_info">Watch-time progress is earned on one channel at a time.</string>
+    <string name="stream_drops_empty">No Drops are available on this stream.</string>
+    <string name="stream_drops_ends">Ends %1$s</string>
+    <string name="stream_drops_watch_requirement">Watch %1$d min</string>
+    <string name="stream_drops_progress_minutes">%1$d / %2$d min</string>
+    <string name="stream_drops_event_requirement">Event reward</string>
+    <string name="stream_drops_ready">Ready to claim</string>
+    <string name="stream_drops_watching">Watching</string>
+    <plurals name="stream_drops_sub_requirement">
+        <item quantity="one">1 new sub or gift</item>
+        <item quantity="other">%d new subs or gifts</item>
+    </plurals>
+    <plurals name="stream_drops_count">
+        <item quantity="one">1 Drop</item>
+        <item quantity="other">%d Drops</item>
+    </plurals>
     <string name="prediction_title">Current prediction: %s</string>
     <string name="prediction_locked">Submissions closed · Waiting for result</string>
     <string name="prediction_refunded">Refunded</string>

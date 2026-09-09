@@ -95,6 +95,30 @@
                 android:textColor="@android:color/white"
                 android:textSize="12sp"
                 tools:text="12.4K viewers" />
+
+            <TextView
+                android:id="@+id/dropsBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:layout_margin="12dp"
+                android:background="@drawable/bg_stream_overlay"
+                android:clickable="true"
+                android:drawableStart="@drawable/ic_drops"
+                android:drawableTint="@android:color/white"
+                android:drawablePadding="3dp"
+                android:ellipsize="end"
+                android:focusable="true"
+                android:maxLines="1"
+                android:paddingStart="6dp"
+                android:paddingTop="3dp"
+                android:paddingEnd="6dp"
+                android:paddingBottom="3dp"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                android:visibility="gone"
+                tools:text="3 Drops"
+                tools:visibility="visible" />
         </FrameLayout>
 
         <LinearLayout

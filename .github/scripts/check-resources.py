@@ -234,6 +234,21 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "chat_highlight_color_summary",
     "chat_highlight_color_hint",
     "chat_highlight_color_invalid",
+    # Stream Drops catalog labels ship with the default English resources until
+    # their translations are reviewed by native speakers.
+    "stream_drops_badge",
+    "stream_drops_badge_content_description",
+    "stream_drops_title",
+    "stream_drops_info",
+    "stream_drops_empty",
+    "stream_drops_ends",
+    "stream_drops_watch_requirement",
+    "stream_drops_progress_minutes",
+    "stream_drops_event_requirement",
+    "stream_drops_ready",
+    "stream_drops_watching",
+    "stream_drops_sub_requirement",
+    "stream_drops_count",
 }
 
 

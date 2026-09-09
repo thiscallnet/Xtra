@@ -20,6 +20,7 @@ import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
 import com.github.andreyasadchy.xtra.ui.common.StreamCardPresentationCache
+import com.github.andreyasadchy.xtra.ui.common.StreamDropsBadgeBinder
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.StreamUptimeViewHolder
 import com.github.andreyasadchy.xtra.ui.common.VisibleStreamUptimeTicker
@@ -31,6 +32,7 @@ import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
+import com.github.andreyasadchy.xtra.ui.drops.StreamDropsBottomSheet
 
 class StreamShelfAdapter(
     private val fragment: androidx.fragment.app.Fragment,
@@ -113,6 +115,9 @@ class StreamShelfAdapter(
         private var uptimeStartedAtMs: Long? = null
         private var uptimeEnabled = false
         private var lastRenderedUptimeSecond = Long.MIN_VALUE
+        private val dropsBadgeBinder = StreamDropsBadgeBinder(fragment, binding.dropsBadge) { stream ->
+            StreamDropsBottomSheet.show(fragment, stream)
+        }
 
         init {
             binding.root.setOnClickListener { boundStream?.let(onStreamClick) }
@@ -139,6 +144,7 @@ class StreamShelfAdapter(
             boundImageIdentity = null
             boundThumbnailKey = null
             boundStream = null
+            dropsBadgeBinder.clear()
             clearUptime()
         }
 
@@ -167,6 +173,7 @@ class StreamShelfAdapter(
 
         fun bind(stream: Stream) {
             val context = binding.root.context
+            dropsBadgeBinder.bind(stream)
             val uiPreferences = FeedUiPreferencesStore.current(context)
             val presentation = StreamCardPresentationCache.get(stream, uiPreferences)
             boundStream = stream

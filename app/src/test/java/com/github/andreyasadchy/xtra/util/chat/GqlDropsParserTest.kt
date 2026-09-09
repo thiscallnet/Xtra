@@ -134,6 +134,33 @@ class GqlDropsParserTest {
     }
 
     @Test
+    fun `available drops parser preserves channel catalog requirements and rewards`() {
+        val campaigns = GqlDropsParser.parseAvailableDrops(
+            """{"data":{"channel":{"viewerDropCampaigns":[
+                {"id":"campaign-1","name":"Campaign","game":{"id":"42","name":"Game"},
+                 "detailsURL":"https://example.com","endAt":"2026-09-30T15:59:59.999Z",
+                 "imageURL":"campaign.png","summary":{"includesMWRequirement":true,"includesSubRequirement":true},
+                 "localizedContent":{"title":"Watch to earn Drops!","earnInstructions":"Watch {Channel}"},
+                 "timeBasedDrops":[{"id":"drop-1","name":"Watch reward","requiredMinutesWatched":30,
+                   "requiredSubs":0,"benefitEdges":[{"benefit":{"name":"Reward","imageAssetURL":"reward.png"}}]}],
+                 "eventBasedDrops":[{"id":"drop-2","name":"Sub reward","requiredMinutesWatched":0,
+                   "requiredSubs":1,"benefitEdges":[]}]}
+            ]}}}""",
+        )!!
+
+        assertEquals(1, campaigns.size)
+        assertEquals("42", campaigns[0].gameId)
+        assertEquals("https://example.com", campaigns[0].detailsUrl)
+        assertTrue(campaigns[0].includesWatchRequirement)
+        assertTrue(campaigns[0].includesSubscriptionRequirement)
+        assertEquals(2, campaigns[0].drops.size)
+        assertEquals(30, campaigns[0].drops[0].requiredMinutesWatched)
+        assertEquals(1, campaigns[0].drops[1].requiredSubs)
+        assertTrue(campaigns[0].drops[1].isEventBased)
+        assertEquals("Reward", campaigns[0].drops[0].benefits.single().name)
+    }
+
+    @Test
     fun `missing available drops schema is not treated as empty`() {
         assertNull(GqlDropsParser.parseAvailableDropIds("""{"data":{}}"""))
     }

@@ -12,6 +12,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentStreamsListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
+import com.github.andreyasadchy.xtra.ui.drops.StreamDropsBottomSheet
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
@@ -117,6 +118,9 @@ class StreamsAdapter(
         private var uptimeStartedAtMs: Long? = null
         private var uptimeEnabled = false
         private var lastRenderedUptimeSecond = Long.MIN_VALUE
+        private val dropsBadgeBinder = StreamDropsBadgeBinder(fragment, binding.dropsBadge) { stream ->
+            StreamDropsBottomSheet.show(fragment, stream)
+        }
 
         init {
             binding.root.setOnClickListener { boundStream?.let(::openStream) }
@@ -157,6 +161,7 @@ class StreamsAdapter(
             cancelImageRequests()
             boundImageIdentity = null
             boundThumbnailKey = null
+            dropsBadgeBinder.clear()
             clearUptime()
         }
 
@@ -194,6 +199,7 @@ class StreamsAdapter(
             with(binding) {
                 if (item != null) {
                     val context = fragment.requireContext()
+                    dropsBadgeBinder.bind(item)
                     val uiPreferences = FeedUiPreferencesStore.current(context)
                     uptimeEnabled = uiPreferences.showUptime
                     uptimeStartedAtMs = if (uptimeEnabled) parseStreamStartedAtMs(item.createdAt) else null
@@ -272,6 +278,7 @@ class StreamsAdapter(
                     }
                 } else {
                     boundStream = null
+                    dropsBadgeBinder.clear()
                     (fragment.requireContext().applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
                         .detachSurface(previewSurface)
                     boundPreviewIdentity = null
