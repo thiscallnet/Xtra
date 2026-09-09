@@ -491,6 +491,11 @@
     <string name="chat_moderation_display_hide">Hide message</string>
     <string name="chat_moderation_display_preview_title">Preview</string>
     <string name="chat_moderation_preview_summary">Preview of the selected deleted and moderated message style.</string>
+    <string name="chat_emote_suggestions">Emote suggestions</string>
+    <string name="chat_emote_autocomplete">Autocomplete dropdown</string>
+    <string name="chat_emote_autocomplete_summary">Show matching emotes while typing.</string>
+    <string name="chat_emote_recommendations">Recommendation strip</string>
+    <string name="chat_emote_recommendations_summary">Show ranked emotes above the chat input.</string>
     <string name="settings_username_appearance">Username appearance</string>
     <string name="settings_7tv_appearance">7TV appearance</string>
     <string name="settings_chat_size">Chat size</string>

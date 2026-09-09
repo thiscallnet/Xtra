@@ -79,7 +79,16 @@ data class ChatAssetSpec(
     val overlays: List<ChatAssetSpec> = emptyList(),
 ) {
     val computedWidth: Int
-        get() = (sourceWidth.toLong() * targetHeight / sourceHeight.coerceAtLeast(1)).toInt().coerceAtLeast(1)
+        get() {
+            val height = targetHeight.coerceAtLeast(1)
+            val proportionalWidth = sourceWidth.toLong().coerceAtLeast(1) * height / sourceHeight.coerceAtLeast(1)
+            // Provider metadata is untrusted. Keep an extreme aspect ratio from reserving a
+            // span wider than the chat viewport and destabilizing TextView line layout.
+            return proportionalWidth.coerceIn(
+                ((height.toLong() + 1) / 2).coerceAtLeast(1),
+                height.toLong() * 4,
+            ).toInt()
+        }
     val compositionKey: String
         get() = buildString {
             append(key.value).append(':').append(sourceWidth).append('x').append(sourceHeight).append('@').append(targetHeight)
