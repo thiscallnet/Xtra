@@ -83,6 +83,16 @@ internal fun shouldContinueWatchStreakRefresh(
         !expectedUserId.isNullOrBlank() &&
         !gqlToken.isNullOrBlank()
 
+internal fun matchesActiveChannel(
+    activeChannelId: String?,
+    activeChannelLogin: String?,
+    messageChannelIdentifier: String?,
+): Boolean {
+    if (messageChannelIdentifier.isNullOrBlank()) return false
+    return activeChannelId == messageChannelIdentifier ||
+        activeChannelLogin.equals(messageChannelIdentifier, ignoreCase = true)
+}
+
 internal fun watchStreakInvalidationForPointsEarned(
     activeChannelId: String?,
     messageChannelId: String?,

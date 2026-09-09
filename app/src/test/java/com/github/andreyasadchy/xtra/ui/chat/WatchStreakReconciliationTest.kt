@@ -9,6 +9,13 @@ import org.junit.Test
 
 class WatchStreakReconciliationTest {
     @Test
+    fun pointsEventsCanIdentifyTheActiveChannelByLogin() {
+        assertTrue(matchesActiveChannel("channel-100", "ChannelLogin", "channellogin"))
+        assertTrue(matchesActiveChannel("channel-100", "ChannelLogin", "channel-100"))
+        assertFalse(matchesActiveChannel("channel-100", "ChannelLogin", "other-channel"))
+    }
+
+    @Test
     fun retriesUseTheExtendedBoundedDelaySchedule() {
         assertEquals(
             listOf(3_000L, 10_000L),
