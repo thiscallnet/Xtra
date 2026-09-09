@@ -90,6 +90,8 @@ class ChannelPointsDialog : DialogFragment() {
         fun channelName(): String?
         fun channelEmotePickerItems(): List<Emote>
         fun channelEmotePickerUpdates(): Flow<Unit>
+        fun channelPointEmotePickerItems(): List<Emote>
+        fun channelPointEmotePickerUpdates(): Flow<Unit>
         fun channelPointModifiedEmotePickerItems(): List<Emote>
         fun channelPointModifiedEmotePickerUpdates(): Flow<Unit>
         fun redeemChannelPointReward(reward: ChannelPointReward, textInput: String?, emoteId: String?)
@@ -600,7 +602,7 @@ class ChannelPointsDialog : DialogFragment() {
                 var allEmotes = if (modified) {
                     listener.channelPointModifiedEmotePickerItems()
                 } else {
-                    listener.channelEmotePickerItems()
+                    listener.channelPointEmotePickerItems()
                 }
                 val adapter = EmotesAdapter(
                     this,
@@ -628,7 +630,7 @@ class ChannelPointsDialog : DialogFragment() {
                     allEmotes = if (modified) {
                         listener.channelPointModifiedEmotePickerItems()
                     } else {
-                        listener.channelEmotePickerItems()
+                        listener.channelPointEmotePickerItems()
                     }
                     updatePicker()
                 }
@@ -658,7 +660,7 @@ class ChannelPointsDialog : DialogFragment() {
                     pickerUpdates = if (modified) {
                         listener.channelPointModifiedEmotePickerUpdates()
                     } else {
-                        listener.channelEmotePickerUpdates()
+                        listener.channelPointEmotePickerUpdates()
                     },
                     refreshPicker = refreshPicker,
                     selectedEmoteId = { selectedEmoteId },
