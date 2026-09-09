@@ -62,3 +62,38 @@ data class TwitchDropCatalogItem(
     val requiredMinutesWatched: Int,
     val benefits: List<TwitchDropBenefit>,
 )
+
+data class TwitchChannelDropCampaign(
+    val id: String,
+    val name: String?,
+    val gameId: String?,
+    val gameName: String?,
+    val imageUrl: String?,
+    val detailsUrl: String?,
+    val startTime: String?,
+    val endTime: String?,
+    val includesWatchRequirement: Boolean,
+    val includesSubscriptionRequirement: Boolean,
+    val isSitewide: Boolean,
+    val isRewardCampaign: Boolean,
+    val localizedTitle: String?,
+    val earnInstructions: String?,
+    val drops: List<TwitchChannelDrop>,
+)
+
+data class TwitchChannelDrop(
+    val id: String,
+    val name: String?,
+    val startTime: String?,
+    val endTime: String?,
+    val requiredMinutesWatched: Int,
+    val requiredSubs: Int,
+    val benefits: List<TwitchDropBenefit>,
+    val isEventBased: Boolean,
+) {
+    val isWatchTimeDrop: Boolean
+        get() = requiredMinutesWatched > 0
+
+    val isSubscriptionDrop: Boolean
+        get() = requiredSubs > 0
+}

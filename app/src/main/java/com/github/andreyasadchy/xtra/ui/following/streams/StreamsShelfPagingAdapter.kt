@@ -23,6 +23,7 @@ import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
 import com.github.andreyasadchy.xtra.ui.common.StreamCardPresentationCache
+import com.github.andreyasadchy.xtra.ui.common.StreamDropsBadgeBinder
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.thumbnailIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
@@ -36,6 +37,7 @@ import com.github.andreyasadchy.xtra.ui.common.parseStreamStartedAtMs
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
+import com.github.andreyasadchy.xtra.ui.drops.StreamDropsBottomSheet
 
 class StreamsShelfPagingAdapter(
     private val fragment: Fragment,
@@ -109,6 +111,9 @@ class StreamsShelfPagingAdapter(
         private var uptimeStartedAtMs: Long? = null
         private var uptimeEnabled = false
         private var lastRenderedUptimeSecond = Long.MIN_VALUE
+        private val dropsBadgeBinder = StreamDropsBadgeBinder(binding.dropsBadge) { stream ->
+            StreamDropsBottomSheet.show(fragment, stream)
+        }
 
         init {
             binding.root.setOnClickListener {
@@ -142,6 +147,7 @@ class StreamsShelfPagingAdapter(
             boundImageIdentity = null
             boundThumbnailKey = null
             boundStream = null
+            dropsBadgeBinder.clear()
             boundTags = emptyList()
             clearUptime()
         }
@@ -171,6 +177,7 @@ class StreamsShelfPagingAdapter(
 
         fun bind(item: Stream?) {
             val context = fragment.requireContext()
+            dropsBadgeBinder.bind(item)
             val uiPreferences = FeedUiPreferencesStore.current(context)
             val presentation = item?.let { StreamCardPresentationCache.get(it, uiPreferences) }
             boundStream = item
