@@ -5,10 +5,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -104,6 +108,70 @@ class ExpiringSingleFlightCacheTest {
         cache.get("channel") { "value-${loads.incrementAndGet()}" }
         assertEquals("value-2", cache.get("channel", force = true) { "value-${loads.incrementAndGet()}" })
         assertEquals(2, loads.get())
+        scope.cancel()
+    }
+
+    @Test
+    fun loadSemaphoreCapsConcurrentLoadsWhileTheyAreSuspended() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val cache = ExpiringSingleFlightCache<Int, Int>(
+            ttlMillis = 100L,
+            scope = scope,
+            loadSemaphore = Semaphore(3),
+        )
+        val threeStarted = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val active = AtomicInteger()
+        val maxActive = AtomicInteger()
+
+        val requests = (0 until 10).map { key ->
+            async {
+                cache.get(key) {
+                    val current = active.incrementAndGet()
+                    maxActive.updateAndGet { maxOf(it, current) }
+                    if (current == 3) threeStarted.complete(Unit)
+                    try {
+                        release.await()
+                        key
+                    } finally {
+                        active.decrementAndGet()
+                    }
+                }
+            }
+        }
+
+        withTimeout(2_000L) { threeStarted.await() }
+        assertEquals(3, active.get())
+        assertEquals(3, maxActive.get())
+        release.complete(Unit)
+        requests.forEachIndexed { key, request -> assertEquals(key, request.await()) }
+        scope.cancel()
+    }
+
+    @Test
+    fun clearCancelsAnInFlightLoad() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val cache = ExpiringSingleFlightCache<String, String>(100L, scope)
+        val started = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        val request = async {
+            cache.get("channel") {
+                started.complete(Unit)
+                try {
+                    awaitCancellation()
+                } finally {
+                    cancelled.complete(Unit)
+                }
+            }
+        }
+
+        withTimeout(2_000L) { started.await() }
+        cache.clear()
+        withTimeout(2_000L) {
+            cancelled.await()
+            request.cancelAndJoin()
+        }
+        assertTrue(request.isCancelled)
         scope.cancel()
     }
 }

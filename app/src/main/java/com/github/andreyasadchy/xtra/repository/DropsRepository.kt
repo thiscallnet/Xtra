@@ -17,7 +17,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,15 +46,18 @@ class DropsRepository(
     private val cacheWriteMutex = Mutex()
     private val completedClaims = mutableSetOf<String>()
     private val channelDropScope = CoroutineScope(
-        SupervisorJob() + Dispatchers.IO.limitedParallelism(MAX_CHANNEL_DROP_REQUESTS),
+        SupervisorJob() + Dispatchers.IO,
     )
+    private val channelDropSemaphore = Semaphore(MAX_CHANNEL_DROP_REQUESTS)
     private val channelDropIds = ExpiringSingleFlightCache<String, Set<String>>(
         ttlMillis = INVENTORY_CACHE_MILLIS,
         scope = channelDropScope,
+        loadSemaphore = channelDropSemaphore,
     )
     private val channelDropCatalog = ExpiringSingleFlightCache<String, List<TwitchChannelDropCampaign>>(
         ttlMillis = INVENTORY_CACHE_MILLIS,
         scope = channelDropScope,
+        loadSemaphore = channelDropSemaphore,
     )
     private val campaignDetails = mutableMapOf<String, TwitchDropCampaign>()
     private val _inventory = MutableStateFlow(DropsInventoryState())
@@ -268,11 +273,13 @@ class DropsRepository(
         if (headers[C.HEADER_TOKEN].isNullOrBlank()) return null
 
         return try {
-            val body = graphQLRepository.loadCurrentDrop(
-                networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                headers = headers,
-                channelId = id,
-            )
+            val body = channelDropSemaphore.withPermit {
+                graphQLRepository.loadCurrentDrop(
+                    networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    headers = headers,
+                    channelId = id,
+                )
+            }
             GqlDropsParser.parseCurrentDropProgress(body)
         } catch (error: CancellationException) {
             throw error

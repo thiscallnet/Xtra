@@ -7,7 +7,9 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 
 /**
  * Keeps successful values briefly and shares an in-flight load per key.
@@ -16,6 +18,7 @@ import kotlinx.coroutines.sync.withLock
 internal class ExpiringSingleFlightCache<K, V>(
     private val ttlMillis: Long,
     private val scope: CoroutineScope,
+    private val loadSemaphore: Semaphore? = null,
     private val nowMillis: () -> Long = { SystemClock.elapsedRealtime() },
 ) {
     private val mutex = Mutex()
@@ -48,7 +51,9 @@ internal class ExpiringSingleFlightCache<K, V>(
             val result = CompletableDeferred<V?>()
             val job = scope.launch(start = CoroutineStart.LAZY) {
                 try {
-                    val value = loader()
+                    // Keep the permit while the loader suspends, including during network I/O
+                    // that switches to another dispatcher.
+                    val value = loadSemaphore?.withPermit { loader() } ?: loader()
                     mutex.withLock {
                         if (value != null) entries[key] = Entry(nowMillis(), value)
                         inFlight.remove(key)?.result?.complete(value)
