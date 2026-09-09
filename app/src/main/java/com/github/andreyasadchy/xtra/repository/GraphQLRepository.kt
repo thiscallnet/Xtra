@@ -850,11 +850,12 @@ class GraphQLRepository(
         sendQuery(networkLibrary, headers, query)
     }
 
-    suspend fun loadBasicQueryUserMessageClicked(networkLibrary: String?, headers: Map<String, String>, id: String? = null, login: String? = null, targetId: String?): ApolloResponse<UserMessageClickedBasicQuery.Data> = withContext(Dispatchers.IO) {
+    suspend fun loadBasicQueryUserMessageClicked(networkLibrary: String?, headers: Map<String, String>, id: String? = null, login: String? = null, targetId: String?, targetLogin: String? = null): ApolloResponse<UserMessageClickedBasicQuery.Data> = withContext(Dispatchers.IO) {
         val query = UserMessageClickedBasicQuery(
             id = if (!id.isNullOrBlank()) Optional.Present(id) else Optional.Absent,
             login = if (!login.isNullOrBlank()) Optional.Present(login) else Optional.Absent,
             targetId = Optional.Present(targetId),
+            targetLogin = if (!targetLogin.isNullOrBlank()) Optional.Present(targetLogin) else Optional.Absent,
         )
         sendQuery(networkLibrary, headers, query)
     }

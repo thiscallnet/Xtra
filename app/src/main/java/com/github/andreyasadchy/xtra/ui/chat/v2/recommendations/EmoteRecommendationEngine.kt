@@ -64,10 +64,11 @@ class EmoteRecommendationEngine(
         usage: List<EmoteUsage>,
         viewerId: String,
     ): List<EmoteRecommendation> {
-        if (query.isBlank()) return emptyList()
+        val normalizedQuery = query.trim().removePrefix(":").removeSuffix(":")
+        if (normalizedQuery.isBlank()) return emptyList()
         val usageByKey = usage.associateBy(EmoteUsage::usageKey)
         return catalog.emotes.mapNotNull { emote ->
-            val match = matcher.match(emote.name, query) ?: return@mapNotNull null
+            val match = matcher.match(emote.name, normalizedQuery) ?: return@mapNotNull null
             val record = usageByKey[EmoteUsageKeys.forEmote(emote, channelId, viewerId)]
             EmoteRecommendation(
                 emote = emote,

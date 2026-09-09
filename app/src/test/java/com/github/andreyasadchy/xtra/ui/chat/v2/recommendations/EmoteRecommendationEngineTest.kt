@@ -94,6 +94,23 @@ class EmoteRecommendationEngineTest {
     }
 
     @Test
+    fun `recommendation query accepts colon-delimited emote syntax`() {
+        val kappa = emote("Kappa", "kappa")
+        val catalog = engine.catalog(ChatCatalogSnapshot(1, twitch = mapOf(kappa.name to kappa)))
+
+        assertEquals(
+            listOf("Kappa"),
+            engine.recommend(":kap", "channel", catalog, emptyList(), EmoteUsageKeys.ANONYMOUS_VIEWER_ID)
+                .map { it.emote.name },
+        )
+        assertEquals(
+            listOf("Kappa"),
+            engine.recommend(":kappa:", "channel", catalog, emptyList(), EmoteUsageKeys.ANONYMOUS_VIEWER_ID)
+                .map { it.emote.name },
+        )
+    }
+
+    @Test
     fun `other chatters personal sets are not recommendation or send candidates`() {
         val viewer = emote("ViewerOnly", "viewer", ChatEmoteScope.PERSONAL, ChatAssetProvider.SEVEN_TV)
         val chatter = emote("ChatterOnly", "chatter", ChatEmoteScope.PERSONAL, ChatAssetProvider.SEVEN_TV)

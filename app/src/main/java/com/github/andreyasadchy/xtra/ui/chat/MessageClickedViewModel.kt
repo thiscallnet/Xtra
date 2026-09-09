@@ -71,6 +71,7 @@ class MessageClickedViewModel(
                             channelId,
                             channelLogin.takeIf { channelId.isNullOrBlank() },
                             targetId,
+                            targetLogin,
                         ).data
                         data?.user?.userMessageClickedUser?.let { clickedUser ->
                             mapUser(clickedUser, isSubscribedHint = isSubscribedHint)
