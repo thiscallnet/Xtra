@@ -190,6 +190,13 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # wording until its translations are reviewed by native speakers.
     "render_emotes_in_input",
     "render_emotes_in_input_summary",
+    # Chat emote suggestion settings ship with the default English wording
+    # until their translations are reviewed by native speakers.
+    "chat_emote_suggestions",
+    "chat_emote_autocomplete",
+    "chat_emote_autocomplete_summary",
+    "chat_emote_recommendations",
+    "chat_emote_recommendations_summary",
     # Moderation display options and their preview ship with the default
     # English resources until translations are reviewed by native speakers.
     "chat_moderation_display",

@@ -158,6 +158,8 @@ class ChannelPointsDialog : DialogFragment() {
     private var predictionDraftId: String? = null
     private var predictionAmountDraft = MIN_PREDICTION_POINTS.toString()
     private var predictionAmountWatcher: TextWatcher? = null
+    private var channelPointsBalanceAnimator: ChannelPointsBalanceAnimator? = null
+    private var lastChannelPointsBalance: Int? = null
 
     private data class RewardInputContent(
         val input: EditText,
@@ -182,6 +184,12 @@ class ChannelPointsDialog : DialogFragment() {
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         _binding = DialogChannelPointsBinding.inflate(layoutInflater)
+        channelPointsBalanceAnimator = ChannelPointsBalanceAnimator(
+            binding.balanceIcon,
+            binding.balance,
+            binding.channelPointsDelta,
+        )
+        lastChannelPointsBalance = null
         binding.close.setOnClickListener { dismiss() }
         binding.pollDismiss.setOnClickListener { listener.dismissPoll() }
         predictionAmountWatcher = binding.predictionBetAmount.addTextChangedListener { text ->
@@ -263,6 +271,16 @@ class ChannelPointsDialog : DialogFragment() {
         binding.balance.text = points?.let {
             getString(R.string.channel_points_current_balance, numberFormat.format(it.balance))
         } ?: getString(R.string.channel_points_unavailable)
+        if (points != null) {
+            channelPointsBalanceAnimator?.animate(
+                previousBalance = lastChannelPointsBalance,
+                currentBalance = points.balance,
+            )
+            lastChannelPointsBalance = points.balance
+        } else {
+            channelPointsBalanceAnimator?.cancel()
+            lastChannelPointsBalance = null
+        }
         setChannelPointsIcon(
             binding.balanceIcon,
             points?.iconUrl,
@@ -1267,6 +1285,9 @@ class ChannelPointsDialog : DialogFragment() {
     override fun onDestroyView() {
         predictionAmountWatcher?.let { binding.predictionBetAmount.removeTextChangedListener(it) }
         predictionAmountWatcher = null
+        channelPointsBalanceAnimator?.cancel()
+        channelPointsBalanceAnimator = null
+        lastChannelPointsBalance = null
         predictionDraftId = null
         super.onDestroyView()
         _binding = null
