@@ -18,7 +18,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
 internal class SearchStreamsDataSource(
-    private val query: String,
+    private val queries: List<String>,
     private val gqlHeaders: Map<String, String>,
     private val graphQLRepository: GraphQLRepository,
     private val helixHeaders: Map<String, String>,
@@ -28,8 +28,15 @@ internal class SearchStreamsDataSource(
     private val dropsRepository: DropsRepository? = null,
 ) : PagingSource<SearchPageKey, Stream>() {
 
+    private companion object {
+        const val FIRST_PAGE = "first"
+        const val MAX_DROP_SEARCH_PAGES = 3
+    }
+
     override suspend fun load(params: LoadParams<SearchPageKey>): LoadResult<SearchPageKey, Stream> {
-        if (query.isBlank()) {
+        val queryIndex = params.key?.queryIndex ?: 0
+        val query = queries.getOrNull(queryIndex)?.takeIf { it.isNotBlank() }
+        if (query == null) {
             return LoadResult.Page(
                 data = emptyList(),
                 prevKey = null,
@@ -38,10 +45,16 @@ internal class SearchStreamsDataSource(
         }
 
         return try {
-            val page = params.key?.let { key ->
-                loadFromApi(params.loadSize, key)
-            } ?: loadFirstPage(params.loadSize)
-            if (dropsFilters.isEmpty()) page else filterDropPage(page)
+            val page = loadPage(
+                loadSize = params.loadSize,
+                query = query,
+                state = params.key?.queryStates?.getOrNull(queryIndex),
+            )
+            val pageWithNextQuery = page.withNextQuery(
+                currentKey = params.key,
+                queryIndex = queryIndex,
+            )
+            if (dropsFilters.isEmpty()) pageWithNextQuery else filterDropPage(pageWithNextQuery)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -83,26 +96,38 @@ internal class SearchStreamsDataSource(
         }
     }
 
-    private suspend fun loadFirstPage(loadSize: Int): LoadResult<SearchPageKey, Stream> {
-        return try {
-            loadGql(loadSize, cursor = null)
-        } catch (error: Exception) {
-            if (error is CancellationException) throw error
-            loadHelix(loadSize, cursor = null)
+    private suspend fun loadPage(
+        loadSize: Int,
+        query: String,
+        state: SearchQueryPageState?,
+    ): LoadedStreamPage {
+        val api = state?.api
+        if (api == null) {
+            return try {
+                LoadedStreamPage(loadGql(loadSize, query, cursor = null), C.GQL)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                LoadedStreamPage(loadHelix(loadSize, query, cursor = null), C.HELIX)
+            }
         }
+        return LoadedStreamPage(
+            result = when (api) {
+                C.GQL -> loadGql(loadSize, query, state.cursor)
+                C.HELIX -> loadHelix(loadSize, query, state.cursor)
+                else -> throw IOException("Unknown search stream API: $api")
+            },
+            api = api,
+        )
     }
 
-    private suspend fun loadFromApi(
-        loadSize: Int,
-        key: SearchPageKey,
-    ): LoadResult<SearchPageKey, Stream> = when (key.api) {
-        C.GQL -> loadGql(loadSize, key.cursor)
-        C.HELIX -> loadHelix(loadSize, key.cursor)
-        else -> throw IOException("Unknown search stream API: ${key.api}")
-    }
+    private data class LoadedStreamPage(
+        val result: LoadResult<SearchPageKey, Stream>,
+        val api: String,
+    )
 
     private suspend fun loadGql(
         loadSize: Int,
+        query: String,
         cursor: String?,
     ): LoadResult<SearchPageKey, Stream> {
         val response = graphQLRepository.loadQuerySearchStreams(
@@ -159,6 +184,7 @@ internal class SearchStreamsDataSource(
 
     private suspend fun loadHelix(
         loadSize: Int,
+        query: String,
         cursor: String?,
     ): LoadResult<SearchPageKey, Stream> {
         val response = helixRepository.getSearchChannels(
@@ -194,4 +220,38 @@ internal class SearchStreamsDataSource(
     }
 
     override fun getRefreshKey(state: PagingState<SearchPageKey, Stream>): SearchPageKey? = null
+
+    private fun LoadedStreamPage.withNextQuery(
+        currentKey: SearchPageKey?,
+        queryIndex: Int,
+    ): LoadResult<SearchPageKey, Stream> {
+        val page = result as? LoadResult.Page ?: return result
+        val states = List(queries.size) { index ->
+            currentKey?.queryStates?.getOrNull(index) ?: SearchQueryPageState()
+        }
+        val pagesLoaded = states[queryIndex].pagesLoaded + 1
+        val updatedStates = states.toMutableList().apply {
+            this[queryIndex] = SearchQueryPageState(
+                api = api,
+                cursor = page.nextKey?.cursor,
+                exhausted = isSearchQueryExhausted(
+                    hasNextPage = page.nextKey != null,
+                    pagesLoaded = pagesLoaded,
+                    pageBudget = MAX_DROP_SEARCH_PAGES.takeIf { dropsFilters.isNotEmpty() },
+                ),
+                pagesLoaded = pagesLoaded,
+            )
+        }
+        val nextIndex = nextSearchQueryIndex(queryIndex, updatedStates)
+            ?: return page.copy(nextKey = null)
+        val nextState = updatedStates[nextIndex]
+        return page.copy(
+            nextKey = SearchPageKey(
+                api = nextState.api ?: FIRST_PAGE,
+                cursor = nextState.cursor.orEmpty(),
+                queryIndex = nextIndex,
+                queryStates = updatedStates,
+            ),
+        )
+    }
 }

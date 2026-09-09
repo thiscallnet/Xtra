@@ -65,6 +65,12 @@ internal fun List<DropStreamFilter>.matchesDropStream(
         filter.matchesChannelCampaigns(campaigns)
 }
 
+/** Search each distinct selected Drop game once, in selection order. */
+internal fun List<DropStreamFilter>.searchQueries(): List<String> =
+    map { it.gameName.trim() }
+        .filter(String::isNotBlank)
+        .distinctBy { it.lowercase() }
+
 internal fun matchesDropCampaign(
     availableIds: Set<String>,
     campaignId: String,

@@ -11,6 +11,7 @@ import androidx.paging.PagingConfig
 import androidx.paging.cachedIn
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
+import com.github.andreyasadchy.xtra.model.ui.searchQueries
 import com.github.andreyasadchy.xtra.model.ui.RecentSearch
 import com.github.andreyasadchy.xtra.repository.DropsRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
@@ -52,7 +53,7 @@ class StreamSearchViewModel(
             }
         ) {
             SearchStreamsDataSource(
-                query = query,
+                queries = dropsFilters.searchQueries().ifEmpty { listOf(query) },
                 helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext),
                 helixRepository = helixRepository,
                 gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true),
