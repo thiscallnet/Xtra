@@ -528,8 +528,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                                 (activity as? MainActivity)?.setSleepTimer(duration)
                             } else {
                                 minimize()
-                                close()
-                                (activity as? MainActivity)?.closePlayer()
+                                (activity as? MainActivity)?.closePlayer() ?: close()
                             }
                         }
                     }

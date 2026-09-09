@@ -213,8 +213,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     hideController(force = true)
                     binding.dragView.requestFocus()
                 } else {
-                    close()
-                    (activity as? MainActivity)?.closePlayer()
+                    (activity as? MainActivity)?.closePlayer() ?: close()
                 }
             } else minimize()
         }
@@ -694,8 +693,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                 setDuration(250L)
                                 start()
                             }
-                            close()
-                            (activity as? MainActivity)?.closePlayer()
+                            (activity as? MainActivity)?.closePlayer() ?: close()
                         }
                         xVelocity < -1500 -> {
                             isAnimating = true
@@ -704,8 +702,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                 setDuration(250L)
                                 start()
                             }
-                            close()
-                            (activity as? MainActivity)?.closePlayer()
+                            (activity as? MainActivity)?.closePlayer() ?: close()
                         }
                         else -> {
                             if (isTap && (event.eventTime - tapEventTime) < longPressTimeout) {
@@ -1514,8 +1511,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             hideTvSecondaryActions()
             schedulePortraitControlScale()
             dismissPlayer.setOnClickListener {
-                close()
-                (activity as? MainActivity)?.closePlayer()
+                (activity as? MainActivity)?.closePlayer() ?: close()
             }
         }
     }
@@ -3505,8 +3501,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     fun minimize() {
         if (requireContext().isTelevision()) {
-            close()
-            (activity as? MainActivity)?.closePlayer()
+            (activity as? MainActivity)?.closePlayer() ?: close()
             return
         }
         with(binding) {
