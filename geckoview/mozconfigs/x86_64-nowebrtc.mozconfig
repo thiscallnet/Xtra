@@ -1,0 +1,6 @@
+# First x86_64 reduction experiment: remove WebRTC from the auth baseline.
+# Qualify this artifact against real Twitch authentication before considering
+# any further browser-subsystem reduction.
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-xtra-x86_64-nowebrtc
+ac_add_options --target=x86_64
+ac_add_options --disable-webrtc

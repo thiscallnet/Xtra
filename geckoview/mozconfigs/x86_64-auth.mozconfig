@@ -1,0 +1,4 @@
+# x86_64 authentication baseline. Keep the same browser environment as the
+# existing safe profile; this profile adds no auth-specific feature removals.
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-xtra-x86_64-auth
+ac_add_options --target=x86_64

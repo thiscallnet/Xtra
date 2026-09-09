@@ -55,6 +55,50 @@ source_archive_path() {
   printf '%s\n' "$source_cache_dir/xtra-gecko-${source_git_revision}.tar.gz"
 }
 
+source_checkout_marker_path() {
+  printf '%s\n' "$source_dir/.xtra-source-checkout.json"
+}
+
+write_source_checkout_marker() {
+  python3 - "$(source_checkout_marker_path)" "$source_revision" \
+    "$source_git_revision" "$source_archive_sha256" <<'PY'
+import json
+import sys
+
+path, mercurial_revision, git_revision, archive_sha256 = sys.argv[1:]
+with open(path, "w", encoding="utf-8") as output:
+    json.dump(
+        {
+            "archiveSha256": archive_sha256,
+            "gitRevision": git_revision,
+            "mercurialRevision": mercurial_revision,
+        },
+        output,
+        sort_keys=True,
+    )
+    output.write("\n")
+PY
+}
+
+validate_source_checkout_marker() {
+  python3 - "$(source_checkout_marker_path)" "$source_revision" \
+    "$source_git_revision" "$source_archive_sha256" <<'PY'
+import json
+import sys
+
+path, mercurial_revision, git_revision, archive_sha256 = sys.argv[1:]
+with open(path, encoding="utf-8") as source:
+    marker = json.load(source)
+expected = {
+    "archiveSha256": archive_sha256,
+    "gitRevision": git_revision,
+    "mercurialRevision": mercurial_revision,
+}
+if marker != expected:
+    raise SystemExit("existing Gecko source checkout provenance does not match SOURCE_LOCK.json")
+PY
+}
+
 validate_archive_sha() {
   local archive_path
   archive_path="$(source_archive_path)"
@@ -113,11 +157,21 @@ prepare_archive_source() {
   fi
   validate_archive_marker
   if [[ -e "$source_dir" ]]; then
-    echo "Gecko source checkout path already exists: $source_dir" >&2
-    exit 1
+    if [[ "${GECKO_REUSE_SOURCE:-0}" != "1" ]]; then
+      echo "Gecko source checkout path already exists: $source_dir" >&2
+      exit 1
+    fi
+    [[ -d "$source_dir" ]] || {
+      echo "Gecko source checkout path is not a directory: $source_dir" >&2
+      exit 1
+    }
+    validate_source_checkout_marker
+    echo "Gecko source checkout reused: $source_dir"
+    return
   fi
   mkdir -p "$source_dir"
   tar --extract --gzip --file "$archive_path" --strip-components=1 --directory "$source_dir"
+  write_source_checkout_marker
   echo "timing phase=source-fetch seconds=$((SECONDS - started))"
 }
 
@@ -138,12 +192,22 @@ prepare_mercurial_seed_source() {
   validate_mercurial_source "$source_cache_dir"
   touch "$source_cache_dir/.xtra-source-seed-ready"
   if [[ -e "$source_dir" ]]; then
-    echo "Gecko source checkout path already exists: $source_dir" >&2
-    exit 1
+    if [[ "${GECKO_REUSE_SOURCE:-0}" != "1" ]]; then
+      echo "Gecko source checkout path already exists: $source_dir" >&2
+      exit 1
+    fi
+    [[ -d "$source_dir" ]] || {
+      echo "Gecko source checkout path is not a directory: $source_dir" >&2
+      exit 1
+    }
+    validate_source_checkout_marker
+    echo "Gecko source checkout reused: $source_dir"
+    return
   fi
   mkdir -p "$(dirname "$source_dir")"
   hg clone --rev "$source_revision" "$source_cache_dir" "$source_dir"
   validate_mercurial_source "$source_dir"
+  write_source_checkout_marker
   echo "timing phase=source-fetch seconds=$((SECONDS - started))"
 }
 
@@ -175,6 +239,8 @@ ensure_clean_source_before_patch() {
     fi
   elif apply_gecko_patch --forward --dry-run >/dev/null 2>&1; then
     apply_gecko_patch --forward
+  elif apply_gecko_patch --reverse --dry-run >/dev/null 2>&1; then
+    echo "HLS source patch already applied"
   else
     echo "Pinned Gecko source snapshot does not accept the HLS patch" >&2
     exit 1
