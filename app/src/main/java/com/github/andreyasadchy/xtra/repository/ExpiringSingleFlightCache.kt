@@ -54,14 +54,26 @@ internal class ExpiringSingleFlightCache<K, V>(
                     // Keep the permit while the loader suspends, including during network I/O
                     // that switches to another dispatcher.
                     val value = loadSemaphore?.withPermit { loader() } ?: loader()
-                    mutex.withLock {
-                        if (value != null) entries[key] = Entry(nowMillis(), value)
-                        inFlight.remove(key)?.result?.complete(value)
+                    val ownsFlight = mutex.withLock {
+                        if (inFlight[key]?.result !== result) {
+                            false
+                        } else {
+                            if (value != null) entries[key] = Entry(nowMillis(), value)
+                            inFlight.remove(key)
+                            true
+                        }
                     }
+                    if (ownsFlight) result.complete(value)
                 } catch (error: Throwable) {
-                    mutex.withLock {
-                        inFlight.remove(key)?.result?.completeExceptionally(error)
+                    val ownsFlight = mutex.withLock {
+                        if (inFlight[key]?.result !== result) {
+                            false
+                        } else {
+                            inFlight.remove(key)
+                            true
+                        }
                     }
+                    if (ownsFlight) result.completeExceptionally(error)
                 }
             }
             inFlight[key] = Flight(result, job)

@@ -149,7 +149,7 @@ class ExpiringSingleFlightCacheTest {
     }
 
     @Test
-    fun clearCancelsAnInFlightLoad() = runBlocking {
+    fun clearCancelsAnInFlightLoadBeforeAReplacementFlightStarts() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val cache = ExpiringSingleFlightCache<String, String>(100L, scope)
         val started = CompletableDeferred<Unit>()
@@ -172,6 +172,8 @@ class ExpiringSingleFlightCacheTest {
             request.cancelAndJoin()
         }
         assertTrue(request.isCancelled)
+        assertEquals("replacement", cache.get("channel") { "replacement" })
+        assertEquals("replacement", cache.get("channel") { error("stale value") })
         scope.cancel()
     }
 }
