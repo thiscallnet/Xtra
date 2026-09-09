@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.model.ui
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -81,6 +82,43 @@ class DropStreamFilterTest {
                 streamGameName = "Game A",
                 campaigns = listOf(campaignB),
             ),
+        )
+    }
+
+    @Test
+    fun `multiple filters match any selected drop`() {
+        val gameBFilter = filter.copy(
+            campaignId = "campaign-b",
+            campaignName = "Campaign B",
+            gameId = "game-2",
+            gameName = "Game B",
+            dropIds = setOf("drop-b"),
+        )
+
+        assertTrue(
+            listOf(filter, gameBFilter).matchesDropStream(
+                streamGameId = "game-1",
+                streamGameName = "Black Desert",
+                campaigns = listOf(channelCampaign(id = "campaign", dropId = "drop-1")),
+            ),
+        )
+        assertTrue(
+            listOf(filter, gameBFilter).matchesDropStream(
+                streamGameId = "game-2",
+                streamGameName = "Game B",
+                campaigns = listOf(channelCampaign(id = "campaign-b", dropId = "drop-b")),
+            ),
+        )
+    }
+
+    @Test
+    fun `drop search queries are unique game names in selection order`() {
+        val secondGame = filter.copy(gameId = "game-2", gameName = "Game B")
+        val duplicateGame = filter.copy(gameName = " black desert ")
+
+        assertEquals(
+            listOf("Black Desert", "Game B"),
+            listOf(filter, secondGame, duplicateGame).searchQueries(),
         )
     }
 

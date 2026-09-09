@@ -79,6 +79,8 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     private var initialTab = -1
     private var streamTabPosition = -1
     private var initialQueryPending = false
+    private var queryBeforeDropsFilters: String? = null
+    private var suppressQuerySearch = false
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
@@ -88,6 +90,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
         firstLaunch = savedInstanceState == null
         initialQuery = if (savedInstanceState == null) arguments?.getString(INITIAL_QUERY) else null
         initialTab = if (savedInstanceState == null) arguments?.getInt(INITIAL_TAB, -1) ?: -1 else -1
+        queryBeforeDropsFilters = savedInstanceState?.getString(DROPS_QUERY_BEFORE)
         dropsFilters = if (savedInstanceState?.getBoolean(DROPS_FILTER_ENABLED) == false) {
             emptyList()
         } else {
@@ -282,13 +285,21 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             private var job: Job? = null
 
             override fun onQueryTextSubmit(query: String): Boolean {
+                if (suppressQuerySearch) return false
+                if (dropsFilters.isNotEmpty() && query.isNotBlank()) {
+                    clearDropsFiltersForTextSearch()
+                }
                 searchCurrent(query.trim())
                 return false
             }
 
             override fun onQueryTextChange(newText: String): Boolean {
+                if (suppressQuerySearch) return false
                 job?.cancel()
                 val query = newText.trim()
+                if (dropsFilters.isNotEmpty() && query.isNotBlank()) {
+                    clearDropsFiltersForTextSearch()
+                }
                 if (query.isNotEmpty()) {
                     job = lifecycleScope.launch {
                         delay(350L)
@@ -343,7 +354,25 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     }
 
     private fun applyDropsFilters(filters: List<DropStreamFilter>) {
-        dropsFilters = filters.distinctBy { it.campaignId to it.dropIds }
+        applyDropsFilters(filters, restorePreviousQuery = true)
+    }
+
+    private fun clearDropsFiltersForTextSearch() {
+        queryBeforeDropsFilters = null
+        initialQueryPending = false
+        applyDropsFilters(emptyList(), restorePreviousQuery = false)
+    }
+
+    private fun applyDropsFilters(
+        filters: List<DropStreamFilter>,
+        restorePreviousQuery: Boolean,
+    ) {
+        val nextFilters = filters.distinctBy { it.campaignId to it.dropIds }
+        if (dropsFilters.isEmpty() && nextFilters.isNotEmpty()) {
+            queryBeforeDropsFilters = binding.searchView.query.toString().trim()
+        }
+        dropsFilters = nextFilters
+        if (nextFilters.isNotEmpty()) initialQueryPending = false
         renderDropsFilters()
         if (dropsFilters.isNotEmpty() && streamTabPosition >= 0 &&
             binding.viewPager.currentItem != streamTabPosition
@@ -353,6 +382,26 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
         childFragmentManager.fragments
             .filterIsInstance<StreamSearchFragment>()
             .forEach { it.applyDropsFilters(dropsFilters) }
+        if (dropsFilters.isEmpty() && restorePreviousQuery) {
+            queryBeforeDropsFilters?.let(::setSearchQueryWithoutSaving)
+            queryBeforeDropsFilters = null
+        } else if (dropsFilters.isNotEmpty()) {
+            // Drop mode discovers streams from the selected campaigns' games. The old text
+            // query would be misleading here, especially when the picker selection changes
+            // from one game to another, so the chips become the visible search context.
+            setSearchQueryWithoutSaving("")
+        }
+    }
+
+    private fun setSearchQueryWithoutSaving(query: String) {
+        if (binding.searchView.query.toString() != query) {
+            suppressQuerySearch = true
+            binding.searchView.setQuery(query, false)
+            suppressQuerySearch = false
+        }
+        childFragmentManager.fragments
+            .filterIsInstance<StreamSearchFragment>()
+            .forEach { it.searchWithoutSaving(query) }
     }
 
     private fun renderDropsFilters() {
@@ -417,6 +466,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(DROPS_FILTER_ENABLED, dropsFilters.isNotEmpty())
         outState.putParcelableArrayList(DROPS_FILTERS, ArrayList(dropsFilters))
+        queryBeforeDropsFilters?.let { outState.putString(DROPS_QUERY_BEFORE, it) }
         super.onSaveInstanceState(outState)
     }
 
@@ -431,6 +481,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
         const val INITIAL_TAB = "initial_search_tab"
         const val DROPS_FILTER_ENABLED = "drops_filter_enabled"
         const val DROPS_FILTERS = "drops_filters"
+        private const val DROPS_QUERY_BEFORE = "drops_query_before"
         const val DROPS_CAMPAIGN_ID = "drops_campaign_id"
         const val DROPS_CAMPAIGN_NAME = "drops_campaign_name"
         const val DROPS_GAME_ID = "drops_game_id"
@@ -462,7 +513,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
 
         fun dropsSearchArguments(filters: List<DropStreamFilter>) = Bundle().apply {
             val first = filters.firstOrNull() ?: return@apply
-            putString(INITIAL_QUERY, first.gameName)
+            putString(INITIAL_QUERY, "")
             putInt(INITIAL_TAB, 1)
             putParcelableArrayList(DROPS_FILTERS, ArrayList(filters))
         }
