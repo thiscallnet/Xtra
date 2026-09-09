@@ -564,7 +564,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             resizeMode = requireContext().prefs().getInt(C.ASPECT_RATIO_LANDSCAPE, AspectRatioFrameLayout.RESIZE_MODE_FIT)
             aspectRatioFrameLayout.setAspectRatio(16f / 9f)
             initLayout()
-            (activity as? MainActivity)?.updateMiniPlayerExclusion(if (isMaximized) null else slidingLayout)
             changePlayerMode()
             val viewConfiguration = ViewConfiguration.get(requireContext())
             val touchSlop = viewConfiguration.scaledTouchSlop
@@ -740,14 +739,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                                 object : AnimatorListenerAdapter() {
                                                     override fun onAnimationEnd(animation: Animator) {
                                                         setListener(null)
-                                                        (activity as? MainActivity)?.updateMiniPlayerExclusion(slidingLayout)
                                                     }
                                                 }
                                             )
                                             start()
                                         }
-                                    } else {
-                                        (activity as? MainActivity)?.updateMiniPlayerExclusion(slidingLayout)
                                     }
                                 } else {
                                     val windowInsets = ViewCompat.getRootWindowInsets(requireView())
@@ -766,7 +762,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                             object : AnimatorListenerAdapter() {
                                                 override fun onAnimationEnd(animation: Animator) {
                                                     setListener(null)
-                                                    (activity as? MainActivity)?.updateMiniPlayerExclusion(slidingLayout)
                                                 }
                                             }
                                         )
@@ -1583,6 +1578,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         val newY = slidingLayout.height - navBarHeight - (playerHeight * minimizedScaleY) - (TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 30F, resources.displayMetrics) * minimizedScaleY)
                         slidingLayout.translationX = 0f - scaledXDiff - ((insets?.left ?: 0) * minimizedScaleX) + newX
                         slidingLayout.translationY = 0f - scaledYDiff - ((insets?.top ?: 0) * minimizedScaleY) + newY
+                        applyMinimizedDismissButtonTransform()
                     }
                 }
                 aspectRatioFrameLayout.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -1675,6 +1671,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         val newY = slidingLayout.height - navBarHeight - (slidingLayout.height * minimizedScaleY) - (TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 30F, resources.displayMetrics) * minimizedScaleY)
                         slidingLayout.translationX = 0f - scaledXDiff - ((insets?.left ?: 0) * minimizedScaleX) + newX
                         slidingLayout.translationY = 0f - scaledYDiff - ((insets?.top ?: 0) * minimizedScaleY) + newY
+                        applyMinimizedDismissButtonTransform()
                     }
                 }
                 aspectRatioFrameLayout.resizeMode = resizeMode
@@ -2615,6 +2612,26 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
+    private fun applyMinimizedDismissButtonTransform() {
+        if (isMaximized) {
+            return
+        }
+
+        val (minimizedScaleX, minimizedScaleY) = getScaleValues()
+        binding.dismissPlayer.scaleX = 1f / minimizedScaleX
+        binding.dismissPlayer.scaleY = 1f / minimizedScaleY
+
+        val layoutParams = binding.dismissPlayer.layoutParams as? FrameLayout.LayoutParams ?: return
+        if (binding.dismissPlayer.width == 0 || binding.dismissPlayer.height == 0) {
+            return
+        }
+
+        val rightOverflow = (binding.dismissPlayer.width * (binding.dismissPlayer.scaleX - 1f) / 2f - layoutParams.marginEnd).coerceAtLeast(0f)
+        val topOverflow = (binding.dismissPlayer.height * (binding.dismissPlayer.scaleY - 1f) / 2f - layoutParams.topMargin).coerceAtLeast(0f)
+        binding.dismissPlayer.translationX = -rightOverflow
+        binding.dismissPlayer.translationY = topOverflow
+    }
+
     fun getIsPortrait() = isPortrait
 
     fun reloadEmotes() = chatFragment?.reloadEmotes()
@@ -3412,7 +3429,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(chatLayout.windowToken, 0)
                 chatLayout.clearFocus()
                 initLayout()
-                (activity as? MainActivity)?.updateMiniPlayerExclusion(if (isMaximized) null else slidingLayout)
                 refreshPlayerControls()
                 PlayerControlLayout.applyToPlayer(requireContext(), binding)
                 hideTvSecondaryActions()
@@ -3508,10 +3524,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             hideController(true)
             fun animate() {
                 val (minimizedScaleX, minimizedScaleY) = getScaleValues()
-                // Keep the close control at a 48dp effective touch target while
-                // allowing its icon to scale down with the mini-player.
-                dismissPlayer.scaleX = (2f / 3f) / minimizedScaleX
-                dismissPlayer.scaleY = (2f / 3f) / minimizedScaleY
+                applyMinimizedDismissButtonTransform()
                 val windowInsets = ViewCompat.getRootWindowInsets(requireView())
                 val insets = windowInsets?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
                 val keyboardInsets = windowInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom?.let { if (it > 0) it - (insets?.bottom ?: 0) else it } ?: 0
@@ -3544,7 +3557,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                 isAnimating = false
                                 setListener(null)
                                 activePointerId = -1
-                                (activity as? MainActivity)?.updateMiniPlayerExclusion(slidingLayout)
                             }
                         }
                     )
@@ -3574,10 +3586,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun maximize() {
         with(binding) {
             isMaximized = true
-            (activity as? MainActivity)?.updateMiniPlayerExclusion(null)
             dismissPlayer.visibility = View.GONE
             dismissPlayer.scaleX = 1f
             dismissPlayer.scaleY = 1f
+            dismissPlayer.translationX = 0f
+            dismissPlayer.translationY = 0f
             (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
             requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backPressedCallback)
             if (videoType == STREAM && chatFragment?.emoteMenuIsVisible() == true) {
@@ -3815,7 +3828,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             keyboardLayoutListener?.let(binding.slidingLayout.viewTreeObserver::removeOnGlobalLayoutListener)
         }
         keyboardLayoutListener = null
-        (activity as? MainActivity)?.updateMiniPlayerExclusion(null)
         _binding?.playerControls?.root?.let { root ->
             pendingTvFocusRequest?.let(root::removeCallbacks)
             root.removeCallbacks(controllerHideAction)
