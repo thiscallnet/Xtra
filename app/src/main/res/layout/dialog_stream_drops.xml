@@ -60,6 +60,15 @@
         android:textAppearance="?attr/textAppearanceBodyLarge"
         android:visibility="gone" />
 
+    <Button
+        android:id="@+id/retryButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp"
+        android:text="@string/retry"
+        android:visibility="gone" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/dropsList"
         android:layout_width="match_parent"

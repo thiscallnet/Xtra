@@ -130,7 +130,7 @@ class StreamsCompactAdapter(
         private var uptimeStartedAtMs: Long? = null
         private var uptimeEnabled = false
         private var lastRenderedUptimeSecond = Long.MIN_VALUE
-        private val dropsBadgeBinder = StreamDropsBadgeBinder(fragment, binding.dropsBadge) { stream ->
+        private val dropsBadgeBinder = StreamDropsBadgeBinder(binding.dropsBadge) { stream ->
             StreamDropsBottomSheet.show(fragment, stream)
         }
 

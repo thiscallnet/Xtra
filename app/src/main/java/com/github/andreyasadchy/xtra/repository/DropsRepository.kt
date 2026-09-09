@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.repository
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import com.github.andreyasadchy.xtra.model.ui.TwitchChannelDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
@@ -11,9 +12,12 @@ import com.github.andreyasadchy.xtra.util.chat.DropProgressUpdate
 import com.github.andreyasadchy.xtra.util.chat.GqlDropsParser
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,16 +38,22 @@ class DropsRepository(
     private val inventoryRefreshMutex = Mutex()
     private val dashboardRefreshMutex = Mutex()
     private val claimMutex = Mutex()
-    private val channelMutex = Mutex()
     private val campaignDetailsMutex = Mutex()
     private val progressMutex = Mutex()
     private val cacheMutex = Mutex()
     private val cacheWriteMutex = Mutex()
     private val completedClaims = mutableSetOf<String>()
-    private val channelDropIds = mutableMapOf<String, Set<String>>()
-    private val channelDropRefreshElapsed = mutableMapOf<String, Long>()
-    private val channelDropCatalog = mutableMapOf<String, List<TwitchChannelDropCampaign>>()
-    private val channelDropCatalogRefreshElapsed = mutableMapOf<String, Long>()
+    private val channelDropScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO.limitedParallelism(MAX_CHANNEL_DROP_REQUESTS),
+    )
+    private val channelDropIds = ExpiringSingleFlightCache<String, Set<String>>(
+        ttlMillis = INVENTORY_CACHE_MILLIS,
+        scope = channelDropScope,
+    )
+    private val channelDropCatalog = ExpiringSingleFlightCache<String, List<TwitchChannelDropCampaign>>(
+        ttlMillis = INVENTORY_CACHE_MILLIS,
+        scope = channelDropScope,
+    )
     private val campaignDetails = mutableMapOf<String, TwitchDropCampaign>()
     private val _inventory = MutableStateFlow(DropsInventoryState())
     private val _dashboard = MutableStateFlow<List<TwitchDropCampaign>>(emptyList())
@@ -191,27 +201,24 @@ class DropsRepository(
         val headers = TwitchApiHelper.getGQLHeaders(context, true)
         if (headers[C.HEADER_TOKEN].isNullOrBlank()) return null
 
-        return channelMutex.withLock {
-            val now = SystemClock.elapsedRealtime()
-            if (!force) {
-                channelDropCatalog[id]?.takeIf {
-                    now - (channelDropCatalogRefreshElapsed[id] ?: 0L) < INVENTORY_CACHE_MILLIS
-                }?.let { return@withLock it }
-            }
-
-            val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-            val result = try {
-                GqlDropsParser.parseAvailableDrops(
-                    graphQLRepository.loadAvailableDrops(networkLibrary, headers, id),
-                )
+        val cacheKey = channelCacheKey(id)
+        val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        return channelDropCatalog.get(cacheKey, force) {
+            val body = try {
+                graphQLRepository.loadAvailableDrops(networkLibrary, headers, id)
             } catch (error: CancellationException) {
                 throw error
-            } catch (_: Exception) {
-                null
+            } catch (error: Exception) {
+                Log.w(TAG, "Unable to load channel Drops (${error::class.simpleName})")
+                return@get null
             }
-            result?.also {
-                channelDropCatalog[id] = it
-                channelDropCatalogRefreshElapsed[id] = SystemClock.elapsedRealtime()
+            if (body.contains("PersistedQueryNotFound", ignoreCase = true) ||
+                body.contains("Persisted query not found", ignoreCase = true)
+            ) {
+                Log.w(TAG, "Twitch AvailableDrops persisted query was not found")
+            }
+            GqlDropsParser.parseAvailableDrops(body).also { result ->
+                if (result == null) Log.w(TAG, "Twitch AvailableDrops response schema changed")
             }
         }
     }
@@ -227,16 +234,13 @@ class DropsRepository(
         val availableIds = available?.flatMap { campaign ->
             listOf(campaign.id) + campaign.drops.map { it.id }
         }?.toSet()
-        val currentIds = channelMutex.withLock {
-            val now = SystemClock.elapsedRealtime()
-            channelDropIds[id]?.takeIf {
-                now - (channelDropRefreshElapsed[id] ?: 0L) < INVENTORY_CACHE_MILLIS
-            }?.let { return@withLock it }
-            // CurrentDrop identifies the Drop Twitch says is active in this session. Use it
-            // alongside AvailableDrops so a changed/partial private response cannot make the
-            // channel projection unnecessarily stale.
-            val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-            val current = try {
+        // CurrentDrop identifies the Drop Twitch says is active in this session. Use it
+        // alongside AvailableDrops so a changed/partial private response cannot make the
+        // channel projection unnecessarily stale. The cache owns only bookkeeping; network
+        // work runs in its keyed request scope.
+        val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        val currentIds = channelDropIds.get(channelCacheKey(id)) {
+            try {
                 GqlDropsParser.parseCurrentDropIds(
                     graphQLRepository.loadCurrentDrop(networkLibrary, headers, id),
                 )
@@ -245,18 +249,13 @@ class DropsRepository(
             } catch (_: Exception) {
                 null
             }
-            val channelIds = when {
-                availableIds != null && current != null -> availableIds + current
-                availableIds != null -> availableIds
-                current != null -> current
-                else -> null
-            }
-            channelIds?.also {
-                channelDropIds[id] = it
-                channelDropRefreshElapsed[id] = SystemClock.elapsedRealtime()
-            }
         }
-        val channelIds = currentIds ?: availableIds ?: emptySet()
+        val channelIds = when {
+            availableIds != null && currentIds != null -> availableIds + currentIds
+            availableIds != null -> availableIds
+            currentIds != null -> currentIds
+            else -> emptySet()
+        }
         if (channelIds.isEmpty()) return emptyList()
         return projectDropsForChannel(inventory.value.drops, channelIds)
     }
@@ -393,9 +392,7 @@ class DropsRepository(
             _dashboardError.value = null
             dashboardLoaded = false
             channelDropIds.clear()
-            channelDropRefreshElapsed.clear()
             channelDropCatalog.clear()
-            channelDropCatalogRefreshElapsed.clear()
             campaignDetails.clear()
             lastInventoryRefreshElapsed = 0L
             lastDashboardRefreshElapsed = 0L
@@ -416,9 +413,14 @@ class DropsRepository(
     private fun currentUserId(): String? =
         context.tokenPrefs().getString(C.USER_ID, null)?.takeIf { it.isNotBlank() }
 
+    private fun channelCacheKey(channelId: String): String =
+        "${currentUserId().orEmpty()}:$channelId"
+
     companion object {
         private const val INVENTORY_CACHE_MILLIS = 45_000L
+        private const val MAX_CHANNEL_DROP_REQUESTS = 3
         private const val MAX_AUTO_CLAIMS = 10
+        private const val TAG = "DropsRepository"
     }
 }
 

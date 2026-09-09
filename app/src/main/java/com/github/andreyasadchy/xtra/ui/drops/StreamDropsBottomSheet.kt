@@ -81,6 +81,13 @@ class StreamDropsBottomSheet : BottomSheetDialogFragment() {
         )
         binding.subtitle.text = stream.gameName.orEmpty()
         binding.subtitle.isVisible = binding.subtitle.text.isNotBlank()
+        binding.retryButton.setOnClickListener {
+            if (loading) return@setOnClickListener
+            loading = true
+            catalog = null
+            render()
+            viewLifecycleOwner.lifecycleScope.launch { load() }
+        }
         render()
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -110,16 +117,10 @@ class StreamDropsBottomSheet : BottomSheetDialogFragment() {
         try {
             supervisorScope {
                 val inventoryRequest = async {
-                    runCatching {
-                        withTimeout(30_000L) { repository.refreshInventory() }
-                    }.getOrNull()
+                    loadWithTimeout { repository.refreshInventory() }
                 }
                 val catalogRequest = async {
-                    runCatching {
-                        withTimeout(30_000L) {
-                            repository.refreshChannelDropCatalog(channelId)
-                        }
-                    }.getOrNull()
+                    loadWithTimeout { repository.refreshChannelDropCatalog(channelId) }
                 }
                 inventoryRequest.await()?.let { inventory = it.drops }
                 catalog = catalogRequest.await()
@@ -132,11 +133,20 @@ class StreamDropsBottomSheet : BottomSheetDialogFragment() {
         }
     }
 
+    private suspend fun <T> loadWithTimeout(block: suspend () -> T): T? = try {
+        withTimeout(30_000L) { block() }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        null
+    }
+
     private fun render() {
         if (_binding == null) return
         binding.loading.isVisible = loading
         if (loading) {
             binding.empty.isVisible = false
+            binding.retryButton.isVisible = false
             binding.dropsList.isVisible = false
             return
         }
@@ -146,6 +156,7 @@ class StreamDropsBottomSheet : BottomSheetDialogFragment() {
             binding.dropsList.isVisible = false
             binding.empty.isVisible = true
             val authenticated = repository.inventory.value.authenticated
+            binding.retryButton.isVisible = authenticated && stream.channelId?.isNotBlank() == true
             binding.empty.text = getString(
                 if (authenticated) R.string.drops_load_failed else R.string.drops_sign_in_required,
             )
@@ -154,6 +165,7 @@ class StreamDropsBottomSheet : BottomSheetDialogFragment() {
         if (campaigns.isEmpty()) {
             binding.dropsList.isVisible = false
             binding.empty.isVisible = true
+            binding.retryButton.isVisible = false
             binding.empty.text = getString(R.string.stream_drops_empty)
             return
         }
