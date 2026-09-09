@@ -456,15 +456,14 @@ class ChatMessageTextViewTest {
                 assertEquals(oldText, view.text.toString())
                 assertEquals(1, (view.text as Spanned).getSpans(0, view.text.length, ReplacementSpan::class.java).size)
             }
-
             overlayRelease.complete(ChatImageHandle { SolidDrawable(Color.GREEN) })
             awaitSettled(repository, composite.allKeysForTest())
-            awaitPreDraw(view)
+            awaitRenderedComposition(view)
             runOnMain {
                 val spanned = view.text as Spanned
                 val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
                 val bitmap = draw(span, spanned, Paint.FontMetricsInt())
-                assertTrue(containsColor(bitmap, Color.BLUE))
+                assertFalse(containsColor(bitmap, Color.BLUE))
                 assertTrue(containsColor(bitmap, Color.GREEN))
             }
         } finally {
@@ -1907,6 +1906,24 @@ class ChatMessageTextViewTest {
             view.invalidate()
         }
         assertTrue(drawn.await(2, TimeUnit.SECONDS))
+    }
+
+    private fun awaitRenderedComposition(view: ChatMessageTextView) = runBlocking {
+        withTimeout(2_000) {
+            while (!runOnMainValue {
+                    val spanned = view.text as? Spanned ?: return@runOnMainValue false
+                    val span = spanned
+                        .getSpans(0, spanned.length, ReplacementSpan::class.java)
+                        .singleOrNull()
+                        ?: return@runOnMainValue false
+                    val bitmap = draw(span, spanned, Paint.FontMetricsInt())
+                    containsColor(bitmap, Color.GREEN)
+                }
+            ) {
+                awaitPreDraw(view)
+                delay(1)
+            }
+        }
     }
 
     private fun attachView(
