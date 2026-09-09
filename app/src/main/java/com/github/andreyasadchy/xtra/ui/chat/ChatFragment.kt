@@ -2095,11 +2095,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         adapter?.refreshChatHighlightSettings()
         if (useChatV2) {
             chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext()))
-            if (parentFragment is MultiviewFragment) {
-                chatV2SessionSlot.current()?.active?.catalog?.refresh(force = false)
-            } else {
-                (requireContext().applicationContext as XtraApp).xtraModule.chatSessionManager.active.value?.catalog?.refresh(force = false)
-            }
         }
         if (useChatV2 && chatV2RendererVisible) chatV2Renderer?.setVisible(true)
         val args = requireArguments()
