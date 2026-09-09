@@ -40,8 +40,8 @@ internal class VisibleStreamUptimeTicker(
                         (holder as? StreamUptimeViewHolder)?.updateUptime(nowMs)
                     }
 
-                    // Uptime is informational; avoid invalidating every live card every
-                    // second while retaining a predictable, wall-clock-aligned refresh.
+                    // Uptime is a live counter. Refresh once per wall-clock second so it
+                    // does not appear frozen while avoiding a separate job per card.
                     val afterUpdateMs = System.currentTimeMillis()
                     val delayMs = UPTIME_UPDATE_INTERVAL_MS - (afterUpdateMs % UPTIME_UPDATE_INTERVAL_MS)
                     delay(delayMs.coerceIn(1L, UPTIME_UPDATE_INTERVAL_MS))
@@ -56,7 +56,7 @@ internal class VisibleStreamUptimeTicker(
     }
 
     private companion object {
-        const val UPTIME_UPDATE_INTERVAL_MS = 30_000L
+        const val UPTIME_UPDATE_INTERVAL_MS = 1_000L
     }
 }
 

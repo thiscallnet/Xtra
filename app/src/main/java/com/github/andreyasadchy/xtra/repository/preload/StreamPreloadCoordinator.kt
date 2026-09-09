@@ -81,6 +81,7 @@ class StreamPreloadCoordinator(
         elapsedRealtimeMs = elapsedRealtimeMs,
         canStart = ::canPreload,
         isEligible = ::isEligible,
+        isPreviewEligible = { streamKey -> isEligible(streamKey, forPreview = true) },
         onResolved = ::onResolverSuccess,
         onFailed = { key, error -> debug("failed:${error::class.simpleName}", key.channelLogin) },
     )
@@ -225,7 +226,7 @@ class StreamPreloadCoordinator(
         // Preview is a reader, not the owner of the URL. Fullscreen playback must
         // still be able to consume this exact signed URL for Media3 handoff.
         urlOwnership.forPreview(login, config.fingerprint)?.let { return it }
-        resolver.join(login, config.fingerprint)?.let { return it }
+        resolver.join(login, config.fingerprint, forPreview = true)?.let { return it }
         if (!canResolvePreview()) return null
         val key = currentCandidates().firstOrNull { it.channelLogin.equals(login, true) }
             ?.streamKey
@@ -312,7 +313,7 @@ class StreamPreloadCoordinator(
             }
             return null
         }
-        return resolver.preload(channelLogin, streamKey, config.fingerprint) {
+        return resolver.preload(channelLogin, streamKey, config.fingerprint, forPreview = forPreview) {
             debug("url_start", channelLogin)
             playerRepository.loadStreamPlaylistUrl(
                 context = context,
@@ -441,8 +442,12 @@ class StreamPreloadCoordinator(
 
     private fun isEligible(streamKey: String, forPreview: Boolean): Boolean {
         if (!(if (forPreview) canResolvePreview() else canPreload()) || viewports.values.any { it.scrolling }) return false
-        val rankedKeys = StreamPreloadPolicy.rank(currentCandidates())
-            .take(StreamPreloadPolicy.MAX_URL_CANDIDATES)
+        // Speculative preloading is intentionally bounded, but visible previews are not.
+        // Every selected preview gets a shared resolver flight; the resolver semaphore still
+        // limits network work while allowing the remaining visible cards to queue behind it.
+        val rankedCandidates = StreamPreloadPolicy.rank(currentCandidates())
+            .let { if (forPreview) it else it.take(StreamPreloadPolicy.MAX_URL_CANDIDATES) }
+        val rankedKeys = rankedCandidates
             .map { it.streamKey.ifBlank { it.channelLogin.trim().lowercase() } }
         return streamKey in rankedKeys
     }

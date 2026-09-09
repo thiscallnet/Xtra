@@ -387,7 +387,7 @@ class StreamPreviewCoordinator(
                 )
             },
             activeIdentities = activeIdentities,
-            maxActivePreviews = maxActivePreviews(),
+            maxActivePreviews = maxActivePreviews(candidates),
         )
         val selectedSet = selected.toSet()
         val bestCandidates = bestCandidatesByIdentity(candidates)
@@ -399,7 +399,7 @@ class StreamPreviewCoordinator(
             handoffIdentity = handoffLogin,
         ).forEach(::releasePreview)
 
-        val maxActive = maxActivePreviews()
+        val maxActive = maxActivePreviews(candidates)
         if (activePreviews.size > maxActive) {
             activePreviews.keys.toList()
                 .filter { it !in selectedSet && it != handoffLogin }
@@ -662,9 +662,12 @@ class StreamPreviewCoordinator(
         viewports.values.flatMap { it.candidates }
             .mapNotNull { candidate -> candidate.takeIf { it.previewIdentity != null } }
 
-    private fun maxActivePreviews(): Int =
+    private fun maxActivePreviews(candidates: Collection<StreamPreviewCandidate> = currentCandidates()): Int =
         if (StreamPreviewPolicy.allowsMultiplePreviews(context)) {
-            StreamPreviewSelectionPolicy.MAX_ACTIVE_PREVIEWS
+            candidates
+                .mapNotNullTo(mutableSetOf(), StreamPreviewCandidate::previewIdentity)
+                .size
+                .coerceAtLeast(1)
         } else {
             1
         }

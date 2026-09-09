@@ -7,9 +7,8 @@ data class StreamPreviewSelectionCandidate(
     val order: Int,
 )
 
-/** Deterministic, bounded selection for muted in-feed previews. */
+/** Deterministic selection for the currently eligible muted in-feed previews. */
 object StreamPreviewSelectionPolicy {
-    const val MAX_ACTIVE_PREVIEWS = 2
     const val START_VISIBLE_FRACTION = 0.33f
     const val STOP_VISIBLE_FRACTION = 0.12f
     const val ACTIVE_VISIBILITY_BIAS = 0.08f

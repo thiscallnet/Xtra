@@ -18,6 +18,77 @@ import org.junit.Test
 class StreamPreloadResolverTest {
 
     @Test
+    fun previewJoinsAndPromotesAnExistingSpeculativeFlight() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val blockerStarted = CompletableDeferred<Unit>()
+        val blockerRelease = CompletableDeferred<Unit>()
+        val resolveCalls = AtomicInteger()
+        var speculativeEligible = true
+        val resolver = StreamPreloadResolver(
+            scope = scope,
+            maxConcurrency = 1,
+            elapsedRealtimeMs = { 0L },
+            canStart = { true },
+            isEligible = { speculativeEligible },
+            isPreviewEligible = { true },
+        )
+
+        val blocker = scope.async(start = CoroutineStart.UNDISPATCHED) {
+            resolver.preload("blocker", "blocker", "config") {
+                blockerStarted.complete(Unit)
+                blockerRelease.await()
+                "blocker-url"
+            }
+        }
+        blockerStarted.await()
+
+        val speculative = scope.async(start = CoroutineStart.UNDISPATCHED) {
+            resolver.preload("channel", "channel", "config") {
+                resolveCalls.incrementAndGet()
+                "preview-url"
+            }
+        }
+        assertTrue(resolver.hasFlight("channel", "config"))
+
+        speculativeEligible = false
+        val preview = scope.async(start = CoroutineStart.UNDISPATCHED) {
+            resolver.join("channel", "config", forPreview = true)
+        }
+        // Drop the speculative owner after the preview has promoted the same flight. The
+        // preview owner must keep the single resolve alive.
+        speculative.cancel()
+        assertTrue(runCatching { speculative.await() }.isFailure)
+        resolver.cancelObsolete("config", activeLogins = setOf("blocker"))
+        assertTrue(resolver.hasFlight("channel", "config"))
+
+        blockerRelease.complete(Unit)
+
+        assertEquals("preview-url", preview.await())
+        assertEquals("blocker-url", blocker.await())
+        assertEquals(1, resolveCalls.get())
+        scope.cancel()
+    }
+
+    @Test
+    fun previewFlightsUsePreviewEligibilityInsteadOfPreloadLimit() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val resolver = StreamPreloadResolver(
+            scope = scope,
+            elapsedRealtimeMs = { 0L },
+            canStart = { true },
+            isEligible = { false },
+            isPreviewEligible = { it == "visible-preview" },
+        )
+
+        assertNull(resolver.preload("preload", "visible-preview", "config") { "url" })
+        assertEquals(
+            "url",
+            resolver.preload("preview", "visible-preview", "config", forPreview = true) { "url" },
+        )
+        scope.cancel()
+    }
+
+    @Test
     fun playbackJoinsAnInFlightResolveWithoutStartingAnotherRequest() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val started = CompletableDeferred<Unit>()
