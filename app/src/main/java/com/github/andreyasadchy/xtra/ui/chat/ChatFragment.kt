@@ -471,6 +471,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private var autoCompleteAdapter: AutoCompleteAdapter<Any>? = null
     private var recommendationAdapter: EmoteRecommendationAdapter? = null
+    private var emoteAutocompleteEnabled = true
+    private var emoteRecommendationsEnabled = true
     private val recommendationEngine = EmoteRecommendationEngine()
     private val recommendationInput = MutableStateFlow(RecommendationInput())
     private var currentRecommendations = emptyList<EmoteRecommendation>()
@@ -893,6 +895,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     val enableMessaging = isLive && isLoggedIn &&
                             viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live
                     messagingEnabled = enableMessaging
+                    emoteAutocompleteEnabled = requireContext().prefs().getBoolean(
+                        C.CHAT_EMOTE_AUTOCOMPLETE,
+                        true,
+                    )
+                    emoteRecommendationsEnabled = requireContext().prefs().getBoolean(
+                        C.CHAT_EMOTE_RECOMMENDATIONS,
+                        true,
+                    )
                     val chatStyle = resolveChatRenderStyle(requireContext())
                     val profilePopoutGesture = ChatProfilePopoutGesture.fromPreference(
                         requireContext().prefs().getString(C.CHAT_PROFILE_POPOUT_GESTURE, "tap"),
@@ -1244,35 +1254,47 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 }
                             }
                         }
-                        autoCompleteAdapter = AutoCompleteAdapter(
-                            requireContext(),
-                            R.layout.auto_complete_emotes_list_item,
-                            R.id.name,
-                            viewModel.autoCompleteList,
-                        ).apply {
-                            setNotifyOnChange(false)
-                            editText.setAdapter(this)
+                        if (emoteAutocompleteEnabled) {
+                            autoCompleteAdapter = AutoCompleteAdapter(
+                                requireContext(),
+                                R.layout.auto_complete_emotes_list_item,
+                                R.id.name,
+                                viewModel.autoCompleteList,
+                            ).apply {
+                                setNotifyOnChange(false)
+                                editText.setAdapter(this)
 
-                            var previousSize = 0
-                            editText.setOnFocusChangeListener { _, hasFocus ->
-                                if (hasFocus && count != previousSize) {
-                                    previousSize = count
-                                    notifyDataSetChanged()
+                                var previousSize = 0
+                                editText.setOnFocusChangeListener { _, hasFocus ->
+                                    if (hasFocus && count != previousSize) {
+                                        previousSize = count
+                                        notifyDataSetChanged()
+                                    }
+                                    setNotifyOnChange(hasFocus)
                                 }
-                                setNotifyOnChange(hasFocus)
                             }
+                        } else {
+                            autoCompleteAdapter = null
+                            editText.setAdapter(null)
+                            editText.dismissDropDown()
                         }
-                        val app = requireContext().applicationContext as XtraApp
-                        recommendationAdapter = EmoteRecommendationAdapter(
-                            assets = app.xtraModule.chatAssetRepository,
-                            clickListener = ::insertRecommendedEmote,
-                        )
-                        recommendationStrip.layoutManager = LinearLayoutManager(
-                            requireContext(),
-                            LinearLayoutManager.HORIZONTAL,
-                            false,
-                        )
-                        recommendationStrip.adapter = recommendationAdapter
+                        if (emoteRecommendationsEnabled) {
+                            val app = requireContext().applicationContext as XtraApp
+                            recommendationAdapter = EmoteRecommendationAdapter(
+                                assets = app.xtraModule.chatAssetRepository,
+                                clickListener = ::insertRecommendedEmote,
+                            )
+                            recommendationStrip.layoutManager = LinearLayoutManager(
+                                requireContext(),
+                                LinearLayoutManager.HORIZONTAL,
+                                false,
+                            )
+                            recommendationStrip.adapter = recommendationAdapter
+                        } else {
+                            recommendationAdapter = null
+                            recommendationStrip.adapter = null
+                            recommendationStrip.isVisible = false
+                        }
                         if (useChatV2) {
                             viewLifecycleOwner.lifecycleScope.launch {
                                 repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -1285,51 +1307,55 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                     }
                                 }
                             }
-                            viewLifecycleOwner.lifecycleScope.launch {
-                                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                                    combine(
-                                        recommendationInput,
-                                        viewModel.emoteRecommendationCatalogFor(channelId, channelLogin, useV2 = true),
-                                    ) { input, catalog ->
-                                        withContext(Dispatchers.Default) {
-                                            val token = ChatInputToken.aroundCursor(input.text, input.cursor)
-                                            if (token == null) {
-                                                RecommendationResult("", emptyList())
-                                            } else if (catalog == null) {
-                                                RecommendationResult(token.text, emptyList())
-                                            } else {
-                                                RecommendationResult(
-                                                    query = token.text,
-                                                    recommendations = recommendationEngine.recommend(
+                            if (emoteRecommendationsEnabled) {
+                                viewLifecycleOwner.lifecycleScope.launch {
+                                    repeatOnLifecycle(Lifecycle.State.STARTED) {
+                                        combine(
+                                            recommendationInput,
+                                            viewModel.emoteRecommendationCatalogFor(channelId, channelLogin, useV2 = true),
+                                        ) { input, catalog ->
+                                            withContext(Dispatchers.Default) {
+                                                val token = ChatInputToken.aroundCursor(input.text, input.cursor)
+                                                if (token == null) {
+                                                    RecommendationResult("", emptyList())
+                                                } else if (catalog == null) {
+                                                    RecommendationResult(token.text, emptyList())
+                                                } else {
+                                                    RecommendationResult(
                                                         query = token.text,
-                                                        channelId = channelId.orEmpty(),
-                                                        catalog = catalog.catalog,
-                                                        usage = catalog.usage,
-                                                        viewerId = catalog.viewerId,
-                                                    ),
-                                                )
+                                                        recommendations = recommendationEngine.recommend(
+                                                            query = token.text,
+                                                            channelId = channelId.orEmpty(),
+                                                            catalog = catalog.catalog,
+                                                            usage = catalog.usage,
+                                                            viewerId = catalog.viewerId,
+                                                        ),
+                                                    )
+                                                }
                                             }
+                                        }.collectLatest { result ->
+                                            val queryChanged = currentRecommendationQuery != result.query
+                                            currentRecommendationQuery = result.query
+                                            currentRecommendations = result.recommendations
+                                            if (queryChanged) {
+                                                recommendationStrip.stopScroll()
+                                                recommendationStrip.scrollToPosition(0)
+                                            }
+                                            recommendationAdapter?.submitList(result.recommendations)
+                                            updateRecommendationVisibility()
                                         }
-                                    }.collectLatest { result ->
-                                        val queryChanged = currentRecommendationQuery != result.query
-                                        currentRecommendationQuery = result.query
-                                        currentRecommendations = result.recommendations
-                                        if (queryChanged) {
-                                            recommendationStrip.stopScroll()
-                                            recommendationStrip.scrollToPosition(0)
-                                        }
-                                        recommendationAdapter?.submitList(result.recommendations)
-                                        updateRecommendationVisibility()
                                     }
                                 }
                             }
                         }
                         editText.addTextChangedListener(onTextChanged = { text, _, _, _ ->
-                            updateRecommendationInput()
+                            if (emoteRecommendationsEnabled) updateRecommendationInput()
                             updateComposerButtons()
                         })
-                        editText.onSelectionChangedListener = { _, _ -> updateRecommendationInput() }
-                        updateRecommendationInput()
+                        editText.onSelectionChangedListener = { _, _ ->
+                            if (emoteRecommendationsEnabled) updateRecommendationInput()
+                        }
+                        if (emoteRecommendationsEnabled) updateRecommendationInput()
                         editText.setTokenizer(SpaceTokenizer())
                         editText.setOnKeyListener { _, keyCode, event ->
                             if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_ENTER) {
@@ -2462,6 +2488,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     private fun updateRecommendationInput() {
+        if (!emoteRecommendationsEnabled) return
         val current = _binding?.editText ?: return
         recommendationInput.value = RecommendationInput(
             text = current.text.toString(),
@@ -2471,7 +2498,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private fun updateRecommendationVisibility() {
         val currentBinding = _binding ?: return
-        currentBinding.recommendationStrip.isVisible = currentRecommendations.isNotEmpty() &&
+        currentBinding.recommendationStrip.isVisible = emoteRecommendationsEnabled &&
+                currentRecommendations.isNotEmpty() &&
                 messagingEnabled && currentBinding.messageView.isVisible
     }
 

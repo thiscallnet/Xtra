@@ -3,6 +3,11 @@
     <Preference android:key="chat_7tv_appearance" android:dependency="chat_enable_stv" android:title="@string/settings_7tv_appearance" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_enable_bttv" android:title="@string/enable_bttv" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_enable_ffz" android:title="@string/enable_ffz" app:iconSpaceReserved="false" />
+
+    <PreferenceCategory android:title="@string/chat_emote_suggestions" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_emote_autocomplete" android:summary="@string/chat_emote_autocomplete_summary" android:title="@string/chat_emote_autocomplete" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_emote_recommendations" android:summary="@string/chat_emote_recommendations_summary" android:title="@string/chat_emote_recommendations" app:iconSpaceReserved="false" />
+
     <SwitchPreferenceCompat android:defaultValue="true" android:key="animatedGifEmotes" android:title="@string/animated_emotes" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_zerowidth" android:title="@string/overlay_emotes" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>
