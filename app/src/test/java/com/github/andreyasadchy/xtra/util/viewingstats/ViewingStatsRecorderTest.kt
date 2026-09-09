@@ -193,7 +193,11 @@ class ViewingStatsRecorderTest {
     @Test
     fun semanticIngressHasBoundedPendingWorkWhenPersistenceStalls() = runBlocking {
         val localStore = FakeViewingStatsStore().also { it.writeDelayMs = 8L }
-        val localScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        // Producers deliberately fill the bounded semantic channel. Keep the
+        // recorder worker on the same IO-style dispatcher used in production;
+        // putting blocking producers and the worker on a small Default pool
+        // can starve the worker before it gets a chance to drain the channel.
+        val localScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val localRecorder = ViewingStatsRecorder(
             repository = localStore,
             clock = clock,
