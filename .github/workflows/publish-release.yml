@@ -38,6 +38,7 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}

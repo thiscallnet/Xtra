@@ -36,6 +36,7 @@ jobs:
   analyze-java-kotlin:
     name: Analyze (java-kotlin)
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     permissions:
       actions: read
       contents: read
@@ -61,21 +62,31 @@ jobs:
       - name: Build for CodeQL
         # CodeQL only needs a compilable release graph; publishing validates the real ID.
         # CodeQL tracing increases packaging memory pressure, so keep the build single-worker.
+        env:
+          CI_GRADLE_JVM_ARGS: '-Xmx6g -Dfile.encoding=UTF-8'
         shell: bash
         run: |
           set -euo pipefail
-          build_args=(
-            "-PtwitchPublicClientId=codeql-placeholder"
-          )
-          # AGP can leave its incremental packaging worker in a bad state after
-          # CodeQL interrupts or traces a packaging task. Retry without daemon
-          # or configuration-cache state before treating the build as broken.
-          if ./gradlew --no-daemon --no-configuration-cache --max-workers=1 assembleRelease "${build_args[@]}"; then
-            exit 0
-          fi
-          ./gradlew --stop || true
-          ./gradlew --no-daemon --no-configuration-cache --max-workers=1 assembleRelease "${build_args[@]}"
+          bash .github/scripts/run-gradle-build.sh codeql 25 \
+            --max-workers=1 assembleRelease \
+            -PtwitchPublicClientId=codeql-placeholder
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@4c0873ef8656cb3c50b3f42fb63bc1ade0cfa827 # v4
         with:
           category: /language:java-kotlin
+      - name: Collect CodeQL diagnostics
+        if: failure()
+        continue-on-error: true
+        env:
+          CI_GRADLE_JVM_ARGS: '-Xmx6g -Dfile.encoding=UTF-8'
+        run: bash .github/scripts/collect-gradle-diagnostics.sh
+      - name: Upload CodeQL diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-codeql-diagnostics-${{ github.run_id }}
+          path: |
+            ci-diagnostics
+            ci-logs
+          if-no-files-found: warn
+          retention-days: 7
