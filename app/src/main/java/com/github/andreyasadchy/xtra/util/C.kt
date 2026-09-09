@@ -283,6 +283,7 @@ object C {
     const val STREAM_PREVIEW_QUALITY = "stream_preview_quality"
     const val STREAM_PREVIEW_DELAY = "stream_preview_delay"
     const val ANIMATED_EMOTES = "animatedGifEmotes"
+    const val CHAT_INPUT_EMOTES = "chat_input_emotes"
     const val CHAT_SIZE_MODIFIER = "chat_size_modifier"
     const val CHAT_UI_BATCH_INTERVAL_MS = "chat_ui_batch_interval_ms"
     const val CHAT_TEXT_SIZE = "chat_text_size"

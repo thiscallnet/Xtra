@@ -9,5 +9,6 @@
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_emote_recommendations" android:summary="@string/chat_emote_recommendations_summary" android:title="@string/chat_emote_recommendations" app:iconSpaceReserved="false" />
 
     <SwitchPreferenceCompat android:defaultValue="true" android:key="animatedGifEmotes" android:title="@string/animated_emotes" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_input_emotes" android:title="@string/render_emotes_in_input" android:summary="@string/render_emotes_in_input_summary" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_zerowidth" android:title="@string/overlay_emotes" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

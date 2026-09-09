@@ -186,6 +186,10 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # User-targeted moderation notices use the default English wording until
     # translations are reviewed by native speakers.
     "chat_clear_user",
+    # The chat input emote preview setting ships with the default English
+    # wording until its translations are reviewed by native speakers.
+    "render_emotes_in_input",
+    "render_emotes_in_input_summary",
     # Moderation display options and their preview ship with the default
     # English resources until translations are reviewed by native speakers.
     "chat_moderation_display",
