@@ -203,8 +203,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                     hideController(force = true)
                     binding.dragView.requestFocus()
                 } else {
-                    close()
-                    (activity as? MainActivity)?.closePlayer()
+                    (activity as? MainActivity)?.closePlayer() ?: close()
                 }
             } else minimize()
         }
@@ -797,8 +796,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                 setDuration(250L)
                                 start()
                             }
-                            close()
-                            (activity as? MainActivity)?.closePlayer()
+                            (activity as? MainActivity)?.closePlayer() ?: close()
                         }
                         xVelocity < -1500 -> {
                             isAnimating = true
@@ -807,8 +805,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                 setDuration(250L)
                                 start()
                             }
-                            close()
-                            (activity as? MainActivity)?.closePlayer()
+                            (activity as? MainActivity)?.closePlayer() ?: close()
                         }
                         else -> {
                             if (isTap && (event.eventTime - tapEventTime) < longPressTimeout) {
@@ -1137,8 +1134,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             playerLayout.interactionUnlockView = playerControls.interactionLock
             setInteractionLocked(isInteractionLocked, force = true)
             dismissPlayer.setOnClickListener {
-                close()
-                (activity as? MainActivity)?.closePlayer()
+                (activity as? MainActivity)?.closePlayer() ?: close()
             }
         }
     }
@@ -3477,8 +3473,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
 
     fun minimize() {
         if (requireContext().isTelevision()) {
-            close()
-            (activity as? MainActivity)?.closePlayer()
+            (activity as? MainActivity)?.closePlayer() ?: close()
             return
         }
         if (isInteractionLocked) {

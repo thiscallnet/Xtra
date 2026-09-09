@@ -84,11 +84,14 @@ import com.github.andreyasadchy.xtra.ui.tv.TvRemoteKeyHandler
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel.Companion.MainViewModelFactory
 import com.github.andreyasadchy.xtra.ui.player.BasePlaybackService
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerFragment
+import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
 import com.github.andreyasadchy.xtra.ui.player.Media3Fragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
+import com.github.andreyasadchy.xtra.ui.player.MediaPlayerService
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.player.MediaPlayerFragment
 import com.github.andreyasadchy.xtra.ui.player.PlayerFragment
+import com.github.andreyasadchy.xtra.ui.player.PlaybackService
 import com.github.andreyasadchy.xtra.ui.saved.SavedMediaFragment
 import com.github.andreyasadchy.xtra.ui.saved.SavedPagerFragment
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
@@ -152,6 +155,8 @@ class MainActivity : AppCompatActivity() {
     private var qualityNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastPlaybackNetworkCellular: Boolean? = null
     private var pipActionReceiver: BroadcastReceiver? = null
+    private var wasInPictureInPictureMode = false
+    private var pendingPictureInPictureClose: Runnable? = null
     private lateinit var prefs: SharedPreferences
     var settingsResultLauncher: ActivityResultLauncher<Intent>? = null
     var loginResultLauncher: ActivityResultLauncher<Intent>? = null
@@ -562,12 +567,10 @@ class MainActivity : AppCompatActivity() {
                             navigateDeepLinkOnce("video:${video.id}|$offset") {
                                 (playerFragment as? Media3PlayerFragment)?.also {
                                     if (!isTv) it.minimize()
-                                    it.close()
                                     closePlayer()
                                 } ?:
                                 (playerFragment as? PlayerFragment)?.also {
                                     if (!isTv) it.minimize()
-                                    it.close()
                                     closePlayer()
                                 }
                                 startVideo(video, offset, offset != null)
@@ -852,6 +855,41 @@ class MainActivity : AppCompatActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         setNavBarColor(newConfig.orientation == Configuration.ORIENTATION_PORTRAIT)
+    }
+
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        val wasInPictureInPicture = this.wasInPictureInPictureMode
+        this.wasInPictureInPictureMode = isInPictureInPictureMode
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+
+        // Exiting PiP through the system close button leaves the activity in the
+        // CREATED state. Restoring the PiP window returns the activity to STARTED.
+        // Defer the check one main-loop turn because some Android versions deliver
+        // the callback before the lifecycle has reached STARTED during a restore.
+        if (wasInPictureInPicture &&
+            !isInPictureInPictureMode &&
+            !isChangingConfigurations &&
+            playerFragment != null
+        ) {
+            pendingPictureInPictureClose?.let { binding.root.removeCallbacks(it) }
+            pendingPictureInPictureClose = Runnable {
+                pendingPictureInPictureClose = null
+                if (!isInPictureInPictureMode &&
+                    !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
+                    !isChangingConfigurations &&
+                    playerFragment != null
+                ) {
+                    closePlayer()
+                }
+            }.also { binding.root.post(it) }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        pendingPictureInPictureClose?.let { binding.root.removeCallbacks(it) }
+        pendingPictureInPictureClose = null
     }
 
     override fun onResume() {
@@ -1333,13 +1371,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Permanently closes the foreground player. Backgrounding the activity uses
+     * the lifecycle playback path instead, so background playback remains available.
+     */
     fun closePlayer() {
+        val player = playerFragment ?: supportFragmentManager.findFragmentById(R.id.playerContainer)
+        when (player) {
+            is Media3PlayerFragment -> player.close()
+            is ExoPlayerFragment -> player.close()
+            is MediaPlayerFragment -> player.close()
+        }
+        when (player) {
+            is Media3PlayerFragment -> stopService(Intent(this, PlaybackService::class.java))
+            is ExoPlayerFragment -> stopService(Intent(this, ExoPlayerService::class.java))
+            is MediaPlayerFragment -> stopService(Intent(this, MediaPlayerService::class.java))
+            else -> when (playbackBackend()) {
+                PlaybackBackend.MEDIA3 -> stopService(Intent(this, PlaybackService::class.java))
+                PlaybackBackend.LEGACY_EXOPLAYER -> stopService(Intent(this, ExoPlayerService::class.java))
+                PlaybackBackend.ANDROID_MEDIA_PLAYER -> stopService(Intent(this, MediaPlayerService::class.java))
+            }
+        }
         onPlayerReturnedToBrowsing(playerStillOpen = false)
         supportFragmentManager.findFragmentById(R.id.playerContainer)?.let { player ->
-            supportFragmentManager.beginTransaction()
+            val transaction = supportFragmentManager.beginTransaction()
                 .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_FADE)
                 .remove(player)
-                .commit()
+            // The system PiP close action can be delivered after onSaveInstanceState().
+            // Playback has already been stopped above, so dropping this visual removal is
+            // preferable to throwing and leaving the activity in a broken state.
+            if (supportFragmentManager.isStateSaved) {
+                transaction.commitAllowingStateLoss()
+            } else {
+                transaction.commit()
+            }
         }
         playerFragment = null
         viewModel.isPlayerOpened = false
@@ -1403,12 +1468,10 @@ class MainActivity : AppCompatActivity() {
                         if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
                             (playerFragment as? Media3PlayerFragment)?.also {
                                 if (!isTv) it.minimize()
-                                it.close()
                                 closePlayer()
                             } ?:
                             (playerFragment as? PlayerFragment)?.also {
                                 if (!isTv) it.minimize()
-                                it.close()
                                 closePlayer()
                             }
                             if (prefs.getBoolean(C.SLEEP_TIMER_LOCK, false)) {
@@ -1424,12 +1487,10 @@ class MainActivity : AppCompatActivity() {
                             withStarted {
                                 (playerFragment as? Media3PlayerFragment)?.also {
                                     if (!isTv) it.minimize()
-                                    it.close()
                                     closePlayer()
                                 } ?:
                                 (playerFragment as? PlayerFragment)?.also {
                                     if (!isTv) it.minimize()
-                                    it.close()
                                     closePlayer()
                                 }
                             }
@@ -1478,10 +1539,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun leavePlayerForBrowsing() {
         if (isTv) {
-            when (val player = playerFragment) {
-                is Media3PlayerFragment -> player.close()
-                is PlayerFragment -> player.close()
-            }
             if (playerFragment != null) closePlayer()
         } else {
             (playerFragment as? Media3PlayerFragment)?.minimize()

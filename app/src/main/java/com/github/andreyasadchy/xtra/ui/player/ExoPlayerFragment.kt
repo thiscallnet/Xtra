@@ -456,8 +456,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                                 (activity as? MainActivity)?.setSleepTimer(duration)
                             } else {
                                 minimize()
-                                close()
-                                (activity as? MainActivity)?.closePlayer()
+                                (activity as? MainActivity)?.closePlayer() ?: close()
                             }
                         }
                         connectedService.setStopServiceTimer(false)
