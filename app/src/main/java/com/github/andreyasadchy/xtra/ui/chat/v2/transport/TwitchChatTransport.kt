@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaintShadow
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensionsResolver
 import com.github.andreyasadchy.xtra.model.chat.Emote as LegacyEmote
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGiftParser
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGift
@@ -371,14 +372,17 @@ class TwitchChatTransport(
     private fun LegacyEmote.toV2Emote(scope: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope): com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote? {
         val emoteName = name?.takeIf { it.isNotBlank() } ?: return null
         val url = url4x ?: url3x ?: url2x ?: url1x ?: return null
+        val hasProviderDimensions = width?.let { it > 0 } == true && height?.let { it > 0 } == true
+        val dimensions = ChatAssetDimensionsResolver.resolve(ChatAssetKey(url), width, height)
         return com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote(
             name = emoteName,
             id = id?.takeIf { it.isNotBlank() } ?: emoteName,
             asset = ChatAssetSpec(
                 key = ChatAssetKey(url),
-                sourceWidth = width?.takeIf { it > 0 } ?: 56,
-                sourceHeight = height?.takeIf { it > 0 } ?: 56,
+                sourceWidth = dimensions.width,
+                sourceHeight = dimensions.height,
                 targetHeight = 28,
+                dimensionsAreAuthoritative = hasProviderDimensions,
             ),
             provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.SEVEN_TV,
             animated = isAnimated,

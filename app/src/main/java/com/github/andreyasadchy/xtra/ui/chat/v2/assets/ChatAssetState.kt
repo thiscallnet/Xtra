@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.assets
 
 import android.graphics.drawable.Drawable
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensions
 
 sealed interface ChatAssetState {
     data object Missing : ChatAssetState
@@ -22,6 +23,9 @@ sealed interface ChatAssetState {
  */
 fun interface ChatImageHandle {
     fun newDrawable(): Drawable?
+
+    /** Stable decoded dimensions, independent from the current animation frame. */
+    fun intrinsicDimensions(): ChatAssetDimensions? = null
 
     /** True only for Coil formats which cannot be recreated from Coil's decoded memory cache. */
     fun holdsDecodedImage(): Boolean = false

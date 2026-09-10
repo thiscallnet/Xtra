@@ -4,6 +4,8 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensionsResolver
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.twitchEmoteAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.HIGHLIGHTED_MESSAGE_REWARD_TYPE
@@ -22,6 +24,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TwitchChatEventParserTest {
+    @Test
+    fun nativeTwitchEmoteUsesTheSharedDecodedDimensions() {
+        ChatAssetDimensionsResolver.clearForTests()
+        try {
+            val fallback = TwitchChatEventParser.fromIrc(
+                ChatUtils.parseIRCMessage(
+                    "@emotes=25:0-4 :viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #channel :Kappa",
+                ),
+                "channel-id",
+            ) as ChatEvent.Message
+            val fallbackSpec = (fallback.message.segments.single() as ChatSegment.Emote).asset
+            assertEquals(56, fallbackSpec.sourceWidth)
+            assertEquals(56, fallbackSpec.sourceHeight)
+            assertEquals(false, fallbackSpec.dimensionsAreAuthoritative)
+
+            ChatAssetDimensionsResolver.recordDecoded(twitchEmoteAssetKey("25"), 112, 56)
+            val resolved = TwitchChatEventParser.fromIrc(
+                ChatUtils.parseIRCMessage(
+                    "@emotes=25:0-4 :viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #channel :Kappa",
+                ),
+                "channel-id",
+            ) as ChatEvent.Message
+            val resolvedSpec = (resolved.message.segments.single() as ChatSegment.Emote).asset
+            assertEquals(112, resolvedSpec.sourceWidth)
+            assertEquals(56, resolvedSpec.sourceHeight)
+        } finally {
+            ChatAssetDimensionsResolver.clearForTests()
+        }
+    }
+
     @Test
     fun ircClearchatDistinguishesTimeoutBanAndRoomClear() {
         val timeout = TwitchChatEventParser.fromIrc(

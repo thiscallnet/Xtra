@@ -58,6 +58,8 @@ import com.github.andreyasadchy.xtra.ui.view.NamePaintSpan
 import com.github.andreyasadchy.xtra.ui.chat.ChatHighlightSettings
 import com.github.andreyasadchy.xtra.ui.chat.ChatMentionMatcher
 import com.github.andreyasadchy.xtra.ui.chat.shouldHighlightLegacyChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensionsResolver
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import java.text.NumberFormat
 import java.io.File
@@ -917,36 +919,42 @@ object ChatAdapterUtils {
                     }
                 image.withLocalData(bytes)
             } else image
-            val data = imageData(resolvedImage, emoteQuality) ?: return null
+            val measuredImage = resolvedImage.withCachedSourceDimensions(emoteQuality)
+            val data = imageData(measuredImage, emoteQuality) ?: return null
             val geometry = imageGeometry(
-                resolvedImage,
-                imageSizeForKind(resolvedImage.kind, emoteSize, badgeSize, inlineIconSize),
+                measuredImage,
+                imageSizeForKind(measuredImage.kind, emoteSize, badgeSize, inlineIconSize),
             )
-            val drawable = if (imageLibrary == "0" || (imageLibrary == "1" && !resolvedImage.format.equals("webp", true))) {
+            val hasSourceDimensions = measuredImage.sourceWidth?.let { it > 0 } == true &&
+                measuredImage.sourceHeight?.let { it > 0 } == true
+            val requestWidth = if (hasSourceDimensions) geometry.widthPx else null
+            val requestHeight = if (hasSourceDimensions) geometry.heightPx else null
+            val drawable = if (imageLibrary == "0" || (imageLibrary == "1" && !measuredImage.format.equals("webp", true))) {
                 val result = context.imageLoader.execute(
                     chatImageRequest(
-                        context, resolvedImage, data, geometry.widthPx, geometry.heightPx,
-                        imageMemoryCacheKey(stableImageSourceKey(resolvedImage, emoteQuality), geometry.widthPx, geometry.heightPx),
-                        stableImageSourceKey(resolvedImage, emoteQuality),
+                        context, measuredImage, data, requestWidth, requestHeight,
+                        imageMemoryCacheKey(stableImageSourceKey(measuredImage, emoteQuality), requestWidth ?: 0, requestHeight ?: 0),
+                        stableImageSourceKey(measuredImage, emoteQuality),
                     ).build(),
                 )
                 (result as? coil3.request.SuccessResult)?.image?.asDrawable(context.resources)
             } else {
                 withContext(Dispatchers.IO) {
                     Glide.with(context)
-                        .load(glideImageModel(resolvedImage, data))
+                        .load(glideImageModel(measuredImage, data))
                         .diskCacheStrategy(DiskCacheStrategy.DATA)
                         .dontAnimate()
-                        .override(geometry.widthPx, geometry.heightPx)
+                        .override(requestWidth ?: Target.SIZE_ORIGINAL, requestHeight ?: Target.SIZE_ORIGINAL)
                         .submit()
                         .get()
                 }
             }
             if (drawable == null) return null
-            val overlay = resolvedImage.overlayEmote?.let {
+            measuredImage.recordDecodedSourceDimensions(drawable)
+            val overlay = measuredImage.overlayEmote?.let {
                 resolveChatImage(context, it, imageLibrary, emoteQuality, emoteSize, badgeSize, inlineIconSize)
             }
-            if (resolvedImage.overlayEmote != null && overlay == null) return null
+            if (measuredImage.overlayEmote != null && overlay == null) return null
             if (overlay == null) drawable else LayerDrawable(arrayOf(drawable, overlay))
         } catch (e: CancellationException) {
             throw e
@@ -986,14 +994,12 @@ object ChatAdapterUtils {
         inlineIconSize: Int = 1,
     ) {
         images.forEachIndexed { index, image ->
-            builder.getSpans(image.start, image.end, CenteredImageSpan::class.java).forEach(builder::removeSpan)
-            val geometry = imageGeometry(image, imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize))
-            val drawable = drawables.getOrNull(index) ?: ColorDrawable(Color.TRANSPARENT).apply {
-                setBounds(0, 0, geometry.widthPx, geometry.heightPx)
-            }
-            builder.setSpan(
-                CenteredImageSpan(drawable, geometry.widthPx, geometry.heightPx),
-                image.start, image.end, SPAN_EXCLUSIVE_EXCLUSIVE,
+            val drawable = drawables.getOrNull(index)
+            installResolvedImage(
+                builder = builder,
+                image = drawable?.let { image.withDecodedSourceDimensions(it) } ?: image,
+                drawable = drawable,
+                targetHeight = imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize),
             )
         }
         if (imagePaint != null && imagePaintDrawable != null && !userName.isNullOrEmpty() && userNameStartIndex != null) {
@@ -1004,6 +1010,23 @@ object ChatAdapterUtils {
                 userNameStartIndex, userNameStartIndex + userName.length, SPAN_EXCLUSIVE_EXCLUSIVE,
             )
         }
+    }
+
+    private fun installResolvedImage(
+        builder: SpannableStringBuilder,
+        image: Image,
+        drawable: Drawable?,
+        targetHeight: Int,
+    ) {
+        builder.getSpans(image.start, image.end, CenteredImageSpan::class.java).forEach(builder::removeSpan)
+        val geometry = imageGeometry(image, targetHeight)
+        val resolvedDrawable = drawable ?: ColorDrawable(Color.TRANSPARENT).apply {
+            setBounds(0, 0, geometry.widthPx, geometry.heightPx)
+        }
+        builder.setSpan(
+            CenteredImageSpan(resolvedDrawable, geometry.widthPx, geometry.heightPx),
+            image.start, image.end, SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
     }
 
     fun addTranslation(chatMessage: ChatMessage, builder: SpannableStringBuilder, startIndex: Int, savedColors: HashMap<String, Int>, useReadableColors: Boolean, isLightTheme: Boolean, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean): Int {
@@ -1079,11 +1102,14 @@ object ChatAdapterUtils {
 
         fun prefetch(image: Image) {
             val targetSize = imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize)
-            val geometry = imageGeometry(image, targetSize)
-            val data = imageData(image, emoteQuality) ?: return
-            val sourceKey = stableImageSourceKey(image, emoteQuality)
-            val usesCoil = imageLibrary == "0" || (imageLibrary == "1" && !image.format.equals("webp", true))
-            val requestKey = prefetchRequestKey(usesCoil, sourceKey, geometry.widthPx, geometry.heightPx)
+            val resolvedImage = image.withCachedSourceDimensions(emoteQuality)
+            val geometry = imageGeometry(resolvedImage, targetSize)
+            val data = imageData(resolvedImage, emoteQuality) ?: return
+            val sourceKey = stableImageSourceKey(resolvedImage, emoteQuality)
+            val usesCoil = imageLibrary == "0" || (imageLibrary == "1" && !resolvedImage.format.equals("webp", true))
+            val requestWidth = resolvedImage.sourceWidth?.takeIf { it > 0 }?.let { geometry.widthPx }
+            val requestHeight = requestWidth?.let { geometry.heightPx }
+            val requestKey = prefetchRequestKey(usesCoil, sourceKey, requestWidth ?: 0, requestHeight ?: 0)
             if (!queued.add(requestKey)) {
                 image.overlayEmote?.let(::prefetch)
                 return
@@ -1097,11 +1123,11 @@ object ChatAdapterUtils {
                 context.imageLoader.enqueue(
                     chatImageRequest(
                         context,
-                        image,
+                        resolvedImage,
                         data,
-                        geometry.widthPx,
-                        geometry.heightPx,
-                        imageMemoryCacheKey(sourceKey, geometry.widthPx, geometry.heightPx),
+                        requestWidth,
+                        requestHeight,
+                        imageMemoryCacheKey(sourceKey, requestWidth ?: 0, requestHeight ?: 0),
                         sourceKey,
                     ).listener(object : ImageRequest.Listener {
                         override fun onError(request: ImageRequest, result: coil3.request.ErrorResult) {
@@ -1112,10 +1138,10 @@ object ChatAdapterUtils {
                     }).build(),
                 )
             } else {
-                val model = glideImageModel(image, data)
+                val model = glideImageModel(resolvedImage, data)
                 Glide.with(context)
                     .load(model)
-                    .override(geometry.widthPx, geometry.heightPx)
+                    .override(requestWidth ?: Target.SIZE_ORIGINAL, requestHeight ?: Target.SIZE_ORIGINAL)
                     .diskCacheStrategy(DiskCacheStrategy.DATA)
                     .dontAnimate()
                     .listener(object : RequestListener<Drawable> {
@@ -1547,10 +1573,15 @@ object ChatAdapterUtils {
             }
         }
         images.forEach { image ->
-            val geometry = imageGeometry(image, imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize))
-            loadImage(imageLibrary, fragment, image, emoteQuality, requestBag, imageLoaded@{ result ->
+            val measuredImage = image.withCachedSourceDimensions(emoteQuality)
+            val geometry = imageGeometry(measuredImage, imageSizeForKind(measuredImage.kind, emoteSize, badgeSize, inlineIconSize))
+            val hasSourceDimensions = measuredImage.sourceWidth?.let { it > 0 } == true &&
+                measuredImage.sourceHeight?.let { it > 0 } == true
+            loadImage(imageLibrary, fragment, measuredImage, emoteQuality, requestBag, imageLoaded@{ result ->
                 if (!isCurrent()) return@imageLoaded
-                if (result is Animatable && image.isAnimated && animateGifs) {
+                val decodedImage = measuredImage.withDecodedSourceDimensions(result)
+                measuredImage.recordDecodedSourceDimensions(result)
+                if (result is Animatable && measuredImage.isAnimated && animateGifs) {
                     result.callback = object : Drawable.Callback {
                         override fun unscheduleDrawable(who: Drawable, what: Runnable) {
                             itemView.removeCallbacks(what)
@@ -1566,22 +1597,27 @@ object ChatAdapterUtils {
                     }
                     if (shouldAnimate()) (result as Animatable).start()
                 }
-                if (image.overlayEmote != null) {
+                if (decodedImage.overlayEmote != null) {
                     val drawables = arrayOf(result)
-                    nextOverlayEmote(imageLibrary, fragment, drawables, image.overlayEmote!!, image, itemView, builder, emoteQuality, animateGifs, isCurrent, shouldAnimate, requestBag, emoteSize, badgeSize, inlineIconSize)
+                    nextOverlayEmote(imageLibrary, fragment, drawables, decodedImage.overlayEmote!!, decodedImage, itemView, builder, emoteQuality, animateGifs, isCurrent, shouldAnimate, requestBag, emoteSize, badgeSize, inlineIconSize)
                 } else {
-                    builder.getSpans(image.start, image.end, CenteredImageSpan::class.java).firstOrNull()?.imageDrawable = result
+                    installResolvedImage(builder, decodedImage, result, imageSizeForKind(decodedImage.kind, emoteSize, badgeSize, inlineIconSize))
                     itemView.invalidate()
                 }
-            }, geometry.widthPx, geometry.heightPx)
+            }, if (hasSourceDimensions) geometry.widthPx else null, if (hasSourceDimensions) geometry.heightPx else null)
         }
     }
 
     private fun nextOverlayEmote(imageLibrary: String?, fragment: Fragment, drawables: Array<Drawable>, image: Image, bottomImage: Image, itemView: View, builder: SpannableStringBuilder, emoteQuality: String, animateGifs: Boolean, isCurrent: () -> Boolean, shouldAnimate: () -> Boolean, requestBag: ImageRequestBag?, emoteSize: Int, badgeSize: Int, inlineIconSize: Int) {
-        val geometry = imageGeometry(image, imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize))
-        loadImage(imageLibrary, fragment, image, emoteQuality, requestBag, overlayLoaded@{ result ->
+        val measuredImage = image.withCachedSourceDimensions(emoteQuality)
+        val geometry = imageGeometry(measuredImage, imageSizeForKind(measuredImage.kind, emoteSize, badgeSize, inlineIconSize))
+        val hasSourceDimensions = measuredImage.sourceWidth?.let { it > 0 } == true &&
+            measuredImage.sourceHeight?.let { it > 0 } == true
+        loadImage(imageLibrary, fragment, measuredImage, emoteQuality, requestBag, overlayLoaded@{ result ->
             if (!isCurrent()) return@overlayLoaded
-            if (result is Animatable && image.isAnimated && animateGifs) {
+            val decodedImage = measuredImage.withDecodedSourceDimensions(result)
+            measuredImage.recordDecodedSourceDimensions(result)
+            if (result is Animatable && measuredImage.isAnimated && animateGifs) {
                 result.callback = object : Drawable.Callback {
                     override fun unscheduleDrawable(who: Drawable, what: Runnable) {
                         itemView.removeCallbacks(what)
@@ -1598,14 +1634,14 @@ object ChatAdapterUtils {
                 if (shouldAnimate()) (result as Animatable).start()
             }
             val array = drawables.plus(result)
-            if (image.overlayEmote != null) {
-                nextOverlayEmote(imageLibrary, fragment, array, image.overlayEmote!!, bottomImage, itemView, builder, emoteQuality, animateGifs, isCurrent, shouldAnimate, requestBag, emoteSize, badgeSize, inlineIconSize)
+            if (decodedImage.overlayEmote != null) {
+                nextOverlayEmote(imageLibrary, fragment, array, decodedImage.overlayEmote!!, bottomImage, itemView, builder, emoteQuality, animateGifs, isCurrent, shouldAnimate, requestBag, emoteSize, badgeSize, inlineIconSize)
             } else {
                 val layer = LayerDrawable(array)
-                builder.getSpans(bottomImage.start, bottomImage.end, CenteredImageSpan::class.java).firstOrNull()?.imageDrawable = layer
+                installResolvedImage(builder, bottomImage, layer, imageSizeForKind(bottomImage.kind, emoteSize, badgeSize, inlineIconSize))
                 itemView.invalidate()
             }
-        }, geometry.widthPx, geometry.heightPx)
+        }, if (hasSourceDimensions) geometry.widthPx else null, if (hasSourceDimensions) geometry.heightPx else null)
     }
 
     private fun loadImage(imageLibrary: String?, fragment: Fragment, image: Image, emoteQuality: String, requestBag: ImageRequestBag?, onLoaded: (Drawable) -> Unit, widthPx: Int? = null, heightPx: Int? = null) {
@@ -1722,6 +1758,34 @@ object ChatAdapterUtils {
         requestBag?.addClearer { requestManager.clear(target) }
     }
 
+    private fun Image.withCachedSourceDimensions(emoteQuality: String): Image {
+        if (sourceWidth?.let { it > 0 } == true && sourceHeight?.let { it > 0 } == true) return this
+        val source = imageData(this, emoteQuality) as? String ?: return this
+        val dimensions = ChatAssetDimensionsResolver.peek(ChatAssetKey(source)) ?: return this
+        return withSourceDimensions(dimensions.width, dimensions.height)
+    }
+
+    private fun Image.withDecodedSourceDimensions(drawable: Drawable): Image {
+        if (sourceWidth?.let { it > 0 } == true && sourceHeight?.let { it > 0 } == true) return this
+        val width = drawable.intrinsicWidth
+        val height = drawable.intrinsicHeight
+        if (width <= 0 || height <= 0) return this
+        return withSourceDimensions(width, height)
+    }
+
+    private fun Image.recordDecodedSourceDimensions(drawable: Drawable) {
+        if (sourceWidth?.let { it > 0 } == true && sourceHeight?.let { it > 0 } == true) return
+        val width = drawable.intrinsicWidth
+        val height = drawable.intrinsicHeight
+        if (width <= 0 || height <= 0) return
+        listOf(url1x, url2x, url3x, url4x)
+            .filterNotNull()
+            .filter(String::isNotBlank)
+            .forEach { url ->
+                ChatAssetDimensionsResolver.recordDecoded(ChatAssetKey(url), width, height)
+            }
+    }
+
     private fun imageData(image: Image, emoteQuality: String): Any? = image.localData ?: when (emoteQuality) {
         "4" -> image.url4x ?: image.url3x ?: image.url2x ?: image.url1x
         "3" -> image.url3x ?: image.url2x ?: image.url1x
@@ -1771,11 +1835,12 @@ object ChatAdapterUtils {
         badgeSize: Int,
         inlineIconSize: Int,
     ): String {
-        val geometry = imageGeometry(image, imageSizeForKind(image.kind, emoteSize, badgeSize, inlineIconSize))
+        val measuredImage = image.withCachedSourceDimensions(emoteQuality)
+        val geometry = imageGeometry(measuredImage, imageSizeForKind(measuredImage.kind, emoteSize, badgeSize, inlineIconSize))
         return buildString {
-            append(stableImageSourceKey(image, emoteQuality))
+            append(stableImageSourceKey(measuredImage, emoteQuality))
             append('@').append(geometry.widthPx).append('x').append(geometry.heightPx)
-            image.overlayEmote?.let { overlay ->
+            measuredImage.overlayEmote?.let { overlay ->
                 append("|overlay=")
                 append(imageCompositionKey(overlay, emoteQuality, emoteSize, badgeSize, inlineIconSize))
             }

@@ -4,6 +4,7 @@ import android.util.Log
 import com.github.andreyasadchy.xtra.model.gql.video.VideoMessagesResponse
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.twitchEmoteAssetSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatBadgeRef
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
@@ -115,7 +116,7 @@ fun VideoMessagesResponse.Comment.toV2(
             ChatSegment.Text(text)
         } else {
             ChatSegment.Emote(
-                asset = ChatAssetSpec(ChatAssetKey("https://static-cdn.jtvnw.net/emoticons/v2/$emoteId/default/dark/3.0"), 56, 56, 28),
+                asset = twitchEmoteAssetSpec(emoteId),
                 fallbackText = text,
                 animated = true,
                 interaction = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction(

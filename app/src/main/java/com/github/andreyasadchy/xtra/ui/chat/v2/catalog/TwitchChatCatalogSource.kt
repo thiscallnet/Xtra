@@ -8,6 +8,7 @@ import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensionsResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -273,16 +274,20 @@ class TwitchChatCatalogSource(
             val name = emote.name?.takeIf { it.isNotBlank() } ?: return@forEach
             if (name in this) return@forEach
             val url = emote.url4x ?: emote.url3x ?: emote.url2x ?: emote.url1x ?: return@forEach
-            val width = emote.width?.takeIf { it > 0 } ?: 56
-            val height = emote.height?.takeIf { it > 0 } ?: 56
+            val hasProviderDimensions = emote.width?.let { it > 0 } == true &&
+                emote.height?.let { it > 0 } == true
+            val dimensions = ChatAssetDimensionsResolver.resolve(
+                ChatAssetKey(url), emote.width, emote.height,
+            )
             put(name, ChatCatalogEmote(
                 id = emote.id?.takeIf { it.isNotBlank() } ?: return@forEach,
                 name = name,
                 asset = ChatAssetSpec(
                     key = ChatAssetKey(url),
-                    sourceWidth = width,
-                    sourceHeight = height,
+                    sourceWidth = dimensions.width,
+                    sourceHeight = dimensions.height,
                     targetHeight = 28,
+                    dimensionsAreAuthoritative = hasProviderDimensions,
                 ),
                 provider = provider,
                 animated = emote.isAnimated,
@@ -298,16 +303,19 @@ class TwitchChatCatalogSource(
             val id = emote.id?.takeIf { it.isNotBlank() } ?: return@forEach
             if (name in this) return@forEach
             val url = emote.url4x ?: emote.url3x ?: emote.url2x ?: emote.url1x ?: return@forEach
+            val key = ChatAssetKey(url)
+            val dimensions = ChatAssetDimensionsResolver.resolve(key)
             put(
                 name,
                 ChatCatalogEmote(
                     name = name,
                     id = id,
                     asset = ChatAssetSpec(
-                        key = ChatAssetKey(url),
-                        sourceWidth = 56,
-                        sourceHeight = 56,
+                        key = key,
+                        sourceWidth = dimensions.width,
+                        sourceHeight = dimensions.height,
                         targetHeight = 28,
+                        dimensionsAreAuthoritative = false,
                     ),
                     provider = ChatAssetProvider.TWITCH,
                     animated = emote.isAnimated,
@@ -629,7 +637,7 @@ class TwitchChatCatalogCache(
         catalogConfigFingerprint: String?,
         badgeConfigFingerprint: String?,
     ): JSONObject = JSONObject().apply {
-        put("schemaVersion", 7)
+        put("schemaVersion", 8)
         put("revision", snapshot.revision)
         put("provider", "combined")
         put("fetchedAt", fetchedAtMs)
@@ -691,6 +699,7 @@ class TwitchChatCatalogCache(
         put("sourceWidth", spec.sourceWidth)
         put("sourceHeight", spec.sourceHeight)
         put("targetHeight", spec.targetHeight)
+        put("dimensionsAreAuthoritative", spec.dimensionsAreAuthoritative)
         val encodedOverlays = JSONArray()
         spec.overlays.forEach { overlay -> encodedOverlays.put(encodeSpec(overlay)) }
         put("overlays", encodedOverlays)
@@ -698,7 +707,7 @@ class TwitchChatCatalogCache(
 
     private fun decode(root: JSONObject): ChatCatalogSnapshot {
         val schemaVersion = root.optInt("schemaVersion")
-        check(schemaVersion in 1..7)
+        check(schemaVersion in 1..8)
         fun emoteArray(
             array: JSONArray?,
             legacyCombined: Boolean = false,
@@ -714,7 +723,11 @@ class TwitchChatCatalogCache(
                 val storedScope = item.optString("scope").takeIf { it.isNotBlank() }
                 put(emoteName, ChatCatalogEmote(
                     name = emoteName,
-                    asset = decodeSpec(item.optJSONObject("asset")),
+                    asset = decodeSpec(
+                        item.optJSONObject("asset"),
+                        dimensionsAreAuthoritative = provider != ChatAssetProvider.TWITCH,
+                        forceNonAuthoritative = schemaVersion < 8,
+                    ),
                     provider = provider,
                     animated = item.optBoolean("animated"),
                     zeroWidth = item.optBoolean("zeroWidth"),
@@ -794,10 +807,18 @@ class TwitchChatCatalogCache(
         )
     }
 
-    private fun decodeSpec(value: JSONObject?): ChatAssetSpec {
+    private fun decodeSpec(
+        value: JSONObject?,
+        dimensionsAreAuthoritative: Boolean = true,
+        forceNonAuthoritative: Boolean = false,
+    ): ChatAssetSpec {
         requireNotNull(value)
         val overlays = value.optJSONArray("overlays")?.let { array ->
-            (0 until array.length()).mapNotNull { array.optJSONObject(it)?.let(::decodeSpec) }
+            (0 until array.length()).mapNotNull { index ->
+                array.optJSONObject(index)?.let { overlay ->
+                    decodeSpec(overlay, dimensionsAreAuthoritative, forceNonAuthoritative)
+                }
+            }
         }.orEmpty()
         return ChatAssetSpec(
             key = ChatAssetKey(value.optString("key")),
@@ -805,6 +826,13 @@ class TwitchChatCatalogCache(
             sourceHeight = value.optInt("sourceHeight", 56),
             targetHeight = value.optInt("targetHeight", 28),
             overlays = overlays,
+            dimensionsAreAuthoritative = if (forceNonAuthoritative) {
+                false
+            } else if (value.has("dimensionsAreAuthoritative")) {
+                value.optBoolean("dimensionsAreAuthoritative")
+            } else {
+                dimensionsAreAuthoritative
+            },
         )
     }
 }

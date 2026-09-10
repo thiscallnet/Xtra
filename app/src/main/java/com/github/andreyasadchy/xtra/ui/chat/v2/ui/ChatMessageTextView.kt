@@ -49,6 +49,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetState
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatImageHandle
 import com.github.andreyasadchy.xtra.util.ChatRenderDiagnostics
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensionsResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
@@ -151,6 +152,7 @@ open class ChatMessageTextView private constructor(
     private var stagedAssetKeys = emptySet<ChatAssetKey>()
     private var stagedObservedAssetKeys = emptySet<ChatAssetKey>()
     private var externalBindGeneration = 0L
+    private val reboundDimensionKeys = HashSet<ChatAssetKey>()
     private var initialAssetSpecs = emptyList<ChatAssetSpec>()
     private var geometryChangingCompositionKeys = emptySet<String>()
     private var initialDirectAssetKeys = emptySet<ChatAssetKey>()
@@ -207,6 +209,7 @@ open class ChatMessageTextView private constructor(
 
     fun bind(row: ChatRowUiModel) {
         externalBindGeneration++
+        reboundDimensionKeys.clear()
         clearStagedRow()
         bindInternal(row, stagePendingCandidate = true)
     }
@@ -300,7 +303,10 @@ open class ChatMessageTextView private constructor(
         keys = newKeys
         newKeys
             .filter(oldKeys::contains)
-            .forEach { assetObservers[it]?.rebind(externalBindGeneration) }
+            .forEach {
+                republishCachedAssetDimensions(it)
+                assetObservers[it]?.rebind(externalBindGeneration)
+            }
         newKeys.filterNot(oldKeys::contains).forEach(::observeAsset)
         animatedPieceAssetKeys = row.pieces.flatMap { piece ->
             val spec = when (piece) {
@@ -540,6 +546,9 @@ open class ChatMessageTextView private constructor(
     private fun applyVisualRefresh(kind: ChatVisualRefreshKind) {
         if (!renderingActive || !isAttachedToWindow || boundRow == null) return
         var requiresLayout = kind == ChatVisualRefreshKind.LAYOUT_AND_DRAW
+        if (kind == ChatVisualRefreshKind.LAYOUT_AND_DRAW) {
+            requiresLayout = rebindResolvedAssetDimensions() || requiresLayout
+        }
         requiresLayout = latchTerminalAssetFailures() || requiresLayout
         requiresLayout = maybeApplyStagedRow() || requiresLayout
         requiresLayout = latchFailedClipMetadata() || requiresLayout
@@ -568,7 +577,12 @@ open class ChatMessageTextView private constructor(
             initialGeneration = externalBindGeneration,
             onValid = { generation ->
                 ChatRenderDiagnostics.recordAssetCallbackReceived()
-                visualRefreshes.request(ChatVisualRefreshKind.DRAW, generation)
+                val kind = if (boundRowContainsResolvedDimensions(key)) {
+                    ChatVisualRefreshKind.LAYOUT_AND_DRAW
+                } else {
+                    ChatVisualRefreshKind.DRAW
+                }
+                visualRefreshes.request(kind, generation)
             },
             onStale = ChatRenderDiagnostics::recordStaleCallbackDiscarded,
         )
@@ -1138,14 +1152,15 @@ open class ChatMessageTextView private constructor(
         interaction: ChatEmoteInteraction? = null,
         gifInteraction: ChatGifInteraction? = null,
     ) {
-        val layerSpecs = spec.flatten()
-        val compositionKey = spec.compositionKey
+        val resolvedSpec = resolveAssetSpec(spec)
+        val layerSpecs = resolvedSpec.flatten()
+        val compositionKey = resolvedSpec.compositionKey
         val start = output.length
         output.append(" ")
         val end = output.length
         output.setSpan(
             ChatAssetSpan(
-                spec,
+                resolvedSpec,
                 fallback,
                 layerSpecs,
                 { layerSpec -> drawableFor(layerSpec.key) },
@@ -1174,6 +1189,60 @@ open class ChatMessageTextView private constructor(
                 override fun updateDrawState(ds: TextPaint) = Unit
             }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
+    }
+
+    private fun rebindResolvedAssetDimensions(): Boolean {
+        val row = boundRow ?: return false
+        val changedKeys = row.pieces
+            .mapNotNull { it.assetSpecOrNull() }
+            .flatMap { it.resolvedDimensionChanges() }
+            .toSet() - reboundDimensionKeys
+        if (changedKeys.isEmpty()) {
+            return false
+        }
+        reboundDimensionKeys += changedKeys
+        bindInternal(row, stagePendingCandidate = false)
+        return true
+    }
+
+    private fun boundRowContainsResolvedDimensions(key: ChatAssetKey): Boolean =
+        boundRow?.pieces?.any { piece ->
+            piece.assetSpecOrNull()?.containsResolvedDimensionChange(key) == true
+        } == true
+
+    private fun republishCachedAssetDimensions(key: ChatAssetKey) {
+        (assets.peek(key) as? ChatAssetState.Ready)?.image?.intrinsicDimensions()?.let { dimensions ->
+            ChatAssetDimensionsResolver.recordDecoded(key, dimensions.width, dimensions.height)
+        }
+    }
+
+    private fun resolveAssetSpec(spec: ChatAssetSpec): ChatAssetSpec {
+        val dimensions = if (spec.dimensionsAreAuthoritative) {
+            null
+        } else {
+            ChatAssetDimensionsResolver.peek(spec.key)
+        }
+        val resolved = dimensions?.let {
+            spec.copy(
+                sourceWidth = it.width,
+                sourceHeight = it.height,
+                dimensionsAreAuthoritative = true,
+            )
+        } ?: spec
+        val resolvedOverlays = resolved.overlays.map(::resolveAssetSpec)
+        return if (resolvedOverlays == resolved.overlays) resolved else resolved.copy(overlays = resolvedOverlays)
+    }
+
+    private fun ChatAssetSpec.resolvedDimensionChanges(): List<ChatAssetKey> = buildList {
+        val dimensions = if (dimensionsAreAuthoritative) null else ChatAssetDimensionsResolver.peek(key)
+        if (dimensions != null &&
+            (dimensions.width != sourceWidth || dimensions.height != sourceHeight)
+        ) add(key)
+        overlays.forEach { addAll(it.resolvedDimensionChanges()) }
+    }
+
+    private fun ChatAssetSpec.containsResolvedDimensionChange(key: ChatAssetKey): Boolean {
+        return key in resolvedDimensionChanges()
     }
 
     private fun drawableFor(key: ChatAssetKey): Drawable? {
@@ -1225,6 +1294,7 @@ open class ChatMessageTextView private constructor(
         latchedFailedCompositionKeys.clear()
         latchedFailedDirectKeys.clear()
         latchedFailedClipMetadataSlugs.clear()
+        reboundDimensionKeys.clear()
         text = null
         boundMessageId = null
         boundRow = null
@@ -1459,6 +1529,15 @@ private fun ChatRowUiModel.assetKeys(): Set<ChatAssetKey> = pieces.flatMap { pie
         }
     }
 }.toSet()
+
+private fun ChatPiece.assetSpecOrNull(): ChatAssetSpec? = when (this) {
+    is ChatPiece.Badge -> asset
+    is ChatPiece.RewardIcon -> asset
+    is ChatPiece.Emote -> asset
+    is ChatPiece.Cheermote -> asset
+    is ChatPiece.Gif -> asset
+    else -> null
+}
 
 private fun ChatAssetSpec.flatten(): List<ChatAssetSpec> = buildList {
     add(this@flatten)
