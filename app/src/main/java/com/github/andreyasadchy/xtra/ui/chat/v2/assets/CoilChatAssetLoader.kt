@@ -17,6 +17,7 @@ import coil3.request.SuccessResult
 import coil3.request.crossfade
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensions
 
 /** One Coil-backed loader for v2 chat assets. */
 class CoilChatAssetLoader(
@@ -51,14 +52,21 @@ class CoilChatAssetLoader(
         return when (result) {
             is SuccessResult -> {
                 val image = result.image
+                val dimensions = image.asDrawable(context.resources).let { drawable ->
+                    val width = drawable.intrinsicWidth
+                    val height = drawable.intrinsicHeight
+                    if (width > 0 && height > 0) ChatAssetDimensions(width, height) else null
+                }
                 if (image.shareable) {
                     // Shareable images are retained by Coil. The repository keeps only this
                     // cache key, and each bound TextView creates its own drawable instance.
-                    ChatImageHandle {
-                        imageLoader.memoryCache
-                            ?.get(MemoryCache.Key(memoryCacheKey(url)))
-                            ?.image
-                            ?.let(::newIndependentDrawable)
+                    object : ChatImageHandle {
+                        override fun newDrawable() = imageLoader.memoryCache
+                                ?.get(MemoryCache.Key(memoryCacheKey(url)))
+                                ?.image
+                                ?.let(::newIndependentDrawable)
+
+                        override fun intrinsicDimensions() = dimensions
                     }
                 } else {
                     // Coil deliberately does not put non-shareable animated DrawableImages in
@@ -67,6 +75,7 @@ class CoilChatAssetLoader(
                     // the platform drawable supports it.
                     object : ChatImageHandle {
                         override fun newDrawable() = newIndependentDrawable(image)
+                        override fun intrinsicDimensions() = dimensions
                         override fun holdsDecodedImage() = true
                     }
                 }

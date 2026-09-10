@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.assets
 import android.os.SystemClock
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensionsResolver
 import com.github.andreyasadchy.xtra.util.ChatRenderDiagnostics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -43,11 +44,15 @@ class ChatAssetRepository(
     @Synchronized internal fun observerCount(key: ChatAssetKey): Int = listeners[key]?.size ?: 0
 
     fun observe(key: ChatAssetKey, listener: () -> Unit) {
-        synchronized(this) {
+        val readyImage = synchronized(this) {
             listeners.getOrPut(key) { LinkedHashSet() }.add(listener)
             if (states[key] == null) states[key] = ChatAssetState.Missing
             trimCacheLocked()
             updateDiagnosticsLocked()
+            (states[key] as? ChatAssetState.Ready)?.image
+        }
+        readyImage?.intrinsicDimensions()?.let { dimensions ->
+            ChatAssetDimensionsResolver.recordDecoded(key, dimensions.width, dimensions.height)
         }
         request(key)
     }
@@ -111,6 +116,9 @@ class ChatAssetRepository(
                             } finally {
                                 synchronized(this@ChatAssetRepository) { activeLoads -= key }
                             }
+                        }
+                        loaded?.intrinsicDimensions()?.let { dimensions ->
+                            ChatAssetDimensionsResolver.recordDecoded(key, dimensions.width, dimensions.height)
                         }
                         completedAt = nowMs()
                         loaded?.let(ChatAssetState::Ready)

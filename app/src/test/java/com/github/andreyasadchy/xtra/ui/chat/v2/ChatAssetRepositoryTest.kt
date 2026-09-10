@@ -7,6 +7,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetState
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatImageHandle
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensions
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensionsResolver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +24,57 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatAssetRepositoryTest {
+    @Test
+    fun decodedDimensionsArePublishedToTheSharedResolver() = runBlocking {
+        ChatAssetDimensionsResolver.clearForTests()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val key = ChatAssetKey("https://static-cdn.jtvnw.net/emoticons/v2/native/default/dark/3.0")
+            repositoryWithDimensions(scope, key)
+            withTimeout(2_000) {
+                while (ChatAssetDimensionsResolver.peek(key) == null) delay(1)
+            }
+            assertEquals(ChatAssetDimensions(112, 56), ChatAssetDimensionsResolver.peek(key))
+        } finally {
+            scope.cancel()
+            ChatAssetDimensionsResolver.clearForTests()
+        }
+    }
+
+    @Test
+    fun observingCachedReadyStateRepublishesIntrinsicDimensions() = runBlocking {
+        ChatAssetDimensionsResolver.clearForTests()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val key = ChatAssetKey("https://static-cdn.jtvnw.net/emoticons/v2/cached/default/dark/3.0")
+            val handle = object : ChatImageHandle {
+                override fun newDrawable() = ColorDrawable(1)
+                override fun intrinsicDimensions() = ChatAssetDimensions(112, 56)
+            }
+            val repository = ChatAssetRepository(scope, ChatAssetLoader { handle })
+            repository.observe(key) {}
+            withTimeout(2_000) {
+                while (repository.peek(key) !is ChatAssetState.Ready) delay(1)
+            }
+
+            ChatAssetDimensionsResolver.clearForTests()
+            repository.observe(key) {}
+
+            assertEquals(ChatAssetDimensions(112, 56), ChatAssetDimensionsResolver.peek(key))
+        } finally {
+            scope.cancel()
+            ChatAssetDimensionsResolver.clearForTests()
+        }
+    }
+
+    private fun repositoryWithDimensions(scope: CoroutineScope, key: ChatAssetKey) =
+        ChatAssetRepository(scope, ChatAssetLoader {
+            object : ChatImageHandle {
+                override fun newDrawable() = ColorDrawable(1)
+                override fun intrinsicDimensions() = ChatAssetDimensions(112, 56)
+            }
+        }).also { repository -> repository.observe(key) {} }
+
     @Test
     fun retriesUseFailureCompletionAndAutomaticBackoff() = runBlocking {
         var now = 0L

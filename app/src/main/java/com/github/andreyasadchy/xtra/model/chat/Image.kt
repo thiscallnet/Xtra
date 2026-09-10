@@ -42,4 +42,23 @@ class Image(
         start = start,
         end = end,
     )
+
+    fun withSourceDimensions(width: Int, height: Int) = Image(
+        localData = localData,
+        localDataUrl = localDataUrl,
+        localDataRange = localDataRange,
+        url1x = url1x,
+        url2x = url2x,
+        url3x = url3x,
+        url4x = url4x,
+        format = format,
+        isAnimated = isAnimated,
+        kind = kind,
+        thirdParty = thirdParty,
+        sourceWidth = width,
+        sourceHeight = height,
+        overlayEmote = overlayEmote,
+        start = start,
+        end = end,
+    )
 }

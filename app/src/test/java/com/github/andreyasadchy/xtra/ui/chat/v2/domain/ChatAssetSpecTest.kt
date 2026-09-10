@@ -5,6 +5,25 @@ import org.junit.Test
 
 class ChatAssetSpecTest {
     @Test
+    fun `native twitch dimensions are shared and upgraded after decode`() {
+        ChatAssetDimensionsResolver.clearForTests()
+        try {
+            val fallback = twitchEmoteAssetSpec("native")
+            assertEquals(56, fallback.sourceWidth)
+            assertEquals(56, fallback.sourceHeight)
+            assertEquals(false, fallback.dimensionsAreAuthoritative)
+
+            ChatAssetDimensionsResolver.recordDecoded(twitchEmoteAssetKey("native"), 112, 56)
+            val resolved = twitchEmoteAssetSpec("native")
+            assertEquals(112, resolved.sourceWidth)
+            assertEquals(56, resolved.sourceHeight)
+            assertEquals(56, resolved.computedWidth)
+        } finally {
+            ChatAssetDimensionsResolver.clearForTests()
+        }
+    }
+
+    @Test
     fun `normal aspect ratio is preserved`() {
         val spec = ChatAssetSpec(ChatAssetKey("normal"), sourceWidth = 200, sourceHeight = 100, targetHeight = 28)
 

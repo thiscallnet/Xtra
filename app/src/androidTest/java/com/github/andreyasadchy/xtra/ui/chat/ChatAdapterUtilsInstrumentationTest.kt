@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.PixelFormat
+import android.graphics.Paint
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.text.SpannableStringBuilder
@@ -157,6 +158,23 @@ class ChatAdapterUtilsInstrumentationTest {
         val spans = builder.getSpans<CenteredImageSpan>(0, 1)
         assertEquals(1, spans.size)
         assertSame(finalDrawable, spans.single().drawable)
+    }
+
+    @Test
+    fun readyNativeImageUsesDecodedAspectRatioForItsTextSlot() {
+        val builder = SpannableStringBuilder("\uFFFC")
+        val image = Image(
+            url1x = "https://static-cdn.jtvnw.net/emoticons/v2/123/default/dark/3.0",
+            kind = ImageKind.EMOTE,
+            start = 0,
+            end = 1,
+        )
+        val drawable = SizedDrawable(112, 56)
+
+        ChatAdapterUtils.installResolvedImages(builder, listOf(image), listOf(drawable), emoteSize = 24)
+
+        val span = builder.getSpans<CenteredImageSpan>(0, 1).single()
+        assertEquals(48, span.getSize(Paint(), builder, 0, 1, Paint.FontMetricsInt()))
     }
 
     @Test
@@ -342,4 +360,16 @@ private class RecordingAnimatableDrawable : Drawable(), android.graphics.drawabl
     override fun start() { started = true }
     override fun stop() { started = false }
     override fun isRunning(): Boolean = started
+}
+
+private class SizedDrawable(
+    private val width: Int,
+    private val height: Int,
+) : Drawable() {
+    override fun draw(canvas: Canvas) = Unit
+    override fun setAlpha(alpha: Int) = Unit
+    override fun setColorFilter(colorFilter: ColorFilter?) = Unit
+    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+    override fun getIntrinsicWidth(): Int = width
+    override fun getIntrinsicHeight(): Int = height
 }

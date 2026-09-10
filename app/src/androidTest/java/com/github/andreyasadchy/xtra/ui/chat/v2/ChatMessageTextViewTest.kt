@@ -32,6 +32,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetState
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatImageHandle
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensions
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensionsResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
@@ -1630,6 +1632,86 @@ class ChatMessageTextViewTest {
             draw(span, spanned, metrics)
         }
         scope.cancel()
+    }
+
+    @Test
+    fun decodedNativeDimensionsReplaceFallbackLayoutOnce() {
+        ChatAssetDimensionsResolver.clearForTests()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val key = ChatAssetKey("https://static-cdn.jtvnw.net/emoticons/v2/native/default/dark/3.0")
+        val repository = ChatAssetRepository(scope, ChatAssetLoader {
+            object : ChatImageHandle {
+                override fun newDrawable() = SolidDrawable(Color.GREEN)
+                override fun intrinsicDimensions() = ChatAssetDimensions(112, 56)
+            }
+        })
+        val attached = attachView(repository)
+        try {
+            val fallback = ChatAssetSpec(
+                key = key,
+                sourceWidth = 56,
+                sourceHeight = 56,
+                targetHeight = 28,
+                dimensionsAreAuthoritative = false,
+            )
+            runOnMain { attached.view.bind(row(fallback, animated = false)) }
+            awaitSettled(repository, listOf(key))
+            awaitPreDraw(attached.view)
+
+            val spanWidth = runOnMainValue {
+                val spanned = attached.view.text as Spanned
+                val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+                span.getSize(Paint(), spanned, 0, 1, Paint.FontMetricsInt())
+            }
+            assertEquals(56, spanWidth)
+        } finally {
+            attached.close()
+            scope.cancel()
+            ChatAssetDimensionsResolver.clearForTests()
+        }
+    }
+
+    @Test
+    fun sameKeyReadyRebindRepublishesIntrinsicDimensions() {
+        ChatAssetDimensionsResolver.clearForTests()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val key = ChatAssetKey("https://static-cdn.jtvnw.net/emoticons/v2/rebind/default/dark/3.0")
+        val repository = ChatAssetRepository(scope, ChatAssetLoader {
+            object : ChatImageHandle {
+                override fun newDrawable() = SolidDrawable(Color.GREEN)
+                override fun intrinsicDimensions() = ChatAssetDimensions(112, 56)
+            }
+        })
+        val attached = attachView(repository)
+        try {
+            val fallback = ChatAssetSpec(
+                key = key,
+                sourceWidth = 56,
+                sourceHeight = 56,
+                targetHeight = 28,
+                dimensionsAreAuthoritative = false,
+            )
+            runOnMain { attached.view.bind(row(fallback, animated = false)) }
+            awaitSettled(repository, listOf(key))
+            awaitPreDraw(attached.view)
+
+            ChatAssetDimensionsResolver.clearForTests()
+            runOnMain { attached.view.bind(row(fallback, animated = false)) }
+            awaitPreDraw(attached.view)
+
+            val spanWidth = runOnMainValue {
+                val spanned = attached.view.text as Spanned
+                val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+                span.getSize(Paint(), spanned, 0, 1, Paint.FontMetricsInt())
+            }
+            assertEquals(56, spanWidth)
+        } finally {
+            attached.close()
+            scope.cancel()
+            ChatAssetDimensionsResolver.clearForTests()
+        }
     }
 
     @Test

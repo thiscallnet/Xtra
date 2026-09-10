@@ -77,6 +77,8 @@ data class ChatAssetSpec(
     val sourceHeight: Int,
     val targetHeight: Int,
     val overlays: List<ChatAssetSpec> = emptyList(),
+    /** False when these dimensions are only a fallback awaiting the decoded asset. */
+    val dimensionsAreAuthoritative: Boolean = true,
 ) {
     val computedWidth: Int
         get() {

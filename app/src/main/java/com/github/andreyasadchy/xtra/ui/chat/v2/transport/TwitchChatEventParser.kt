@@ -5,6 +5,7 @@ import com.github.andreyasadchy.xtra.model.chat.Reply as LegacyReply
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.twitchEmoteAssetSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatBadgeRef
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
@@ -273,7 +274,7 @@ object TwitchChatEventParser {
                     val id = emote?.optString("id")?.takeIf { it.isNotBlank() }
                     if (id == null) add(ChatSegment.Text(text)) else add(
                         ChatSegment.Emote(
-                            asset = nativeSpec("twitch-emote:$id", 56, 56),
+                            asset = twitchEmoteAssetSpec(id),
                             fallbackText = text,
                             animated = emote.optJSONArray("format")?.let { formats ->
                                 (0 until formats.length()).any { formats.optString(it) == "animated" }
@@ -519,14 +520,15 @@ object TwitchChatEventParser {
             when (asset) {
                 is IrcInlineAsset.Emote -> {
                     val emote = asset.value
+                    val id = emote.id ?: return@forEach
                     result += ChatSegment.Emote(
-                        nativeSpec("twitch-emote:${emote.id}", 56, 56),
+                        twitchEmoteAssetSpec(id),
                         token,
                         emote.isAnimated,
                         ChatEmoteInteraction(
-                            id = emote.id,
+                            id = id,
                             name = token,
-                            url = "https://static-cdn.jtvnw.net/emoticons/v2/${emote.id}/default/dark/3.0",
+                            url = "https://static-cdn.jtvnw.net/emoticons/v2/$id/default/dark/3.0",
                             animated = emote.isAnimated,
                             provider = ChatAssetProvider.TWITCH,
                             scope = null,
