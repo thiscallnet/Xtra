@@ -10,6 +10,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
+import kotlin.math.abs
 
 class ChatTimelineAdapter(
     private val assets: ChatAssetRepository,
@@ -181,6 +182,7 @@ class ChatTimelineAdapter(
         val viewportTop = recyclerView.paddingTop
         val viewportRight = recyclerView.width - recyclerView.paddingRight
         val viewportBottom = recyclerView.height - recyclerView.paddingBottom
+        val viewportCenter = (viewportTop + viewportBottom) / 2
         val decoratedBounds = Rect()
         val visibleHolders = recyclerView.children
             .mapNotNull { child ->
@@ -196,14 +198,20 @@ class ChatTimelineAdapter(
                     return@mapNotNull null
                 }
                 val position = recyclerView.getChildAdapterPosition(child)
-                position.takeIf { it != RecyclerView.NO_POSITION }?.let { it to holder }
+                position.takeIf { it != RecyclerView.NO_POSITION }?.let {
+                    val childCenter = (decoratedBounds.top + decoratedBounds.bottom) / 2
+                    Triple(abs(childCenter - viewportCenter), it, holder)
+                }
             }
-            .sortedByDescending { (position, _) -> position }
+            .sortedWith(
+                compareBy<Triple<Int, Int, Holder>> { it.first }
+                    .thenBy { it.second },
+            )
 
-        // Sorting by adapter position keeps animation on the newest viewport-visible messages
-        // while older visible rows retain their current frame.
+        // Keep the budget bounded, but move the slots with the viewport so rows do not freeze
+        // merely because they were scrolled away from the newest adapter positions.
         var slots = animationBudget
-        visibleHolders.forEach { (_, holder) ->
+        visibleHolders.forEach { (_, _, holder) ->
             val allowed = holder.view.hasAnimatedAssets() && slots > 0
             if (allowed) slots--
             holder.view.setAnimationBudgetAllowed(allowed)
