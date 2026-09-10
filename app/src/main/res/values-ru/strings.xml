@@ -169,7 +169,7 @@
     <string name="chat_slow_mode_accessibility">Медленный режим включён. Сообщения можно отправлять каждые %1$d секунд.</string>
     <string name="chat_slow_mode_ready">Можно отправить ещё одно сообщение.</string>
     <string name="room_subs">Подписчики</string>
-    <string name="chat_join">Выполнено подключение к %s</string>
+    <string name="chat_join">Добро пожаловать в чат!</string>
     <string name="copy_clip">Копировать в буфер обмена</string>
     <string name="chat_clear">Чат был очищен модератором</string>
     <string name="chat_timeout">%1$s отстранён от чата на %2$s</string>

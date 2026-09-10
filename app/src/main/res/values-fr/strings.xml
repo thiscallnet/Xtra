@@ -169,7 +169,7 @@
     <string name="chat_slow_mode_accessibility">Mode lent activé. Les messages peuvent être envoyés toutes les %1$d secondes.</string>
     <string name="chat_slow_mode_ready">Vous pouvez envoyer un autre message.</string>
     <string name="room_subs">Abonnés</string>
-    <string name="chat_join">Connecté.e à %s</string>
+    <string name="chat_join">Bienvenue dans le chat !</string>
     <string name="copy_clip">Copier dans le presse-papier</string>
     <string name="chat_clear">Le chat a été effacé par un modérateur</string>
     <string name="chat_timeout">%1$s a été mute pour %2$s</string>

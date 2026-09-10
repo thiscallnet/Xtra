@@ -785,7 +785,7 @@ class XtraModule(application: Application) {
                                 appContext.prefs().getString(C.CHAT_MODERATION_DISPLAY, "notice"),
                             )
                         },
-                        joinedMessage = appContext.getString(R.string.chat_join).format(spec.channelLogin),
+                        joinedMessage = appContext.getString(R.string.chat_join),
                         messageDeletedMessage = appContext.getString(R.string.chat_message_deleted),
                         chatClearedMessage = appContext.getString(R.string.chat_clear),
                         chatTimeoutMessage = { login, seconds ->

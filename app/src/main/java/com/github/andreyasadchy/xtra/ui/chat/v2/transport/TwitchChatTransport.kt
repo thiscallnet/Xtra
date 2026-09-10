@@ -109,7 +109,12 @@ class TwitchChatTransport(
             trustManager = trustManager,
             listener = object : ChatReadWebSocket.Listener {
                 override suspend fun onConnect() {
-                    systemMessage(session, "join", config.joinedMessage)?.let { flowScope.send(it) }
+                    systemMessage(
+                        session,
+                        "join",
+                        config.joinedMessage,
+                        noticeType = "chat_join",
+                    )?.let { flowScope.send(it) }
                 }
 
                 override suspend fun onChatMessage(message: ChatUtils.IRCMessage, userNotice: Boolean) {
@@ -179,7 +184,12 @@ class TwitchChatTransport(
             trustManager = trustManager,
             listener = object : EventSubWebSocket.Listener {
                 override suspend fun onConnect() {
-                    systemMessage(session, "join", config.joinedMessage)?.let { flowScope.send(it) }
+                    systemMessage(
+                        session,
+                        "join",
+                        config.joinedMessage,
+                        noticeType = "chat_join",
+                    )?.let { flowScope.send(it) }
                 }
 
                 override suspend fun onWelcomeMessage(sessionId: String) {
@@ -503,6 +513,7 @@ class TwitchChatTransport(
         suffix: String,
         text: String?,
         timestampMs: Long? = null,
+        noticeType: String? = null,
     ): ChatEvent.Message? =
         text?.takeIf { it.isNotBlank() }?.let {
             ChatEvent.Message(
@@ -515,6 +526,7 @@ class TwitchChatTransport(
                     segments = emptyList(),
                     kind = ChatMessageKind.SYSTEM,
                     systemText = it,
+                    noticeType = noticeType,
                 ),
             )
         }

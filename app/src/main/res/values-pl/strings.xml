@@ -586,7 +586,7 @@
     <string name="chat_slow_mode_accessibility">Tryb powolny jest włączony. Wiadomości można wysyłać co %1$d sekund.</string>
     <string name="chat_slow_mode_ready">Możesz wysłać kolejną wiadomość.</string>
     <string name="room_subs">Subs</string>
-    <string name="chat_join">Połączono z %s</string>
+    <string name="chat_join">Witamy na czacie!</string>
     <string name="copy_clip">Skopiuj do schowka</string>
     <string name="chat_clear">Czat został wyczyszczony przez moderatora.</string>
     <string name="chat_timeout">Upłynął limit czasu %1$s dla %2$s.</string>

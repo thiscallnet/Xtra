@@ -200,6 +200,26 @@ class ChatDomainPresentationTest {
     }
 
     @Test
+    fun chatJoinUsesTheNormalMutedChatRow() {
+        val row = ChatRowCompiler().compile(
+            message(ChatSegment.Text("ignored")).copy(
+                segments = emptyList(),
+                kind = ChatMessageKind.SYSTEM,
+                noticeType = "chat_join",
+                systemText = "Welcome to the chat room!",
+            ),
+        )
+        val text = row.pieces.filterIsInstance<ChatPiece.Text>().single()
+
+        assertEquals("Welcome to the chat room!", text.value)
+        assertTrue(text.color != null)
+        assertEquals(false, text.bold)
+        assertEquals(null, row.eventPresentation)
+        assertEquals(ChatRowBackground.NORMAL, row.backgroundStyle)
+        assertEquals("Welcome to the chat room!", row.accessibilityText)
+    }
+
+    @Test
     fun firstMessageVisibilityPreservesFullTintAndNormalModes() {
         val firstMessage = message(ChatSegment.Text("hello")).copy(isFirst = true)
 

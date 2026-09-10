@@ -169,7 +169,7 @@
     <string name="chat_slow_mode_accessibility">Mode lambat aktif. Pesan dapat dikirim setiap %1$d detik.</string>
     <string name="chat_slow_mode_ready">Anda dapat mengirim pesan lagi.</string>
     <string name="room_subs">Subs</string>
-    <string name="chat_join">Menyambungkan ke %s</string>
+    <string name="chat_join">Selamat datang di ruang obrolan!</string>
     <string name="copy_clip">Salin ke clipboard</string>
     <string name="chat_clear">Chat telah dibersihkan oleh moderator</string>
     <string name="chat_timeout">%1$s telah di-timeout selama %2$s</string>

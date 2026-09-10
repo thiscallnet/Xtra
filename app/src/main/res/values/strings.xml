@@ -740,7 +740,7 @@
     <string name="chat_slow_mode_remaining">Send again · %1$ds</string>
     <string name="chat_slow_mode_accessibility">Slow mode enabled. Messages can be sent every %1$d seconds.</string>
     <string name="chat_slow_mode_ready">You can send another message.</string>
-    <string name="chat_join">Welcome to %s\'s chat room!</string>
+    <string name="chat_join">Welcome to the chat room!</string>
     <string name="copy_clip">Copy to clipboard</string>
     <string name="chat_clear">Chat has been cleared by a moderator.</string>
     <string name="chat_clear_user">Messages from %s have been cleared by a moderator.</string>
