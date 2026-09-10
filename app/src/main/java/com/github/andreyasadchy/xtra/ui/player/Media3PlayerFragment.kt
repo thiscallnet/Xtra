@@ -1526,6 +1526,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         showController(force = true)
     }
 
+    fun refreshPlayerControlScale() {
+        if (!isAdded || _binding == null) return
+        schedulePortraitControlScale()
+    }
+
     private fun refreshPlayerControls() {
         if (!viewModel.gamesList.value.isNullOrEmpty()) {
             binding.playerControls.vodGames.setOnClickListener {

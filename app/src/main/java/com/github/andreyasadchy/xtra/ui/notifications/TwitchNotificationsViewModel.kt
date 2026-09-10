@@ -19,7 +19,7 @@ data class NotificationsUiState(
     val refreshing: Boolean = false,
     val loadingNextPage: Boolean = false,
     val canLoadMore: Boolean = false,
-    val markingAllAsSeen: Boolean = false,
+    val markingAllAsRead: Boolean = false,
     val error: TwitchInboxError? = null,
 )
 
@@ -28,13 +28,12 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
     val uiState: StateFlow<NotificationsUiState> = _uiState.asStateFlow()
     private var loadJob: Job? = null
     private var nextCursor: String? = null
-    private val locallyReadIds = mutableSetOf<String>()
     private val locallyDismissedIds = mutableSetOf<String>()
 
     init { loadInitial() }
 
     fun loadInitial() {
-        if (loadJob?.isActive == true || _uiState.value.markingAllAsSeen) return
+        if (loadJob?.isActive == true || _uiState.value.markingAllAsRead) return
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(initialLoading = true, error = null)
             runCatching { repository.getCachedNotifications() }.getOrNull()?.let { page ->
@@ -52,7 +51,7 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
     }
 
     fun refresh() {
-        if (loadJob?.isActive == true || _uiState.value.markingAllAsSeen) return
+        if (loadJob?.isActive == true || _uiState.value.markingAllAsRead) return
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(refreshing = true, error = null)
             runCatching { repository.getNotifications() }.onSuccess { page ->
@@ -67,7 +66,7 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
     }
 
     fun loadMore() {
-        if (loadJob?.isActive == true || _uiState.value.markingAllAsSeen || !_uiState.value.canLoadMore || nextCursor.isNullOrBlank()) return
+        if (loadJob?.isActive == true || _uiState.value.markingAllAsRead || !_uiState.value.canLoadMore || nextCursor.isNullOrBlank()) return
         val requestedCursor = nextCursor ?: return
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loadingNextPage = true)
@@ -87,56 +86,42 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
 
     fun markRead(item: TwitchNotification, onSuccess: () -> Unit = {}) {
         if (!item.isUnread) return
-        locallyReadIds.add(item.id)
-        _uiState.value = _uiState.value.copy(items = applyLocalChanges(_uiState.value.items))
         viewModelScope.launch {
             runCatching { repository.markNotificationsRead(listOf(item.id)) }
                 .onSuccess {
-                    _uiState.value = _uiState.value.copy(items = applyLocalChanges(_uiState.value.items))
+                    _uiState.value = _uiState.value.copy(
+                        items = applyLocalChanges(_uiState.value.items).map { current ->
+                            if (current.id == item.id) current.copy(isUnread = false) else current
+                        },
+                    )
                     onSuccess()
                 }
                 .onFailure { error ->
-                    locallyReadIds.remove(item.id)
-                    _uiState.value = _uiState.value.copy(
-                        items = _uiState.value.items.map { current ->
-                            if (current.id == item.id) current.copy(isUnread = true) else current
-                        },
-                        error = error.toInboxError(),
-                    )
+                    _uiState.value = _uiState.value.copy(error = error.toInboxError())
                 }
         }
     }
 
-    fun markAllAsSeen(onSuccess: () -> Unit = {}) {
+    fun markAllAsRead(onSuccess: () -> Unit = {}) {
         val previous = _uiState.value
-        if (previous.markingAllAsSeen || previous.initialLoading || previous.refreshing || previous.loadingNextPage || previous.items.isEmpty()) return
-        val previousUnreadById = previous.items.associate { it.id to it.isUnread }
-        val locallyReadByThisOperation = previous.items.filter { it.isUnread }.mapTo(mutableSetOf(), TwitchNotification::id)
-        locallyReadIds.addAll(locallyReadByThisOperation)
+        if (previous.markingAllAsRead || previous.initialLoading || previous.refreshing || previous.loadingNextPage || previous.items.isEmpty()) return
         _uiState.value = previous.copy(
-            items = applyLocalChanges(previous.items),
-            markingAllAsSeen = true,
+            markingAllAsRead = true,
             error = null,
         )
         viewModelScope.launch {
             runCatching { repository.markAllNotificationsRead() }
-                .onSuccess {
+                .onSuccess { readIds ->
                     _uiState.value = _uiState.value.copy(
-                        items = applyLocalChanges(_uiState.value.items),
-                        markingAllAsSeen = false,
+                        items = applyLocalChanges(_uiState.value.items).map { item ->
+                            if (item.id in readIds) item.copy(isUnread = false) else item
+                        },
+                        markingAllAsRead = false,
                     )
                     onSuccess()
                 }
                 .onFailure { error ->
-                    locallyReadIds.removeAll(locallyReadByThisOperation)
-                    val current = _uiState.value
-                    _uiState.value = current.copy(
-                        items = current.items.map { item ->
-                            previousUnreadById[item.id]?.let { isUnread -> item.copy(isUnread = isUnread) } ?: item
-                        },
-                        markingAllAsSeen = false,
-                        error = error.toInboxError(),
-                    )
+                    _uiState.value = _uiState.value.copy(markingAllAsRead = false, error = error.toInboxError())
                 }
         }
     }
@@ -162,7 +147,7 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
     }
 
     private fun applyLocalChanges(items: List<TwitchNotification>): List<TwitchNotification> =
-        applyLocalNotificationChanges(items, locallyReadIds, locallyDismissedIds)
+        applyLocalNotificationChanges(items, locallyDismissedIds)
 
     companion object {
         fun factory(repository: TwitchNotificationsRepository) = object : ViewModelProvider.Factory {
@@ -176,9 +161,7 @@ private fun Throwable.toInboxError(): TwitchInboxError = (this as? TwitchInboxEx
 
 internal fun applyLocalNotificationChanges(
     items: List<TwitchNotification>,
-    locallyReadIds: Set<String>,
     locallyDismissedIds: Set<String>,
 ): List<TwitchNotification> = items.asSequence()
     .filterNot { it.id in locallyDismissedIds }
-    .map { item -> if (item.id in locallyReadIds) item.copy(isUnread = false) else item }
     .toList()

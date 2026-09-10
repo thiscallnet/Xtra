@@ -548,11 +548,14 @@ class MetadataCache(
         if (ids.isEmpty()) return@withContext
         val cached = readNotifications(userId) ?: return@withContext
         val idSet = ids.toSet()
+        val readCount = cached.notifications.count { it.isUnread && it.id in idSet }
         val updated = cached.notifications.map { item ->
             if (item.id in idSet) item.copy(isUnread = false) else item
         }
-        if (updated != cached.notifications) {
-            writeNotifications(userId, cached.copy(notifications = updated), nowMs = clockMs())
+        val updatedUnreadCount = cached.unreadCount?.minus(readCount)?.coerceAtLeast(0)
+        val updatedPage = cached.copy(notifications = updated, unreadCount = updatedUnreadCount)
+        if (updatedPage != cached) {
+            writeNotifications(userId, updatedPage, nowMs = clockMs())
         }
     }
 

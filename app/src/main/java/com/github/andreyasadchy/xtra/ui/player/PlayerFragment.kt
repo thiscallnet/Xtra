@@ -2378,6 +2378,11 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         showController(force = true)
     }
 
+    fun refreshPlayerControlScale() {
+        if (!isAdded || _binding == null) return
+        schedulePortraitControlScale()
+    }
+
     private fun schedulePortraitControlScale() {
         PortraitPlayerControls.schedule(binding, isPortrait)
     }
