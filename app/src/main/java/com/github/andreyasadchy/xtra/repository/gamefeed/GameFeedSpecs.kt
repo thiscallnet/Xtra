@@ -20,7 +20,7 @@ object GameFeedSpecs {
         val normalizedTags = tags?.map { it.trim() }?.filter { it.isNotEmpty() }?.distinct()
         val loader: GameFeedPageLoader = TwitchGameFeedPageLoader(
             tags = normalizedTags?.takeIf { it.isNotEmpty() },
-            gqlHeaders = { TwitchApiHelper.getGQLHeaders(context) },
+            gqlHeaders = { TwitchApiHelper.getGQLHeaders(context, true) },
             graphQLRepository = graphQLRepository,
             helixHeaders = { TwitchApiHelper.getHelixHeaders(context) },
             helixRepository = helixRepository,
