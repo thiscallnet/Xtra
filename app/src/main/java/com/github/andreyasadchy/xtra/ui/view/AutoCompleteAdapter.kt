@@ -7,12 +7,14 @@ import android.widget.ArrayAdapter
 import android.widget.Filter
 import android.widget.ImageView
 import android.widget.TextView
+import coil3.Image
 import coil3.imageLoader
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.target
+import coil3.target.ImageViewTarget
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.model.GlideUrl
@@ -21,6 +23,8 @@ import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.chat.Chatter
 import com.github.andreyasadchy.xtra.model.chat.Emote
+import com.github.andreyasadchy.xtra.ui.chat.EmojiPickerItem
+import com.github.andreyasadchy.xtra.ui.chat.Twemoji
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import java.util.regex.Pattern
@@ -41,7 +45,9 @@ class AutoCompleteAdapter<T>(
         val item = getItem(position)
         when (item) {
             is Emote -> {
+                view.findViewById<TextView>(R.id.emoji)?.visibility = View.GONE
                 view.findViewById<ImageView>(R.id.image)?.let {
+                    it.tag = null
                     it.visibility = View.VISIBLE
                     // Dropdown rows are recycled; clear the previous emote before
                     // the async load completes so a stale image never flashes.
@@ -88,12 +94,46 @@ class AutoCompleteAdapter<T>(
                 view.findViewById<TextView>(R.id.name)?.text = item.name
             }
             is Chatter -> {
+                view.findViewById<TextView>(R.id.emoji)?.visibility = View.GONE
                 // A recycled emote row keeps its image; chatter rows have none.
                 view.findViewById<ImageView>(R.id.image)?.let {
+                    it.tag = null
                     it.visibility = View.GONE
                     it.setImageDrawable(null)
                 }
                 view.findViewById<TextView>(R.id.name)?.text = item.name
+            }
+            is EmojiPickerItem -> {
+                view.findViewById<ImageView>(R.id.image)?.let {
+                    val fallback = view.findViewById<TextView>(R.id.emoji)
+                    val url = Twemoji.url(item.value)
+                    it.tag = url
+                    it.visibility = View.VISIBLE
+                    it.setImageDrawable(null)
+                    fallback?.apply {
+                        visibility = View.VISIBLE
+                        text = item.value
+                    }
+                    context.imageLoader.enqueue(
+                        ImageRequest.Builder(context)
+                            .data(url)
+                            .target(object : ImageViewTarget(it) {
+                                override fun onSuccess(result: Image) {
+                                    if (it.tag != url) return
+                                    super.onSuccess(result)
+                                    fallback?.visibility = View.GONE
+                                }
+
+                                override fun onError(error: Image?) {
+                                    if (it.tag != url) return
+                                    it.visibility = View.GONE
+                                    fallback?.visibility = View.VISIBLE
+                                }
+                            })
+                            .build(),
+                    )
+                }
+                view.findViewById<TextView>(R.id.name)?.text = item.alias
             }
         }
         return view

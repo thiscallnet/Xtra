@@ -2,15 +2,20 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.recommendations
 
 import com.github.andreyasadchy.xtra.model.chat.EmoteUsage
 import com.github.andreyasadchy.xtra.repository.EmoteUsageIncrement
+import com.github.andreyasadchy.xtra.ui.chat.EmojiPickerCatalog
+import com.github.andreyasadchy.xtra.ui.chat.EmojiPickerItem
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.viewerSendableValues
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import java.util.Locale
 
 data class EmoteRecommendationCatalog(
     val emotes: List<ChatCatalogEmote>,
+    val emojis: List<EmojiPickerItem> = emptyList(),
 )
 
 data class EmoteRecommendationState(
@@ -24,6 +29,7 @@ data class EmoteRecommendation(
     val match: FuzzyMatch,
     val useCount: Long,
     val lastUsedAt: Long,
+    val emoji: EmojiPickerItem? = null,
 )
 
 object EmoteUsageKeys {
@@ -55,6 +61,7 @@ class EmoteRecommendationEngine(
     fun catalog(snapshot: ChatCatalogSnapshot): EmoteRecommendationCatalog =
         EmoteRecommendationCatalog(
             emotes = sendableEmotes(snapshot),
+            emojis = EmojiPickerCatalog.items,
         )
 
     fun recommend(
@@ -67,7 +74,7 @@ class EmoteRecommendationEngine(
         val normalizedQuery = query.trim().removePrefix(":").removeSuffix(":")
         if (normalizedQuery.isBlank()) return emptyList()
         val usageByKey = usage.associateBy(EmoteUsage::usageKey)
-        return catalog.emotes.mapNotNull { emote ->
+        val emoteRecommendations = catalog.emotes.mapNotNull { emote ->
             val match = matcher.match(emote.name, normalizedQuery) ?: return@mapNotNull null
             val record = usageByKey[EmoteUsageKeys.forEmote(emote, channelId, viewerId)]
             EmoteRecommendation(
@@ -76,7 +83,21 @@ class EmoteRecommendationEngine(
                 useCount = record?.useCount ?: 0L,
                 lastUsedAt = record?.lastUsedAt ?: 0L,
             )
-        }.sortedWith(
+        }
+        val emojiRecommendations = catalog.emojis.mapNotNull { emoji ->
+            val match = emoji.aliases
+                .mapNotNull { alias -> matcher.match(alias, normalizedQuery) }
+                .maxByOrNull(FuzzyMatch::score)
+                ?: return@mapNotNull null
+            EmoteRecommendation(
+                emote = emojiAsCatalogEmote(emoji),
+                match = match,
+                useCount = 0L,
+                lastUsedAt = 0L,
+                emoji = emoji,
+            )
+        }
+        return (emoteRecommendations + emojiRecommendations).sortedWith(
             compareByDescending<EmoteRecommendation> { it.useCount }
                 .thenByDescending { it.match.score }
                 .thenByDescending { it.lastUsedAt }
@@ -85,6 +106,19 @@ class EmoteRecommendationEngine(
                 .thenBy { it.emote.id },
         ).take(maxResults)
     }
+
+    private fun emojiAsCatalogEmote(emoji: EmojiPickerItem): ChatCatalogEmote = ChatCatalogEmote(
+        name = emoji.name,
+        asset = ChatAssetSpec(
+            key = ChatAssetKey("emoji:${emoji.name}"),
+            sourceWidth = 1,
+            sourceHeight = 1,
+            targetHeight = 1,
+        ),
+        provider = ChatAssetProvider.TWITCH,
+        animated = false,
+        id = "emoji:${emoji.name}",
+    )
 
     /** Resolves exactly what a whitespace-delimited sent token can refer to in this catalog. */
     fun resolveSentToken(snapshot: ChatCatalogSnapshot, token: String): ChatCatalogEmote? {

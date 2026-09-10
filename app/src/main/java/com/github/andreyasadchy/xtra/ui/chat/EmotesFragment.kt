@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.model.chat.RecentEmote
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewModelFactory
 import com.github.andreyasadchy.xtra.ui.view.GridAutofitLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.tabs.TabLayout
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -33,6 +34,7 @@ internal fun pendingFavoriteItemsToApply(
 enum class EmotePickerSection {
     FAVORITES,
     RECENTS,
+    EMOJI,
     TWITCH,
     THIRD_PARTY,
     ;
@@ -70,6 +72,10 @@ class EmotesFragment : Fragment() {
         val section = requireArguments().getString(KEY_SECTION)
             ?.let { runCatching { EmotePickerSection.valueOf(it) }.getOrNull() }
             ?: EmotePickerSection.THIRD_PARTY
+        if (section == EmotePickerSection.EMOJI) {
+            setupEmojiPicker()
+            return
+        }
         val chatFragment = parentFragment as? ChatFragment
         val expectedChannelId = chatFragment?.arguments?.getString(ChatFragment.KEY_CHANNEL_ID)
         val expectedChannelLogin = chatFragment?.arguments?.getString(ChatFragment.KEY_CHANNEL_LOGIN)
@@ -198,6 +204,43 @@ class EmotesFragment : Fragment() {
         updateList(section, adapter)
     }
 
+    private fun setupEmojiPicker() {
+        binding.editFavorites.isVisible = false
+        binding.emptyState.isVisible = false
+        binding.emojiCategories.isVisible = true
+        val adapter = EmojiAdapter(this) { emoji ->
+            (parentFragment as? ChatFragment)?.appendEmoji(emoji)
+        }
+        with(binding.emotesRecyclerView) {
+            itemAnimator = null
+            this.adapter = adapter
+            val columnWidth = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                50f,
+                resources.displayMetrics,
+            ).toInt()
+            layoutManager = GridAutofitLayoutManager(requireContext(), columnWidth)
+        }
+        binding.emojiCategories.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                EmojiPickerCatalog.categories.getOrNull(tab.position)?.let { category ->
+                    adapter.submitList(EmojiPickerCatalog.itemsFor(category))
+                }
+            }
+
+            override fun onTabUnselected(tab: TabLayout.Tab) = Unit
+
+            override fun onTabReselected(tab: TabLayout.Tab) = Unit
+        })
+        EmojiPickerCatalog.categories.forEach { category ->
+            binding.emojiCategories.addTab(
+                binding.emojiCategories.newTab().setText(getString(category.titleRes)),
+            )
+        }
+        binding.emojiCategories.getTabAt(0)?.select()
+        adapter.submitList(EmojiPickerCatalog.itemsFor(EmojiPickerCatalog.categories.first()))
+    }
+
     private fun updateList(section: EmotePickerSection, adapter: EmotesAdapter) {
         val list = when (section) {
             EmotePickerSection.FAVORITES -> pickerCatalog?.let(viewModel::availableFavoriteEmotesFor)
@@ -212,6 +255,7 @@ class EmotesFragment : Fragment() {
                 null -> viewModel.thirdPartyPickerEmotes()
                 else -> emptyList()
             }
+            EmotePickerSection.EMOJI -> emptyList()
         }
         if (section == EmotePickerSection.FAVORITES && favoriteDragActive) {
             pendingFavoriteItems = list.toList()

@@ -155,6 +155,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.max
+import kotlin.math.min
 
 private const val TWITCH_LISTENING_ONLY_BADGE_URL =
     "https://static-cdn.jtvnw.net/badges/v1/199a0dba-58f3-494e-a7fc-1fa0a1001fb8/3"
@@ -1454,6 +1455,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             tab.text = when (EmotePickerSection.fromPosition(position)) {
                                 EmotePickerSection.FAVORITES -> getString(R.string.favorite_emotes)
                                 EmotePickerSection.RECENTS -> getString(R.string.recent_emotes)
+                                EmotePickerSection.EMOJI -> getString(R.string.emoji)
                                 EmotePickerSection.TWITCH -> "Twitch"
                                 EmotePickerSection.THIRD_PARTY -> "7TV/BTTV/FFZ"
                             }
@@ -2518,12 +2520,27 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         binding.editText.text.append(emote.name).append(' ')
     }
 
+    fun appendEmoji(emoji: EmojiPickerItem) {
+        val current = binding.editText
+        val start = min(current.selectionStart, current.selectionEnd).coerceIn(0, current.length())
+        val end = max(current.selectionStart, current.selectionEnd).coerceIn(start, current.length())
+        val prefix = current.text.substring(0, start)
+        val suffix = current.text.substring(end)
+        val insertion = buildString {
+            if (prefix.lastOrNull()?.isWhitespace() == false) append(' ')
+            append(emoji.alias)
+            if (suffix.firstOrNull()?.isWhitespace() != true) append(' ')
+        }
+        current.text.replace(start, end, insertion)
+        current.setSelection((start + insertion.length).coerceIn(0, current.length()))
+    }
+
     private fun insertRecommendedEmote(recommendation: EmoteRecommendation) {
         val current = binding.editText
         val replacement = ChatInputToken.replace(
             text = current.text,
             cursor = current.selectionStart,
-            replacement = recommendation.emote.name,
+            replacement = recommendation.emoji?.alias ?: recommendation.emote.name,
         ) ?: return
         current.setText(replacement.text)
         current.setSelection(replacement.cursor.coerceIn(0, current.length()))
@@ -3223,7 +3240,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         with(binding) {
             val overlay = composerOverlayState
             if (overlay != null) {
-                val text = editText.text.trim().toString()
+                val text = EmojiPickerCatalog.replaceAliases(editText.text).trim()
                 if (overlay is ComposerOverlayState.Reward && text.isBlank()) {
                     return false
                 }
@@ -3260,7 +3277,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
             editText.clearFocus()
             toggleEmoteMenu(false)
-            val text = editText.text.trim().toString()
+            val text = EmojiPickerCatalog.replaceAliases(editText.text).trim()
             return if (text.isNotEmpty()) {
                 pendingChatSubmission = PendingChatSubmission(text = text, replyId = replyId)
                 composerSubmissionInProgress = true

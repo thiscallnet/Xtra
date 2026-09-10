@@ -14,6 +14,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatImageHandle
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
+import com.github.andreyasadchy.xtra.ui.chat.EmojiPickerCatalog
+import com.github.andreyasadchy.xtra.ui.chat.Twemoji
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -71,8 +73,38 @@ internal class ChatInputEmoteRenderer(
             }
             .toMutableMap()
         val observedKeys = LinkedHashSet<ChatAssetKey>()
-
         chatInputEmoteTokens(editable).forEach { token ->
+            val emoji = EmojiPickerCatalog.findByAlias(token.text)
+            if (emoji != null) {
+                val placement = SpanPlacement(token.start, token.end)
+                val spec = ChatAssetSpec(
+                    key = ChatAssetKey(Twemoji.url(emoji.value)),
+                    sourceWidth = 72,
+                    sourceHeight = 72,
+                    targetHeight = 1,
+                )
+                val existing = existingSpans.remove(placement)
+                if (existing == null || !existing.matches(spec, emoji.value)) {
+                    existing?.let { span ->
+                        span.dispose()
+                        editable.removeSpan(span)
+                    }
+                    editable.setSpan(
+                        ChatInputEmoteSpan(
+                            textView = textView,
+                            assets = assets,
+                            spec = spec,
+                            fallback = emoji.value,
+                            animateGifs = false,
+                        ),
+                        token.start,
+                        token.end,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                    )
+                }
+                observedKeys += spec.key
+                return@forEach
+            }
             val emote = emotesByName[token.text] ?: return@forEach
             val placement = SpanPlacement(token.start, token.end)
             val existing = existingSpans.remove(placement)

@@ -2976,9 +2976,10 @@ class ChatViewModel(
 
     fun refreshV2AutoCompleteList(catalog: PickerCatalog) {
         synchronized(autoCompleteList) {
-            val nonEmotes = autoCompleteList.filterNot { it is Emote }
+            val nonEmotes = autoCompleteList.filterNot { it is Emote || it is EmojiPickerItem }
             autoCompleteList.clear()
             autoCompleteList.addAll(nonEmotes)
+            autoCompleteList.addAll(EmojiPickerCatalog.items)
             autoCompleteList.addAll(catalog.all)
         }
     }
