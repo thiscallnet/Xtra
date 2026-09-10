@@ -6,10 +6,6 @@ import androidx.core.view.isVisible
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
-import coil3.Image
-import coil3.imageLoader
-import coil3.request.ImageRequest
-import coil3.target.ImageViewTarget
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ItemEmoteRecommendationBinding
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
@@ -39,7 +35,6 @@ class EmoteRecommendationAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
         private var observedKey: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey? = null
         private var observer: (() -> Unit)? = null
-        private var imageRequest: coil3.request.Disposable? = null
 
         fun bind(item: EmoteRecommendation) {
             unbind()
@@ -51,23 +46,37 @@ class EmoteRecommendationAdapter(
                 binding.name.text = emoji.alias
                 binding.root.contentDescription = binding.root.context.getString(R.string.use_emoji, emoji.alias)
                 binding.root.setOnClickListener { clickListener(item) }
-                imageRequest = binding.root.context.imageLoader.enqueue(
-                    ImageRequest.Builder(binding.root.context)
-                        .data(Twemoji.url(emoji.value))
-                        .target(object : ImageViewTarget(binding.image) {
-                            override fun onSuccess(result: Image) {
-                                super.onSuccess(result)
-                                binding.emoji.isVisible = false
-                                binding.image.isVisible = true
+                val key = Twemoji.asset(emoji.value).key
+                observedKey = key
+                binding.image.tag = key
+                val updateImage: () -> Unit = {
+                    binding.image.post {
+                        if (binding.image.tag != key) return@post
+                        when (val state = assets.peek(key)) {
+                            is ChatAssetState.Ready -> {
+                                val drawable = state.image.newDrawable()
+                                if (drawable == null) {
+                                    assets.retryIfDrawableUnavailable(key)
+                                    binding.image.setImageDrawable(null)
+                                    binding.image.isVisible = false
+                                    binding.emoji.isVisible = true
+                                } else {
+                                    binding.image.setImageDrawable(drawable)
+                                    binding.image.isVisible = true
+                                    binding.emoji.isVisible = false
+                                }
                             }
-
-                            override fun onError(error: Image?) {
+                            else -> {
+                                binding.image.setImageDrawable(null)
                                 binding.image.isVisible = false
                                 binding.emoji.isVisible = true
                             }
-                        })
-                        .build(),
-                )
+                        }
+                    }
+                }
+                observer = updateImage
+                assets.observe(key, updateImage)
+                updateImage()
                 return
             }
             val key = item.emote.asset.key
@@ -106,8 +115,6 @@ class EmoteRecommendationAdapter(
         }
 
         fun unbind() {
-            imageRequest?.dispose()
-            imageRequest = null
             observer?.let { callback -> observedKey?.let { assets.removeObserver(it, callback) } }
             observer = null
             observedKey = null

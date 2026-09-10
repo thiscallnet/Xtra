@@ -48,7 +48,20 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # Emoji picker labels currently use the default English wording until
     # the picker is translated consistently across locales.
     "emoji",
+    "emoji_category_all",
+    "emoji_category_smileys",
+    "emoji_category_people",
+    "emoji_category_animals",
+    "emoji_category_food",
+    "emoji_category_travel",
+    "emoji_category_activities",
+    "emoji_category_objects",
+    "emoji_category_symbols",
+    "emoji_category_flags",
+    "select_emoji_category",
     "use_emoji",
+    "settings_twemoji",
+    "settings_twemoji_summary",
     # Drops progress settings ship with the default English wording until their
     # translations are reviewed by native speakers.
     "drops_show_summary",

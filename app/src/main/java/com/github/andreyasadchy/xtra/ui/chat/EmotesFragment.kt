@@ -15,6 +15,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentEmotesBinding
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.RecentEmote
@@ -61,6 +62,7 @@ class EmotesFragment : Fragment() {
     private var pendingFavoriteItems: List<Emote>? = null
     private var thirdPartyPickerState: ChatViewModel.ThirdPartyPickerState? = null
     private var pickerCatalog: ChatViewModel.PickerCatalog? = null
+    private var emojiAdapter: EmojiAdapter? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentEmotesBinding.inflate(inflater, container, false)
@@ -208,9 +210,11 @@ class EmotesFragment : Fragment() {
         binding.editFavorites.isVisible = false
         binding.emptyState.isVisible = false
         binding.emojiCategories.isVisible = true
-        val adapter = EmojiAdapter(this) { emoji ->
+        val assets = (requireContext().applicationContext as XtraApp).xtraModule.chatAssetRepository
+        val adapter = EmojiAdapter(this, assets) { emoji ->
             (parentFragment as? ChatFragment)?.appendEmoji(emoji)
         }
+        emojiAdapter = adapter
         with(binding.emotesRecyclerView) {
             itemAnimator = null
             this.adapter = adapter
@@ -363,6 +367,9 @@ class EmotesFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        emojiAdapter?.let { binding.emotesRecyclerView.adapter = null }
+        emojiAdapter?.dispose()
+        emojiAdapter = null
         super.onDestroyView()
         favoriteEditMode = false
         _binding = null

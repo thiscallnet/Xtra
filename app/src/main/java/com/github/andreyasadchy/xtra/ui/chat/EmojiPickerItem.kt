@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
 import com.github.andreyasadchy.xtra.R
+import java.util.Locale
 
 /** The groups shown inside the emoji picker. */
 enum class EmojiPickerCategory(val titleRes: Int) {
@@ -22,11 +23,25 @@ data class EmojiPickerItem(
     val value: String,
     val category: EmojiPickerCategory = EmojiPickerCategory.SMILEYS,
     val aliases: List<String> = listOf(name),
+    val matchedAlias: String? = null,
 ) {
-    val alias: String get() = ":$name:"
+    val alias: String get() = ":${matchedAlias ?: name}:"
 
     override fun toString(): String = alias
 }
+
+data class EmojiAliasMatch(
+    val item: EmojiPickerItem,
+    val matchedAlias: String,
+    val start: Int,
+    val end: Int,
+)
+
+data class EmojiAliasPrefix(
+    val text: String,
+    val start: Int,
+    val end: Int,
+)
 
 internal object EmojiPickerCatalog {
     val categories: List<EmojiPickerCategory> = EmojiPickerCategory.entries
@@ -37,20 +52,91 @@ internal object EmojiPickerCatalog {
 
     private val itemsByCategory by lazy { items.groupBy(EmojiPickerItem::category) }
     private val byAlias by lazy {
-        items
-            .flatMap { item -> item.aliases.map { alias -> ":$alias:" to item } }
-            .toMap()
+        buildMap {
+            items.flatMap { item -> item.aliases.map { alias -> ":${alias.lowercase(Locale.ROOT)}:" to item } }
+                .forEach { (alias, item) ->
+                    val previous = put(alias, item)
+                    check(previous == null || previous == item) { "Duplicate emoji alias: $alias" }
+                }
+        }
     }
 
     fun itemsFor(category: EmojiPickerCategory): List<EmojiPickerItem> =
         if (category == EmojiPickerCategory.ALL) items else itemsByCategory[category].orEmpty()
 
-    fun findByAlias(alias: String): EmojiPickerItem? = byAlias[alias]
+    fun findByAlias(alias: String): EmojiPickerItem? = byAlias[alias.lowercase(Locale.ROOT)]
+
+    fun findAliasMatches(text: CharSequence): List<EmojiAliasMatch> = buildList {
+        val value = text.toString()
+        rawAliasMatches(value).forEach { match ->
+            if (isEscaped(value, match.range.first) || isInsideUrl(value, match.range.first, match.range.last + 1)) {
+                return@forEach
+            }
+            byAlias[match.value.lowercase(Locale.ROOT)]?.let { item ->
+                add(
+                    EmojiAliasMatch(
+                        item = item,
+                        matchedAlias = match.value,
+                        start = match.range.first,
+                        end = match.range.last + 1,
+                    ),
+                )
+            }
+        }
+    }
 
     fun replaceAliases(text: CharSequence): String {
-        return ALIAS_PATTERN.replace(text.toString()) { match ->
-            byAlias[match.value]?.value ?: match.value
+        val value = text.toString()
+        val matches = rawAliasMatches(value).toList()
+        if (matches.isEmpty()) return value
+        return buildString(value.length) {
+            var cursor = 0
+            matches.forEach { match ->
+                val start = match.range.first
+                val end = match.range.last + 1
+                if (isEscaped(value, start)) {
+                    append(value, cursor, start - 1)
+                    append(value, start, end)
+                } else if (isInsideUrl(value, start, end)) {
+                    append(value, cursor, end)
+                } else {
+                    byAlias[match.value.lowercase(Locale.ROOT)]?.let { item ->
+                        append(value, cursor, start)
+                        append(item.value)
+                    } ?: append(value, cursor, end)
+                }
+                cursor = end
+            }
+            append(value, cursor, value.length)
         }
+    }
+
+    fun findAliasPrefixAtCursor(text: CharSequence, cursor: Int): EmojiAliasPrefix? {
+        val value = text.toString()
+        if (value.isEmpty()) return null
+        val position = cursor.coerceIn(0, value.length)
+        var scanEnd = position
+        if (scanEnd > 0 && value[scanEnd - 1].isWhitespace()) return null
+        if (scanEnd > 0 && !isAliasNameChar(value[scanEnd - 1]) && value[scanEnd - 1] != ':') {
+            scanEnd--
+        }
+        val searchEnd = if (
+            scanEnd > 1 && value[scanEnd - 1] == ':' && isAliasNameChar(value[scanEnd - 2])
+        ) {
+            scanEnd - 2
+        } else {
+            scanEnd - 1
+        }
+        val colon = value.lastIndexOf(':', searchEnd.coerceAtLeast(0))
+        if (colon < 0 || colon >= scanEnd || (colon > 0 && isAliasBoundaryChar(value[colon - 1])) || isEscaped(value, colon)) {
+            return null
+        }
+        var end = colon + 1
+        while (end < value.length && isAliasNameChar(value[end])) end++
+        if (end == colon + 1) return null
+        if (end < value.length && value[end] == ':') end++
+        if (end != scanEnd || isInsideUrl(value, colon, end)) return null
+        return EmojiAliasPrefix(value.substring(colon, end), colon, end)
     }
 
     private fun smiley(name: String, value: String, vararg aliases: String) = emoji(EmojiPickerCategory.SMILEYS, name, value, *aliases)
@@ -1967,5 +2053,31 @@ internal object EmojiPickerCatalog {
         flag("wales", "🏴󠁧󠁢󠁷󠁬󠁳󠁿"),
     )
 
-    private val ALIAS_PATTERN = Regex("(?<![A-Za-z0-9_+\\-]):[A-Za-z0-9_+\\-]+:(?![A-Za-z0-9_+\\-])")
+    private val ALIAS_PATTERN = Regex(
+        """(?<![\p{L}\p{M}\p{N}_+\-]):[A-Za-z0-9_+\-]+:(?![\p{L}\p{M}\p{N}_+\-])""",
+    )
+    private val URL_PATTERN = Regex(
+        """(?i)(?:\b(?:https?|ftp)://[^\s]+|\b(?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.[a-z]{2,}(?::\d+)?(?:[/?][^\s]*)?|\blocalhost(?::\d+)?(?:[/?][^\s]*)?)""",
+    )
+
+    private fun rawAliasMatches(value: String) = ALIAS_PATTERN.findAll(value)
+
+    private fun isAliasNameChar(value: Char): Boolean = value in 'a'..'z' ||
+            value in 'A'..'Z' ||
+            value in '0'..'9' ||
+            value == '_' || value == '+' || value == '-'
+
+    private fun isAliasBoundaryChar(value: Char): Boolean = value.isLetterOrDigit() ||
+            when (Character.getType(value.code)) {
+                Character.NON_SPACING_MARK.toInt(),
+                Character.COMBINING_SPACING_MARK.toInt(),
+                Character.ENCLOSING_MARK.toInt() -> true
+                else -> false
+            } || value == '_' || value == '+' || value == '-'
+
+    private fun isEscaped(value: String, start: Int): Boolean = start > 0 && value[start - 1] == '\\'
+
+    private fun isInsideUrl(value: String, start: Int, end: Int): Boolean = URL_PATTERN.findAll(value).any {
+        it.range.first <= start && it.range.last + 1 >= end
+    }
 }

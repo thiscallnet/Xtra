@@ -520,6 +520,8 @@
     <string name="settings_reset_summary">Keeps your account, downloads and app content.</string>
     <string name="settings_github">GitHub repository</string>
     <string name="settings_licenses">Licenses</string>
+    <string name="settings_twemoji">Twemoji</string>
+    <string name="settings_twemoji_summary">Emoji graphics by Twitter, Inc., licensed under CC-BY 4.0.</string>
     <string name="settings_report_issue">Report an issue</string>
     <string name="settings_version">Version</string>
     <string name="settings_build">Build</string>
@@ -671,17 +673,17 @@
     <string name="favorite_emotes">★ Favorites</string>
     <string name="recent_emotes">Recent</string>
     <string name="emoji">Emoji</string>
-    <string name="emoji_category_all" translatable="false">All</string>
-    <string name="emoji_category_smileys" translatable="false">Smileys</string>
-    <string name="emoji_category_people" translatable="false">People</string>
-    <string name="emoji_category_animals" translatable="false">Animals</string>
-    <string name="emoji_category_food" translatable="false">Food</string>
-    <string name="emoji_category_travel" translatable="false">Travel</string>
-    <string name="emoji_category_activities" translatable="false">Activities</string>
-    <string name="emoji_category_objects" translatable="false">Objects</string>
-    <string name="emoji_category_symbols" translatable="false">Symbols</string>
-    <string name="emoji_category_flags" translatable="false">Flags</string>
-    <string name="select_emoji_category" translatable="false">Select emoji category</string>
+    <string name="emoji_category_all">All</string>
+    <string name="emoji_category_smileys">Smileys</string>
+    <string name="emoji_category_people">People</string>
+    <string name="emoji_category_animals">Animals</string>
+    <string name="emoji_category_food">Food</string>
+    <string name="emoji_category_travel">Travel</string>
+    <string name="emoji_category_activities">Activities</string>
+    <string name="emoji_category_objects">Objects</string>
+    <string name="emoji_category_symbols">Symbols</string>
+    <string name="emoji_category_flags">Flags</string>
+    <string name="select_emoji_category">Select emoji category</string>
     <string name="notification_playback_channel_title">Playback</string>
     <string name="channels">Channels</string>
     <string name="watch_video">Watch full video</string>

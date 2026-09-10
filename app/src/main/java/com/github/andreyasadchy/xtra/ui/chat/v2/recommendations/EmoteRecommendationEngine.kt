@@ -9,8 +9,6 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.viewerSendableValues
-import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
-import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import java.util.Locale
 
 data class EmoteRecommendationCatalog(
@@ -70,8 +68,17 @@ class EmoteRecommendationEngine(
         catalog: EmoteRecommendationCatalog,
         usage: List<EmoteUsage>,
         viewerId: String,
+        emojiQuery: String? = null,
     ): List<EmoteRecommendation> {
         val normalizedQuery = query.trim().removePrefix(":").removeSuffix(":")
+        val trimmedQuery = query.trim()
+        val emojiSearchQuery = (emojiQuery ?: trimmedQuery
+            .removeSuffix(":")
+            .substringAfterLast(":")
+            .takeWhile { it.isLetterOrDigit() || it == '_' || it == '+' || it == '-' })
+            .trim()
+            .removePrefix(":")
+            .removeSuffix(":")
         if (normalizedQuery.isBlank()) return emptyList()
         val usageByKey = usage.associateBy(EmoteUsage::usageKey)
         val emoteRecommendations = catalog.emotes.mapNotNull { emote ->
@@ -85,39 +92,65 @@ class EmoteRecommendationEngine(
             )
         }
         val emojiRecommendations = catalog.emojis.mapNotNull { emoji ->
-            val match = emoji.aliases
-                .mapNotNull { alias -> matcher.match(alias, normalizedQuery) }
-                .maxByOrNull(FuzzyMatch::score)
+            if (emojiSearchQuery.isBlank()) return@mapNotNull null
+            val aliasMatch = emoji.aliases.asSequence()
+                .filter { alias ->
+                    alias.equals(emojiSearchQuery, ignoreCase = true) ||
+                            alias.startsWith(emojiSearchQuery, ignoreCase = true)
+                }
+                .mapNotNull { alias ->
+                    matcher.match(alias, emojiSearchQuery)?.let { match -> EmojiAliasRecommendation(alias, match) }
+                }
+                .maxWithOrNull(compareBy<EmojiAliasRecommendation> { it.match.score }.thenBy { it.alias })
                 ?: return@mapNotNull null
             EmoteRecommendation(
                 emote = emojiAsCatalogEmote(emoji),
-                match = match,
+                match = aliasMatch.match,
                 useCount = 0L,
                 lastUsedAt = 0L,
-                emoji = emoji,
+                emoji = emoji.copy(matchedAlias = aliasMatch.alias),
             )
         }
-        return (emoteRecommendations + emojiRecommendations).sortedWith(
-            compareByDescending<EmoteRecommendation> { it.useCount }
+        val exactEmoji = if (trimmedQuery.startsWith(":")) {
+            EmojiPickerCatalog.findByAlias(
+                if (trimmedQuery.endsWith(":")) trimmedQuery else "$trimmedQuery:",
+            )
+        } else {
+            null
+        }
+        val sorted = (emoteRecommendations + emojiRecommendations).sortedWith(
+            compareBy<EmoteRecommendation> { recommendationGroup(it) }
+                .thenByDescending { it.useCount }
                 .thenByDescending { it.match.score }
                 .thenByDescending { it.lastUsedAt }
                 .thenBy { it.emote.name.lowercase(Locale.ROOT) }
                 .thenBy { it.emote.provider.name }
                 .thenBy { it.emote.id },
-        ).take(maxResults)
+        )
+        val exactEmojiRecommendation = exactEmoji?.let { item -> sorted.firstOrNull { it.emoji?.name == item.name } }
+        return buildList(maxResults) {
+            exactEmojiRecommendation?.let(::add)
+            addAll(sorted.asSequence().filterNot { it === exactEmojiRecommendation }.take(maxResults - size).toList())
+        }
     }
 
     private fun emojiAsCatalogEmote(emoji: EmojiPickerItem): ChatCatalogEmote = ChatCatalogEmote(
         name = emoji.name,
-        asset = ChatAssetSpec(
-            key = ChatAssetKey("emoji:${emoji.name}"),
-            sourceWidth = 1,
-            sourceHeight = 1,
-            targetHeight = 1,
-        ),
-        provider = ChatAssetProvider.TWITCH,
+        asset = com.github.andreyasadchy.xtra.ui.chat.Twemoji.asset(emoji.value),
+        provider = ChatAssetProvider.UNICODE_EMOJI,
         animated = false,
         id = "emoji:${emoji.name}",
+    )
+
+    private fun recommendationGroup(recommendation: EmoteRecommendation): Int = when {
+        recommendation.emoji != null -> 1
+        recommendation.match.score >= 700_000 -> 0
+        else -> 2
+    }
+
+    private data class EmojiAliasRecommendation(
+        val alias: String,
+        val match: FuzzyMatch,
     )
 
     /** Resolves exactly what a whitespace-delimited sent token can refer to in this catalog. */

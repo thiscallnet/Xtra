@@ -111,6 +111,78 @@ class EmoteRecommendationEngineTest {
     }
 
     @Test
+    fun `emoji recommendations use exact and prefix aliases without fuzzy noise`() {
+        val catalog = engine.catalog(ChatCatalogSnapshot(1, twitch = emptyMap()))
+
+        assertEquals(
+            listOf("skull", "skull_and_crossbones"),
+            engine.recommend(":skul", "channel", catalog, emptyList(), EmoteUsageKeys.ANONYMOUS_VIEWER_ID)
+                .map { it.emote.name },
+        )
+        assertEquals(
+            listOf("skull", "skull_and_crossbones"),
+            engine.recommend(
+                query = ":skul",
+                channelId = "channel",
+                catalog = catalog,
+                usage = emptyList(),
+                viewerId = EmoteUsageKeys.ANONYMOUS_VIEWER_ID,
+                emojiQuery = ":skul",
+            ).map { it.emote.name },
+        )
+        assertTrue(
+            engine.recommend("kap", "channel", catalog, emptyList(), EmoteUsageKeys.ANONYMOUS_VIEWER_ID)
+                .none { it.emoji != null },
+        )
+    }
+
+    @Test
+    fun `emoji recommendations keep working around punctuation and exact aliases are guaranteed`() {
+        val punctuationCatalog = engine.catalog(ChatCatalogSnapshot(1, twitch = emptyMap()))
+        assertTrue(
+            engine.recommend("(:skul,", "channel", punctuationCatalog, emptyList(), EmoteUsageKeys.ANONYMOUS_VIEWER_ID)
+                .any { it.emoji?.name == "skull" },
+        )
+
+        val crowdedEngine = EmoteRecommendationEngine(maxResults = 10)
+        val crowdedSnapshot = ChatCatalogSnapshot(
+            revision = 1,
+            twitch = (1..12).associate { index ->
+                val emote = emote("HeartEmote$index", "heart-$index")
+                emote.name to emote
+            },
+        )
+        val result = crowdedEngine.recommend(
+            ":heart:",
+            "channel",
+            crowdedEngine.catalog(crowdedSnapshot),
+            emptyList(),
+            EmoteUsageKeys.ANONYMOUS_VIEWER_ID,
+        )
+        assertEquals("heart", result.first().emoji?.name)
+
+        val prefixResult = crowdedEngine.recommend(
+            ":heart",
+            "channel",
+            crowdedEngine.catalog(crowdedSnapshot),
+            emptyList(),
+            EmoteUsageKeys.ANONYMOUS_VIEWER_ID,
+        )
+        assertEquals("heart", prefixResult.first().emoji?.name)
+
+        assertTrue(
+            crowdedEngine.recommend(
+                "https://x/:hea",
+                "channel",
+                crowdedEngine.catalog(crowdedSnapshot),
+                emptyList(),
+                EmoteUsageKeys.ANONYMOUS_VIEWER_ID,
+                emojiQuery = "",
+            ).none { it.emoji != null },
+        )
+    }
+
+    @Test
     fun `other chatters personal sets are not recommendation or send candidates`() {
         val viewer = emote("ViewerOnly", "viewer", ChatEmoteScope.PERSONAL, ChatAssetProvider.SEVEN_TV)
         val chatter = emote("ChatterOnly", "chatter", ChatEmoteScope.PERSONAL, ChatAssetProvider.SEVEN_TV)

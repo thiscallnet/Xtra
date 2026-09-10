@@ -73,38 +73,32 @@ internal class ChatInputEmoteRenderer(
             }
             .toMutableMap()
         val observedKeys = LinkedHashSet<ChatAssetKey>()
-        chatInputEmoteTokens(editable).forEach { token ->
-            val emoji = EmojiPickerCatalog.findByAlias(token.text)
-            if (emoji != null) {
-                val placement = SpanPlacement(token.start, token.end)
-                val spec = ChatAssetSpec(
-                    key = ChatAssetKey(Twemoji.url(emoji.value)),
-                    sourceWidth = 72,
-                    sourceHeight = 72,
-                    targetHeight = 1,
-                )
-                val existing = existingSpans.remove(placement)
-                if (existing == null || !existing.matches(spec, emoji.value)) {
-                    existing?.let { span ->
-                        span.dispose()
-                        editable.removeSpan(span)
-                    }
-                    editable.setSpan(
-                        ChatInputEmoteSpan(
-                            textView = textView,
-                            assets = assets,
-                            spec = spec,
-                            fallback = emoji.value,
-                            animateGifs = false,
-                        ),
-                        token.start,
-                        token.end,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-                    )
+        val emojiMatches = EmojiPickerCatalog.findAliasMatches(editable)
+        emojiMatches.forEach { match ->
+            val placement = SpanPlacement(match.start, match.end)
+            val spec = Twemoji.asset(match.item.value)
+            val existing = existingSpans.remove(placement)
+            if (existing == null || !existing.matches(spec, match.item.value)) {
+                existing?.let { span ->
+                    span.dispose()
+                    editable.removeSpan(span)
                 }
-                observedKeys += spec.key
-                return@forEach
+                editable.setSpan(
+                    ChatInputEmoteSpan(
+                        textView = textView,
+                        assets = assets,
+                        spec = spec,
+                        fallback = match.item.value,
+                        animateGifs = false,
+                    ),
+                    match.start,
+                    match.end,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
             }
+            observedKeys += spec.key
+        }
+        chatInputEmoteTokens(editable).forEach { token ->
             val emote = emotesByName[token.text] ?: return@forEach
             val placement = SpanPlacement(token.start, token.end)
             val existing = existingSpans.remove(placement)
@@ -210,7 +204,7 @@ private class ChatInputEmoteSpan(
             }
         }
         return if (drawable() == null) {
-            max(width, paint.measureText(text, start, end).roundToInt())
+            max(width, paint.measureText(fallback).roundToInt())
         } else {
             width
         }
@@ -229,8 +223,8 @@ private class ChatInputEmoteSpan(
     ) {
         val image = drawable()
         if (image == null) {
-            val label = text.subSequence(start, end).toString()
-            val labelWidth = paint.measureText(label)
+            val label = fallback
+            val labelWidth = paint.measureText(fallback)
             canvas.drawText(label, x + (width - labelWidth).coerceAtLeast(0f) / 2f, y.toFloat(), paint)
             return
         }

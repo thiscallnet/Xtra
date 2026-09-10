@@ -4,5 +4,6 @@
     <Preference android:key="about_package" android:title="@string/settings_package" app:iconSpaceReserved="false" />
     <Preference android:key="about_github" android:title="@string/settings_github" app:iconSpaceReserved="false" />
     <Preference android:key="about_licenses" android:title="@string/settings_licenses" app:iconSpaceReserved="false" />
+    <Preference android:key="about_twemoji" android:title="@string/settings_twemoji" android:summary="@string/settings_twemoji_summary" app:iconSpaceReserved="false" />
     <Preference android:key="about_issue" android:title="@string/settings_report_issue" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

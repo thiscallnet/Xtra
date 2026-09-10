@@ -7,14 +7,13 @@ import android.widget.ArrayAdapter
 import android.widget.Filter
 import android.widget.ImageView
 import android.widget.TextView
-import coil3.Image
 import coil3.imageLoader
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
+import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.target
-import coil3.target.ImageViewTarget
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.model.GlideUrl
@@ -25,35 +24,48 @@ import com.github.andreyasadchy.xtra.model.chat.Chatter
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.ui.chat.EmojiPickerItem
 import com.github.andreyasadchy.xtra.ui.chat.Twemoji
+import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
+import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetState
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
+import java.util.Collections
+import java.util.Locale
+import java.util.WeakHashMap
 import java.util.regex.Pattern
 
 class AutoCompleteAdapter<T>(
     context: Context,
     resource: Int,
     textViewResourceId: Int,
-    private val originalValues: MutableList<T?>
+    private val originalValues: MutableList<T?>,
+    private val chatAssets: ChatAssetRepository,
 ): ArrayAdapter<T?>(context, resource, textViewResourceId) {
 
-    private var objects = originalValues
+    private var objects: List<T?> = originalValues
+    private val emojiSubscriptions = LinkedHashSet<EmojiAssetSubscription>()
+    private val activeImageViews = Collections.newSetFromMap(WeakHashMap<ImageView, Boolean>())
     private val imageLibrary = "0"
     private val emoteQuality = "4"
 
     override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
         val view = super.getView(position, convertView, parent)
         val item = getItem(position)
+        view.findViewById<ImageView>(R.id.image)?.let {
+            activeImageViews += it
+            clearImageRequest(it)
+        }
         when (item) {
             is Emote -> {
                 view.findViewById<TextView>(R.id.emoji)?.visibility = View.GONE
                 view.findViewById<ImageView>(R.id.image)?.let {
-                    it.tag = null
+                    clearEmojiSubscription(it)
                     it.visibility = View.VISIBLE
                     // Dropdown rows are recycled; clear the previous emote before
                     // the async load completes so a stale image never flashes.
                     it.setImageDrawable(null)
                     if (imageLibrary == "0" || (imageLibrary == "1" && !item.format.equals("webp", true))) {
-                        context.imageLoader.enqueue(
+                        val request = context.imageLoader.enqueue(
                             ImageRequest.Builder(context).apply {
                                 data(
                                     when (emoteQuality) {
@@ -72,6 +84,7 @@ class AutoCompleteAdapter<T>(
                                 target(it)
                             }.build()
                         )
+                        it.setTag(R.id.autocomplete_image_request, request)
                     } else {
                         Glide.with(context)
                             .load(
@@ -97,7 +110,7 @@ class AutoCompleteAdapter<T>(
                 view.findViewById<TextView>(R.id.emoji)?.visibility = View.GONE
                 // A recycled emote row keeps its image; chatter rows have none.
                 view.findViewById<ImageView>(R.id.image)?.let {
-                    it.tag = null
+                    clearEmojiSubscription(it)
                     it.visibility = View.GONE
                     it.setImageDrawable(null)
                 }
@@ -105,33 +118,44 @@ class AutoCompleteAdapter<T>(
             }
             is EmojiPickerItem -> {
                 view.findViewById<ImageView>(R.id.image)?.let {
+                    clearEmojiSubscription(it)
                     val fallback = view.findViewById<TextView>(R.id.emoji)
-                    val url = Twemoji.url(item.value)
-                    it.tag = url
+                    val spec = Twemoji.asset(item.value)
                     it.visibility = View.VISIBLE
                     it.setImageDrawable(null)
                     fallback?.apply {
                         visibility = View.VISIBLE
                         text = item.value
                     }
-                    context.imageLoader.enqueue(
-                        ImageRequest.Builder(context)
-                            .data(url)
-                            .target(object : ImageViewTarget(it) {
-                                override fun onSuccess(result: Image) {
-                                    if (it.tag != url) return
-                                    super.onSuccess(result)
-                                    fallback?.visibility = View.GONE
+                    lateinit var subscription: EmojiAssetSubscription
+                    val updateImage: () -> Unit = {
+                        it.post {
+                            if (it.tag !== subscription) return@post
+                            when (val state = chatAssets.peek(spec.key)) {
+                                is ChatAssetState.Ready -> {
+                                    val drawable = state.image.newDrawable()
+                                    if (drawable == null) {
+                                        chatAssets.retryIfDrawableUnavailable(spec.key)
+                                        it.visibility = View.GONE
+                                        fallback?.visibility = View.VISIBLE
+                                    } else {
+                                        it.setImageDrawable(drawable)
+                                        it.visibility = View.VISIBLE
+                                        fallback?.visibility = View.GONE
+                                    }
                                 }
-
-                                override fun onError(error: Image?) {
-                                    if (it.tag != url) return
+                                else -> {
                                     it.visibility = View.GONE
                                     fallback?.visibility = View.VISIBLE
                                 }
-                            })
-                            .build(),
-                    )
+                            }
+                        }
+                    }
+                    subscription = EmojiAssetSubscription(chatAssets, spec.key, updateImage)
+                    emojiSubscriptions += subscription
+                    it.tag = subscription
+                    chatAssets.observe(spec.key, updateImage)
+                    updateImage()
                 }
                 view.findViewById<TextView>(R.id.name)?.text = item.alias
             }
@@ -141,19 +165,33 @@ class AutoCompleteAdapter<T>(
 
     override fun getFilter(): Filter = filter
 
+    fun dispose() {
+        activeImageViews.toList().forEach(::clearImageRequest)
+        activeImageViews.clear()
+        emojiSubscriptions.toList().forEach { subscription ->
+            subscription.repository.removeObserver(subscription.key, subscription.callback)
+        }
+        emojiSubscriptions.clear()
+    }
+
     private val filter: Filter = object : Filter() {
         override fun performFiltering(constraint: CharSequence?): FilterResults? {
             return if (constraint.isNullOrBlank()) {
                 FilterResults()
             } else {
-                val list = synchronized(originalValues) {
-                    originalValues
-                }
+                val list = synchronized(originalValues) { originalValues.toList() }
                 val regex = constraint.map {
-                    "${Pattern.quote(it.lowercase())}\\S*?"
+                    "${Pattern.quote(it.lowercase(Locale.ROOT))}\\S*?"
                 }.joinToString("").toRegex()
-                val results = list.filter {
-                    regex.matches(it.toString().lowercase())
+                val results = list.mapNotNull { item ->
+                    when (item) {
+                        is EmojiPickerItem -> matchingEmojiAlias(item, regex)?.let { alias ->
+                            @Suppress("UNCHECKED_CAST")
+                            item.copy(matchedAlias = alias) as T?
+                        }
+                        null -> null
+                        else -> item.takeIf { regex.matches(it.toString().lowercase(Locale.ROOT)) }
+                    }
                 }
                 FilterResults().apply {
                     values = results
@@ -164,7 +202,7 @@ class AutoCompleteAdapter<T>(
 
         @Suppress("UNCHECKED_CAST")
         override fun publishResults(constraint: CharSequence?, results: FilterResults?) {
-            objects = (results?.values as? MutableList<T?>) ?: mutableListOf()
+            objects = (results?.values as? List<T?>).orEmpty()
             if (results != null && results.count > 0) {
                 notifyDataSetChanged()
             } else {
@@ -176,4 +214,27 @@ class AutoCompleteAdapter<T>(
     override fun getCount(): Int = objects.size
 
     override fun getItem(position: Int): T? = objects[position]
+
+    private fun matchingEmojiAlias(item: EmojiPickerItem, regex: Regex): String? =
+        item.aliases.firstOrNull { alias -> regex.matches(":$alias:".lowercase(Locale.ROOT)) }
+
+    private fun clearEmojiSubscription(image: ImageView) {
+        (image.tag as? EmojiAssetSubscription)?.let { subscription ->
+            subscription.repository.removeObserver(subscription.key, subscription.callback)
+            emojiSubscriptions.remove(subscription)
+        }
+        image.tag = null
+    }
+
+    private fun clearImageRequest(image: ImageView) {
+        (image.getTag(R.id.autocomplete_image_request) as? Disposable)?.dispose()
+        image.setTag(R.id.autocomplete_image_request, null)
+        Glide.with(image.context).clear(image)
+    }
+
+    private data class EmojiAssetSubscription(
+        val repository: ChatAssetRepository,
+        val key: ChatAssetKey,
+        val callback: () -> Unit,
+    )
 }
