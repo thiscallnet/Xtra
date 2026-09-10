@@ -1,17 +1,14 @@
 package com.github.andreyasadchy.xtra.ui.common
 
-import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.TextView
 import androidx.constraintlayout.helper.widget.Flow
 import androidx.constraintlayout.widget.ConstraintLayout
-import androidx.core.content.res.use
-import androidx.core.widget.TextViewCompat
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.ui.Tag
 
-/** Reuses a fixed tag hierarchy so game row binding never creates or removes views. */
+/** Reuses a fixed tag hierarchy so category tile binding never creates or removes views. */
 internal class GameTagViews(
     private val tagsLayout: ConstraintLayout,
     private val tagViews: List<TextView>,
@@ -73,29 +70,20 @@ internal fun createGameTagViews(tagsLayout: ConstraintLayout): GameTagViews {
             endToEnd = tagsLayout.id
         }
         setWrapMode(Flow.WRAP_CHAIN)
+        setHorizontalStyle(Flow.CHAIN_PACKED)
+        setHorizontalBias(0f)
+        setHorizontalAlign(Flow.HORIZONTAL_ALIGN_START)
+        setVerticalAlign(Flow.VERTICAL_ALIGN_TOP)
     }
     tagsLayout.addView(flow)
 
-    val minHeight = TypedValue.applyDimension(
-        TypedValue.COMPLEX_UNIT_DIP,
-        48f,
-        context.resources.displayMetrics,
-    ).toInt()
-    val padding = TypedValue.applyDimension(
-        TypedValue.COMPLEX_UNIT_DIP,
-        5f,
-        context.resources.displayMetrics,
-    ).toInt()
+    flow.setHorizontalGap(context.resources.getDimensionPixelSize(R.dimen.stream_tag_gap))
+    flow.setVerticalGap(context.resources.getDimensionPixelSize(R.dimen.stream_tag_gap))
+
+    val inflater = LayoutInflater.from(context)
     val tagViews = List(10) {
-        TextView(context).apply {
+        (inflater.inflate(R.layout.item_stream_tag, tagsLayout, false) as TextView).apply {
             id = View.generateViewId()
-            setMinHeight(minHeight)
-            isFocusable = false
-            isClickable = false
-            context.obtainStyledAttributes(intArrayOf(com.google.android.material.R.attr.textAppearanceBodyMedium)).use {
-                TextViewCompat.setTextAppearance(this, it.getResourceId(0, 0))
-            }
-            setPadding(padding, 0, padding, 0)
             tagsLayout.addView(this)
         }
     }
