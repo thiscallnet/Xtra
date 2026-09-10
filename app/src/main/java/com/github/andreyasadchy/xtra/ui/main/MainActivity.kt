@@ -155,8 +155,6 @@ class MainActivity : AppCompatActivity() {
     private var qualityNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastPlaybackNetworkCellular: Boolean? = null
     private var pipActionReceiver: BroadcastReceiver? = null
-    private var wasInPictureInPictureMode = false
-    private var pendingPictureInPictureClose: Runnable? = null
     private lateinit var prefs: SharedPreferences
     var settingsResultLauncher: ActivityResultLauncher<Intent>? = null
     var loginResultLauncher: ActivityResultLauncher<Intent>? = null
@@ -855,41 +853,6 @@ class MainActivity : AppCompatActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         setNavBarColor(newConfig.orientation == Configuration.ORIENTATION_PORTRAIT)
-    }
-
-    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
-    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
-        val wasInPictureInPicture = this.wasInPictureInPictureMode
-        this.wasInPictureInPictureMode = isInPictureInPictureMode
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
-
-        // Exiting PiP through the system close button leaves the activity in the
-        // CREATED state. Restoring the PiP window returns the activity to STARTED.
-        // Defer the check one main-loop turn because some Android versions deliver
-        // the callback before the lifecycle has reached STARTED during a restore.
-        if (wasInPictureInPicture &&
-            !isInPictureInPictureMode &&
-            !isChangingConfigurations &&
-            playerFragment != null
-        ) {
-            pendingPictureInPictureClose?.let { binding.root.removeCallbacks(it) }
-            pendingPictureInPictureClose = Runnable {
-                pendingPictureInPictureClose = null
-                if (!isInPictureInPictureMode &&
-                    !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
-                    !isChangingConfigurations &&
-                    playerFragment != null
-                ) {
-                    closePlayer()
-                }
-            }.also { binding.root.post(it) }
-        }
-    }
-
-    override fun onStart() {
-        super.onStart()
-        pendingPictureInPictureClose?.let { binding.root.removeCallbacks(it) }
-        pendingPictureInPictureClose = null
     }
 
     override fun onResume() {
