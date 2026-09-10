@@ -126,6 +126,7 @@ open class ChatMessageTextView private constructor(
     private var animationBudgetAllowed = true
     private var windowAttached = false
     private var aggregatedVisible = false
+    private var animatedPieceAssetKeys = emptySet<ChatAssetKey>()
     private var animatedAssetKeys = emptySet<ChatAssetKey>()
     private var boundMessageId: ChatMessageId? = null
     private var longPressConsumed = false
@@ -301,7 +302,7 @@ open class ChatMessageTextView private constructor(
             .filter(oldKeys::contains)
             .forEach { assetObservers[it]?.rebind(externalBindGeneration) }
         newKeys.filterNot(oldKeys::contains).forEach(::observeAsset)
-        animatedAssetKeys = row.pieces.flatMap { piece ->
+        animatedPieceAssetKeys = row.pieces.flatMap { piece ->
             val spec = when (piece) {
                 is ChatPiece.Emote -> piece.asset.takeIf { piece.animated }
                 is ChatPiece.Gif -> piece.asset
@@ -311,6 +312,7 @@ open class ChatMessageTextView private constructor(
             }
             spec?.allKeys().orEmpty()
         }.toSet()
+        animatedAssetKeys = animatedPieceAssetKeys + clipPreviewAssetKeys
         initialAssetSpecs = row.pieces.mapNotNull { piece ->
             when (piece) {
                 is ChatPiece.Badge -> piece.asset
@@ -525,6 +527,8 @@ open class ChatMessageTextView private constructor(
         val previousKeys = clipPreviewAssetKeys
         previousKeys.filterNot(nextKeys::contains).forEach(::removeClipThumbnailObserver)
         clipPreviewAssetKeys = nextKeys
+        animatedAssetKeys = animatedPieceAssetKeys + nextKeys
+        updateDrawableAnimations()
         nextKeys
             .filter(previousKeys::contains)
             .forEach { clipThumbnailObservers[it]?.rebind(externalBindGeneration) }
@@ -1203,6 +1207,7 @@ open class ChatMessageTextView private constructor(
         drawables.clear()
         drawableHandles.clear()
         keys = emptySet()
+        animatedPieceAssetKeys = emptySet()
         animatedAssetKeys = emptySet()
         clipPreviewSlugs = emptySet()
         clipPreviewAssetKeys = emptySet()
