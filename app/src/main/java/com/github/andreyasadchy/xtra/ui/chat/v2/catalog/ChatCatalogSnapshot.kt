@@ -3,7 +3,7 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.catalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 
-enum class ChatAssetProvider { TWITCH, SEVEN_TV, BTTV, FFZ }
+enum class ChatAssetProvider { TWITCH, SEVEN_TV, BTTV, FFZ, UNICODE_EMOJI }
 
 enum class ChatEmoteScope { GLOBAL, CHANNEL, PERSONAL, LEGACY_COMBINED }
 

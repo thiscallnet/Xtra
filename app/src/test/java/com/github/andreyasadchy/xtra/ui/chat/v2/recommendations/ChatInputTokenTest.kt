@@ -6,6 +6,29 @@ import org.junit.Test
 
 class ChatInputTokenTest {
     @Test
+    fun `emoji alias prefix keeps punctuation outside the replacement range`() {
+        assertEquals(
+            com.github.andreyasadchy.xtra.ui.chat.EmojiAliasPrefix(":skul", 1, 6),
+            com.github.andreyasadchy.xtra.ui.chat.EmojiPickerCatalog.findAliasPrefixAtCursor("(:skul,", 7),
+        )
+        assertEquals(
+            ChatTokenReplacement("(:skull:,", 9),
+            ChatInputToken.replaceRange("(:skul,", 1, 6, ":skull:", cursor = 7),
+        )
+        assertEquals(
+            ChatTokenReplacement("abc,:skull:, trailing", 11),
+            ChatInputToken.replaceRange("abc,:skul, trailing", 4, 9, ":skull:", cursor = 9),
+        )
+    }
+
+    @Test
+    fun `emoji alias prefix rejects trailing whitespace`() {
+        assertNull(
+            com.github.andreyasadchy.xtra.ui.chat.EmojiPickerCatalog.findAliasPrefixAtCursor(":hea ", 5),
+        )
+    }
+
+    @Test
     fun `replaces token at the end and appends one space`() {
         assertEquals(
             ChatTokenReplacement("hello Kappa ", 12),

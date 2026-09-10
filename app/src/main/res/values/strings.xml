@@ -520,6 +520,8 @@
     <string name="settings_reset_summary">Keeps your account, downloads and app content.</string>
     <string name="settings_github">GitHub repository</string>
     <string name="settings_licenses">Licenses</string>
+    <string name="settings_twemoji">Twemoji</string>
+    <string name="settings_twemoji_summary">Emoji graphics by Twitter, Inc., licensed under CC-BY 4.0.</string>
     <string name="settings_report_issue">Report an issue</string>
     <string name="settings_version">Version</string>
     <string name="settings_build">Build</string>
@@ -670,6 +672,18 @@
     <string name="chat">Chat</string>
     <string name="favorite_emotes">★ Favorites</string>
     <string name="recent_emotes">Recent</string>
+    <string name="emoji">Emoji</string>
+    <string name="emoji_category_all">All</string>
+    <string name="emoji_category_smileys">Smileys</string>
+    <string name="emoji_category_people">People</string>
+    <string name="emoji_category_animals">Animals</string>
+    <string name="emoji_category_food">Food</string>
+    <string name="emoji_category_travel">Travel</string>
+    <string name="emoji_category_activities">Activities</string>
+    <string name="emoji_category_objects">Objects</string>
+    <string name="emoji_category_symbols">Symbols</string>
+    <string name="emoji_category_flags">Flags</string>
+    <string name="select_emoji_category">Select emoji category</string>
     <string name="notification_playback_channel_title">Playback</string>
     <string name="channels">Channels</string>
     <string name="watch_video">Watch full video</string>
@@ -1445,6 +1459,7 @@
     <string name="chat_close_prediction">Close prediction</string>
     <string name="chat_scroll_to_latest">Scroll to latest messages</string>
     <string name="use_emote">Use %1$s emote</string>
+    <string name="use_emoji">Use %1$s emoji</string>
     <string name="add_emote_to_favorites">Add to favorites</string>
     <string name="remove_emote_from_favorites">Remove from favorites</string>
     <string name="added_emote_to_favorites">Added %1$s to favorites</string>

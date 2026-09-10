@@ -14,6 +14,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatImageHandle
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
+import com.github.andreyasadchy.xtra.ui.chat.EmojiPickerCatalog
+import com.github.andreyasadchy.xtra.ui.chat.Twemoji
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -71,7 +73,31 @@ internal class ChatInputEmoteRenderer(
             }
             .toMutableMap()
         val observedKeys = LinkedHashSet<ChatAssetKey>()
-
+        val emojiMatches = EmojiPickerCatalog.findAliasMatches(editable)
+        emojiMatches.forEach { match ->
+            val placement = SpanPlacement(match.start, match.end)
+            val spec = Twemoji.asset(match.item.value)
+            val existing = existingSpans.remove(placement)
+            if (existing == null || !existing.matches(spec, match.item.value)) {
+                existing?.let { span ->
+                    span.dispose()
+                    editable.removeSpan(span)
+                }
+                editable.setSpan(
+                    ChatInputEmoteSpan(
+                        textView = textView,
+                        assets = assets,
+                        spec = spec,
+                        fallback = match.item.value,
+                        animateGifs = false,
+                    ),
+                    match.start,
+                    match.end,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            observedKeys += spec.key
+        }
         chatInputEmoteTokens(editable).forEach { token ->
             val emote = emotesByName[token.text] ?: return@forEach
             val placement = SpanPlacement(token.start, token.end)
@@ -178,7 +204,7 @@ private class ChatInputEmoteSpan(
             }
         }
         return if (drawable() == null) {
-            max(width, paint.measureText(text, start, end).roundToInt())
+            max(width, paint.measureText(fallback).roundToInt())
         } else {
             width
         }
@@ -197,8 +223,8 @@ private class ChatInputEmoteSpan(
     ) {
         val image = drawable()
         if (image == null) {
-            val label = text.subSequence(start, end).toString()
-            val labelWidth = paint.measureText(label)
+            val label = fallback
+            val labelWidth = paint.measureText(fallback)
             canvas.drawText(label, x + (width - labelWidth).coerceAtLeast(0f) / 2f, y.toFloat(), paint)
             return
         }

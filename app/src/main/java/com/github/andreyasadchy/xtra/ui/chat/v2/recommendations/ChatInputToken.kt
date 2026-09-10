@@ -35,12 +35,29 @@ object ChatInputToken {
     ): ChatTokenReplacement? {
         val value = text.toString()
         val token = aroundCursor(value, cursor) ?: return null
-        val appendSpace = token.end == value.length
-        val suffix = if (appendSpace) " " else ""
-        val next = value.substring(0, token.start) + replacement + suffix + value.substring(token.end)
+        return replaceRange(value, token.start, token.end, replacement, token.end)
+    }
+
+    fun replaceRange(
+        text: CharSequence,
+        start: Int,
+        end: Int,
+        replacement: String,
+        cursor: Int = end,
+    ): ChatTokenReplacement? {
+        val value = text.toString()
+        if (start < 0 || end < start || end > value.length) return null
+        val suffix = if (end == value.length) " " else ""
+        val next = value.substring(0, start) + replacement + suffix + value.substring(end)
+        val originalCursor = cursor.coerceIn(0, value.length)
+        val mappedCursor = when {
+            originalCursor <= start -> originalCursor
+            originalCursor <= end -> start + replacement.length
+            else -> start + replacement.length + (originalCursor - end)
+        } + if (end == value.length && originalCursor >= end) suffix.length else 0
         return ChatTokenReplacement(
             text = next,
-            cursor = token.start + replacement.length + suffix.length,
+            cursor = mappedCursor,
         )
     }
 

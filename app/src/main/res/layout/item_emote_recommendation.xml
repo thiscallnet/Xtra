@@ -18,6 +18,15 @@
         android:scaleType="centerInside" />
 
     <TextView
+        android:id="@+id/emoji"
+        android:layout_width="30dp"
+        android:layout_height="30dp"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:textSize="24sp"
+        android:visibility="gone" />
+
+    <TextView
         android:id="@+id/name"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
