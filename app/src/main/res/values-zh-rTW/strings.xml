@@ -169,7 +169,7 @@
     <string name="chat_slow_mode_accessibility">慢速模式已啟用。每 %1$d 秒可以傳送一則訊息。</string>
     <string name="chat_slow_mode_ready">您可以傳送另一則訊息。</string>
     <string name="room_subs">訂閱</string>
-    <string name="chat_join">已連接至 %s</string>
+    <string name="chat_join">歡迎來到聊天室！</string>
     <string name="copy_clip">複製到剪貼簿</string>
     <string name="chat_clear">聊天室已被管理員清除</string>
     <string name="chat_timeout">%1$s 已暫時禁言 %2$s</string>

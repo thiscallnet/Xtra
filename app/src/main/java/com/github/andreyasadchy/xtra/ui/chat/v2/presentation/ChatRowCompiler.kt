@@ -105,7 +105,8 @@ class ChatRowCompiler(
         val hasSemanticBody = message.segments.any {
             it !is ChatSegment.Text || it.text.isNotBlank()
         }
-        val eventKind = eventKindFor(
+        val isChatJoin = message.kind == ChatMessageKind.SYSTEM && noticeType == "chat_join"
+        val eventKind = if (isChatJoin) null else eventKindFor(
             message = message,
             noticeType = noticeType,
             isSubscription = isSubscription,
@@ -132,9 +133,9 @@ class ChatRowCompiler(
         val isFirstChatterMessage = message.isFirst || message.twitchType == TwitchChatMessageType.UserIntro
         val hasFirstChatterTint = isFirstChatterMessage && firstMessageVisibility == 1
         val hasRewardBackground = message.rewardId != null && firstMessageVisibility < 2
-        val hasNoticeBackground = message.kind != ChatMessageKind.CHAT ||
+        val hasNoticeBackground = !isChatJoin && (message.kind != ChatMessageKind.CHAT ||
             !noticeType.isNullOrBlank() ||
-            !message.systemText.isNullOrBlank()
+            !message.systemText.isNullOrBlank())
         val hasSpecialBackground =
             (isFirstChatterMessage && firstMessageVisibility in 0..1) ||
                 hasRewardBackground ||
@@ -206,6 +207,11 @@ class ChatRowCompiler(
                     ))
                 }
             }
+            if (isChatJoin) {
+                message.systemText?.trim()?.takeIf { it.isNotBlank() }?.let {
+                    add(ChatPiece.Text(it, color = mutedColor))
+                }
+            }
             addAll(renderSegments(resolvedSegments, catalog, targetHeight))
             moderationStart?.let { moderationPieceRange = it until size }
             moderationSuffix?.let { suffix ->
@@ -248,6 +254,11 @@ class ChatRowCompiler(
                         is ChatSegment.Emote -> append(segment.fallbackText)
                         is ChatSegment.Gif -> append(segment.fallbackText)
                         is ChatSegment.Cheermote -> append(segment.bits).append(" Bits")
+                    }
+                }
+                if (isChatJoin) {
+                    message.systemText?.trim()?.takeIf { it.isNotBlank() }?.let {
+                        append(it)
                     }
                 }
                 moderationSuffix?.let { append(" ").append(it) }

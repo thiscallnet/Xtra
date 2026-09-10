@@ -170,7 +170,7 @@
     <string name="chat_slow_mode_accessibility">Yavaş mod etkin. Mesajlar her %1$d saniyede bir gönderilebilir.</string>
     <string name="chat_slow_mode_ready">Başka bir mesaj gönderebilirsiniz.</string>
     <string name="room_subs">Aboneler</string>
-    <string name="chat_join">%s kanalına bağlanıldı</string>
+    <string name="chat_join">Sohbet odasına hoş geldiniz!</string>
     <string name="copy_clip">Panoya kopyala</string>
     <string name="chat_clear">Sohbet bir moderatör tarafından temizlendi</string>
     <string name="chat_timeout">%1$s kullanıcısı %2$s için zaman aşımına uğradı</string>

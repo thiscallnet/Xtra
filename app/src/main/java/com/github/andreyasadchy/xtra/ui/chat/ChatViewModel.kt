@@ -3628,7 +3628,7 @@ class ChatViewModel(
                 _connectionState.value = ConnectionState.CONNECTED
             }
             onMessage(ChatMessage(
-                systemMsg = ContextCompat.getString(applicationContext, R.string.chat_join).format(channelLogin),
+                systemMsg = ContextCompat.getString(applicationContext, R.string.chat_join),
                 isChatJoin = true,
             ))
         }
@@ -4280,7 +4280,7 @@ class ChatViewModel(
             connectionState.onNormalWelcome(started)?.let(::applyConnectionState)
             if (connectionAnnouncementState.shouldAnnounce()) {
                 onMessage(ChatMessage(
-                    systemMsg = ContextCompat.getString(applicationContext, R.string.chat_join).format(channelLogin),
+                    systemMsg = ContextCompat.getString(applicationContext, R.string.chat_join),
                     isChatJoin = true,
                 ))
             }

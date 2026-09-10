@@ -169,7 +169,7 @@
     <string name="chat_slow_mode_accessibility">スローモードが有効です。メッセージは%1$d秒ごとに送信できます。</string>
     <string name="chat_slow_mode_ready">別のメッセージを送信できます。</string>
     <string name="room_subs">サブスクライバー限定</string>
-    <string name="chat_join">%s に接続しています</string>
+    <string name="chat_join">チャットルームへようこそ！</string>
     <string name="copy_clip">クリップボードにコピー</string>
     <string name="chat_clear">チャットはモデレーターによってクリアされました</string>
     <string name="chat_timeout">%1$s は %2$s 発言禁止にされました</string>

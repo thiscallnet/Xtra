@@ -609,7 +609,7 @@
     <string name="chat_slow_mode_accessibility">Pomalý režim je zapnutý. Zprávy lze odesílat každých %1$d sekund.</string>
     <string name="chat_slow_mode_ready">Můžete odeslat další zprávu.</string>
     <string name="room_subs">Předplatitelé</string>
-    <string name="chat_join">Připojeno k %s</string>
+    <string name="chat_join">Vítejte v chatu!</string>
     <string name="copy_clip">Kopírovat do schránky</string>
     <string name="chat_clear">Chat byl vymazán moderátorem.</string>
     <string name="chat_timeout">%1$s dostal timeout na %2$s.</string>
