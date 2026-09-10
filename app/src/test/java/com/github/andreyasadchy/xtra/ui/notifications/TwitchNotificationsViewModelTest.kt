@@ -1,23 +1,21 @@
 package com.github.andreyasadchy.xtra.ui.notifications
 
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotification
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TwitchNotificationsViewModelTest {
 
     @Test
-    fun backgroundRefreshPreservesLocalReadChange() {
+    fun backgroundRefreshDoesNotPretendReadBeforeServerConfirmsIt() {
         val item = notification(isUnread = true)
 
         val refreshed = applyLocalNotificationChanges(
             items = listOf(item),
-            locallyReadIds = setOf(item.id),
             locallyDismissedIds = emptySet(),
         )
 
-        assertFalse(refreshed.single().isUnread)
+        assertTrue(refreshed.single().isUnread)
     }
 
     @Test
@@ -26,7 +24,6 @@ class TwitchNotificationsViewModelTest {
 
         val refreshed = applyLocalNotificationChanges(
             items = listOf(item),
-            locallyReadIds = emptySet(),
             locallyDismissedIds = setOf(item.id),
         )
 

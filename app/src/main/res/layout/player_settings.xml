@@ -79,6 +79,15 @@
         </LinearLayout>
 
         <TextView
+            android:id="@+id/menuPlayerControlScale"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:padding="12dp"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            tools:text="Player UI size (horizontal): 100%" />
+
+        <TextView
             android:id="@+id/menuCustomizeControls"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

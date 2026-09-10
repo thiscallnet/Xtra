@@ -34,11 +34,15 @@ class TwitchNotificationsRepository(
             buildNotificationVariables(cursor, limit, notificationLanguage()),
         )
         checkAccount(key)
-        val page = parseNotificationPage(result)
+        val page = preserveConfirmedReadState(key, parseNotificationPage(result))
         cacheCommitGate.commitFetch(generationAtStart) {
             runCatching { metadataCache?.writeNotifications(key, page, replace = cursor == null) }
         }
-        return page
+        return if (metadataCache == null) {
+            page
+        } else {
+            preserveConfirmedReadState(key, page)
+        }
     }
 
     suspend fun getCachedNotifications(): TwitchNotificationPage? =
@@ -55,7 +59,7 @@ class TwitchNotificationsRepository(
         checkAccount(key)
     }
 
-    suspend fun markAllNotificationsRead() {
+    suspend fun markAllNotificationsRead(): Set<String> {
         val ids = buildList {
             var cursor: String? = null
             while (true) {
@@ -67,17 +71,19 @@ class TwitchNotificationsRepository(
             }
         }
         markNotificationsRead(ids)
+        return ids.toSet()
     }
 
     suspend fun markNotificationsRead(ids: List<String>) {
-        if (ids.isEmpty()) return
+        val idsToRead = ids.asSequence().filter(String::isNotBlank).distinct().toList()
+        if (idsToRead.isEmpty()) return
         val key = requireAccount()
         privateGqlClient.executeDocument(networkLibrary(), webHeaders(), TwitchPrivateGqlOperations.notificationsRead.operationName, TwitchPrivateGqlDocuments.notificationsRead, buildJsonObject {
-            putJsonObject("input") { putJsonArray("ids") { ids.forEach { add( kotlinx.serialization.json.JsonPrimitive(it)) } } }
+            putJsonObject("input") { putJsonArray("ids") { idsToRead.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } } }
         })
         checkAccount(key)
         cacheCommitGate.commitMutation {
-            runCatching { metadataCache?.markNotificationsRead(key, ids) }
+            runCatching { metadataCache?.markNotificationsRead(key, idsToRead) }
         }
     }
 
@@ -119,6 +125,25 @@ class TwitchNotificationsRepository(
     private fun checkAccount(expected: String) {
         val actual = context.tokenPrefs().getString(C.USER_ID, null)
         if (actual != expected) throw TwitchInboxException(TwitchInboxError.SignedOut)
+    }
+
+    private suspend fun preserveConfirmedReadState(
+        userId: String,
+        page: TwitchNotificationPage,
+    ): TwitchNotificationPage {
+        val confirmedReadIds = metadataCache?.readNotifications(userId)
+            ?.notifications
+            ?.asSequence()
+            ?.filterNot { it.isUnread }
+            ?.map { it.id }
+            ?.toSet()
+            .orEmpty()
+        if (confirmedReadIds.isEmpty()) return page
+        return page.copy(
+            notifications = page.notifications.map { notification ->
+                if (notification.id in confirmedReadIds) notification.copy(isUnread = false) else notification
+            },
+        )
     }
 
 }

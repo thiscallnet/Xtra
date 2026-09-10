@@ -78,6 +78,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                     showControlLayoutEditor()
                 }
             }
+            setupPlayerControlScale()
             menuPlayerControlSettings.setOnClickListener {
                 dismiss()
                 val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
@@ -353,6 +354,45 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                     .firstOrNull { it.isVisible && it.isFocusable && it.isEnabled }
                 firstAction?.requestFocus()
             }
+        }
+    }
+
+    private fun setupPlayerControlScale() {
+        val isPortrait = resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+        val scaleKey = if (isPortrait) C.PLAYER_CONTROL_SCALE_PORTRAIT else C.PLAYER_CONTROL_SCALE_LANDSCAPE
+        val defaultValue = if (isPortrait) "auto" else "100"
+        val scaleValues = resources.getStringArray(R.array.playerControlScaleValues)
+        val scaleEntries = resources.getStringArray(R.array.playerControlScaleEntries)
+        val title = getString(
+            if (isPortrait) R.string.settings_player_control_scale_portrait
+            else R.string.settings_player_control_scale_landscape,
+        )
+
+        fun currentIndex(): Int = scaleValues.indexOf(
+            requireContext().prefs().getString(scaleKey, defaultValue),
+        ).takeIf { it >= 0 } ?: scaleValues.indexOf(defaultValue).coerceAtLeast(0)
+
+        fun updateLabel() {
+            val value = scaleEntries.getOrElse(currentIndex()) { scaleEntries.firstOrNull().orEmpty() }
+            binding.menuPlayerControlScale.text = "$title: $value"
+            binding.menuPlayerControlScale.contentDescription = "$title: $value"
+        }
+
+        updateLabel()
+        binding.menuPlayerControlScale.setOnClickListener {
+            val context = requireContext()
+            context.getAlertDialogBuilder()
+                .setTitle(title)
+                .setSingleChoiceItems(scaleEntries, currentIndex()) { dialog, which ->
+                    val value = scaleValues.getOrNull(which) ?: return@setSingleChoiceItems
+                    context.prefs().edit { putString(scaleKey, value) }
+                    updateLabel()
+                    (parentFragment as? Media3PlayerFragment)?.refreshPlayerControlScale()
+                        ?: (parentFragment as? PlayerFragment)?.refreshPlayerControlScale()
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
         }
     }
 

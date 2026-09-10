@@ -58,7 +58,7 @@ class TwitchNotificationsFragment : Fragment() {
         binding.recyclerView.adapter = adapter
         binding.toolbar.setOnMenuItemClickListener { menuItem ->
             if (menuItem.itemId == R.id.markAllNotificationsRead) {
-                confirmMarkAllAsSeen()
+                confirmMarkAllAsRead()
                 true
             } else {
                 false
@@ -103,7 +103,7 @@ class TwitchNotificationsFragment : Fragment() {
         binding.retryButton.visibility = if (state.error != null) View.VISIBLE else View.GONE
         binding.toolbar.menu.findItem(R.id.markAllNotificationsRead)?.apply {
             isVisible = state.items.isNotEmpty()
-            isEnabled = !state.markingAllAsSeen && !state.initialLoading && !state.refreshing && !state.loadingNextPage &&
+            isEnabled = !state.markingAllAsRead && !state.initialLoading && !state.refreshing && !state.loadingNextPage &&
                 (state.items.any { it.isUnread } || state.canLoadMore)
         }
         state.error?.let { binding.errorText.setText(it.messageRes()) }
@@ -143,15 +143,15 @@ class TwitchNotificationsFragment : Fragment() {
         })
     }
 
-    private fun confirmMarkAllAsSeen() {
+    private fun confirmMarkAllAsRead() {
         val state = viewModel.uiState.value
-        if (state.markingAllAsSeen || state.initialLoading || state.refreshing || state.loadingNextPage || state.items.isEmpty() || (state.items.none { it.isUnread } && !state.canLoadMore)) return
+        if (state.markingAllAsRead || state.initialLoading || state.refreshing || state.loadingNextPage || state.items.isEmpty() || (state.items.none { it.isUnread } && !state.canLoadMore)) return
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(R.string.mark_all_notifications_seen_title)
             .setMessage(R.string.mark_all_notifications_seen_message)
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.mark_all_as_seen) { _, _ ->
-                viewModel.markAllAsSeen(TwitchInboxMenuBinder::invalidateSummary)
+                viewModel.markAllAsRead(TwitchInboxMenuBinder::invalidateSummary)
             }
             .show()
     }

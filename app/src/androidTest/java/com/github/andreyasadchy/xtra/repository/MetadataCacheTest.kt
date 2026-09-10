@@ -211,6 +211,7 @@ class MetadataCacheTest {
 
         assertEquals(listOf("notification-1"), cache.readNotifications("account-1")?.notifications?.map { it.id })
         assertFalse(cache.readNotifications("account-1")?.notifications?.single()?.isUnread == true)
+        assertEquals(1, cache.readNotifications("account-1")?.unreadCount)
         assertEquals(listOf("thread-1", "thread-2"), cache.readWhisperThreads("account-1")?.threads?.map { it.id })
         assertFalse(cache.readWhisperThreads("account-1")?.threads?.first()?.isUnread == true)
         assertNull(cache.readNotifications("account-2"))

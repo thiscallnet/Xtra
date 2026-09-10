@@ -32,6 +32,9 @@ object TwitchInboxMenuBinder {
 
     fun invalidateSummary() {
         lastSummaryRefreshAt = 0L
+        cachedNotificationSummary = null
+        cachedWhisperSummary = null
+        hasCachedSummary = false
     }
 
     fun bind(toolbar: Toolbar, activity: MainActivity) {

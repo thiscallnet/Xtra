@@ -155,7 +155,7 @@
     <string name="settings_search_empty" translatable="false">Enter a setting name to search.</string>
     <string name="settings_search_no_results" translatable="false">No matching settings.</string>
     <string name="settings_home_browsing">Browsing &amp; tabs</string>
-    <string name="settings_home_controls">Player controls</string>
+    <string name="settings_home_controls">Player controls &amp; UI size</string>
     <string name="settings_home_account_network">Account &amp; network</string>
     <string name="settings_home_general_summary">Language, backup &amp; app info</string>
     <string name="settings_home_notifications_summary">Live alerts and notification timing</string>
@@ -163,7 +163,7 @@
     <string name="settings_home_appearance_summary">Theme, colors &amp; layout</string>
     <string name="settings_home_browsing_summary">Tabs, lists, content &amp; search</string>
     <string name="settings_home_playback_summary">Quality, background playback &amp; playback sources</string>
-    <string name="settings_home_controls_summary">Customize controls, clip capture &amp; player information</string>
+    <string name="settings_home_controls_summary">Customize player buttons, layout, UI size &amp; information</string>
     <string name="settings_home_chat_summary">Messages, emotes &amp; Twitch features</string>
     <string name="settings_home_downloads_summary">Download behavior, live streams &amp; imports</string>
     <string name="settings_home_account_network_summary">Login, tokens, proxies &amp; connection</string>
@@ -181,8 +181,8 @@
     <string name="settings_item_language_summary">App language</string>
     <string name="settings_item_player_summary">Quality and playback</string>
     <string name="settings_item_playback_summary">Speed and continuity</string>
-    <string name="settings_item_player_controls">Player controls</string>
-    <string name="settings_item_player_controls_summary">Buttons shown in the player</string>
+    <string name="settings_item_player_controls">Player controls &amp; UI size</string>
+    <string name="settings_item_player_controls_summary">Buttons, layout and size shown in the player</string>
     <string name="settings_item_buffering">Buffering</string>
     <string name="settings_item_buffering_summary">Startup and rebuffering</string>
     <string name="settings_item_background_playback">Background playback</string>
@@ -1780,8 +1780,8 @@
     <string name="settings_download_restart_wait_summary">Keep waiting briefly after a stream ends so a quick restart can continue the capture.</string>
     <string name="live_notifications_following_summary">Automatically enable live alerts for channels you follow through Xtra. Twitch notification preferences are used when an authenticated web session is available.</string>
     <string name="settings_customize_controls_summary">Quick controls, More menu and Hidden</string>
-    <string name="settings_player_control_scale_portrait">Vertical player control size</string>
-    <string name="settings_player_control_scale_landscape">Horizontal player control size</string>
+    <string name="settings_player_control_scale_portrait">Player UI size (vertical)</string>
+    <string name="settings_player_control_scale_landscape">Player UI size (horizontal)</string>
     <string name="settings_player_control_metadata_scale">Streamer info size</string>
     <string name="settings_player_control_position">Quick control position</string>
     <string name="player_control_position_above">Above timeline</string>
@@ -1880,10 +1880,10 @@
     <string name="chat_identity_badge_title_hex" translatable="false">%1$s (%2$s)</string>
     <string name="chat_identity_subscriber_badge_unavailable" translatable="false">No subscriber badge is currently available.</string>
     <string name="session_needs_refresh">Your Twitch session needs to be refreshed.</string>
-    <string name="mark_notification_as_seen">Mark notification as seen</string>
-    <string name="mark_all_as_seen">Mark all as seen</string>
-    <string name="mark_all_notifications_seen_title">Mark all notifications as seen?</string>
-    <string name="mark_all_notifications_seen_message">This marks every notification in your Twitch inbox as seen.</string>
+    <string name="mark_notification_as_seen">Mark notification as read</string>
+    <string name="mark_all_as_seen">Mark all as read</string>
+    <string name="mark_all_notifications_seen_title">Mark all notifications as read?</string>
+    <string name="mark_all_notifications_seen_message">This marks every notification in your Twitch inbox as read.</string>
     <string name="happening_now_title">Happening Now (%1$d)</string>
 
     <plurals name="happening_now_new_events">
