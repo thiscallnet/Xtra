@@ -30,7 +30,6 @@ enum class TwitchEmoteGroup {
         }
 
         private val GLOBAL_RESTRICTIONS = setOf(
-            "none",
             "globals",
             "global",
             "smilies",

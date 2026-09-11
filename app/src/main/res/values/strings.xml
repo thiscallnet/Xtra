@@ -496,8 +496,12 @@
     <string name="chat_emote_autocomplete_summary">Show matching emotes while typing.</string>
     <string name="chat_emote_recommendations">Recommendation strip</string>
     <string name="chat_emote_recommendations_summary">Show ranked emotes above the chat input.</string>
-    <string name="chat_compact_twitch_emote_groups">Compact Twitch emote groups</string>
-    <string name="chat_compact_twitch_emote_groups_summary">Separate Twitch emotes into compact labeled sections in the picker.</string>
+    <string name="chat_compact_twitch_emote_groups">Compact picker layout</string>
+    <string name="chat_compact_twitch_emote_groups_summary">Use compact bottom navigation and grouped emote/emoji sections.</string>
+    <string name="chat_compact_picker_item_size">Compact picker item size</string>
+    <string name="chat_compact_picker_item_size_small">Small</string>
+    <string name="chat_compact_picker_item_size_medium">Medium</string>
+    <string name="chat_compact_picker_item_size_large">Large</string>
     <string name="settings_username_appearance">Username appearance</string>
     <string name="settings_7tv_appearance">7TV appearance</string>
     <string name="settings_chat_size">Chat size</string>

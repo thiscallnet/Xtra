@@ -78,6 +78,12 @@ internal class FavoritePickerAdapter(
         emojiAdapter.setFavoriteValues(values)
     }
 
+    fun setCompactPickerVisualSizeDp(compactEnabled: Boolean, sizeDp: Float) {
+        emoteAdapter.setCompactPickerVisualSizeDp(compactEnabled, sizeDp)
+        emojiAdapter.setCompactPickerVisualSizeDp(compactEnabled, sizeDp)
+        if (itemCount > 0) notifyDataSetChanged()
+    }
+
     fun setReorderMode(enabled: Boolean) {
         if (reorderMode == enabled) return
         reorderMode = enabled

@@ -52,6 +52,11 @@ internal class TwitchEmotesAdapter(
         if (itemCount > 0) notifyDataSetChanged()
     }
 
+    fun setPickerVisualSizeDp(sizeDp: Float) {
+        emoteAdapter.setPickerVisualSizeDp(sizeDp)
+        if (itemCount > 0) notifyDataSetChanged()
+    }
+
     fun isHeader(position: Int): Boolean = items.getOrNull(position) is Item.Header
 
     override fun getItemCount(): Int = items.size

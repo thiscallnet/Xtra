@@ -6,14 +6,15 @@ import org.junit.Test
 class TwitchEmoteGroupTest {
     @Test
     fun onlyExplicitGlobalTypesUseTheGlobalSection() {
-        listOf("none", "globals", "global", "smilies").forEach { type ->
+        listOf("globals", "global", "smilies").forEach { type ->
             assertEquals(TwitchEmoteGroup.GLOBAL, TwitchEmoteGroup.fromRestrictionType(type))
         }
     }
 
     @Test
-    fun entitlementTypesUseTheUnlockedSection() {
+    fun unknownAndUnspecifiedTypesUseTheUnlockedSection() {
         listOf(
+            "none",
             "bitstier",
             "follower",
             "channelpoints",

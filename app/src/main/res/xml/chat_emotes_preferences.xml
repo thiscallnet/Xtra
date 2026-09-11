@@ -8,6 +8,7 @@
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_emote_autocomplete" android:summary="@string/chat_emote_autocomplete_summary" android:title="@string/chat_emote_autocomplete" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_emote_recommendations" android:summary="@string/chat_emote_recommendations_summary" android:title="@string/chat_emote_recommendations" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:key="chat_compact_twitch_emote_groups" android:summary="@string/chat_compact_twitch_emote_groups_summary" android:title="@string/chat_compact_twitch_emote_groups" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="medium" android:dependency="chat_compact_twitch_emote_groups" android:entries="@array/compactPickerItemSizeEntries" android:entryValues="@array/compactPickerItemSizeValues" android:key="chat_compact_picker_item_size" android:summary="%s" android:title="@string/chat_compact_picker_item_size" app:iconSpaceReserved="false" />
 
     <SwitchPreferenceCompat android:defaultValue="true" android:key="animatedGifEmotes" android:title="@string/animated_emotes" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_input_emotes" android:title="@string/render_emotes_in_input" android:summary="@string/render_emotes_in_input_summary" app:iconSpaceReserved="false" />
