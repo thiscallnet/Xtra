@@ -391,22 +391,39 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
             userLogin.isVisible = !login.isNullOrBlank()
             userLogin.text = login?.let { "@$it" }
 
-            formatTwitchDate(user.createdAt)?.let { date ->
-                userCreated.isVisible = true
-                userCreated.text = getString(R.string.user_card_created, date)
-            } ?: run {
-                userCreated.isVisible = false
-            }
+            val preferences = requireContext().prefs()
+            formatTwitchDate(user.createdAt)
+                ?.takeIf { preferences.getBoolean(C.UI_USER_CARD_SHOW_ACCOUNT_CREATED, true) }
+                ?.let { date ->
+                    userCreated.isVisible = true
+                    userCreated.text = getString(R.string.user_card_created, date)
+                } ?: run {
+                    userCreated.isVisible = false
+                }
 
-            formatTwitchDate(user.followedAt)?.let { date ->
-                userFollowed.isVisible = true
-                userFollowed.text = getString(R.string.user_card_following_since, date)
-            } ?: run {
-                userFollowed.isVisible = false
+            val roleLabels = buildList {
+                if (user.type.equals("staff", ignoreCase = true)) {
+                    add(getString(R.string.user_staff))
+                }
+                when (user.broadcasterType?.lowercase(Locale.ROOT)) {
+                    "partner" -> add(getString(R.string.user_partner))
+                    "affiliate" -> add(getString(R.string.user_affiliate))
+                }
             }
+            userRole.isVisible = preferences.getBoolean(C.UI_USER_CARD_SHOW_ROLES, false) && roleLabels.isNotEmpty()
+            userRole.text = roleLabels.joinToString(" · ")
+
+            formatTwitchDate(user.followedAt)
+                ?.takeIf { preferences.getBoolean(C.UI_USER_CARD_SHOW_FOLLOWED_SINCE, true) }
+                ?.let { date ->
+                    userFollowed.isVisible = true
+                    userFollowed.text = getString(R.string.user_card_following_since, date)
+                } ?: run {
+                    userFollowed.isVisible = false
+                }
 
             val months = user.subscriptionMonths ?: 0
-            userSubscription.isVisible = months > 0 || user.isSubscribed
+            userSubscription.isVisible = preferences.getBoolean(C.UI_USER_CARD_SHOW_SUBSCRIPTION, true) && (months > 0 || user.isSubscribed)
             if (months > 0) {
                 userSubscription.text = resources.getQuantityString(
                     if (user.isSubscribed) {
@@ -420,6 +437,15 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
             } else if (user.isSubscribed) {
                 userSubscription.setText(R.string.user_card_subscribed)
             }
+
+            formatTwitchDate(user.lastBroadcast)
+                ?.takeIf { preferences.getBoolean(C.UI_USER_CARD_SHOW_LAST_BROADCAST, false) }
+                ?.let { date ->
+                    userLastBroadcast.isVisible = true
+                    userLastBroadcast.text = getString(R.string.last_broadcast_date, date)
+                } ?: run {
+                    userLastBroadcast.isVisible = false
+                }
 
             val badges = user.displayBadges
             badgesTitle.isVisible = badges.isNotEmpty()

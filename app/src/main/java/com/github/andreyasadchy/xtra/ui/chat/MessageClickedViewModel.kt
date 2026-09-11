@@ -128,6 +128,13 @@ class MessageClickedViewModel(
             bannerImageURL = user.bannerImageURL,
             createdAt = user.createdAt,
             followedAt = messageClickedFollowedAt(user),
+            type = if (user.roles?.isStaff == true) "staff" else null,
+            broadcasterType = when {
+                user.roles?.isPartner == true -> "partner"
+                user.roles?.isAffiliate == true -> "affiliate"
+                else -> null
+            },
+            lastBroadcast = user.lastBroadcast?.startedAt?.toString(),
             displayBadges = earnedBadges.ifEmpty {
                 mapBadges(user.displayBadges) { badge ->
                     BadgeFields(badge?.id, badge?.setID, badge?.version, badge?.title, badge?.description, badge?.imageURL)
@@ -148,6 +155,9 @@ class MessageClickedViewModel(
         bannerImageURL: String?,
         createdAt: Any?,
         followedAt: Any?,
+        type: String?,
+        broadcasterType: String?,
+        lastBroadcast: Any?,
         displayBadges: List<UserCardBadge>,
         subscriptionMonths: Int?,
         isSubscribed: Boolean,
@@ -159,8 +169,11 @@ class MessageClickedViewModel(
             login = login,
             name = name,
             profileImageURL = profileImageURL,
+            type = type,
+            broadcasterType = broadcasterType,
             bannerImageURL = bannerImageURL,
             createdAt = createdAt?.toString(),
+            lastBroadcast = lastBroadcast?.toString(),
             followedAt = followedAt?.toString(),
             displayBadges = displayBadges,
             subscriptionMonths = subscriptionMonths,

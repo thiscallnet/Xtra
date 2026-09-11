@@ -58,8 +58,10 @@ class MessageClickedFollowedAtTest {
         createdAt = null,
         displayName = "Chatter",
         follow = clickedUserToChannelAt?.let(UserMessageClickedUser::Follow),
+        lastBroadcast = null,
         displayBadges = null,
         relationship = null,
+        roles = null,
         self = UserMessageClickedUser.Self(
             canFollow = true,
             follower = viewerToClickedUserAt?.let(UserMessageClickedUser::Follower),

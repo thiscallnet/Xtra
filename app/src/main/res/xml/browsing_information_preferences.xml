@@ -5,4 +5,10 @@
     <SwitchPreferenceCompat android:defaultValue="true" android:key="ui_broadcasterscount" android:title="@string/broadcastersCount" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="ui_bookmark_time_left" android:title="@string/show_vod_time_left" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="0" android:entries="@array/nameDisplayEntries" android:entryValues="@array/nameDisplayValues" android:key="ui_name_display" android:summary="@string/name_display_summary" android:title="@string/name_display" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:title="@string/settings_user_card_category" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="ui_user_card_show_account_created" android:summary="@string/settings_user_card_account_created_summary" android:title="@string/settings_user_card_account_created" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="ui_user_card_show_followed_since" android:summary="@string/settings_user_card_followed_since_summary" android:title="@string/settings_user_card_followed_since" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="ui_user_card_show_subscription" android:summary="@string/settings_user_card_subscription_summary" android:title="@string/settings_user_card_subscription" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="ui_user_card_show_roles" android:summary="@string/settings_user_card_roles_summary" android:title="@string/settings_user_card_roles" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="ui_user_card_show_last_broadcast" android:summary="@string/settings_user_card_last_broadcast_summary" android:title="@string/settings_user_card_last_broadcast" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>
