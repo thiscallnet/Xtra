@@ -43,6 +43,23 @@ class ChatAssetRepository(
     @Synchronized internal fun cachedStateCount(): Int = states.size
     @Synchronized internal fun observerCount(key: ChatAssetKey): Int = listeners[key]?.size ?: 0
 
+    /** Warms shareable assets without attaching work to a transient RecyclerView row. */
+    fun prefetch(keys: Iterable<ChatAssetKey>) {
+        keys.asSequence().distinct().forEach { key ->
+            val shouldRequest = synchronized(this) {
+                if (states.containsKey(key)) {
+                    false
+                } else {
+                    states[key] = ChatAssetState.Missing
+                    trimCacheLocked()
+                    updateDiagnosticsLocked()
+                    true
+                }
+            }
+            if (shouldRequest) request(key)
+        }
+    }
+
     fun observe(key: ChatAssetKey, listener: () -> Unit) {
         val readyImage = synchronized(this) {
             listeners.getOrPut(key) { LinkedHashSet() }.add(listener)

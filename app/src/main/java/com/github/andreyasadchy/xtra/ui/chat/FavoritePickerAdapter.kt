@@ -55,6 +55,18 @@ internal class FavoritePickerAdapter(
     fun submitList(newItems: List<FavoritePickerItem>) {
         if (items.hasSameFavoritePickerBinding(newItems)) return
         items = newItems.toList()
+        emoteAdapter.prefetch(
+            items.asSequence()
+                .mapNotNull { (it as? FavoritePickerItem.EmoteItem)?.emote }
+                .take(EmotePickerImageLoader.INITIAL_PREFETCH_LIMIT)
+                .asIterable(),
+        )
+        emojiAdapter.prefetch(
+            items.asSequence()
+                .mapNotNull { (it as? FavoritePickerItem.EmojiItem)?.emoji }
+                .take(EmotePickerImageLoader.INITIAL_PREFETCH_LIMIT)
+                .asIterable(),
+        )
         notifyDataSetChanged()
     }
 
@@ -117,8 +129,26 @@ internal class FavoritePickerAdapter(
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val item = items[position]) {
-            is FavoritePickerItem.EmoteItem -> (holder as EmotesAdapter.ViewHolder).bind(item.emote)
-            is FavoritePickerItem.EmojiItem -> (holder as EmojiAdapter.ViewHolder).bind(item.emoji)
+            is FavoritePickerItem.EmoteItem -> {
+                (holder as EmotesAdapter.ViewHolder).bind(item.emote)
+                emoteAdapter.prefetch(
+                    items.asSequence()
+                        .drop(position + 1)
+                        .mapNotNull { (it as? FavoritePickerItem.EmoteItem)?.emote }
+                        .take(EmotePickerImageLoader.LOOKAHEAD_PREFETCH_LIMIT)
+                        .asIterable(),
+                )
+            }
+            is FavoritePickerItem.EmojiItem -> {
+                (holder as EmojiAdapter.ViewHolder).bind(item.emoji)
+                emojiAdapter.prefetch(
+                    items.asSequence()
+                        .drop(position + 1)
+                        .mapNotNull { (it as? FavoritePickerItem.EmojiItem)?.emoji }
+                        .take(EmotePickerImageLoader.LOOKAHEAD_PREFETCH_LIMIT)
+                        .asIterable(),
+                )
+            }
         }
     }
 

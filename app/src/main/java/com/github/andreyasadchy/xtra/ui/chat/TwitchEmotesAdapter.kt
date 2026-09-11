@@ -36,6 +36,7 @@ internal class TwitchEmotesAdapter(
 
     fun submitList(newItems: List<Emote>) {
         emotes = newItems.toList()
+        emoteAdapter.prefetch(emotes)
         rebuildItems()
         notifyDataSetChanged()
     }
@@ -78,7 +79,16 @@ internal class TwitchEmotesAdapter(
         when (val item = items[position]) {
             is Item.Header -> (holder as SectionHeaderViewHolder).title.text =
                 holder.itemView.context.getString(item.group.titleRes)
-            is Item.EmoteItem -> (holder as EmotesAdapter.ViewHolder).bind(item.emote)
+            is Item.EmoteItem -> {
+                (holder as EmotesAdapter.ViewHolder).bind(item.emote)
+                emoteAdapter.prefetch(
+                    items.asSequence()
+                        .drop(position + 1)
+                        .mapNotNull { (it as? Item.EmoteItem)?.emote }
+                        .take(EmotePickerImageLoader.LOOKAHEAD_PREFETCH_LIMIT)
+                        .asIterable(),
+                )
+            }
         }
     }
 

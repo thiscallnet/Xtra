@@ -26,6 +26,12 @@ internal class CompactEmojiAdapter(
     private var items: List<Item> = emptyList()
 
     fun submitSections(sections: List<Pair<EmojiPickerCategory, List<EmojiPickerItem>>>) {
+        emojiAdapter.prefetch(
+            sections.asSequence()
+                .flatMap { it.second.asSequence() }
+                .take(EmotePickerImageLoader.INITIAL_PREFETCH_LIMIT)
+                .asIterable(),
+        )
         items = sections.flatMap { (category, emojis) ->
             if (emojis.isEmpty()) emptyList()
             else listOf(Item.Header(category)) + emojis.map(Item::EmojiItem)
@@ -68,7 +74,16 @@ internal class CompactEmojiAdapter(
         when (val item = items[position]) {
             is Item.Header -> (holder as SectionHeaderViewHolder).title.text =
                 holder.itemView.context.getString(item.category.titleRes)
-            is Item.EmojiItem -> (holder as EmojiAdapter.ViewHolder).bind(item.emoji)
+            is Item.EmojiItem -> {
+                (holder as EmojiAdapter.ViewHolder).bind(item.emoji)
+                emojiAdapter.prefetch(
+                    items.asSequence()
+                        .drop(position + 1)
+                        .mapNotNull { (it as? Item.EmojiItem)?.emoji }
+                        .take(EmotePickerImageLoader.LOOKAHEAD_PREFETCH_LIMIT)
+                        .asIterable(),
+                )
+            }
         }
     }
 

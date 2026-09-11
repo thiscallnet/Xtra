@@ -38,7 +38,21 @@ internal class EmojiAdapter(
     var itemTouchHelper: ItemTouchHelper? = null
     var accessibilityMoveListener: ((Int, Int) -> Boolean)? = null
 
-    fun submitList(items: List<EmojiPickerItem>) = differ.submitList(items.toList())
+    fun submitList(items: List<EmojiPickerItem>) {
+        val copy = items.toList()
+        prefetch(copy)
+        differ.submitList(copy)
+    }
+
+    fun prefetch(items: Iterable<EmojiPickerItem>) {
+        assets.prefetch(
+            items.asSequence()
+                .map { Twemoji.asset(it.value).key }
+                .distinct()
+                .take(EmotePickerImageLoader.INITIAL_PREFETCH_LIMIT)
+                .asIterable(),
+        )
+    }
 
     fun setFavoriteValues(values: Set<String>) {
         if (favoriteValues == values) return
@@ -83,6 +97,12 @@ internal class EmojiAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         holder.bind(differ.currentList[position])
+        prefetch(
+            differ.currentList.asSequence()
+                .drop(position + 1)
+                .take(EmotePickerImageLoader.LOOKAHEAD_PREFETCH_LIMIT)
+                .asIterable(),
+        )
     }
 
     inner class ViewHolder(
