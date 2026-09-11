@@ -671,6 +671,7 @@
     <string name="view_profile">View profile</string>
     <string name="chat">Chat</string>
     <string name="favorite_emotes">★ Favorites</string>
+    <string name="favorite_emojis">★ Favorites</string>
     <string name="recent_emotes">Recent</string>
     <string name="emoji">Emoji</string>
     <string name="emoji_category_all">All</string>
@@ -1460,6 +1461,11 @@
     <string name="chat_scroll_to_latest">Scroll to latest messages</string>
     <string name="use_emote">Use %1$s emote</string>
     <string name="use_emoji">Use %1$s emoji</string>
+    <string name="add_emoji_to_favorites">Add to favorites</string>
+    <string name="remove_emoji_from_favorites">Remove from favorites</string>
+    <string name="added_emoji_to_favorites">Added %1$s to favorites</string>
+    <string name="removed_emoji_from_favorites">Removed %1$s from favorites</string>
+    <string name="favorite_emojis_empty">No favorite emojis yet\nLong-press an emoji to add it to Favorites.</string>
     <string name="add_emote_to_favorites">Add to favorites</string>
     <string name="remove_emote_from_favorites">Remove from favorites</string>
     <string name="added_emote_to_favorites">Added %1$s to favorites</string>

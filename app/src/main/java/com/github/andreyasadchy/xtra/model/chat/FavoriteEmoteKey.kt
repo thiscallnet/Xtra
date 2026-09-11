@@ -5,6 +5,7 @@ enum class EmoteProvider {
     SEVENTV,
     BTTV,
     FFZ,
+    TWEMOJI,
 }
 
 data class FavoriteEmoteKey(

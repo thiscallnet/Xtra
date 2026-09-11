@@ -208,13 +208,22 @@ class EmotesFragment : Fragment() {
 
     private fun setupEmojiPicker() {
         binding.editFavorites.isVisible = false
-        binding.emptyState.isVisible = false
         binding.emojiCategories.isVisible = true
         val assets = (requireContext().applicationContext as XtraApp).xtraModule.chatAssetRepository
-        val adapter = EmojiAdapter(this, assets) { emoji ->
-            (parentFragment as? ChatFragment)?.appendEmoji(emoji)
-        }
+        // Start on the complete catalog. Favorites load asynchronously from Room, so using
+        // the StateFlow's initial value here could make the first screen depend on timing.
+        var selectedCategory = EmojiPickerCategory.ALL
+        var favoriteEmotes = viewModel.favoriteEmojis.value
+        val adapter = EmojiAdapter(
+            fragment = this,
+            assets = assets,
+            clickListener = { emoji ->
+                (parentFragment as? ChatFragment)?.appendEmoji(emoji)
+            },
+            favoriteToggleListener = { emoji -> toggleEmojiFavorite(emoji) },
+        )
         emojiAdapter = adapter
+        adapter.setFavoriteValues(EmojiFavoritesCatalog.favoriteValues(favoriteEmotes))
         with(binding.emotesRecyclerView) {
             itemAnimator = null
             this.adapter = adapter
@@ -225,10 +234,31 @@ class EmotesFragment : Fragment() {
             ).toInt()
             layoutManager = GridAutofitLayoutManager(requireContext(), columnWidth)
         }
+        fun submitEmojiCategory() {
+            val items = if (selectedCategory == EmojiPickerCategory.FAVORITES) {
+                EmojiFavoritesCatalog.availableFavorites(favoriteEmotes, EmojiPickerCatalog.items)
+            } else {
+                EmojiPickerCatalog.itemsFor(selectedCategory)
+            }
+            adapter.submitList(items)
+            if (selectedCategory == EmojiPickerCategory.FAVORITES && items.isEmpty()) {
+                binding.emptyState.setText(R.string.favorite_emojis_empty)
+                binding.emptyState.isVisible = true
+            } else {
+                binding.emptyState.isVisible = false
+            }
+        }
+        EmojiPickerCatalog.categories.forEach { category ->
+            binding.emojiCategories.addTab(
+                binding.emojiCategories.newTab().setText(getString(category.titleRes)),
+                false,
+            )
+        }
         binding.emojiCategories.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 EmojiPickerCatalog.categories.getOrNull(tab.position)?.let { category ->
-                    adapter.submitList(EmojiPickerCatalog.itemsFor(category))
+                    selectedCategory = category
+                    submitEmojiCategory()
                 }
             }
 
@@ -236,13 +266,29 @@ class EmotesFragment : Fragment() {
 
             override fun onTabReselected(tab: TabLayout.Tab) = Unit
         })
-        EmojiPickerCatalog.categories.forEach { category ->
-            binding.emojiCategories.addTab(
-                binding.emojiCategories.newTab().setText(getString(category.titleRes)),
-            )
+        binding.emojiCategories.getTabAt(selectedCategory.ordinal)?.select()
+        submitEmojiCategory()
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.favoriteEmojis.collectLatest {
+                    favoriteEmotes = it
+                    adapter.setFavoriteValues(EmojiFavoritesCatalog.favoriteValues(it))
+                    submitEmojiCategory()
+                }
+            }
         }
-        binding.emojiCategories.getTabAt(0)?.select()
-        adapter.submitList(EmojiPickerCatalog.itemsFor(EmojiPickerCatalog.categories.first()))
+    }
+
+    private fun toggleEmojiFavorite(emoji: EmojiPickerItem) {
+        val added = viewModel.toggleFavorite(emoji)
+        Snackbar.make(
+            binding.root,
+            getString(
+                if (added) R.string.added_emoji_to_favorites else R.string.removed_emoji_from_favorites,
+                emoji.alias,
+            ),
+            Snackbar.LENGTH_SHORT,
+        ).show()
     }
 
     private fun updateList(section: EmotePickerSection, adapter: EmotesAdapter) {

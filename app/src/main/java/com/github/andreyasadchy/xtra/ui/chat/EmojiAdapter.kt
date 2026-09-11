@@ -2,7 +2,10 @@ package com.github.andreyasadchy.xtra.ui.chat
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import android.view.HapticFeedbackConstants
 import androidx.core.view.isVisible
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityViewCommand
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.AsyncListDiffer
 import androidx.recyclerview.widget.DiffUtil
@@ -17,11 +20,19 @@ internal class EmojiAdapter(
     private val fragment: Fragment,
     private val assets: ChatAssetRepository,
     private val clickListener: (EmojiPickerItem) -> Unit,
+    private val favoriteToggleListener: ((EmojiPickerItem) -> Unit)? = null,
 ) : RecyclerView.Adapter<EmojiAdapter.ViewHolder>() {
     private val differ = AsyncListDiffer(this, DIFF_CALLBACK)
     private val activeHolders = LinkedHashSet<ViewHolder>()
+    private var favoriteValues: Set<String> = emptySet()
 
     fun submitList(items: List<EmojiPickerItem>) = differ.submitList(items.toList())
+
+    fun setFavoriteValues(values: Set<String>) {
+        if (favoriteValues == values) return
+        favoriteValues = values
+        if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
+    }
 
     fun dispose() {
         activeHolders.toList().forEach { it.unbind() }
@@ -45,6 +56,7 @@ internal class EmojiAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
         private var observedKey: ChatAssetKey? = null
         private var observer: (() -> Unit)? = null
+        private var favoriteAccessibilityActionId: Int? = null
 
         fun bind(item: EmojiPickerItem) {
             unbind()
@@ -55,8 +67,27 @@ internal class EmojiAdapter(
             binding.emoji.setImageDrawable(null)
             binding.emojiFallback.text = item.value
             binding.emojiFallback.isVisible = true
+            binding.emojiFavorite.isVisible = item.name in favoriteValues
             binding.root.contentDescription = fragment.getString(R.string.use_emoji, item.alias)
             binding.root.setOnClickListener { clickListener(item) }
+            if (favoriteToggleListener != null) {
+                val isFavorite = item.name in favoriteValues
+                binding.root.setOnLongClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    favoriteToggleListener.invoke(item)
+                    true
+                }
+                favoriteAccessibilityActionId = ViewCompat.addAccessibilityAction(
+                    binding.root,
+                    fragment.getString(
+                        if (isFavorite) R.string.remove_emoji_from_favorites else R.string.add_emoji_to_favorites,
+                    ),
+                    AccessibilityViewCommand { _, _ ->
+                        favoriteToggleListener.invoke(item)
+                        true
+                    },
+                )
+            }
             val updateImage: () -> Unit = {
                 binding.root.post {
                     if (binding.root.tag != key) return@post
@@ -86,13 +117,19 @@ internal class EmojiAdapter(
 
         fun unbind() {
             activeHolders -= this
+            favoriteAccessibilityActionId?.let {
+                ViewCompat.removeAccessibilityAction(binding.root, it)
+                favoriteAccessibilityActionId = null
+            }
             observer?.let { callback -> observedKey?.let { assets.removeObserver(it, callback) } }
             observer = null
             observedKey = null
             binding.root.tag = null
             binding.emoji.setImageDrawable(null)
             binding.emojiFallback.text = null
+            binding.emojiFavorite.isVisible = false
             binding.root.setOnClickListener(null)
+            binding.root.setOnLongClickListener(null)
             binding.root.contentDescription = null
         }
     }

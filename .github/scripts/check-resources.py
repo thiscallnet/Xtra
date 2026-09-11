@@ -62,6 +62,12 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "use_emoji",
     "settings_twemoji",
     "settings_twemoji_summary",
+    "favorite_emojis",
+    "add_emoji_to_favorites",
+    "remove_emoji_from_favorites",
+    "added_emoji_to_favorites",
+    "removed_emoji_from_favorites",
+    "favorite_emojis_empty",
     # Drops progress settings ship with the default English wording until their
     # translations are reviewed by native speakers.
     "drops_show_summary",

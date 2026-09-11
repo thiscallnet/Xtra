@@ -23,4 +23,15 @@
         android:gravity="center"
         android:includeFontPadding="false"
         android:textSize="26sp" />
+
+    <TextView
+        android:id="@+id/emojiFavorite"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:importantForAccessibility="no"
+        android:text="★"
+        android:textColor="@color/channel_points_default"
+        android:textSize="11sp"
+        android:visibility="gone" />
 </FrameLayout>
