@@ -1073,8 +1073,8 @@
     <string name="remove_emote_from_favorites">Usuń z ulubionych</string>
     <string name="added_emote_to_favorites">Dodano %1$s do ulubionych</string>
     <string name="removed_emote_from_favorites">Usunięto %1$s z ulubionych</string>
-    <string name="favorite_emotes_empty">Nie ma tu jeszcze ulubionych emotek\nNaciśnij i przytrzymaj emotkę, aby dodać ją do Ulubionych.</string>
-    <string name="favorite_emotes_unavailable">Żadna z Twoich ulubionych emotek nie jest dostępna na tym kanale.</string>
+    <string name="favorite_emotes_empty">Nie ma tu jeszcze ulubionych\nNaciśnij i przytrzymaj emotkę lub emoji, aby dodać ją do Ulubionych.</string>
+    <string name="favorite_emotes_unavailable">Żadne z Twoich ulubionych nie są dostępne na tym kanale.</string>
     <string name="reorder_favorite_emotes">Zmień zamówienie</string>
     <string name="done_reordering_favorite_emotes">Gotowe</string>
     <string name="reorder_favorite_emote">Zamów ponownie emotkę %1$s</string>

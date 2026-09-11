@@ -35,7 +35,6 @@ import com.github.andreyasadchy.xtra.model.chat.toState
 import com.github.andreyasadchy.xtra.model.chat.Chatter
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
-import com.github.andreyasadchy.xtra.model.chat.EmoteProvider
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmote
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmoteCatalog
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmoteKey
@@ -744,13 +743,6 @@ class ChatViewModel(
         SharingStarted.Eagerly,
         emptyList(),
     )
-    val favoriteEmojis: StateFlow<List<FavoriteEmote>> = favoriteEmotes.map { favorites ->
-        favorites.filter { it.key()?.provider == EmoteProvider.TWEMOJI }
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.Eagerly,
-        emptyList(),
-    )
     val favoriteKeys: StateFlow<Set<FavoriteEmoteKey>> = favoriteEmotes.map { favorites ->
         favorites.mapNotNull { it.key() }.toSet()
     }.stateIn(
@@ -766,6 +758,16 @@ class ChatViewModel(
         emptyList(),
     )
     val hasAvailableFavoriteEmotes: StateFlow<Boolean> = availableFavoriteEmotes.map { it.isNotEmpty() }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        false,
+    )
+    val hasAvailableFavoriteItems: StateFlow<Boolean> = combine(
+        hasAvailableFavoriteEmotes,
+        favoriteEmotes,
+    ) { hasEmotes, favorites ->
+        hasEmotes || EmojiFavoritesCatalog.availableFavorites(favorites, EmojiPickerCatalog.items).isNotEmpty()
+    }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
         false,
@@ -3237,8 +3239,11 @@ class ChatViewModel(
     }
 
     fun reorderFavorites(emotes: List<Emote>): Boolean {
+        return reorderFavoriteKeys(emotes.mapNotNull { it.favoriteKey() })
+    }
+
+    fun reorderFavoriteKeys(availableOrder: List<FavoriteEmoteKey>): Boolean {
         val currentOrder = favoriteEmotes.value.mapNotNull { it.key() }
-        val availableOrder = emotes.mapNotNull { it.favoriteKey() }
         val reordered = FavoriteEmoteCatalog.reorderAvailableFavorites(currentOrder, availableOrder)
         if (reordered == currentOrder) return false
         viewModelScope.launch {

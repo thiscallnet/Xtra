@@ -9,6 +9,7 @@ import androidx.core.view.accessibility.AccessibilityViewCommand
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.AsyncListDiffer
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
@@ -21,10 +22,16 @@ internal class EmojiAdapter(
     private val assets: ChatAssetRepository,
     private val clickListener: (EmojiPickerItem) -> Unit,
     private val favoriteToggleListener: ((EmojiPickerItem) -> Unit)? = null,
+    private val reorderContentDescriptionRes: Int = R.string.reorder_favorite_item,
+    private val moveBeforeDescriptionRes: Int = R.string.move_favorite_item_before,
+    private val moveAfterDescriptionRes: Int = R.string.move_favorite_item_after,
 ) : RecyclerView.Adapter<EmojiAdapter.ViewHolder>() {
     private val differ = AsyncListDiffer(this, DIFF_CALLBACK)
     private val activeHolders = LinkedHashSet<ViewHolder>()
     private var favoriteValues: Set<String> = emptySet()
+    private var reorderMode = false
+    var itemTouchHelper: ItemTouchHelper? = null
+    var accessibilityMoveListener: ((Int, Int) -> Boolean)? = null
 
     fun submitList(items: List<EmojiPickerItem>) = differ.submitList(items.toList())
 
@@ -32,6 +39,16 @@ internal class EmojiAdapter(
         if (favoriteValues == values) return
         favoriteValues = values
         if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
+    }
+
+    fun setReorderMode(enabled: Boolean) {
+        if (reorderMode == enabled) return
+        reorderMode = enabled
+        if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
+    }
+
+    fun setDragging(viewHolder: RecyclerView.ViewHolder, dragging: Boolean) {
+        (viewHolder as? ViewHolder)?.setDragging(dragging)
     }
 
     fun dispose() {
@@ -57,20 +74,43 @@ internal class EmojiAdapter(
         private var observedKey: ChatAssetKey? = null
         private var observer: (() -> Unit)? = null
         private var favoriteAccessibilityActionId: Int? = null
+        private val reorderAccessibilityActionIds = mutableListOf<Int>()
+        private var isDragging = false
 
         fun bind(item: EmojiPickerItem) {
             unbind()
             activeHolders += this
+            val canReorder = reorderMode
             val key = Twemoji.asset(item.value).key
             observedKey = key
             binding.root.tag = key
             binding.emoji.setImageDrawable(null)
             binding.emojiFallback.text = item.value
-            binding.emojiFallback.isVisible = true
+            // Do not briefly show the device's Unicode glyph while Twemoji is loading. The
+            // glyph can have a different design and would make a recycled row appear to change
+            // as it is scrolled out and back into the asset cache.
+            binding.emojiFallback.isVisible = false
             binding.emojiFavorite.isVisible = item.name in favoriteValues
-            binding.root.contentDescription = fragment.getString(R.string.use_emoji, item.alias)
-            binding.root.setOnClickListener { clickListener(item) }
-            if (favoriteToggleListener != null) {
+            binding.root.isClickable = !canReorder
+            binding.root.contentDescription = fragment.getString(
+                if (canReorder) reorderContentDescriptionRes else R.string.use_emoji,
+                item.alias,
+            )
+            if (canReorder) {
+                binding.root.setOnClickListener(null)
+            } else {
+                binding.root.setOnClickListener { clickListener(item) }
+            }
+            binding.dragHandle.isVisible = canReorder
+            binding.dragHandle.setOnTouchListener(if (canReorder) {
+                { _, event ->
+                    if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                        itemTouchHelper?.startDrag(this@ViewHolder)
+                    }
+                    true
+                }
+            } else null)
+            if (!canReorder && favoriteToggleListener != null) {
                 val isFavorite = item.name in favoriteValues
                 binding.root.setOnLongClickListener {
                     it.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -87,6 +127,23 @@ internal class EmojiAdapter(
                         true
                     },
                 )
+            } else if (canReorder) {
+                reorderAccessibilityActionIds += ViewCompat.addAccessibilityAction(
+                    binding.root,
+                    fragment.getString(moveBeforeDescriptionRes),
+                    AccessibilityViewCommand { _, _ ->
+                        val position = bindingAdapterPosition
+                        accessibilityMoveListener?.invoke(position, position - 1) == true
+                    },
+                )
+                reorderAccessibilityActionIds += ViewCompat.addAccessibilityAction(
+                    binding.root,
+                    fragment.getString(moveAfterDescriptionRes),
+                    AccessibilityViewCommand { _, _ ->
+                        val position = bindingAdapterPosition
+                        accessibilityMoveListener?.invoke(position, position + 1) == true
+                    },
+                )
             }
             val updateImage: () -> Unit = {
                 binding.root.post {
@@ -97,15 +154,19 @@ internal class EmojiAdapter(
                             if (drawable == null) {
                                 assets.retryIfDrawableUnavailable(key)
                                 binding.emoji.setImageDrawable(null)
-                                binding.emojiFallback.isVisible = true
+                                binding.emojiFallback.isVisible = false
                             } else {
                                 binding.emoji.setImageDrawable(drawable)
                                 binding.emojiFallback.isVisible = false
                             }
                         }
+                        is ChatAssetState.Failed -> {
+                            binding.emoji.setImageDrawable(null)
+                            binding.emojiFallback.isVisible = state.isPresentationTerminal
+                        }
                         else -> {
                             binding.emoji.setImageDrawable(null)
-                            binding.emojiFallback.isVisible = true
+                            binding.emojiFallback.isVisible = false
                         }
                     }
                 }
@@ -117,20 +178,40 @@ internal class EmojiAdapter(
 
         fun unbind() {
             activeHolders -= this
+            isDragging = false
+            binding.root.animate().cancel()
+            binding.root.scaleX = 1f
+            binding.root.scaleY = 1f
             favoriteAccessibilityActionId?.let {
                 ViewCompat.removeAccessibilityAction(binding.root, it)
                 favoriteAccessibilityActionId = null
             }
+            reorderAccessibilityActionIds.forEach { actionId ->
+                ViewCompat.removeAccessibilityAction(binding.root, actionId)
+            }
+            reorderAccessibilityActionIds.clear()
             observer?.let { callback -> observedKey?.let { assets.removeObserver(it, callback) } }
             observer = null
             observedKey = null
             binding.root.tag = null
+            binding.root.isClickable = true
             binding.emoji.setImageDrawable(null)
             binding.emojiFallback.text = null
             binding.emojiFavorite.isVisible = false
+            binding.dragHandle.isVisible = false
+            binding.dragHandle.setOnTouchListener(null)
             binding.root.setOnClickListener(null)
             binding.root.setOnLongClickListener(null)
             binding.root.contentDescription = null
+        }
+
+        fun setDragging(dragging: Boolean) {
+            isDragging = dragging
+            binding.root.animate()
+                .scaleX(if (dragging) 1.05f else 1f)
+                .scaleY(if (dragging) 1.05f else 1f)
+                .setDuration(100L)
+                .start()
         }
     }
 

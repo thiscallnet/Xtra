@@ -107,8 +107,8 @@
     <string name="remove_emote_from_favorites">إزالة من المفضلة</string>
     <string name="added_emote_to_favorites">تمت إضافة %1$s إلى المفضلة</string>
     <string name="removed_emote_from_favorites">تمت إزالة %1$s من المفضلة</string>
-    <string name="favorite_emotes_empty">لا توجد رموز مفضلة هنا بعد\nاضغط مطولًا على رمز لإضافته إلى المفضلة.</string>
-    <string name="favorite_emotes_unavailable">لا تتوفر أي من رموزك المفضلة في هذه القناة.</string>
+    <string name="favorite_emotes_empty">لا توجد مفضلات هنا بعد\nاضغط مطولًا على رمز أو إيموجي لإضافته إلى المفضلة.</string>
+    <string name="favorite_emotes_unavailable">لا يتوفر أي من مفضلاتك في هذه القناة.</string>
     <string name="notification_playback_channel_title">تشغيل</string>
     <string name="channels">القنوات</string>
     <string name="watch_video">مشاهدة الفيديو بأكمله</string>

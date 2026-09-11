@@ -1098,8 +1098,8 @@
     <string name="remove_emote_from_favorites">Odstrániť z obľúbených</string>
     <string name="added_emote_to_favorites">Pridané %1$s medzi obľúbené</string>
     <string name="removed_emote_from_favorites">Odstránené %1$s z obľúbených</string>
-    <string name="favorite_emotes_empty">Zatiaľ tu nie sú žiadne obľúbené emoty\nDlhým stlačením emotu ho pridáte medzi obľúbené.</string>
-    <string name="favorite_emotes_unavailable">Na tomto kanáli nie sú dostupné žiadne z vašich obľúbených emotov.</string>
+    <string name="favorite_emotes_empty">Zatiaľ tu nie sú žiadne obľúbené položky\nDlhým stlačením emotu alebo emoji ho pridáte medzi obľúbené.</string>
+    <string name="favorite_emotes_unavailable">Na tomto kanáli nie sú dostupné žiadne z vašich obľúbených položiek.</string>
     <string name="reorder_favorite_emotes">Zmeniť poradie</string>
     <string name="done_reordering_favorite_emotes">Hotovo</string>
     <string name="reorder_favorite_emote">Zmeňte poradie emotu %1$s</string>

@@ -124,7 +124,10 @@ class AutoCompleteAdapter<T>(
                     it.visibility = View.VISIBLE
                     it.setImageDrawable(null)
                     fallback?.apply {
-                        visibility = View.VISIBLE
+                        // Keep the dropdown visually consistent with the Twemoji picker while
+                        // the remote asset is loading; a platform glyph would be replaced by a
+                        // differently styled Twemoji image as rows are recycled.
+                        visibility = View.GONE
                         text = item.value
                     }
                     lateinit var subscription: EmojiAssetSubscription
@@ -136,17 +139,21 @@ class AutoCompleteAdapter<T>(
                                     val drawable = state.image.newDrawable()
                                     if (drawable == null) {
                                         chatAssets.retryIfDrawableUnavailable(spec.key)
-                                        it.visibility = View.GONE
-                                        fallback?.visibility = View.VISIBLE
+                                        it.visibility = View.VISIBLE
+                                        fallback?.visibility = View.GONE
                                     } else {
                                         it.setImageDrawable(drawable)
                                         it.visibility = View.VISIBLE
                                         fallback?.visibility = View.GONE
                                     }
                                 }
+                                is ChatAssetState.Failed -> {
+                                    it.visibility = if (state.isPresentationTerminal) View.GONE else View.VISIBLE
+                                    fallback?.visibility = if (state.isPresentationTerminal) View.VISIBLE else View.GONE
+                                }
                                 else -> {
-                                    it.visibility = View.GONE
-                                    fallback?.visibility = View.VISIBLE
+                                    it.visibility = View.VISIBLE
+                                    fallback?.visibility = View.GONE
                                 }
                             }
                         }
