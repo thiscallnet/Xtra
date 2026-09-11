@@ -486,6 +486,17 @@
     <string name="settings_chat_history_page">History</string>
     <string name="settings_chat_translation_page">Translation</string>
     <string name="settings_chat_visibility">Message visibility</string>
+    <string name="settings_user_card_category">Chat user pop-out</string>
+    <string name="settings_user_card_account_created">Account creation date</string>
+    <string name="settings_user_card_account_created_summary">Show when a chatter created their Twitch account.</string>
+    <string name="settings_user_card_followed_since">Followed since</string>
+    <string name="settings_user_card_followed_since_summary">Show when a chatter followed the current channel.</string>
+    <string name="settings_user_card_subscription">Subscription status</string>
+    <string name="settings_user_card_subscription_summary">Show subscription status and tenure.</string>
+    <string name="settings_user_card_roles">Twitch roles</string>
+    <string name="settings_user_card_roles_summary">Show Staff, Partner, or Affiliate labels.</string>
+    <string name="settings_user_card_last_broadcast">Last broadcast</string>
+    <string name="settings_user_card_last_broadcast_summary">Show when the chatter last broadcast.</string>
     <string name="chat_moderation_display">Deleted &amp; moderated messages</string>
     <string name="chat_moderation_display_notice">Keep message + notice</string>
     <string name="chat_moderation_display_strikethrough">Strike-through message</string>

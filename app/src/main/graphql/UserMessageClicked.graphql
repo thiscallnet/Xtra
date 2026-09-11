@@ -5,6 +5,14 @@ fragment UserMessageClickedUser on User {
     follow(targetID: $targetId, targetLogin: $targetLogin) {
         followedAt
     }
+    lastBroadcast {
+        startedAt
+    }
+    roles {
+        isAffiliate
+        isPartner
+        isStaff
+    }
     displayBadges(channelID: $targetId) {
         id
         setID
