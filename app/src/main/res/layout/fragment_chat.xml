@@ -364,6 +364,20 @@
                 android:id="@+id/viewPager"
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/emote_picker_max_height" />
+
+            <com.google.android.material.tabs.TabLayout
+                android:id="@+id/compactTabLayout"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="?attr/colorSurfaceContainer"
+                android:visibility="gone"
+                app:tabGravity="fill"
+                app:tabIconTint="@color/picker_tab_icon_tint"
+                app:tabIndicatorColor="?attr/colorPrimary"
+                app:tabIndicatorFullWidth="false"
+                app:tabMode="fixed"
+                app:tabPaddingEnd="0dp"
+                app:tabPaddingStart="0dp" />
         </LinearLayout>
 
     </LinearLayout>

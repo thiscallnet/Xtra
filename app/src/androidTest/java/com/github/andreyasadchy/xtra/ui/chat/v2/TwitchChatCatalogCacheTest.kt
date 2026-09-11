@@ -10,6 +10,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopedEmoteCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.TwitchChatCatalogCache
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -121,6 +123,40 @@ class TwitchChatCatalogCacheTest {
             val restored = checkNotNull(cache.read())
             assertFalse(checkNotNull(restored.sevenTv.global["ThirdParty"]?.asset).dimensionsAreAuthoritative)
         } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun schemaNineCacheWithoutRestrictionMetadataIsNotReadyForGrouping() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val channelId = "incomplete-twitch-grouping-cache"
+        val cache = TwitchChatCatalogCache(context, channelId)
+        val file = File(File(context.filesDir, "chat-v2/catalog"), "$channelId.json")
+        val preferences = context.prefs()
+        val previousCompactSetting = preferences.getBoolean(C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS, false)
+        val snapshot = JSONObject()
+            .put("schemaVersion", 9)
+            .put("revision", 1)
+            .put("twitch", JSONArray().put(
+                JSONObject()
+                    .put("name", "LegacyTwitch")
+                    .put("id", "legacy-twitch")
+                    .put("provider", ChatAssetProvider.TWITCH.name)
+                    .put("asset", JSONObject()
+                        .put("key", "legacy-twitch")
+                        .put("sourceWidth", 28)
+                        .put("sourceHeight", 28)
+                        .put("targetHeight", 28)),
+            ))
+
+        try {
+            preferences.edit().putBoolean(C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS, true).commit()
+            file.parentFile?.mkdirs()
+            file.writeText(snapshot.toString())
+            assertEquals(null, cache.readEntry())
+        } finally {
+            preferences.edit().putBoolean(C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS, previousCompactSetting).commit()
             file.delete()
         }
     }

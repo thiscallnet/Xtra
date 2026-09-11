@@ -14,6 +14,8 @@ class Emote(
     val id: String? = null,
     val width: Int? = null,
     val height: Int? = null,
+    /** Twitch availability metadata used by the optional compact picker layout. */
+    val twitchGroup: TwitchEmoteGroup? = null,
 ) {
     val thirdParty = source == PERSONAL_STV || source == CHANNEL_STV || source == CHANNEL_BTTV || source == CHANNEL_FFZ || source == GLOBAL_STV || source == GLOBAL_BTTV || source == GLOBAL_FFZ
 

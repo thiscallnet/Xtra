@@ -3,6 +3,9 @@ package com.github.andreyasadchy.xtra.ui.chat
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.HapticFeedbackConstants
+import android.view.Gravity
+import android.util.TypedValue
+import android.widget.FrameLayout
 import androidx.core.view.isVisible
 import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityViewCommand
@@ -16,6 +19,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetState
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.databinding.FragmentEmojiPickerListItemBinding
+import kotlin.math.roundToInt
 
 internal class EmojiAdapter(
     private val fragment: Fragment,
@@ -29,6 +33,7 @@ internal class EmojiAdapter(
     private val differ = AsyncListDiffer(this, DIFF_CALLBACK)
     private val activeHolders = LinkedHashSet<ViewHolder>()
     private var favoriteValues: Set<String> = emptySet()
+    private var pickerVisualSizeDp = DEFAULT_PICKER_VISUAL_SIZE_DP
     private var reorderMode = false
     var itemTouchHelper: ItemTouchHelper? = null
     var accessibilityMoveListener: ((Int, Int) -> Boolean)? = null
@@ -39,6 +44,18 @@ internal class EmojiAdapter(
         if (favoriteValues == values) return
         favoriteValues = values
         if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
+    }
+
+    /** Changes only the artwork bounds. The 48dp cell and its touch target stay unchanged. */
+    fun setPickerVisualSizeDp(sizeDp: Float) {
+        val normalized = sizeDp.coerceIn(MIN_PICKER_VISUAL_SIZE_DP, PICKER_CELL_SIZE_DP)
+        if (pickerVisualSizeDp == normalized) return
+        pickerVisualSizeDp = normalized
+        if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
+    }
+
+    fun setCompactPickerVisualSizeDp(compactEnabled: Boolean, sizeDp: Float) {
+        setPickerVisualSizeDp(if (compactEnabled) sizeDp else DEFAULT_PICKER_VISUAL_SIZE_DP)
     }
 
     fun setReorderMode(enabled: Boolean) {
@@ -81,6 +98,22 @@ internal class EmojiAdapter(
             unbind()
             activeHolders += this
             val canReorder = reorderMode
+            val contentSizePx = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                pickerVisualSizeDp,
+                itemView.resources.displayMetrics,
+            ).roundToInt()
+            (binding.emoji.layoutParams as FrameLayout.LayoutParams).apply {
+                width = contentSizePx
+                height = contentSizePx
+                gravity = Gravity.CENTER
+            }.also { binding.emoji.layoutParams = it }
+            (binding.emojiFallback.layoutParams as FrameLayout.LayoutParams).apply {
+                width = contentSizePx
+                height = contentSizePx
+                gravity = Gravity.CENTER
+            }.also { binding.emojiFallback.layoutParams = it }
+            binding.emojiFallback.textSize = 26f * pickerVisualSizeDp / PICKER_CELL_SIZE_DP
             val key = Twemoji.asset(item.value).key
             observedKey = key
             binding.root.tag = key
@@ -221,6 +254,9 @@ internal class EmojiAdapter(
     }
 
     private companion object {
+        const val PICKER_CELL_SIZE_DP = 48f
+        const val DEFAULT_PICKER_VISUAL_SIZE_DP = 48f
+        const val MIN_PICKER_VISUAL_SIZE_DP = 24f
         val DIFF_CALLBACK = object : DiffUtil.ItemCallback<EmojiPickerItem>() {
             override fun areItemsTheSame(oldItem: EmojiPickerItem, newItem: EmojiPickerItem): Boolean =
                 oldItem.name == newItem.name

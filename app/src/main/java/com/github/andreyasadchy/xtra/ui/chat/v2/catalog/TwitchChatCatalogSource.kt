@@ -320,6 +320,7 @@ class TwitchChatCatalogSource(
                     provider = ChatAssetProvider.TWITCH,
                     animated = emote.isAnimated,
                     scope = twitchEmoteScope(emote.restrictionType),
+                    twitchRestrictionType = emote.restrictionType,
                 ),
             )
         }
@@ -579,19 +580,37 @@ class TwitchChatCatalogCache(
     context: Context,
     channelId: String,
 ) : ChatCatalogCache {
+    private val context = context.applicationContext
     private val file = File(
-        File(context.applicationContext.filesDir, "chat-v2/catalog"),
+        File(context.filesDir, "chat-v2/catalog"),
         channelId.replace(Regex("[^A-Za-z0-9._-]"), "_") + ".json",
     )
 
-    override suspend fun read(): ChatCatalogSnapshot? = readEntry()?.snapshot
+    /**
+     * Keeps the migration reader backwards-compatible for callers that explicitly inspect an
+     * old cache. The repository uses [readEntry], which only accepts grouping-ready caches.
+     */
+    override suspend fun read(): ChatCatalogSnapshot? = withContext(Dispatchers.IO) {
+        if (!file.isFile) return@withContext null
+        runCatching { decode(JSONObject(file.readText())) }.getOrNull()
+    }
 
     override suspend fun readEntry(): ChatCatalogCacheEntry? = withContext(Dispatchers.IO) {
         if (!file.isFile) return@withContext null
         runCatching {
             val root = JSONObject(file.readText())
+            val snapshot = decode(root)
+            // Keep the established flat picker's last-good cache behavior. Compact mode needs
+            // fresh restriction metadata before it can present labeled groups, so it opts out of
+            // incomplete caches and lets the normal provider refresh repopulate Twitch.
+            val compactGroupsEnabled = context.prefs()
+                .getBoolean(C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS, false)
+            if (compactGroupsEnabled) {
+                check(root.optInt("schemaVersion") >= 9)
+                check(snapshot.twitch.values.all { !it.twitchRestrictionType.isNullOrBlank() })
+            }
             ChatCatalogCacheEntry(
-                snapshot = decode(root),
+                snapshot = snapshot,
                 fetchedAtMs = root.optLong("fetchedAt", 0L),
                 badgesFetchedAtMs = root.optLong("badgesFetchedAt", 0L),
                 catalogConfigFingerprint = root.optString("catalogConfigFingerprint").takeIf { it.isNotBlank() },
@@ -637,7 +656,7 @@ class TwitchChatCatalogCache(
         catalogConfigFingerprint: String?,
         badgeConfigFingerprint: String?,
     ): JSONObject = JSONObject().apply {
-        put("schemaVersion", 8)
+        put("schemaVersion", 9)
         put("revision", snapshot.revision)
         put("provider", "combined")
         put("fetchedAt", fetchedAtMs)
@@ -661,6 +680,7 @@ class TwitchChatCatalogCache(
                 put("provider", emote.provider.name)
                 put("animated", emote.animated)
                 put("zeroWidth", emote.zeroWidth)
+                putOpt("twitchRestrictionType", emote.twitchRestrictionType)
                 put("asset", encodeSpec(emote.asset))
             })
         }
@@ -707,7 +727,7 @@ class TwitchChatCatalogCache(
 
     private fun decode(root: JSONObject): ChatCatalogSnapshot {
         val schemaVersion = root.optInt("schemaVersion")
-        check(schemaVersion in 1..8)
+        check(schemaVersion in 1..9)
         fun emoteArray(
             array: JSONArray?,
             legacyCombined: Boolean = false,
@@ -732,6 +752,8 @@ class TwitchChatCatalogCache(
                     animated = item.optBoolean("animated"),
                     zeroWidth = item.optBoolean("zeroWidth"),
                     id = id,
+                    twitchRestrictionType = item.optString("twitchRestrictionType")
+                        .takeIf { it.isNotBlank() },
                     scope = if (legacyCombined || schemaVersion == 1 && storedScope == null) {
                         ChatEmoteScope.LEGACY_COMBINED
                     } else {

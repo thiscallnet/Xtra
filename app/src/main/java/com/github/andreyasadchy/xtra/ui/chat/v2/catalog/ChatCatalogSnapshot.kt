@@ -92,6 +92,8 @@ data class ChatCatalogEmote(
     val zeroWidth: Boolean = false,
     val id: String = name,
     val scope: ChatEmoteScope = ChatEmoteScope.GLOBAL,
+    /** Twitch's availability restriction; null for other providers and older caches. */
+    val twitchRestrictionType: String? = null,
 )
 
 data class ChatCatalogBadge(

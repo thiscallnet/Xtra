@@ -314,6 +314,8 @@ object C {
     const val CHAT_ENABLE_FFZ = "chat_enable_ffz"
     const val CHAT_EMOTE_AUTOCOMPLETE = "chat_emote_autocomplete"
     const val CHAT_EMOTE_RECOMMENDATIONS = "chat_emote_recommendations"
+    const val CHAT_COMPACT_TWITCH_EMOTE_GROUPS = "chat_compact_twitch_emote_groups"
+    const val CHAT_COMPACT_PICKER_ITEM_SIZE = "chat_compact_picker_item_size"
     const val CHAT_DISABLE = "chat_disable"
     const val CHAT_POINTS_COLLECT = "chat_points_collect"
     const val CHAT_POINTS_NOTIFY = "chat_points_notify"

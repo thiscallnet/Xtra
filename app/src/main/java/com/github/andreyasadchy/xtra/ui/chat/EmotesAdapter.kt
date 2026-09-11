@@ -9,6 +9,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.LinearInterpolator
+import android.util.TypedValue
 import androidx.fragment.app.Fragment
 import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityViewCommand
@@ -32,6 +33,7 @@ import com.github.andreyasadchy.xtra.databinding.FragmentEmotesListItemBinding
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmoteKey
 import com.github.andreyasadchy.xtra.model.chat.favoriteKey
+import kotlin.math.roundToInt
 
 internal fun <T> moveListItem(items: MutableList<T>, from: Int, to: Int): Boolean {
     if (from !in items.indices || to !in items.indices || from == to) return false
@@ -54,7 +56,8 @@ internal fun Emote.hasSamePickerBinding(other: Emote): Boolean =
         url3x == other.url3x &&
         url4x == other.url4x &&
         format == other.format &&
-        source == other.source
+        source == other.source &&
+        twitchGroup == other.twitchGroup
 
 internal fun List<Emote>.hasSamePickerBinding(other: List<Emote>): Boolean =
     size == other.size && indices.all { this[it].hasSamePickerBinding(other[it]) }
@@ -75,6 +78,7 @@ class EmotesAdapter(
     private val differ = AsyncListDiffer(this, EMOTE_DIFF_CALLBACK)
     private val items = mutableListOf<Emote>()
     private var favoriteKeys: Set<FavoriteEmoteKey> = emptySet()
+    private var pickerVisualSizeDp = DEFAULT_PICKER_VISUAL_SIZE_DP
     private var reorderMode = false
     var itemTouchHelper: ItemTouchHelper? = null
     var accessibilityMoveListener: ((Int, Int) -> Boolean)? = null
@@ -134,6 +138,18 @@ class EmotesAdapter(
         }
     }
 
+    /** Changes only the asset inset. The 48dp cell and its touch target stay unchanged. */
+    fun setPickerVisualSizeDp(sizeDp: Float) {
+        val normalized = sizeDp.coerceIn(MIN_PICKER_VISUAL_SIZE_DP, PICKER_CELL_SIZE_DP)
+        if (pickerVisualSizeDp == normalized) return
+        pickerVisualSizeDp = normalized
+        if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
+    }
+
+    fun setCompactPickerVisualSizeDp(compactEnabled: Boolean, sizeDp: Float) {
+        setPickerVisualSizeDp(if (compactEnabled) sizeDp else DEFAULT_PICKER_VISUAL_SIZE_DP)
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = FragmentEmotesListItemBinding.inflate(LayoutInflater.from(parent.context), parent, false)
         return ViewHolder(binding)
@@ -185,6 +201,12 @@ class EmotesAdapter(
                 seed = item?.let(::reorderSeed) ?: 0,
             )
             with(binding) {
+                val inset = TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP,
+                    (PICKER_CELL_SIZE_DP - pickerVisualSizeDp) / 2f,
+                    itemView.resources.displayMetrics,
+                ).roundToInt()
+                emote.setPadding(inset, inset, inset, inset)
                 favoriteAccessibilityActionId?.let {
                     ViewCompat.removeAccessibilityAction(emote, it)
                     favoriteAccessibilityActionId = null
@@ -374,6 +396,9 @@ class EmotesAdapter(
     }
 
     private companion object {
+        const val PICKER_CELL_SIZE_DP = 48f
+        const val DEFAULT_PICKER_VISUAL_SIZE_DP = 32f
+        const val MIN_PICKER_VISUAL_SIZE_DP = 24f
         const val DRAG_SCALE = 1.05f
         const val DRAG_SCALE_DURATION_MS = 100L
         const val REORDER_ANIMATION_DURATION_MS = 130L
@@ -401,7 +426,8 @@ class EmotesAdapter(
                         oldItem.url2x == newItem.url2x &&
                         oldItem.url3x == newItem.url3x &&
                         oldItem.url4x == newItem.url4x &&
-                        oldItem.format == newItem.format
+                        oldItem.format == newItem.format &&
+                        oldItem.twitchGroup == newItem.twitchGroup
             }
         }
     }
