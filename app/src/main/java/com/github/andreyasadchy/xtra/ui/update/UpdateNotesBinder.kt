@@ -44,7 +44,13 @@ object UpdateNotesBinder {
 
     private fun addReleaseTitle(container: LinearLayout, release: UpdateRelease, addTopMargin: Boolean) {
         container.addView(TextView(container.context).apply {
-            text = release.displayVersion
+            text = buildString {
+                append(release.displayVersion)
+                release.publishedAt?.substringBefore('T')?.takeIf { it.isNotBlank() }?.let {
+                    append(container.context.getString(R.string.update_meta_separator))
+                    append(it)
+                }
+            }
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
             if (addTopMargin) {
                 layoutParams = LinearLayout.LayoutParams(

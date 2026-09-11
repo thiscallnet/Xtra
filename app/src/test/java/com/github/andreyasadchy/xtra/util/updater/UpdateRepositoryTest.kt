@@ -65,7 +65,7 @@ class UpdateRepositoryTest {
         assertEquals(2, source.historyCalls)
         assertTrue(repository.releaseHistoryComplete.value)
         assertEquals(179, repository.releasesSinceInstalled(available.release).size)
-        assertEquals(5, repository.recentReleases().size)
+        assertEquals(199, repository.recentReleases().size)
 
         val persisted = preferences.getString(C.UPDATE_RELEASE_HISTORY, null).orEmpty()
         assertFalse(persisted.contains("rawBody"))
@@ -101,7 +101,10 @@ class UpdateRepositoryTest {
         assertEquals(2, source.historyCalls)
         assertFalse(repository.releaseHistoryComplete.value)
         assertTrue(repository.releasesSinceInstalled(available.release).isEmpty())
-        assertEquals(listOf("v2.58.6-build.300"), repository.recentReleases(available.release).map { it.id })
+        assertEquals(
+            (300 downTo 201).map(::buildTag),
+            repository.recentReleases(available.release).map { it.id },
+        )
     }
 
     @Test

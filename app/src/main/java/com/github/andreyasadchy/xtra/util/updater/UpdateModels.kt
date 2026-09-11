@@ -55,6 +55,7 @@ data class CachedUpdateRelease(
     val buildNumber: Long?,
     val releaseNotes: List<String>,
     val releaseNoteKinds: List<ChangeKind> = emptyList(),
+    val publishedAt: String? = null,
 )
 
 fun UpdateRelease.toCachedHistory(): CachedUpdateRelease = CachedUpdateRelease(
@@ -63,6 +64,7 @@ fun UpdateRelease.toCachedHistory(): CachedUpdateRelease = CachedUpdateRelease(
     buildNumber = buildNumber,
     releaseNotes = releaseNotes,
     releaseNoteKinds = releaseNoteKinds,
+    publishedAt = publishedAt,
 )
 
 fun CachedUpdateRelease.toUpdateRelease(): UpdateRelease = UpdateRelease(
@@ -72,9 +74,9 @@ fun CachedUpdateRelease.toUpdateRelease(): UpdateRelease = UpdateRelease(
     title = "",
     releaseNotes = releaseNotes,
     releaseNoteKinds = releaseNoteKinds,
+    publishedAt = publishedAt,
     rawBody = "",
     releaseUrl = "",
-    publishedAt = null,
     assets = emptyList(),
     prerelease = false,
     draft = false,

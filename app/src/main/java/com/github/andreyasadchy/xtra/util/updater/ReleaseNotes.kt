@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.util.updater
 
 import kotlinx.serialization.Serializable
+import java.util.Locale
 
 @Serializable
 enum class ChangeKind { NEW, IMPROVED, FIXED, SECURITY, OTHER }
@@ -27,6 +28,11 @@ object ReleaseNotes {
     private val markdownLink = Regex("\\[([^]]+)]\\(([^()]*(?:\\([^()]*\\)[^()]*)*)\\)")
     private val asteriskEmphasis = Regex("(\\*{1,3})([^*\\n]+)\\1")
     private val underscoreEmphasis = Regex("(?<![\\p{L}\\p{N}_])(_{1,3})([^_\\n]+)\\1(?![\\p{L}\\p{N}_])")
+    private val issueReference = Regex("\\s*\\(?#\\d+\\)?")
+    private val changePrefix = Regex(
+        "^(?:add|added|new|fix|fixed|improve|improved|update|updated|feature|performance|refactor)\\s+",
+        RegexOption.IGNORE_CASE,
+    )
 
     fun structured(body: String?, commits: List<String> = emptyList()): StructuredReleaseNotes {
         val lines = body.orEmpty().lineSequence().toList()
@@ -56,12 +62,19 @@ object ReleaseNotes {
             kind = ChangeKind.OTHER
             parseLines(commits)
         }
-        return StructuredReleaseNotes(
-            items.asSequence()
-                .filterNot { isNoise(it.text) }
-                .distinctBy { it.text.lowercase() }
-                .toList(),
-        )
+        val merged = mutableListOf<ChangeItem>()
+        items.asSequence()
+            .filterNot { isNoise(it.text) }
+            .forEach { item ->
+                val duplicate = merged.firstOrNull { existing -> areDuplicates(existing, item) }
+                if (duplicate == null) {
+                    merged += item
+                } else if (duplicate.kind == ChangeKind.OTHER && item.kind != ChangeKind.OTHER) {
+                    val index = merged.indexOf(duplicate)
+                    merged[index] = duplicate.copy(kind = item.kind)
+                }
+            }
+        return StructuredReleaseNotes(merged)
     }
 
     fun kindFor(text: String): ChangeKind {
@@ -96,6 +109,7 @@ object ReleaseNotes {
         val explicitKind = conventional?.groupValues?.getOrNull(1)?.let(::kindForPrefix)
         val cleaned = description
             .replace(commitHash, "")
+            .replace(issueReference, " ")
             .replace(Regex("\\s+by\\s+@[\\w-]+.*$", RegexOption.IGNORE_CASE), "")
             .replace(markdownLink) { it.groupValues[1] }
             .replace(asteriskEmphasis, "$2")
@@ -136,10 +150,28 @@ object ReleaseNotes {
             text.equals("what's changed", ignoreCase = true) ||
             text.matches(Regex("(?i)(chore|ci|build)?\\s*[:\\-]?\\s*(release automation|automate master build releases|bump version).*"))
     }
+
+    private fun areDuplicates(left: ChangeItem, right: ChangeItem): Boolean {
+        val leftText = duplicateText(left.text)
+        val rightText = duplicateText(right.text)
+        if (leftText.isBlank() || rightText.isBlank()) return false
+        if (left.kind != right.kind && left.kind != ChangeKind.OTHER && right.kind != ChangeKind.OTHER) return false
+        if (leftText == rightText) return true
+        return withoutChangePrefix(leftText) == withoutChangePrefix(rightText)
+    }
+
+    private fun duplicateText(value: String): String = value
+        .replace(issueReference, " ")
+        .lowercase(Locale.ROOT)
+        .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+        .trim()
+        .replace(whitespace, " ")
+
+    private fun withoutChangePrefix(value: String): String = value.replace(changePrefix, "").trim()
 }
 
 object UpdateReleaseHistory {
-    const val RECENT_RELEASE_COUNT = 5
+    const val RECENT_RELEASE_COUNT = 20
 
     fun merge(releases: List<UpdateRelease>): List<UpdateRelease> = releases.asSequence()
         .filter { !it.draft && !it.prerelease }
@@ -150,8 +182,17 @@ object UpdateReleaseHistory {
     fun sinceInstalled(releases: List<UpdateRelease>, installedVersionName: String, installedBuildNumber: Long?, fallbackRelease: UpdateRelease? = null): List<UpdateRelease> =
         merge(releases + listOfNotNull(fallbackRelease)).filter { UpdatePolicy.isNewer(installedVersionName, installedBuildNumber, it) }
 
-    fun recent(releases: List<UpdateRelease>, fallbackRelease: UpdateRelease? = null): List<UpdateRelease> =
-        merge(releases + listOfNotNull(fallbackRelease)).take(RECENT_RELEASE_COUNT)
+    fun recent(
+        releases: List<UpdateRelease>,
+        installedVersionName: String,
+        installedBuildNumber: Long?,
+        fallbackRelease: UpdateRelease? = null,
+    ): List<UpdateRelease> {
+        val merged = merge(releases + listOfNotNull(fallbackRelease))
+        val pending = merged.filter { UpdatePolicy.isNewer(installedVersionName, installedBuildNumber, it) }
+        val installedOrOlder = merged.filterNot { UpdatePolicy.isNewer(installedVersionName, installedBuildNumber, it) }
+        return merge(pending + installedOrOlder.take(RECENT_RELEASE_COUNT))
+    }
 
     fun notesForUpdate(
         historyComplete: Boolean,
@@ -166,7 +207,8 @@ object UpdateReleaseHistory {
     fun retainForInstalled(releases: List<UpdateRelease>, installedVersionName: String, installedBuildNumber: Long?): List<UpdateRelease> {
         val merged = merge(releases)
         val pending = merged.filter { UpdatePolicy.isNewer(installedVersionName, installedBuildNumber, it) }
-        return merge(merged.take(RECENT_RELEASE_COUNT) + pending)
+        val installedOrOlder = merged.filterNot { UpdatePolicy.isNewer(installedVersionName, installedBuildNumber, it) }
+        return merge(pending + installedOrOlder.take(RECENT_RELEASE_COUNT))
     }
 
     fun formatGrouped(releases: List<UpdateRelease>, noReleaseNotes: String): String = releases.joinToString("\n\n") { release ->

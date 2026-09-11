@@ -127,4 +127,33 @@ class StructuredReleaseNotesTest {
 
         assertEquals(listOf("Read the docs"), notes.items.map(ChangeItem::text))
     }
+
+    @Test
+    fun bodyAndCommitVariantsOfTheSameChangeAreShownOnce() {
+        val notes = ReleaseNotes.structured(
+            "## Fixed\n- Player crash (#123)",
+            commits = listOf("fix: player crash", "Improve chat rendering"),
+        )
+
+        assertEquals(
+            listOf("Player crash", "Improved chat rendering"),
+            notes.items.map(ChangeItem::text),
+        )
+        assertEquals(listOf(ChangeKind.FIXED, ChangeKind.IMPROVED), notes.items.map(ChangeItem::kind))
+    }
+
+    @Test
+    fun identicalTextWithDifferentKindsRemainsVisible() {
+        val notes = ReleaseNotes.structured(
+            "## New\n- Shared wording\n## Fixed\n- Shared wording",
+        )
+
+        assertEquals(
+            listOf(
+                ChangeItem("Shared wording", ChangeKind.NEW),
+                ChangeItem("Shared wording", ChangeKind.FIXED),
+            ),
+            notes.items,
+        )
+    }
 }
