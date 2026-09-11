@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.multiview
 
 import android.content.Context
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
 import com.github.andreyasadchy.xtra.model.chat.Raid
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.util.C
@@ -108,6 +109,7 @@ internal class MultiviewRaidMonitor(
             context: Context,
             trustManager: Lazy<X509TrustManager>,
             scope: CoroutineScope,
+            diagnosticsLogger: DiagnosticsLogger? = null,
             resolveChannelId: suspend (Stream) -> String?,
             onRaid: (identity: String, raid: Raid) -> Unit,
         ): MultiviewRaidMonitor {
@@ -132,6 +134,7 @@ internal class MultiviewRaidMonitor(
                         showPredictions = false,
                         includeChannelTopics = false,
                         trustManager = trustManager,
+                        diagnosticsLogger = diagnosticsLogger,
                         listener = object : HermesWebSocket.Listener {
                             override suspend fun onRaidUpdate(message: JSONObject, openStream: Boolean) {
                                 if (!openStream) return

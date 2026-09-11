@@ -284,6 +284,55 @@ class GqlDropsParserTest {
         assertEquals("Dashboard game", merged.gameName)
     }
 
+
+    @Test
+    fun `hermes drops are reduced to typed safe metadata`() {
+        val message = org.json.JSONObject(
+            """
+            {
+              "type": "drop-progress",
+              "drop_id": "drop-42",
+              "data": {
+                "current_progress_min": 12,
+                "required_progress_min": 30,
+                "access_token": "must-not-be-retained"
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val update = GqlDropsParser.parseDropProgressMessage(message)
+
+        assertTrue(update != null)
+        assertEquals("drop-42", update?.dropId)
+        assertEquals(12, update?.currentMinutesWatched)
+        assertEquals(30, update?.requiredMinutesWatched)
+        assertFalse(update.toString().contains("must-not-be-retained"))
+    }
+
+    @Test
+    fun `hermes claim is typed without retaining payload`() {
+        val message = org.json.JSONObject(
+            """
+            {
+              "type": "drop-claim",
+              "data": {
+                "dropId": "drop-42",
+                "claimed": true,
+                "raw_payload": "private-data"
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val update = GqlDropsParser.parseDropClaimMessage(message)
+
+        assertTrue(update != null)
+        assertEquals("drop-42", update?.dropId)
+        assertEquals(true, update?.claimed)
+        assertFalse(update.toString().contains("private-data"))
+    }
+
     private fun inventoryJson(
         current: Int,
         required: Int,

@@ -16,6 +16,11 @@ data class DropProgressUpdate(
     val requiredMinutesWatched: Int? = null,
 )
 
+data class DropClaimUpdate(
+    val dropId: String?,
+    val claimed: Boolean,
+)
+
 internal object GqlDropsParser {
 
     fun parseInventory(body: String): List<TwitchDrop>? {
@@ -395,6 +400,19 @@ internal object GqlDropsParser {
             current = data.optionalInt("current_progress_min", "currentMinutesWatched"),
             required = data.optionalInt("required_progress_min", "requiredMinutesWatched"),
         )
+    }
+
+    fun parseDropClaimMessage(message: JSONObject): DropClaimUpdate? {
+        if (!message.optString("type").equals("drop-claim", ignoreCase = true)) return null
+        val data = message.optJSONObject("data") ?: return null
+        val dropId = message.optionalString("drop_id", "dropID", "dropId")
+            ?: data.optionalString("drop_id", "dropID", "dropId")
+        val claimed = when {
+            data.has("claimed") -> data.optBoolean("claimed")
+            data.has("success") -> data.optBoolean("success")
+            else -> true
+        }
+        return DropClaimUpdate(dropId = dropId, claimed = claimed)
     }
 
     private fun parseDropProgress(

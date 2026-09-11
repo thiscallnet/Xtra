@@ -24,6 +24,8 @@
     <action android:id="@+id/action_global_downloadSettingsFragment" app:destination="@id/downloadSettingsFragment" />
     <fragment android:id="@+id/debugSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$DebugSettingsFragment" android:label="@string/settings_advanced" />
     <action android:id="@+id/action_global_debugSettingsFragment" app:destination="@id/debugSettingsFragment" />
+    <fragment android:id="@+id/diagnosticsSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.diagnostics.DiagnosticsSettingsFragment" android:label="@string/settings_diagnostics_live" tools:layout="@layout/fragment_diagnostics_settings" />
+    <action android:id="@+id/action_global_diagnosticsSettingsFragment" app:destination="@id/diagnosticsSettingsFragment" />
 
     <fragment android:id="@+id/settingsSearchFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsSearchFragment" android:label="" />
     <action android:id="@+id/action_global_settingsSearchFragment" app:destination="@id/settingsSearchFragment" />

@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
 import com.github.andreyasadchy.xtra.model.chat.Raid
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
@@ -40,6 +41,7 @@ class MultiviewViewModel(
     private val helixRepository: HelixRepository,
     private val playerRepository: PlayerRepository,
     private val trustManager: Lazy<X509TrustManager>,
+    private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(loadState())
     val state: StateFlow<MultiviewSessionState> = _state.asStateFlow()
@@ -109,6 +111,7 @@ class MultiviewViewModel(
                 context = applicationContext,
                 trustManager = trustManager,
                 scope = viewModelScope,
+                diagnosticsLogger = diagnosticsLogger,
                 resolveChannelId = { stream ->
                     stream.channelLogin
                         ?.trim()
@@ -542,6 +545,7 @@ class MultiviewViewModel(
                     helixRepository = xtraModule.helixRepository,
                     playerRepository = xtraModule.playerRepository,
                     trustManager = xtraModule.trustManager,
+                    diagnosticsLogger = xtraModule.diagnosticsLogger,
                 )
             }
         }

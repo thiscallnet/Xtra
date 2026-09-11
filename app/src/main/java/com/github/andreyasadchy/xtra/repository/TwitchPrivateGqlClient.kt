@@ -4,6 +4,9 @@ import android.annotation.SuppressLint
 import android.net.http.HttpEngine
 import android.os.Build
 import androidx.annotation.RequiresExtension
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxError
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxException
 import com.github.andreyasadchy.xtra.repository.auth.TwitchWebSessionManager
@@ -38,6 +41,7 @@ class TwitchPrivateGqlClient(
     private val okHttpClient: Lazy<OkHttpClient>,
     private val json: Json,
     private val twitchWebSessionManager: TwitchWebSessionManager,
+    private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
     suspend fun executePersisted(
         networkLibrary: String?,
@@ -80,32 +84,56 @@ class TwitchPrivateGqlClient(
         operationName: String,
         request: JsonObject,
     ): JsonObject = withContext(Dispatchers.IO) {
+        val logger = diagnosticsLogger
+        val token = if (logger?.isEnabled == true) {
+            logger.beginRequest(
+                category = DiagnosticsCategory.GQL,
+                transport = DiagnosticsTransport.GQL,
+                operation = operationName,
+            )
+        } else null
         val response = try {
             twitchWebSessionManager.executeIntegrityAwareGql(
                 fallbackHeaders = headers,
                 requireActiveWebSession = true,
                 isFailedIntegrityCheck = { response -> hasFailedIntegrityCheck(response.body) },
                 send = { requestHeaders -> post(networkLibrary, requestHeaders, request.toString()) },
+                diagnosticsOperation = operationName,
+                diagnosticsCorrelationId = token?.correlationId,
             )
         } catch (error: MissingAuthenticationException) {
+            logger?.failRequest(token, "authentication_required")
             throw TwitchInboxException(TwitchInboxError.RequiresReauth, error)
         } catch (error: CancellationException) {
+            logger?.failRequest(token, "cancelled")
             throw error
         } catch (error: Throwable) {
+            logger?.failRequest(token, diagnosticsErrorCode(error))
             throw TwitchInboxException(TwitchInboxError.Network, error)
         }
-        privateGqlHttpError(response.statusCode)?.let { throw TwitchInboxException(it) }
+        privateGqlHttpError(response.statusCode)?.let {
+            logger?.finishRequest(token, successful = false, httpStatus = response.statusCode, code = "http_error")
+            throw TwitchInboxException(it)
+        }
         val body = try {
             json.parseToJsonElement(response.body).jsonObject
         } catch (error: Throwable) {
+            logger?.finishRequest(token, successful = false, httpStatus = response.statusCode, code = "response_parse_error")
             throw TwitchInboxException(TwitchInboxError.PrivateApiChanged(operationName), error)
         }
         val errors = body["errors"]?.jsonArray
         if (errors != null && errors.isNotEmpty()) {
             val message = errors.firstOrNull()?.jsonObject?.get("message")?.jsonPrimitive?.content
+            logger?.finishRequest(token, successful = false, httpStatus = response.statusCode, code = "graphql_error")
             throw TwitchInboxException(mapError(operationName, message, response.statusCode))
         }
+        logger?.finishRequest(token, successful = true, httpStatus = response.statusCode)
         body
+    }
+
+    private fun diagnosticsErrorCode(error: Throwable): String = when (error) {
+        is java.io.IOException -> "io_error"
+        else -> "request_failed"
     }
 
     private fun mapError(operation: String, message: String?, statusCode: Int): TwitchInboxError {
