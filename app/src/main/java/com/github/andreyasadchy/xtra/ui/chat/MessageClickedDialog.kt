@@ -63,7 +63,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         private const val KEY_CHANNEL_LOGIN = "channelLogin"
         private data class SavedUserCard(
             val user: User,
-            val targetId: String?,
+            val targetKey: String,
             val viewerId: String?,
         )
         private val savedUsers = mutableListOf<SavedUserCard>()
@@ -158,15 +158,19 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                     }
                     if (selectedMessage.userId != null || selectedMessage.userLogin != null) {
                         val targetId = requireArguments().getString(KEY_CHANNEL_ID)
+                        val targetLogin = requireArguments().getString(KEY_CHANNEL_LOGIN)
+                        val targetKey = messageClickedChannelCacheKey(targetId, targetLogin)
                         val viewerId = currentViewerId()
-                        val item = selectedMessage.userId?.let {
+                        val item = if (targetKey != null && selectedMessage.userId != null) {
                             synchronized(savedUsers) {
                                 savedUsers.find {
                                     it.user.id == selectedMessage.userId &&
-                                        it.targetId == targetId &&
+                                        it.targetKey == targetKey &&
                                         it.viewerId == viewerId
                                 }
                             }
+                        } else {
+                            null
                         }
                         if (item != null) {
                             userCardUser = item.user
@@ -214,7 +218,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                                             val error = pair.second
                                             if (user != null) {
                                                 userCardUser = user
-                                                replaceSavedUser(user, targetId, currentViewerId())
+                                                replaceSavedUser(user, targetId, targetLogin, currentViewerId())
                                                 updateUserLayout(user)
                                                 adapter.selectedMessage?.let { selectedMessage ->
                                                     if (requireArguments().getBoolean(KEY_MESSAGING) &&
@@ -507,7 +511,12 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
             userCardUser?.let { currentUser ->
                 val updatedUser = currentUser.withViewerFollowState(result.isFollowing)
                 userCardUser = updatedUser
-                replaceSavedUser(updatedUser, requireArguments().getString(KEY_CHANNEL_ID), currentViewerId())
+                replaceSavedUser(
+                    updatedUser,
+                    requireArguments().getString(KEY_CHANNEL_ID),
+                    requireArguments().getString(KEY_CHANNEL_LOGIN),
+                    currentViewerId(),
+                )
                 renderUserActions(updatedUser)
             }
         }
@@ -542,12 +551,13 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         return requireContext().tokenPrefs().getString(C.USER_ID, null)
     }
 
-    private fun replaceSavedUser(user: User, targetId: String?, viewerId: String?) {
+    private fun replaceSavedUser(user: User, targetId: String?, targetLogin: String?, viewerId: String?) {
+        val targetKey = messageClickedChannelCacheKey(targetId, targetLogin) ?: return
         synchronized(savedUsers) {
             savedUsers.removeAll {
-                it.user.id == user.id && it.targetId == targetId && it.viewerId == viewerId
+                it.user.id == user.id && it.targetKey == targetKey && it.viewerId == viewerId
             }
-            savedUsers.add(SavedUserCard(user, targetId, viewerId))
+            savedUsers.add(SavedUserCard(user, targetKey, viewerId))
         }
     }
 
@@ -640,6 +650,11 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         super.onDestroyView()
         _binding = null
     }
+}
+
+internal fun messageClickedChannelCacheKey(targetId: String?, targetLogin: String?): String? {
+    return targetId?.trim()?.takeIf { it.isNotEmpty() }?.let { "id:$it" }
+        ?: targetLogin?.trim()?.takeIf { it.isNotEmpty() }?.let { "login:${it.lowercase(Locale.ROOT)}" }
 }
 
 
