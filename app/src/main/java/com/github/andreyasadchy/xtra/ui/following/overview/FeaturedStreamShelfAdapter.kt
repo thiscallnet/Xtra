@@ -83,6 +83,11 @@ class FeaturedStreamShelfAdapter(
         }
     }
 
+    override fun onViewAttachedToWindow(holder: ViewHolder) {
+        super.onViewAttachedToWindow(holder)
+        holder.resumeImageWork()
+    }
+
     override fun onViewRecycled(holder: ViewHolder) {
         (holder.itemView.context.applicationContext as XtraApp).xtraModule.streamPreviewCoordinator
             .detachSurface(holder.previewSurface)
@@ -219,6 +224,7 @@ class FeaturedStreamShelfAdapter(
         var boundPreviewIdentity: String? = null
         private val imageRequests = FeedImageRequestBag()
         private var boundImageIdentity: String? = null
+        private var boundImageStream: Stream? = null
         private var boundThumbnailKey: String? = null
         private var boundStream: Stream? = null
         private var boundTags: List<String> = emptyList()
@@ -241,6 +247,7 @@ class FeaturedStreamShelfAdapter(
         fun beginImageBind(stream: Stream?) {
             thumbnailLoadScheduler.clear(this)
             imageRequests.cancel()
+            boundImageStream = stream
             boundImageIdentity = stream?.streamIdentity()
             boundThumbnailKey = null
         }
@@ -255,6 +262,7 @@ class FeaturedStreamShelfAdapter(
 
         fun cancelImageWork() {
             cancelImageRequests()
+            boundImageStream = null
             boundImageIdentity = null
             boundThumbnailKey = null
             boundStream = null
@@ -283,6 +291,33 @@ class FeaturedStreamShelfAdapter(
                     },
                 )
                     ?.let { imageRequests.replace(binding.thumbnail, it) }
+            }
+        }
+
+        fun resumeImageWork() {
+            val stream = boundImageStream ?: return
+            if (boundImageIdentity != stream.streamIdentity()) return
+            bindThumbnail(stream)
+            bindProfileImage(stream)
+        }
+
+        private fun bindProfileImage(stream: Stream) {
+            val context = binding.root.context
+            if (stream.channelImage != null) {
+                binding.avatar.visibility = View.VISIBLE
+                prepareStreamProfileImage(binding.avatar, stream)
+                val profileRestored = restoreWarmStreamProfileImage(context, binding.avatar, stream)
+                if (!profileRestored) thumbnailLoadScheduler.runOrDefer(this@ViewHolder, binding.avatar) {
+                    if (binding.root.isAttachedToWindow && boundImageIdentity == stream.streamIdentity()) {
+                        loadStreamProfileImage(context, binding.avatar, stream)?.let {
+                            imageRequests.replace(binding.avatar, it)
+                        }
+                    }
+                }
+            } else {
+                binding.avatar.visibility = View.GONE
+                binding.avatar.setImageDrawable(null)
+                binding.avatar.tag = null
             }
         }
 
@@ -327,24 +362,8 @@ class FeaturedStreamShelfAdapter(
                 boundTags = listOfNotNull(firstTag)
                 tagOne.text = firstTag.orEmpty()
                 tagOne.visibility = if (firstTag != null) View.VISIBLE else View.GONE
-
-                if (stream.channelImage != null) {
-                    avatar.visibility = View.VISIBLE
-                    prepareStreamProfileImage(avatar, stream)
-                    val profileRestored = restoreWarmStreamProfileImage(context, avatar, stream)
-                    if (!profileRestored) thumbnailLoadScheduler.runOrDefer(this@ViewHolder, avatar) {
-                        if (binding.root.isAttachedToWindow && boundImageIdentity == stream.streamIdentity()) {
-                            loadStreamProfileImage(context, avatar, stream)?.let {
-                                imageRequests.replace(binding.avatar, it)
-                            }
-                        }
-                    }
-                } else {
-                    avatar.visibility = View.GONE
-                    avatar.setImageDrawable(null)
-                    avatar.tag = null
-                }
             }
+            bindProfileImage(stream)
         }
 
         private fun applyPresentation(presentation: com.github.andreyasadchy.xtra.ui.common.StreamCardPresentation) {
