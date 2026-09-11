@@ -1597,6 +1597,7 @@ class ChatCatalogRepositoryTest {
 
     @Test
     fun catalogWritesRemainInPublicationOrder() = runBlocking {
+        val firstWriteStarted = CompletableDeferred<Unit>()
         val releaseFirstWrite = CompletableDeferred<Unit>()
         val writes = CopyOnWriteArrayList<Long>()
         val attempts = AtomicInteger()
@@ -1618,7 +1619,10 @@ class ChatCatalogRepositoryTest {
                 override suspend fun read(): ChatCatalogSnapshot? = null
 
                 override suspend fun write(snapshot: ChatCatalogSnapshot) {
-                    if (snapshot.revision == 1L) releaseFirstWrite.await()
+                    if (snapshot.revision == 1L) {
+                        firstWriteStarted.complete(Unit)
+                        releaseFirstWrite.await()
+                    }
                     writes += snapshot.revision
                 }
             },
@@ -1627,6 +1631,7 @@ class ChatCatalogRepositoryTest {
         repository.refresh()
         withTimeout(5_000) { while (attempts.get() < 1) delay(1) }
         withTimeout(5_000) { while (repository.state.value.snapshot.revision < 1L) delay(1) }
+        withTimeout(5_000) { firstWriteStarted.await() }
 
         repository.refresh()
         withTimeout(5_000) { while (attempts.get() < 2) delay(1) }
