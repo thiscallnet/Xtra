@@ -29,6 +29,7 @@ import com.github.andreyasadchy.xtra.model.chat.toState
 import com.github.andreyasadchy.xtra.model.chat.Chatter
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
+import com.github.andreyasadchy.xtra.model.chat.EmoteProvider
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmote
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmoteCatalog
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmoteKey
@@ -720,6 +721,13 @@ class ChatViewModel(
         false,
     )
     val favoriteEmotes: StateFlow<List<FavoriteEmote>> = playerRepository.loadFavoriteEmotesFlow().stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        emptyList(),
+    )
+    val favoriteEmojis: StateFlow<List<FavoriteEmote>> = favoriteEmotes.map { favorites ->
+        favorites.filter { it.key()?.provider == EmoteProvider.TWEMOJI }
+    }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
         emptyList(),
@@ -3086,6 +3094,22 @@ class ChatViewModel(
 
     fun toggleFavorite(emote: Emote): Boolean? {
         val key = emote.favoriteKey() ?: return null
+        val adding = key !in favoriteKeys.value
+        viewModelScope.launch {
+            if (adding) {
+                playerRepository.addFavoriteEmote(key)
+            } else {
+                playerRepository.removeFavoriteEmote(key)
+            }
+        }
+        return adding
+    }
+
+    fun isFavorite(emoji: EmojiPickerItem): Boolean =
+        EmojiFavoritesCatalog.key(emoji) in favoriteKeys.value
+
+    fun toggleFavorite(emoji: EmojiPickerItem): Boolean {
+        val key = EmojiFavoritesCatalog.key(emoji)
         val adding = key !in favoriteKeys.value
         viewModelScope.launch {
             if (adding) {

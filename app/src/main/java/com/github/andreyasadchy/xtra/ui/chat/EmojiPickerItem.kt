@@ -5,6 +5,7 @@ import java.util.Locale
 
 /** The groups shown inside the emoji picker. */
 enum class EmojiPickerCategory(val titleRes: Int) {
+    FAVORITES(R.string.favorite_emojis),
     ALL(R.string.emoji_category_all),
     SMILEYS(R.string.emoji_category_smileys),
     PEOPLE(R.string.emoji_category_people),
@@ -2057,7 +2058,7 @@ internal object EmojiPickerCatalog {
         """(?<![\p{L}\p{M}\p{N}_+\-]):[A-Za-z0-9_+\-]+:(?![\p{L}\p{M}\p{N}_+\-])""",
     )
     private val URL_PATTERN = Regex(
-        """(?i)(?:\b(?:https?|ftp)://[^\s]+|\b(?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.[a-z]{2,}(?::\d+)?(?:[/?][^\s]*)?|\blocalhost(?::\d+)?(?:[/?][^\s]*)?)""",
+        """(?i)(?:\b(?:https?|ftp)://[^\s]+|\b(?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.[a-z]{2,}(?::\d+)?(?:[/?#][^\s]*)?|\blocalhost(?::\d+)?(?:[/?#][^\s]*)?|\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:[/?#][^\s]*)?)""",
     )
 
     private fun rawAliasMatches(value: String) = ALIAS_PATTERN.findAll(value)

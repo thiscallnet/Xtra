@@ -35,6 +35,8 @@ class EmojiPickerItemTest {
         assertNull(EmojiPickerCatalog.findAliasPrefixAtCursor("https://x/:hea", "https://x/:hea".length))
         assertNull(EmojiPickerCatalog.findAliasPrefixAtCursor("\\:hea", "\\:hea".length))
         assertNull(EmojiPickerCatalog.findAliasPrefixAtCursor("foo:hea", "foo:hea".length))
+        assertNull(EmojiPickerCatalog.findAliasPrefixAtCursor("127.0.0.1:3000/:hea", "127.0.0.1:3000/:hea".length))
+        assertNull(EmojiPickerCatalog.findAliasPrefixAtCursor("example.com#/x/:hea", "example.com#/x/:hea".length))
     }
 
     @Test
@@ -43,6 +45,16 @@ class EmojiPickerItemTest {
 
         assertEquals("Kappa ", tokenizer.terminateToken(":Kappa"))
         assertEquals(":heart: ", tokenizer.terminateToken(":heart:"))
+    }
+
+    @Test
+    fun `ipv4 and fragment URLs keep aliases literal`() {
+        val urlText = "127.0.0.1:3000/:heart: example.com#/x/:heart:"
+        val smile = EmojiPickerCatalog.findByAlias(":smile:")!!.value
+
+        assertEquals(urlText, EmojiPickerCatalog.replaceAliases(urlText))
+        assertTrue(EmojiPickerCatalog.findAliasMatches(urlText).isEmpty())
+        assertEquals("$urlText $smile", EmojiPickerCatalog.replaceAliases("$urlText :smile:"))
     }
 
     @Test
