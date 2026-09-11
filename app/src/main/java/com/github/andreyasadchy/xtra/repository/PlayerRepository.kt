@@ -15,6 +15,9 @@ import com.apollographql.apollo.api.json.jsonReader
 import com.apollographql.apollo.api.json.writeObject
 import com.apollographql.apollo.api.parseResponse
 import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.db.FavoriteEmotesDao
 import com.github.andreyasadchy.xtra.db.PlaybackStatesDao
 import com.github.andreyasadchy.xtra.db.RecentEmotesDao
@@ -190,6 +193,7 @@ class PlayerRepository(
     private val playbackStatesDao: PlaybackStatesDao,
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
+    private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
 
     data class StreamPlaylistCandidate(
@@ -887,7 +891,16 @@ class PlayerRepository(
         game: String? = null,
         gameId: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
-        watchCreditMutex.withLock {
+        val logger = diagnosticsLogger
+        val token = if (logger?.isEnabled == true) {
+            logger.beginRequest(
+                category = DiagnosticsCategory.PROGRESSION,
+                transport = DiagnosticsTransport.WATCH_CREDIT,
+                operation = "WatchCredit",
+            )
+        } else null
+        try {
+            val result = watchCreditMutex.withLock {
             if (userId.isNullOrBlank() || streamId.isNullOrBlank() || channelId.isNullOrBlank() || channelLogin.isNullOrBlank()) {
                 Log.w(
                     WatchCreditTelemetry.LOG_TAG,
@@ -946,6 +959,19 @@ class PlayerRepository(
                 cachedSpadeEndpoint = null
             }
             retrySucceeded
+            }
+            logger?.finishRequest(
+                token,
+                successful = result,
+                code = if (result) "success" else "credit_failed",
+            )
+            result
+        } catch (e: CancellationException) {
+            logger?.finishRequest(token, successful = false, code = "cancelled")
+            throw e
+        } catch (e: Exception) {
+            logger?.finishRequest(token, successful = false, code = "request_failed")
+            throw e
         }
     }
 
@@ -978,6 +1004,14 @@ class PlayerRepository(
         url: String,
         label: String,
     ): String? {
+        val logger = diagnosticsLogger
+        val token = if (logger?.isEnabled == true) {
+            logger.beginRequest(
+                category = DiagnosticsCategory.PROGRESSION,
+                transport = DiagnosticsTransport.SPADE,
+                operation = "WatchCreditDiscovery",
+            )
+        } else null
         return try {
             val response = when {
                 networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> {
@@ -1021,10 +1055,19 @@ class PlayerRepository(
                 }
             }
             Log.d(WatchCreditTelemetry.LOG_TAG, "$label GET status=${response.statusCode}")
-            response.body.takeIf { WatchCreditTelemetry.isSuccessfulStatus(response.statusCode) }
+            val result = response.body.takeIf { WatchCreditTelemetry.isSuccessfulStatus(response.statusCode) }
+            logger?.finishRequest(
+                token,
+                successful = result != null,
+                httpStatus = response.statusCode,
+                code = if (result != null) null else "http_error",
+            )
+            result
         } catch (e: CancellationException) {
+            logger?.finishRequest(token, successful = false, code = "cancelled")
             throw e
         } catch (e: Exception) {
+            logger?.finishRequest(token, successful = false, code = "request_failed")
             Log.e(WatchCreditTelemetry.LOG_TAG, "$label GET failed", e)
             null
         }
@@ -1036,6 +1079,14 @@ class PlayerRepository(
         spadeUrl: String,
         spadeRequest: String,
     ): Boolean {
+        val logger = diagnosticsLogger
+        val token = if (logger?.isEnabled == true) {
+            logger.beginRequest(
+                category = DiagnosticsCategory.PROGRESSION,
+                transport = DiagnosticsTransport.SPADE,
+                operation = "WatchCredit",
+            )
+        } else null
         return try {
             val statusCode = when {
                 networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> {
@@ -1089,6 +1140,12 @@ class PlayerRepository(
                 }
             }
             val success = WatchCreditTelemetry.isSuccessfulStatus(statusCode)
+            logger?.finishRequest(
+                token,
+                successful = success,
+                httpStatus = statusCode,
+                code = if (success) null else "http_error",
+            )
             if (success) {
                 Log.d(WatchCreditTelemetry.LOG_TAG, "Spade POST status=$statusCode host=${urlHost(spadeUrl)}")
             } else {
@@ -1096,8 +1153,10 @@ class PlayerRepository(
             }
             success
         } catch (e: CancellationException) {
+            logger?.finishRequest(token, successful = false, code = "cancelled")
             throw e
         } catch (e: Exception) {
+            logger?.finishRequest(token, successful = false, code = "request_failed")
             Log.e(WatchCreditTelemetry.LOG_TAG, "Spade POST failed host=${urlHost(spadeUrl)}", e)
             false
         }

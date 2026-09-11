@@ -2,6 +2,12 @@ package com.github.andreyasadchy.xtra.util.chat
 
 import android.util.Log
 import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.util.WebSocket
 import com.github.andreyasadchy.xtra.util.watch.WatchCreditTelemetry
 import kotlinx.coroutines.CancellationException
@@ -42,6 +48,7 @@ class HermesWebSocket(
     private val trustManager: Lazy<X509TrustManager>,
     private val listener: Listener,
     private val listenForDrops: Boolean = false,
+    private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
     private var webSocket: WebSocket? = null
     private var pongTimer: Timer? = null
@@ -57,7 +64,24 @@ class HermesWebSocket(
     private var subscriptionsSentNotified = false
     private var subscriptionsReconnected = false
 
+    private inline fun logDiagnostics(block: DiagnosticsLogger.() -> Unit) {
+        val logger = diagnosticsLogger ?: return
+        if (logger.isEnabled) logger.block()
+    }
+
     fun connect(coroutineScope: CoroutineScope): Job {
+        logDiagnostics {
+            event(
+            category = DiagnosticsCategory.HERMES,
+            transport = DiagnosticsTransport.HERMES,
+            operation = "HermesWebSocket",
+            event = "connect_start",
+            fields = listOf(
+                DiagnosticsField(DiagnosticsFieldKey.AUTHENTICATED, (!userId.isNullOrBlank() && !gqlToken.isNullOrBlank()).toString()),
+                DiagnosticsField(DiagnosticsFieldKey.ACTIVE, listenForDrops.toString()),
+            ),
+            )
+        }
         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes connect requested channelIdPresent=${channelId.isNotBlank()} userIdPresent=${!userId.isNullOrBlank()} collectPoints=$collectPoints listenForPoints=$listenForPoints listenForDrops=$listenForDrops")
         hasSubscribed = false
         authenticationAccepted = false
@@ -73,6 +97,14 @@ class HermesWebSocket(
     }
 
     suspend fun disconnect(job: Job?) = withContext(Dispatchers.IO) {
+        logDiagnostics {
+            event(
+            category = DiagnosticsCategory.HERMES,
+            transport = DiagnosticsTransport.HERMES,
+            operation = "HermesWebSocket",
+            event = "disconnect_start",
+            )
+        }
         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes disconnect requested")
         pongTimer?.cancel()
         minuteWatchedTimer?.cancel()
@@ -138,6 +170,19 @@ class HermesWebSocket(
             notifySubscriptionsSent()
         }
         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes subscriptions sent count=${if (needsAuthentication) topics.count { !isPrivateTopic(it.value) } else topics.size}")
+        logDiagnostics {
+            event(
+            category = DiagnosticsCategory.HERMES,
+            transport = DiagnosticsTransport.HERMES,
+            operation = "HermesWebSocket",
+            event = "subscriptions_sent",
+            fields = listOf(
+                DiagnosticsField(DiagnosticsFieldKey.COUNT, topics.size.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.AUTHENTICATED, needsAuthentication.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.STATE, if (subscriptionsReconnected) "reconnected" else "initial"),
+            ),
+            )
+        }
         hasSubscribed = true
     }
 
@@ -217,9 +262,28 @@ class HermesWebSocket(
         val result = response?.optString("result").orEmpty()
         authenticationAccepted = result.equals("ok", ignoreCase = true)
         if (authenticationAccepted) {
+            logDiagnostics {
+                event(
+                category = DiagnosticsCategory.HERMES,
+                transport = DiagnosticsTransport.HERMES,
+                operation = "HermesWebSocket",
+                event = "authenticated",
+                severity = DiagnosticsSeverity.INFO,
+                )
+            }
             Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes authentication accepted")
             sendPrivateSubscriptions()
         } else {
+            logDiagnostics {
+                event(
+                category = DiagnosticsCategory.HERMES,
+                transport = DiagnosticsTransport.HERMES,
+                operation = "HermesWebSocket",
+                event = "authentication_rejected",
+                severity = DiagnosticsSeverity.WARN,
+                code = "authentication_rejected",
+                )
+            }
             Log.w(
                 WatchCreditTelemetry.LOG_TAG,
                 "Hermes authentication rejected result=${result.ifBlank { "unknown" }} error=${response?.optString("error").orEmpty().ifBlank { "none" }} errorCode=${response?.optString("errorCode").orEmpty().ifBlank { "none" }}",
@@ -246,11 +310,32 @@ class HermesWebSocket(
                 WatchCreditTelemetry.LOG_TAG,
                 "Hermes subscription accepted topic=${topic ?: "unknown"}",
             )
+            logDiagnostics {
+                event(
+                category = DiagnosticsCategory.HERMES,
+                transport = DiagnosticsTransport.HERMES,
+                operation = "HermesWebSocket",
+                event = "subscription_result",
+                severity = DiagnosticsSeverity.INFO,
+                fields = listOf(DiagnosticsField(DiagnosticsFieldKey.STATE, "accepted")),
+                )
+            }
         } else {
             Log.w(
                 WatchCreditTelemetry.LOG_TAG,
                 "Hermes subscription rejected topic=${topic ?: "unknown"} result=${result.ifBlank { "unknown" }} error=${response?.optString("error").orEmpty().ifBlank { "none" }} errorCode=${response?.optString("errorCode").orEmpty().ifBlank { "none" }}",
             )
+            logDiagnostics {
+                event(
+                category = DiagnosticsCategory.HERMES,
+                transport = DiagnosticsTransport.HERMES,
+                operation = "HermesWebSocket",
+                event = "subscription_result",
+                severity = DiagnosticsSeverity.WARN,
+                code = "subscription_rejected",
+                fields = listOf(DiagnosticsField(DiagnosticsFieldKey.STATE, "rejected")),
+                )
+            }
         }
         maybeStartMinuteWatchedTimer()
     }
@@ -267,6 +352,15 @@ class HermesWebSocket(
 
     private suspend fun startMinuteWatchedTimer() = withContext(Dispatchers.IO) {
         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer started intervalMs=$MINUTE_WATCHED_INTERVAL_MILLIS")
+        logDiagnostics {
+            event(
+            category = DiagnosticsCategory.PROGRESSION,
+            transport = DiagnosticsTransport.HERMES,
+            operation = "watch_progress",
+            event = "heartbeat_timer_started",
+            fields = listOf(DiagnosticsField(DiagnosticsFieldKey.TARGET, MINUTE_WATCHED_INTERVAL_MILLIS.toString())),
+            )
+        }
         minuteWatchedTimer = Timer().apply {
             scheduleAtFixedRate(
                 MINUTE_WATCHED_INTERVAL_MILLIS,
@@ -301,6 +395,15 @@ class HermesWebSocket(
 
     private inner class WebSocketListener : WebSocket.Listener {
         override suspend fun onConnect(webSocket: WebSocket) {
+            logDiagnostics {
+                event(
+                category = DiagnosticsCategory.HERMES,
+                transport = DiagnosticsTransport.HERMES,
+                operation = "HermesWebSocket",
+                event = "connected",
+                severity = DiagnosticsSeverity.INFO,
+                )
+            }
             Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes connected")
             listener.onConnect()
         }
@@ -381,17 +484,43 @@ class HermesWebSocket(
                     }
                     "authenticated" -> {
                         authenticationAccepted = true
+                        logDiagnostics {
+                            event(
+                            category = DiagnosticsCategory.HERMES,
+                            transport = DiagnosticsTransport.HERMES,
+                            operation = "HermesWebSocket",
+                            event = "authenticated",
+                            severity = DiagnosticsSeverity.INFO,
+                            )
+                        }
                         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes authentication accepted")
                         sendPrivateSubscriptions()
                         maybeStartMinuteWatchedTimer()
                     }
                     "reconnect" -> {
+                        logDiagnostics {
+                            event(
+                            category = DiagnosticsCategory.HERMES,
+                            transport = DiagnosticsTransport.HERMES,
+                            operation = "HermesWebSocket",
+                            event = "reconnect_requested",
+                            severity = DiagnosticsSeverity.WARN,
+                            )
+                        }
                         //val reconnect = json.optJSONObject("reconnect")
                         //val reconnectUrl = if (reconnect?.isNull("url") == false) reconnect.optString("url").takeIf { it.isNotBlank() } else null
                         pongTimer?.cancel()
                         webSocket.reconnect()
                     }
                     "welcome" -> {
+                        logDiagnostics {
+                            event(
+                            category = DiagnosticsCategory.HERMES,
+                            transport = DiagnosticsTransport.HERMES,
+                            operation = "HermesWebSocket",
+                            event = "welcome",
+                            )
+                        }
                         val welcome = json.optJSONObject("welcome")
                         if (welcome?.isNull("keepaliveSec") == false) {
                             welcome.optInt("keepaliveSec").takeIf { it > 0 }?.let {
@@ -409,11 +538,31 @@ class HermesWebSocket(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                logDiagnostics {
+                    event(
+                    category = DiagnosticsCategory.HERMES,
+                    transport = DiagnosticsTransport.HERMES,
+                    operation = "HermesWebSocket",
+                    event = "message_handling_failed",
+                    severity = DiagnosticsSeverity.ERROR,
+                    code = "message_handling_failed",
+                    )
+                }
                 Log.e(WatchCreditTelemetry.LOG_TAG, "Hermes message handling failed", e)
             }
         }
 
         override suspend fun onDisconnect(webSocket: WebSocket, message: String, fullMsg: String?) {
+            logDiagnostics {
+                event(
+                category = DiagnosticsCategory.HERMES,
+                transport = DiagnosticsTransport.HERMES,
+                operation = "HermesWebSocket",
+                event = "disconnected",
+                severity = DiagnosticsSeverity.WARN,
+                code = "disconnected",
+                )
+            }
             Log.w(WatchCreditTelemetry.LOG_TAG, "Hermes disconnected message=$message")
             listener.onDisconnect(message, fullMsg)
         }

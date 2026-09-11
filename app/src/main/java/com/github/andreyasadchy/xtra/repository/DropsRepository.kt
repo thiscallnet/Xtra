@@ -3,6 +3,12 @@ package com.github.andreyasadchy.xtra.repository
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.model.ui.TwitchChannelDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
@@ -37,6 +43,7 @@ class DropsRepository(
     private val context: Context,
     private val graphQLRepository: GraphQLRepository,
     private val metadataCache: MetadataCache,
+    private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
     private val inventoryRefreshMutex = Mutex()
     private val dashboardRefreshMutex = Mutex()
@@ -64,6 +71,11 @@ class DropsRepository(
     private val _inventory = MutableStateFlow(DropsInventoryState())
     private val _dashboard = MutableStateFlow<List<TwitchDropCampaign>>(emptyList())
     private val _dashboardError = MutableStateFlow<Throwable?>(null)
+
+    private inline fun logDiagnostics(block: DiagnosticsLogger.() -> Unit) {
+        val logger = diagnosticsLogger ?: return
+        if (logger.isEnabled) logger.block()
+    }
 
     @Volatile
     private var lastInventoryRefreshElapsed = 0L
@@ -116,10 +128,29 @@ class DropsRepository(
                     refreshing = false,
                     authenticated = true,
                 )
+                logDiagnostics {
+                    event(
+                    category = DiagnosticsCategory.DROPS,
+                    transport = DiagnosticsTransport.LOCAL,
+                    operation = "DropsRepository",
+                    event = "inventory_updated",
+                    fields = listOf(DiagnosticsField(DiagnosticsFieldKey.COUNT, drops.size.toString())),
+                    )
+                }
                 persistCachedState(userId)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                logDiagnostics {
+                    event(
+                    category = DiagnosticsCategory.DROPS,
+                    severity = DiagnosticsSeverity.ERROR,
+                    transport = DiagnosticsTransport.LOCAL,
+                    operation = "DropsRepository",
+                    event = "inventory_refresh_failed",
+                    code = "refresh_failed",
+                    )
+                }
                 _inventory.value = _inventory.value.copy(
                     refreshing = false,
                     error = error,
@@ -158,6 +189,15 @@ class DropsRepository(
                 )
                 GqlDropsParser.parseDashboard(body)
                     ?.also {
+                        logDiagnostics {
+                            event(
+                            category = DiagnosticsCategory.DROPS,
+                            transport = DiagnosticsTransport.LOCAL,
+                            operation = "DropsRepository",
+                            event = "dashboard_updated",
+                            fields = listOf(DiagnosticsField(DiagnosticsFieldKey.COUNT, it.size.toString())),
+                            )
+                        }
                         _dashboard.value = it
                         _dashboardError.value = null
                         dashboardLoaded = true
@@ -168,6 +208,16 @@ class DropsRepository(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                logDiagnostics {
+                    event(
+                        category = DiagnosticsCategory.DROPS,
+                        severity = DiagnosticsSeverity.ERROR,
+                        transport = DiagnosticsTransport.LOCAL,
+                        operation = "DropsRepository",
+                        event = "dashboard_refresh_failed",
+                        code = "refresh_failed",
+                    )
+                }
                 _dashboardError.value = error
                 _dashboard.value
             }
@@ -223,9 +273,34 @@ class DropsRepository(
             ) {
                 Log.w(TAG, "Twitch AvailableDrops persisted query was not found")
             }
-            GqlDropsParser.parseAvailableDrops(body).also { result ->
-                if (result == null) Log.w(TAG, "Twitch AvailableDrops response schema changed")
+            val result = GqlDropsParser.parseAvailableDrops(body)
+            if (result != null) {
+                logDiagnostics {
+                    event(
+                        category = DiagnosticsCategory.DROPS,
+                        transport = DiagnosticsTransport.LOCAL,
+                        operation = "DropsRepository",
+                        event = "channel_catalog_updated",
+                        fields = listOf(
+                            DiagnosticsField(DiagnosticsFieldKey.CHANNEL_ID, id),
+                            DiagnosticsField(DiagnosticsFieldKey.COUNT, result.sumOf { it.drops.size }.toString()),
+                        ),
+                    )
+                }
+            } else {
+                logDiagnostics {
+                    event(
+                        category = DiagnosticsCategory.DROPS,
+                        severity = DiagnosticsSeverity.ERROR,
+                        transport = DiagnosticsTransport.LOCAL,
+                        operation = "DropsRepository",
+                        event = "channel_catalog_parse_failed",
+                        code = "schema_changed",
+                    )
+                }
+                Log.w(TAG, "Twitch AvailableDrops response schema changed")
             }
+            result
         }
     }
 
@@ -281,7 +356,25 @@ class DropsRepository(
                     channelId = id,
                 )
             }
-            GqlDropsParser.parseCurrentDropProgress(body)
+            GqlDropsParser.parseCurrentDropProgress(body).also { progress ->
+                if (progress != null) {
+                    logDiagnostics {
+                        event(
+                        category = DiagnosticsCategory.PROGRESSION,
+                        transport = DiagnosticsTransport.LOCAL,
+                        operation = "DropsRepository",
+                        event = "progress_updated",
+                        fields = listOf(
+                            DiagnosticsField(DiagnosticsFieldKey.DROP_ID, progress.dropId),
+                            DiagnosticsField(
+                                DiagnosticsFieldKey.PROGRESS,
+                                "${progress.currentMinutesWatched}/${progress.requiredMinutesWatched ?: "?"}",
+                            ),
+                        ),
+                        )
+                    }
+                }
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
@@ -312,6 +405,21 @@ class DropsRepository(
             }
         }
         if (changed) {
+            logDiagnostics {
+                event(
+                category = DiagnosticsCategory.PROGRESSION,
+                transport = DiagnosticsTransport.LOCAL,
+                operation = "DropsRepository",
+                event = "progress_applied",
+                fields = listOf(
+                    DiagnosticsField(DiagnosticsFieldKey.DROP_ID, update.dropId),
+                    DiagnosticsField(
+                        DiagnosticsFieldKey.PROGRESS,
+                        "${update.currentMinutesWatched}/${update.requiredMinutesWatched ?: "?"}",
+                    ),
+                ),
+                )
+            }
             _inventory.value = current.copy(drops = drops, error = null)
             persistCachedState(currentUserId())
         }
@@ -335,6 +443,15 @@ class DropsRepository(
 
         val headers = TwitchApiHelper.getGQLHeaders(context, true)
         if (headers[C.HEADER_TOKEN].isNullOrBlank()) return false
+        logDiagnostics {
+            event(
+            category = DiagnosticsCategory.DROPS,
+            transport = DiagnosticsTransport.LOCAL,
+            operation = "DropsRepository",
+            event = "claim_request",
+            fields = listOf(DiagnosticsField(DiagnosticsFieldKey.DROP_ID, drop.id)),
+            )
+        }
         val body = graphQLRepository.claimDrop(
             context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
             headers,
@@ -344,6 +461,20 @@ class DropsRepository(
         if (success) {
             completedClaims += claimId
             removeClaimedDrop(claimId)
+        }
+        logDiagnostics {
+            event(
+            category = DiagnosticsCategory.DROPS,
+            severity = if (success) DiagnosticsSeverity.INFO else DiagnosticsSeverity.WARN,
+            transport = DiagnosticsTransport.LOCAL,
+            operation = "DropsRepository",
+            event = "claim_result",
+            code = if (success) "success" else "claim_failed",
+            fields = listOf(
+                DiagnosticsField(DiagnosticsFieldKey.DROP_ID, drop.id),
+                DiagnosticsField(DiagnosticsFieldKey.CLAIMED, success.toString()),
+            ),
+            )
         }
         return success
     }
@@ -358,6 +489,15 @@ class DropsRepository(
             count
         }
         if (claimed > 0) refreshInventory(force = true)
+        logDiagnostics {
+            event(
+            category = DiagnosticsCategory.DROPS,
+            transport = DiagnosticsTransport.LOCAL,
+            operation = "DropsRepository",
+            event = "auto_claim_completed",
+            fields = listOf(DiagnosticsField(DiagnosticsFieldKey.COUNT, claimed.toString())),
+            )
+        }
         return claimed
     }
 

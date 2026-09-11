@@ -108,11 +108,16 @@ import com.github.andreyasadchy.xtra.model.gql.tag.TagResponse
 import com.github.andreyasadchy.xtra.model.gql.video.VideoGamesResponse
 import com.github.andreyasadchy.xtra.model.gql.video.VideoMessagesResponse
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRewardRedemption
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
+import com.github.andreyasadchy.xtra.diagnostics.diagnosticsRequestSucceeded
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.repository.auth.TwitchWebSessionManager
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -120,6 +125,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -141,6 +147,7 @@ class GraphQLRepository(
     private val okHttpClient: Lazy<OkHttpClient>,
     private val json: Json,
     private val twitchWebSessionManager: TwitchWebSessionManager? = null,
+    private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
 
     private val watchStreakQuery = """
@@ -297,12 +304,24 @@ class GraphQLRepository(
                 }
             }
         }
-        val response = if (isAuthenticatedGeckoRequest(headers)) {
-            sendIntegrityProtectedQuery(networkLibrary, headers, body)
-        } else {
-            sendRawPersistedQuery(networkLibrary, headers, body)
-        }
-        return response.byteInputStream().source().buffer().jsonReader().use {
+        val response = executeGqlRequest(
+            networkLibrary,
+            headers,
+            query.name(),
+            body,
+            validateResponse = if (diagnosticsLogger?.isEnabled == true) {
+                { responseBody ->
+                    val parsed = responseBody.byteInputStream().source().buffer().jsonReader().use {
+                        query.parseResponse(it)
+                    }
+                    parsed.exception?.let { throw it }
+                    if (parsed.data == null && parsed.errors.isNullOrEmpty()) {
+                        throw IllegalStateException("Apollo response contained neither data nor GraphQL errors")
+                    }
+                }
+            } else null,
+        )
+        return response.body.byteInputStream().source().buffer().jsonReader().use {
             query.parseResponse(it)
         }
     }
@@ -312,14 +331,83 @@ class GraphQLRepository(
         headers: Map<String, String>,
         body: String,
     ): String {
-        return if (isAuthenticatedGeckoRequest(headers)) {
-            sendIntegrityProtectedQuery(networkLibrary, headers, body)
-        } else {
-            sendRawPersistedQuery(networkLibrary, headers, body)
+        return executeGqlRequest(
+            networkLibrary,
+            headers,
+            diagnosticsOperation(body),
+            body,
+            validateResponse = if (diagnosticsLogger?.isEnabled == true) {
+                { responseBody -> json.parseToJsonElement(responseBody).jsonObject }
+            } else null,
+        ).body
+    }
+
+    private data class GqlHttpResponse(val statusCode: Int, val body: String)
+
+    private suspend fun executeGqlRequest(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        operationName: String,
+        body: String,
+        validateResponse: ((String) -> Unit)? = null,
+    ): GqlHttpResponse {
+        val logger = diagnosticsLogger
+        val token = if (logger?.isEnabled == true) {
+            logger.beginRequest(
+                category = DiagnosticsCategory.GQL,
+                transport = DiagnosticsTransport.GQL,
+                operation = operationName,
+            )
+        } else null
+        return try {
+            val response = if (isAuthenticatedGeckoRequest(headers)) {
+                sendIntegrityProtectedQuery(networkLibrary, headers, body, operationName, token?.correlationId)
+            } else {
+                sendRawPersistedQuery(networkLibrary, headers, body)
+            }
+            val graphQlError = token != null && hasGraphQlErrors(response.body)
+            val malformedResponse = token != null && !isJsonObject(response.body)
+            if (token != null && !graphQlError && !malformedResponse) {
+                try {
+                    validateResponse?.invoke(response.body)
+                } catch (error: Throwable) {
+                    logger?.finishRequest(
+                        token,
+                        successful = false,
+                        httpStatus = response.statusCode,
+                        code = DIAGNOSTICS_RESPONSE_DECODE_ERROR_CODE,
+                    )
+                    throw error
+                }
+            }
+            logger?.finishRequest(
+                token,
+                successful = diagnosticsRequestSucceeded(response.statusCode, graphQlError, malformedResponse),
+                httpStatus = response.statusCode,
+                code = when {
+                    graphQlError -> "graphql_error"
+                    malformedResponse -> "response_parse_error"
+                    else -> null
+                },
+            )
+            response
+        } catch (error: CancellationException) {
+            logger?.failRequest(token, "cancelled")
+            throw error
+        } catch (error: Throwable) {
+            logger?.failRequest(token, diagnosticsErrorCode(error))
+            throw error
         }
     }
 
-    private suspend fun sendRawPersistedQuery(networkLibrary: String?, headers: Map<String, String>, body: String): String = withContext(Dispatchers.IO) {
+    private fun diagnosticsOperation(body: String): String {
+        if (diagnosticsLogger?.isEnabled != true) return "GQL"
+        return runCatching {
+            json.parseToJsonElement(body).jsonObject["operationName"]?.jsonPrimitive?.content
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: "GQL"
+    }
+
+    private suspend fun sendRawPersistedQuery(networkLibrary: String?, headers: Map<String, String>, body: String): GqlHttpResponse = withContext(Dispatchers.IO) {
         val url = "https://gql.twitch.tv/gql"
         when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -341,7 +429,7 @@ class GraphQLRepository(
                         timeout.stop()
                     }
                 }
-                response.body.decodeToString()
+                GqlHttpResponse(response.info.httpStatusCode, response.body.decodeToString())
             }
             networkLibrary == C.CRONET && cronetEngine.value != null -> {
                 val response = suspendCancellableCoroutine { continuation ->
@@ -362,7 +450,7 @@ class GraphQLRepository(
                         timeout.stop()
                     }
                 }
-                response.body.decodeToString()
+                GqlHttpResponse(response.info.httpStatusCode, response.body.decodeToString())
             }
             else -> {
                 okHttpClient.value.newCall(Request.Builder().apply {
@@ -371,7 +459,7 @@ class GraphQLRepository(
                     header("Content-Type", "application/json")
                     post(body.toRequestBody())
                 }.build()).executeAsync().use { response ->
-                    response.body.string()
+                    GqlHttpResponse(response.code, response.body.string())
                 }
             }
         }
@@ -381,12 +469,16 @@ class GraphQLRepository(
         networkLibrary: String?,
         fallbackHeaders: Map<String, String>,
         body: String,
-    ): String {
+        operationName: String,
+        correlationId: String?,
+    ): GqlHttpResponse {
         val manager = twitchWebSessionManager
         return manager?.executeIntegrityAwareGql(
             fallbackHeaders = fallbackHeaders,
-            isFailedIntegrityCheck = { response -> hasFailedIntegrityCheck(response) },
+            isFailedIntegrityCheck = { response -> hasFailedIntegrityCheck(response.body) },
             send = { requestHeaders -> sendRawPersistedQuery(networkLibrary, requestHeaders, body) },
+            diagnosticsOperation = operationName,
+            diagnosticsCorrelationId = correlationId,
         ) ?: sendRawPersistedQuery(networkLibrary, fallbackHeaders, body)
     }
 
@@ -400,6 +492,23 @@ class GraphQLRepository(
         json.decodeFromString<ErrorResponse>(response).errors
             ?.any { it.message?.trim()?.equals(C.FAILED_INTEGRITY_CHECK, ignoreCase = true) == true } == true
     }.getOrDefault(false)
+
+    private fun hasGraphQlErrors(response: String): Boolean = runCatching {
+        json.parseToJsonElement(response).jsonObject["errors"]?.let { errors ->
+            errors is kotlinx.serialization.json.JsonArray && errors.isNotEmpty()
+        } == true
+    }.getOrDefault(false)
+
+    private fun isJsonObject(response: String): Boolean = runCatching {
+        json.parseToJsonElement(response).jsonObject
+        true
+    }.getOrDefault(false)
+
+    private fun diagnosticsErrorCode(error: Throwable): String = when (error) {
+        is MissingAuthenticationException -> "authentication_required"
+        is java.io.IOException -> "io_error"
+        else -> "request_failed"
+    }
 
     suspend fun executeRawOperation(
         networkLibrary: String?,
@@ -2400,3 +2509,5 @@ class GraphQLRepository(
         json.decodeFromString<ErrorResponse>(sendPersistedQuery(networkLibrary, headers, body))
     }
 }
+
+internal const val DIAGNOSTICS_RESPONSE_DECODE_ERROR_CODE = "response_decode_error"

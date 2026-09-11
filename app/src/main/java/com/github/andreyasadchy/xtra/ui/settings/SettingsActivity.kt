@@ -596,6 +596,9 @@ class SettingsActivity : AppCompatActivity() {
             SettingsItem(R.string.settings_about, R.drawable.ic_settings_advanced, R.string.app_name) {
                 findNavController().navigate(R.id.aboutSettingsFragment)
             },
+            SettingsItem(R.string.settings_diagnostics_live, R.drawable.ic_settings_advanced, R.string.settings_diagnostics_live_summary) {
+                navigate(SettingsNavGraphDirections.actionGlobalDiagnosticsSettingsFragment())
+            },
             SettingsItem(R.string.settings_section_advanced, R.drawable.ic_settings_advanced, R.string.settings_home_advanced_summary) {
                 navigate(SettingsNavGraphDirections.actionGlobalDebugSettingsFragment())
             }

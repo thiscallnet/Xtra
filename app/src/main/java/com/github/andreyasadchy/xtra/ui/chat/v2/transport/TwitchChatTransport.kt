@@ -25,6 +25,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetDimensionsResolv
 import com.github.andreyasadchy.xtra.model.chat.Emote as LegacyEmote
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGiftParser
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGift
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -57,6 +58,7 @@ data class TwitchChatTransportConfig(
     val accountId: String? = null,
     val gqlClientId: String? = null,
     val gqlToken: String? = null,
+    val diagnosticsLogger: DiagnosticsLogger? = null,
     /** Hermes channel rewards preserve the unrestricted legacy no-input path. */
     val enableHermesRewards: Boolean = true,
     /** EventSub redemption events require broadcaster/moderator redemption scopes. */
@@ -419,6 +421,7 @@ class TwitchChatTransport(
             showPredictions = false,
             includeChannelTopics = true,
             trustManager = trustManager,
+            diagnosticsLogger = config.diagnosticsLogger,
             listener = object : HermesWebSocket.Listener {
                 override suspend fun onRewardMessage(message: org.json.JSONObject) {
                     sendEvent(

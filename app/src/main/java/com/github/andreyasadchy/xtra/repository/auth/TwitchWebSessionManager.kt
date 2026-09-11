@@ -5,6 +5,7 @@ import android.util.Log
 import com.github.andreyasadchy.xtra.model.id.ValidationResponse
 import com.github.andreyasadchy.xtra.repository.AuthRepository
 import com.github.andreyasadchy.xtra.repository.MissingAuthenticationException
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
@@ -52,6 +53,7 @@ class TwitchWebSessionManager(
     context: Context,
     private val authRepository: AuthRepository,
     private val authSessionMaintainer: AuthSessionMaintainer,
+    private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
     private val applicationContext = context.applicationContext
     private val sessionStore = AuthSessionStore(applicationContext.prefs(), applicationContext.tokenPrefs())
@@ -194,17 +196,22 @@ class TwitchWebSessionManager(
         requireActiveWebSession: Boolean = false,
         isFailedIntegrityCheck: (T) -> Boolean,
         send: suspend (Map<String, String>) -> T,
+        diagnosticsOperation: String? = null,
+        diagnosticsCorrelationId: String? = null,
     ): T = IntegrityAwareGqlExecutor<T>(
         isWebSessionActive = ::isWebSessionActive,
         isCurrentAuthorization = ::isCurrentGeckoAuthorization,
         currentRequest = ::geckoGqlRequest,
         refresh = ::refreshGeckoGqlIdentity,
         invalidateIfCurrent = ::invalidateGeckoGqlIdentityIfCurrent,
+        diagnosticsLogger = diagnosticsLogger,
     ).execute(
         fallbackHeaders = fallbackHeaders,
         requireActiveWebSession = requireActiveWebSession,
         isFailedIntegrityCheck = isFailedIntegrityCheck,
         send = send,
+        diagnosticsOperation = diagnosticsOperation,
+        diagnosticsCorrelationId = diagnosticsCorrelationId,
     )
 
     /** Debug-only fault injection for exercising the server-rejection recovery path. */

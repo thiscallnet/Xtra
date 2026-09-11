@@ -80,6 +80,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransportCon
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.SevenTvPresenceReporter
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
 import com.github.andreyasadchy.xtra.util.isRecentChatHistoryEnabled
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -593,8 +594,12 @@ class XtraModule(application: Application) {
         AuthSessionMaintainer(application, authRepository)
     }
 
+    val diagnosticsLogger by lazy {
+        DiagnosticsLogger(application)
+    }
+
     val twitchWebSessionManager by lazy {
-        TwitchWebSessionManager(application, authRepository, authSessionMaintainer)
+        TwitchWebSessionManager(application, authRepository, authSessionMaintainer, diagnosticsLogger)
     }
 
     val bookmarksRepository by lazy {
@@ -617,11 +622,12 @@ class XtraModule(application: Application) {
             okHttpClient = okHttpClient,
             json = json,
             twitchWebSessionManager = twitchWebSessionManager,
+            diagnosticsLogger = diagnosticsLogger,
         )
     }
 
     val dropsRepository by lazy {
-        DropsRepository(application, graphQLRepository, metadataCache)
+        DropsRepository(application, graphQLRepository, metadataCache, diagnosticsLogger)
     }
 
     val twitchPrivateGqlClient by lazy {
@@ -632,6 +638,7 @@ class XtraModule(application: Application) {
             okHttpClient = okHttpClient,
             json = json,
             twitchWebSessionManager = twitchWebSessionManager,
+            diagnosticsLogger = diagnosticsLogger,
         )
     }
 
@@ -644,7 +651,7 @@ class XtraModule(application: Application) {
     }
 
     val helixRepository by lazy {
-        HelixRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json)
+        HelixRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json, diagnosticsLogger)
     }
 
     val localChannelFollowsRepository by lazy {
@@ -673,7 +680,7 @@ class XtraModule(application: Application) {
     }
 
     val playerRepository by lazy {
-        PlayerRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json, database.recentEmotes(), database.favoriteEmotes(), database.translatedChannels(), database.videoPositions(), database.videoHistory(), database.playbackStates(), graphQLRepository, helixRepository)
+        PlayerRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json, database.recentEmotes(), database.favoriteEmotes(), database.translatedChannels(), database.videoPositions(), database.videoHistory(), database.playbackStates(), graphQLRepository, helixRepository, diagnosticsLogger)
     }
 
     val emoteUsageRepository by lazy {
@@ -766,6 +773,7 @@ class XtraModule(application: Application) {
                         accountId = accountId,
                         gqlClientId = appContext.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB),
                         gqlToken = appContext.tokenPrefs().getString(C.GQL_TOKEN_WEB, null),
+                        diagnosticsLogger = diagnosticsLogger,
                         enableHermesRewards = !spec.legacySupplementalSockets,
                         enableRewardRedemptions = !spec.legacySupplementalSockets &&
                                 !accountId.isNullOrBlank() && (

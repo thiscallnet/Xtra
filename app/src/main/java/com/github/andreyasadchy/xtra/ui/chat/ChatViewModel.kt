@@ -18,6 +18,12 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.model.chat.Badge
 import com.github.andreyasadchy.xtra.model.chat.ChannelPointReward
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
@@ -305,6 +311,7 @@ class ChatViewModel(
     private val emoteUsageRepository: EmoteUsageRepository,
     private val trustManager: Lazy<X509TrustManager>,
     private val json: Json,
+    private val diagnosticsLogger: DiagnosticsLogger?,
 ) : ViewModel() {
 
     private data class PendingChannelPointsClaim(
@@ -2079,7 +2086,7 @@ class ChatViewModel(
     }
 
     private fun applyChannelPointsBalanceEvent(event: ChannelPointsBalanceEvent): Boolean {
-        return synchronized(channelPointsBalanceLock) {
+        val applied = synchronized(channelPointsBalanceLock) {
             channelPointsBalanceState = channelPointsBalanceReducer.applyLiveEvent(
                 state = channelPointsBalanceState,
                 event = event,
@@ -2096,6 +2103,19 @@ class ChatViewModel(
                 true
             }
         }
+        if (applied && diagnosticsLogger?.isEnabled == true) {
+            diagnosticsLogger.event(
+                category = DiagnosticsCategory.CHANNEL_POINTS,
+                transport = DiagnosticsTransport.HERMES,
+                operation = "ChannelPoints",
+                event = "balance_updated",
+                fields = listOf(
+                    DiagnosticsField(DiagnosticsFieldKey.TARGET, event.delta.toString()),
+                    DiagnosticsField(DiagnosticsFieldKey.STATE, event.type.name),
+                ),
+            )
+        }
+        return applied
     }
 
     private fun applyLocalChannelPointsSpend(
@@ -2114,6 +2134,15 @@ class ChatViewModel(
             if (balance != null && current != null && current.balance != balance) {
                 channelPoints.value = current.copy(balance = balance)
             }
+        }
+        if (diagnosticsLogger?.isEnabled == true) {
+            diagnosticsLogger.event(
+                category = DiagnosticsCategory.CHANNEL_POINTS,
+                transport = DiagnosticsTransport.LOCAL,
+                operation = "ChannelPoints",
+                event = "local_spend_applied",
+                fields = listOf(DiagnosticsField(DiagnosticsFieldKey.TARGET, amount.toString())),
+            )
         }
     }
 
@@ -2226,6 +2255,18 @@ class ChatViewModel(
                     watchStreakRewards = watchStreakRewards,
                 )
             }
+        }
+        if (diagnosticsLogger?.isEnabled == true) {
+            diagnosticsLogger.event(
+                category = DiagnosticsCategory.CHANNEL_POINTS,
+                transport = DiagnosticsTransport.GQL,
+                operation = "ChannelPoints",
+                event = "context_updated",
+                fields = listOf(
+                    DiagnosticsField(DiagnosticsFieldKey.TARGET, snapshotBalance.toString()),
+                    DiagnosticsField(DiagnosticsFieldKey.COUNT, rewards.size.toString()),
+                ),
+            )
         }
     }
 
@@ -2378,6 +2419,18 @@ class ChatViewModel(
             ),
             realtime = true,
         )
+        if (diagnosticsLogger?.isEnabled == true) {
+            diagnosticsLogger.event(
+                category = DiagnosticsCategory.PROGRESSION,
+                transport = DiagnosticsTransport.HERMES,
+                operation = "WatchStreak",
+                event = "watch_streak_update",
+                fields = listOf(
+                    DiagnosticsField(DiagnosticsFieldKey.COUNT, streakCount.toString()),
+                    DiagnosticsField(DiagnosticsFieldKey.TARGET, (pointsAwarded ?: 0).toString()),
+                ),
+            )
+        }
     }
 
     private fun mergeWatchStreak(incoming: WatchStreak, realtime: Boolean = false) {
@@ -2399,6 +2452,15 @@ class ChatViewModel(
                 shareStatus = milestoneValue.shareStatus,
             ),
         )
+        if (diagnosticsLogger?.isEnabled == true) {
+            diagnosticsLogger.event(
+                category = DiagnosticsCategory.PROGRESSION,
+                transport = DiagnosticsTransport.GQL,
+                operation = "WatchStreak",
+                event = "watch_streak_reconciled",
+                fields = listOf(DiagnosticsField(DiagnosticsFieldKey.COUNT, streakCount.toString())),
+            )
+        }
     }
 
     private fun watchStreakCount(response: WatchStreakResponse): Int? =
@@ -3333,6 +3395,7 @@ class ChatViewModel(
                 showPredictions = showPredictions,
                 listenForDrops = hasHermesUserAuth,
                 trustManager = trustManager,
+                diagnosticsLogger = diagnosticsLogger,
                 listener = pubSubListener,
             )
             startChannelPointsRefresh(channelId, channelLogin, pubSubListener, collectPoints && hasHermesUserAuth)
@@ -4656,6 +4719,19 @@ class ChatViewModel(
             )
             val messageChannelId = balanceEvent?.channelId ?: result.second
             val channelMatches = matchesActiveChannel(channelId, channelLogin, messageChannelId)
+            if (diagnosticsLogger?.isEnabled == true) {
+                diagnosticsLogger.event(
+                    category = DiagnosticsCategory.CHANNEL_POINTS,
+                    transport = DiagnosticsTransport.HERMES,
+                    operation = "ChannelPoints",
+                    event = "points_earned",
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.TARGET, points.pointsGained.toString()),
+                        DiagnosticsField(DiagnosticsFieldKey.ACTIVE, channelMatches.toString()),
+                        DiagnosticsField(DiagnosticsFieldKey.STATE, points.reasonCode ?: "unknown"),
+                    ),
+                )
+            }
             val matchedChannelId = if (channelMatches) channelId else messageChannelId
             Log.d(
                 WatchCreditTelemetry.LOG_TAG,
@@ -4706,6 +4782,18 @@ class ChatViewModel(
             val balanceEvent = PubSubUtils.parsePointsSpent(message)
             val messageChannelId = balanceEvent?.channelId
             val channelMatches = matchesActiveChannel(channelId, channelLogin, messageChannelId)
+            if (diagnosticsLogger?.isEnabled == true) {
+                diagnosticsLogger.event(
+                    category = DiagnosticsCategory.CHANNEL_POINTS,
+                    transport = DiagnosticsTransport.HERMES,
+                    operation = "ChannelPoints",
+                    event = "points_spent",
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.TARGET, (balanceEvent?.delta ?: 0).toString()),
+                        DiagnosticsField(DiagnosticsFieldKey.ACTIVE, channelMatches.toString()),
+                    ),
+                )
+            }
             Log.d(
                 WatchCreditTelemetry.LOG_TAG,
                 "Hermes points-spent channelMatched=$channelMatches channelMatchType=${if (channelId == messageChannelId) "id" else if (channelLogin.equals(messageChannelId, ignoreCase = true)) "login" else "none"} channelIdPresent=${!messageChannelId.isNullOrBlank()} amount=${balanceEvent?.delta}",
@@ -4719,6 +4807,15 @@ class ChatViewModel(
         override suspend fun onClaimAvailable(message: JSONObject?) {
             val eventClaim = message?.let(PubSubUtils::parseClaimAvailable)
             val eventClaimId = eventClaim?.id
+            if (diagnosticsLogger?.isEnabled == true) {
+                diagnosticsLogger.event(
+                    category = DiagnosticsCategory.CHANNEL_POINTS,
+                    transport = DiagnosticsTransport.HERMES,
+                    operation = "ChannelPoints",
+                    event = "bonus_available",
+                    fields = listOf(DiagnosticsField(DiagnosticsFieldKey.CLAIMABLE, "true")),
+                )
+            }
             Log.d(
                 WatchCreditTelemetry.LOG_TAG,
                 "claim-available handler invoked source=${if (eventClaimId.isNullOrBlank()) "gql-poll" else "Hermes"} eventClaimPresent=${!eventClaimId.isNullOrBlank()} collectPoints=$collectPoints gqlTokenPresent=${!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()}",
@@ -4858,6 +4955,17 @@ class ChatViewModel(
                     }
                 }
             }
+            if (diagnosticsLogger?.isEnabled == true) {
+                diagnosticsLogger.event(
+                    category = DiagnosticsCategory.CHANNEL_POINTS,
+                    severity = if (succeeded) DiagnosticsSeverity.INFO else DiagnosticsSeverity.WARN,
+                    transport = DiagnosticsTransport.LOCAL,
+                    operation = "ChannelPoints",
+                    event = "bonus_claim_result",
+                    code = if (succeeded) "success" else "claim_failed",
+                    fields = listOf(DiagnosticsField(DiagnosticsFieldKey.CLAIMED, succeeded.toString())),
+                )
+            }
         }
 
         override suspend fun onDropMessage(message: JSONObject) {
@@ -4867,9 +4975,42 @@ class ChatViewModel(
             }
             when (message.optString("type").lowercase(Locale.US)) {
                 "drop-progress" -> {
-                    GqlDropsParser.parseDropProgressMessage(message)?.let { publishDropProgress(it) }
+                    GqlDropsParser.parseDropProgressMessage(message)?.let {
+                        if (diagnosticsLogger?.isEnabled == true) {
+                            diagnosticsLogger.event(
+                                category = DiagnosticsCategory.DROPS,
+                                transport = DiagnosticsTransport.HERMES,
+                                operation = "Drops",
+                                event = "drop_progress",
+                                fields = listOf(
+                                    DiagnosticsField(DiagnosticsFieldKey.DROP_ID, it.dropId),
+                                    DiagnosticsField(
+                                        DiagnosticsFieldKey.PROGRESS,
+                                        "${it.currentMinutesWatched}/${it.requiredMinutesWatched ?: "?"}",
+                                    ),
+                                ),
+                            )
+                        }
+                        publishDropProgress(it)
+                    }
                 }
-                "drop-claim" -> refreshDropsAfterEvent()
+                "drop-claim" -> {
+                    if (diagnosticsLogger?.isEnabled == true) {
+                        GqlDropsParser.parseDropClaimMessage(message)?.let {
+                            diagnosticsLogger.event(
+                                category = DiagnosticsCategory.DROPS,
+                                transport = DiagnosticsTransport.HERMES,
+                                operation = "Drops",
+                                event = "drop_claim",
+                                fields = buildList {
+                                    it.dropId?.let { id -> add(DiagnosticsField(DiagnosticsFieldKey.DROP_ID, id)) }
+                                    add(DiagnosticsField(DiagnosticsFieldKey.CLAIMED, it.claimed.toString()))
+                                },
+                            )
+                        }
+                    }
+                    refreshDropsAfterEvent()
+                }
             }
         }
 
@@ -5031,6 +5172,17 @@ class ChatViewModel(
                     gameId = _streamInfo.value?.gameId,
                 )
                 Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat completed success=$success")
+                if (diagnosticsLogger?.isEnabled == true) {
+                    diagnosticsLogger.event(
+                        category = DiagnosticsCategory.PROGRESSION,
+                        transport = DiagnosticsTransport.WATCH_CREDIT,
+                        operation = "WatchProgress",
+                        event = "heartbeat_result",
+                        severity = if (success) DiagnosticsSeverity.INFO else DiagnosticsSeverity.WARN,
+                        code = if (success) "success" else "heartbeat_failed",
+                        fields = listOf(DiagnosticsField(DiagnosticsFieldKey.LIVE, watchCreditLive.toString())),
+                    )
+                }
                 val progress = dropsRepository.refreshCurrentDropProgress(channelId)
                 Log.d(
                     WatchCreditTelemetry.LOG_TAG,
@@ -7317,7 +7469,7 @@ class ChatViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                ChatViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.dropsRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.emoteUsageRepository, xtraModule.trustManager, xtraModule.json)
+                ChatViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.dropsRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.emoteUsageRepository, xtraModule.trustManager, xtraModule.json, xtraModule.diagnosticsLogger)
             }
         }
     }

@@ -3,6 +3,9 @@ package com.github.andreyasadchy.xtra.repository
 import android.annotation.SuppressLint
 import android.net.http.HttpEngine
 import androidx.core.net.toUri
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.model.helix.channel.ChannelInformation
 import com.github.andreyasadchy.xtra.model.helix.channel.ChannelInformationResponse
 import com.github.andreyasadchy.xtra.model.helix.channel.ChannelSearchResponse
@@ -212,9 +215,52 @@ class HelixRepository(
     private val cronetExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val json: Json,
+    private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
 
-    suspend fun getGames(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, names: List<String>? = null): GamesResponse = withContext(Dispatchers.IO) {
+    private inline suspend fun <T> withHelixDiagnostics(
+        operation: String,
+        crossinline isSuccessful: (T) -> Boolean = { true },
+        crossinline httpStatus: (T) -> Int? = { null },
+        block: suspend () -> T,
+    ): T {
+        val logger = diagnosticsLogger
+        val token = if (logger?.isEnabled == true) {
+            logger.beginRequest(
+                category = DiagnosticsCategory.GQL,
+                transport = DiagnosticsTransport.HELIX,
+                operation = operation,
+            )
+        } else null
+        return try {
+            val result = block()
+            val successful = isSuccessful(result)
+            logger?.finishRequest(
+                token,
+                successful = successful,
+                httpStatus = httpStatus(result),
+                code = if (successful) null else "request_rejected",
+            )
+            result
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            logger?.finishRequest(token, successful = false, code = "cancelled")
+            throw error
+        } catch (error: Throwable) {
+            logger?.finishRequest(
+                token,
+                successful = false,
+                httpStatus = (error as? TwitchApiException)?.statusCode,
+                code = when (error) {
+                    is TwitchApiException -> "http_error"
+                    is IOException -> "io_error"
+                    else -> "request_failed"
+                },
+            )
+            throw error
+        }
+    }
+
+    suspend fun getGames(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, names: List<String>? = null): GamesResponse = withHelixDiagnostics("helix_games") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/games".toUri().buildUpon().apply {
             ids?.forEach { appendQueryParameter("id", it) }
             names?.forEach { appendQueryParameter("name", it) }
@@ -268,8 +314,9 @@ class HelixRepository(
             }
         }
     }
+    }
 
-    suspend fun getTopGames(networkLibrary: String?, headers: Map<String, String>, limit: Int?, offset: String?): GamesResponse = withContext(Dispatchers.IO) {
+    suspend fun getTopGames(networkLibrary: String?, headers: Map<String, String>, limit: Int?, offset: String?): GamesResponse = withHelixDiagnostics("helix_top_games") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/games/top".toUri().buildUpon().apply {
             limit?.let { appendQueryParameter("first", it.toString()) }
             offset?.let { appendQueryParameter("after", it) }
@@ -323,8 +370,9 @@ class HelixRepository(
             }
         }
     }
+    }
 
-    suspend fun getStreams(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null, gameId: String? = null, languages: List<String>? = null, limit: Int? = null, offset: String? = null, rateLimitListener: ((HelixRateLimit) -> Unit)? = null): StreamsResponse = withContext(Dispatchers.IO) {
+    suspend fun getStreams(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null, gameId: String? = null, languages: List<String>? = null, limit: Int? = null, offset: String? = null, rateLimitListener: ((HelixRateLimit) -> Unit)? = null): StreamsResponse = withHelixDiagnostics("helix_streams") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/streams".toUri().buildUpon().apply {
             ids?.forEach { appendQueryParameter("user_id", it) }
             logins?.forEach { appendQueryParameter("user_login", it) }
@@ -398,6 +446,7 @@ class HelixRepository(
             }
         }
     }
+    }
 
     private fun rateLimit(headers: Map<String, List<String>>): HelixRateLimit = HelixRateLimit(
         limit = headerValue(headers, "Ratelimit-Limit")?.toLongOrNull(),
@@ -440,7 +489,8 @@ class HelixRepository(
         method: String = "GET",
         body: String? = null,
     ): RawHelixResponse = withContext(Dispatchers.IO) {
-        when {
+        try {
+            val result = when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
                 val response = suspendCancellableCoroutine { continuation ->
                     val timeout = NetworkUtils.HttpEngineTimeout()
@@ -509,8 +559,13 @@ class HelixRepository(
                     RawHelixResponse(response.code, response.body.string())
                 }
             }
-        }.also {
-            ensureHelixSuccess(it.statusCode, HelixRateLimit(null, null, null), it.body)
+            }
+            ensureHelixSuccess(result.statusCode, HelixRateLimit(null, null, null), result.body)
+            result
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            throw error
         }
     }
 
@@ -518,11 +573,11 @@ class HelixRepository(
         networkLibrary: String?,
         headers: Map<String, String>,
         broadcasterId: String?,
-    ): ChannelInformation? {
+    ): ChannelInformation? = withHelixDiagnostics("helix_get_channel_information") {
         val url = "https://api.twitch.tv/helix/channels".toUri().buildUpon().apply {
             broadcasterId?.let { appendQueryParameter("broadcaster_id", it) }
         }.build().toString()
-        return json.decodeFromString<ChannelInformationResponse>(
+        json.decodeFromString<ChannelInformationResponse>(
             executeRawHelix(networkLibrary, headers, url).body,
         ).data.firstOrNull()
     }
@@ -535,7 +590,7 @@ class HelixRepository(
         gameId: String? = null,
         language: String? = null,
         tags: List<String>? = null,
-    ) {
+    ): Unit = withHelixDiagnostics("helix_update_channel_information") {
         val url = "https://api.twitch.tv/helix/channels".toUri().buildUpon().apply {
             broadcasterId?.let { appendQueryParameter("broadcaster_id", it) }
         }.build().toString()
@@ -548,12 +603,12 @@ class HelixRepository(
         headers: Map<String, String>,
         broadcasterId: String?,
         moderatorId: String?,
-    ): ChatSettings? {
+    ): ChatSettings? = withHelixDiagnostics("helixget_chat_settings") {
         val url = "https://api.twitch.tv/helix/chat/settings".toUri().buildUpon().apply {
             broadcasterId?.let { appendQueryParameter("broadcaster_id", it) }
             moderatorId?.let { appendQueryParameter("moderator_id", it) }
         }.build().toString()
-        return json.decodeFromString<ChatSettingsResponse>(
+        json.decodeFromString<ChatSettingsResponse>(
             executeRawHelix(networkLibrary, headers, url).body,
         ).data.firstOrNull()
     }
@@ -562,11 +617,11 @@ class HelixRepository(
         networkLibrary: String?,
         headers: Map<String, String>,
         description: String,
-    ): com.github.andreyasadchy.xtra.model.helix.user.User? {
+    ): com.github.andreyasadchy.xtra.model.helix.user.User? = withHelixDiagnostics("helixupdate_user_description") {
         val url = "https://api.twitch.tv/helix/users".toUri().buildUpon().apply {
             appendQueryParameter("description", description)
         }.build().toString()
-        return json.decodeFromString<UsersResponse>(
+        json.decodeFromString<UsersResponse>(
             executeRawHelix(networkLibrary, headers, url, method = "PUT").body,
         ).data.firstOrNull()
     }
@@ -577,13 +632,13 @@ class HelixRepository(
         broadcasterId: String?,
         limit: Int = 100,
         cursor: String? = null,
-    ): BlockedUsersResponse {
+    ): BlockedUsersResponse = withHelixDiagnostics("helixget_blocked_users") {
         val url = "https://api.twitch.tv/helix/users/blocks".toUri().buildUpon().apply {
             broadcasterId?.let { appendQueryParameter("broadcaster_id", it) }
             appendQueryParameter("first", limit.coerceIn(1, 100).toString())
             cursor?.let { appendQueryParameter("after", it) }
         }.build().toString()
-        return json.decodeFromString(executeRawHelix(networkLibrary, headers, url).body)
+        json.decodeFromString(executeRawHelix(networkLibrary, headers, url).body)
     }
 
     suspend fun blockUser(
@@ -592,7 +647,7 @@ class HelixRepository(
         targetUserId: String,
         sourceContext: String = "chat",
         reason: String = "other",
-    ) {
+    ): Unit = withHelixDiagnostics("helix_block_user") {
         val url = "https://api.twitch.tv/helix/users/blocks".toUri().buildUpon().apply {
             appendQueryParameter("target_user_id", targetUserId)
             appendQueryParameter("source_context", sourceContext)
@@ -605,14 +660,14 @@ class HelixRepository(
         networkLibrary: String?,
         headers: Map<String, String>,
         targetUserId: String,
-    ) {
+    ): Unit = withHelixDiagnostics("helix_unblock_user") {
         val url = "https://api.twitch.tv/helix/users/blocks".toUri().buildUpon().apply {
             appendQueryParameter("target_user_id", targetUserId)
         }.build().toString()
         executeRawHelix(networkLibrary, headers, url, method = "DELETE")
     }
 
-    suspend fun getFollowedStreams(networkLibrary: String?, headers: Map<String, String>, userId: String?, limit: Int?, offset: String?): StreamsResponse = withContext(Dispatchers.IO) {
+    suspend fun getFollowedStreams(networkLibrary: String?, headers: Map<String, String>, userId: String?, limit: Int?, offset: String?): StreamsResponse = withHelixDiagnostics("helixget_followed_streams") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/streams/followed".toUri().buildUpon().apply {
             userId?.let { appendQueryParameter("user_id", it) }
             limit?.let { appendQueryParameter("first", it.toString()) }
@@ -667,8 +722,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getClips(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, channelId: String? = null, gameId: String? = null, startedAt: String? = null, endedAt: String? = null, limit: Int? = null, offset: String? = null): ClipsResponse = withContext(Dispatchers.IO) {
+    suspend fun getClips(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, channelId: String? = null, gameId: String? = null, startedAt: String? = null, endedAt: String? = null, limit: Int? = null, offset: String? = null): ClipsResponse = withHelixDiagnostics("helixget_clips") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/clips".toUri().buildUpon().apply {
             ids?.forEach { appendQueryParameter("id", it) }
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
@@ -727,8 +783,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getVideos(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, gameId: String? = null, channelId: String? = null, period: String? = null, broadcastType: String? = null, sort: String? = null, language: String? = null, limit: Int? = null, offset: String? = null): VideosResponse = withContext(Dispatchers.IO) {
+    suspend fun getVideos(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, gameId: String? = null, channelId: String? = null, period: String? = null, broadcastType: String? = null, sort: String? = null, language: String? = null, limit: Int? = null, offset: String? = null): VideosResponse = withHelixDiagnostics("helixget_videos") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/videos".toUri().buildUpon().apply {
             ids?.forEach { appendQueryParameter("id", it) }
             gameId?.let { appendQueryParameter("game_id", it) }
@@ -789,13 +846,14 @@ class HelixRepository(
             }
         }
     }
+        }
 
     suspend fun getStreamSchedule(
         networkLibrary: String?,
         headers: Map<String, String>,
         broadcasterId: String,
         limit: Int? = null,
-    ): StreamScheduleResponse = withContext(Dispatchers.IO) {
+    ): StreamScheduleResponse = withHelixDiagnostics("helixget_stream_schedule") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/schedule".toUri().buildUpon().apply {
             appendQueryParameter("broadcaster_id", broadcasterId)
             limit?.let { appendQueryParameter("first", it.toString()) }
@@ -868,8 +926,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getUsers(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null): UsersResponse = withContext(Dispatchers.IO) {
+    suspend fun getUsers(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null): UsersResponse = withHelixDiagnostics("helixget_users") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/users".toUri().buildUpon().apply {
             ids?.forEach { appendQueryParameter("id", it) }
             logins?.forEach { appendQueryParameter("login", it) }
@@ -945,8 +1004,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getSearchGames(networkLibrary: String?, headers: Map<String, String>, query: String?, limit: Int?, offset: String?): GamesResponse = withContext(Dispatchers.IO) {
+    suspend fun getSearchGames(networkLibrary: String?, headers: Map<String, String>, query: String?, limit: Int?, offset: String?): GamesResponse = withHelixDiagnostics("helixget_search_games") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/search/categories".toUri().buildUpon().apply {
             query?.let { appendQueryParameter("query", it) }
             limit?.let { appendQueryParameter("first", it.toString()) }
@@ -1001,8 +1061,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getSearchChannels(networkLibrary: String?, headers: Map<String, String>, query: String?, limit: Int?, offset: String?, live: Boolean? = null): ChannelSearchResponse = withContext(Dispatchers.IO) {
+    suspend fun getSearchChannels(networkLibrary: String?, headers: Map<String, String>, query: String?, limit: Int?, offset: String?, live: Boolean? = null): ChannelSearchResponse = withHelixDiagnostics("helixget_search_channels") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/search/channels".toUri().buildUpon().apply {
             query?.let { appendQueryParameter("query", it) }
             limit?.let { appendQueryParameter("first", it.toString()) }
@@ -1058,8 +1119,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getUserFollows(networkLibrary: String?, headers: Map<String, String>, userId: String?, targetId: String? = null, limit: Int? = null, offset: String? = null): FollowsResponse = withContext(Dispatchers.IO) {
+    suspend fun getUserFollows(networkLibrary: String?, headers: Map<String, String>, userId: String?, targetId: String? = null, limit: Int? = null, offset: String? = null): FollowsResponse = withHelixDiagnostics("helixget_user_follows") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/channels/followed".toUri().buildUpon().apply {
             userId?.let { appendQueryParameter("user_id", it) }
             targetId?.let { appendQueryParameter("broadcaster_id", it) }
@@ -1128,8 +1190,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getUserFollowers(networkLibrary: String?, headers: Map<String, String>, userId: String?, targetId: String? = null, limit: Int? = null, offset: String? = null): FollowsResponse = withContext(Dispatchers.IO) {
+    suspend fun getUserFollowers(networkLibrary: String?, headers: Map<String, String>, userId: String?, targetId: String? = null, limit: Int? = null, offset: String? = null): FollowsResponse = withHelixDiagnostics("helixget_user_followers") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/channels/followers".toUri().buildUpon().apply {
             targetId?.let { appendQueryParameter("user_id", it) }
             userId?.let { appendQueryParameter("broadcaster_id", it) }
@@ -1185,8 +1248,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getUserEmotes(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, offset: String?): UserEmotesResponse = withContext(Dispatchers.IO) {
+    suspend fun getUserEmotes(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, offset: String?): UserEmotesResponse = withHelixDiagnostics("helixget_user_emotes") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/emotes/user".toUri().buildUpon().apply {
             userId?.let { appendQueryParameter("user_id", it) }
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
@@ -1241,8 +1305,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getEmotesFromSet(networkLibrary: String?, headers: Map<String, String>, setIds: List<String>): EmoteSetsResponse = withContext(Dispatchers.IO) {
+    suspend fun getEmotesFromSet(networkLibrary: String?, headers: Map<String, String>, setIds: List<String>): EmoteSetsResponse = withHelixDiagnostics("helixget_emotes_from_set") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/emotes/set".toUri().buildUpon().apply {
             setIds.forEach { appendQueryParameter("emote_set_id", it) }
         }.build().toString()
@@ -1295,8 +1360,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getGlobalBadges(networkLibrary: String?, headers: Map<String, String>): BadgesResponse = withContext(Dispatchers.IO) {
+    suspend fun getGlobalBadges(networkLibrary: String?, headers: Map<String, String>): BadgesResponse = withHelixDiagnostics("helixget_global_badges") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/badges/global"
         when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
@@ -1347,8 +1413,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getChannelBadges(networkLibrary: String?, headers: Map<String, String>, userId: String?): BadgesResponse = withContext(Dispatchers.IO) {
+    suspend fun getChannelBadges(networkLibrary: String?, headers: Map<String, String>, userId: String?): BadgesResponse = withHelixDiagnostics("helixget_channel_badges") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/badges".toUri().buildUpon().apply {
             userId?.let { appendQueryParameter("broadcaster_id", it) }
         }.build().toString()
@@ -1401,8 +1468,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getCheerEmotes(networkLibrary: String?, headers: Map<String, String>, userId: String?): CheerEmotesResponse = withContext(Dispatchers.IO) {
+    suspend fun getCheerEmotes(networkLibrary: String?, headers: Map<String, String>, userId: String?): CheerEmotesResponse = withHelixDiagnostics("helixget_cheer_emotes") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/bits/cheermotes".toUri().buildUpon().apply {
             userId?.let { appendQueryParameter("broadcaster_id", it) }
         }.build().toString()
@@ -1455,8 +1523,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun getChatters(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, limit: Int? = null, offset: String? = null): ChatUsersResponse = withContext(Dispatchers.IO) {
+    suspend fun getChatters(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, limit: Int? = null, offset: String? = null): ChatUsersResponse = withHelixDiagnostics("helixget_chatters") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/chatters".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
             userId?.let { appendQueryParameter("moderator_id", it) }
@@ -1512,6 +1581,7 @@ class HelixRepository(
             }
         }
     }
+        }
 
     suspend fun createEventSubSubscription(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, type: String?, sessionId: String?): String? =
         createEventSubSubscriptionResult(networkLibrary, headers, userId, channelId, type, sessionId)
@@ -1527,7 +1597,7 @@ class HelixRepository(
         networkLibrary: String?,
         headers: Map<String, String>,
         broadcasterId: String?,
-    ): String? = withContext(Dispatchers.IO) {
+    ): String? = withHelixDiagnostics("helixget_predictions") { withContext(Dispatchers.IO) {
         if (broadcasterId.isNullOrBlank()) {
             return@withContext null
         }
@@ -1584,6 +1654,7 @@ class HelixRepository(
             }
         }
     }
+        }
 
     /**
      * Returns the raw Get Polls response. Twitch restricts this endpoint to
@@ -1594,7 +1665,7 @@ class HelixRepository(
         networkLibrary: String?,
         headers: Map<String, String>,
         broadcasterId: String?,
-    ): String? = withContext(Dispatchers.IO) {
+    ): String? = withHelixDiagnostics("helixget_polls") { withContext(Dispatchers.IO) {
         if (broadcasterId.isNullOrBlank()) {
             return@withContext null
         }
@@ -1651,6 +1722,7 @@ class HelixRepository(
             }
         }
     }
+        }
 
     suspend fun createEventSubSubscriptionResult(
         networkLibrary: String?,
@@ -1659,7 +1731,11 @@ class HelixRepository(
         channelId: String?,
         type: String?,
         sessionId: String?,
-    ): EventSubSubscriptionResult = withContext(Dispatchers.IO) {
+    ): EventSubSubscriptionResult = withHelixDiagnostics(
+        "helix_create_event_sub_subscription_result",
+        isSuccessful = EventSubSubscriptionResult::success,
+        httpStatus = EventSubSubscriptionResult::statusCode,
+    ) { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/eventsub/subscriptions"
         val body = buildJsonObject {
             put("type", type)
@@ -1744,11 +1820,16 @@ class HelixRepository(
             }
         }
     }
+        }
 
     suspend fun getEventSubSubscription(
         headers: Map<String, String>,
         subscriptionId: String,
-    ): EventSubSubscriptionInfo = withContext(Dispatchers.IO) {
+    ): EventSubSubscriptionInfo = withHelixDiagnostics(
+        "helix_get_event_sub_subscription",
+        isSuccessful = { it.statusCode in 200..299 },
+        httpStatus = EventSubSubscriptionInfo::statusCode,
+    ) { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/eventsub/subscriptions".toUri().buildUpon()
             .appendQueryParameter("subscription_id", subscriptionId)
             .build()
@@ -1764,6 +1845,7 @@ class HelixRepository(
             )
         }
     }
+        }
 
     private fun parseEventSubSubscriptionResponse(
         statusCode: Int,
@@ -1773,7 +1855,7 @@ class HelixRepository(
         return parseEventSubSubscriptionResult(json, statusCode, body, rateLimitResetEpochSeconds)
     }
 
-    suspend fun sendMessage(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, message: String?, replyId: String?): SendChatMessageResult = withContext(Dispatchers.IO) {
+    suspend fun sendMessage(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, message: String?, replyId: String?): SendChatMessageResult = withHelixDiagnostics("helixsend_message") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/messages"
         val body = buildJsonObject {
             put("broadcaster_id", channelId)
@@ -1848,8 +1930,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun sendAnnouncement(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, message: String?, color: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun sendAnnouncement(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, message: String?, color: String?): String? = withHelixDiagnostics("helixsend_announcement") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/announcements".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
             userId?.let { appendQueryParameter("moderator_id", it) }
@@ -1925,8 +2008,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun banUser(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, targetId: String?, duration: String? = null, reason: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun banUser(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, targetId: String?, duration: String? = null, reason: String?): String? = withHelixDiagnostics("helixban_user") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/moderation/bans".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
             userId?.let { appendQueryParameter("moderator_id", it) }
@@ -2005,8 +2089,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun unbanUser(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, targetId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun unbanUser(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, targetId: String?): String? = withHelixDiagnostics("helixunban_user") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/moderation/bans".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
             userId?.let { appendQueryParameter("moderator_id", it) }
@@ -2076,8 +2161,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun deleteMessages(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, messageId: String? = null): String? = withContext(Dispatchers.IO) {
+    suspend fun deleteMessages(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, messageId: String? = null): String? = withHelixDiagnostics("helixdelete_messages") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/moderation/chat".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
             userId?.let { appendQueryParameter("moderator_id", it) }
@@ -2147,11 +2233,12 @@ class HelixRepository(
             }
         }
     }
+        }
 
     private fun parseChatColor(body: String): String? =
         json.decodeFromString<JsonElement>(body).jsonObject["data"]?.jsonArray?.firstOrNull()?.jsonObject?.get("color")?.jsonPrimitive?.contentOrNull
 
-    suspend fun getChatColor(networkLibrary: String?, headers: Map<String, String>, userId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun getChatColor(networkLibrary: String?, headers: Map<String, String>, userId: String?): String? = withHelixDiagnostics("helixget_chat_color") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/color".toUri().buildUpon().apply {
             userId?.let { appendQueryParameter("user_id", it) }
         }.build().toString()
@@ -2210,8 +2297,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun updateChatColor(networkLibrary: String?, headers: Map<String, String>, userId: String?, color: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun updateChatColor(networkLibrary: String?, headers: Map<String, String>, userId: String?, color: String?): String? = withHelixDiagnostics("helixupdate_chat_color") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/color".toUri().buildUpon().apply {
             userId?.let { appendQueryParameter("user_id", it) }
             color?.let { appendQueryParameter("color", it) }
@@ -2280,8 +2368,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun startCommercial(networkLibrary: String?, headers: Map<String, String>, channelId: String?, length: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun startCommercial(networkLibrary: String?, headers: Map<String, String>, channelId: String?, length: String?): String? = withHelixDiagnostics("helixstart_commercial") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/channels/commercial"
         val body = buildJsonObject {
             put("broadcaster_id", channelId)
@@ -2354,8 +2443,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun updateChatSettings(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, emote: Boolean? = null, followers: Boolean? = null, followersDuration: Int? = null, slow: Boolean? = null, slowDuration: Int? = null, subs: Boolean? = null, unique: Boolean? = null): String? = withContext(Dispatchers.IO) {
+    suspend fun updateChatSettings(networkLibrary: String?, headers: Map<String, String>, channelId: String?, userId: String?, emote: Boolean? = null, followers: Boolean? = null, followersDuration: Int? = null, slow: Boolean? = null, slowDuration: Int? = null, subs: Boolean? = null, unique: Boolean? = null): String? = withHelixDiagnostics("helixupdate_chat_settings") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/chat/settings".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
             userId?.let { appendQueryParameter("moderator_id", it) }
@@ -2430,8 +2520,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun createStreamMarker(networkLibrary: String?, headers: Map<String, String>, channelId: String?, description: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun createStreamMarker(networkLibrary: String?, headers: Map<String, String>, channelId: String?, description: String?): String? = withHelixDiagnostics("helixcreate_stream_marker") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/streams/markers"
         val body = buildJsonObject {
             put("user_id", channelId)
@@ -2504,8 +2595,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun addModerator(networkLibrary: String?, headers: Map<String, String>, channelId: String?, targetId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun addModerator(networkLibrary: String?, headers: Map<String, String>, channelId: String?, targetId: String?): String? = withHelixDiagnostics("helixadd_moderator") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/moderation/moderators".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
             targetId?.let { appendQueryParameter("user_id", it) }
@@ -2571,8 +2663,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun removeModerator(networkLibrary: String?, headers: Map<String, String>, channelId: String?, targetId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun removeModerator(networkLibrary: String?, headers: Map<String, String>, channelId: String?, targetId: String?): String? = withHelixDiagnostics("helixremove_moderator") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/moderation/moderators".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
             targetId?.let { appendQueryParameter("user_id", it) }
@@ -2641,8 +2734,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun startRaid(networkLibrary: String?, headers: Map<String, String>, channelId: String?, targetId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun startRaid(networkLibrary: String?, headers: Map<String, String>, channelId: String?, targetId: String?): String? = withHelixDiagnostics("helixstart_raid") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/raids".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("from_broadcaster_id", it) }
             targetId?.let { appendQueryParameter("to_broadcaster_id", it) }
@@ -2708,8 +2802,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun cancelRaid(networkLibrary: String?, headers: Map<String, String>, channelId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun cancelRaid(networkLibrary: String?, headers: Map<String, String>, channelId: String?): String? = withHelixDiagnostics("helixcancel_raid") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/raids".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
         }.build().toString()
@@ -2777,8 +2872,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun addVip(networkLibrary: String?, headers: Map<String, String>, channelId: String?, targetId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun addVip(networkLibrary: String?, headers: Map<String, String>, channelId: String?, targetId: String?): String? = withHelixDiagnostics("helixadd_vip") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/channels/vips".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
             targetId?.let { appendQueryParameter("user_id", it) }
@@ -2844,8 +2940,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun removeVip(networkLibrary: String?, headers: Map<String, String>, channelId: String?, targetId: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun removeVip(networkLibrary: String?, headers: Map<String, String>, channelId: String?, targetId: String?): String? = withHelixDiagnostics("helixremove_vip") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/channels/vips".toUri().buildUpon().apply {
             channelId?.let { appendQueryParameter("broadcaster_id", it) }
             targetId?.let { appendQueryParameter("user_id", it) }
@@ -2914,8 +3011,9 @@ class HelixRepository(
             }
         }
     }
+        }
 
-    suspend fun sendWhisper(networkLibrary: String?, headers: Map<String, String>, userId: String?, targetId: String?, message: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun sendWhisper(networkLibrary: String?, headers: Map<String, String>, userId: String?, targetId: String?, message: String?): String? = withHelixDiagnostics("helix_send_whisper") { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/whispers".toUri().buildUpon().apply {
             userId?.let { appendQueryParameter("from_user_id", it) }
             targetId?.let { appendQueryParameter("to_user_id", it) }
@@ -2989,5 +3087,6 @@ class HelixRepository(
                 }
             }
         }
+    }
     }
 }
