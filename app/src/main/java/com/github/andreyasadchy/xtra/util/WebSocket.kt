@@ -148,7 +148,12 @@ class WebSocket(
                     }
                     is Event.Message -> listener.onMessage(this, event.text)
                     Event.Closed -> return ConnectionResult(connected = opened)
-                    is Event.Failed -> return ConnectionResult(opened, event.error, event.httpCode)
+                    is Event.Failed -> {
+                        if (!disconnectRequested) {
+                            NetworkInterferenceReporter.report(urlHost(), event.error)
+                        }
+                        return ConnectionResult(opened, event.error, event.httpCode)
+                    }
                 }
             }
         } finally {
@@ -185,6 +190,8 @@ class WebSocket(
     fun updateUrl(url: String) {
         this.url = url
     }
+
+    private fun urlHost(): String? = runCatching { java.net.URI(url).host }.getOrNull()
 
     interface Listener {
         suspend fun onConnect(webSocket: WebSocket) {}
