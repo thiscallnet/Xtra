@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.Drawable
@@ -131,6 +132,7 @@ import com.github.andreyasadchy.xtra.util.reduceDragSensitivity
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.languageid.LanguageIdentifier
@@ -369,6 +371,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var composerOverlayState: ComposerOverlayState? = null
     private var pendingComposerText: String? = null
     private var composerSubmissionInProgress = false
+    private var compactPickerPreferenceListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
     private var pendingChatSendResult: ChatSendResult? = null
 
     private data class ComposerRestoreState(
@@ -1460,15 +1463,58 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         }
                         viewPager.offscreenPageLimit = 2
                         viewPager.reduceDragSensitivity()
-                        TabLayoutMediator(tabLayout, viewPager) { tab, position ->
-                            tab.text = when (EmotePickerSection.fromPosition(position)) {
-                                EmotePickerSection.FAVORITES -> getString(R.string.favorite_emotes)
-                                EmotePickerSection.RECENTS -> getString(R.string.recent_emotes)
-                                EmotePickerSection.EMOJI -> getString(R.string.emoji)
-                                EmotePickerSection.TWITCH -> "Twitch"
-                                EmotePickerSection.THIRD_PARTY -> "7TV/BTTV/FFZ"
+                        fun tabLabel(section: EmotePickerSection): String = when (section) {
+                            EmotePickerSection.FAVORITES -> getString(R.string.favorite_emotes)
+                            EmotePickerSection.RECENTS -> getString(R.string.recent_emotes)
+                            EmotePickerSection.EMOJI -> getString(R.string.emoji)
+                            EmotePickerSection.TWITCH -> "Twitch"
+                            EmotePickerSection.THIRD_PARTY -> "7TV/BTTV/FFZ"
+                        }
+                        fun compactTabIcon(section: EmotePickerSection): Int = when (section) {
+                            EmotePickerSection.FAVORITES -> R.drawable.ic_picker_star_24
+                            EmotePickerSection.RECENTS -> R.drawable.ic_picker_history_24
+                            EmotePickerSection.EMOJI -> R.drawable.ic_picker_emoji_24
+                            EmotePickerSection.TWITCH -> R.drawable.ic_picker_grid_24
+                            EmotePickerSection.THIRD_PARTY -> R.drawable.ic_picker_extension_24
+                        }
+                        fun configurePickerTab(tab: TabLayout.Tab, position: Int, compact: Boolean) {
+                            val section = EmotePickerSection.fromPosition(position)
+                            if (compact) {
+                                tab.text = null
+                                tab.setIcon(compactTabIcon(section))
+                                tab.contentDescription = tabLabel(section)
+                            } else {
+                                tab.icon = null
+                                tab.text = tabLabel(section)
+                                tab.contentDescription = null
                             }
+                        }
+                        TabLayoutMediator(tabLayout, viewPager) { tab, position ->
+                            configurePickerTab(tab, position, compact = false)
                         }.attach()
+                        TabLayoutMediator(compactTabLayout, viewPager) { tab, position ->
+                            configurePickerTab(tab, position, compact = true)
+                        }.attach()
+                        val pickerPreferences = requireContext().prefs()
+                        fun updateCompactPickerChrome(enabled: Boolean) {
+                            tabLayout.isVisible = !enabled
+                            compactTabLayout.isVisible = enabled
+                            if (emoteMenu.isVisible) {
+                                emoteMenu.post { updateEmotePickerHeight() }
+                            }
+                        }
+                        updateCompactPickerChrome(
+                            pickerPreferences.getBoolean(C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS, false),
+                        )
+                        val compactPickerListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                            if (key == C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS) {
+                                updateCompactPickerChrome(
+                                    pickerPreferences.getBoolean(C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS, false),
+                                )
+                            }
+                        }
+                        compactPickerPreferenceListener = compactPickerListener
+                        pickerPreferences.registerOnSharedPreferenceChangeListener(compactPickerListener)
                         emotes.setOnClickListener {
                             //TODO add animation
                             if (emoteMenu.isGone) {
@@ -2842,6 +2888,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             binding.emoteMenu,
             binding.tabLayout,
             binding.viewPager,
+            binding.compactTabLayout,
             binding.messageView,
             binding.replyView,
             binding.channelPointRewardOverlay,
@@ -2857,7 +2904,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         if (!currentBinding.emoteMenu.isVisible) return
 
         val contentColumn = currentBinding.chatContentColumn
-        val tabHeight = currentBinding.tabLayout.measuredHeight
+        val pickerTabLayout = if (currentBinding.compactTabLayout.isVisible) {
+            currentBinding.compactTabLayout
+        } else {
+            currentBinding.tabLayout
+        }
+        val tabHeight = pickerTabLayout.measuredHeight
         if (contentColumn.measuredHeight <= 0 || tabHeight <= 0) return
 
         val historyContainer = currentBinding.recyclerView.parent as? View
@@ -2877,7 +2929,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
 
         val pickerMargins = verticalMargins(currentBinding.emoteMenu) +
-            verticalMargins(currentBinding.tabLayout) +
+            verticalMargins(pickerTabLayout) +
             verticalMargins(currentBinding.viewPager)
         val targetHeight = calculateEmotePickerPagerHeight(
             hostHeight = contentColumn.measuredHeight,
@@ -3818,6 +3870,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         _binding?.recommendationStrip?.adapter = null
         recommendationAdapter?.submitList(emptyList())
         recommendationAdapter = null
+        compactPickerPreferenceListener?.let { listener ->
+            requireContext().prefs().unregisterOnSharedPreferenceChangeListener(listener)
+        }
+        compactPickerPreferenceListener = null
         autoCompleteAdapter?.dispose()
         autoCompleteAdapter = null
         chatInputEmoteRenderer?.dispose()

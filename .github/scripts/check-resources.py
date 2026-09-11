@@ -238,6 +238,12 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "chat_emote_recommendations",
     "chat_emote_recommendations_summary",
     "chat_emote_suggestions",
+    "chat_compact_twitch_emote_groups",
+    "chat_compact_twitch_emote_groups_summary",
+    "twitch_emote_group_unlocked",
+    "twitch_emote_group_hype_train",
+    "twitch_emote_group_subscriber",
+    "twitch_emote_group_global",
     # Moderation display options and their preview ship with the default
     # English resources until translations are reviewed by native speakers.
     "chat_moderation_display",

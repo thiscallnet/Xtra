@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
 import android.content.res.Configuration
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.LayoutInflater
@@ -13,6 +14,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
@@ -22,6 +24,8 @@ import com.github.andreyasadchy.xtra.model.chat.RecentEmote
 import com.github.andreyasadchy.xtra.model.chat.key
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewModelFactory
 import com.github.andreyasadchy.xtra.ui.view.GridAutofitLayoutManager
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.snackbar.Snackbar
@@ -65,6 +69,7 @@ class EmotesFragment : Fragment() {
     private var pickerCatalog: ChatViewModel.PickerCatalog? = null
     private var emojiAdapter: EmojiAdapter? = null
     private var favoritePickerAdapter: FavoritePickerAdapter? = null
+    private var compactLayoutPreferenceListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentEmotesBinding.inflate(inflater, container, false)
@@ -91,7 +96,7 @@ class EmotesFragment : Fragment() {
         binding.emptyState.setOnClickListener {
             (thirdPartyPickerState as? ChatViewModel.ThirdPartyPickerState.Error)?.retry?.invoke()
         }
-        val adapter = EmotesAdapter(
+        val emotesAdapter = EmotesAdapter(
             this,
             { (parentFragment as? ChatFragment)?.appendEmote(it) },
             "4",
@@ -99,46 +104,99 @@ class EmotesFragment : Fragment() {
             if (section.supportsFavoriteToggle) ::toggleFavorite else null,
             consumeLongPress = section == EmotePickerSection.RECENTS,
         )
-        with(binding.emotesRecyclerView) {
-            itemAnimator = null
-            this.adapter = adapter
+        val twitchAdapter = if (section == EmotePickerSection.TWITCH) {
+            TwitchEmotesAdapter(
+                fragment = this,
+                clickListener = { (parentFragment as? ChatFragment)?.appendEmote(it) },
+                emoteQuality = "4",
+                imageLibrary = "0",
+                favoriteToggleListener = ::toggleFavorite,
+            )
+        } else null
+        val preferences = requireContext().prefs()
+
+        fun createGridLayoutManager(compactAdapter: TwitchEmotesAdapter?): GridAutofitLayoutManager {
             val columnWidth = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 50f, resources.displayMetrics).toInt()
-            layoutManager = GridAutofitLayoutManager(requireContext(), columnWidth)
+            val gridLayoutManager = GridAutofitLayoutManager(requireContext(), columnWidth)
+            if (compactAdapter != null) {
+                gridLayoutManager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+                    override fun getSpanSize(position: Int): Int =
+                        if (compactAdapter.isHeader(position)) gridLayoutManager.spanCount else 1
+                }
+            }
+            return gridLayoutManager
+        }
+
+        fun setTwitchLayout(compactEnabled: Boolean) {
+            val compactAdapter = twitchAdapter ?: return
+            val recyclerView = binding.emotesRecyclerView
+            recyclerView.itemAnimator = null
+            if (compactEnabled) {
+                compactAdapter.setCompactEnabled(true)
+                recyclerView.adapter = compactAdapter
+                recyclerView.layoutManager = createGridLayoutManager(compactAdapter)
+            } else {
+                // Keep the original AsyncListDiffer-backed adapter attached when the option
+                // is off. This preserves the established picker behavior and update path.
+                recyclerView.adapter = emotesAdapter
+                recyclerView.layoutManager = createGridLayoutManager(null)
+            }
+        }
+
+        binding.emotesRecyclerView.itemAnimator = null
+        if (twitchAdapter != null) {
+            setTwitchLayout(preferences.getBoolean(C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS, false))
+            val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                if (key == C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS) {
+                    val compactEnabled = preferences.getBoolean(C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS, false)
+                    setTwitchLayout(compactEnabled)
+                    if (compactEnabled) {
+                        (parentFragment as? ChatFragment)?.reloadEmotes()
+                    }
+                }
+            }
+            compactLayoutPreferenceListener = listener
+            preferences.registerOnSharedPreferenceChangeListener(listener)
+        } else {
+            binding.emotesRecyclerView.adapter = emotesAdapter
+            binding.emotesRecyclerView.layoutManager = createGridLayoutManager(null)
         }
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     viewModel.recentEmotes.collectLatest {
                         recentEmotes = it
-                        updateList(section, adapter)
+                        updateList(section, emotesAdapter, twitchAdapter)
                     }
                 }
                 launch {
                     viewModel.userEmotesUpdated.collectLatest {
-                        updateList(section, adapter)
+                        updateList(section, emotesAdapter, twitchAdapter)
                     }
                 }
                 launch {
                     viewModel.thirdPartyPickerStateFor(expectedChannelId, expectedChannelLogin, usesV2).collectLatest {
                         thirdPartyPickerState = it
-                        updateList(section, adapter)
+                        updateList(section, emotesAdapter, twitchAdapter)
                     }
                 }
                 launch {
                     viewModel.pickerCatalogFor(expectedChannelId, expectedChannelLogin, usesV2).collectLatest {
                         pickerCatalog = it
-                        updateList(section, adapter)
+                        updateList(section, emotesAdapter, twitchAdapter)
                     }
                 }
                 launch {
                     viewModel.favoriteKeys.collectLatest {
-                        adapter.setFavoriteKeys(it)
+                        emotesAdapter.setFavoriteKeys(it)
+                        twitchAdapter?.setFavoriteKeys(it)
                     }
                 }
             }
         }
-        adapter.setFavoriteKeys(viewModel.favoriteKeys.value)
-        updateList(section, adapter)
+        emotesAdapter.setFavoriteKeys(viewModel.favoriteKeys.value)
+        twitchAdapter?.setFavoriteKeys(viewModel.favoriteKeys.value)
+        updateList(section, emotesAdapter, twitchAdapter)
     }
 
     private fun setupFavoritesPicker() {
@@ -351,7 +409,11 @@ class EmotesFragment : Fragment() {
         ).show()
     }
 
-    private fun updateList(section: EmotePickerSection, adapter: EmotesAdapter) {
+    private fun updateList(
+        section: EmotePickerSection,
+        adapter: EmotesAdapter,
+        compactTwitchAdapter: TwitchEmotesAdapter? = null,
+    ) {
         val list = when (section) {
             EmotePickerSection.RECENTS -> {
                 val current = pickerCatalog?.all ?: viewModel.currentPickerEmotes()
@@ -367,6 +429,7 @@ class EmotesFragment : Fragment() {
             EmotePickerSection.FAVORITES -> emptyList()
         }
         adapter.submitList(list)
+        compactTwitchAdapter?.submitList(list)
         updateEmptyState(section, list)
     }
 
@@ -472,6 +535,10 @@ class EmotesFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        compactLayoutPreferenceListener?.let { listener ->
+            requireContext().prefs().unregisterOnSharedPreferenceChangeListener(listener)
+        }
+        compactLayoutPreferenceListener = null
         if (emojiAdapter != null || favoritePickerAdapter != null) {
             binding.emotesRecyclerView.adapter = null
         }

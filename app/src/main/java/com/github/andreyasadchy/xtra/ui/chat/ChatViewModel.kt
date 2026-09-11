@@ -53,6 +53,7 @@ import com.github.andreyasadchy.xtra.model.chat.STVBadge
 import com.github.andreyasadchy.xtra.model.chat.STVUser
 import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
+import com.github.andreyasadchy.xtra.model.chat.TwitchEmoteGroup
 import com.github.andreyasadchy.xtra.model.chat.VideoChatMessage
 import com.github.andreyasadchy.xtra.model.gql.chat.ChannelPointContextResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.PinnedChatMessageResponse
@@ -499,6 +500,12 @@ class ChatViewModel(
             id = emote.id,
             width = emote.asset.sourceWidth,
             height = emote.asset.sourceHeight,
+            twitchGroup = if (emote.provider == ChatAssetProvider.TWITCH) {
+                TwitchEmoteGroup.fromRestrictionType(
+                    emote.twitchRestrictionType,
+                    channelScopedFallback = emote.scope == ChatEmoteScope.CHANNEL,
+                )
+            } else null,
         )
     }
 
@@ -3060,6 +3067,7 @@ class ChatViewModel(
         url3x = url3x,
         url4x = url4x,
         format = format,
+        twitchGroup = TwitchEmoteGroup.fromRestrictionType(restrictionType),
     )
 
     private fun updateChannelEmotes(emotes: List<TwitchEmote>, channelId: String?) {

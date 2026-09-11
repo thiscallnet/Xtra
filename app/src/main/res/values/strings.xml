@@ -496,6 +496,8 @@
     <string name="chat_emote_autocomplete_summary">Show matching emotes while typing.</string>
     <string name="chat_emote_recommendations">Recommendation strip</string>
     <string name="chat_emote_recommendations_summary">Show ranked emotes above the chat input.</string>
+    <string name="chat_compact_twitch_emote_groups">Compact Twitch emote groups</string>
+    <string name="chat_compact_twitch_emote_groups_summary">Separate Twitch emotes into compact labeled sections in the picker.</string>
     <string name="settings_username_appearance">Username appearance</string>
     <string name="settings_7tv_appearance">7TV appearance</string>
     <string name="settings_chat_size">Chat size</string>
@@ -1474,6 +1476,10 @@
     <string name="chat_scroll_to_latest">Scroll to latest messages</string>
     <string name="use_emote">Use %1$s emote</string>
     <string name="use_emoji">Use %1$s emoji</string>
+    <string name="twitch_emote_group_unlocked">Unlocked</string>
+    <string name="twitch_emote_group_hype_train">Hype Train</string>
+    <string name="twitch_emote_group_subscriber">Subscriber emotes</string>
+    <string name="twitch_emote_group_global">Global Twitch emotes</string>
     <string name="add_emoji_to_favorites">Add to favorites</string>
     <string name="remove_emoji_from_favorites">Remove from favorites</string>
     <string name="added_emoji_to_favorites">Added %1$s to favorites</string>

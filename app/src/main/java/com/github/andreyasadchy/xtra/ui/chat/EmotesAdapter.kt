@@ -54,7 +54,8 @@ internal fun Emote.hasSamePickerBinding(other: Emote): Boolean =
         url3x == other.url3x &&
         url4x == other.url4x &&
         format == other.format &&
-        source == other.source
+        source == other.source &&
+        twitchGroup == other.twitchGroup
 
 internal fun List<Emote>.hasSamePickerBinding(other: List<Emote>): Boolean =
     size == other.size && indices.all { this[it].hasSamePickerBinding(other[it]) }
@@ -401,7 +402,8 @@ class EmotesAdapter(
                         oldItem.url2x == newItem.url2x &&
                         oldItem.url3x == newItem.url3x &&
                         oldItem.url4x == newItem.url4x &&
-                        oldItem.format == newItem.format
+                        oldItem.format == newItem.format &&
+                        oldItem.twitchGroup == newItem.twitchGroup
             }
         }
     }
